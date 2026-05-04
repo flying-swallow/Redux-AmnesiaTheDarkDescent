@@ -183,7 +183,6 @@ namespace hpl {
 		iRenderer::IncRenderFrameCount();
 		{
 			RIBootstrap::FrameContext* cntx = RI.GetActiveSet();
-			RI_InsertTransitionBarriers( &RI.device, &RI.uploader, &cntx->cmd );
 			tViewportListIt viewIt = mlstViewports.begin();
 			
 			VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };

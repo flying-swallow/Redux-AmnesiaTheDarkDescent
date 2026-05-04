@@ -53,6 +53,7 @@ static void vkDescriptorSetAlloc( struct RIDevice_s *device, struct RIDescriptor
 }
 
 void RIProgram::bindPipeline(struct RIDevice_s *device, struct RICmd_s* cmd, hash_t pipelineHash, const char* debugName, VkGraphicsPipelineCreateInfo* pipelineCreateInfo) {
+  assert(shaderBin[PROGRAM_STAGE_COMPUTE].buf.empty() && "compute-only programs must use bindComputePipeline");
   VkPipeline pipelineHandle = VK_NULL_HANDLE;
   auto it = pipeline.find(pipelineHash);
   if(it == pipeline.end()) {
@@ -117,7 +118,45 @@ void RIProgram::bindPipeline(struct RIDevice_s *device, struct RICmd_s* cmd, has
   vkCmdBindPipeline(cmd->vk.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineHandle);
 }
 
-void RIProgram::bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, uint32_t frameIndex, DescriptorBinding* bindings, size_t bindingCount) {
+void RIProgram::bindComputePipeline(struct RIDevice_s* device, struct RICmd_s* cmd, hash_t pipelineHash, const char* debugName, VkComputePipelineCreateInfo* pipelineCreateInfo) {
+  VkPipeline pipelineHandle = VK_NULL_HANDLE;
+  auto it = pipeline.find(pipelineHash);
+  if (it == pipeline.end()) {
+    assert(shaderBin[PROGRAM_STAGE_COMPUTE].buf.size() > 0 && "no compute shader binary");
+    VkShaderModule module = VK_NULL_HANDLE;
+    const VkShaderModuleCreateInfo moduleCreateInfo = {
+        VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+        NULL,
+        (VkShaderModuleCreateFlags)0,
+        (size_t)shaderBin[PROGRAM_STAGE_COMPUTE].buf.size(),
+        (const uint32_t*)shaderBin[PROGRAM_STAGE_COMPUTE].buf.data(),
+    };
+    vkCreateShaderModule(device->vk.device, &moduleCreateInfo, NULL, &module);
+
+    pipelineCreateInfo->stage = (VkPipelineShaderStageCreateInfo){VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+    pipelineCreateInfo->stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipelineCreateInfo->stage.module = module;
+    pipelineCreateInfo->stage.pName = "main";
+    pipelineCreateInfo->layout = impl.vk.pipelineLayout;
+    pipelineCreateInfo->basePipelineIndex = -1;
+
+    PipelineSlot slot = {};
+    VK_WrapResult(vkCreateComputePipelines(device->vk.device, VK_NULL_HANDLE, 1, pipelineCreateInfo, NULL, &slot.vk.handle));
+
+    if (vkSetDebugUtilsObjectNameEXT) {
+      VkDebugUtilsObjectNameInfoEXT debugExt = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, NULL, VK_OBJECT_TYPE_PIPELINE, (uint64_t)slot.vk.handle, debugName };
+      VK_WrapResult(vkSetDebugUtilsObjectNameEXT(device->vk.device, &debugExt));
+    }
+    pipelineHandle = slot.vk.handle;
+    pipeline[pipelineHash] = slot;
+    vkDestroyShaderModule(device->vk.device, module, NULL);
+  } else {
+    pipelineHandle = it->second.vk.handle;
+  }
+  vkCmdBindPipeline(cmd->vk.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipelineHandle);
+}
+
+void RIProgram::bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, uint32_t frameIndex, DescriptorBinding* bindings, size_t bindingCount, VkPipelineBindPoint bindPoint) {
 #if ( DEVICE_IMPL_VULKAN )
 	{
 		size_t numWrites = 0;
@@ -176,7 +215,7 @@ void RIProgram::bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, 
 				}
 			}
 			VkDescriptorSet vkDescriptorSet = result.set->vk.handle;
-			vkCmdBindDescriptorSets( cmd->vk.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, impl.vk.pipelineLayout, setIndex, 1, &vkDescriptorSet, 0, NULL );
+			vkCmdBindDescriptorSets( cmd->vk.cmd, bindPoint, impl.vk.pipelineLayout, setIndex, 1, &vkDescriptorSet, 0, NULL );
 		}
 		if( numWrites > 0 ) {
 			vkUpdateDescriptorSets( device->vk.device, numWrites, descriptorWrite, 0, NULL );
@@ -231,40 +270,39 @@ void RIProgram::initialize(RIDevice_s* device,std::span<ModuleStage> moduleInit)
       result = spvReflectEnumeratePushConstantBlocks(&module,
                                                      &pushConstantCount, NULL);
       assert(result == SPV_REFLECT_RESULT_SUCCESS);
-      hashPushConstants |= (pushConstantCount > 0);
-      if (hashPushConstants > 0) {
-        if (pushConstantCount > 1) {
-          printf("Push constant count is greater than 1, only supporting 1 "
-                 "push constant\n");
-          break;
-        }
-        pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
-        SpvReflectBlockVariable *reflectionBlockVariables[1] = {0};
-
+      if (pushConstantCount > 1) {
+        printf("RIProgram: stage %u declares %u push constant blocks; only 1 supported per stage\n",
+               init.stage, pushConstantCount);
+        assert(false && "multiple push-constant blocks in a single stage");
+      } else if (pushConstantCount == 1) {
+        SpvReflectBlockVariable *blocks[1] = {nullptr};
         result = spvReflectEnumeratePushConstantBlocks(
-            &module, &pushConstantCount, reflectionBlockVariables);
+            &module, &pushConstantCount, blocks);
         assert(result == SPV_REFLECT_RESULT_SUCCESS);
-        pushConstantRange.size = reflectionBlockVariables[0]->size;
-        impl.vk.pushConstant.size = reflectionBlockVariables[0]->size;
+
+        VkShaderStageFlags stageBit = 0;
         switch (init.stage) {
-        case PROGRAM_STAGE_VERTEX:
-          pushConstantRange.stageFlags |= VK_SHADER_STAGE_VERTEX_BIT;
-          impl.vk.pushConstant.shaderStageFlags |= VK_SHADER_STAGE_VERTEX_BIT;
-          break;
-        case PROGRAM_STAGE_FRAGMENT:
-          pushConstantRange.stageFlags |= VK_SHADER_STAGE_FRAGMENT_BIT;
-          impl.vk.pushConstant.shaderStageFlags |= VK_SHADER_STAGE_FRAGMENT_BIT;
-          break;
-        default:
-          assert(false);
-          break;
+        case PROGRAM_STAGE_VERTEX:   stageBit = VK_SHADER_STAGE_VERTEX_BIT;   break;
+        case PROGRAM_STAGE_FRAGMENT: stageBit = VK_SHADER_STAGE_FRAGMENT_BIT; break;
+        case PROGRAM_STAGE_COMPUTE:  stageBit = VK_SHADER_STAGE_COMPUTE_BIT;  break;
+        default: assert(false); break;
         }
+
+        pushConstantRange.stageFlags |= stageBit;
+        pushConstantRange.size = std::max(pushConstantRange.size, blocks[0]->size);
+        pushConstantRange.offset = 0;
+        impl.vk.pushConstant.shaderStageFlags |= stageBit;
+        impl.vk.pushConstant.size = std::max<uint32_t>(impl.vk.pushConstant.size, blocks[0]->size);
+        hasPushConstant = true;
       }
     }
 
     if (init.stage == PROGRAM_STAGE_VERTEX) {
       for (size_t i = 0; i < module.input_variable_count; i++) {
-        vertex_input_mask |= (1 << module.input_variables[i]->location);
+        const uint32_t location = module.input_variables[i]->location;
+        if (location >= vertex_input_format.size()) continue;
+        vertex_input_mask |= (1u << location);
+        vertex_input_format[location] = (uint32_t)module.input_variables[i]->format;
       }
     }
 
@@ -341,6 +379,9 @@ void RIProgram::initialize(RIDevice_s* device,std::span<ModuleStage> moduleInit)
         case PROGRAM_STAGE_FRAGMENT:
           layoutBinding->stageFlags |= VK_SHADER_STAGE_FRAGMENT_BIT;
           break;
+        case PROGRAM_STAGE_COMPUTE:
+          layoutBinding->stageFlags |= VK_SHADER_STAGE_COMPUTE_BIT;
+          break;
         default:
           assert(false);
           break;
@@ -413,8 +454,10 @@ void RIProgram::initialize(RIDevice_s* device,std::span<ModuleStage> moduleInit)
 		}
 		pipelineLayoutCreateInfo.pSetLayouts = setLayouts;
 		pipelineLayoutCreateInfo.setLayoutCount = numLayoutCount;
-		if( pushConstantRange.stageFlags > 0 )
+		if( pushConstantRange.stageFlags > 0 ) {
+			pipelineLayoutCreateInfo.pushConstantRangeCount = 1;
 			pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
+		}
 		VK_WrapResult( vkCreatePipelineLayout( device->vk.device, &pipelineLayoutCreateInfo, NULL, &impl.vk.pipelineLayout ) );
   }
 }

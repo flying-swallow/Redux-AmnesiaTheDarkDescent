@@ -1,5 +1,6 @@
 #include "graphics/RIBootstrap.h"
 #include "graphics/RIRenderer.h"
+#include "graphics/RIResourceUploader.h"
 #include "graphics/RISwapchain.h"
 #include "graphics/RIVK.h"
 
@@ -49,7 +50,16 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
       submitInfo.pCommandBufferInfos = &cmdSubmitInfo;
       submitInfo.commandBufferInfoCount = 1;
 
-      RI_ResourceSubmit(&RI.device, &RI.uploader);
+      RIResourceUploaderVKResult_s uploadResult =
+          RI_VKFlushResourceUpdate(&RI.device, &RI.uploader, 0, NULL);
+      VkSemaphoreSubmitInfo waitUpload = {
+          VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+      if (uploadResult.signaled) {
+        waitUpload.semaphore = uploadResult.vk.semaphore;
+        waitUpload.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+        submitInfo.waitSemaphoreInfoCount = 1;
+        submitInfo.pWaitSemaphoreInfos = &waitUpload;
+      }
       VK_WrapResult(vkQueueSubmit2(graphicsQueue->vk.queue, 1, &submitInfo,
                                    VK_NULL_HANDLE));
       RISwapchainPresent(&RI.device, &RI.swapchain);

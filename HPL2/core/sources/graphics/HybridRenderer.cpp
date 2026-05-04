@@ -28,15 +28,15 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics,
 		VmaAllocationCreateInfo allocInfo = { 0 };
 		allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
-		VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &vertexBufferCreateInfo, &allocInfo, &sceneUBO.vk.buffer, &sceneUBO.vk.alloc, &allocationInfo ) );
-		if( vkSetDebugUtilsObjectNameEXT ) {
-			VkDebugUtilsObjectNameInfoEXT debugName = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, NULL, VK_OBJECT_TYPE_BUFFER, (uint64_t)sceneUBO.vk.buffer, "VBO_VERTEX_BUFFER" };
-			VK_WrapResult( vkSetDebugUtilsObjectNameEXT( RI.device.vk.device, &debugName ) );
-		}
+		//VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &vertexBufferCreateInfo, &allocInfo, &sceneUBO.vk.buffer, &sceneUBO.vk.alloc, &allocationInfo ) );
+		//if( vkSetDebugUtilsObjectNameEXT ) {
+		//	VkDebugUtilsObjectNameInfoEXT debugName = { VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, NULL, VK_OBJECT_TYPE_BUFFER, (uint64_t)sceneUBO.vk.buffer, "VBO_VERTEX_BUFFER" };
+		//	VK_WrapResult( vkSetDebugUtilsObjectNameEXT( RI.device.vk.device, &debugName ) );
+		//}
 
-    VmaVirtualBlockCreateInfo allocCreateInfo = {};
-    allocCreateInfo.size = UBO_BUFFER_SIZE;
-    vmaCreateVirtualBlock(&allocCreateInfo, &sceneUBOVirtualAlloc);
+    //VmaVirtualBlockCreateInfo allocCreateInfo = {};
+    //allocCreateInfo.size = UBO_BUFFER_SIZE;
+    //vmaCreateVirtualBlock(&allocCreateInfo, &sceneUBOVirtualAlloc);
 }
 
 static bool IsObjectIsVisible(iRenderable *object, tRenderableFlag neededFlags,

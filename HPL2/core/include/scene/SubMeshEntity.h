@@ -62,9 +62,6 @@ namespace hpl {
 
 	class cSubMeshEntity : public iRenderable
 	{
-	#ifdef __GNUC__
-		typedef iRenderable __super;
-	#endif
 		friend class cMeshEntity;
 	public:
 		cSubMeshEntity(const tString &asName,cMeshEntity *apMeshEntity, cSubMesh * apSubMesh,cMaterialManager* apMaterialManager);

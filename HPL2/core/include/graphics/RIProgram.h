@@ -19,6 +19,7 @@ namespace hpl {
   class RIProgram {
   public:
     static constexpr size_t DESCRIPTOR_SET_MAX = 3;
+    static constexpr size_t MAX_VERTEX_ATTRIBUTES = 16;
     struct PipelineSlot {
       union {
 #if (DEVICE_IMPL_VULKAN)
@@ -67,10 +68,11 @@ namespace hpl {
       uint16_t baseRegisterIndex;
     };
 
-    enum ProgramStages { 
-	    PROGRAM_STAGE_VERTEX, 
-	    PROGRAM_STAGE_FRAGMENT, 
-	    PROGRAM_STAGES_MAX 
+    enum ProgramStages {
+	    PROGRAM_STAGE_VERTEX,
+	    PROGRAM_STAGE_FRAGMENT,
+	    PROGRAM_STAGE_COMPUTE,
+	    PROGRAM_STAGES_MAX
     };
 
     struct ModuleStage {
@@ -81,7 +83,8 @@ namespace hpl {
     void initialize(RIDevice_s* device, std::span<ModuleStage> init);
     static std::vector<char> loadShaderStage(cFileSearcher *searcher, const tString& asName);
     void bindPipeline(struct RIDevice_s *device, struct RICmd_s* cmd, hash_t pipelineHash, const char* debugName, VkGraphicsPipelineCreateInfo* pipelineCreateInfo);
-    void bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, uint32_t frameIndex, DescriptorBinding* binding, size_t bindingCount);
+    void bindComputePipeline(struct RIDevice_s* device, struct RICmd_s* cmd, hash_t pipelineHash, const char* debugName, VkComputePipelineCreateInfo* pipelineCreateInfo);
+    void bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, uint32_t frameIndex, DescriptorBinding* binding, size_t bindingCount, VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS);
     explicit RIProgram() {
     }
 
@@ -103,8 +106,9 @@ namespace hpl {
     } impl;
     RIDevice_s* device = NULL;
     uint16_t reflection_len = 0;
-    uint16_t vertex_input_mask = 0;
-    bool hashPushConstants = 0;
+    uint32_t vertex_input_mask = 0;
+    std::array<uint32_t, MAX_VERTEX_ATTRIBUTES> vertex_input_format{};
+    bool hasPushConstant = false;
     std::array<struct DescriptorSetSlot, DESCRIPTOR_SET_MAX> programDescriptors;
     std::array<ShaderBinary, PROGRAM_STAGES_MAX> shaderBin;
     std::unordered_map<hash_t, PipelineSlot> pipeline;

@@ -243,10 +243,11 @@ int EnumerateRIAdapters( struct RIRenderer_s *renderer, struct RIPhysicalAdapter
 
 				R_VK_ADD_STRUCT( &features, &features11 );
 				R_VK_ADD_STRUCT( &features, &features12 );
+				R_VK_ADD_STRUCT( &features, &features13 );
 
 				VkPhysicalDevicePresentIdFeaturesKHR presentIdFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_ID_FEATURES_KHR };
 				if( __VK_SupportExtension( extensionProperties, extensionNum, qCToStrRef( VK_KHR_PRESENT_ID_EXTENSION_NAME ) ) ) {
-					R_VK_ADD_STRUCT( &features, &features13 );
+					R_VK_ADD_STRUCT( &features, &presentIdFeatures );
 				}
 
 				VkPhysicalDeviceMemoryProperties memoryProperties = { 0 };
@@ -260,7 +261,6 @@ int EnumerateRIAdapters( struct RIRenderer_s *renderer, struct RIPhysicalAdapter
 				memcpy(physicalAdapter->name, properties.properties.deviceName, sizeof(properties.properties.deviceName));
 				assert(sizeof(physicalAdapter->name) >= sizeof(properties.properties.deviceName));
 				physicalAdapter->vendor = VendorFromID( properties.properties.vendorID );
-				physicalAdapter->vk.physicalDevice = physicalAdapter->vk.physicalDevice;
 				physicalAdapter->vk.apiVersion = properties.properties.apiVersion;
 				physicalAdapter->presetLevel = RI_GPU_PRESET_NONE;
 				// selected preset
@@ -293,10 +293,10 @@ int EnumerateRIAdapters( struct RIRenderer_s *renderer, struct RIPhysicalAdapter
 
 				physicalAdapter->vk.isSwapChainSupported = __VK_SupportExtension( extensionProperties, extensionNum, qCToStrRef( VK_KHR_SWAPCHAIN_EXTENSION_NAME ) );
 
-				physicalAdapter->vk.isPresentIDSupported = presentIdFeatures.presentId;
+				physicalAdapter->vk.isPresentIDSupported = presentIdFeatures.presentId > 0;
 				physicalAdapter->vk.isBufferDeviceAddressSupported =
 					physicalAdapter->vk.apiVersion >= VK_API_VERSION_1_2 || __VK_SupportExtension( extensionProperties, extensionNum, qCToStrRef( VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME ) );
-				physicalAdapter->vk.isBufferDeviceAddressSupported = __VK_SupportExtension( extensionProperties, extensionNum, qCToStrRef( VK_AMD_DEVICE_COHERENT_MEMORY_EXTENSION_NAME ) );
+				physicalAdapter->vk.isAMDDeviceCoherentMemorySupported = __VK_SupportExtension( extensionProperties, extensionNum, qCToStrRef( VK_AMD_DEVICE_COHERENT_MEMORY_EXTENSION_NAME ) );
 
 				const VkPhysicalDeviceLimits *limits = &properties.properties.limits;
 
@@ -324,14 +324,16 @@ int EnumerateRIAdapters( struct RIRenderer_s *renderer, struct RIPhysicalAdapter
 				physicalAdapter->textureArrayLayerMaxNum = limits->maxImageArrayLayers;
 				physicalAdapter->typedBufferMaxDim = limits->maxTexelBufferElements;
 
-				for( uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++ ) {
-					// const VkMemoryType& memoryType = m_MemoryProps.memoryTypes[i];
+				for( uint32_t i = 0; i < memoryProperties.memoryHeapCount; i++ ) {
 					if( ( memoryProperties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT ) != 0 && physicalAdapter->type != RI_ADAPTER_TYPE_INTEGRATED_GPU )
 						physicalAdapter->videoMemorySize += memoryProperties.memoryHeaps[i].size;
 					else
 						physicalAdapter->systemMemorySize += memoryProperties.memoryHeaps[i].size;
+				}
+
+				for( uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++ ) {
 					const uint32_t uploadHeapFlags = ( VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT );
-					if( ( memoryProperties.memoryHeaps[i].flags & uploadHeapFlags ) == uploadHeapFlags )
+					if( ( memoryProperties.memoryTypes[i].propertyFlags & uploadHeapFlags ) == uploadHeapFlags )
 						physicalAdapter->deviceUploadHeapSize += memoryProperties.memoryHeaps[i].size;
 				}
 
@@ -1129,9 +1131,197 @@ void FreeRITexture( struct RIDevice_s *dev, struct RITexture_s *tex )
 #if ( DEVICE_IMPL_VULKAN )
 	{
 		if( tex->vk.image ) {
-			vkDestroyImage( dev->vk.device, tex->vk.image, NULL );
+			if( tex->vk.allocation ) {
+				vmaDestroyImage( dev->vk.vmaAllocator, tex->vk.image, tex->vk.allocation );
+				tex->vk.allocation = NULL;
+			} else {
+				vkDestroyImage( dev->vk.device, tex->vk.image, NULL );
+			}
 			tex->vk.image = NULL;
 		}
+	}
+#endif
+}
+
+void FreeRITextureView( struct RIDevice_s *dev, struct RITextureView_s *view )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	{
+		if( view->vk.image ) {
+			vkDestroyImageView( dev->vk.device, view->vk.image, NULL );
+			view->vk.image = VK_NULL_HANDLE;
+		}
+	}
+#endif
+	memset( view, 0, sizeof( struct RITextureView_s ) );
+}
+
+struct RITextureView_s TextureviewRIDescriptor( struct RIDescriptor_s *desc )
+{
+	struct RITextureView_s res = {};
+#if ( DEVICE_IMPL_VULKAN )
+	if( desc->vk.type == VK_DESCRIPTOR_TYPE_SAMPLER ||
+		desc->vk.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ||
+		desc->vk.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ) {
+		res.vk.image = desc->vk.image.imageView;
+	}
+#endif
+	return res;
+}
+
+void InitRIPool( struct RIDevice_s *dev, struct RIPool_s *pool, struct RIQueue_s *queue )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	{
+		VkCommandPoolCreateInfo cmdPoolCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
+		cmdPoolCreateInfo.queueFamilyIndex = queue->vk.queueFamilyIdx;
+		cmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		VK_WrapResult( vkCreateCommandPool( dev->vk.device, &cmdPoolCreateInfo, NULL, &pool->vk.pool ) );
+		pool->vk.queue = queue->vk.queue;
+		return;
+	}
+#endif
+	assert( false );
+}
+
+void FreeRIPool( struct RIDevice_s *dev, struct RIPool_s *pool )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	{
+		vkDestroyCommandPool( dev->vk.device, pool->vk.pool, NULL );
+		return;
+	}
+#endif
+	assert( false );
+}
+
+void ResetRIPool( struct RIDevice_s *dev, struct RIPool_s *pool )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	{
+		VK_WrapResult( vkResetCommandPool( dev->vk.device, pool->vk.pool, 0 ) );
+	}
+#endif
+}
+
+void InitRICmd( struct RIDevice_s *dev, struct RIPool_s *pool, struct RICmd_s *cmd )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	{
+		VkCommandBufferAllocateInfo command_allocate_info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
+		command_allocate_info.commandPool = pool->vk.pool;
+		command_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		command_allocate_info.commandBufferCount = 1;
+		VK_WrapResult( vkAllocateCommandBuffers( dev->vk.device, &command_allocate_info, &cmd->vk.cmd ) );
+		cmd->vk.pool = pool->vk.pool;
+		return;
+	}
+#endif
+}
+
+void BeginRICmd( struct RIDevice_s *dev, struct RICmd_s *cmd )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	{
+		VkCommandBufferBeginInfo info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+		info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		VK_WrapResult( vkBeginCommandBuffer( cmd->vk.cmd, &info ) );
+		return;
+	}
+#endif
+}
+
+void EndRICmd( struct RIDevice_s *dev, struct RICmd_s *cmd )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	{
+		VK_WrapResult( vkEndCommandBuffer( cmd->vk.cmd ) );
+		return;
+	}
+#endif
+}
+
+void InitRICommandRingBuffer( struct RIDevice_s *dev, struct RIQueue_s *queue, struct RICommandRingBuffer_s *ring, bool syncPrimitives )
+{
+	memset( ring, 0, sizeof( struct RICommandRingBuffer_s ) );
+	ring->poolCount = RI_COMMAND_RING_POOL_COUNT;
+	ring->cmdPerPool = RI_COMMAND_RING_CMD_PER_POOL;
+	ring->syncPrimitive = syncPrimitives;
+
+	ring->poolIndex = 0;
+	ring->cmdIndex = 0;
+	ring->fenceIndex = 0;
+
+	for( uint32_t poolIndex = 0; poolIndex < ring->poolCount; poolIndex++ ) {
+		InitRIPool( dev, &ring->pools[poolIndex], queue );
+		for( uint32_t cmdIndex = 0; cmdIndex < ring->cmdPerPool; cmdIndex++ ) {
+			InitRICmd( dev, &ring->pools[poolIndex], &ring->cmds[poolIndex][cmdIndex] );
+#if ( DEVICE_IMPL_VULKAN )
+			if( syncPrimitives ) {
+				VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+				VK_WrapResult( vkCreateSemaphore( dev->vk.device, &semaphoreCreateInfo, NULL, &ring->vk.semaphores[poolIndex][cmdIndex] ) );
+
+				VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+				fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+				VK_WrapResult( vkCreateFence( dev->vk.device, &fenceCreateInfo, NULL, &ring->vk.fences[poolIndex][cmdIndex] ) );
+			}
+#endif
+		}
+	}
+}
+
+void FreeRICommandRingBuffer( struct RIDevice_s *dev, struct RICommandRingBuffer_s *ring )
+{
+	for( uint32_t poolIndex = 0; poolIndex < ring->poolCount; poolIndex++ ) {
+		for( uint32_t cmdIndex = 0; cmdIndex < ring->cmdPerPool; cmdIndex++ ) {
+			FreeRICmd( dev, &ring->cmds[poolIndex][cmdIndex] );
+#if ( DEVICE_IMPL_VULKAN )
+			if( ring->syncPrimitive ) {
+				vkDestroySemaphore( dev->vk.device, ring->vk.semaphores[poolIndex][cmdIndex], NULL );
+				vkDestroyFence( dev->vk.device, ring->vk.fences[poolIndex][cmdIndex], NULL );
+			}
+#endif
+		}
+		FreeRIPool( dev, &ring->pools[poolIndex] );
+	}
+}
+
+void AdvanceRICommandRingBuffer( struct RICommandRingBuffer_s *ring )
+{
+	ring->poolIndex = ( ring->poolIndex + 1 ) % ring->poolCount;
+	ring->cmdIndex = 0;
+	ring->fenceIndex = 0;
+}
+
+struct RICommandRingElement_s GetRICommandRingElement( struct RIDevice_s *dev, struct RICommandRingBuffer_s *ring, uint32_t numCmds )
+{
+	struct RICommandRingElement_s result;
+	memset( &result, 0, sizeof( struct RICommandRingElement_s ) );
+
+	assert( numCmds <= ring->cmdPerPool );
+	assert( numCmds + ring->cmdIndex <= ring->cmdPerPool );
+
+	result.cmds = &ring->cmds[ring->poolIndex][ring->cmdIndex];
+	result.numCmds = numCmds;
+	result.pool = &ring->pools[ring->poolIndex];
+#if ( DEVICE_IMPL_VULKAN )
+	if( ring->syncPrimitive ) {
+		result.vk.semaphore = ring->vk.semaphores[ring->poolIndex][ring->fenceIndex];
+		result.vk.fence = ring->vk.fences[ring->poolIndex][ring->fenceIndex];
+	}
+#endif
+
+	ring->fenceIndex += 1;
+	ring->cmdIndex += numCmds;
+
+	return result;
+}
+
+void WaitRICommandRingElement( struct RIDevice_s *dev, struct RICommandRingElement_s *element )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	if( element->vk.fence ) {
+		VK_WrapResult( vkWaitForFences( dev->vk.device, 1, &element->vk.fence, VK_TRUE, UINT64_MAX ) );
 	}
 #endif
 }

@@ -138,7 +138,6 @@ target_shaders(
 SHADERS 
     ./glsl/gui.frag
     ./glsl/gui.vert
-    ./glsl/opaque.vert
 OUTPUT_FOLDER
 ${AMNESIA_SHADER_DIR}
 ) 

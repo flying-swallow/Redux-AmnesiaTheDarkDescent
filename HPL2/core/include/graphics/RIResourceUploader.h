@@ -1,95 +1,92 @@
 #ifndef RI_RESOURCE_UPLOAD_H
 #define RI_RESOURCE_UPLOAD_H
 
-#define RI_RESOURCE_NUM_COMMAND_SETS 5 
-#define RI_RESOURCE_STAGE_SIZE (8 * MB_TO_BYTE)
+#define RI_RESOURCE_MAX_SETS 2
+#define RI_RESOURCE_STAGE_BUFFER_SIZE (8 * MB_TO_BYTE)
 
 #include "RITypes.h"
 
-struct RIResourceReq {
-	uint64_t byteOffset;
-	void *cpuMapping;
+// Slice of mapped staging memory handed back to a transaction.
+struct RIMappedMemoryRange {
+	size_t offset;
+	size_t size;
+	void *data;
+#if ( DEVICE_IMPL_VULKAN )
+	VkBuffer buffer;
+	struct VmaAllocation_T *alloc; // NULL when the slice belongs to the persistent staging buffer
+#endif
+};
+
+// One queue + per-set cmd pool / cmd buffer / staging buffer / fence / semaphore.
+struct RITransferCommandGroup_s {
+	struct RIQueue_s *queue;
+
+	bool is_recording;
+	size_t active_set;
+
+	struct RIPool_s cmd_pool[RI_RESOURCE_MAX_SETS];
+	struct RICmd_s cmd[RI_RESOURCE_MAX_SETS];
+
+	size_t staging_buffer_offset; // running tail in active set's staging buffer
+	struct RIBuffer_s staging_buffer[RI_RESOURCE_MAX_SETS];
+
+	// per-set overflow buffers (stb_ds arrays); freed when the set is reused
+	struct RIBuffer_s *temporary_buffers[RI_RESOURCE_MAX_SETS];
+
 	union {
 #if ( DEVICE_IMPL_VULKAN )
 		struct {
-			VkBuffer buffer;
-    	struct VmaAllocation_T* alloc;
+			VkFence fences[RI_RESOURCE_MAX_SETS];
+			VkSemaphore semaphores[RI_RESOURCE_MAX_SETS];
 		} vk;
 #endif
 	};
-};
-
-struct RIResourcePostImageBarrier_s {
-	VkImage image;
-	struct RIBarrierImageHandle_s postBarrier; 
-};
-
-struct RIResourcePostBufferBarrier_s {
-	VkBuffer buffer;
-	struct RIBarrierBufferHandle_s postBarrier;
 };
 
 struct RIResourceUploader_s {
-  struct RI_VK_TempBuffers {
-		VkBuffer buffer;
-		struct VmaAllocation_T *alloc;
-	};	
+	struct RITransferCommandGroup_s upload_resource; // graphics queue
+	struct RITransferCommandGroup_s copy_resource;   // transfer / copy queue
+};
 
-	struct RIQueue_s *copyQueue;
-	struct RIResourcePostImageBarrier_s* postImageBarriers;
-	struct RIResourcePostBufferBarrier_s* postBufferBarriers;
-	size_t imageBarrierTransitionIndex;
-	size_t bufferBarrierTransitionIndex;
-	size_t tailOffset;
-	size_t remaningSpace;
-	size_t reservedSpacePerSet[RI_RESOURCE_NUM_COMMAND_SETS];
-	uint64_t syncIndex;
+struct RIResourceBufferTransaction_s {
+	struct RIBuffer_s target;
+	size_t size;
+	size_t offset; // destination offset inside 'target'
 
 	union {
 #if ( DEVICE_IMPL_VULKAN )
 		struct {
-			struct VmaAllocation_T *stageAlloc;
-			VkBuffer stageBuffer;
-			void *pMappedData;
-			
-			VkSemaphore uploadSem;	
-			struct {
-				VkCommandPool cmdPool;
-				VkCommandBuffer cmd;
-				struct RI_VK_TempBuffers *temporary;
-			} cmdSets[RI_RESOURCE_NUM_COMMAND_SETS];
+			VkPipelineStageFlags2 current_stage;
+			VkAccessFlags2 current_access;
+
+			VkPipelineStageFlags2 post_stage;
+			VkAccessFlags2 post_access;
 		} vk;
 #endif
 	};
+
+	// filled by RI_ResourceBeginCopyBuffer
+	struct RIMappedMemoryRange mapped;
 };
-
-void RI_InitResourceUploader( struct RIDevice_s *device, struct RIResourceUploader_s *resource );
-void RI_FreeResourceUploader( struct RIDevice_s *device, struct RIResourceUploader_s *resource );
-struct RIResourceBufferTransaction_s {
-	struct RIBuffer_s target;
-
-	struct RIBarrierBufferHandle_s srcBarrier;
-	struct RIBarrierBufferHandle_s postBarrier;
-
-	size_t size;
-	size_t offset;
-
-	// begin mapping
-	void *data;
-	struct RIResourceReq req;
-};
-
-void RI_ResourceBeginCopyBuffer( struct RIDevice_s *device, struct RIResourceUploader_s *res, struct RIResourceBufferTransaction_s *trans );
-void RI_ResourceEndCopyBuffer( struct RIDevice_s *device, struct RIResourceUploader_s *res, struct RIResourceBufferTransaction_s *trans );
 
 struct RIResourceTextureTransaction_s {
 	struct RITexture_s target;
 
-	struct RIBarrierImageHandle_s srcBarrier;
-	struct RIBarrierImageHandle_s postBarrier;
+	union {
+#if ( DEVICE_IMPL_VULKAN )
+		struct {
+			VkPipelineStageFlags2 current_stage;
+			VkAccessFlags2 current_access;
+			VkImageLayout current_layout;
 
-	// https://github.com/microsoft/DirectXTex/wiki/Image
-	uint32_t format; // RI_Format_e 
+			VkPipelineStageFlags2 post_stage;
+			VkAccessFlags2 post_access;
+			VkImageLayout post_layout;
+		} vk;
+#endif
+	};
+
+	uint32_t format; // RI_Format_e
 	uint32_t sliceNum;
 	uint32_t rowPitch;
 
@@ -103,22 +100,36 @@ struct RIResourceTextureTransaction_s {
 	uint32_t arrayOffset;
 	uint32_t mipOffset;
 
-	// begin mapping
-	void *data;
+	// filled by RI_ResourceBeginCopyTexture
 	uint32_t alignRowPitch;
 	uint32_t alignSlicePitch;
-	struct RIResourceReq req;
+	struct RIMappedMemoryRange mapped;
 };
 
-void RI_ResourceBeginCopyTexture(struct RIDevice_s* device, struct RIResourceUploader_s *res, struct RIResourceTextureTransaction_s *trans );
-void RI_ResourceEndCopyTexture(struct RIDevice_s* device, struct RIResourceUploader_s *res, struct RIResourceTextureTransaction_s *trans );
+void RI_InitResourceUploader( struct RIDevice_s *device, struct RIResourceUploader_s *res );
+void RI_FreeResourceUploader( struct RIDevice_s *device, struct RIResourceUploader_s *res );
 
-void RI_InsertTransitionBarriers(struct RIDevice_s* device, struct RIResourceUploader_s *res, struct RICmd_s* cmd);
-void RI_ResourceSubmit(struct RIDevice_s* device, struct RIResourceUploader_s *res);
+void RI_ResourceBeginCopyBuffer( struct RIDevice_s *device, struct RIResourceUploader_s *res, struct RIResourceBufferTransaction_s *trans );
+void RI_ResourceEndCopyBuffer( struct RIDevice_s *device, struct RIResourceUploader_s *res, struct RIResourceBufferTransaction_s *trans );
 
-//struct RIBarrierBufferHandle_s  RI_VertexBufferBarrier( struct RIDevice_s *device );
-//struct RIBarrierBufferHandle_s  RI_IndexBufferBarrier( struct RIDevice_s *device );
-//struct RIBarrierImageHandle_s RI_SampledImageImageBarrier( struct RIDevice_s *device );
+void RI_ResourceBeginCopyTexture( struct RIDevice_s *device, struct RIResourceUploader_s *res, struct RIResourceTextureTransaction_s *trans );
+void RI_ResourceEndCopyTexture( struct RIDevice_s *device, struct RIResourceUploader_s *res, struct RIResourceTextureTransaction_s *trans );
 
+struct RIResourceUploaderVKResult_s {
+	bool signaled;
+
+	union {
+#if ( DEVICE_IMPL_VULKAN )
+		struct {
+			VkFence fence;
+			VkSemaphore semaphore;
+		} vk;
+#endif
+	};
+};
+
+#if ( DEVICE_IMPL_VULKAN )
+struct RIResourceUploaderVKResult_s RI_VKFlushResourceUpdate( struct RIDevice_s *device, struct RIResourceUploader_s *res, size_t num_semaphores, VkSemaphoreSubmitInfo *wait_semaphore_info );
 #endif
 
+#endif

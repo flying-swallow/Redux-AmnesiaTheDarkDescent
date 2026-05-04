@@ -39,9 +39,26 @@ static inline bool RI_IsEmptyDescriptor( struct RIDescriptor_s *desc ) { return 
 
 // RITexture
 void FreeRITexture( struct RIDevice_s *dev, struct RITexture_s *tex );
+void FreeRITextureView( struct RIDevice_s *dev, struct RITextureView_s *view );
+struct RITextureView_s TextureviewRIDescriptor( struct RIDescriptor_s *desc );
+
+// RIPool
+void InitRIPool( struct RIDevice_s *dev, struct RIPool_s *pool, struct RIQueue_s *queue );
+void FreeRIPool( struct RIDevice_s *dev, struct RIPool_s *pool );
+void ResetRIPool( struct RIDevice_s *dev, struct RIPool_s *pool );
 
 // RICmd
+void InitRICmd( struct RIDevice_s *dev, struct RIPool_s *pool, struct RICmd_s *cmd );
+void BeginRICmd( struct RIDevice_s *dev, struct RICmd_s *cmd );
+void EndRICmd( struct RIDevice_s *dev, struct RICmd_s *cmd );
 void FreeRICmd( struct RIDevice_s *dev, struct RICmd_s *cmd);
+
+// RICommandRing
+void InitRICommandRingBuffer( struct RIDevice_s *dev, struct RIQueue_s *queue, struct RICommandRingBuffer_s *ring, bool syncPrimitives );
+void FreeRICommandRingBuffer( struct RIDevice_s *dev, struct RICommandRingBuffer_s *ring );
+void AdvanceRICommandRingBuffer( struct RICommandRingBuffer_s *ring );
+struct RICommandRingElement_s GetRICommandRingElement( struct RIDevice_s *dev, struct RICommandRingBuffer_s *ring, uint32_t numCmds );
+void WaitRICommandRingElement( struct RIDevice_s *dev, struct RICommandRingElement_s *element );
 
 #if DEVICE_IMPL_VULKAN
 void VK_ConfigureBufferQueueFamilies( VkBufferCreateInfo *info, struct RIQueue_s *queues, size_t numQueues, uint32_t *queueFamiliesIdx, size_t reservedLen );

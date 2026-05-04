@@ -1,0 +1,81 @@
+#version 440
+/// Copyright © 2009-2020 Frictional Games
+/// Copyright 2023 Michael Pollind
+/// SPDX-License-Identifier: GPL-3.0
+#include "light_cull_resources.glsl"
+
+layout(set = 1, binding = 0) uniform PerFrameConstants {
+    mat4  invViewRotationMat;
+    mat4  viewMat;
+    mat4  invViewMat;
+    mat4  projMat;
+    mat4  viewProjMat;
+    float worldFogStart;
+    float worldFogLength;
+    float oneMinusFogAlpha;
+    float fogFalloffExp;
+    vec4  worldFogColor;
+    vec2  viewTexel;
+    vec2  viewportSize;
+    float afT;
+} perFrame;
+
+layout(local_size_x = LIGHT_CLUSTER_WIDTH, local_size_y = LIGHT_CLUSTER_HEIGHT, local_size_z = 1) in;
+
+void main() {
+    const uvec3 threadInGroupId = gl_LocalInvocationID;
+    const uvec3 groupId         = gl_WorkGroupID;
+
+    const float invClusterWidth  = 1.0 / float(LIGHT_CLUSTER_WIDTH);
+    const float invClusterHeight = 1.0 / float(LIGHT_CLUSTER_HEIGHT);
+    const vec2  size             = vec2(windowSize);
+    const float aspectRatio      = size.x / size.y;
+
+    PointLight lightData = pointLights[groupId.x];
+
+    vec4  lightPosWorldSpace = vec4(lightData.lightPos.xyz, 1.0);
+    vec4  lightPosClipSpace  = perFrame.viewProjMat * lightPosWorldSpace;
+    float invLightPosW       = 1.0 / lightPosClipSpace.w;
+    vec3  lightPos           = lightPosClipSpace.xyz * invLightPosW;
+
+    float fov        = 2.0 * atan(1.0 / perFrame.projMat[1][1]);
+    float projRadius = 2.0 * lightData.lightRadius * (1.0 / tan(fov * 0.5)) * invLightPosW;
+    projRadius      *= size.x > size.y ? aspectRatio : 1.0 / aspectRatio;
+
+    // Early exit if light is behind the camera
+    if (lightPosClipSpace.w < 0.0 && -lightPosClipSpace.w > lightData.lightRadius) {
+        return;
+    }
+
+    lightPos.x *= aspectRatio;
+
+    // Cluster coordinates in post-perspective clip space
+    float clusterLeft   = float(threadInGroupId.x) * invClusterWidth;
+    float clusterTop    = float(threadInGroupId.y) * invClusterHeight;
+    float clusterRight  = clusterLeft + invClusterWidth;
+    float clusterBottom = clusterTop  + invClusterHeight;
+
+    clusterLeft   = clusterLeft   * 2.0 - 1.0;
+    clusterTop    = clusterTop    * 2.0 - 1.0;
+    clusterRight  = clusterRight  * 2.0 - 1.0;
+    clusterBottom = clusterBottom * 2.0 - 1.0;
+
+    clusterLeft  *= aspectRatio;
+    clusterRight *= aspectRatio;
+
+    float clusterCenterX = (clusterLeft + clusterRight) * 0.5;
+    float clusterCenterY = (clusterTop  + clusterBottom) * 0.5;
+    float clusterRadius  = distance(vec2(clusterLeft, clusterTop),
+                                    vec2(clusterRight, clusterBottom)) * 0.5;
+
+    float distanceToCenter = distance(vec2(clusterCenterX, clusterCenterY), lightPos.xy);
+
+    if (distanceToCenter - clusterRadius < abs(projRadius)) {
+        uint lightArrayPos = atomicAdd(
+            lightClustersCount[LIGHT_CLUSTER_COUNT_POS(threadInGroupId.x, threadInGroupId.y)], 1u);
+
+        atomicExchange(
+            lightClusters[LIGHT_CLUSTER_DATA_POS(lightArrayPos, threadInGroupId.x, threadInGroupId.y)],
+            groupId.x);
+    }
+}

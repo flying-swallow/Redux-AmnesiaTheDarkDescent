@@ -61,13 +61,9 @@ void VertexBuffer_RI::Bind() {
 } 
 
 void VertexBuffer_RI::DrawIndices(	unsigned int *apIndices, int alCount,
-								eVertexBufferDrawType aDrawType) {
-
-} 
+								eVertexBufferDrawType aDrawType) {} 
 	
-void VertexBuffer_RI::CreateShadowDouble(bool abUpdateData) {
-
-}
+void VertexBuffer_RI::CreateShadowDouble(bool abUpdateData) {}
 
 // void VertexBuffer_RI::cmdBindGeometry(Cmd* cmd,
 // ForgeRenderer::CommandResourcePool* resourcePool,

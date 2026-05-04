@@ -1,0 +1,12 @@
+#version 440
+/// Copyright © 2009-2020 Frictional Games
+/// Copyright 2023 Michael Pollind
+/// SPDX-License-Identifier: GPL-3.0
+#include "light_cull_resources.glsl"
+
+layout(local_size_x = LIGHT_CLUSTER_WIDTH, local_size_y = LIGHT_CLUSTER_HEIGHT, local_size_z = 1) in;
+
+void main() {
+    uvec3 threadID = gl_GlobalInvocationID;
+    atomicExchange(lightClustersCount[LIGHT_CLUSTER_COUNT_POS(threadID.x, threadID.y)], 0u);
+}

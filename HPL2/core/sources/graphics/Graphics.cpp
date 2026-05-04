@@ -350,7 +350,6 @@ namespace hpl {
       apResources->GetGpuShaderManager()->CheckFeatureSupport();
 
 			mvRenderers.resize(eRenderer_LastEnum, NULL);
-
 			mvRenderers[eRenderer_Main] = hplNew(cHybridRenderer, (this, apResources));
 			//mvRenderers[eRenderer_WireFrame] = hplNew(cRendererWireFrame, (this, apResources));
 			//mvRenderers[eRenderer_Simple] = hplNew(cRendererSimple, (this, apResources));

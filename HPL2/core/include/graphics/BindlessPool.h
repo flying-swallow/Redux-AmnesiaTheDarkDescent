@@ -23,13 +23,18 @@ public:
 	  struct BindlessPoolSlot *hPrev;
   };
 
+  struct BindlessPoolReq {
+    uint32_t id;
+    bool found;
+  };
+
   BindlessPool(uint32_t numElements, uint32_t frameInFlight);
   BindlessPool(const BindlessPool&) = delete;
   BindlessPool& operator=(const BindlessPool&) = delete;
 
   void reset(uint32_t numElements);
   void free(uint32_t cookie);
-  uint32_t request(uint32_t cookie, uint32_t frameIndex);
+  BindlessPool::BindlessPoolReq  request(uint32_t cookie, uint32_t frameIndex);
 private:
 
   void detachSlot(struct BindlessPoolSlot *slot );

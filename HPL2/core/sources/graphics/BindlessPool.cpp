@@ -96,7 +96,7 @@ void BindlessPool::attachSlot(struct BindlessPoolSlot *slot) {
   }
 }
 
-uint32_t BindlessPool::request(uint32_t cookie, uint32_t frameIndex) {
+BindlessPool::BindlessPoolReq  BindlessPool::request(uint32_t cookie, uint32_t frameIndex) {
   const size_t hashIndex = cookie % hashSlots.size();
   for (BindlessPool::BindlessPoolSlot *c = hashSlots[hashIndex]; c;
        c = c->hNext) {
@@ -120,7 +120,7 @@ uint32_t BindlessPool::request(uint32_t cookie, uint32_t frameIndex) {
       }
       queueEnd = c;
       // found a slot with the same cookie
-      return c->id;
+      return BindlessPool::BindlessPoolReq{ c->id, true};
     }
   }
 
@@ -130,7 +130,7 @@ uint32_t BindlessPool::request(uint32_t cookie, uint32_t frameIndex) {
     slot->frameIndex = frameIndex;
     slot->cookie = cookie;
     attachSlot(slot);
-    return slot->id;
+    return BindlessPool::BindlessPoolReq{ slot->id, false};
   }
 
   BindlessPool::BindlessPoolSlot* slot =  poolSlotPool.allocate();
@@ -139,8 +139,7 @@ uint32_t BindlessPool::request(uint32_t cookie, uint32_t frameIndex) {
   slot->cookie = cookie;
   slot->frameIndex = frameIndex;
   slot->id = pool.requestId();
-
   attachSlot(slot);
-  return slot->id;
+  return BindlessPool::BindlessPoolReq{ slot->id, false};
 }
 } // namespace hpl

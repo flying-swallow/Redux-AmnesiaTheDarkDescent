@@ -66,9 +66,9 @@ namespace hpl {
 	enum eRenderer
 	{
 		eRenderer_Main,
+		eRenderer_LastEnum, // disable wireframe and simple
 		eRenderer_WireFrame,
 		eRenderer_Simple,
-		eRenderer_LastEnum,
 	};
 	
 	//-----------------------------------------

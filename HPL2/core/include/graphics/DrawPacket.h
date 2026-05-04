@@ -21,20 +21,21 @@
 #define HPL_DRAW_PACKET_H
 
 #include "graphics/RITypes.h"
+#include <array>
 #include <cstdint>
 #include <memory>
 
 namespace hpl {
 
 struct DrawPacket {
-  static constexpr uint32_t MaxVertexBindings = 15;
   uint32_t numIndices;
   uint32_t numStreams;
-  struct {
+  struct DrawVertexStream {
     std::shared_ptr<RIBuffer_s> buffer;
     uint64_t offset;
     uint32_t stride;
-  } vertexStream[MaxVertexBindings];
+  };
+  std::array<DrawPacket::DrawVertexStream, 16> vertexStreams;
   struct {
     std::shared_ptr<RIBuffer_s> buffer;
     uint64_t offset;

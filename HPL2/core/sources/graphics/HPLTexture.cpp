@@ -319,7 +319,12 @@ bool HPLTexture::LoadBitmap(
       uploadDesc.y = 0;
       uploadDesc.depth = info.extent.depth;
       uploadDesc.format = destFormat;
-      uploadDesc.postBarrier = postBarrier;
+      uploadDesc.vk.current_stage = VK_PIPELINE_STAGE_2_NONE;
+      uploadDesc.vk.current_access = VK_ACCESS_2_NONE;
+      uploadDesc.vk.current_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+      uploadDesc.vk.post_stage = postBarrier.vk.stage;
+      uploadDesc.vk.post_access = postBarrier.vk.access;
+      uploadDesc.vk.post_layout = postBarrier.vk.layout;
       RI_ResourceBeginCopyTexture(&RI.device, &RI.uploader, &uploadDesc);
       if(destProps->isCompressed) {
         assert(srcRowPitch == uploadDesc.rowPitch); // compressed formats must match
@@ -328,7 +333,7 @@ bool HPLTexture::LoadBitmap(
           for( size_t slice = 0; slice < uploadDesc.height; slice++ ) {
             const size_t srcRowStart = (srcRowPitch * slice) + (srcRowPitch * srcSliceNum * z);
             const size_t dstRowStart = (uploadDesc.alignRowPitch * slice) + (uploadDesc.alignRowPitch * uploadDesc.alignSlicePitch * z);
-            memcpy( &( (uint8_t *)uploadDesc.data )[dstRowStart], &input->mpData[srcRowStart], uploadDesc.rowPitch );
+            memcpy( &( (uint8_t *)uploadDesc.mapped.data )[dstRowStart], &input->mpData[srcRowStart], uploadDesc.rowPitch );
           }
         }
       } else {
@@ -336,9 +341,9 @@ bool HPLTexture::LoadBitmap(
 	        for( size_t slice = 0; slice < uploadDesc.height; slice++ ) {
 	          const size_t srcRowStart = (srcRowPitch * slice) + (srcRowPitch * srcSliceNum * z);
 		        const size_t dstRowStart = (uploadDesc.alignRowPitch * slice) + (uploadDesc.alignRowPitch * uploadDesc.alignSlicePitch * z);
-		        memset( &( (uint8_t *)uploadDesc.data )[dstRowStart], 255, uploadDesc.rowPitch );
+		        memset( &( (uint8_t *)uploadDesc.mapped.data )[dstRowStart], 255, uploadDesc.rowPitch );
 		        for( size_t column = 0; column < uploadDesc.width; column++ ) {
-					    memcpy( &( (uint8_t *)uploadDesc.data )[dstRowStart + ( destProps->stride * column )], &input->mpData[srcRowStart + ( srcProps->stride * column )],
+					    memcpy( &( (uint8_t *)uploadDesc.mapped.data )[dstRowStart + ( destProps->stride * column )], &input->mpData[srcRowStart + ( srcProps->stride * column )],
 							    std::min( srcProps->stride, destProps->stride ) );
 		        }
 	        }

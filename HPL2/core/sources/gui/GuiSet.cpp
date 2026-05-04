@@ -565,9 +565,9 @@ namespace hpl {
 		  
 			if( RI.guiVertexBuffer.vk.buffer) {
 				cntx->freelist.push_back(RIFree(RI.guiVertexBuffer.vk.buffer));
-				cntx->freelist.push_back(RIFree(RI.guiVertexBuffer.vk.alloc));
+				cntx->freelist.push_back(RIFree(RI.guiVertexBuffer.vk.allocation));
 			}
-			VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &vertexBufferCreateInfo, &allocInfo, &RI.guiVertexBuffer.vk.buffer, &RI.guiVertexBuffer.vk.alloc, &allocationInfo ) );
+			VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &vertexBufferCreateInfo, &allocInfo, &RI.guiVertexBuffer.vk.buffer, &RI.guiVertexBuffer.vk.allocation, &allocationInfo ) );
 			RI.guiVertexBuffer.mappedAddress = allocationInfo.pMappedData;
 		}
 
@@ -596,10 +596,10 @@ namespace hpl {
 			
 			if( RI.guiIndexBuffer.vk.buffer) {
 				cntx->freelist.push_back(RIFree(RI.guiIndexBuffer.vk.buffer));
-				cntx->freelist.push_back(RIFree(RI.guiIndexBuffer.vk.alloc));
+				cntx->freelist.push_back(RIFree(RI.guiIndexBuffer.vk.allocation));
 			}
 
-			VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &indexBufferCreateInfo, &allocInfo, &RI.guiIndexBuffer.vk.buffer, &RI.guiIndexBuffer.vk.alloc, &allocationInfo ) );
+			VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &indexBufferCreateInfo, &allocInfo, &RI.guiIndexBuffer.vk.buffer, &RI.guiIndexBuffer.vk.allocation, &allocationInfo ) );
 			RI.guiIndexBuffer.mappedAddress = allocationInfo.pMappedData;
 		}
 

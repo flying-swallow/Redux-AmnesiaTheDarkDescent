@@ -25,8 +25,10 @@ public:
   virtual void RenderObjects() override {};
 
 private:
-  struct RIBuffer_s sceneUBO; 
-  VmaVirtualBlock sceneUBOVirtualAlloc;
+  struct RIBuffer_s positionBuffer;
+  struct RIBuffer_s normalBuffer;
+  struct RIBuffer_s colorBuffer;
+  struct RIBuffer_s uvBuffer;
 };
 
 } // namespace hpl

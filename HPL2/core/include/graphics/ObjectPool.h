@@ -51,7 +51,7 @@ public:
   }
 
   void dealloc(T *ptr) {
-    PoolSlot *slot = (char *)ptr - offsetof(PoolSlot, inner);
+    PoolSlot *slot = (PoolSlot*)(((char *)ptr) - offsetof(PoolSlot, inner));
     if (end)
       end->next = slot;
     else

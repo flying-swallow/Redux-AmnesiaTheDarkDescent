@@ -256,7 +256,7 @@ struct RIBuffer_s {
 	union {
     #if(DEVICE_IMPL_VULKAN)
     struct {
-			struct VmaAllocation_T *alloc;
+			struct VmaAllocation_T *allocation;
     	VkBuffer buffer;
     } vk;
     #endif
@@ -292,8 +292,19 @@ struct RITexture_s {
     #if(DEVICE_IMPL_VULKAN)
     struct {
     	VkImage image;
+    	struct VmaAllocation_T *allocation;
     } vk;
     #endif
+	};
+};
+
+struct RITextureView_s {
+	union {
+#if ( DEVICE_IMPL_VULKAN )
+		struct {
+			VkImageView image;
+		} vk;
+#endif
 	};
 };
 
@@ -393,14 +404,64 @@ struct RIViewport_s {
     bool originBottomLeft; // expects "isViewportOriginBottomLeftSupported"
 };
 
+struct RIPool_s {
+	union {
+#if ( DEVICE_IMPL_VULKAN )
+		struct {
+			VkQueue queue;
+			VkCommandPool pool;
+		} vk;
+#endif
+	};
+};
+
 struct RICmd_s {
 	union {
     #if(DEVICE_IMPL_VULKAN)
     struct {
     	VkCommandPool pool;
-    	VkCommandBuffer cmd;  
+    	VkCommandBuffer cmd;
     } vk;
     #endif
+	};
+};
+
+#define RI_COMMAND_RING_POOL_COUNT RI_NUMBER_FRAMES_FLIGHT
+#define RI_COMMAND_RING_CMD_PER_POOL 8
+
+struct RICommandRingElement_s {
+	struct RICmd_s *cmds;
+	uint32_t numCmds;
+	struct RIPool_s *pool;
+	union {
+#if ( DEVICE_IMPL_VULKAN )
+		struct {
+			VkSemaphore semaphore;
+			VkFence fence;
+		} vk;
+#endif
+	};
+};
+
+struct RICommandRingBuffer_s {
+	uint32_t poolIndex;
+	uint32_t cmdIndex;
+	uint32_t fenceIndex;
+
+	uint32_t poolCount;
+	uint32_t cmdPerPool;
+	bool syncPrimitive;
+
+	struct RIPool_s pools[RI_COMMAND_RING_POOL_COUNT];
+	struct RICmd_s cmds[RI_COMMAND_RING_POOL_COUNT][RI_COMMAND_RING_CMD_PER_POOL];
+
+	union {
+#if ( DEVICE_IMPL_VULKAN )
+		struct {
+			VkFence fences[RI_COMMAND_RING_POOL_COUNT][RI_COMMAND_RING_CMD_PER_POOL];
+			VkSemaphore semaphores[RI_COMMAND_RING_POOL_COUNT][RI_COMMAND_RING_CMD_PER_POOL];
+		} vk;
+#endif
 	};
 };
 

@@ -104,9 +104,6 @@ public:
         m_vertexElement; // elements are in the order they are requested
     VertexIndexEntry m_indexBuffer;
   };
-  // DrawPacket resolveGeometryBinding(uint32_t currentFrame,
-  // std::span<eVertexBufferElement> elements);
-
 
   virtual iVertexBuffer *CreateCopy(eVertexBufferType aType,
                                     eVertexBufferUsageType aUsageType,
