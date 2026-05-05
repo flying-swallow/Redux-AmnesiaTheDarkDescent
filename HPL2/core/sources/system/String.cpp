@@ -221,6 +221,67 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
+	tWString cString::ParseUnicodeString(const tString &asString)
+	{
+		tWString sParsedString = L"";
+
+		for (size_t i = 0; i < asString.length(); ++i)
+		{
+			unsigned char c = asString[i];
+			if (c == '[')
+			{
+				bool bFoundCommand = true;
+				tString sCommand = "";
+				size_t lCount = 1;
+
+				while (i + lCount < asString.length() && asString[i + lCount] != ']' && lCount < 16)
+				{
+					sCommand += asString[i + lCount];
+					lCount++;
+				}
+
+				if (i + lCount >= asString.length() || asString[i + lCount] != ']')
+				{
+					bFoundCommand = false;
+				}
+
+				if (bFoundCommand)
+				{
+					if (sCommand == "br")
+					{
+						sParsedString += L'\n';
+					}
+					else if (!sCommand.empty() && sCommand[0] == 'u')
+					{
+						int lNum = cString::ToInt(sCommand.substr(1).c_str(), 0);
+						sParsedString += (wchar_t)lNum;
+					}
+					else
+					{
+						bFoundCommand = false;
+					}
+				}
+
+				if (bFoundCommand)
+				{
+					i += lCount;
+				}
+				else
+				{
+					sParsedString += c;
+				}
+			}
+			else
+			{
+				sParsedString += c;
+			}
+		}
+
+		return sParsedString;
+	}
+
+	//-----------------------------------------------------------------------
+
 	tString cString::Sub(const tString& asString,int alStart,int alCount)
 	{
 		int lStringSize = (int)asString.length();

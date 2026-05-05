@@ -58,6 +58,11 @@ namespace hpl {
 		static tWString Get16BitFromArray(const tString &asArray);
 
 		/**
+		* Helper function to parse the engine's [uXXXXX] Unicode format.
+		*/
+		static tWString ParseUnicodeString(const tString &asString);
+
+		/**
 		* Get the sub string
 		* \param asString The string to get the sub from. The method error check so the params are correct.
 		* \param alStart The character to start at.

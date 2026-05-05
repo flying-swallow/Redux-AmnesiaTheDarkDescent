@@ -92,6 +92,7 @@ namespace hpl {
 				
 			int	mlSoundDeviceID;
 			bool mbUseEnvironmentalAudio;
+			bool mbUseHRTF;
 			bool mbUseThreading;
 			bool mbUseVoiceManagement;
 			bool mbLowLevelLogging;

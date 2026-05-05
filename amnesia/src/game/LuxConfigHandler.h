@@ -85,6 +85,7 @@ public:
 	int mlMaxSoundChannels;
 	int mlSoundStreamBuffers;
 	int mlSoundStreamBufferSize;
+	bool mbHRTFActive;
 
 	
 private:

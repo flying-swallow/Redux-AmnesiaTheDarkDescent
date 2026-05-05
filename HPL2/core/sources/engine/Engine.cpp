@@ -285,6 +285,7 @@ namespace hpl {
 		//Init Sound
 		mpSound->Init(mpResources, apVars->mSound.mlSoundDeviceID,
 						apVars->mSound.mbUseEnvironmentalAudio,
+						apVars->mSound.mbUseHRTF,
 						apVars->mSound.mlMaxChannels,
 						apVars->mSound.mlStreamUpdateFreq,
 						apVars->mSound.mbUseThreading,

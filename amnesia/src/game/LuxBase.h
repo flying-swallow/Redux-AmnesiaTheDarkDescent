@@ -177,6 +177,7 @@ public:
 
 	
 	bool LoadLanguage(const tString& asName, bool abForceReload=false);
+	tString GetCurrentLanguage() const { return msCurrentLanguage; }
 
 	iLuxUpdateable *AddModule(iLuxUpdateable *apModule, const tString& asContainer);
 	iLuxUpdateable *AddGlobalModule(iLuxUpdateable *apModule);

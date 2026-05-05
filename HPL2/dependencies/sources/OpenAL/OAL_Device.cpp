@@ -16,6 +16,8 @@
 #include "OpenAL/OAL_Filter.h"
 #include "OpenAL/OAL_Effect_Reverb.h"
 
+#include "AL/alext.h"
+
 #include "system/String.h"
 #include "system/LowLevelSystem.h"
 #include <algorithm>
@@ -117,6 +119,7 @@ bool cOAL_Device::Init( cOAL_Init_Params& acParams )
 		ALC_STEREO_SOURCES,	acParams.mbVoiceManagement ? 0 : acParams.mlMinStereoSourcesHint,
 		#endif
 		ALC_MAX_AUXILIARY_SENDS, acParams.mlNumSendsHint,
+		ALC_HRTF_SOFT, acParams.mbUseHRTF,
 		0,
 	};
 

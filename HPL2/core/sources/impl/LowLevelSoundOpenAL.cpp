@@ -209,7 +209,7 @@ namespace hpl {
 */
 	//-----------------------------------------------------------------------
 
-	void cLowLevelSoundOpenAL::Init(int alSoundDeviceID, bool abUseEnvAudio,int alMaxChannels, 
+	void cLowLevelSoundOpenAL::Init(int alSoundDeviceID, bool abUseEnvAudio, bool abUseHRTF, int alMaxChannels,
 									int alStreamUpdateFreq, bool abUseThreading, bool abUseVoiceManagement,
 									int alMaxMonoSourceHint, int alMaxStereoSourceHint,
 									int alStreamingBufferSize, int alStreamingBufferCount, bool abEnableLowLevelLog)
@@ -234,6 +234,7 @@ namespace hpl {
 		initParams.mlOutputFreq = 44100;
 		initParams.msDeviceName = "";
 		initParams.mbUseEFX = abUseEnvAudio;
+		initParams.mbUseHRTF = abUseHRTF;
 
 		if(mbLogSounds)
 			Log("  Sound logging enabled\n");

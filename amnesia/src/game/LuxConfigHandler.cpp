@@ -124,6 +124,7 @@ void cLuxConfigHandler::LoadMainConfig()
 	mlMaxSoundChannels = gpBase->mpMainConfig->GetInt("Sound", "MaxChannels", 32);
 	mlSoundStreamBuffers = gpBase->mpMainConfig->GetInt("Sound", "StreamBuffers", 4);
 	mlSoundStreamBufferSize = gpBase->mpMainConfig->GetInt("Sound", "StreamBufferSize", 262144);
+	mbHRTFActive = gpBase->mpMainConfig->GetBool("Sound", "HRTFActive", false);
 }
 
 //-----------------------------------------------------------------------
@@ -195,6 +196,7 @@ void cLuxConfigHandler::SaveMainConfig()
 	gpBase->mpMainConfig->SetInt("Sound", "MaxChannels", mlMaxSoundChannels);
 	gpBase->mpMainConfig->SetInt("Sound", "StreamBuffers", mlSoundStreamBuffers);
 	gpBase->mpMainConfig->SetInt("Sound", "StreamBufferSize", mlSoundStreamBufferSize);
+	gpBase->mpMainConfig->SetBool("Sound", "HRTFActive", mbHRTFActive);
 
 	/////////////////////
 	// Engine properties

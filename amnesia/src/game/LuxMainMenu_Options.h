@@ -206,6 +206,7 @@ private:
 	// Sound
 	cWidgetLabel  *mpLVolume;
 	cWidgetSlider *mpSVolume;
+	cWidgetCheckBox *mpChBHRTF;
 
 	cWidgetLabel  *mpLSndDevice;
 	cWidgetComboBox *mpCBSndDevice;

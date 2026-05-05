@@ -41,6 +41,7 @@ public:
 	int		mlStreamingBufferSize;
 	int		mlStreamingBufferCount;
 	bool	mbUseEFX;
+	bool    mbUseHRTF;
 	int		mlNumSlotsHint;
 	int		mlNumSendsHint;
 	int		mlSlotUpdateFreq;

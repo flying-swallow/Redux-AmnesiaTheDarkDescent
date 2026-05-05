@@ -89,7 +89,7 @@ namespace hpl {
 		float GetVolume(){ return mfVolume;}
 
 		//virtual void LogSoundStatus() {}
-		virtual void Init(int alSoundDeviceID, bool abUseEnvAudio,int alMaxChannels, 
+		virtual void Init(int alSoundDeviceID, bool abUseEnvAudio, bool abUseHRTF, int alMaxChannels,
 					int alStreamUpdateFreq, bool abUseThreading, bool abUseVoiceManagement,
 					int alMaxMonoSourceHint, int alMaxStereoSourceHint,
 					int alStreamingBufferSize, int alStreamingBufferCount, bool abEnableLowLevelLog)=0;
