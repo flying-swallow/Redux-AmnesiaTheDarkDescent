@@ -85,31 +85,31 @@ struct QStrSpan qStrTrim(struct QStrSpan slice) { return qStrLTrim(qStrRTrim(sli
 struct QStrSpan qStrRTrim(struct QStrSpan slice)
 {
     if (qStrEmpty(slice))
-        return (struct QStrSpan){ slice.buf, 0 };
+        return QStrSpan{ slice.buf, 0 };
     for (size_t i = slice.len - 1;; i--)
     {
         if (!isspace(slice.buf[i]))
         {
-            return (struct QStrSpan){ slice.buf, i + 1 };
+            return QStrSpan{ slice.buf, i + 1 };
         }
         if (i == 0)
             break;
     }
-    return (struct QStrSpan){ slice.buf, 0 };
+    return QStrSpan{ slice.buf, 0 };
 }
 
 struct QStrSpan qStrLTrim(struct QStrSpan slice)
 {
     if (qStrEmpty(slice))
-        return (struct QStrSpan){ slice.buf, 0 };
+        return QStrSpan{ slice.buf, 0 };
     for (size_t i = 0; i < slice.len; i++)
     {
         if (!isspace(slice.buf[i]))
         {
-            return (struct QStrSpan){ slice.buf + i, slice.len - i };
+            return QStrSpan{ slice.buf + i, slice.len - i };
         }
     }
-    return (struct QStrSpan){ slice.buf, 0 };
+    return QStrSpan{ slice.buf, 0 };
 }
 
 bool qStrAssign(struct QStr* str, struct QStrSpan slice)
@@ -692,7 +692,7 @@ bool qstrcatvprintf(struct QStr* str, const char* fmt, va_list ap)
     }
 
     /* Finally concat the obtained string to the bstr string and return it. */
-    qStrAppendSlice(str, (struct QStrSpan){ buf, (size_t)bufstrlen });
+    qStrAppendSlice(str, QStrSpan{ buf, (size_t)bufstrlen });
     if (buf != staticbuf)
         free(buf);
     return true;
@@ -723,12 +723,12 @@ bool qStrInsertSlice(struct QStr* str, size_t offset, const struct QStrSpan slic
 }
 
 bool qStrAppendChar(struct QStr* str, char b) {
-    return qStrAppendSlice(str, (struct QStrSpan){ &b,  1 }); 
+    return qStrAppendSlice(str, QStrSpan{ &b,  1 }); 
 }
 
 bool qStrInsertChar(struct QStr* str, size_t i, char b)
 {
-    return qStrInsertSlice(str, i, (struct QStrSpan){ &b,  1 });
+    return qStrInsertSlice(str, i, QStrSpan{ &b,  1 });
 }
 
 bool qStrMakeRoomFor(struct QStr* str, size_t addlen)
@@ -758,7 +758,7 @@ struct QStrSpan qStrSplitIter(struct qStrSplitIterable* iterable)
     assert(!qStrEmpty(iterable->buffer));
     assert(!qStrEmpty(iterable->delim));
     if (iterable->cursor == iterable->buffer.len)
-        return (struct QStrSpan){ 0 };
+        return QStrSpan{ 0 };
 
     const int offset = qStrIndexOfOffset(iterable->buffer, iterable->cursor, iterable->delim);
     if (offset == -1)
@@ -777,7 +777,7 @@ struct QStrSpan qStrSplitRevIter(struct qStrSplitIterable* iterable)
     assert(!qStrEmpty(iterable->buffer));
     assert(!qStrEmpty(iterable->delim));
     if (iterable->cursor == 0)
-        return (struct QStrSpan) { 0 };
+        return QStrSpan { 0 };
 
     const int offset = qStrLastIndexOfOffset(iterable->buffer, iterable->cursor - 1, iterable->delim);
     if (offset == -1)
@@ -888,7 +888,7 @@ static inline int qStrIndexOfCmp(const struct QStrSpan haystack, size_t offset, 
         {
             for (size_t j = 0; j < needle.len; j++)
             {
-                if (handle((struct QStrSpan){  haystack.buf + i, needle.len }, needle))
+                if (handle(QStrSpan{  haystack.buf + i, needle.len }, needle))
                 {
                     return i;
                 }
@@ -911,7 +911,7 @@ static inline int qStrIndexOfCmp(const struct QStrSpan haystack, size_t offset, 
     size_t i = offset;
     while (i <= haystack.len - needle.len)
     {
-        if (qStrEqual((struct QStrSpan){ haystack.buf + i,  needle.len }, needle))
+        if (qStrEqual(QStrSpan{ haystack.buf + i,  needle.len }, needle))
         {
             return i;
         }
@@ -936,7 +936,7 @@ static inline int qstrLastIndexOfCmp(const struct QStrSpan haystack, size_t offs
             assert(i < haystack.len);
             for (size_t j = 0; j < needle.len; j++)
             {
-                if (handle((struct QStrSpan){ haystack.buf + i, needle.len }, needle))
+                if (handle(QStrSpan{ haystack.buf + i, needle.len }, needle))
                 {
                     return i;
                 }
@@ -965,7 +965,7 @@ static inline int qstrLastIndexOfCmp(const struct QStrSpan haystack, size_t offs
     size_t i = startIndex;
     while (1)
     {
-        if (handle((struct QStrSpan){ haystack.buf + i, needle.len }, needle))
+        if (handle(QStrSpan{ haystack.buf + i, needle.len }, needle))
         {
             return i;
         }

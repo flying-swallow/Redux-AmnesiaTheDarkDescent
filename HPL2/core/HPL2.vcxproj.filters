@@ -73,6 +73,9 @@
     <Filter Include="Resources">
       <UniqueIdentifier>{0276fcca-4f7b-4ed6-9450-82896f0b1ffc}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Impl\Volk">
+      <UniqueIdentifier>{af03d49d-1dbf-4419-9c6a-e2c9c21ad878}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\system\BinTree.h">
@@ -1159,6 +1162,9 @@
     <ClInclude Include="include\system\Types.h">
       <Filter>System</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\extern\volk\volk.h">
+      <Filter>Impl\Volk</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="sources\system\Container.cpp">
@@ -2084,6 +2090,9 @@
     </ClCompile>
     <ClCompile Include="sources\system\QStr.cpp">
       <Filter>System</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\extern\volk\volk.c">
+      <Filter>Impl\Volk</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

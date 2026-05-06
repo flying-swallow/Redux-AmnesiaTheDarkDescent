@@ -24,15 +24,13 @@
 
 #include "system/SystemTypes.h"
 
-using namespace std;
-
 namespace hpl {
 
 	class cGuiSet;
 	class cGuiSkin;
 	class cWidgetMenuItem;
 
-	typedef vector<cWidgetMenuItem*>		tWidgetMenuItemVector;
+	typedef std::vector<cWidgetMenuItem*>		tWidgetMenuItemVector;
 	typedef tWidgetMenuItemVector::iterator	tWidgetMenuItemVectorIt;
 
 	

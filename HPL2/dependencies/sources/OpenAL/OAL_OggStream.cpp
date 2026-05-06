@@ -131,7 +131,7 @@ double cOAL_OggStream::GetTime()
 
 //---------------------------------------------------------------------
 
-bool cOAL_OggStream::CreateFromFile(const wstring &asFilename)
+bool cOAL_OggStream::CreateFromFile(const std::wstring &asFilename)
 {
 	DEF_FUNC_NAME("cOAL_OggStream::Load()");
 	

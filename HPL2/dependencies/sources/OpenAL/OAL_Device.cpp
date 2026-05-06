@@ -28,22 +28,22 @@
 //////////////////////////////////////////////
 // Human readable extension names 
 
-string sExtensionNames[NUM_EXTENSIONS+1] = 
+std::string sExtensionNames[NUM_EXTENSIONS+1] = 
 { 
-	string("ALC_EXT_CAPTURE" ),
-	string("ALC_EXT_EFX"),
-	string("ALC_ENUMERATION_EXT"),
-	string("ALC_ENUMERATE_ALL_EXT"),
-	string("AL_EXT_OFFSET"),
-	string("AL_EXT_LINEAR_DISTANCE"),
-	string("AL_EXT_EXPONENT_DISTANCE"),
-	string("EAX"),
-	string("EAX2.0"),
-	string("EAX3.0"),
-	string("EAX4.0"),
-	string("EAX5.0"),
-	string("EAX-RAM"),
-	string("No extension")
+	std::string("ALC_EXT_CAPTURE" ),
+	std::string("ALC_EXT_EFX"),
+	std::string("ALC_ENUMERATION_EXT"),
+	std::string("ALC_ENUMERATE_ALL_EXT"),
+	std::string("AL_EXT_OFFSET"),
+	std::string("AL_EXT_LINEAR_DISTANCE"),
+	std::string("AL_EXT_EXPONENT_DISTANCE"),
+	std::string("EAX"),
+	std::string("EAX2.0"),
+	std::string("EAX3.0"),
+	std::string("EAX4.0"),
+	std::string("EAX5.0"),
+	std::string("EAX-RAM"),
+	std::string("No extension")
 };
 
 //-------------------------------------------------------------------------
@@ -146,8 +146,8 @@ bool cOAL_Device::Init( cOAL_Init_Params& acParams )
 	}
 
 	LogMsg("",eOAL_LogVerbose_Low, eOAL_LogMsg_Info, "Retrieving Output Devices\n");
-	vector<string> llDevices = GetOutputDevices();
-	vector<string>::iterator it;
+	std::vector<std::string> llDevices = GetOutputDevices();
+	std::vector<std::string>::iterator it;
 	for (it = llDevices.begin(); it != llDevices.end(); ++it) {
 		LogMsg("",eOAL_LogVerbose_Low, eOAL_LogMsg_Info, "\t%s\n", (*it).c_str());
 	}
@@ -294,12 +294,12 @@ bool cOAL_Device::RegainContext()
 
 //-------------------------------------------------------------------------
 
-cOAL_Sample* cOAL_Device::LoadSample(const wstring& asFilename)
+cOAL_Sample* cOAL_Device::LoadSample(const std::wstring& asFilename)
 {
 	cOAL_Sample *pSample = NULL;
 
 	// Check file format and load the sample data according to it
-	wstring strExt = hpl::cString::GetFileExtW(asFilename);
+	std::wstring strExt = hpl::cString::GetFileExtW(asFilename);
 	if(strExt.compare(L"ogg") == 0 )						// Load an Ogg Vorbis sample
 		pSample = hplNew(cOAL_OggSample,());
 	else if(strExt.compare(L"wav")==0)				// Load a .WAV sample
@@ -320,11 +320,11 @@ cOAL_Sample* cOAL_Device::LoadSample(const wstring& asFilename)
 
 //-------------------------------------------------------------------------
 
-cOAL_Stream* cOAL_Device::LoadStream(const wstring &asFilename)
+cOAL_Stream* cOAL_Device::LoadStream(const std::wstring &asFilename)
 {
    	cOAL_Stream *pStream = NULL;
 
-	wstring strExt = hpl::cString::GetFileExtW(asFilename);
+	std::wstring strExt = hpl::cString::GetFileExtW(asFilename);
 
 	/////////////////////////////////
 	//Make sure extension is correct
@@ -521,7 +521,7 @@ cOAL_Source* cOAL_Device::GetSource( int alSourceHandle )
 
 //-------------------------------------------------------------------------
 
-string& cOAL_Device::GetExtensionName(int alWhich) 
+std::string& cOAL_Device::GetExtensionName(int alWhich) 
 { 
 	if( (alWhich >= 0) && (alWhich < NUM_EXTENSIONS)) 
 		return sExtensionNames[alWhich]; 
@@ -531,24 +531,24 @@ string& cOAL_Device::GetExtensionName(int alWhich)
 
 //-------------------------------------------------------------------------
 
-string cOAL_Device::GetDefaultDeviceName()
+std::string cOAL_Device::GetDefaultDeviceName()
 {
 	DEF_FUNC_NAME(cOAL_Device::GetDefaultDeviceName);
 	FUNC_USES_ALC;
 
-	string sDev = alcGetString(NULL, ALC_DEFAULT_DEVICE_SPECIFIER);
+	std::string sDev = alcGetString(NULL, ALC_DEFAULT_DEVICE_SPECIFIER);
 	
 	return sDev;
 }
 
 //-------------------------------------------------------------------------
 
-vector<string> cOAL_Device::GetOutputDevices()
+std::vector<std::string> cOAL_Device::GetOutputDevices()
 {
 	DEF_FUNC_NAME(cOAL_Device::GetOutputDevices);
 	FUNC_USES_ALC;
 
-	vector<string> devices;
+	std::vector<std::string> devices;
 	bool bEnumerate = RUN_ALC_FUNC(alcIsExtensionPresent(NULL, (const ALCchar*)"ALC_ENUMERATION_EXT") == AL_TRUE);
 	bool bEnumerate_all = RUN_ALC_FUNC(alcIsExtensionPresent(NULL, (const ALCchar*)"ALC_ENUMERATE_ALL_EXT") == AL_TRUE);
 	if (bEnumerate) {
@@ -560,7 +560,7 @@ vector<string> cOAL_Device::GetOutputDevices()
 			s = alcGetString(NULL, ALC_DEVICE_SPECIFIER);
 		}
 		while (*s != '\0') {
-			devices.push_back(string(s));
+			devices.push_back(std::string(s));
 			// find next string
 			while (*s++ != '\0')
 				;

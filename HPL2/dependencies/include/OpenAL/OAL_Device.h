@@ -38,9 +38,9 @@ public:
 	///////////////////////////////////////////////////////
 	// Info methods
     
-	inline string& GetDeviceName ()				{ return msDeviceName;	}
-	inline string& GetVendorName ()				{ return msVendorName;	}
-	inline string& GetRenderer ()					{ return msRenderer;	}
+	inline std::string& GetDeviceName ()				{ return msDeviceName;	}
+	inline std::string& GetVendorName ()				{ return msVendorName;	}
+	inline std::string& GetRenderer ()					{ return msRenderer;	}
 	inline int GetMajorVersion ()					{ return mlMajorVersion;}
 	inline int GetMinorVersion ()					{ return mlMinorVersion;}
 	inline int GetNumSources ()					{ if (mpSourceManager) return mpSourceManager->GetNumVoices(); else return 0;	}
@@ -48,9 +48,9 @@ public:
 	inline bool IsExtensionAvailable (int alWhich)	{ if ( (alWhich >= 0) && (alWhich < NUM_EXTENSIONS) ) return mvbExtensions[alWhich]; else return false; }
 	inline bool IsEFXActive ()						{ return (mbEFXActive && (mpEFXManager!=NULL)); }
 	inline int	GetEFXSends()						{ return mlEFXSends; } 
-	static string& GetExtensionName(int alWhich);
-	static string GetDefaultDeviceName();
-	static vector<string> GetOutputDevices();
+	static std::string& GetExtensionName(int alWhich);
+	static std::string GetDefaultDeviceName();
+	static std::vector<std::string> GetOutputDevices();
 
 	
 	
@@ -64,8 +64,8 @@ public:
 
 	///////////////////////////////////////////////////////
 	// Loaders
-	cOAL_Sample* LoadSample(const wstring& asFileName);
-	cOAL_Stream* LoadStream(const wstring& asFileName);
+	cOAL_Sample* LoadSample(const std::wstring& asFileName);
+	cOAL_Stream* LoadStream(const std::wstring& asFileName);
 	void UnloadSample(cOAL_Sample* apSample);
 	void UnloadStream(cOAL_Stream* apStream);
 
@@ -86,12 +86,12 @@ public:
 
 	////////////////////////////////////////////////////////
 	// Logging stuff
-	string GetIDString();
+	std::string GetIDString();
 
 private:
-	string				msDeviceName;
-	string				msVendorName;
-	string				msRenderer;
+	std::string			msDeviceName;
+	std::string			msVendorName;
+	std::string			msRenderer;
 	int					mlMajorVersion;
 	int					mlMinorVersion;
 	bool				mvbExtensions[NUM_EXTENSIONS];

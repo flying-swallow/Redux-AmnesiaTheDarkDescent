@@ -192,7 +192,7 @@ namespace hpl {
 			RI_VK_FillDepthAttachment( &depthStencil, &cntx->depthAttachment, true );
 			VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
 			renderingInfo.flags = 0;
-			renderingInfo.renderArea = (VkRect2D){ { 0, 0 }, { RI.swapchain.width, RI.swapchain.height } };
+			renderingInfo.renderArea = VkRect2D{ { 0, 0 }, { RI.swapchain.width, RI.swapchain.height } };
 			renderingInfo.layerCount = 1;
 			renderingInfo.viewMask = 0;
 			renderingInfo.colorAttachmentCount = 1;

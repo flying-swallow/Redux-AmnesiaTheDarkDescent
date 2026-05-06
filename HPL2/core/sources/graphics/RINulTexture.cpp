@@ -64,7 +64,7 @@ bool RINulTexture::Create2DNulWhite(struct RICmd_s* cmd, struct RIDevice_s* devi
 			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			imageBarriers[0].image = tex->tex.vk.image;
-			imageBarriers[0].subresourceRange = (VkImageSubresourceRange){
+			imageBarriers[0].subresourceRange = VkImageSubresourceRange{
 				VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS,
 			};
 			VkDependencyInfo dependencyInfo = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };

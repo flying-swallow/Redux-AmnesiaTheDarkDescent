@@ -56,29 +56,27 @@
 #include <AL/efx.h>
 #include <AL/efx-creative.h>
 
-using namespace std;
-
 class cOAL_Source;
 class cOAL_Sample;
 class cOAL_Stream;
 class cOAL_Buffer;
 
-typedef vector<cOAL_Source*>			tSourceVec;
+typedef std::vector<cOAL_Source*>			tSourceVec;
 typedef tSourceVec::iterator			tSourceVecIt;
 
 //typedef set<cOAL_Source*>				tSourceSet;
 //typedef set<cOAL_Source*>::iterator		tSourceSetIt;
 
-typedef list<cOAL_Source*>				tSourceList;
+typedef std::list<cOAL_Source*>				tSourceList;
 typedef tSourceList::iterator			tSourceListIt;
 
-typedef list<cOAL_Sample*>				tSampleList;
+typedef std::list<cOAL_Sample*>				tSampleList;
 typedef tSampleList::iterator			tSampleListIt;
 
-typedef list<cOAL_Stream*>				tStreamList;
+typedef std::list<cOAL_Stream*>				tStreamList;
 typedef tStreamList::iterator			tStreamListIt;
 
-typedef vector<cOAL_Buffer*>			tBufferVec;
+typedef std::vector<cOAL_Buffer*>			tBufferVec;
 typedef tBufferVec::iterator			tBufferVecIt;
 
 
@@ -94,17 +92,17 @@ class cOAL_Effect_Reverb;
 
 class cOAL_SourceSend;
 
-typedef vector<cOAL_EffectSlot*>			tSlotVector;
-typedef vector<cOAL_EffectSlot*>::iterator	tSlotVectorIt;
+typedef std::vector<cOAL_EffectSlot*>			tSlotVector;
+typedef std::vector<cOAL_EffectSlot*>::iterator	tSlotVectorIt;
 
-typedef list<cOAL_Effect*>					tOALEffectList;
-typedef list<cOAL_Effect*>::iterator		tOALEffectListIt;
+typedef std::list<cOAL_Effect*>					tOALEffectList;
+typedef std::list<cOAL_Effect*>::iterator		tOALEffectListIt;
 
-typedef list<cOAL_Filter*>					tOALFilterList;
-typedef list<cOAL_Filter*>::iterator		tOALFilterListIt;
+typedef std::list<cOAL_Filter*>					tOALFilterList;
+typedef std::list<cOAL_Filter*>::iterator		tOALFilterListIt;
 
-typedef vector<cOAL_SourceSend*>			tSendVector;
-typedef vector<cOAL_SourceSend*>::iterator	tSendVectorIt;
+typedef std::vector<cOAL_SourceSend*>			tSendVector;
+typedef std::vector<cOAL_SourceSend*>::iterator	tSendVectorIt;
 
 typedef enum 
 {

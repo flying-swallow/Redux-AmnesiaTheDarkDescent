@@ -207,7 +207,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
 
   renderingInfo.flags = 0;
   renderingInfo.renderArea =
-      (VkRect2D){{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
+      VkRect2D{{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
   renderingInfo.layerCount = 1;
   renderingInfo.viewMask = 0;
   renderingInfo.colorAttachmentCount = 1;

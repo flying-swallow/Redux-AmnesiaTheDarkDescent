@@ -22,7 +22,7 @@ extern cOAL_Device* gpDevice;
 
 //------------------------------------------------------------------------
 
-cOAL_Sample* OAL_Sample_Load(const wstring& asFilename)
+cOAL_Sample* OAL_Sample_Load(const std::wstring& asFilename)
 {
 	if(gpDevice==NULL) return NULL;
 
@@ -54,7 +54,7 @@ void OAL_Sample_Unload(cOAL_Sample* apSample)
 
 //------------------------------------------------------------------------
 
-cOAL_Stream* OAL_Stream_Load(const wstring& asFilename)
+cOAL_Stream* OAL_Stream_Load(const std::wstring& asFilename)
 {
 	if(gpDevice==NULL) return NULL;
 	

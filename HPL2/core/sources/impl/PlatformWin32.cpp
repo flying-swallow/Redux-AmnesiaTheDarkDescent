@@ -25,7 +25,8 @@
 
 #define UNICODE
 #include <windows.h>
-#include <shlobj.h>
+#include <ShlObj_core.h>
+#include <Shellapi.h>
 
 #include <stdio.h>
 #include <stdarg.h>

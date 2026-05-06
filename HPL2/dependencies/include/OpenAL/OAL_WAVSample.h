@@ -17,7 +17,7 @@
 class cOAL_WAVSample : public cOAL_Sample
 {
 public:	
-	bool CreateFromFile(const wstring& asFilename);
+	bool CreateFromFile(const std::wstring& asFilename);
 protected:
 };
 

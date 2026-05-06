@@ -41,46 +41,46 @@ bool OAL_GetALCError()
 //
 ///////////////////////////////////////////////////////////
 
-string OAL_GetALErrorString( )
+std::string OAL_GetALErrorString( )
 {
 	switch (geALErrorState)
 	{
 	case AL_INVALID_VALUE:
-		return string("AL_INVALID_VALUE");
+		return std::string("AL_INVALID_VALUE");
 	case AL_INVALID_ENUM:
-		return string("AL_INVALID_ENUM");
+		return std::string("AL_INVALID_ENUM");
 	case AL_INVALID_NAME:
-		return string("AL_INVALID_NAME");
+		return std::string("AL_INVALID_NAME");
 	case AL_INVALID_OPERATION:
-		return string("AL_INVALID_OPERATION");
+		return std::string("AL_INVALID_OPERATION");
 	case AL_NO_ERROR:
-		return string("AL_NO_ERROR");
+		return std::string("AL_NO_ERROR");
 	default:
 		break;
 	}
-	return string("AL_NO_ERROR");
+	return std::string("AL_NO_ERROR");
 }
 
-string OAL_GetALCErrorString( )
+std::string OAL_GetALCErrorString( )
 {
 	switch (geALCErrorState)
 	{
 		case ALC_NO_ERROR:
-			return string("ALC_NO_ERROR");
+			return std::string("ALC_NO_ERROR");
 		case ALC_INVALID_DEVICE:
-			return string("ALC_INVALID_DEVICE");
+			return std::string("ALC_INVALID_DEVICE");
 		case ALC_INVALID_CONTEXT:
-			return string("ALC_INVALID_CONTEXT");
+			return std::string("ALC_INVALID_CONTEXT");
 		case ALC_INVALID_ENUM:
-			return string("ALC_INVALID_ENUM");
+			return std::string("ALC_INVALID_ENUM");
 		case ALC_INVALID_VALUE:
-			return string("ALC_INVALID_VALUE");
+			return std::string("ALC_INVALID_VALUE");
 		case ALC_OUT_OF_MEMORY:
-			return string("ALC_OUT_OF_MEMORY");
+			return std::string("ALC_OUT_OF_MEMORY");
 		default:
             break;
 	}
-	return string("ALC_NO_ERROR");
+	return std::string("ALC_NO_ERROR");
 }
 
 ///////////////////////////////////////////////////////////
@@ -88,7 +88,7 @@ string OAL_GetALCErrorString( )
 //
 ///////////////////////////////////////////////////////////
 
-void ClearALErrors(const string& asFunction)
+void ClearALErrors(const std::string& asFunction)
 {
 	ALenum eStatus = alGetError();
 	//if ( eStatus != AL_NO_ERROR )
@@ -101,7 +101,7 @@ void ClearALErrors(const string& asFunction)
 ///////////////////////////////////////////////////////////
 
 
-bool CheckALErrors(const string& asFunc1, const string& asFunc2)
+bool CheckALErrors(const std::string& asFunc1, const std::string& asFunc2)
 {
 	bool bErrorOccurred = OAL_GetALError();
 	//if ( (bErrorOccured) && (cOAL_Device::IsLogEnabled()))
@@ -114,7 +114,7 @@ bool CheckALErrors(const string& asFunc1, const string& asFunc2)
 //
 ///////////////////////////////////////////////////////////
 
-void ClearALCErrors(const string& asFunction)
+void ClearALCErrors(const std::string& asFunction)
 {
     ALCcontext *ctx = alcGetCurrentContext();
     if (ctx == NULL) return;
@@ -128,7 +128,7 @@ void ClearALCErrors(const string& asFunction)
 //
 ///////////////////////////////////////////////////////////
 
-bool CheckALCErrors(const string& asFunction)
+bool CheckALCErrors(const std::string& asFunction)
 {
 	bool bErrorOccurred = OAL_GetALCError();
 	//if ( (bErrorOccured) && (gbLogSounds) )

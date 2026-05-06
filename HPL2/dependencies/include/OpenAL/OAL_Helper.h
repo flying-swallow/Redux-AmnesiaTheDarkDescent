@@ -21,7 +21,7 @@ extern void OAL_Source_Log(int mlSourceId, int alMessageType, const char *asMess
 
 //-----------------------------------------------------------------------------------------
 
-#define DEF_FUNC_NAME(X) string sFuncName(#X);
+#define DEF_FUNC_NAME(X) std::string sFuncName(#X);
 
 #define FUNC_USES_AL  bool bALError = false; ClearALErrors(sFuncName);
 #define FUNC_USES_ALC bool bALCError = false; ClearALCErrors(sFuncName);
@@ -44,17 +44,17 @@ extern void OAL_Source_Log(int mlSourceId, int alMessageType, const char *asMess
 //-----------------------------------------------------------------------------------------
 
 bool			OAL_GetALError ();
-string			OAL_GetALErrorString();	
+std::string			OAL_GetALErrorString();	
 
 bool			OAL_GetALCError ();
-string			OAL_GetALCErrorString();	
+std::string			OAL_GetALCErrorString();	
 
 //-----------------------------------------------------------------------------------------
 
-void ClearALErrors( const string& asFunction );
-bool CheckALErrors( const string& asFunc1, const string& asFunc2 );
-void ClearALCErrors( const string& asFunction );
-bool CheckALCErrors( const string& asFunction );
+void ClearALErrors( const std::string& asFunction );
+bool CheckALErrors( const std::string& asFunc1, const std::string& asFunc2 );
+void ClearALCErrors( const std::string& asFunction );
+bool CheckALCErrors( const std::string& asFunction );
 
 //-----------------------------------------------------------------------------------------
 

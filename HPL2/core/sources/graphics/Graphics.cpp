@@ -226,7 +226,7 @@ namespace hpl {
 					VkImageViewUsageCreateInfo usageInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO };
 					VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 					createInfo.pNext = &usageInfo;
-					createInfo.subresourceRange = (VkImageSubresourceRange){
+					createInfo.subresourceRange = VkImageSubresourceRange{
 						VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
 					};
 					usageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
@@ -261,7 +261,7 @@ namespace hpl {
 				{
 					VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 					createInfo.format = RIFormatToVK( RI.depthFormat );
-					createInfo.subresourceRange = (VkImageSubresourceRange){
+					createInfo.subresourceRange = VkImageSubresourceRange{
 						VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1,
 					};
 					createInfo.image = RI.depthTextures[i].vk.image;

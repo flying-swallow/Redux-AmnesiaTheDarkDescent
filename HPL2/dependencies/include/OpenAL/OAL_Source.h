@@ -172,7 +172,7 @@ private:
 	float mvPos[3];
 	float mvVel[3];
 
-	vector<cOAL_SourceSend*> mvSends;
+	std::vector<cOAL_SourceSend*> mvSends;
 	
 	cOAL_Filter*	mpFilter;
 	cOAL_Filter*	mpDirectFilter;

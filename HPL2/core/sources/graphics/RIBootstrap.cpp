@@ -29,7 +29,7 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
     imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     imageBarriers[0].image = cntx->colorAttachment.texture->vk.image;
-    imageBarriers[0].subresourceRange = (VkImageSubresourceRange){
+    imageBarriers[0].subresourceRange = VkImageSubresourceRange{
         VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
         VK_REMAINING_ARRAY_LAYERS,
     };
@@ -122,7 +122,7 @@ void RIBootstrap::BeginActiveSet() {
     imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     imageBarriers[0].image = cntx->colorAttachment.texture->vk.image;
-    imageBarriers[0].subresourceRange = (VkImageSubresourceRange){
+    imageBarriers[0].subresourceRange = VkImageSubresourceRange{
         VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
         VK_REMAINING_ARRAY_LAYERS,
     };
@@ -138,7 +138,7 @@ void RIBootstrap::BeginActiveSet() {
     imageBarriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     imageBarriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     imageBarriers[1].image = cntx->depthAttachment.texture->vk.image;
-    imageBarriers[1].subresourceRange = (VkImageSubresourceRange){
+    imageBarriers[1].subresourceRange = VkImageSubresourceRange{
         VK_IMAGE_ASPECT_DEPTH_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
         VK_REMAINING_ARRAY_LAYERS,
     };

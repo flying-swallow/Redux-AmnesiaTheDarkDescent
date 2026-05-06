@@ -3,14 +3,12 @@
 #include <string>
 #include <assert.h>
 
-using namespace std;
-
 BEGIN_AS_NAMESPACE
 
 int ExecuteString(asIScriptEngine *engine, const char *code, asIScriptModule *mod, asIScriptContext *ctx)
 {
 	// Wrap the code in a function so that it can be compiled and executed
-	string funcCode = "void ExecuteString() {\n";
+	std::string funcCode = "void ExecuteString() {\n";
 	funcCode += code;
 	funcCode += "\n;}";
 	

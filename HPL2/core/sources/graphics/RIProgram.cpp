@@ -15,24 +15,24 @@ static void vkDescriptorSetAlloc( struct RIDevice_s *device, struct RIDescriptor
   VkDescriptorPoolSize descriptorPoolSize[16] = {};
   size_t descriptorPoolLen = 0;
   if( programDescriptor->samplerMaxNum > 0 )
-  	descriptorPoolSize[descriptorPoolLen++] = (VkDescriptorPoolSize){ VK_DESCRIPTOR_TYPE_SAMPLER, (uint32_t)programDescriptor->samplerMaxNum * DESCRIPTOR_MAX_SIZE };
+  	descriptorPoolSize[descriptorPoolLen++] = VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, (uint32_t)programDescriptor->samplerMaxNum * DESCRIPTOR_MAX_SIZE };
   if( programDescriptor->constantBufferMaxNum > 0 )
-  	descriptorPoolSize[descriptorPoolLen++] = (VkDescriptorPoolSize){ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, (uint32_t)programDescriptor->constantBufferMaxNum * DESCRIPTOR_MAX_SIZE };
+  	descriptorPoolSize[descriptorPoolLen++] = VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, (uint32_t)programDescriptor->constantBufferMaxNum * DESCRIPTOR_MAX_SIZE };
   if( programDescriptor->dynamicConstantBufferMaxNum > 0 )
-  	descriptorPoolSize[descriptorPoolLen++] = (VkDescriptorPoolSize){ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, (uint32_t)programDescriptor->dynamicConstantBufferMaxNum * DESCRIPTOR_MAX_SIZE };
+  	descriptorPoolSize[descriptorPoolLen++] = VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, (uint32_t)programDescriptor->dynamicConstantBufferMaxNum * DESCRIPTOR_MAX_SIZE };
   if( programDescriptor->textureMaxNum > 0 )
-  	descriptorPoolSize[descriptorPoolLen++] = (VkDescriptorPoolSize){ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, (uint32_t)programDescriptor->textureMaxNum * DESCRIPTOR_MAX_SIZE };
+  	descriptorPoolSize[descriptorPoolLen++] = VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, (uint32_t)programDescriptor->textureMaxNum * DESCRIPTOR_MAX_SIZE };
   if( programDescriptor->storageTextureMaxNum > 0 )
-  	descriptorPoolSize[descriptorPoolLen++] = (VkDescriptorPoolSize){ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, (uint32_t)programDescriptor->storageTextureMaxNum * DESCRIPTOR_MAX_SIZE };
+  	descriptorPoolSize[descriptorPoolLen++] = VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, (uint32_t)programDescriptor->storageTextureMaxNum * DESCRIPTOR_MAX_SIZE };
   if( programDescriptor->bufferMaxNum > 0 )
-  	descriptorPoolSize[descriptorPoolLen++] = (VkDescriptorPoolSize){ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, (uint32_t)programDescriptor->bufferMaxNum * DESCRIPTOR_MAX_SIZE };
+  	descriptorPoolSize[descriptorPoolLen++] = VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, (uint32_t)programDescriptor->bufferMaxNum * DESCRIPTOR_MAX_SIZE };
   if( programDescriptor->storageBufferMaxNum > 0 )
-  	descriptorPoolSize[descriptorPoolLen++] = (VkDescriptorPoolSize){ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, (uint32_t)programDescriptor->storageBufferMaxNum * DESCRIPTOR_MAX_SIZE };
+  	descriptorPoolSize[descriptorPoolLen++] = VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, (uint32_t)programDescriptor->storageBufferMaxNum * DESCRIPTOR_MAX_SIZE };
   if( programDescriptor->structuredBufferMaxNum > 0 || programDescriptor->storageStructuredBufferMaxNum > 0 )
-  	descriptorPoolSize[descriptorPoolLen++] = (VkDescriptorPoolSize){
+  	descriptorPoolSize[descriptorPoolLen++] = VkDescriptorPoolSize{
   		VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, (uint32_t)programDescriptor->structuredBufferMaxNum * DESCRIPTOR_MAX_SIZE + (uint32_t)programDescriptor->storageStructuredBufferMaxNum * DESCRIPTOR_MAX_SIZE };
   if( programDescriptor->accelerationStructureMaxNum > 0 )
-  	descriptorPoolSize[descriptorPoolLen++] = (VkDescriptorPoolSize){ VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, (uint32_t)programDescriptor->accelerationStructureMaxNum * DESCRIPTOR_MAX_SIZE };
+  	descriptorPoolSize[descriptorPoolLen++] = VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, (uint32_t)programDescriptor->accelerationStructureMaxNum * DESCRIPTOR_MAX_SIZE };
   assert( descriptorPoolLen < ARRAY_COUNT( descriptorPoolSize ) );
   const VkDescriptorPoolCreateInfo info = {
   	VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, NULL, VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT, DESCRIPTOR_MAX_SIZE, (uint32_t)descriptorPoolLen, descriptorPoolSize };
@@ -72,7 +72,7 @@ void RIProgram::bindPipeline(struct RIDevice_s *device, struct RICmd_s* cmd, has
       };
       vkCreateShaderModule(device->vk.device, &vertModuleCreateInfo, NULL,
                           &modules[numModules]);
-      stageCreateInfo[0] = (VkPipelineShaderStageCreateInfo){ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+      stageCreateInfo[0] = VkPipelineShaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
       stageCreateInfo[0].stage = VK_SHADER_STAGE_VERTEX_BIT,
       stageCreateInfo[0].module = modules[numModules],
       stageCreateInfo[0].pName = "main";
@@ -87,7 +87,7 @@ void RIProgram::bindPipeline(struct RIDevice_s *device, struct RICmd_s* cmd, has
       };
       vkCreateShaderModule(device->vk.device, &fragModuleCreateInfo, NULL,
                           &modules[numModules]);
-      stageCreateInfo[1] = (VkPipelineShaderStageCreateInfo){VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+      stageCreateInfo[1] = VkPipelineShaderStageCreateInfo{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
       stageCreateInfo[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
       stageCreateInfo[1].module = modules[numModules];
       stageCreateInfo[1].pName = "main";
@@ -133,7 +133,7 @@ void RIProgram::bindComputePipeline(struct RIDevice_s* device, struct RICmd_s* c
     };
     vkCreateShaderModule(device->vk.device, &moduleCreateInfo, NULL, &module);
 
-    pipelineCreateInfo->stage = (VkPipelineShaderStageCreateInfo){VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
+    pipelineCreateInfo->stage = VkPipelineShaderStageCreateInfo{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
     pipelineCreateInfo->stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     pipelineCreateInfo->stage.module = module;
     pipelineCreateInfo->stage.pName = "main";

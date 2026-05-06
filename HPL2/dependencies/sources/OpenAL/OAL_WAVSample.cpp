@@ -22,7 +22,7 @@
 
 //------------------------------------------------------------------
 
-bool cOAL_WAVSample::CreateFromFile(const wstring &asFilename)
+bool cOAL_WAVSample::CreateFromFile(const std::wstring &asFilename)
 {
 	DEF_FUNC_NAME("cOAL_WAVSample::Load()");
 	FUNC_USES_AL;
@@ -39,7 +39,7 @@ bool cOAL_WAVSample::CreateFromFile(const wstring &asFilename)
 	msFilename = asFilename;
 
 	// TEMP: Need to get rid of the ALUT funcs to use Unicode here :S
-	string sFilename = hpl::cString::To8Char(asFilename);
+	std::string sFilename = hpl::cString::To8Char(asFilename);
 	///////////////////////////////////////////////////////////////
 	// This worked indeed, but didnt return a freeable pointer. 
 	// Will be used when some fix is found

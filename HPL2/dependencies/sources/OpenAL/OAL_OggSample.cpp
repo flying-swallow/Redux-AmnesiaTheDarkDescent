@@ -25,7 +25,7 @@ extern ov_callbacks gCallbacks;
 
 //-------------------------------------------------------------------------------
 
-bool cOAL_OggSample::CreateFromFile(const wstring &asFilename)
+bool cOAL_OggSample::CreateFromFile(const std::wstring &asFilename)
 {
 	DEF_FUNC_NAME("cOAL_OggSample::Load()");
 	FUNC_USES_AL;

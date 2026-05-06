@@ -179,7 +179,7 @@ void OAL_LogSourcePoolStatus ()
 */
 }
 
-void OAL_SetupLogging ( bool abLogSounds, eOAL_LogOutput aeOutput, eOAL_LogVerbose aeVerboseLevel, string asLogFilename )
+void OAL_SetupLogging ( bool abLogSounds, eOAL_LogOutput aeOutput, eOAL_LogVerbose aeVerboseLevel, std::string asLogFilename )
 {
 	iOAL_LoggerObject::SetLogEnabled(abLogSounds);
 	iOAL_LoggerObject::SetLogOutput ( aeOutput );
@@ -224,7 +224,7 @@ void OAL_Log( eOAL_LogVerbose aeVerboseLevelReq, eOAL_LogMsg aeMessageType,  con
 	if (iOAL_LoggerObject::GetLogVerboseLevel() < aeVerboseLevelReq )
 		return;
 
-	string sMessage;
+	std::string sMessage;
 
 	char text[2048];
 	va_list ap;
@@ -315,12 +315,12 @@ int OAL_Info_GetStreamBufferSize()
 	return cOAL_Stream::GetBufferSize();
 }
 
-string OAL_Info_GetDefaultOutputDevice()
+std::string OAL_Info_GetDefaultOutputDevice()
 {
 	return cOAL_Device::GetDefaultDeviceName();
 }
 
-vector<string> OAL_Info_GetOutputDevices()
+std::vector<std::string> OAL_Info_GetOutputDevices()
 {
 	return cOAL_Device::GetOutputDevices();
 }

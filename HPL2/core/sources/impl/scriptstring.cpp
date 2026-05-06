@@ -2,7 +2,6 @@
 #include <string.h> // strstr
 #include <stdio.h>  // sprintf
 #include "impl/scriptstring.h"
-using namespace std;
 
 BEGIN_AS_NAMESPACE
 
@@ -22,7 +21,7 @@ CScriptString::CScriptString(const char *s, unsigned int len)
 	buffer.assign(s, len);
 }
 
-CScriptString::CScriptString(const string &s)
+CScriptString::CScriptString(const std::string &s)
 {
 	refCount = 1;
 	buffer = s;
@@ -109,7 +108,7 @@ static void AddAssignString_Generic(asIScriptGeneric *gen)
 // string opCmp string
 //-----------------
 
-static int StringCmp(const string &a, const string &b)
+static int StringCmp(const std::string &a, const std::string &b)
 {
 	int cmp = 0;
 	if( a < b ) cmp = -1;
@@ -119,8 +118,8 @@ static int StringCmp(const string &a, const string &b)
 
 static void StringCmp_Generic(asIScriptGeneric * gen) 
 {
-  string * a = static_cast<string *>(gen->GetObject());
-  string * b = static_cast<string *>(gen->GetArgAddress(0));
+  std::string * a = static_cast<std::string *>(gen->GetObject());
+  std::string * b = static_cast<std::string *>(gen->GetArgAddress(0));
 
   int cmp = 0;
   if( *a < *b ) cmp = -1;
@@ -551,62 +550,62 @@ static void StringCopyFactory_Generic(asIScriptGeneric *gen)
 
 static void StringEqual_Generic(asIScriptGeneric *gen)
 {
-	string *a = (string*)gen->GetArgAddress(0);
-	string *b = (string*)gen->GetArgAddress(1);
+	std::string *a = (std::string*)gen->GetArgAddress(0);
+	std::string *b = (std::string*)gen->GetArgAddress(1);
 	bool r = *a == *b;
     *(bool*)gen->GetAddressOfReturnLocation() = r;
 }
 
 static void StringEquals_Generic(asIScriptGeneric * gen) 
 {
-	string * a = static_cast<string *>(gen->GetObject());
-	string * b = static_cast<string *>(gen->GetArgAddress(0));
+	std::string * a = static_cast<std::string *>(gen->GetObject());
+	std::string * b = static_cast<std::string *>(gen->GetArgAddress(0));
 	*(bool*)gen->GetAddressOfReturnLocation() = (*a == *b);
 }
 
 static void StringNotEqual_Generic(asIScriptGeneric *gen)
 {
-	string *a = (string*)gen->GetArgAddress(0);
-	string *b = (string*)gen->GetArgAddress(1);
+	std::string *a = (std::string*)gen->GetArgAddress(0);
+	std::string *b = (std::string*)gen->GetArgAddress(1);
 	bool r = *a != *b;
     *(bool*)gen->GetAddressOfReturnLocation() = r;
 }
 
 static void StringLesserOrEqual_Generic(asIScriptGeneric *gen)
 {
-	string *a = (string*)gen->GetArgAddress(0);
-	string *b = (string*)gen->GetArgAddress(1);
+	std::string *a = (std::string*)gen->GetArgAddress(0);
+	std::string *b = (std::string*)gen->GetArgAddress(1);
 	bool r = *a <= *b;
     *(bool*)gen->GetAddressOfReturnLocation() = r;
 }
 
 static void StringGreaterOrEqual_Generic(asIScriptGeneric *gen)
 {
-	string *a = (string*)gen->GetArgAddress(0);
-	string *b = (string*)gen->GetArgAddress(1);
+	std::string *a = (std::string*)gen->GetArgAddress(0);
+	std::string *b = (std::string*)gen->GetArgAddress(1);
 	bool r = *a >= *b;
     *(bool*)gen->GetAddressOfReturnLocation() = r;
 }
 
 static void StringLesser_Generic(asIScriptGeneric *gen)
 {
-	string *a = (string*)gen->GetArgAddress(0);
-	string *b = (string*)gen->GetArgAddress(1);
+	std::string *a = (std::string*)gen->GetArgAddress(0);
+	std::string *b = (std::string*)gen->GetArgAddress(1);
 	bool r = *a < *b;
     *(bool*)gen->GetAddressOfReturnLocation() = r;
 }
 
 static void StringGreater_Generic(asIScriptGeneric *gen)
 {
-	string *a = (string*)gen->GetArgAddress(0);
-	string *b = (string*)gen->GetArgAddress(1);
+	std::string *a = (std::string*)gen->GetArgAddress(0);
+	std::string *b = (std::string*)gen->GetArgAddress(1);
 	bool r = *a > *b;
     *(bool*)gen->GetAddressOfReturnLocation() = r;
 }
 
 static void StringLength_Generic(asIScriptGeneric *gen)
 {
-	string *s = (string*)gen->GetObject();
+	std::string *s = (std::string*)gen->GetObject();
 	size_t l = s->size();
 	if( sizeof(size_t) == 4 )
 		gen->SetReturnDWord((asUINT)l);
@@ -616,14 +615,14 @@ static void StringLength_Generic(asIScriptGeneric *gen)
 
 static void StringResize_Generic(asIScriptGeneric *gen)
 {
-	string *s = (string*)gen->GetObject();
+	std::string *s = (std::string*)gen->GetObject();
 	size_t v = *(size_t*)gen->GetAddressOfArg(0);
 	s->resize(v);
 }
 
 // AngelScript signature:
 // uint string::length() const
-static asUINT StringLength(const string& str)
+static asUINT StringLength(const std::string& str)
 {
 	// We don't register the method directly because the return type changes between 32bit and 64bit platforms
 	return (asUINT)str.length();
@@ -631,7 +630,7 @@ static asUINT StringLength(const string& str)
 
 // AngelScript signature:
 // void string::resize(uint l) 
-static void StringResize(asUINT l, string& str)
+static void StringResize(asUINT l, std::string& str)
 {
 	// We don't register the method directly because the argument types change between 32bit and 64bit platforms
 	str.resize(l);
@@ -665,7 +664,7 @@ void RegisterScriptString_Native(asIScriptEngine *engine)
 	r = engine->RegisterStringFactory("string@", asFUNCTION(StringFactory), asCALL_CDECL); assert( r >= 0 );
 
 	// Need to use a wrapper for operator== otherwise gcc 4.7+ fails to compile
-	r = engine->RegisterObjectMethod("string", "bool opEquals(const string &in) const", asFUNCTIONPR(StringEquals, (const string &, const string &), bool), asCALL_CDECL_OBJFIRST); assert( r >= 0 );
+	r = engine->RegisterObjectMethod("string", "bool opEquals(const string &in) const", asFUNCTIONPR(StringEquals, (const std::string &, const std::string &), bool), asCALL_CDECL_OBJFIRST); assert( r >= 0 );
 	r = engine->RegisterObjectMethod("string", "int opCmp(const string &in) const", asFUNCTION(StringCmp), asCALL_CDECL_OBJFIRST); assert( r >= 0 );
 	r = engine->RegisterObjectMethod("string", "string@ opAdd(const string &in) const", asFUNCTIONPR(operator +, (const CScriptString &, const CScriptString &), CScriptString*), asCALL_CDECL_OBJFIRST); assert( r >= 0 );
 

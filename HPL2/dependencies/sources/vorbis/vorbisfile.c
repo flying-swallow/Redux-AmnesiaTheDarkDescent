@@ -1960,7 +1960,7 @@ long ov_read_filter(OggVorbis_File *vf,char *buffer,int length,
   int host_endian = host_is_big_endian();
   int hs;
 
-  float **pcm;
+  float **pcm = NULL;
   long samples;
 
   if(vf->ready_state<OPENED)return(OV_EINVAL);
@@ -2120,7 +2120,7 @@ long ov_read_float(OggVorbis_File *vf,float ***pcm_channels,int length,
 
   while(1){
     if(vf->ready_state==INITSET){
-      float **pcm;
+      float **pcm = NULL;
       long samples=vorbis_synthesis_pcmout(&vf->vd,&pcm);
       if(samples){
         int hs=vorbis_synthesis_halfrate_p(vf->vi);
@@ -2218,7 +2218,7 @@ static int _ov_initprime(OggVorbis_File *vf){
 static void _ov_getlap(OggVorbis_File *vf,vorbis_info *vi,vorbis_dsp_state *vd,
                        float **lappcm,int lapsize){
   int lapcount=0,i;
-  float **pcm;
+  float **pcm = NULL;
 
   /* try first to decode the lapping data */
   while(lapcount<lapsize){
@@ -2258,7 +2258,7 @@ static void _ov_getlap(OggVorbis_File *vf,vorbis_info *vi,vorbis_dsp_state *vd,
 int ov_crosslap(OggVorbis_File *vf1, OggVorbis_File *vf2){
   vorbis_info *vi1,*vi2;
   float **lappcm;
-  float **pcm;
+  float **pcm = NULL;
   const float *w1,*w2;
   int n1,n2,i,ret,hs1,hs2;
 
@@ -2312,7 +2312,7 @@ static int _ov_64_seek_lap(OggVorbis_File *vf,ogg_int64_t pos,
                            int (*localseek)(OggVorbis_File *,ogg_int64_t)){
   vorbis_info *vi;
   float **lappcm;
-  float **pcm;
+  float **pcm = NULL;
   const float *w1,*w2;
   int n1,n2,ch1,ch2,hs;
   int i,ret;
@@ -2373,7 +2373,7 @@ static int _ov_d_seek_lap(OggVorbis_File *vf,double pos,
                            int (*localseek)(OggVorbis_File *,double)){
   vorbis_info *vi;
   float **lappcm;
-  float **pcm;
+  float **pcm = NULL;
   const float *w1,*w2;
   int n1,n2,ch1,ch2,hs;
   int i,ret;
