@@ -13,6 +13,19 @@
 #include "vk_mem_alloc.h"
 #endif
 
+// Macro anguish
+#ifdef LoadBitmap
+#undef LoadBitmap
+#endif
+
+#ifdef SendMessage
+#undef SendMessage
+#endif
+
+#ifdef CreateEvent
+#undef CreateEvent
+#endif
+
 #include <stdint.h>
 #include <cstdio>
 #undef DestroyAll
