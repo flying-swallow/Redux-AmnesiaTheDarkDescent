@@ -216,6 +216,7 @@ namespace hpl {
 	void cMaterialType_Decal::CompileMaterialSpecifics(cMaterial *apMaterial)
 	{
 		cMaterialType_Decal_Vars *pVars = static_cast<cMaterialType_Decal_Vars*>(apMaterial->GetVars());
+		(void)pVars;
 
 		//////////////////////////////////
 		//UV animation specifics
@@ -223,10 +224,17 @@ namespace hpl {
 		{
 			apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Diffuse,true);
 		}
-		
+
 		/////////////////////////////////////
 		//Set up the blend mode
 		//apMaterial->SetBlendMode(eMaterialBlendMode_Alpha);
+
+		/////////////////////////////////////
+		// Build the bindless descriptor for the per-frame SSBO upload.
+		ShaderMaterialData desc{};
+		desc.m_id = MaterialID::Decal;
+		desc.m_decal.m_blend = apMaterial->GetBlendMode();
+		apMaterial->SetDescriptor(desc);
 	}
 	
 	//--------------------------------------------------------------------------

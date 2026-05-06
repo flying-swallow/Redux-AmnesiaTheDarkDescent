@@ -234,7 +234,6 @@ namespace hpl {
 		initParams.mlOutputFreq = 44100;
 		initParams.msDeviceName = "";
 		initParams.mbUseEFX = abUseEnvAudio;
-		initParams.mbUseHRTF = abUseHRTF;
 
 		if(mbLogSounds)
 			Log("  Sound logging enabled\n");

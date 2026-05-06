@@ -23,7 +23,10 @@
 #include "system/SystemTypes.h"
 #include "math/MathTypes.h"
 #include "graphics/GraphicsTypes.h"
+#include "graphics/IndexPool.h"
 #include "resources/ResourceBase.h"
+
+#include <cstdint>
 
 namespace hpl {
 
@@ -35,6 +38,72 @@ namespace hpl {
 	class iGpuProgram;
 	class iMaterialType;
 	class cResourceVarsObject;
+
+	//---------------------------------------------------
+	// Bindless material descriptor data. Lives next to legacy fields during
+	// the Vulkan transition; renderers pack these into a per-frame SSBO indexed
+	// by cMaterial::Index().
+
+	struct MaterialDecal final {
+		eMaterialBlendMode m_blend;
+	};
+
+	struct MaterialDiffuseSolid final {
+		float m_heightMapScale;
+		float m_heightMapBias;
+		float m_frenselBias;
+		float m_frenselPow;
+		bool m_alphaDissolveFilter;
+	};
+
+	struct MaterialTranslucent final {
+		eMaterialBlendMode m_blend;
+
+		bool m_isAffectedByLightLevel;
+		bool m_hasRefraction;
+		bool m_refractionEdgeCheck;
+		bool m_refractionNormals;
+
+		float m_refractionScale;
+		float m_frenselBias;
+		float m_frenselPow;
+		float m_rimLightMul;
+		float m_rimLightPow;
+	};
+
+	struct MaterialWater final {
+		bool m_hasReflection;
+		bool m_isLargeSurface;
+		bool m_worldReflectionOcclusionTest;
+
+		float m_refractionScale;
+		float m_frenselBias;
+		float m_frenselPow;
+		float m_reflectionFadeStart;
+		float m_reflectionFadeEnd;
+		float m_waveSpeed;
+		float m_waveAmplitude;
+		float m_waveFreq;
+	};
+
+	enum class MaterialID : uint8_t {
+		Unknown = 0,
+		SolidDiffuse,
+		Translucent,
+		Water,
+		Decal,
+		MaterialIDCount
+	};
+
+	struct ShaderMaterialData final {
+		MaterialID m_id = MaterialID::Unknown;
+		union {
+			MaterialDecal m_decal;
+			MaterialDiffuseSolid m_solid;
+			MaterialTranslucent m_translucent;
+			MaterialWater m_water;
+		};
+	};
 
 	//---------------------------------------------------
 	
@@ -62,12 +131,32 @@ namespace hpl {
 
 	//---------------------------------------------------
 	
-	class cMaterial : public iResourceBase 
+	class cMaterial : public iResourceBase
 	{
 	friend class iMaterialType;
 	public:
+		static constexpr uint32_t MaxMaterialID = 2048;
+		static constexpr bool IsTranslucent(MaterialID id) {
+			return id == MaterialID::Water ||
+				id == MaterialID::Translucent ||
+				id == MaterialID::Decal;
+		}
+
 		cMaterial(const tString& asName, const tWString& asFullPath, cGraphics *apGraphics, cResources *apResources, iMaterialType *apType);
 		virtual ~cMaterial();
+
+		// Bindless descriptor (coexists with legacy mb*/mf* fields during transition).
+		// Built by iMaterialType::CompileMaterialSpecifics; uploaded by the renderer
+		// to a single SSBO indexed by Index(). Bumps the generation counter so the
+		// renderer's dirty-check fires on next frame.
+		inline void SetDescriptor(const ShaderMaterialData& desc) {
+			m_descriptor = desc;
+			IncreaseGeneration();
+		}
+		inline const ShaderMaterialData& Descriptor() const { return m_descriptor; }
+
+		inline uint32_t Generation() const { return m_generation; }
+		inline void IncreaseGeneration() { m_generation++; }
 
 		void SetType(iMaterialType* apType);
 		iMaterialType * GetType(){ return mpType; }
@@ -198,8 +287,12 @@ namespace hpl {
 		float mfAnimTime;
 		
 		int mlRenderFrameCount;
-	
+
 		tString msPhysicsMaterial;
+
+		// Bindless descriptor + GPU slot (transition: lives alongside legacy fields).
+		ShaderMaterialData m_descriptor;
+		uint32_t m_generation = 0;
 
 		static bool mbDestroyTypeSpecifics;
 	};

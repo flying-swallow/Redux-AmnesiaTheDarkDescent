@@ -483,6 +483,22 @@ namespace hpl {
 			if(bRefractionEnabled==false)
 				apMaterial->SetHasTranslucentIllumination(true);
 		}
+
+		/////////////////////////////////////
+		// Build the bindless descriptor for the per-frame SSBO upload.
+		ShaderMaterialData desc{};
+		desc.m_id = MaterialID::Translucent;
+		desc.m_translucent.m_blend = apMaterial->GetBlendMode();
+		desc.m_translucent.m_isAffectedByLightLevel = pVars->mbAffectedByLightLevel;
+		desc.m_translucent.m_hasRefraction = bRefractionEnabled;
+		desc.m_translucent.m_refractionEdgeCheck = pVars->mbRefractionEdgeCheck;
+		desc.m_translucent.m_refractionNormals = pVars->mbRefractionNormals;
+		desc.m_translucent.m_refractionScale = pVars->mfRefractionScale;
+		desc.m_translucent.m_frenselBias = pVars->mfFrenselBias;
+		desc.m_translucent.m_frenselPow = pVars->mfFrenselPow;
+		desc.m_translucent.m_rimLightMul = pVars->mfRimLightMul;
+		desc.m_translucent.m_rimLightPow = pVars->mfRimLightPow;
+		apMaterial->SetDescriptor(desc);
 	}
 	
 	//--------------------------------------------------------------------------

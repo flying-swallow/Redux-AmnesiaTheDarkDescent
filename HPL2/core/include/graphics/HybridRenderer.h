@@ -1,8 +1,11 @@
 #ifndef HPL_RENDERER_HYBRID_H
 #define HPL_RENDERER_HYBRID_H
 
+#include "graphics/Material.h"
 #include "graphics/Renderer.h"
 #include "graphics/RIRenderer.h"
+
+#include <array>
 
 namespace hpl {
 
@@ -11,7 +14,7 @@ public:
   cHybridRenderer(cGraphics *apGraphics, cResources *apResources);
   ~cHybridRenderer();
 
-  static constexpr uint32_t UBO_BUFFER_SIZE = 8 * (1024 * 1024); // 8 MB 
+  static constexpr uint32_t UBO_BUFFER_SIZE = 8 * (1024 * 1024); // 8 MB
 
   virtual void Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                     float afFrameTime, cFrustum *apFrustum, cWorld *apWorld,
@@ -25,6 +28,19 @@ public:
   virtual void RenderObjects() override {};
 
 private:
+  // Per-(material, frame) version tracker. The renderer re-uploads a material's
+  // packed block whenever the material pointer or its Generation() drifts from
+  // what we wrote last frame. Triple-buffered so in-flight frames don't overwrite
+  // each other's view of the data.
+  struct MaterialDescInfo {
+    void *m_material = nullptr;
+    uint32_t m_version = 0;
+  };
+  struct MaterialInfo {
+    std::array<MaterialDescInfo, RI_NUMBER_FRAMES_FLIGHT> m_perFrame{};
+  };
+  std::array<MaterialInfo, cMaterial::MaxMaterialID> m_materialInfo{};
+
   struct RIBuffer_s positionBuffer;
   struct RIBuffer_s normalBuffer;
   struct RIBuffer_s colorBuffer;

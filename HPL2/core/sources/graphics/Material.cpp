@@ -29,6 +29,7 @@
 
 #include "graphics/GPUShader.h"
 #include "graphics/GPUProgram.h"
+#include "graphics/Graphics.h"
 #include "graphics/MaterialType.h"
 
 #include "math/Math.h"
@@ -115,7 +116,6 @@ namespace hpl {
 		}
 		mAlphaMode = eMaterialAlphaMode_Solid;
 		mbDepthTest = true;
-
 	}
 
 	//-----------------------------------------------------------------------

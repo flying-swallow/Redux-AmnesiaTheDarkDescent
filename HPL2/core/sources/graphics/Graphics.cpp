@@ -116,11 +116,11 @@ namespace hpl {
 		STLDeleteAll(mlstDepthStencilBuffers);
 		STLDeleteAll(mlstGpuPrograms);
 		STLDeleteAll(mlstTextures);
-		
+
 		hplDelete(mpMeshCreator);
 		hplDelete(mpTextureCreator);
 		hplDelete(mpDecalCreator);
-		
+
 		Log("--------------------------------------------------------\n\n");
 	}
 

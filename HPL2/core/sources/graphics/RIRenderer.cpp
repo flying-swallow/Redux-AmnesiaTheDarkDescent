@@ -85,6 +85,11 @@ const static char *DefaultDeviceExtension[] = {
 	VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME,	 // Required by VK_KHR_DEPTH_STENCIL_RESOLVE_EXTENSION_NAME
 	VK_KHR_MULTIVIEW_EXTENSION_NAME,			 // Required by VK_KHR_CREATE_RENDERPASS_2_EXTENSION_NAME
 												 /************************************************************************/
+	// Present ID / Present Wait (chained into vkQueuePresentKHR for frame pacing)
+	/************************************************************************/
+	VK_KHR_PRESENT_ID_EXTENSION_NAME,
+	VK_KHR_PRESENT_WAIT_EXTENSION_NAME,
+	/************************************************************************/
 	// Nsight Aftermath
 	/************************************************************************/
 	VK_EXT_ASTC_DECODE_MODE_EXTENSION_NAME,
@@ -742,6 +747,13 @@ int InitRIDevice( struct RIRenderer_s *renderer, struct RIDeviceDesc_s *init, st
 		//	}
 		//}
 
+		for( size_t idx = 0; idx < ARRAY_COUNT( DefaultDeviceExtension ); idx++ ) {
+			if( __VK_SupportExtension( extensionProperties, extensionNum, qCToStrRef( DefaultDeviceExtension[idx] ) ) ) {
+				printf("Enabled Extension: %s", DefaultDeviceExtension[idx]);
+				arrpush( enabledExtensionNames, DefaultDeviceExtension[idx] );
+			}
+		}
+
 		VkPhysicalDeviceFeatures2 features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2 };
 
 		VkPhysicalDeviceVulkan11Features features11 = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES };
@@ -837,12 +849,6 @@ int InitRIDevice( struct RIRenderer_s *renderer, struct RIDeviceDesc_s *init, st
    // }
 
 		vkGetPhysicalDeviceFeatures2( physicalAdapter->vk.physicalDevice, &features );
-		for( size_t idx = 0; idx < ARRAY_COUNT( DefaultDeviceExtension ); idx++ ) {
-			if( __VK_SupportExtension( extensionProperties, extensionNum, qCToStrRef( DefaultDeviceExtension[idx] ) ) ) {
-				printf("Enabled Extension: %s", extensionProperties[idx].extensionName);
-				arrpush( enabledExtensionNames, DefaultDeviceExtension[idx] );
-			}
-		}
 
 		deviceCreateInfo.pNext = &features;
 		deviceCreateInfo.pQueueCreateInfos = deviceQueueCreateInfo;

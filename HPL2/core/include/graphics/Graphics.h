@@ -132,11 +132,11 @@ namespace hpl {
 		iMaterialType *GetMaterialType(const tString& asName);
 		tStringVec GetMaterialTypeNames();
 		void ReloadMaterials();
-		
+
 		cMeshCreator* GetMeshCreator(){return mpMeshCreator;}
 		cTextureCreator* GetTextureCreator(){ return mpTextureCreator;}
 		cDecalCreator* GetDecalCreator() {return mpDecalCreator;}
-		
+
 		bool GetScreenIsSetUp(){ return mbScreenIsSetup;}
 
 	private:

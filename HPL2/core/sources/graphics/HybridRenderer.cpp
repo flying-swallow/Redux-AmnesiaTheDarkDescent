@@ -1,6 +1,11 @@
 #include "graphics/HybridRenderer.h"
 #include "graphics/RITypes.h"
 
+#include "graphics/Graphics.h"
+#include "graphics/Material.h"
+#include "graphics/MaterialResource.h"
+#include "graphics/RIBootstrap.h"
+#include "graphics/RIResourceUploader.h"
 #include "graphics/Renderable.h"
 #include "math/Frustum.h"
 #include "math/Math.h"
@@ -8,6 +13,7 @@
 #include "scene/RenderableContainer.h"
 #include "scene/World.h"
 
+#include <cstring>
 #include <functional>
 
 namespace hpl {
@@ -109,20 +115,46 @@ void cHybridRenderer::Draw(
         cRenderSettings* apSettings,
         bool abSendFrameBufferToPostEffects) {
 
-  {
-    auto* dynamicContainer = apWorld->GetRenderableContainer(eWorldContainerType_Dynamic);
-    auto* staticContainer = apWorld->GetRenderableContainer(eWorldContainerType_Static);
-    dynamicContainer->UpdateBeforeRendering();
-    staticContainer->UpdateBeforeRendering();
-    auto prepareObjectHandler = [&](iRenderable* pObject) {
-        if (!IsObjectIsVisible(pObject, eRenderableFlag_VisibleInNonReflection, {})) 
-            return;
-        //m_rendererList.AddObject(pObject);
-    };
-    WalkAndPrepareRenderList(dynamicContainer, apFrustum, prepareObjectHandler, eRenderableFlag_VisibleInNonReflection);
-    WalkAndPrepareRenderList(staticContainer, apFrustum, prepareObjectHandler, eRenderableFlag_VisibleInNonReflection);
-  }
-} 
+  const uint32_t frameIdx = static_cast<uint32_t>(RI.frameIndex % RI_NUMBER_FRAMES_FLIGHT);
+
+  // Stream any dirty material's packed block into its slot in the SSBO.
+  // Mirrors AmnesiaTheDarkDescent's RendererDeferred dirty-check, ported to
+  // the RIResourceUploader staging API.
+//  auto uploadMaterialIfDirty = [&](cMaterial* mat) {
+//    if (!mat) return;
+//    const uint32_t index = mat->Index();
+//    if (index >= cMaterial::MaxMaterialID) return;
+//    auto& dInfo = m_materialInfo[index].m_perFrame[frameIdx];
+//    if (dInfo.m_material == mat && dInfo.m_version == mat->Generation())
+//      return;
+//    dInfo.m_material = mat;
+//    dInfo.m_version = mat->Generation();
+//
+//    RIResourceBufferTransaction_s t = {};
+//    t.target = *materialBuffer;
+//    t.size = sizeof(material::UniformMaterialBlock);
+//    t.offset = static_cast<size_t>(index) * sizeof(material::UniformMaterialBlock);
+//    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &t);
+//    material::UniformMaterialBlock block = material::UniformMaterialBlock::CreateFromMaterial(*mat);
+//    std::memcpy(t.mapped.data, &block, sizeof(block));
+//    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &t);
+//  };
+//
+//  {
+//    auto* dynamicContainer = apWorld->GetRenderableContainer(eWorldContainerType_Dynamic);
+//    auto* staticContainer = apWorld->GetRenderableContainer(eWorldContainerType_Static);
+//    dynamicContainer->UpdateBeforeRendering();
+//    staticContainer->UpdateBeforeRendering();
+//    auto prepareObjectHandler = [&](iRenderable* pObject) {
+//        if (!IsObjectIsVisible(pObject, eRenderableFlag_VisibleInNonReflection, {}))
+//            return;
+//        uploadMaterialIfDirty(pObject->GetMaterial());
+//        //m_rendererList.AddObject(pObject);
+//    };
+//    WalkAndPrepareRenderList(dynamicContainer, apFrustum, prepareObjectHandler, eRenderableFlag_VisibleInNonReflection);
+//    WalkAndPrepareRenderList(staticContainer, apFrustum, prepareObjectHandler, eRenderableFlag_VisibleInNonReflection);
+//  }
+}
 
 cHybridRenderer::~cHybridRenderer() {}
 

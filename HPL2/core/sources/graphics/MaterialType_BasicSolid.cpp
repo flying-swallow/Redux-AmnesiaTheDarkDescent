@@ -386,11 +386,22 @@ namespace hpl {
 		{
 			apMaterial->SetHasObjectSpecificsSettings(eMaterialRenderMode_Illumination,true);
 		}
+
+		//////////////////////////////////
+		// Build the bindless descriptor for the per-frame SSBO upload.
+		ShaderMaterialData desc{};
+		desc.m_id = MaterialID::SolidDiffuse;
+		desc.m_solid.m_heightMapScale = pVars->mfHeightMapScale;
+		desc.m_solid.m_heightMapBias = pVars->mfHeightMapBias;
+		desc.m_solid.m_frenselBias = pVars->mfFrenselBias;
+		desc.m_solid.m_frenselPow = pVars->mfFrenselPow;
+		desc.m_solid.m_alphaDissolveFilter = pVars->mbAlphaDissolveFilter;
+		apMaterial->SetDescriptor(desc);
 	}
 
 	//--------------------------------------------------------------------------
 
-	
+
 	iTexture* cMaterialType_SolidDiffuse::GetTextureForUnit(cMaterial *apMaterial,eMaterialRenderMode aRenderMode, int alUnit)
 	{
 		cMaterialType_SolidDiffuse_Vars *pVars = (cMaterialType_SolidDiffuse_Vars*)apMaterial->GetVars();

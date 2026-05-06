@@ -419,6 +419,23 @@ namespace hpl {
 				apMaterial->SetHasWorldReflection(true);
 			}
 		}
+
+		///////////////////////////
+		// Build the bindless descriptor for the per-frame SSBO upload.
+		ShaderMaterialData desc{};
+		desc.m_id = MaterialID::Water;
+		desc.m_water.m_hasReflection = pVars->mbHasReflection;
+		desc.m_water.m_isLargeSurface = apMaterial->GetLargeTransperantSurface();
+		desc.m_water.m_worldReflectionOcclusionTest = apMaterial->GetWorldReflectionOcclusionTest();
+		desc.m_water.m_refractionScale = pVars->mfRefractionScale;
+		desc.m_water.m_frenselBias = pVars->mfFrenselBias;
+		desc.m_water.m_frenselPow = pVars->mfFrenselPow;
+		desc.m_water.m_reflectionFadeStart = pVars->mfReflectionFadeStart;
+		desc.m_water.m_reflectionFadeEnd = pVars->mfReflectionFadeEnd;
+		desc.m_water.m_waveSpeed = pVars->mfWaveSpeed;
+		desc.m_water.m_waveAmplitude = pVars->mfWaveAmplitude;
+		desc.m_water.m_waveFreq = pVars->mfWaveFreq;
+		apMaterial->SetDescriptor(desc);
 	}
 	
 	//--------------------------------------------------------------------------

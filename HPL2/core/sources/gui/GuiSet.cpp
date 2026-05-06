@@ -625,11 +625,19 @@ namespace hpl {
 	  //Screen projection
 	  else
 	  {
-	  	//Set up min and max for orth projection
-	  	projectionMtx.SetupByOrthoProjection(-mvVirtualSizeOffset.x, mvVirtualSize.x-mvVirtualSizeOffset.x, 
-	  																		 	 mvVirtualSize.y - mvVirtualSizeOffset.y, -mvVirtualSizeOffset.y, 
-	  																		 	mfVirtualMinZ, mfVirtualMaxZ);
-	
+	  	// Inverted bottom/top in cooperation with the negative-height viewport at ~line 651
+	  	// keeps screen-y origin at the top of the window (mouse-coord convention).
+	  	projectionMtx.SetupByOrthoProjection(-mvVirtualSizeOffset.x, mvVirtualSize.x - mvVirtualSizeOffset.x,
+	  	                                     mvVirtualSize.y - mvVirtualSizeOffset.y, -mvVirtualSizeOffset.y,
+	  	                                     mfVirtualMinZ, mfVirtualMaxZ);
+
+	  	// MathLib emits a GL-style ortho with NDC z in [-1, 1]; Vulkan clip space is [0, 1].
+	  	// Without this remap, points at the GL near plane (z' = -1) get rasterizer-clipped —
+	  	// notably the cursor, which is drawn at z = mfVirtualMaxZ.
+	  	ml::float4x4 zRemap = ml::float4x4::Identity();
+	  	zRemap.a22 = 0.5f;
+	  	zRemap.a23 = 0.5f;
+	  	projectionMtx = zRemap * projectionMtx;
 	  }
 		const VkDeviceSize vkOffset = vtxReq.elementOffset * vtxReq.elementStride; 
 		const VkDeviceSize idxOffset = idxReq.elementOffset * idxReq.elementStride;
@@ -803,6 +811,7 @@ namespace hpl {
 					colorBlendState.pAttachments = blendAttachmentState;
 				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
 					RI.gui.bindPipeline(&RI.device, &cntx->cmd, hash,"gui.eGuiMaterial_Alpha", &pipelineCreateInfo);
+					break;
 				}
 				case eGuiMaterial_Additive: {
 					VkPipelineColorBlendAttachmentState blendAttachmentState[] = { 
