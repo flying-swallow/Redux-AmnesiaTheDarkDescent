@@ -846,9 +846,6 @@
     <ClInclude Include="include\resources\VideoLoaderHandler.h">
       <Filter>Resources</Filter>
     </ClInclude>
-    <ClInclude Include="include\resources\VideoManager.h">
-      <Filter>Resources</Filter>
-    </ClInclude>
     <ClInclude Include="include\resources\WorldLoader.h">
       <Filter>Resources</Filter>
     </ClInclude>
@@ -1062,6 +1059,105 @@
     </ClInclude>
     <ClInclude Include="include\impl\GamepadSDL2.h">
       <Filter>Impl\Input</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\AnimatedImage.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\BindlessPool.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\DrawPacket.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\HPLTexture.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\HybridRenderer.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\Image.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\IndexPool.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\MaterialResource.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\ObjectPool.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIBootstrap.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIConversion.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIDefines.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIDescriptorSetAllocator.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIFormat.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIGPUPreset.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RINulTexture.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIPogoBuffer.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIProgram.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIRenderer.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIResourceUploader.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIScratchAlloc.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RISegmentAlloc.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RISwapchain.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RITypes.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIVK.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\spirv.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\spirv_reflect.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\VertexBuffer_RI.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\resources\SpvResourceLoader.h">
+      <Filter>Resources</Filter>
+    </ClInclude>
+    <ClInclude Include="include\system\Hasher.h">
+      <Filter>System</Filter>
+    </ClInclude>
+    <ClInclude Include="include\system\QStr.h">
+      <Filter>System</Filter>
+    </ClInclude>
+    <ClInclude Include="include\system\stb_ds.h">
+      <Filter>System</Filter>
+    </ClInclude>
+    <ClInclude Include="include\system\Types.h">
+      <Filter>System</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -1446,9 +1542,6 @@
     <ClCompile Include="sources\impl\VertexBufferOpenGL.cpp">
       <Filter>Impl\Graphics</Filter>
     </ClCompile>
-    <ClCompile Include="sources\impl\VideoStreamTheora.cpp">
-      <Filter>Impl\Graphics</Filter>
-    </ClCompile>
     <ClCompile Include="sources\impl\BitmapLoaderDevil.cpp">
       <Filter>Resources</Filter>
     </ClCompile>
@@ -1755,9 +1848,6 @@
     <ClCompile Include="sources\resources\VideoLoaderHandler.cpp">
       <Filter>Resources</Filter>
     </ClCompile>
-    <ClCompile Include="sources\resources\VideoManager.cpp">
-      <Filter>Resources</Filter>
-    </ClCompile>
     <ClCompile Include="sources\resources\WorldLoaderHandler.cpp">
       <Filter>Resources</Filter>
     </ClCompile>
@@ -1937,6 +2027,63 @@
     </ClCompile>
     <ClCompile Include="sources\impl\GamepadSDL2.cpp">
       <Filter>Impl\Input</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\BindlessPool.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\HPLTexture.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\HybridRenderer.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\Image.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\IndexPool.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\MaterialResource.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\RIBootstrap.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\RIDescriptorSetAllocator.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\RIFormat.c">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\RINulTexture.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\RIProgram.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\RIRenderer.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\RIResourceUploader.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\RIScratchAlloc.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\RISwapchain.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\RIVK.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\spirv_reflect.c">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\impl\VertexBuffer_RI.cpp">
+      <Filter>Impl\Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\system\QStr.cpp">
+      <Filter>System</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

@@ -29,26 +29,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>NotSet</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>NotSet</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <CharacterSet>NotSet</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v143</PlatformToolset>
+    <PlatformToolset>v145</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>NotSet</CharacterSet>
   </PropertyGroup>
@@ -91,6 +91,7 @@
       <ConformanceMode>true</ConformanceMode>
       <DisableSpecificWarnings>26495;26812;26451</DisableSpecificWarnings>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -109,6 +110,7 @@
       <ConformanceMode>true</ConformanceMode>
       <DisableSpecificWarnings>26495;26812;26451</DisableSpecificWarnings>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -123,10 +125,12 @@
       <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;NOMINMAX
+;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <DisableSpecificWarnings>26495;26812;26451</DisableSpecificWarnings>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -141,10 +145,12 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;USE_SDL2;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;USE_SDL2;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;NOMINMAX
+;WIN32_LEAN_AND_MEAN;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <DisableSpecificWarnings>26495;26812;26451</DisableSpecificWarnings>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -155,6 +161,34 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="include\graphics\AnimatedImage.h" />
+    <ClInclude Include="include\graphics\BindlessPool.h" />
+    <ClInclude Include="include\graphics\DrawPacket.h" />
+    <ClInclude Include="include\graphics\HPLTexture.h" />
+    <ClInclude Include="include\graphics\HybridRenderer.h" />
+    <ClInclude Include="include\graphics\Image.h" />
+    <ClInclude Include="include\graphics\IndexPool.h" />
+    <ClInclude Include="include\graphics\MaterialResource.h" />
+    <ClInclude Include="include\graphics\ObjectPool.h" />
+    <ClInclude Include="include\graphics\RIBootstrap.h" />
+    <ClInclude Include="include\graphics\RIConversion.h" />
+    <ClInclude Include="include\graphics\RIDefines.h" />
+    <ClInclude Include="include\graphics\RIDescriptorSetAllocator.h" />
+    <ClInclude Include="include\graphics\RIFormat.h" />
+    <ClInclude Include="include\graphics\RIGPUPreset.h" />
+    <ClInclude Include="include\graphics\RINulTexture.h" />
+    <ClInclude Include="include\graphics\RIPogoBuffer.h" />
+    <ClInclude Include="include\graphics\RIProgram.h" />
+    <ClInclude Include="include\graphics\RIRenderer.h" />
+    <ClInclude Include="include\graphics\RIResourceUploader.h" />
+    <ClInclude Include="include\graphics\RIScratchAlloc.h" />
+    <ClInclude Include="include\graphics\RISegmentAlloc.h" />
+    <ClInclude Include="include\graphics\RISwapchain.h" />
+    <ClInclude Include="include\graphics\RITypes.h" />
+    <ClInclude Include="include\graphics\RIVK.h" />
+    <ClInclude Include="include\graphics\spirv.h" />
+    <ClInclude Include="include\graphics\spirv_reflect.h" />
+    <ClInclude Include="include\graphics\VertexBuffer_RI.h" />
     <ClInclude Include="include\impl\GamepadSDL2.h" />
     <ClInclude Include="include\impl\MeshLoaderFBX.h" />
     <ClInclude Include="include\gui\GuiPopUpUIKeyboard.h" />
@@ -164,17 +198,21 @@
     <ClInclude Include="include\input\ActionGamepadButton.h" />
     <ClInclude Include="include\input\ActionGamepadHat.h" />
     <ClInclude Include="include\input\Gamepad.h" />
+    <ClInclude Include="include\resources\SpvResourceLoader.h" />
     <ClInclude Include="include\system\BinTree.h" />
     <ClInclude Include="include\system\Container.h" />
+    <ClInclude Include="include\system\Hasher.h" />
     <ClInclude Include="include\system\LogicTimer.h" />
     <ClInclude Include="include\system\LowLevelSystem.h" />
     <ClInclude Include="include\system\MemoryManager.h" />
     <ClInclude Include="include\system\Mutex.h" />
     <ClInclude Include="include\system\Platform.h" />
     <ClInclude Include="include\system\PreprocessParser.h" />
+    <ClInclude Include="include\system\QStr.h" />
     <ClInclude Include="include\system\Script.h" />
     <ClInclude Include="include\system\SerializeClass.h" />
     <ClInclude Include="include\system\SHA1.h" />
+    <ClInclude Include="include\system\stb_ds.h" />
     <ClInclude Include="include\system\String.h" />
     <ClInclude Include="include\system\System.h" />
     <ClInclude Include="include\system\SystemTypes.h" />
@@ -421,7 +459,6 @@
     <ClInclude Include="include\resources\TextureManager.h" />
     <ClInclude Include="include\resources\VideoLoader.h" />
     <ClInclude Include="include\resources\VideoLoaderHandler.h" />
-    <ClInclude Include="include\resources\VideoManager.h" />
     <ClInclude Include="include\resources\WorldLoader.h" />
     <ClInclude Include="include\resources\WorldLoaderHandler.h" />
     <ClInclude Include="include\resources\WorldLoaderHplMap.h" />
@@ -485,13 +522,32 @@
     <ClInclude Include="include\generate\GenerateTypes.h" />
     <ClInclude Include="include\generate\VoxelMap.h" />
     <ClInclude Include="include\HPL.h" />
+    <ClInclude Include="include\system\Types.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="sources\graphics\BindlessPool.cpp" />
+    <ClCompile Include="sources\graphics\HPLTexture.cpp" />
+    <ClCompile Include="sources\graphics\HybridRenderer.cpp" />
+    <ClCompile Include="sources\graphics\Image.cpp" />
+    <ClCompile Include="sources\graphics\IndexPool.cpp" />
+    <ClCompile Include="sources\graphics\MaterialResource.cpp" />
+    <ClCompile Include="sources\graphics\RIBootstrap.cpp" />
+    <ClCompile Include="sources\graphics\RIDescriptorSetAllocator.cpp" />
+    <ClCompile Include="sources\graphics\RIFormat.c" />
+    <ClCompile Include="sources\graphics\RINulTexture.cpp" />
+    <ClCompile Include="sources\graphics\RIProgram.cpp" />
+    <ClCompile Include="sources\graphics\RIRenderer.cpp" />
+    <ClCompile Include="sources\graphics\RIResourceUploader.cpp" />
+    <ClCompile Include="sources\graphics\RIScratchAlloc.cpp" />
+    <ClCompile Include="sources\graphics\RISwapchain.cpp" />
+    <ClCompile Include="sources\graphics\RIVK.cpp" />
+    <ClCompile Include="sources\graphics\spirv_reflect.c" />
     <ClCompile Include="sources\impl\GamepadSDL2.cpp" />
     <ClCompile Include="sources\impl\MeshLoaderFBX.cpp" />
     <ClCompile Include="sources\gui\GuiPopUpUIKeyboard.cpp" />
     <ClCompile Include="sources\impl\GamepadSDL.cpp" />
     <ClCompile Include="sources\impl\GamepadXInput.cpp" />
+    <ClCompile Include="sources\impl\VertexBuffer_RI.cpp" />
     <ClCompile Include="sources\input\ActionGamepadAxis.cpp" />
     <ClCompile Include="sources\input\ActionGamepadButton.cpp" />
     <ClCompile Include="sources\input\ActionGamepadHat.cpp" />
@@ -502,6 +558,7 @@
     <ClCompile Include="sources\system\Mutex.cpp" />
     <ClCompile Include="sources\system\Platform.cpp" />
     <ClCompile Include="sources\system\PreprocessParser.cpp" />
+    <ClCompile Include="sources\system\QStr.cpp" />
     <ClCompile Include="sources\system\SerializeClass.cpp" />
     <ClCompile Include="sources\system\SHA1.cpp" />
     <ClCompile Include="sources\system\String.cpp" />
@@ -623,7 +680,6 @@
     <ClCompile Include="sources\impl\VertexBufferOGL_Array.cpp" />
     <ClCompile Include="sources\impl\VertexBufferOGL_VBO.cpp" />
     <ClCompile Include="sources\impl\VertexBufferOpenGL.cpp" />
-    <ClCompile Include="sources\impl\VideoStreamTheora.cpp" />
     <ClCompile Include="sources\impl\BitmapLoaderDevil.cpp" />
     <ClCompile Include="sources\impl\BitmapLoaderDevilDDS.cpp" />
     <ClCompile Include="sources\impl\BitmapLoaderDevilMisc.cpp" />
@@ -726,7 +782,6 @@
     <ClCompile Include="sources\resources\SoundManager.cpp" />
     <ClCompile Include="sources\resources\TextureManager.cpp" />
     <ClCompile Include="sources\resources\VideoLoaderHandler.cpp" />
-    <ClCompile Include="sources\resources\VideoManager.cpp" />
     <ClCompile Include="sources\resources\WorldLoaderHandler.cpp" />
     <ClCompile Include="sources\resources\WorldLoaderHplMap.cpp" />
     <ClCompile Include="sources\resources\XmlDocument.cpp" />
