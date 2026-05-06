@@ -176,14 +176,14 @@ cLuxMapHandler::cLuxMapHandler() : iLuxUpdateable("LuxMapHandler")
 	cPostEffectParams_ImageTrail imageTrailParams;
 	mpPostEffect_ImageTrail = pGraphics->CreatePostEffect(&imageTrailParams);
 	pPostEffectComp->AddPostEffect(mpPostEffect_ImageTrail, 10);
-	mpPostEffect_ImageTrail->SetActive(false);
+	//mpPostEffect_ImageTrail->SetActive(false);
 
 	//Radial
 	cPostEffectParams_RadialBlur radialBlurParams;
 	radialBlurParams.mfSize = 0.0f;
 	mpPostEffect_RadialBlur = pGraphics->CreatePostEffect(&radialBlurParams);
 	pPostEffectComp->AddPostEffect(mpPostEffect_RadialBlur, 9);
-	mpPostEffect_RadialBlur->SetActive(false);
+	//mpPostEffect_RadialBlur->SetActive(false);
 
 	//Sepia
 	cPostEffectParams_ColorConvTex sepiaParams;
@@ -191,7 +191,7 @@ cLuxMapHandler::cLuxMapHandler() : iLuxUpdateable("LuxMapHandler")
 	sepiaParams.mfFadeAlpha = 0.0f;
 	mpPostEffect_Sepia = pGraphics->CreatePostEffect(&sepiaParams);
 	pPostEffectComp->AddPostEffect(mpPostEffect_Sepia, 4);
-	mpPostEffect_Sepia->SetActive(false);
+	//mpPostEffect_Sepia->SetActive(false);
 	
 	//////////////////////////
 	//Saving
@@ -547,10 +547,10 @@ void cLuxMapHandler::AppGotInputFocus()
 
 void cLuxMapHandler::LoadMainConfig()
 {
-	mpPostEffect_Bloom->SetDisabled(gpBase->mpMainConfig->GetBool("Graphics", "PostEffectBloom", true)==false);
+	/* mpPostEffect_Bloom->SetDisabled(gpBase->mpMainConfig->GetBool("Graphics", "PostEffectBloom", true) == false);
 	mpPostEffect_ImageTrail->SetDisabled(gpBase->mpMainConfig->GetBool("Graphics", "PostEffectImageTrail", true)==false);
 	mpPostEffect_Sepia->SetDisabled(gpBase->mpMainConfig->GetBool("Graphics", "PostEffectSepia", true)==false);
-	mpPostEffect_RadialBlur->SetDisabled(gpBase->mpMainConfig->GetBool("Graphics", "PostEffectRadialBlur", true)==false);
+	mpPostEffect_RadialBlur->SetDisabled(gpBase->mpMainConfig->GetBool("Graphics", "PostEffectRadialBlur", true)==false); */
 
 	cRenderSettings *pRenderSettings = mpViewport->GetRenderSettings();
 	pRenderSettings->mbUseEdgeSmooth = gpBase->mpConfigHandler->mbEdgeSmooth; //This is saved in config handler!

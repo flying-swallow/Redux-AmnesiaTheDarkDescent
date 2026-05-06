@@ -425,6 +425,8 @@ void cLuxEffect_RadialBlur::Update(float afTimeStep)
 
 void cLuxEffect_RadialBlur::Reset()
 {
+	return;
+
 	mfSize =0;
 	mfSizeGoal =0;
 	mfBlurStartDist =0;
@@ -488,6 +490,8 @@ void cLuxEffect_SepiaColor::Update(float afTimeStep)
 
 void cLuxEffect_SepiaColor::Reset()
 {
+	return;
+
 	mfAmount =0;
 	mfAmountGoal =0;
 	gpBase->mpMapHandler->GetPostEffect_Sepia()->Reset();
@@ -651,6 +655,8 @@ void cLuxEffect_ImageTrail::Update(float afTimeStep)
 
 void cLuxEffect_ImageTrail::Reset()
 {
+	return;
+
 	mfAmount =0;
 	mfAmountGoal =0;
 	gpBase->mpMapHandler->GetPostEffect_ImageTrail()->Reset();

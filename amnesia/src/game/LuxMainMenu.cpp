@@ -44,7 +44,7 @@
 
 //--------------------------------------------------------------------------------
 
-static const bool gbDebug_SkipBGScene = false;
+static const bool gbDebug_SkipBGScene = true;
 static const bool gbDebug_FastLoadOptions = false;
 const int glHardMode_SaveCost = 4;
 
