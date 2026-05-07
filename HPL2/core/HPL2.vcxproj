@@ -125,7 +125,7 @@
       <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;$(VULKAN_SDK)\Include;..\dependencies\sources\VulkanMemoryAllocator\include;..\dependencies\sources\MathLib;..\dependencies\sources\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;ML_INTRINSIC_LEVEL=1;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;ENABLE_SPIRV;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <DisableSpecificWarnings>26495;26812;26451;4018;4200;4244;4267;4319;4065;4477;4551</DisableSpecificWarnings>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -144,7 +144,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;USE_SDL2;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;ML_INTRINSIC_LEVEL=1;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;USE_SDL2;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;ENABLE_SPIRV;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <DisableSpecificWarnings>26495;26812;26451;4018;4200;4244;4267;4319;4065;4477</DisableSpecificWarnings>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>

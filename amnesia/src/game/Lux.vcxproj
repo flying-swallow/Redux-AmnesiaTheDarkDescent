@@ -127,7 +127,7 @@
       <AdditionalIncludeDirectories>..\..\..\HPL2\core\include;..\..\..\HPL2\dependencies\include;$(VULKAN_SDK)\Include;..\..\..\HPL2\dependencies\sources\VulkanMemoryAllocator\include;..\..\..\HPL2\dependencies\sources\MathLib;..\..\..\HPL2\dependencies\sources\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_WINDOWS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;ML_INTRINSIC_LEVEL=1;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_WINDOWS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;ML_INTRINSIC_LEVEL=1;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;ENABLE_SPIRV;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <DisableSpecificWarnings>26495;26812;4244;4005;4200;5055</DisableSpecificWarnings>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -148,7 +148,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_WINDOWS;USE_GAMEPAD;USE_SDL2;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;ML_INTRINSIC_LEVEL=1;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_WINDOWS;USE_GAMEPAD;USE_SDL2;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;ENABLE_SPIRV;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <DisableSpecificWarnings>26495;26812;4244;4005;4200;5055</DisableSpecificWarnings>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
