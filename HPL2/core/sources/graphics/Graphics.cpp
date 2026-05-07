@@ -175,8 +175,7 @@ namespace hpl {
 			return false;
 		}
 		assert(numAdapters > 0);
-		auto physicalAdapters = std::vector<RIPhysicalAdapter_s>();
-		physicalAdapters.resize(numAdapters);
+		std::vector<RIPhysicalAdapter_s> physicalAdapters(numAdapters);
 
 		if(EnumerateRIAdapters(&RI.renderer, physicalAdapters.data(), &numAdapters) != RI_SUCCESS) {
 			return false;
@@ -311,22 +310,61 @@ namespace hpl {
 		}
 		{
 			RIBootstrap::FrameContext* cntx = RI.GetActiveSet();
+
+			if (!cntx) {
+				FatalError("RI.GetActiveSet() returned null!\n");
+				return false;
+			}
+
+			if (cntx->cmd.vk.cmd == VK_NULL_HANDLE) {
+				FatalError("Active frame context has no Vulkan command buffer!\n");
+				return false;
+			}
+
 			VkCommandBufferBeginInfo info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
 			info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-			vkBeginCommandBuffer( cntx->cmd.vk.cmd, &info );
-			if(!RINulTexture::Create2DNulWhite(&cntx->cmd,&RI.device, &RI.whiteTexture2D)) {
+
+			VkResult res = vkBeginCommandBuffer(cntx->cmd.vk.cmd, &info);
+			VK_WrapResult(res);
+
+			if (res != VK_SUCCESS) {
+				FatalError("Failed to begin command buffer!\n");
+				return false;
+			}
+
+			if (!RINulTexture::Create2DNulWhite(&cntx->cmd, &RI.device, &RI.whiteTexture2D)) {
 				FatalError("Failed to create white texture!\n");
 				return false;
 			}
-			vkEndCommandBuffer(cntx->cmd.vk.cmd);
+
+			res = vkEndCommandBuffer(cntx->cmd.vk.cmd);
+			VK_WrapResult(res);
+
+			if (res != VK_SUCCESS) {
+				FatalError("Failed to end command buffer!\n");
+				return false;
+			}
+
 			VkCommandBufferSubmitInfo cmdSubmitInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
 			cmdSubmitInfo.commandBuffer = cntx->cmd.vk.cmd;
 
 			VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
-			submitInfo.pCommandBufferInfos = &cmdSubmitInfo;
 			submitInfo.commandBufferInfoCount = 1;
-			VK_WrapResult( vkQueueSubmit2( RI.device.queues[RI_QUEUE_GRAPHICS].vk.queue, 1, &submitInfo, VK_NULL_HANDLE ) );
+			submitInfo.pCommandBufferInfos = &cmdSubmitInfo;
+
+			res = vkQueueSubmit2(RI.device.queues[RI_QUEUE_GRAPHICS].vk.queue, 1, &submitInfo, VK_NULL_HANDLE);
+
+			VK_WrapResult(res);
+
+			if (res != VK_SUCCESS) {
+				FatalError("Failed to submit white texture upload command buffer!\n");
+				RINulTexture::Free2DNulWhiteUploadScratch(&RI.device, &RI.whiteTexture2D);
+				return false;
+			}
+
 			WaitRIQueueIdle(&RI.device, &RI.device.queues[RI_QUEUE_GRAPHICS]);
+
+			RINulTexture::Free2DNulWhiteUploadScratch(&RI.device, &RI.whiteTexture2D);
 		}
 		{
 			auto vert_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "gui.vert.spv");
