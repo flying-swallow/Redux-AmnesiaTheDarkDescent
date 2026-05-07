@@ -16,7 +16,8 @@ void main(void)
 {
     v_color = a_color;
     v_texcoord = a_texcoord;
-    vec4 pos = pass.mvp * vec4(a_position, 1.0);
-    v_position = pos;
-    gl_Position = pos;
+    // v_position carries the screen-space (pre-MVP) position because the clip
+    // planes in pass.clipPlane are computed in screen-space (see cGuiSet::Render).
+    v_position = vec4(a_position, 1.0);
+    gl_Position = pass.mvp * vec4(a_position, 1.0);
 }
