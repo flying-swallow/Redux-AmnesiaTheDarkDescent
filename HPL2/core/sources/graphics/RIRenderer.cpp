@@ -255,6 +255,30 @@ int EnumerateRIAdapters( struct RIRenderer_s *renderer, struct RIPhysicalAdapter
 					R_VK_ADD_STRUCT( &features, &presentIdFeatures );
 				}
 
+				const bool hasAccelStructExt        = __VK_SupportExtension( extensionProperties, extensionNum, qCToStrRef( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME ) );
+				const bool hasRayTracingPipelineExt = __VK_SupportExtension( extensionProperties, extensionNum, qCToStrRef( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME ) );
+				const bool hasRayQueryExt           = __VK_SupportExtension( extensionProperties, extensionNum, qCToStrRef( VK_KHR_RAY_QUERY_EXTENSION_NAME ) );
+				const bool hasDeferredHostOpsExt    = __VK_SupportExtension( extensionProperties, extensionNum, qCToStrRef( VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME ) );
+
+				VkPhysicalDeviceAccelerationStructurePropertiesKHR accelStructProps = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR };
+				VkPhysicalDeviceAccelerationStructureFeaturesKHR   accelStructFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+				if( hasAccelStructExt ) {
+					R_VK_ADD_STRUCT( &properties, &accelStructProps );
+					R_VK_ADD_STRUCT( &features, &accelStructFeatures );
+				}
+
+				VkPhysicalDeviceRayTracingPipelinePropertiesKHR rayTracingProps    = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR };
+				VkPhysicalDeviceRayTracingPipelineFeaturesKHR   rayTracingFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
+				if( hasRayTracingPipelineExt ) {
+					R_VK_ADD_STRUCT( &properties, &rayTracingProps );
+					R_VK_ADD_STRUCT( &features, &rayTracingFeatures );
+				}
+
+				VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
+				if( hasRayQueryExt ) {
+					R_VK_ADD_STRUCT( &features, &rayQueryFeatures );
+				}
+
 				VkPhysicalDeviceMemoryProperties memoryProperties = { 0 };
 				vkGetPhysicalDeviceMemoryProperties( physicalAdapter->vk.physicalDevice, &memoryProperties );
 				vkGetPhysicalDeviceProperties2( physicalAdapter->vk.physicalDevice, &properties );
@@ -353,7 +377,9 @@ int EnumerateRIAdapters( struct RIRenderer_s *renderer, struct RIPhysicalAdapter
 				physicalAdapter->uploadBufferTextureSliceAlignment = (uint32_t)limits->optimalBufferCopyOffsetAlignment; // TODO: ?
 				physicalAdapter->bufferShaderResourceOffsetAlignment = (uint32_t)std::max( limits->minTexelBufferOffsetAlignment, limits->minStorageBufferOffsetAlignment );
 				physicalAdapter->constantBufferOffsetAlignment = (uint32_t)limits->minUniformBufferOffsetAlignment;
-				// physicalAdapter->scratchBufferOffsetAlignment = accelerationStructureProps.minAccelerationStructureScratchOffsetAlignment;
+				if( hasAccelStructExt ) {
+					physicalAdapter->accelerationStructureScratchOffsetAlignment = accelStructProps.minAccelerationStructureScratchOffsetAlignment;
+				}
 				// physicalAdapter->shaderBindingTableAlignment = rayTracingProps.shaderGroupBaseAlignment;
 
 				physicalAdapter->pipelineLayoutDescriptorSetMaxNum = limits->maxBoundDescriptorSets;
@@ -405,10 +431,14 @@ int EnumerateRIAdapters( struct RIRenderer_s *renderer, struct RIPhysicalAdapter
 				physicalAdapter->computeShaderWorkGroupMaxDim[1] = limits->maxComputeWorkGroupSize[1];
 				physicalAdapter->computeShaderWorkGroupMaxDim[2] = limits->maxComputeWorkGroupSize[2];
 
-				// physicalAdapter->rayTracingShaderGroupIdentifierSize = rayTracingProps.shaderGroupHandleSize;
-				// physicalAdapter->rayTracingShaderTableMaxStride = rayTracingProps.maxShaderGroupStride;
-				// physicalAdapter->rayTracingShaderRecursionMaxDepth = rayTracingProps.maxRayRecursionDepth;
-				// physicalAdapter->rayTracingGeometryObjectMaxNum = (uint32_t)accelerationStructureProps.maxGeometryCount;
+				if( hasRayTracingPipelineExt ) {
+					physicalAdapter->rayTracingShaderGroupIdentifierSize  = rayTracingProps.shaderGroupHandleSize;
+					physicalAdapter->rayTracingShaderTableMaxStride       = rayTracingProps.maxShaderGroupStride;
+					physicalAdapter->rayTracingShaderRecursionMaxDepth    = rayTracingProps.maxRayRecursionDepth;
+				}
+				if( hasAccelStructExt ) {
+					physicalAdapter->rayTracingGeometryObjectMaxNum       = (uint32_t)accelStructProps.maxGeometryCount;
+				}
 
 				// physicalAdapter->meshControlSharedMemoryMaxSize = meshShaderProps.maxTaskSharedMemorySize;
 				// physicalAdapter->meshControlWorkGroupInvocationMaxNum = meshShaderProps.maxTaskWorkGroupInvocations;
@@ -469,10 +499,24 @@ int EnumerateRIAdapters( struct RIRenderer_s *renderer, struct RIPhysicalAdapter
 				//         physicalAdapter->sampleLocationsTier = 2;
 				// }
 
-				// if (physicalAdapter->rayTracingTier) {
-				//     if (rayTracingPipelineFeatures.rayTracingPipelineTraceRaysIndirect && rayQueryFeatures.rayQuery)
-				//         physicalAdapter->rayTracingTier = 2;
-				// }
+				physicalAdapter->vk.accelerationStructureExtension  = ( hasAccelStructExt        && accelStructFeatures.accelerationStructure )      ? 1 : 0;
+				physicalAdapter->vk.rayTracingPipelineExtension     = ( hasRayTracingPipelineExt && rayTracingFeatures.rayTracingPipeline )         ? 1 : 0;
+				physicalAdapter->vk.rayQueryExtension               = ( hasRayQueryExt           && rayQueryFeatures.rayQuery )                    ? 1 : 0;
+				physicalAdapter->vk.deferredHostOperationsExtension = ( hasDeferredHostOpsExt )                                                    ? 1 : 0;
+
+				physicalAdapter->isRayTracingSupported = ( physicalAdapter->vk.accelerationStructureExtension &&
+				                                          physicalAdapter->vk.rayTracingPipelineExtension &&
+				                                          physicalAdapter->vk.deferredHostOperationsExtension ) ? 1 : 0;
+				physicalAdapter->isRayQuerySupported   = ( physicalAdapter->vk.accelerationStructureExtension &&
+				                                          physicalAdapter->vk.rayQueryExtension ) ? 1 : 0;
+
+				if( physicalAdapter->isRayTracingSupported ) {
+					// DXR 1.0 baseline; promote to 1.1 when ray query + indirect-trace are present.
+					physicalAdapter->rayTracingTier = 1;
+					if( physicalAdapter->vk.rayQueryExtension && rayTracingFeatures.rayTracingPipelineTraceRaysIndirect ) {
+						physicalAdapter->rayTracingTier = 2;
+					}
+				}
 
 				// if (physicalAdapter->shadingRateTier) {
 				//     physicalAdapter->isAdditionalShadingRatesSupported = shadingRateProps.maxFragmentSize.height > 2 || shadingRateProps.maxFragmentSize.width > 2;
@@ -798,20 +842,20 @@ int InitRIDevice( struct RIRenderer_s *renderer, struct RIDeviceDesc_s *init, st
 		//	APPEND_EXT( meshShaderFeatures );
 		//}
 
-	 // VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
-   // if (IsExtensionSupported(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME, desiredDeviceExts)) {
-   //     APPEND_EXT(accelerationStructureFeatures);
-   // }
+		VkPhysicalDeviceAccelerationStructureFeaturesKHR accelerationStructureFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR };
+		if( __VK_isExtensionNamesSupported( qCToStrRef( VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME ), enabledExtensionNames, arrlen( enabledExtensionNames ) ) ) {
+			R_VK_ADD_STRUCT( &features, &accelerationStructureFeatures );
+		}
 
-   // VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayTracingPipelineFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
-   // if (IsExtensionSupported(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME, desiredDeviceExts)) {
-   //     APPEND_EXT(rayTracingPipelineFeatures);
-   // }
+		VkPhysicalDeviceRayTracingPipelineFeaturesKHR rayTracingPipelineFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR };
+		if( __VK_isExtensionNamesSupported( qCToStrRef( VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME ), enabledExtensionNames, arrlen( enabledExtensionNames ) ) ) {
+			R_VK_ADD_STRUCT( &features, &rayTracingPipelineFeatures );
+		}
 
-   // VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
-   // if (IsExtensionSupported(VK_KHR_RAY_QUERY_EXTENSION_NAME, desiredDeviceExts)) {
-   //     APPEND_EXT(rayQueryFeatures);
-   // }
+		VkPhysicalDeviceRayQueryFeaturesKHR rayQueryFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR };
+		if( __VK_isExtensionNamesSupported( qCToStrRef( VK_KHR_RAY_QUERY_EXTENSION_NAME ), enabledExtensionNames, arrlen( enabledExtensionNames ) ) ) {
+			R_VK_ADD_STRUCT( &features, &rayQueryFeatures );
+		}
 
    // VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR rayTracingMaintenanceFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MAINTENANCE_1_FEATURES_KHR};
    // if (IsExtensionSupported(VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME, desiredDeviceExts)) {

@@ -213,6 +213,101 @@ enum RIIndexType_e {
 	RI_INDEX_TYPE_32
 };
 
+enum RIAccelStructureType_e {
+	RI_ACCEL_STRUCTURE_TYPE_BOTTOM_LEVEL,
+	RI_ACCEL_STRUCTURE_TYPE_TOP_LEVEL
+};
+
+enum RIAccelStructureBuildBits_e {
+	RI_ACCEL_BUILD_NONE              = 0,
+	RI_ACCEL_BUILD_ALLOW_UPDATE      = 0x1,
+	RI_ACCEL_BUILD_ALLOW_COMPACTION  = 0x2,
+	RI_ACCEL_BUILD_ALLOW_DATA_ACCESS = 0x4,
+	RI_ACCEL_BUILD_PREFER_FAST_TRACE = 0x8,
+	RI_ACCEL_BUILD_PREFER_FAST_BUILD = 0x10,
+	RI_ACCEL_BUILD_MINIMIZE_MEMORY   = 0x20
+};
+
+enum RIAccelGeometryType_e {
+	RI_ACCEL_GEOMETRY_TYPE_TRIANGLES,
+	RI_ACCEL_GEOMETRY_TYPE_AABBS
+};
+
+enum RIAccelGeometryBits_e {
+	RI_ACCEL_GEOMETRY_NONE                            = 0,
+	RI_ACCEL_GEOMETRY_OPAQUE                          = 0x1,
+	RI_ACCEL_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION = 0x2
+};
+
+enum RIAccelInstanceBits_e {
+	RI_ACCEL_INSTANCE_NONE                  = 0,
+	RI_ACCEL_INSTANCE_TRIANGLE_CULL_DISABLE = 0x1,
+	RI_ACCEL_INSTANCE_TRIANGLE_FLIP_FACING  = 0x2,
+	RI_ACCEL_INSTANCE_FORCE_OPAQUE          = 0x4,
+	RI_ACCEL_INSTANCE_FORCE_NON_OPAQUE      = 0x8
+};
+
+// requires src and dst, both built with RI_ACCEL_BUILD_ALLOW_UPDATE
+enum RIAccelBuildMode_e {
+	RI_ACCEL_BUILD_MODE_BUILD,
+	RI_ACCEL_BUILD_MODE_UPDATE
+};
+
+// 3x4 row-major affine transform; matches VkTransformMatrixKHR layout
+struct RIAccelTransform_s {
+	float matrix[3][4];
+};
+
+// matches VkAabbPositionsKHR layout
+struct RIAccelAabb_s {
+	float minX, minY, minZ;
+	float maxX, maxY, maxZ;
+};
+
+// callers fill a buffer of these and pass it as the TLAS instance buffer;
+// matches VkAccelerationStructureInstanceKHR layout (64 bytes)
+struct RIAccelInstance_s {
+	struct RIAccelTransform_s transform;
+	uint32_t instanceCustomIndex            : 24;
+	uint32_t mask                           : 8;
+	uint32_t shaderBindingTableRecordOffset : 24;
+	uint32_t flags                          : 8;  // RIAccelInstanceBits_e
+	uint64_t accelerationStructureDeviceAddress;  // GetRIAccelStructureDeviceAddress
+};
+static_assert(sizeof(struct RIAccelInstance_s) == 64, "RIAccelInstance_s must match VkAccelerationStructureInstanceKHR layout");
+
+struct RIAccelTrianglesDesc_s {
+	struct RIBuffer_s *vertexBuffer;
+	uint64_t vertexOffset;
+	uint32_t vertexNum;
+	uint16_t vertexStride;
+	enum RI_Format_e vertexFormat;
+
+	struct RIBuffer_s *indexBuffer;     // optional, NULL = unindexed
+	uint64_t indexOffset;
+	uint32_t indexNum;
+	enum RIIndexType_e indexType;
+
+	struct RIBuffer_s *transformBuffer; // optional, points to RIAccelTransform_s entries
+	uint64_t transformOffset;
+};
+
+struct RIAccelAabbsDesc_s {
+	struct RIBuffer_s *buffer;          // points to RIAccelAabb_s entries
+	uint64_t offset;
+	uint32_t num;
+	uint32_t stride;
+};
+
+struct RIAccelGeometryDesc_s {
+	enum RIAccelGeometryType_e type;
+	uint32_t flags;                     // RIAccelGeometryBits_e
+	union {
+		struct RIAccelTrianglesDesc_s triangles;
+		struct RIAccelAabbsDesc_s     aabbs;
+	};
+};
+
 enum RIColorWriteMask_e {
 	RI_COLOR_WRITE_NONE = 0,
 	RI_COLOR_WRITE_R = 0x1,
@@ -332,6 +427,7 @@ enum RIFreeType_e {
 	RI_FREE_VK_VMA_AllOC,
 	RI_FREE_VK_BUFFER,
 	RI_FREE_VK_BUFFER_VIEW,
+	RI_FREE_VK_ACCELERATION_STRUCTURE,
 	RI_FREE_VK_END,
 };
 
@@ -343,6 +439,7 @@ struct RIFree {
 	explicit RIFree(VkSampler cmd) { type = RI_FREE_VK_SAMPLER; vkSampler = cmd; }
 	explicit RIFree(VkBufferView  cmd) { type = RI_FREE_VK_BUFFER_VIEW; vkBufferView = cmd; }
 	explicit RIFree(struct VmaAllocation_T*  cmd) { type = RI_FREE_VK_VMA_AllOC; vmaAlloc = cmd; }
+	explicit RIFree(VkAccelerationStructureKHR cmd) { type = RI_FREE_VK_ACCELERATION_STRUCTURE; vkAccelStructure = cmd; }
 
 	uint8_t type; // enum r_frame_free_list_e
 	union {
@@ -354,6 +451,7 @@ struct RIFree {
 		VkSampler vkSampler;
 		VkBufferView vkBufferView;
 		struct VmaAllocation_T*  vmaAlloc;
+		VkAccelerationStructureKHR vkAccelStructure;
 #endif
 	};
 };
@@ -387,7 +485,7 @@ struct RIDescriptor_s {
 	hash_t cookie;
 	uint8_t flags;
 	struct RIBuffer_s* buffer;
-	struct RITexture_s* texture; 
+	struct RITexture_s* texture;
 	union {
 #if( DEVICE_IMPL_VULKAN )
 		struct {
@@ -399,6 +497,54 @@ struct RIDescriptor_s {
 		} vk;
 #endif
 	};
+};
+
+struct RIAccelStructure_s {
+	enum RIAccelStructureType_e type;
+	uint32_t flags;                     // RIAccelStructureBuildBits_e snapshot
+	uint64_t buildScratchSize;
+	uint64_t updateScratchSize;
+	struct RIBuffer_s *storage;         // caller-owned backing buffer
+	uint64_t storageOffset;
+	union {
+#if ( DEVICE_IMPL_VULKAN )
+		struct {
+			VkAccelerationStructureKHR handle;
+			VkDeviceAddress deviceAddress;
+		} vk;
+#endif
+	};
+};
+
+struct RIAccelStructureDesc_s {
+	enum RIAccelStructureType_e type;
+	uint32_t flags;                                  // RIAccelStructureBuildBits_e
+	uint32_t geometryOrInstanceNum;                  // BLAS: geometry count, TLAS: max instance count
+	const struct RIAccelGeometryDesc_s *geometries;  // BLAS only; NULL for TLAS
+	struct RIBuffer_s *storage;                      // backing buffer (caller-owned)
+	uint64_t storageOffset;
+	uint64_t storageSize;                            // from GetRIAccelStructureMemoryReqs
+};
+
+struct RIBuildBlasDesc_s {
+	struct RIAccelStructure_s *dst;
+	struct RIAccelStructure_s *src;                  // NULL unless mode==UPDATE
+	enum RIAccelBuildMode_e mode;
+	const struct RIAccelGeometryDesc_s *geometries;
+	uint32_t geometryNum;
+	struct RIBuffer_s *scratchBuffer;
+	uint64_t scratchOffset;
+};
+
+struct RIBuildTlasDesc_s {
+	struct RIAccelStructure_s *dst;
+	struct RIAccelStructure_s *src;                  // NULL unless mode==UPDATE
+	enum RIAccelBuildMode_e mode;
+	uint32_t instanceNum;
+	struct RIBuffer_s *instanceBuffer;               // RIAccelInstance_s entries
+	uint64_t instanceOffset;
+	struct RIBuffer_s *scratchBuffer;
+	uint64_t scratchOffset;
 };
 
 struct RIRect_s {
@@ -655,10 +801,11 @@ struct RIPhysicalAdapter_s {
 	uint32_t computeShaderWorkGroupMaxDim[3];
 
 	// Ray tracing
-	//uint32_t rayTracingShaderGroupIdentifierSize;
-	//uint32_t rayTracingShaderTableMaxStride;
-	//uint32_t rayTracingShaderRecursionMaxDepth;
-	//uint32_t rayTracingGeometryObjectMaxNum;
+	uint32_t rayTracingShaderGroupIdentifierSize;
+	uint32_t rayTracingShaderTableMaxStride;
+	uint32_t rayTracingShaderRecursionMaxDepth;
+	uint32_t rayTracingGeometryObjectMaxNum;
+	uint32_t accelerationStructureScratchOffsetAlignment;
 
 	// Mesh shaders
 	//uint32_t meshControlSharedMemoryMaxSize;
@@ -704,7 +851,7 @@ struct RIPhysicalAdapter_s {
 
 	// 1 - DXR 1.0: full raytracing functionality, except features below
 	// 2 - DXR 1.1: adds - ray query, "CmdDispatchRaysIndirect", "GeometryIndex()" intrinsic, additional ray flags & vertex formats
-	//uint8_t rayTracingTier;
+	uint8_t rayTracingTier;
 
 	// 1 - shading rate can be specified only per draw
 	// 2 - adds: per primitive shading rate, per "shadingRateAttachmentTileSize" shading rate, combiners, "SV_ShadingRate" support
@@ -749,7 +896,8 @@ struct RIPhysicalAdapter_s {
 
 	//// Extensions (unexposed are always supported)
 	//uint32_t isSwapChainSupported : 1;	// swapchain Support
-	//uint32_t isRayTracingSupported : 1; // raytracing support
+	uint32_t isRayTracingSupported : 1; // ray tracing pipeline + acceleration structure support
+	uint32_t isRayQuerySupported   : 1; // VK_KHR_ray_query / DXR 1.1 inline ray queries
 	//uint32_t isMeshShaderSupported : 1; // meshshader support
 
 	union {
@@ -778,14 +926,14 @@ struct RIPhysicalAdapter_s {
 			//uint32_t MemoryReq2Extension : 1;
 			//uint32_t FragmentShaderInterlockExtension : 1;
 			//uint32_t BufferDeviceAddressExtension : 1;
-			//uint32_t accelerationStructureExtension : 1;
-			//uint32_t rayTracingPipelineExtension : 1;
-			//uint32_t rayQueryExtension : 1;
+			uint32_t accelerationStructureExtension : 1;
+			uint32_t rayTracingPipelineExtension : 1;
+			uint32_t rayQueryExtension : 1;
 			//uint32_t ShaderAtomicInt64Extension : 1;
 			//uint32_t BufferDeviceAddressFeature : 1;
 			//uint32_t ShaderFloatControlsExtension : 1;
 			//uint32_t Spirv14Extension : 1;
-			//uint32_t DeferredHostOperationsExtension : 1;
+			uint32_t deferredHostOperationsExtension : 1;
 			//uint32_t DeviceFaultExtension : 1;
 			//uint32_t DeviceFaultSupported : 1;
 			//uint32_t ASTCDecodeModeExtension : 1;

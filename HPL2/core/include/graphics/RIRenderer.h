@@ -60,6 +60,26 @@ void AdvanceRICommandRingBuffer( struct RICommandRingBuffer_s *ring );
 struct RICommandRingElement_s GetRICommandRingElement( struct RIDevice_s *dev, struct RICommandRingBuffer_s *ring, uint32_t numCmds );
 void WaitRICommandRingElement( struct RIDevice_s *dev, struct RICommandRingElement_s *element );
 
+// // RIAccelStructure
+// // query backing-storage and scratch sizes before InitRIAccelStructure; any out-pointer may be NULL.
+// void GetRIAccelStructureMemoryReqs( struct RIDevice_s *dev,
+//                                     const struct RIAccelStructureDesc_s *desc,
+//                                     uint64_t *outStorageSize,
+//                                     uint64_t *outBuildScratchSize,
+//                                     uint64_t *outUpdateScratchSize );
+// int  InitRIAccelStructure( struct RIDevice_s *dev,
+//                            const struct RIAccelStructureDesc_s *desc,
+//                            struct RIAccelStructure_s *outAS );
+// void FreeRIAccelStructure( struct RIDevice_s *dev, struct RIAccelStructure_s *as );
+// uint64_t GetRIAccelStructureDeviceAddress( const struct RIAccelStructure_s *as );
+// void RIFinalizeAccelStructureDescriptor( struct RIDevice_s *dev,
+//                                          struct RIDescriptor_s *desc,
+//                                          struct RIAccelStructure_s *as );
+
+// // build-command wrappers; numDescs structures are submitted in a single backend call.
+// void CmdBuildRIBlas( struct RICmd_s *cmd, const struct RIBuildBlasDesc_s *descs, uint32_t numDescs );
+// void CmdBuildRITlas( struct RICmd_s *cmd, const struct RIBuildTlasDesc_s *descs, uint32_t numDescs );
+
 #if DEVICE_IMPL_VULKAN
 void VK_ConfigureBufferQueueFamilies( VkBufferCreateInfo *info, struct RIQueue_s *queues, size_t numQueues, uint32_t *queueFamiliesIdx, size_t reservedLen );
 void VK_ConfigureImageQueueFamilies( VkImageCreateInfo *info, struct RIQueue_s *queues, size_t numQueues, uint32_t *queueFamiliesIdx, size_t reservedLen );

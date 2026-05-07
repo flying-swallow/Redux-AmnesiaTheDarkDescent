@@ -55,8 +55,45 @@ static inline void RI_VK_FillDepthAttachment( VkRenderingAttachmentInfo *info, s
 }
 
 const VkFormat RIFormatToVK(uint32_t format);
-const enum RI_Format_e VKToRIFormat(VkFormat);  
+const enum RI_Format_e VKToRIFormat(VkFormat);
 
+static inline VkAccelerationStructureTypeKHR RI_VK_AccelStructureType(enum RIAccelStructureType_e type) {
+  switch (type) {
+  case RI_ACCEL_STRUCTURE_TYPE_BOTTOM_LEVEL:
+    return VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+  case RI_ACCEL_STRUCTURE_TYPE_TOP_LEVEL:
+    return VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+  }
+  assert(false);
+  return VK_ACCELERATION_STRUCTURE_TYPE_GENERIC_KHR;
+}
+
+static inline VkBuildAccelerationStructureFlagsKHR RI_VK_AccelBuildFlags(uint32_t flags) {
+  VkBuildAccelerationStructureFlagsKHR out = 0;
+  if (flags & RI_ACCEL_BUILD_ALLOW_UPDATE)      out |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+  if (flags & RI_ACCEL_BUILD_ALLOW_COMPACTION)  out |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
+  if (flags & RI_ACCEL_BUILD_ALLOW_DATA_ACCESS) out |= VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_DATA_ACCESS_KHR;
+  if (flags & RI_ACCEL_BUILD_PREFER_FAST_TRACE) out |= VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+  if (flags & RI_ACCEL_BUILD_PREFER_FAST_BUILD) out |= VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
+  if (flags & RI_ACCEL_BUILD_MINIMIZE_MEMORY)   out |= VK_BUILD_ACCELERATION_STRUCTURE_LOW_MEMORY_BIT_KHR;
+  return out;
+}
+
+static inline VkGeometryFlagsKHR RI_VK_AccelGeometryFlags(uint32_t flags) {
+  VkGeometryFlagsKHR out = 0;
+  if (flags & RI_ACCEL_GEOMETRY_OPAQUE)                          out |= VK_GEOMETRY_OPAQUE_BIT_KHR;
+  if (flags & RI_ACCEL_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION) out |= VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR;
+  return out;
+}
+
+static inline VkGeometryInstanceFlagsKHR RI_VK_AccelInstanceFlags(uint32_t flags) {
+  VkGeometryInstanceFlagsKHR out = 0;
+  if (flags & RI_ACCEL_INSTANCE_TRIANGLE_CULL_DISABLE) out |= VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+  if (flags & RI_ACCEL_INSTANCE_TRIANGLE_FLIP_FACING)  out |= VK_GEOMETRY_INSTANCE_TRIANGLE_FLIP_FACING_BIT_KHR;
+  if (flags & RI_ACCEL_INSTANCE_FORCE_OPAQUE)          out |= VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
+  if (flags & RI_ACCEL_INSTANCE_FORCE_NON_OPAQUE)      out |= VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR;
+  return out;
+}
 
 #endif
 
