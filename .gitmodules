@@ -25,9 +25,9 @@
 [submodule "extern/SDL"]
 	path = extern/SDL
 	url = https://github.com/libsdl-org/SDL.git
-[submodule "extern/DevIL"]
-	path = extern/DevIL
-	url = https://github.com/OSS-Cosmic/DevIL.git
 [submodule "extern/MathLib"]
 	path = extern/MathLib
 	url = https://github.com/NVIDIA-RTX/MathLib.git
+[submodule "extern/Vulkan-Headers"]
+	path = extern/Vulkan-Headers
+	url = https://github.com/KhronosGroup/Vulkan-Headers.git

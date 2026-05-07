@@ -1,4 +1,6 @@
-cmake_minimum_required(VERSION 2.8.12...3.5)
+cmake_minimum_required(VERSION 3.15...3.31)
+cmake_policy(SET CMP0091 NEW)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 message(STATUS "CMAKE_SYSTEM: " ${CMAKE_SYSTEM})
 message(STATUS "CMAKE_SYSTEM_NAME: " ${CMAKE_SYSTEM_NAME})
 message(STATUS "CMAKE_SYSTEM_VERSION: " ${CMAKE_SYSTEM_VERSION})
@@ -34,8 +36,8 @@ OPTION(USE_SYSTEM_VORBIS "Prefer system vorbis instead of the bundled one" OFF)
 OPTION(USE_SYSTEM_DEVIL "Prefer system devil instead of the bundled one" OFF)
 
 if(MSVC)
-    add_definitions(/MP /std:c++20)
-    add_compile_definitions("NOMINMAX=1")
+    add_compile_options(/MP)
+    add_compile_definitions("NOMINMAX=1" "ML_INTRINSIC_LEVEL=1")
 endif()
 
 # hack to get to build on windwos

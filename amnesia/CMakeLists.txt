@@ -50,7 +50,7 @@ file(GLOB AMENISA_GAME_SOURCES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     src/game/*.cpp
     src/game/*.h
 )
-add_executable(Amnesia MACOSX_BUNDLE ${AMENISA_GAME_SOURCES})
+add_executable(Amnesia WIN32 MACOSX_BUNDLE ${AMENISA_GAME_SOURCES})
 target_link_libraries(Amnesia HPL2)
 set_target_properties(Amnesia PROPERTIES
   COMPILE_DEFINITIONS "${compile_defs}"

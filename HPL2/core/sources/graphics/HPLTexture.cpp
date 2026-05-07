@@ -7,6 +7,7 @@
 #include "graphics/RIVK.h"
 
 #include "graphics/Bitmap.h"
+#include "system/LowLevelSystem.h"
 #include "system/SystemTypes.h"
 
 #include <codecvt>
@@ -301,16 +302,22 @@ bool HPLTexture::LoadBitmap(
 #define MIP_REDUCE(s, mip) (std::max<uint32_t>(1u, (uint32_t)((s) >> (mip))))
   for (uint32_t arrIndex = 0; arrIndex < info.arrayLayers; arrIndex++) {
     for (uint32_t mipLevel = 0; mipLevel < info.mipLevels; mipLevel++) {
-      struct RIResourceTextureTransaction_s uploadDesc = {};
       const uint32_t w = MIP_REDUCE(info.extent.width, mipLevel);
-      const uint32_t h = MIP_REDUCE(info.extent.height, mipLevel); 
+      const uint32_t h = MIP_REDUCE(info.extent.height, mipLevel);
 
       const uint32_t srcSliceNum = (h / srcProps->blockHeight);
       const uint32_t srcRowPitch = (w / srcProps->blockWidth) * srcProps->stride;
       const auto& input = bitmap.GetData(arrIndex, mipLevel);
+      if (input == NULL || input->mpData == NULL) {
+        Warning("HPLTexture::LoadBitmap: missing source data for array %u mip %u\n",
+                arrIndex, mipLevel);
+        continue;
+      }
+
+      struct RIResourceTextureTransaction_s uploadDesc = {};
       uploadDesc.target = handle;
-      uploadDesc.width = MIP_REDUCE(info.extent.width, mipLevel);
-      uploadDesc.height = MIP_REDUCE(info.extent.height, mipLevel);
+      uploadDesc.width = w;
+      uploadDesc.height = h;
       uploadDesc.sliceNum = (h / destProps->blockHeight);
       uploadDesc.rowPitch = (w / destProps->blockWidth) * destProps->stride;
       uploadDesc.arrayOffset = arrIndex;
@@ -326,28 +333,35 @@ bool HPLTexture::LoadBitmap(
       uploadDesc.vk.post_access = postBarrier.vk.access;
       uploadDesc.vk.post_layout = postBarrier.vk.layout;
       RI_ResourceBeginCopyTexture(&RI.device, &RI.uploader, &uploadDesc);
-      if(destProps->isCompressed) {
+
+      // Iterate rows-of-blocks (== rows when blockHeight == 1).
+      // alignSlicePitch is already bytes-per-slice, so the z term must not
+      // be multiplied by alignRowPitch a second time.
+      const size_t rowCount = uploadDesc.sliceNum;
+      if (destProps->isCompressed) {
         assert(srcRowPitch == uploadDesc.rowPitch); // compressed formats must match
         assert(srcSliceNum == uploadDesc.sliceNum);
-        for(size_t z = 0; z < info.extent.depth; ++z) {
-          for( size_t slice = 0; slice < uploadDesc.height; slice++ ) {
+        for (size_t z = 0; z < info.extent.depth; ++z) {
+          for (size_t slice = 0; slice < rowCount; ++slice) {
             const size_t srcRowStart = (srcRowPitch * slice) + (srcRowPitch * srcSliceNum * z);
-            const size_t dstRowStart = (uploadDesc.alignRowPitch * slice) + (uploadDesc.alignRowPitch * uploadDesc.alignSlicePitch * z);
-            memcpy( &( (uint8_t *)uploadDesc.mapped.data )[dstRowStart], &input->mpData[srcRowStart], uploadDesc.rowPitch );
+            const size_t dstRowStart = (uploadDesc.alignRowPitch * slice) + (uploadDesc.alignSlicePitch * z);
+            memcpy(&((uint8_t *)uploadDesc.mapped.data)[dstRowStart],
+                   &input->mpData[srcRowStart], uploadDesc.rowPitch);
           }
         }
       } else {
         for (size_t z = 0; z < info.extent.depth; ++z) {
-	        for( size_t slice = 0; slice < uploadDesc.height; slice++ ) {
-	          const size_t srcRowStart = (srcRowPitch * slice) + (srcRowPitch * srcSliceNum * z);
-		        const size_t dstRowStart = (uploadDesc.alignRowPitch * slice) + (uploadDesc.alignRowPitch * uploadDesc.alignSlicePitch * z);
-		        memset( &( (uint8_t *)uploadDesc.mapped.data )[dstRowStart], 255, uploadDesc.rowPitch );
-		        for( size_t column = 0; column < uploadDesc.width; column++ ) {
-					    memcpy( &( (uint8_t *)uploadDesc.mapped.data )[dstRowStart + ( destProps->stride * column )], &input->mpData[srcRowStart + ( srcProps->stride * column )],
-							    std::min( srcProps->stride, destProps->stride ) );
-		        }
-	        }
-	      }
+          for (size_t slice = 0; slice < rowCount; ++slice) {
+            const size_t srcRowStart = (srcRowPitch * slice) + (srcRowPitch * srcSliceNum * z);
+            const size_t dstRowStart = (uploadDesc.alignRowPitch * slice) + (uploadDesc.alignSlicePitch * z);
+            memset(&((uint8_t *)uploadDesc.mapped.data)[dstRowStart], 255, uploadDesc.rowPitch);
+            for (size_t column = 0; column < uploadDesc.width; ++column) {
+              memcpy(&((uint8_t *)uploadDesc.mapped.data)[dstRowStart + (destProps->stride * column)],
+                     &input->mpData[srcRowStart + (srcProps->stride * column)],
+                     std::min(srcProps->stride, destProps->stride));
+            }
+          }
+        }
       }
       RI_ResourceEndCopyTexture(&RI.device, &RI.uploader, &uploadDesc);
     }

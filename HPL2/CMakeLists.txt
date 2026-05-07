@@ -116,6 +116,8 @@ IF(APPLE)
 ELSEIF(WIN32)
     LIST(APPEND impl_sources
         core/sources/impl/PlatformWin32.cpp
+        core/sources/impl/MutexWin32.cpp
+        core/sources/impl/ThreadWin32.cpp
     )
 ELSEIF(LINUX)
     LIST(APPEND impl_sources
@@ -196,7 +198,9 @@ source_group("Platform" REGULAR_EXPRESSION "\\/impl\\/Platform.+")
 
 set(OpenGL_GL_PREFERENCE LEGACY)
 find_package(OpenGL REQUIRED)
-find_package(GLEW REQUIRED)
+if(USE_SYSTEM_GLEW)
+    find_package(GLEW REQUIRED)
+endif()
 
 # setup HPL2 compile target
 
@@ -208,10 +212,8 @@ add_library(HPL2 STATIC
 
 set(HPL2_INCLUDES
     PUBLIC core/include
-    PUBLIC ${SDL2_INCLUDE_DIR}
     #Important that this is before dependencies so the correct OpenAL headers are used
     PRIVATE ${OALWRAPPER_INCLUDE_DIR}
-    PRIVATE ${ZLIB_INCLUDE_DIRS}
     PRIVATE ${IL_INCLUDE_DIR}
 )
 
@@ -241,6 +243,7 @@ endif()
 # Don't use exceptions
 if(WIN32)
   add_compile_options(/EHs-c-)
+  target_compile_definitions(HPL2 PRIVATE WIN32_LEAN_AND_MEAN SDL_MAIN_HANDLED IL_STATIC_LIB)
 else()
   add_compile_options(-fno-exceptions)
 endif()
@@ -250,15 +253,21 @@ target_link_libraries(HPL2
   AngelScript
   Newton
   tinyxml2::tinyxml2
-  SDL2::SDL2 $<TARGET_NAME_IF_EXISTS:SDL2::SDL2main>
-  OpenGL::GL 
+  SDL2::SDL2
+  OpenGL::GL
   GLEW::GLEW
   OpenGL::GLU
   MathLib
   zlib
   volk
-  IL 
+  GPUOpen::VulkanMemoryAllocator
+  IL
   ${PLATFORM_LIBS}
   )
+
+# Route HPL2 + every direct link dependency that is a real local target into
+# build/amnesia/<config>/libs so runtime DLLs (SDL2d.dll, zlibd.dll, ...) end up
+# alongside Amnesia.exe. Mirrors warfork's qf_set_output_dir_dep pattern.
+set_output_dir_dep(HPL2 "")
   
 

@@ -176,7 +176,7 @@ namespace hpl {
 		}
 		assert(numAdapters > 0);
 		auto physicalAdapters = std::vector<RIPhysicalAdapter_s>();
-		physicalAdapters.reserve(numAdapters);
+		physicalAdapters.resize(numAdapters);
 
 		if(EnumerateRIAdapters(&RI.renderer, physicalAdapters.data(), &numAdapters) != RI_SUCCESS) {
 			return false;

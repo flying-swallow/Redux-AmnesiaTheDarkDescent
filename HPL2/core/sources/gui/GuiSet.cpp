@@ -625,19 +625,24 @@ namespace hpl {
 	  //Screen projection
 	  else
 	  {
-	  	// Inverted bottom/top in cooperation with the negative-height viewport at ~line 651
-	  	// keeps screen-y origin at the top of the window (mouse-coord convention).
+	  	// MathLib's SetupByOrthoProjection asserts bottom < top, so pass the bounds
+	  	// in natural order. The y-flip and z remap below adapt the GL-style result
+	  	// to Vulkan + the negative-height viewport at ~line 651.
 	  	projectionMtx.SetupByOrthoProjection(-mvVirtualSizeOffset.x, mvVirtualSize.x - mvVirtualSizeOffset.x,
-	  	                                     mvVirtualSize.y - mvVirtualSizeOffset.y, -mvVirtualSizeOffset.y,
+	  	                                     -mvVirtualSizeOffset.y, mvVirtualSize.y - mvVirtualSizeOffset.y,
 	  	                                     mfVirtualMinZ, mfVirtualMaxZ);
 
-	  	// MathLib emits a GL-style ortho with NDC z in [-1, 1]; Vulkan clip space is [0, 1].
-	  	// Without this remap, points at the GL near plane (z' = -1) get rasterizer-clipped —
-	  	// notably the cursor, which is drawn at z = mfVirtualMaxZ.
-	  	ml::float4x4 zRemap = ml::float4x4::Identity();
-	  	zRemap.a22 = 0.5f;
-	  	zRemap.a23 = 0.5f;
-	  	projectionMtx = zRemap * projectionMtx;
+	  	// y-flip: MathLib emits NDC y up; the negative-height viewport then flips
+	  	//   framebuffer y again, producing an upside-down GUI. Negate y here so the
+	  	//   final image has screen-y origin at the top.
+	  	// z remap: MathLib emits GL-style NDC z in [-1, 1]; Vulkan clip space is
+	  	//   [0, 1]. Without this remap, points at the GL near plane (z' = -1) get
+	  	//   rasterizer-clipped — notably the cursor, drawn at z = mfVirtualMaxZ.
+	  	ml::float4x4 clipRemap = ml::float4x4::Identity();
+	  	clipRemap.a11 = -1.0f;
+	  	clipRemap.a22 = 0.5f;
+	  	clipRemap.a23 = 0.5f;
+	  	projectionMtx = clipRemap * projectionMtx;
 	  }
 		const VkDeviceSize vkOffset = vtxReq.elementOffset * vtxReq.elementStride; 
 		const VkDeviceSize idxOffset = idxReq.elementOffset * idxReq.elementStride;
