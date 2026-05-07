@@ -29,26 +29,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>NotSet</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>NotSet</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>NotSet</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>NotSet</CharacterSet>
   </PropertyGroup>
@@ -84,10 +84,10 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;$(VULKAN_SDK)\Include;..\dependencies\sources\VulkanMemoryAllocator\include;..\dependencies\sources\MathLib;..\dependencies\sources\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;ML_INTRINSIC_LEVEL=1;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <DisableSpecificWarnings>26495;26812;26451</DisableSpecificWarnings>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -101,12 +101,12 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;$(VULKAN_SDK)\Include;..\dependencies\sources\VulkanMemoryAllocator\include;..\dependencies\sources\MathLib;..\dependencies\sources\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;USE_SDL2;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;USE_SDL2;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;ML_INTRINSIC_LEVEL=1;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <DisableSpecificWarnings>26495;26812;26451</DisableSpecificWarnings>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -122,10 +122,10 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;$(VULKAN_SDK)\Include;..\..\extern\VulkanMemoryAllocator\include;..\..\extern\MathLib;..\..\extern\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;$(VULKAN_SDK)\Include;..\dependencies\sources\VulkanMemoryAllocator\include;..\dependencies\sources\MathLib;..\dependencies\sources\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_DEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;ML_INTRINSIC_LEVEL=1;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <DisableSpecificWarnings>26495;26812;26451;4018;4200;4244;4267;4319;4065;4477;4551</DisableSpecificWarnings>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -139,12 +139,12 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;$(VULKAN_SDK)\Include;..\..\extern\VulkanMemoryAllocator\include;..\..\extern\MathLib;..\..\extern\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;$(VULKAN_SDK)\Include;..\dependencies\sources\VulkanMemoryAllocator\include;..\dependencies\sources\MathLib;..\dependencies\sources\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>NDEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;USE_SDL2;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;USE_SDL2;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;ML_INTRINSIC_LEVEL=1;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <DisableSpecificWarnings>26495;26812;26451;4018;4200;4244;4267;4319;4065;4477</DisableSpecificWarnings>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
@@ -159,7 +159,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\extern\volk\volk.h" />
+    <ClInclude Include="..\dependencies\sources\volk\volk.h" />
     <ClInclude Include="include\graphics\AnimatedImage.h" />
     <ClInclude Include="include\graphics\BindlessPool.h" />
     <ClInclude Include="include\graphics\DrawPacket.h" />
@@ -524,7 +524,7 @@
     <ClInclude Include="include\system\Types.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\extern\volk\volk.c" />
+    <ClCompile Include="..\dependencies\sources\volk\volk.c" />
     <ClCompile Include="sources\graphics\BindlessPool.cpp" />
     <ClCompile Include="sources\graphics\HPLTexture.cpp" />
     <ClCompile Include="sources\graphics\HybridRenderer.cpp" />

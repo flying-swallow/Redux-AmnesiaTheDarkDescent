@@ -18,357 +18,357 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\altivec_common.cpp">
+    <ClCompile Include="DevIL\src-IL\src\altivec_common.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\altivec_typeconversion.cpp">
+    <ClCompile Include="DevIL\src-IL\src\altivec_typeconversion.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_alloc.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_alloc.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_bits.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_bits.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_blp.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_blp.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_bmp.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_bmp.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_convbuff.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_convbuff.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_convert.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_convert.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_cut.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_cut.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_dcx.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_dcx.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_dds.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_dds.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_dds-save.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_dds-save.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_devil.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_devil.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_dicom.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_dicom.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_doom.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_doom.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_dpx.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_dpx.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_endian.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_endian.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_error.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_error.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_exr.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_exr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_fastconv.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_fastconv.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_files.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_files.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_fits.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_fits.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_ftx.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_ftx.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_gif.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_gif.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_hdr.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_hdr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_header.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_header.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_icns.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_icns.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_icon.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_icon.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_iff.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_iff.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_ilbm.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_ilbm.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_internal.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_internal.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_io.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_io.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_iwi.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_iwi.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_jp2.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_jp2.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_jpeg.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_jpeg.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_ktx.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_ktx.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_lif.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_lif.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_main.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_main.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_manip.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_manip.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_mdl.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_mdl.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_mng.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_mng.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_mp3.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_mp3.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_neuquant.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_neuquant.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_nvidia.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_nvidia.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_pal.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_pal.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_pcd.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_pcd.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_pcx.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_pcx.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_pic.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_pic.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_pix.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_pix.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_png.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_png.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_pnm.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_pnm.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_profiles.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_profiles.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_psd.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_psd.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_psp.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_psp.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_pxr.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_pxr.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_quantizer.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_quantizer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_raw.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_raw.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_rawdata.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_rawdata.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_register.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_register.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_rle.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_rle.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_rot.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_rot.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_sgi.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_sgi.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_size.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_size.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_squish.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_squish.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_stack.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_stack.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_states.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_states.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_sun.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_sun.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_targa.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_targa.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_texture.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_texture.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_tiff.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_tiff.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_tpl.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_tpl.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_utility.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_utility.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_utx.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_utx.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_vtf.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_vtf.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_wal.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_wal.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_wbmp.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_wbmp.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_wdp.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_wdp.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="src\il_xpm.cpp">
+    <ClCompile Include="DevIL\src-IL\src\il_xpm.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="include\altivec_common.h">
+    <ClInclude Include="DevIL\src-IL\include\altivec_common.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\altivec_typeconversion.h">
+    <ClInclude Include="DevIL\src-IL\include\altivec_typeconversion.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_alloc.h">
+    <ClInclude Include="DevIL\src-IL\include\il_alloc.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_bits.h">
+    <ClInclude Include="DevIL\src-IL\include\il_bits.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_bmp.h">
+    <ClInclude Include="DevIL\src-IL\include\il_bmp.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_dcx.h">
+    <ClInclude Include="DevIL\src-IL\include\il_dcx.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_dds.h">
+    <ClInclude Include="DevIL\src-IL\include\il_dds.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_doompal.h">
+    <ClInclude Include="DevIL\src-IL\include\il_doompal.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_dpx.h">
+    <ClInclude Include="DevIL\src-IL\include\il_dpx.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_endian.h">
+    <ClInclude Include="DevIL\src-IL\include\il_endian.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_exr.h">
+    <ClInclude Include="DevIL\src-IL\include\il_exr.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_files.h">
+    <ClInclude Include="DevIL\src-IL\include\il_files.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_gif.h">
+    <ClInclude Include="DevIL\src-IL\include\il_gif.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_hdr.h">
+    <ClInclude Include="DevIL\src-IL\include\il_hdr.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_icns.h">
+    <ClInclude Include="DevIL\src-IL\include\il_icns.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_icon.h">
+    <ClInclude Include="DevIL\src-IL\include\il_icon.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_internal.h">
+    <ClInclude Include="DevIL\src-IL\include\il_internal.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_jp2.h">
+    <ClInclude Include="DevIL\src-IL\include\il_jp2.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_jpeg.h">
+    <ClInclude Include="DevIL\src-IL\include\il_jpeg.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_lif.h">
+    <ClInclude Include="DevIL\src-IL\include\il_lif.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_manip.h">
+    <ClInclude Include="DevIL\src-IL\include\il_manip.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_mdl.h">
+    <ClInclude Include="DevIL\src-IL\include\il_mdl.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_pal.h">
+    <ClInclude Include="DevIL\src-IL\include\il_pal.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_pcx.h">
+    <ClInclude Include="DevIL\src-IL\include\il_pcx.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_pic.h">
+    <ClInclude Include="DevIL\src-IL\include\il_pic.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_pnm.h">
+    <ClInclude Include="DevIL\src-IL\include\il_pnm.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_psd.h">
+    <ClInclude Include="DevIL\src-IL\include\il_psd.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_psp.h">
+    <ClInclude Include="DevIL\src-IL\include\il_psp.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_q2pal.h">
+    <ClInclude Include="DevIL\src-IL\include\il_q2pal.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_register.h">
+    <ClInclude Include="DevIL\src-IL\include\il_register.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_rle.h">
+    <ClInclude Include="DevIL\src-IL\include\il_rle.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_sgi.h">
+    <ClInclude Include="DevIL\src-IL\include\il_sgi.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_stack.h">
+    <ClInclude Include="DevIL\src-IL\include\il_stack.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_states.h">
+    <ClInclude Include="DevIL\src-IL\include\il_states.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_targa.h">
+    <ClInclude Include="DevIL\src-IL\include\il_targa.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_utx.h">
+    <ClInclude Include="DevIL\src-IL\include\il_utx.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_vtf.h">
+    <ClInclude Include="DevIL\src-IL\include\il_vtf.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\il_wdp.h">
+    <ClInclude Include="DevIL\src-IL\include\il_wdp.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="include\config.h">
+    <ClInclude Include="DevIL\src-IL\include\config.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\include\IL\devil_cpp_wrapper.hpp">

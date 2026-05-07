@@ -19,84 +19,86 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\altivec_common.cpp" />
-    <ClCompile Include="src\altivec_typeconversion.cpp" />
-    <ClCompile Include="src\il_alloc.cpp" />
-    <ClCompile Include="src\il_bits.cpp" />
-    <ClCompile Include="src\il_blp.cpp" />
-    <ClCompile Include="src\il_bmp.cpp" />
-    <ClCompile Include="src\il_convbuff.cpp" />
-    <ClCompile Include="src\il_convert.cpp" />
-    <ClCompile Include="src\il_cut.cpp" />
-    <ClCompile Include="src\il_dcx.cpp" />
-    <ClCompile Include="src\il_dds-save.cpp" />
-    <ClCompile Include="src\il_dds.cpp" />
-    <ClCompile Include="src\il_devil.cpp" />
-    <ClCompile Include="src\il_dicom.cpp" />
-    <ClCompile Include="src\il_doom.cpp" />
-    <ClCompile Include="src\il_dpx.cpp" />
-    <ClCompile Include="src\il_endian.cpp" />
-    <ClCompile Include="src\il_error.cpp" />
-    <ClCompile Include="src\il_exr.cpp" />
-    <ClCompile Include="src\il_fastconv.cpp" />
-    <ClCompile Include="src\il_files.cpp" />
-    <ClCompile Include="src\il_fits.cpp" />
-    <ClCompile Include="src\il_ftx.cpp" />
-    <ClCompile Include="src\il_gif.cpp" />
-    <ClCompile Include="src\il_hdr.cpp" />
-    <ClCompile Include="src\il_header.cpp" />
-    <ClCompile Include="src\il_icns.cpp" />
-    <ClCompile Include="src\il_icon.cpp" />
-    <ClCompile Include="src\il_iff.cpp" />
-    <ClCompile Include="src\il_ilbm.cpp" />
-    <ClCompile Include="src\il_internal.cpp" />
-    <ClCompile Include="src\il_io.cpp" />
-    <ClCompile Include="src\il_iwi.cpp" />
-    <ClCompile Include="src\il_jp2.cpp" />
-    <ClCompile Include="src\il_jpeg.cpp" />
-    <ClCompile Include="src\il_ktx.cpp" />
-    <ClCompile Include="src\il_lif.cpp" />
-    <ClCompile Include="src\il_main.cpp" />
-    <ClCompile Include="src\il_manip.cpp" />
-    <ClCompile Include="src\il_mdl.cpp" />
-    <ClCompile Include="src\il_mng.cpp" />
-    <ClCompile Include="src\il_mp3.cpp" />
-    <ClCompile Include="src\il_neuquant.cpp" />
-    <ClCompile Include="src\il_nvidia.cpp" />
-    <ClCompile Include="src\il_pal.cpp" />
-    <ClCompile Include="src\il_pcd.cpp" />
-    <ClCompile Include="src\il_pcx.cpp" />
-    <ClCompile Include="src\il_pic.cpp" />
-    <ClCompile Include="src\il_pix.cpp" />
-    <ClCompile Include="src\il_png.cpp" />
-    <ClCompile Include="src\il_pnm.cpp" />
-    <ClCompile Include="src\il_profiles.cpp" />
-    <ClCompile Include="src\il_psd.cpp" />
-    <ClCompile Include="src\il_psp.cpp" />
-    <ClCompile Include="src\il_pxr.cpp" />
-    <ClCompile Include="src\il_quantizer.cpp" />
-    <ClCompile Include="src\il_raw.cpp" />
-    <ClCompile Include="src\il_rawdata.cpp" />
-    <ClCompile Include="src\il_register.cpp" />
-    <ClCompile Include="src\il_rle.cpp" />
-    <ClCompile Include="src\il_rot.cpp" />
-    <ClCompile Include="src\il_sgi.cpp" />
-    <ClCompile Include="src\il_size.cpp" />
-    <ClCompile Include="src\il_squish.cpp" />
-    <ClCompile Include="src\il_stack.cpp" />
-    <ClCompile Include="src\il_states.cpp" />
-    <ClCompile Include="src\il_sun.cpp" />
-    <ClCompile Include="src\il_targa.cpp" />
-    <ClCompile Include="src\il_texture.cpp" />
-    <ClCompile Include="src\il_tiff.cpp" />
-    <ClCompile Include="src\il_tpl.cpp" />
-    <ClCompile Include="src\il_utility.cpp" />
-    <ClCompile Include="src\il_utx.cpp" />
-    <ClCompile Include="src\il_vtf.cpp" />
-    <ClCompile Include="src\il_wal.cpp" />
-    <ClCompile Include="src\il_wbmp.cpp" />
-    <ClCompile Include="src\il_wdp.cpp" />
-    <ClCompile Include="src\il_xpm.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\altivec_common.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\altivec_typeconversion.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_alloc.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_bits.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_blp.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_bmp.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_convbuff.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_convert.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_cut.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_dcx.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_dds-save.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_dds.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_devil.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_dicom.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_doom.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_dpx.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_endian.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_error.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_exr.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_fastconv.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_files.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_fits.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_ftx.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_gif.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_hdr.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_header.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_icns.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_icon.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_iff.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_ilbm.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_internal.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_io.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_iwi.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_jp2.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_jpeg.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_ktx.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_lif.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_main.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_manip.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_mdl.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_mng.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_mp3.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_neuquant.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_nvidia.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_pal.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_pcd.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_pcx.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_pic.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_pix.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_png.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_pnm.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_profiles.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_psd.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_psp.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_pxr.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_quantizer.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_raw.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_rawdata.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_register.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_rle.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_rot.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_sgi.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_scitex.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\rg_etc1.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_size.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_squish.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_stack.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_states.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_sun.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_targa.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_texture.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_tiff.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_tpl.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_utility.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_utx.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_vtf.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_wal.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_wbmp.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_wdp.cpp" />
+    <ClCompile Include="DevIL\src-IL\src\il_xpm.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\include\IL\devil_cpp_wrapper.hpp" />
@@ -107,45 +109,45 @@
     <ClInclude Include="..\..\include\IL\ilut_config.h" />
     <ClInclude Include="..\..\include\IL\ilu_region.h" />
     <ClInclude Include="..\..\include\IL\il_wrap.h" />
-    <ClInclude Include="include\altivec_common.h" />
-    <ClInclude Include="include\altivec_typeconversion.h" />
-    <ClInclude Include="include\config.h" />
-    <ClInclude Include="include\il_alloc.h" />
-    <ClInclude Include="include\il_bits.h" />
-    <ClInclude Include="include\il_bmp.h" />
-    <ClInclude Include="include\il_dcx.h" />
-    <ClInclude Include="include\il_dds.h" />
-    <ClInclude Include="include\il_doompal.h" />
-    <ClInclude Include="include\il_dpx.h" />
-    <ClInclude Include="include\il_endian.h" />
-    <ClInclude Include="include\il_exr.h" />
-    <ClInclude Include="include\il_files.h" />
-    <ClInclude Include="include\il_gif.h" />
-    <ClInclude Include="include\il_hdr.h" />
-    <ClInclude Include="include\il_icns.h" />
-    <ClInclude Include="include\il_icon.h" />
-    <ClInclude Include="include\il_internal.h" />
-    <ClInclude Include="include\il_jp2.h" />
-    <ClInclude Include="include\il_jpeg.h" />
-    <ClInclude Include="include\il_lif.h" />
-    <ClInclude Include="include\il_manip.h" />
-    <ClInclude Include="include\il_mdl.h" />
-    <ClInclude Include="include\il_pal.h" />
-    <ClInclude Include="include\il_pcx.h" />
-    <ClInclude Include="include\il_pic.h" />
-    <ClInclude Include="include\il_pnm.h" />
-    <ClInclude Include="include\il_psd.h" />
-    <ClInclude Include="include\il_psp.h" />
-    <ClInclude Include="include\il_q2pal.h" />
-    <ClInclude Include="include\il_register.h" />
-    <ClInclude Include="include\il_rle.h" />
-    <ClInclude Include="include\il_sgi.h" />
-    <ClInclude Include="include\il_stack.h" />
-    <ClInclude Include="include\il_states.h" />
-    <ClInclude Include="include\il_targa.h" />
-    <ClInclude Include="include\il_utx.h" />
-    <ClInclude Include="include\il_vtf.h" />
-    <ClInclude Include="include\il_wdp.h" />
+    <ClInclude Include="DevIL\src-IL\include\altivec_common.h" />
+    <ClInclude Include="DevIL\src-IL\include\altivec_typeconversion.h" />
+    <ClInclude Include="DevIL\src-IL\include\config.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_alloc.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_bits.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_bmp.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_dcx.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_dds.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_doompal.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_dpx.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_endian.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_exr.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_files.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_gif.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_hdr.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_icns.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_icon.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_internal.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_jp2.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_jpeg.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_lif.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_manip.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_mdl.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_pal.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_pcx.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_pic.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_pnm.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_psd.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_psp.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_q2pal.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_register.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_rle.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_sgi.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_stack.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_states.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_targa.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_utx.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_vtf.h" />
+    <ClInclude Include="DevIL\src-IL\include\il_wdp.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\jpeg\jpeg.vcxproj">
@@ -166,26 +168,26 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>true</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
     <ConfigurationType>StaticLibrary</ConfigurationType>
     <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset>v145</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <WholeProgramOptimization>true</WholeProgramOptimization>
     <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
@@ -225,8 +227,8 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;IL_STATIC_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)..\png;$(ProjectDir)..\jpeg;$(ProjectDir)..\..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <DisableSpecificWarnings>26451;4756</DisableSpecificWarnings>
+      <AdditionalIncludeDirectories>$(ProjectDir)DevIL\src-IL\include;$(ProjectDir)DevIL\include;$(ProjectDir)..\png;$(ProjectDir)..\jpeg;$(ProjectDir)..\..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>26451;4756;4703</DisableSpecificWarnings>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
@@ -243,8 +245,8 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;NDEBUG;_LIB;IL_STATIC_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)..\png;$(ProjectDir)..\jpeg;$(ProjectDir)..\..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <DisableSpecificWarnings>26451;4756</DisableSpecificWarnings>
+      <AdditionalIncludeDirectories>$(ProjectDir)DevIL\src-IL\include;$(ProjectDir)DevIL\include;$(ProjectDir)..\png;$(ProjectDir)..\jpeg;$(ProjectDir)..\..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>26451;4756;4703</DisableSpecificWarnings>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
@@ -261,8 +263,8 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_LIB;IL_STATIC_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)..\png;$(ProjectDir)..\jpeg;$(ProjectDir)..\..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <DisableSpecificWarnings>26451;4756;5033</DisableSpecificWarnings>
+      <AdditionalIncludeDirectories>$(ProjectDir)DevIL\src-IL\include;$(ProjectDir)DevIL\include;$(ProjectDir)..\png;$(ProjectDir)..\jpeg;$(ProjectDir)..\..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>26451;4756;5033;4703</DisableSpecificWarnings>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
@@ -279,8 +281,8 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_LIB;IL_STATIC_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)..\png;$(ProjectDir)..\jpeg;$(ProjectDir)..\..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <DisableSpecificWarnings>26451;4756;5033</DisableSpecificWarnings>
+      <AdditionalIncludeDirectories>$(ProjectDir)DevIL\src-IL\include;$(ProjectDir)DevIL\include;$(ProjectDir)..\png;$(ProjectDir)..\jpeg;$(ProjectDir)..\..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <DisableSpecificWarnings>26451;4756;5033;4703</DisableSpecificWarnings>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
