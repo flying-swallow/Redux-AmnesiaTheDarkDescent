@@ -237,7 +237,7 @@ std::vector<char> RIProgram::loadShaderStage(cFileSearcher *searcher, const tStr
   std::vector<char> result = {};
 	tWString sPath = searcher->GetFilePath(asName);
 	if(sPath==_W("")){
-		printf("Couldn't find file '%s' in resources\n",asName.c_str());
+		FatalError("Couldn't find file '%s' in resources!\n", asName.c_str());
 		return result;
 	}
 	unsigned int fileSize = cPlatform::GetFileSize(sPath);
@@ -271,8 +271,7 @@ void RIProgram::initialize(RIDevice_s* device,std::span<ModuleStage> moduleInit)
                                                      &pushConstantCount, NULL);
       assert(result == SPV_REFLECT_RESULT_SUCCESS);
       if (pushConstantCount > 1) {
-        printf("RIProgram: stage %u declares %u push constant blocks; only 1 supported per stage\n",
-               init.stage, pushConstantCount);
+        FatalError("RIProgram: stage %u declares %u push constant blocks; only 1 supported per stage!\n", init.stage, pushConstantCount);
         assert(false && "multiple push-constant blocks in a single stage");
       } else if (pushConstantCount == 1) {
         SpvReflectBlockVariable *blocks[1] = {nullptr};
@@ -344,7 +343,7 @@ void RIProgram::initialize(RIDevice_s* device,std::span<ModuleStage> moduleInit)
         reflc->baseRegisterIndex = reflectionBinding->binding;
         reflc->isArray = reflectionBinding->count > 1;
         reflc->dimCount = std::max<uint16_t>(1, reflectionBinding->count);
-        printf("[MP] Descriptor[%lu], name: %s hash: %lu stage: %u\n", i_set, reflectionBinding->name, reflc->hash, init.stage);
+        Log("[MP] Descriptor[%zu], name: %s hash: %llu stage: %u\n", i_set, reflectionBinding->name ? reflectionBinding->name : "<null>", (unsigned long long)reflc->hash, (unsigned)init.stage);
 
         VkDescriptorSetLayoutBinding *layoutBinding = NULL;
         VkDescriptorBindingFlags *bindingFlags = NULL;

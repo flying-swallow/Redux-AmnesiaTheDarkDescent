@@ -34,7 +34,7 @@ bool RINulTexture::Create2DNulWhite(struct RICmd_s* cmd, struct RIDevice_s* devi
   memReqs.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
 	if(!VK_WrapResult(vmaCreateImage(device->vk.vmaAllocator, &info, &memReqs, &tex->tex.vk.image, &tex->vk.vmaAlloc, NULL))) {
-	  printf("failed to create white texture image\n");
+	  hpl::FatalError("Failed to create white texture image!\n");
 	  return false;
 	}
 	void* pData = NULL;

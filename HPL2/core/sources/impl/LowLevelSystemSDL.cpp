@@ -286,18 +286,23 @@ namespace hpl {
 	void Log(const char* fmt, ...)
 	{
 		char text[4096];
-		va_list ap;	
+
 		if (fmt == NULL)
-			return;	
+			return;
+
+		va_list ap;
 		va_start(ap, fmt);
-		vsprintf(text, fmt, ap);
+		vsnprintf(text, sizeof(text), fmt, ap);
 		va_end(ap);
+
+		text[sizeof(text) - 1] = '\0';
 
 		tString sMess = "";
 		sMess += text;
 		gLogWriter.Write(sMess);
 
-		if(gpLogMessageCallbackFunc) gpLogMessageCallbackFunc(eLogOutputType_Normal, sMess.c_str());
+		if (gpLogMessageCallbackFunc)
+			gpLogMessageCallbackFunc(eLogOutputType_Normal, sMess.c_str());
 	}
 
 	//-----------------------------------------------------------------------

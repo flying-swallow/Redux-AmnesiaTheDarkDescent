@@ -202,7 +202,7 @@ namespace hpl {
 		RI_InitResourceUploader(&RI.device, &RI.uploader);
 		struct RIWindowHandle_s windowHandle = mpLowLevelGraphics->GetWindowHandle(); 
 		if(windowHandle.type == RI_WINDOW_UNKNOWN) {
-			printf("failed to find valid window handle");
+			FatalError("Failed to find valid window handle!\n");
 			return false;
 		}
 		struct RISwapchainDesc_s swapchainInit = { 0 };
@@ -315,7 +315,7 @@ namespace hpl {
 			info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
 			vkBeginCommandBuffer( cntx->cmd.vk.cmd, &info );
 			if(!RINulTexture::Create2DNulWhite(&cntx->cmd,&RI.device, &RI.whiteTexture2D)) {
-				printf("failed to create white texture");
+				FatalError("Failed to create white texture!\n");
 				return false;
 			}
 			vkEndCommandBuffer(cntx->cmd.vk.cmd);

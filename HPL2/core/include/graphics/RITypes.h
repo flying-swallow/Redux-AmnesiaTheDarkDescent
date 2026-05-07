@@ -32,6 +32,7 @@
 #undef ButtonPress
 
 #include "system/Hasher.h"
+#include "system/LowLevelSystem.h"
 
 #define R_VK_ADD_STRUCT(current, next) { \
   void* __pNext = (void*)((current)->pNext); \
@@ -42,7 +43,7 @@
 
 static inline bool __VK_WrapResult(VkResult result, const char *sourceFilename, const char *functionName, int sourceLine) {
 	if(result != VK_SUCCESS) {
-		printf( "RI: VK %i, file %s:%i (%s)\n", result, sourceFilename, sourceLine, functionName);
+		hpl::Log( "RI: VK %i, file %s:%i (%s)\n", result, sourceFilename, sourceLine, functionName);
 		return false;
 	}
 	return true;

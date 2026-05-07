@@ -154,17 +154,17 @@ VkBool32 VKAPI_PTR __VK_DebugUtilsMessenger( VkDebugUtilsMessageSeverityFlagBits
 	switch( messageSeverity ) {
 		case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
 			//assert(callbackData->messageIdNumber ==0xc1c74a9c );
-			printf( "VK ERROR: %s", callbackData->pMessage );
+			hpl::FatalError( "VK ERROR: %s\n", callbackData->pMessage );
 		  if( callbackData->messageIdNumber != 0xcc9c32be && 
 		  	callbackData->messageIdNumber != 0x4DAE5635 && 
 		  	callbackData->messageIdNumber != 0x2C8C6E7D ) 
 		  	assert( false );
 			break;
 		case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-			printf( "VK WARNING: %s", callbackData->pMessage );
+			hpl::Warning( "VK WARNING: %s\n", callbackData->pMessage );
 			break;
 		default:
-			printf( "VK INFO: %s", callbackData->pMessage );
+			hpl::Log( "VK INFO: %s\n", callbackData->pMessage );
 			break;
 	}
 	return VK_FALSE;
@@ -550,7 +550,7 @@ int InitRIDevice( struct RIRenderer_s *renderer, struct RIDeviceDesc_s *init, st
 		vkEnumerateDeviceExtensionProperties( physicalAdapter->vk.physicalDevice, NULL, &extensionNum, extensionProperties );
 		
 		for(size_t i = 0; i < extensionNum; i++) {
-			printf( "VK Extension %s - %u", extensionProperties[i].extensionName, extensionProperties[i].specVersion);
+			hpl::Log( "VK Extension %s - %u\n", extensionProperties[i].extensionName, extensionProperties[i].specVersion);
 		}
 
 		uint32_t familyNum = 0;
@@ -587,9 +587,9 @@ int InitRIDevice( struct RIRenderer_s *renderer, struct RIDeviceDesc_s *init, st
 					queueFeatures[numFeatures++] = qCToStrRef("VK_QUEUE_VIDEO_ENCODE_BIT_KHR"); 
 				if(queueFamilyProps[i].queueFlags & VK_QUEUE_OPTICAL_FLOW_BIT_NV ) 
 					queueFeatures[numFeatures++] = qCToStrRef("VK_QUEUE_OPTICAL_FLOW_BIT_NV"); 
-				qstrcatprintf(&str, "VK Queue - %lu: ", i);
+				qstrcatprintf(&str, "VK Queue - %u: ", (unsigned)i);
 				qstrcatjoin(&str, queueFeatures, numFeatures, qCToStrRef(","));
-				printf("%.*s", (int)str.len, str.buf);
+				hpl::Log("%.*s\n", (int)str.len, str.buf);
 			}
 			qStrFree( &str );
 		}
@@ -749,7 +749,7 @@ int InitRIDevice( struct RIRenderer_s *renderer, struct RIDeviceDesc_s *init, st
 
 		for( size_t idx = 0; idx < ARRAY_COUNT( DefaultDeviceExtension ); idx++ ) {
 			if( __VK_SupportExtension( extensionProperties, extensionNum, qCToStrRef( DefaultDeviceExtension[idx] ) ) ) {
-				printf("Enabled Extension: %s", DefaultDeviceExtension[idx]);
+				hpl::Log("Enabled Extension: %s\n", DefaultDeviceExtension[idx]);
 				arrpush( enabledExtensionNames, DefaultDeviceExtension[idx] );
 			}
 		}
@@ -983,7 +983,7 @@ int InitRIRenderer( const struct RIBackendInit_s *init, struct RIRenderer_s *ren
 			for( size_t i = 0; i < enumInstanceLayers; i++ ) {
 				bool useLayer = false;
 				useLayer |= ( init->vk.enableValidationLayer && strcmp( layerProperties[i].layerName, "VK_LAYER_KHRONOS_validation" ) == 0 );
-				printf( "Instance Layer: %s(%d): %s", layerProperties[i].layerName, layerProperties[i].specVersion, useLayer ? "ENABLED" : "DISABLED" );
+				hpl::Log( "Instance Layer: %s(%d): %s\n", layerProperties[i].layerName, layerProperties[i].specVersion, useLayer ? "ENABLED" : "DISABLED" );
 				if( useLayer ) {
 					assert( instanceCreateInfo.enabledLayerCount < ARRAY_COUNT( enabledLayerNames ) );
 					enabledLayerNames[instanceCreateInfo.enabledLayerCount++] = layerProperties[i].layerName;
@@ -1017,7 +1017,7 @@ int InitRIRenderer( const struct RIBackendInit_s *init, struct RIRenderer_s *ren
 				useExtension |= ( strcmp( extProperties[i].extensionName, VK_KHR_SURFACE_EXTENSION_NAME ) == 0 );
 				useExtension |= ( strcmp( extProperties[i].extensionName, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME ) == 0 );
 				useExtension |= ( strcmp( extProperties[i].extensionName, VK_EXT_DEBUG_UTILS_EXTENSION_NAME ) == 0 );
-				printf( "Instance Extensions: %s(%d): %s", extProperties[i].extensionName, extProperties[i].specVersion, useExtension ? "ENABLED" : "DISABLED" );
+				hpl::Log( "Instance Extensions: %s(%d): %s\n", extProperties[i].extensionName, extProperties[i].specVersion, useExtension ? "ENABLED" : "DISABLED" );
 				if( useExtension ) {
 					assert( instanceCreateInfo.enabledExtensionCount < ARRAY_COUNT( enabledExtensionNames ) );
 					enabledExtensionNames[instanceCreateInfo.enabledExtensionCount++] = extProperties[i].extensionName;

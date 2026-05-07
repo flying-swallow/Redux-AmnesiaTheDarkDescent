@@ -96,7 +96,7 @@ const VkFormat RIFormatToVK(uint32_t format) {
 		case RI_FORMAT_ETC2_EAC_R11G11_SNORM: return VK_FORMAT_EAC_R11G11_SNORM_BLOCK;
 		default: {
 			const struct RIFormatProps_s* fmt =  GetRIFormatProps(format);
-			printf("Unhandled RI_Format to VK %s\n", fmt->name);
+			hpl::FatalError("Unhandled RI_Format to VK %s!\n", fmt->name);
 			break;
 		}
 	}
@@ -195,7 +195,7 @@ switch (format) {
 		case VK_FORMAT_EAC_R11G11_SNORM_BLOCK: return  RI_FORMAT_ETC2_EAC_R11G11_SNORM;
 		default: {
 			const struct RIFormatProps_s* fmt =  GetRIFormatProps(format);
-			printf("Unhandled RI_Format to VK %s\n", fmt->name);
+			hpl::FatalError("Unhandled RI_Format to VK %s!\n", fmt->name);
 			break;
 		}
 	}
