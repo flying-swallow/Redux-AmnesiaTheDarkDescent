@@ -117,7 +117,7 @@ std::wstring BuildLogFilename ( const std::string& asFilename )
 			return L"";
 		}
 	#else
-		std::string home = std::string(getenv("HOME"));
+		string home = string(getenv("HOME"));
 		wsTemp = hpl::cString::To16Char(home);
 		wsTemp.append(L"/").append(wsName);
 	#endif
