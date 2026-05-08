@@ -6,9 +6,7 @@ set(HPL2_VERSION_MAJOR 2)
 set(HPL2_VERSION_MINOR 0)
 
 add_definitions(
-  # Snapshot at HPL2/dependencies/sources/OpenAL exposes its headers under
-  # OpenAL/, not OALWrapper/. Don't define USE_OALWRAPPER so the
-  # `#include "OpenAL/OAL_Funcs.h"` branch is selected throughout HPL2.
+  -DUSE_OALWRAPPER
   -DUSE_SDL2
 )
 

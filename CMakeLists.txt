@@ -55,7 +55,7 @@ execute_process(
 
 # option(WITH_TOOLS "build HPL2 with tools" ON)
 
-add_subdirectory(HPL2/dependencies/sources)
+add_subdirectory(extern)
 add_subdirectory(HPL2)
 add_subdirectory(amnesia)
 

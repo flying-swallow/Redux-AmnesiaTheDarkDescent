@@ -1162,7 +1162,7 @@
     <ClInclude Include="include\system\Types.h">
       <Filter>System</Filter>
     </ClInclude>
-    <ClInclude Include="..\dependencies\sources\volk\volk.h">
+    <ClInclude Include="..\..\extern\volk\volk.h">
       <Filter>Impl\Volk</Filter>
     </ClInclude>
   </ItemGroup>
@@ -2091,7 +2091,7 @@
     <ClCompile Include="sources\system\QStr.cpp">
       <Filter>System</Filter>
     </ClCompile>
-    <ClCompile Include="..\dependencies\sources\volk\volk.c">
+    <ClCompile Include="..\..\extern\volk\volk.c">
       <Filter>Impl\Volk</Filter>
     </ClCompile>
   </ItemGroup>

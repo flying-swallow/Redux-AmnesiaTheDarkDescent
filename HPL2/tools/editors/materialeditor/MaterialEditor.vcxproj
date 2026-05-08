@@ -84,7 +84,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>..\..\..\core\include;..\..\..\dependencies\include;$(VULKAN_SDK)\Include;..\..\..\dependencies\sources\VulkanMemoryAllocator\include;..\..\..\dependencies\sources\MathLib;..\..\..\dependencies\sources\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\core\include;..\..\..\dependencies\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -102,7 +102,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>..\..\..\core\include;..\..\..\dependencies\include;$(VULKAN_SDK)\Include;..\..\..\dependencies\sources\VulkanMemoryAllocator\include;..\..\..\dependencies\sources\MathLib;..\..\..\dependencies\sources\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\core\include;..\..\..\dependencies\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -124,7 +124,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>..\..\..\core\include;..\..\..\dependencies\include;$(VULKAN_SDK)\Include;..\..\..\dependencies\sources\VulkanMemoryAllocator\include;..\..\..\dependencies\sources\MathLib;..\..\..\dependencies\sources\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\core\include;..\..\..\dependencies\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;NOMINMAX
@@ -143,7 +143,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>..\..\..\core\include;..\..\..\dependencies\include;$(VULKAN_SDK)\Include;..\..\..\dependencies\sources\VulkanMemoryAllocator\include;..\..\..\dependencies\sources\MathLib;..\..\..\dependencies\sources\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\..\..\core\include;..\..\..\dependencies\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>

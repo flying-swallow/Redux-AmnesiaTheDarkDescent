@@ -1,24 +1,33 @@
-[submodule "HPL2/dependencies/sources/volk"]
-	path = HPL2/dependencies/sources/volk
+[submodule "extern/volk"]
+	path = extern/volk
 	url = https://github.com/zeux/volk.git
-[submodule "HPL2/dependencies/sources/glslang"]
-	path = HPL2/dependencies/sources/glslang
+[submodule "extern/glslang"]
+	path = extern/glslang
 	url = https://github.com/KhronosGroup/glslang.git
-[submodule "HPL2/dependencies/sources/VulkanMemoryAllocator"]
-	path = HPL2/dependencies/sources/VulkanMemoryAllocator
+[submodule "extern/VulkanMemoryAllocator"]
+	path = extern/VulkanMemoryAllocator
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
-[submodule "HPL2/dependencies/sources/openal-soft"]
-	path = HPL2/dependencies/sources/openal-soft
+[submodule "extern/zlib"]
+	path = extern/zlib
+	url = https://github.com/madler/zlib.git
+[submodule "extern/openal-soft"]
+	path = extern/openal-soft
 	url = https://github.com/kcat/openal-soft.git
-[submodule "HPL2/dependencies/sources/tinyxml2"]
-	path = HPL2/dependencies/sources/tinyxml2
+[submodule "extern/tinyxml2"]
+	path = extern/tinyxml2
 	url = https://github.com/leethomason/tinyxml2.git
-[submodule "HPL2/dependencies/sources/SDL"]
-	path = HPL2/dependencies/sources/SDL
+[submodule "extern/ogg"]
+	path = extern/ogg
+	url = https://github.com/xiph/ogg.git
+[submodule "extern/vorbis"]
+	path = extern/vorbis
+	url = https://github.com/xiph/vorbis.git
+[submodule "extern/SDL"]
+	path = extern/SDL
 	url = https://github.com/libsdl-org/SDL.git
-[submodule "HPL2/dependencies/sources/MathLib"]
-	path = HPL2/dependencies/sources/MathLib
+[submodule "extern/MathLib"]
+	path = extern/MathLib
 	url = https://github.com/NVIDIA-RTX/MathLib.git
-[submodule "HPL2/dependencies/sources/Vulkan-Headers"]
-	path = HPL2/dependencies/sources/Vulkan-Headers
+[submodule "extern/Vulkan-Headers"]
+	path = extern/Vulkan-Headers
 	url = https://github.com/KhronosGroup/Vulkan-Headers.git

@@ -16,8 +16,8 @@ target_link_libraries(png PRIVATE zlib)
 # zlib's directory-level include_directories don't propagate via the target;
 # wire the sources/build dirs explicitly so png can find zlib.h / zconf.h.
 target_include_directories(png PRIVATE
-    ${CMAKE_SOURCE_DIR}/HPL2/dependencies/sources/zlib
-    ${CMAKE_BINARY_DIR}/HPL2/dependencies/sources/zlib
+    ${CMAKE_SOURCE_DIR}/extern/zlib
+    ${CMAKE_BINARY_DIR}/extern/zlib
 )
 set_target_properties(png PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
