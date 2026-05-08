@@ -11,6 +11,7 @@
 #include <graphics/RIScratchAlloc.h>
 #include <graphics/RIProgram.h>
 #include <graphics/RINulTexture.h>
+#include <graphics/RIPogoBuffer.h>
 #include <memory>
 
 namespace hpl {
@@ -24,29 +25,11 @@ public:
   }
   struct FrameContext {
     struct RIScratchAlloc_s uboScratchAlloc;
-    struct RICmd_s cmd;
     struct RIDescriptor_s colorAttachment;
-    struct RIDescriptor_s depthAttachment;
     std::vector<std::shared_ptr<HPLTexture>> textureLink; // keep track of textures that are used in this frame
     std::vector<RIFree> freelist;
-    union {
-#if (DEVICE_IMPL_VULKAN)
-      struct {
-        VkCommandPool pool;
-      } vk;
-#endif
-    };
   };
 
-	union {
-#if ( DEVICE_IMPL_VULKAN )
-		struct {
-			VkSemaphore frameSemaphore;	
-    	struct VmaAllocation_T* pogoAlloc[RI_MAX_SWAPCHAIN_IMAGES * 2];
-    	struct VmaAllocation_T* depthAlloc[RI_MAX_SWAPCHAIN_IMAGES];
-		} vk;
-#endif
-	};
   RIRenderer_s renderer;
   RIDevice_s device;
   RISwapchain_s swapchain;
@@ -57,7 +40,11 @@ public:
   RI_Format_e depthFormat;
 	struct RIDescriptor_s colorAttachment[RI_MAX_SWAPCHAIN_IMAGES];
 	struct RITexture_s depthTextures[RI_MAX_SWAPCHAIN_IMAGES];
-	struct RIDescriptor_s depthAttachment[RI_MAX_SWAPCHAIN_IMAGES];
+	struct RITextureView_s depthView[RI_MAX_SWAPCHAIN_IMAGES];
+	struct RI_PogoBuffer pogoBuffer[RI_MAX_SWAPCHAIN_IMAGES];
+
+	struct RICommandRingBuffer_s graphicsCmdRing;
+	struct RICommandRingElement_s primary;
 
   struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> guiVertexAlloc;
   RIBuffer_s guiVertexBuffer; 
@@ -78,6 +65,7 @@ public:
   void UpdateFrameUBO(RIDescriptor_s* descriptor, void* data, size_t size);
   void CloseAndSubmitActiveSet();
   void BeginActiveSet();
+  void Dispose();
 
 };
 extern struct RIBootstrap RI; 

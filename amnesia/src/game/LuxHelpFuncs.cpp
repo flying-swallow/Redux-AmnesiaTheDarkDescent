@@ -198,7 +198,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
 
   VkRenderingAttachmentInfo depthStencil = {
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-  RI_VK_FillDepthAttachment(&depthStencil, &cntx->depthAttachment, false);
+ 	RI_VK_FillDepthAttachment(&depthStencil, &RI.depthView[RI.swapchainIndex], false);
   // Clear screen
   //if (abClearScreen) {
   //  mpLowLevelGfx->SetClearColor(aCol);
@@ -214,7 +214,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   renderingInfo.pColorAttachments = &colorAttachment;
   renderingInfo.pDepthAttachment = &depthStencil;
   renderingInfo.pStencilAttachment = NULL;
-  vkCmdBeginRendering(cntx->cmd.vk.cmd, &renderingInfo);
+ 	vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderingInfo);
 
   ///////////////////////////
   // Draw set
@@ -225,7 +225,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   pSet->Render(NULL);
   pSet->ClearRenderObjects();
 	
-	vkCmdEndRendering( cntx->cmd.vk.cmd );
+	vkCmdEndRendering( RI.primary.cmds[0].vk.cmd );
 
   //mpLowLevelGfx->FlushRendering();
   //mpLowLevelGfx->SwapBuffers();

@@ -667,8 +667,8 @@ namespace hpl {
 		VkRect2D scissors[] = {
 			{ {0, 0}, {RI.swapchain.width, RI.swapchain.height} }
 		};
-		vkCmdSetViewport(cntx->cmd.vk.cmd, 0, ARRAY_COUNT(viewports), viewports);
-		vkCmdSetScissor( cntx->cmd.vk.cmd, 0, ARRAY_COUNT(scissors), scissors );
+		vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, ARRAY_COUNT(viewports), viewports);
+		vkCmdSetScissor( RI.primary.cmds[0].vk.cmd, 0, ARRAY_COUNT(scissors), scissors );
 
 		size_t vertexBufferOffset = 0;
 		size_t indexBufferOffset = 0;
@@ -815,7 +815,7 @@ namespace hpl {
 					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
 					colorBlendState.pAttachments = blendAttachmentState;
 				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &cntx->cmd, hash,"gui.eGuiMaterial_Alpha", &pipelineCreateInfo);
+					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_Alpha", &pipelineCreateInfo);
 					break;
 				}
 				case eGuiMaterial_Additive: {
@@ -833,7 +833,7 @@ namespace hpl {
 					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
 					colorBlendState.pAttachments = blendAttachmentState;
 				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &cntx->cmd, hash,"gui.eGuiMaterial_Additive", &pipelineCreateInfo);
+					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_Additive", &pipelineCreateInfo);
 					break;	
 				}
 				case eGuiMaterial_Modulative: {
@@ -851,7 +851,7 @@ namespace hpl {
 					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
 					colorBlendState.pAttachments = blendAttachmentState;
 				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &cntx->cmd, hash,"gui.eGuiMaterial_Modulative", &pipelineCreateInfo);
+					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_Modulative", &pipelineCreateInfo);
 					break;	
 				}
 				case eGuiMaterial_PremulAlpha: {
@@ -869,7 +869,7 @@ namespace hpl {
 					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
 					colorBlendState.pAttachments = blendAttachmentState;
 				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &cntx->cmd, hash,"gui.eGuiMaterial_PremulAlpha", &pipelineCreateInfo);
+					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_PremulAlpha", &pipelineCreateInfo);
 					break;	
 				}
 				case eGuiMaterial_Diffuse:{
@@ -888,11 +888,11 @@ namespace hpl {
 					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
 					colorBlendState.pAttachments = blendAttachmentState;
 				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &cntx->cmd, hash,"gui.eGuiMaterial_Diffuse", &pipelineCreateInfo);
+					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_Diffuse", &pipelineCreateInfo);
 					break;
 				}
 			}
-			RI.gui.bindDescriptors(&RI.device, &cntx->cmd, RI.frameIndex, bindings, numBindings);
+			RI.gui.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, bindings, numBindings);
 			do
 			{
 				const cGuiRenderObject &object = *it;
@@ -975,9 +975,9 @@ namespace hpl {
 
 			uint64_t vbOffset = vkOffset + vertexBufferOffset * sizeof(PositionTexColor);
 			uint64_t ibOffset = idxOffset + indexBufferOffset * sizeof(uint32_t);
-			vkCmdBindVertexBuffers(cntx->cmd.vk.cmd, 0, 1, &RI.guiVertexBuffer.vk.buffer, &vbOffset);
-			vkCmdBindIndexBuffer(cntx->cmd.vk.cmd, RI.guiIndexBuffer.vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
-			vkCmdDrawIndexed(cntx->cmd.vk.cmd, indexBufferIndex, 1, 0, 0, 0);
+			vkCmdBindVertexBuffers(RI.primary.cmds[0].vk.cmd, 0, 1, &RI.guiVertexBuffer.vk.buffer, &vbOffset);
+			vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, RI.guiIndexBuffer.vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
+			vkCmdDrawIndexed(RI.primary.cmds[0].vk.cmd, indexBufferIndex, 1, 0, 0, 0);
 
 			vertexBufferOffset += vertexBufferIndex;
 			indexBufferOffset += indexBufferIndex;

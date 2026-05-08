@@ -255,7 +255,7 @@ namespace hpl {
 					info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 					info.format = RIFormatToVK( RI.depthFormat);
 					info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-					VK_WrapResult( vmaCreateImage( RI.device.vk.vmaAllocator, &info, &mem_reqs, &RI.depthTextures[i].vk.image, &RI.vk.depthAlloc[i], NULL ) );
+					VK_WrapResult( vmaCreateImage( RI.device.vk.vmaAllocator, &info, &mem_reqs, &RI.depthTextures[i].vk.image, &RI.depthTextures[i].vk.allocation, NULL ) );
 				}
 				{
 					VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
@@ -264,104 +264,42 @@ namespace hpl {
 						VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1,
 					};
 					createInfo.image = RI.depthTextures[i].vk.image;
-					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D; //| VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-					
-					RI.depthAttachment[i].flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-					RI.depthAttachment[i].texture = &RI.depthTextures[i];
-					RI.depthAttachment[i].vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-					RI.depthAttachment[i].vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.depthAttachment[i].vk.image.imageView ) );
-					RIFinalizeDescriptor( &RI.device, &RI.depthAttachment[i] );
+					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.depthView[i].vk.image ) );
 				}
+				RI_PogoBufferInit( &RI.device, &RI.pogoBuffer[i], RI.swapchain.width, RI.swapchain.height, RI_FORMAT_RGBA8_UNORM );
 			}
 		}
 
 		struct RIQueue_s *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
+		InitRICommandRingBuffer( &RI.device, graphicsQueue, &RI.graphicsCmdRing, true );
 		for(auto& set: RI.frameSets) {
-			{
-				VkCommandPoolCreateInfo cmdPoolCreateInfo = { VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO };
-				cmdPoolCreateInfo.queueFamilyIndex = graphicsQueue->vk.queueFamilyIdx;
-				cmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-				VK_WrapResult( vkCreateCommandPool( RI.device.vk.device, &cmdPoolCreateInfo, NULL, &set.vk.pool ) );
-			}
-			{
-				VkCommandBufferAllocateInfo cmdAllocInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO };
-				cmdAllocInfo.commandPool = set.vk.pool;
-				cmdAllocInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-				cmdAllocInfo.commandBufferCount = 1;
-				set.cmd.vk.pool = set.vk.pool;
-				VK_WrapResult( vkAllocateCommandBuffers( RI.device.vk.device, &cmdAllocInfo, &set.cmd.vk.cmd ) );
-			}
-
-			struct RIScratchAllocDesc_s scratchDesc = { 
-					.blockSize = 256 * 128, 
-					.alignmentReq = 256, 
+			struct RIScratchAllocDesc_s scratchDesc = {
+					.blockSize = 256 * 128,
+					.alignmentReq = 256,
 					.alloc = RIUniformScratchAllocHandler };
-				InitRIScratchAlloc( &RI.device, &set.uboScratchAlloc, &scratchDesc );
-			}
-
-			{
-				VkSemaphoreTypeCreateInfo semaphoreTypeCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO };
-				semaphoreTypeCreateInfo.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-				VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-				semaphoreCreateInfo.pNext = &semaphoreTypeCreateInfo;
-				VK_WrapResult( vkCreateSemaphore( RI.device.vk.device, &semaphoreCreateInfo, NULL, &RI.vk.frameSemaphore) );
-			}
+			InitRIScratchAlloc( &RI.device, &set.uboScratchAlloc, &scratchDesc );
+		}
 		}
 		{
-			RIBootstrap::FrameContext* cntx = RI.GetActiveSet();
-
-			if (!cntx) {
-				FatalError("RI.GetActiveSet() returned null!\n");
-				return false;
-			}
-
-			if (cntx->cmd.vk.cmd == VK_NULL_HANDLE) {
-				FatalError("Active frame context has no Vulkan command buffer!\n");
-				return false;
-			}
-
-			VkCommandBufferBeginInfo info = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
-			info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-
-			VkResult res = vkBeginCommandBuffer(cntx->cmd.vk.cmd, &info);
-			VK_WrapResult(res);
-
-			if (res != VK_SUCCESS) {
-				FatalError("Failed to begin command buffer!\n");
-				return false;
-			}
-
-			if (!RINulTexture::Create2DNulWhite(&cntx->cmd, &RI.device, &RI.whiteTexture2D)) {
+			struct RICommandRingElement_s initElem = GetRICommandRingElement( &RI.device, &RI.graphicsCmdRing, 1 );
+			ResetRIPool( &RI.device, initElem.pool );
+			BeginRICmd( &RI.device, &initElem.cmds[0] );
+			if (!RINulTexture::Create2DNulWhite(&initElem.cmds[0], &RI.device, &RI.whiteTexture2D)) {
 				FatalError("Failed to create white texture!\n");
 				return false;
 			}
-
-			res = vkEndCommandBuffer(cntx->cmd.vk.cmd);
-			VK_WrapResult(res);
-
-			if (res != VK_SUCCESS) {
-				FatalError("Failed to end command buffer!\n");
-				return false;
-			}
+			EndRICmd( &RI.device, &initElem.cmds[0] );
 
 			VkCommandBufferSubmitInfo cmdSubmitInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
-			cmdSubmitInfo.commandBuffer = cntx->cmd.vk.cmd;
+			cmdSubmitInfo.commandBuffer = initElem.cmds[0].vk.cmd;
 
 			VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
 			submitInfo.commandBufferInfoCount = 1;
 			submitInfo.pCommandBufferInfos = &cmdSubmitInfo;
 
-			res = vkQueueSubmit2(RI.device.queues[RI_QUEUE_GRAPHICS].vk.queue, 1, &submitInfo, VK_NULL_HANDLE);
-
-			VK_WrapResult(res);
-
-			if (res != VK_SUCCESS) {
-				FatalError("Failed to submit white texture upload command buffer!\n");
-				RINulTexture::Free2DNulWhiteUploadScratch(&RI.device, &RI.whiteTexture2D);
-				return false;
-			}
-
+			VK_WrapResult( vkResetFences( RI.device.vk.device, 1, &initElem.vk.fence ) );
+			VK_WrapResult( vkQueueSubmit2( RI.device.queues[RI_QUEUE_GRAPHICS].vk.queue, 1, &submitInfo, initElem.vk.fence ) );
 			WaitRIQueueIdle(&RI.device, &RI.device.queues[RI_QUEUE_GRAPHICS]);
 
 			RINulTexture::Free2DNulWhiteUploadScratch(&RI.device, &RI.whiteTexture2D);

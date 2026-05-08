@@ -189,7 +189,7 @@ namespace hpl {
 			RI_VK_FillColorAttachment( &colorAttachment, &cntx->colorAttachment , true );
 
 			VkRenderingAttachmentInfo depthStencil = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-			RI_VK_FillDepthAttachment( &depthStencil, &cntx->depthAttachment, true );
+			RI_VK_FillDepthAttachment( &depthStencil, &RI.depthView[RI.swapchainIndex], true );
 			VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
 			renderingInfo.flags = 0;
 			renderingInfo.renderArea = VkRect2D{ { 0, 0 }, { RI.swapchain.width, RI.swapchain.height } };
@@ -199,7 +199,7 @@ namespace hpl {
 			renderingInfo.pColorAttachments = &colorAttachment;
 			renderingInfo.pDepthAttachment = &depthStencil;
 			renderingInfo.pStencilAttachment = NULL;
-			vkCmdBeginRendering( cntx->cmd.vk.cmd , &renderingInfo );
+			vkCmdBeginRendering( RI.primary.cmds[0].vk.cmd , &renderingInfo );
 			for(; viewIt != mlstViewports.end(); ++viewIt)
 			{
 					cViewport *pViewPort = *viewIt;
@@ -238,7 +238,7 @@ namespace hpl {
 						STOP_TIMING(RenderGUI)
 					}
 			}
-			vkCmdEndRendering( cntx->cmd.vk.cmd );
+			vkCmdEndRendering( RI.primary.cmds[0].vk.cmd );
 		}
 
 

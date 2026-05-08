@@ -9,6 +9,11 @@
 
 namespace hpl {
 
+struct SurfelElement {
+  float m_pos_x,m_pos_y,m_pos_z, m_radius;
+  float m_normal_x,m_normal_y,m_normal_z, m_pad_0;
+};
+
 class cHybridRenderer : public iRenderer {
 public:
   cHybridRenderer(cGraphics *apGraphics, cResources *apResources);

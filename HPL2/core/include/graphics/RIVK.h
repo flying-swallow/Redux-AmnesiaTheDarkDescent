@@ -18,7 +18,7 @@ static inline VkSamplerAddressMode RI_VK_TextureWrap(eTextureWrap wrap) {
     return VK_SAMPLER_ADDRESS_MODE_REPEAT;
   case eTextureWrap_Clamp:
   case eTextureWrap_ClampToEdge:
-    return VK_SAMPLER_ADDRESS_MODE_MIRROR_CLAMP_TO_EDGE;
+    return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
   case eTextureWrap_ClampToBorder:
     return VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
   case eTextureWrap_LastEnum:
@@ -42,9 +42,9 @@ static inline void RI_VK_FillColorAttachment(VkRenderingAttachmentInfo *info,
   info->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 }
 
-static inline void RI_VK_FillDepthAttachment( VkRenderingAttachmentInfo *info, struct RIDescriptor_s *desc, bool attachAndClear )
+static inline void RI_VK_FillDepthAttachment( VkRenderingAttachmentInfo *info, struct RITextureView_s *view, bool attachAndClear )
 {
-	info->imageView = desc->vk.image.imageView;
+	info->imageView = view->vk.image;
 	info->imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 	info->resolveMode = VK_RESOLVE_MODE_NONE;
 	info->resolveImageView = VK_NULL_HANDLE;

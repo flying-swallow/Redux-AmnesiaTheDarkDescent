@@ -12,6 +12,29 @@ void RIBootstrap::IncrementFrame() {
   frameIndex++;
 }
 
+void RIBootstrap::Dispose() {
+  WaitRIQueueIdle(&device, &device.queues[RI_QUEUE_GRAPHICS]);
+
+  for (auto &desc : cachedFilters) {
+    if (desc.cookie) {
+      FreeRIDescriptor(&device, &desc);
+    }
+  }
+
+  for (uint32_t i = 0; i < swapchain.imageCount; i++) {
+    RI_PogoBufferDestroy(&device, &pogoBuffer[i]);
+    FreeRITextureView(&device, &depthView[i]);
+    FreeRITexture(&device, &depthTextures[i]);
+    FreeRIDescriptor(&device, &colorAttachment[i]);
+  }
+
+  for (auto &set : frameSets) {
+    FreeRIScratchAlloc(&device, &set.uboScratchAlloc);
+  }
+
+  FreeRICommandRingBuffer(&device, &graphicsCmdRing);
+}
+
 void RIBootstrap::CloseAndSubmitActiveSet() {
   RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
   struct RIQueue_s *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
@@ -36,78 +59,51 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
     VkDependencyInfo dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dependencyInfo.imageMemoryBarrierCount = 1;
     dependencyInfo.pImageMemoryBarriers = imageBarriers;
-    vkCmdPipelineBarrier2(cntx->cmd.vk.cmd, &dependencyInfo);
+    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dependencyInfo);
   }
+  EndRICmd(&RI.device, &RI.primary.cmds[0]);
   {
-    // close cmd buffer and submit
-    vkEndCommandBuffer(cntx->cmd.vk.cmd);
-    {
-      VkCommandBufferSubmitInfo cmdSubmitInfo = {
-          VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-      cmdSubmitInfo.commandBuffer = cntx->cmd.vk.cmd;
+    VkCommandBufferSubmitInfo cmdSubmitInfo = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+    cmdSubmitInfo.commandBuffer = RI.primary.cmds[0].vk.cmd;
 
-      VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-      submitInfo.pCommandBufferInfos = &cmdSubmitInfo;
-      submitInfo.commandBufferInfoCount = 1;
+    VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+    submitInfo.pCommandBufferInfos = &cmdSubmitInfo;
+    submitInfo.commandBufferInfoCount = 1;
 
-      RIResourceUploaderVKResult_s uploadResult =
-          RI_VKFlushResourceUpdate(&RI.device, &RI.uploader, 0, NULL);
-      VkSemaphoreSubmitInfo waitUpload = {
-          VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-      if (uploadResult.signaled) {
-        waitUpload.semaphore = uploadResult.vk.semaphore;
-        waitUpload.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        submitInfo.waitSemaphoreInfoCount = 1;
-        submitInfo.pWaitSemaphoreInfos = &waitUpload;
-      }
-      VK_WrapResult(vkQueueSubmit2(graphicsQueue->vk.queue, 1, &submitInfo,
-                                   VK_NULL_HANDLE));
-      RISwapchainPresent(&RI.device, &RI.swapchain);
+    RIResourceUploaderVKResult_s uploadResult =
+        RI_VKFlushResourceUpdate(&RI.device, &RI.uploader, 0, NULL);
+    VkSemaphoreSubmitInfo waitUpload = {
+        VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+    if (uploadResult.signaled) {
+      waitUpload.semaphore = uploadResult.vk.semaphore;
+      waitUpload.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+      submitInfo.waitSemaphoreInfoCount = 1;
+      submitInfo.pWaitSemaphoreInfos = &waitUpload;
     }
-    {
-      VkSemaphoreSubmitInfo signalSem = {
-          VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-      signalSem.stageMask = VK_PIPELINE_STAGE_2_NONE;
-      signalSem.value = RI.frameIndex + 1;
-      signalSem.semaphore = RI.vk.frameSemaphore;
-      VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-      submitInfo.pSignalSemaphoreInfos = &signalSem;
-      submitInfo.signalSemaphoreInfoCount = 1;
-
-      VK_WrapResult(vkQueueSubmit2(graphicsQueue->vk.queue, 1, &submitInfo,
-                                   VK_NULL_HANDLE));
-    }
+    VK_WrapResult(vkResetFences(RI.device.vk.device, 1, &RI.primary.vk.fence));
+    VK_WrapResult(vkQueueSubmit2(graphicsQueue->vk.queue, 1, &submitInfo,
+                                 RI.primary.vk.fence));
+    RISwapchainPresent(&RI.device, &RI.swapchain);
   }
   RI.IncrementFrame();
 }
 void RIBootstrap::BeginActiveSet() {
   RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
-  struct RIQueue_s *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
 
-  if (RI.frameIndex >= RI_NUMBER_FRAMES_FLIGHT) {
-    const uint64_t waitValue = 1 + RI.frameIndex - RI_NUMBER_FRAMES_FLIGHT;
-    VkSemaphoreWaitInfo semaphoreWaitInfo = {
-        VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO};
-    semaphoreWaitInfo.semaphoreCount = 1;
-    semaphoreWaitInfo.pSemaphores = &RI.vk.frameSemaphore;
-    semaphoreWaitInfo.pValues = &waitValue;
-    VK_WrapResult(vkWaitSemaphores(RI.device.vk.device, &semaphoreWaitInfo,
-                                   5000 * 1000000ull));
-    VK_WrapResult(vkResetCommandPool(RI.device.vk.device, cntx->vk.pool, 0));
-  }
+  AdvanceRICommandRingBuffer(&RI.graphicsCmdRing);
+  RI.primary = GetRICommandRingElement(&RI.device, &RI.graphicsCmdRing, 1);
+  WaitRICommandRingElement(&RI.device, &RI.primary);
+  ResetRIPool(&RI.device, RI.primary.pool);
+
   RI.swapchainIndex = RISwapchainAcquireNextTexture(&RI.device, &RI.swapchain);
 
   // cleanup
   RIResetScratchAlloc(&RI.device, &cntx->uboScratchAlloc);
   cntx->colorAttachment = RI.colorAttachment[RI.swapchainIndex];
-  cntx->depthAttachment = RI.depthAttachment[RI.swapchainIndex];
   cntx->textureLink.clear();
-  {
-    VkCommandBufferBeginInfo info = {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    vkBeginCommandBuffer(cntx->cmd.vk.cmd, &info);
-  }
+
+  BeginRICmd(&RI.device, &RI.primary.cmds[0]);
   {
     VkImageMemoryBarrier2 imageBarriers[2] = {};
     imageBarriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -137,7 +133,7 @@ void RIBootstrap::BeginActiveSet() {
     imageBarriers[1].newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     imageBarriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     imageBarriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imageBarriers[1].image = cntx->depthAttachment.texture->vk.image;
+    imageBarriers[1].image = RI.depthTextures[RI.swapchainIndex].vk.image;
     imageBarriers[1].subresourceRange = VkImageSubresourceRange{
         VK_IMAGE_ASPECT_DEPTH_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
         VK_REMAINING_ARRAY_LAYERS,
@@ -145,7 +141,7 @@ void RIBootstrap::BeginActiveSet() {
     VkDependencyInfo dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dependencyInfo.imageMemoryBarrierCount = 2;
     dependencyInfo.pImageMemoryBarriers = imageBarriers;
-    vkCmdPipelineBarrier2(cntx->cmd.vk.cmd, &dependencyInfo);
+    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dependencyInfo);
   }
 }
 
@@ -176,8 +172,8 @@ RIDescriptor_s *RIBootstrap::resolve_filter_descriptor(eTextureWrap wrapS,
   {
     VkSamplerCreateInfo info = {VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
     info.addressModeU = RI_VK_TextureWrap(wrapS);
-    info.addressModeV = RI_VK_TextureWrap(wrapR);
-    info.addressModeW = RI_VK_TextureWrap(wrapT);
+    info.addressModeV = RI_VK_TextureWrap(wrapT);
+    info.addressModeW = RI_VK_TextureWrap(wrapR);
     switch (filter) {
     case eTextureFilter_Nearest:
       info.minFilter = VK_FILTER_NEAREST;
@@ -198,6 +194,7 @@ RIDescriptor_s *RIBootstrap::resolve_filter_descriptor(eTextureWrap wrapS,
       assert(false);
       break;
     }
+    info.maxLod = 16;
     const hash_t hash =
         hash_data(HASH_INITIAL_VALUE, &info, sizeof(VkSamplerCreateInfo));
     const size_t startIndex = (hash % cachedFilters.size());
