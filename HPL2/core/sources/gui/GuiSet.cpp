@@ -712,7 +712,7 @@ namespace hpl {
 				uniformBlock.textureCfg |= (1 << 1); // Has clip planes
 			}
 
-			struct RIProgram::DescriptorBinding bindings[4] = { 0 };
+			struct RIProgram::DescriptorBinding bindings[6] = { 0 };
 			size_t numBindings = 0;
 			if(pTexture) {
 				std::shared_ptr<HPLTexture> texture = pTexture->GetTexture();
