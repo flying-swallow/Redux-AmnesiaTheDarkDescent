@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.0)
+cmake_minimum_required (VERSION 3.5)
 project(HPL2)
 
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -233,6 +233,11 @@ endif()
 
 target_include_directories(HPL2
     ${HPL2_INCLUDES}
+)
+
+# Cheat to avoid resolving the SDL2 under dependencies/include/SDL2 instead of the one from find_package. The SDL2::SDL2 target's
+target_include_directories(HPL2 BEFORE PRIVATE
+    "$<TARGET_PROPERTY:SDL2::SDL2,INTERFACE_INCLUDE_DIRECTORIES>"
 )
 
 if(LINUX)

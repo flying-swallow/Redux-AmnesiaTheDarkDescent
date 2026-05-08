@@ -55,6 +55,8 @@
 #include <clocale>
 #include <langinfo.h>
 #include <unistd.h>
+#include <cstring>
+#include <strings.h>
 #endif
 
 

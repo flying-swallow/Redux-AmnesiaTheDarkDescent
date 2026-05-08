@@ -1,4 +1,4 @@
-cmake_minimum_required (VERSION 3.0)
+cmake_minimum_required (VERSION 3.5)
 project (Newton)
 
 set(Newton_VERSION_MAJOR 2)
@@ -99,6 +99,21 @@ if(WIN32)
 		target_compile_definitions(Newton PRIVATE _WIN_64_VER)
 	else()
 		target_compile_definitions(Newton PRIVATE _WIN_32_VER)
+	endif()
+elseif(APPLE)
+	# dgThreads.cpp's ThreadExecute and dgAtomicAdd in dgTypes.h pick their
+	# signature/intrinsic via _LINUX_VER / _MAC_VER. Without one of these
+	# defined the function body is left without a signature and the file
+	# fails to parse. The _*_VER_64 sibling gates 32-bit-only inline asm
+	# (pushl %ebx around cpuid) in dgTypes.cpp.
+	target_compile_definitions(Newton PRIVATE _MAC_VER)
+	if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+		target_compile_definitions(Newton PRIVATE _MAC_VER_64)
+	endif()
+elseif(UNIX)
+	target_compile_definitions(Newton PRIVATE _LINUX_VER)
+	if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+		target_compile_definitions(Newton PRIVATE _LINUX_VER_64)
 	endif()
 endif()
 

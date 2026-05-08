@@ -133,8 +133,10 @@ else()
 
   option(IL_TESTS "" OFF)
   option(BUILD_SHARED_LIBS "" OFF)
-  add_subdirectory(DevIL/DevIL)
-  set(IL_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/DevIL/DevIL/include" CACHE PATH "" FORCE)
+  add_subdirectory(DevIL)
+  # Public IL/*.h headers live next to the other vendored deps' includes,
+  # not inside the DevIL source tree.
+  set(IL_INCLUDE_DIR "${CMAKE_SOURCE_DIR}/HPL2/dependencies/include" CACHE PATH "" FORCE)
 endif()
 
 # Pure VS-snapshot deps with new CMakeLists in this session.

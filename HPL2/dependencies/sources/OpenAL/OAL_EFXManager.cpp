@@ -14,51 +14,7 @@ int SlotUpdaterThread(void* alUnusedArg);
 
 extern cOAL_Device* gpDevice;
 
-// Set EFX func pointers to null (maybe this should be in OAL_Device.cpp? )
-
-// Effect Slots
-
-LPALGENAUXILIARYEFFECTSLOTS alGenAuxiliaryEffectSlots = NULL;
-LPALDELETEAUXILIARYEFFECTSLOTS alDeleteAuxiliaryEffectSlots = NULL;
-LPALISAUXILIARYEFFECTSLOT alIsAuxiliaryEffectSlot = NULL;
-LPALAUXILIARYEFFECTSLOTI alAuxiliaryEffectSloti = NULL;
-LPALAUXILIARYEFFECTSLOTIV alAuxiliaryEffectSlotiv = NULL;
-LPALAUXILIARYEFFECTSLOTF alAuxiliaryEffectSlotf = NULL;
-LPALAUXILIARYEFFECTSLOTFV alAuxiliaryEffectSlotfv = NULL;
-LPALGETAUXILIARYEFFECTSLOTI alGetAuxiliaryEffectSloti = NULL;
-LPALGETAUXILIARYEFFECTSLOTIV alGetAuxiliaryEffectSlotiv = NULL;
-LPALGETAUXILIARYEFFECTSLOTF alGetAuxiliaryEffectSlotf = NULL;
-LPALGETAUXILIARYEFFECTSLOTFV alGetAuxiliaryEffectSlotfv = NULL;
-
-// Effects
-
-LPALGENEFFECTS alGenEffects = NULL;
-LPALDELETEEFFECTS alDeleteEffects = NULL;
-LPALISEFFECT alIsEffect = NULL;
-LPALEFFECTI alEffecti = NULL;
-LPALEFFECTIV alEffectiv = NULL;
-LPALEFFECTF alEffectf = NULL;
-LPALEFFECTFV alEffectfv = NULL;
-LPALGETEFFECTI alGetEffecti = NULL;
-LPALGETEFFECTIV alGetEffectiv = NULL;
-LPALGETEFFECTF alGetEffectf = NULL;
-LPALGETEFFECTFV alGetEffectfv = NULL;
-
-// Filters
-
-LPALGENFILTERS alGenFilters = NULL;
-LPALDELETEFILTERS alDeleteFilters = NULL;
-LPALISFILTER alIsFilter = NULL;
-LPALFILTERI alFilteri = NULL;
-LPALFILTERIV alFilteriv = NULL;
-LPALFILTERF alFilterf = NULL;
-LPALFILTERFV alFilterfv = NULL;
-LPALGETFILTERI alGetFilteri = NULL;
-LPALGETFILTERIV alGetFilteriv = NULL;
-LPALGETFILTERF alGetFilterf = NULL;
-LPALGETFILTERFV alGetFilterfv = NULL;
-
-cOAL_EFXManager::cOAL_EFXManager() : mlNumSlots(0), mpvSlots(NULL), mplstEffectList(NULL), mplstFilterList(NULL)  
+cOAL_EFXManager::cOAL_EFXManager() : mlNumSlots(0), mpvSlots(NULL), mplstEffectList(NULL), mplstFilterList(NULL)
 {
 }
 
@@ -72,69 +28,13 @@ bool cOAL_EFXManager::Initialize(int alNumSlotsHint, int alNumSends, bool abUseT
 	FUNC_USES_AL;
 	
 	ALuint lTempSlot[256];
-    
-	// Set up every EFX function pointer 
 
 	LogMsg("",eOAL_LogVerbose_Medium, eOAL_LogMsg_Info, "Initializing EFX Manager...\n" );
-	LogMsg("",eOAL_LogVerbose_Medium, eOAL_LogMsg_Info, "Initializing function pointers...\n" );
 
-
-
-	// Slot funcs
-	alGenAuxiliaryEffectSlots		=	(LPALGENAUXILIARYEFFECTSLOTS) alGetProcAddress ("alGenAuxiliaryEffectSlots");
-	alDeleteAuxiliaryEffectSlots	=	(LPALDELETEAUXILIARYEFFECTSLOTS) alGetProcAddress ("alDeleteAuxiliaryEffectSlots");
-	alIsAuxiliaryEffectSlot			=	(LPALISAUXILIARYEFFECTSLOT) alGetProcAddress ("alIsAuxiliaryEffectSlot");
-	alAuxiliaryEffectSloti			=	(LPALAUXILIARYEFFECTSLOTI) alGetProcAddress ("alAuxiliaryEffectSloti");
-	alAuxiliaryEffectSlotiv			=	(LPALAUXILIARYEFFECTSLOTIV) alGetProcAddress ("alAuxiliaryEffectSlotiv");
-	alAuxiliaryEffectSlotf			=	(LPALAUXILIARYEFFECTSLOTF) alGetProcAddress ("alAuxiliaryEffectSlotf");
-	alAuxiliaryEffectSlotfv			=	(LPALAUXILIARYEFFECTSLOTFV) alGetProcAddress ("alAuxiliaryEffectSlotfv");
-	alGetAuxiliaryEffectSloti		=	(LPALGETAUXILIARYEFFECTSLOTI) alGetProcAddress ("alGetAuxiliaryEffectSloti");
-	alGetAuxiliaryEffectSlotiv		=	(LPALGETAUXILIARYEFFECTSLOTIV) alGetProcAddress ("alGetAuxiliaryEffectSlotiv");
-	alGetAuxiliaryEffectSlotf		=	(LPALGETAUXILIARYEFFECTSLOTF) alGetProcAddress ("alGetAuxiliaryEffectSlotf");
-	alGetAuxiliaryEffectSlotfv		=	(LPALGETAUXILIARYEFFECTSLOTFV) alGetProcAddress ("alGetAuxiliaryEffectSlotfv");
-
-	// Effect funcs
-	alGenEffects	=	(LPALGENEFFECTS) alGetProcAddress ("alGenEffects");
-	alDeleteEffects =	(LPALDELETEEFFECTS) alGetProcAddress ("alDeleteEffects");
-	alIsEffect		=	(LPALISEFFECT) alGetProcAddress ("alIsEffect");
-	alEffecti		=	(LPALEFFECTI) alGetProcAddress ("alEffecti");
-	alEffectiv		=	(LPALEFFECTIV) alGetProcAddress ("alEffectiv");
-	alEffectf		=	(LPALEFFECTF) alGetProcAddress ("alEffectf");
-	alEffectfv		=	(LPALEFFECTFV) alGetProcAddress ("alEffectfv");
-	alGetEffecti	=	(LPALGETEFFECTI) alGetProcAddress ("alGetEffecti");
-	alGetEffectiv	=	(LPALGETEFFECTIV) alGetProcAddress ("alGetEffectiv");
-	alGetEffectf	=	(LPALGETEFFECTF) alGetProcAddress ("alGetEffectf");
-	alGetEffectfv	=	(LPALGETEFFECTFV) alGetProcAddress ("alGetEffectfv");
-	
-	// Filter funcs
-	alGenFilters	= (LPALGENFILTERS) alGetProcAddress ("alGenFilters");
-	alDeleteFilters = (LPALDELETEFILTERS) alGetProcAddress ("alDeleteFilters");
-	alIsFilter		= (LPALISFILTER) alGetProcAddress ("alIsFilter");
-	alFilteri		= (LPALFILTERI) alGetProcAddress ("alFilteri");
-	alFilteriv		= (LPALFILTERIV) alGetProcAddress ("alFilteriv");
-	alFilterf		= (LPALFILTERF) alGetProcAddress ("alFilterf");
-	alFilterfv		= (LPALFILTERFV) alGetProcAddress ("alFilterfv");
-	alGetFilteri	= (LPALGETFILTERI) alGetProcAddress ("alGetFilteri");
-	alGetFilteriv	= (LPALGETFILTERIV) alGetProcAddress ("alGetFilteriv");
-	alGetFilterf	= (LPALGETFILTERF) alGetProcAddress ("alGetFilterf");
-	alGetFilterfv	= (LPALGETFILTERFV) alGetProcAddress ("alGetFilterfv");
-
-	if (!(alGenAuxiliaryEffectSlots && alDeleteAuxiliaryEffectSlots && alIsAuxiliaryEffectSlot &&
-		alAuxiliaryEffectSloti && alAuxiliaryEffectSlotiv && alAuxiliaryEffectSlotf && alAuxiliaryEffectSlotfv &&
-		alGetAuxiliaryEffectSloti && alGetAuxiliaryEffectSlotiv && alGetAuxiliaryEffectSlotf && alGetAuxiliaryEffectSlotfv &&
-
-		alGenEffects && alDeleteEffects && alIsEffect &&
-		alEffecti && alEffectiv && alEffectf && alEffectfv && 
-		alGetEffecti && alGetEffectiv && alGetEffectf && alGetEffectfv &&
-
-		alGenFilters && alDeleteFilters && alIsFilter &&
-		alFilteri && alFilteriv && alFilterf && alFilterfv &&
-		alGetFilteri && alGetFilteriv && alGetFilterf && alGetFilterfv))
-	{
-		LogMsg("",eOAL_LogVerbose_Medium, eOAL_LogMsg_Error, "Failed initializing function pointers\n" );
-		return false;
-	}
-	LogMsg("",eOAL_LogVerbose_Medium, eOAL_LogMsg_Info, "Done\n" );
+	// EFX entry points come straight from statically-linked openal-soft —
+	// no alGetProcAddress dance, no per-symbol nullness check. If the device
+	// doesn't actually advertise ALC_EXT_EFX, the alGen* below sets
+	// AL_INVALID_OPERATION and we exit through the no-slots-created path.
 
 	LogMsg("",eOAL_LogVerbose_Medium, eOAL_LogMsg_Info, "Calculating max slots...\n" );
 
