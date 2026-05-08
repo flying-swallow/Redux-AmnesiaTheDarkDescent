@@ -853,9 +853,6 @@
     <ProjectReference Include="..\dependencies\sources\ogg\ogg.vcxproj">
       <Project>{78f1fc55-39f8-4528-9acf-e6196cfcae3e}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\dependencies\sources\SDL2\SDL2.vcxproj">
-      <Project>{a748aef9-9068-401d-ab2b-196fdf92f5cc}</Project>
-    </ProjectReference>
     <ProjectReference Include="..\dependencies\sources\theora\theora.vcxproj">
       <Project>{f137b949-540b-4c39-91cf-b7a1e72e3059}</Project>
     </ProjectReference>
