@@ -374,7 +374,7 @@ int EnumerateRIAdapters( struct RIRenderer_s *renderer, struct RIPhysicalAdapter
 				physicalAdapter->bufferMaxSize = props13.maxBufferSize;
 
 				physicalAdapter->uploadBufferTextureRowAlignment = (uint32_t)limits->optimalBufferCopyRowPitchAlignment;
-				physicalAdapter->uploadBufferTextureSliceAlignment = (uint32_t)limits->optimalBufferCopyOffsetAlignment; // TODO: ?
+				physicalAdapter->uploadBufferOffsetAlignment = (uint32_t)limits->optimalBufferCopyOffsetAlignment;
 				physicalAdapter->bufferShaderResourceOffsetAlignment = (uint32_t)std::max( limits->minTexelBufferOffsetAlignment, limits->minStorageBufferOffsetAlignment );
 				physicalAdapter->constantBufferOffsetAlignment = (uint32_t)limits->minUniformBufferOffsetAlignment;
 				if( hasAccelStructExt ) {

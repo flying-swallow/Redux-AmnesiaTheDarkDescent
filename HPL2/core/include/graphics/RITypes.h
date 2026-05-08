@@ -740,7 +740,7 @@ struct RIPhysicalAdapter_s {
 
 	// Memory alignment
 	uint32_t uploadBufferTextureRowAlignment;
-	uint32_t uploadBufferTextureSliceAlignment;
+	uint32_t uploadBufferOffsetAlignment;
 	uint32_t bufferShaderResourceOffsetAlignment;
 	uint32_t constantBufferOffsetAlignment;
 	//uint32_t scratchBufferOffsetAlignment;

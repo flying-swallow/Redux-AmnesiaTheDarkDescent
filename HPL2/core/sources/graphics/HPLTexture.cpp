@@ -248,8 +248,8 @@ bool HPLTexture::LoadBitmap(
       info.arrayLayers = 6;
     }
   }
-  info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT |
-               VK_IMAGE_CREATE_EXTENDED_USAGE_BIT; // typeless
+  info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT |
+                VK_IMAGE_CREATE_EXTENDED_USAGE_BIT; // typeless
   info.imageType = depth > 1
                        ? VK_IMAGE_TYPE_3D
                        : ((bitmap.GetWidth() == 1 || bitmap.GetHeight() == 1)
