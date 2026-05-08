@@ -1103,11 +1103,18 @@ void RIFinalizeDescriptor( struct RIDevice_s *dev, struct RIDescriptor_s *desc )
 	{
 		switch( desc->vk.type ) {
 			case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
-			case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+			case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE: {
+				// For sampled/storage images Vulkan ignores the sampler field of
+				// VkDescriptorImageInfo; hashing it wastes entropy and is a foot-gun
+				// if any caller leaves it uninitialised.
+				assert( desc->texture );
+				hash_t cookie = hash_u64( HASH_INITIAL_VALUE, desc->vk.type );
+				cookie = hash_u64( cookie, (uint64_t)desc->vk.image.imageView );
+				cookie = hash_u32( cookie, (uint32_t)desc->vk.image.imageLayout );
+				desc->cookie = cookie;
+				break;
+			}
 			case VK_DESCRIPTOR_TYPE_SAMPLER:
-				// test some assumptions
-				assert( desc->vk.type == VK_DESCRIPTOR_TYPE_SAMPLER ||
-						( desc->texture && ( desc->vk.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE || desc->vk.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ) ) );
 				desc->cookie = hash_data( hash_u64( HASH_INITIAL_VALUE, desc->vk.type ), &desc->vk.image, sizeof( desc->vk.image ) );
 				break;
 			case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:

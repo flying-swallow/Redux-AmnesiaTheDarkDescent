@@ -29,6 +29,10 @@ void RIBootstrap::Dispose() {
   }
 
   for (auto &set : frameSets) {
+    for (auto &entry : set.freelist) {
+      FreeRIFree(&device, &entry);
+    }
+    set.freelist.clear();
     FreeRIScratchAlloc(&device, &set.uboScratchAlloc);
   }
 
@@ -95,6 +99,11 @@ void RIBootstrap::BeginActiveSet() {
   RI.primary = GetRICommandRingElement(&RI.device, &RI.graphicsCmdRing, 1);
   WaitRICommandRingElement(&RI.device, &RI.primary);
   ResetRIPool(&RI.device, RI.primary.pool);
+
+  for (auto &entry : cntx->freelist) {
+    FreeRIFree(&RI.device, &entry);
+  }
+  cntx->freelist.clear();
 
   RI.swapchainIndex = RISwapchainAcquireNextTexture(&RI.device, &RI.swapchain);
 
