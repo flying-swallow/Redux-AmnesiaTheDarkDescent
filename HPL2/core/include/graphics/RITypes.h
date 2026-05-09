@@ -253,11 +253,6 @@ enum RIAccelBuildMode_e {
 	RI_ACCEL_BUILD_MODE_UPDATE
 };
 
-// 3x4 row-major affine transform; matches VkTransformMatrixKHR layout
-struct RIAccelTransform_s {
-	float matrix[3][4];
-};
-
 // matches VkAabbPositionsKHR layout
 struct RIAccelAabb_s {
 	float minX, minY, minZ;
@@ -267,7 +262,7 @@ struct RIAccelAabb_s {
 // callers fill a buffer of these and pass it as the TLAS instance buffer;
 // matches VkAccelerationStructureInstanceKHR layout (64 bytes)
 struct RIAccelInstance_s {
-	struct RIAccelTransform_s transform;
+	float matrix[3][4];
 	uint32_t instanceCustomIndex            : 24;
 	uint32_t mask                           : 8;
 	uint32_t shaderBindingTableRecordOffset : 24;

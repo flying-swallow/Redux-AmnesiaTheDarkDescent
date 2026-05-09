@@ -3,6 +3,7 @@
 
 #include "graphics/HPLGraphicsConfig.h"
 #include "graphics/Material.h"
+#include "graphics/RenderList2.h"
 #include "graphics/Renderer.h"
 #include "graphics/RIRenderer.h"
 
@@ -34,18 +35,21 @@ public:
   virtual void RenderObjects() override {};
 
 private:
+
   // Per-(material, frame) version tracker. The renderer re-uploads a material's
   // packed block whenever the material pointer or its Generation() drifts from
   // what we wrote last frame. Triple-buffered so in-flight frames don't overwrite
   // each other's view of the data.
-  struct MaterialDescInfo {
-    void *m_material = nullptr;
-    uint32_t m_version = 0;
-  };
-  struct MaterialInfo {
-    std::array<MaterialDescInfo, RI_NUMBER_FRAMES_FLIGHT> m_perFrame{};
-  };
-  std::array<MaterialInfo, cMaterial::MaxMaterialID> m_materialInfo{};
+  //struct MaterialDescInfo {
+  //  void *m_material = nullptr;
+  //  uint32_t m_version = 0;
+  //};
+  //struct MaterialInfo {
+  //  std::array<MaterialDescInfo, RI_NUMBER_FRAMES_FLIGHT> m_perFrame{};
+  //};
+  //std::array<MaterialInfo, cMaterial::MaxMaterialID> m_materialInfo{};
+  
+  cRenderList2 renderList;
 
   struct RIBuffer_s positionBuffer;
   struct RIBuffer_s normalBuffer;

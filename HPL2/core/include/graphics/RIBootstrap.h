@@ -33,12 +33,12 @@ public:
 
   RIRenderer_s renderer;
   RIDevice_s device;
-  RISwapchain_s<> swapchain;
 	RIProgram gui;
 
   struct RINulTexture whiteTexture2D;
 
   RI_Format_e depthFormat;
+  RISwapchain_s<RI_MAX_SWAPCHAIN_IMAGES> swapchain;
 	struct RIDescriptor_s colorAttachment[RI_MAX_SWAPCHAIN_IMAGES];
 	struct RITexture_s depthTextures[RI_MAX_SWAPCHAIN_IMAGES];
 	struct RITextureView_s depthView[RI_MAX_SWAPCHAIN_IMAGES];
