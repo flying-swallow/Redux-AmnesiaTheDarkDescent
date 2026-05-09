@@ -253,11 +253,6 @@ enum RIAccelBuildMode_e {
 	RI_ACCEL_BUILD_MODE_UPDATE
 };
 
-// 3x4 row-major affine transform; matches VkTransformMatrixKHR layout
-struct RIAccelTransform_s {
-	float matrix[3][4];
-};
-
 // matches VkAabbPositionsKHR layout
 struct RIAccelAabb_s {
 	float minX, minY, minZ;
@@ -267,7 +262,7 @@ struct RIAccelAabb_s {
 // callers fill a buffer of these and pass it as the TLAS instance buffer;
 // matches VkAccelerationStructureInstanceKHR layout (64 bytes)
 struct RIAccelInstance_s {
-	struct RIAccelTransform_s transform;
+	float matrix[3][4];
 	uint32_t instanceCustomIndex            : 24;
 	uint32_t mask                           : 8;
 	uint32_t shaderBindingTableRecordOffset : 24;
@@ -586,8 +581,9 @@ struct RICmd_s {
 	};
 };
 
-#define RI_COMMAND_RING_POOL_COUNT RI_NUMBER_FRAMES_FLIGHT
-#define RI_COMMAND_RING_CMD_PER_POOL 8
+// Compile-time maximums; runtime poolCount/cmdPerPool are passed to InitRICommandRingBuffer.
+#define RI_COMMAND_RING_POOL_COUNT 8
+#define RI_COMMAND_RING_CMD_PER_POOL 32
 
 struct RICommandRingElement_s {
 	struct RICmd_s *cmds;
@@ -603,7 +599,12 @@ struct RICommandRingElement_s {
 	};
 };
 
+template<uint32_t MaxPoolCount = RI_COMMAND_RING_POOL_COUNT,
+         uint32_t CmdPerPool   = RI_COMMAND_RING_CMD_PER_POOL>
 struct RICommandRingBuffer_s {
+	static constexpr uint32_t MAX_POOL_COUNT = MaxPoolCount;
+	static constexpr uint32_t CMD_PER_POOL = CmdPerPool;
+
 	uint32_t poolIndex;
 	uint32_t cmdIndex;
 	uint32_t fenceIndex;
@@ -612,14 +613,14 @@ struct RICommandRingBuffer_s {
 	uint32_t cmdPerPool;
 	bool syncPrimitive;
 
-	struct RIPool_s pools[RI_COMMAND_RING_POOL_COUNT];
-	struct RICmd_s cmds[RI_COMMAND_RING_POOL_COUNT][RI_COMMAND_RING_CMD_PER_POOL];
+	struct RIPool_s pools[MaxPoolCount];
+	struct RICmd_s cmds[MaxPoolCount][CmdPerPool];
 
 	union {
 #if ( DEVICE_IMPL_VULKAN )
 		struct {
-			VkFence fences[RI_COMMAND_RING_POOL_COUNT][RI_COMMAND_RING_CMD_PER_POOL];
-			VkSemaphore semaphores[RI_COMMAND_RING_POOL_COUNT][RI_COMMAND_RING_CMD_PER_POOL];
+			VkFence fences[MaxPoolCount][CmdPerPool];
+			VkSemaphore semaphores[MaxPoolCount][CmdPerPool];
 		} vk;
 #endif
 	};
@@ -639,13 +640,16 @@ struct RIQueue_s {
   };
 };
 
+template<uint32_t MaxImageCount = RI_MAX_SWAPCHAIN_IMAGES>
 struct RISwapchain_s {
-  struct RIQueue_s* presentQueue;
+	static constexpr uint32_t MAX_IMAGE_COUNT = MaxImageCount;
+
+	struct RIQueue_s* presentQueue;
 	uint16_t imageCount;
 	uint16_t width;
 	uint16_t height;
-	uint32_t format; // RI_Format_e 
-	struct RITexture_s textures[RI_MAX_SWAPCHAIN_IMAGES];
+	uint32_t format; // RI_Format_e
+	struct RITexture_s textures[MaxImageCount];
 	union {
 #if ( DEVICE_IMPL_VULKAN )
 		struct {
@@ -654,9 +658,9 @@ struct RISwapchain_s {
 			uint64_t presentID;
 			VkSwapchainKHR swapchain;
 			VkSurfaceKHR surface;
-			VkImage images[RI_MAX_SWAPCHAIN_IMAGES];
-			VkSemaphore imageAcquireSem[RI_MAX_SWAPCHAIN_IMAGES];
-			VkSemaphore finishSem[RI_MAX_SWAPCHAIN_IMAGES];
+			VkImage images[MaxImageCount];
+			VkSemaphore imageAcquireSem[MaxImageCount];
+			VkSemaphore finishSem[MaxImageCount];
 		} vk;
 #endif
 	};
@@ -740,7 +744,7 @@ struct RIPhysicalAdapter_s {
 
 	// Memory alignment
 	uint32_t uploadBufferTextureRowAlignment;
-	uint32_t uploadBufferTextureSliceAlignment;
+	uint32_t uploadBufferOffsetAlignment;
 	uint32_t bufferShaderResourceOffsetAlignment;
 	uint32_t constantBufferOffsetAlignment;
 	//uint32_t scratchBufferOffsetAlignment;

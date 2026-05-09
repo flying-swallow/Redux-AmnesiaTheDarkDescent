@@ -206,7 +206,7 @@ namespace hpl {
 		}
 		struct RISwapchainDesc_s swapchainInit = { 0 };
 		swapchainInit.windowHandle = &windowHandle;
-		swapchainInit.imageCount = RI_NUMBER_FRAMES_FLIGHT;
+		swapchainInit.requestImageCount = RI_NUMBER_FRAMES_FLIGHT;
 		swapchainInit.queue = &RI.device.queues[RI_QUEUE_GRAPHICS];
 		swapchainInit.width = alWidth;
 		swapchainInit.height = alHeight;
@@ -272,7 +272,8 @@ namespace hpl {
 		}
 
 		struct RIQueue_s *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
-		InitRICommandRingBuffer( &RI.device, graphicsQueue, &RI.graphicsCmdRing, true );
+		InitRICommandRingBuffer( &RI.device, graphicsQueue, &RI.graphicsCmdRing,
+		                         RI_NUMBER_FRAMES_FLIGHT, RI_NUMBER_SUB_COMMANDS, true );
 		for(auto& set: RI.frameSets) {
 			struct RIScratchAllocDesc_s scratchDesc = {
 					.blockSize = 256 * 128,

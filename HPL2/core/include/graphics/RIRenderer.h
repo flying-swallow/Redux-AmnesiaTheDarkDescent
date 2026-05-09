@@ -2,6 +2,7 @@
 #define RI_RENDERER_H
 
 #include "graphics/RITypes.h"
+#include <cassert>
 #include <stdint.h>
 
 static inline uint32_t RIGetQueueFlags(struct RIRenderer_s* renderer,const struct RIQueue_s* queue) {
@@ -54,11 +55,94 @@ void EndRICmd( struct RIDevice_s *dev, struct RICmd_s *cmd );
 void FreeRICmd( struct RIDevice_s *dev, struct RICmd_s *cmd);
 
 // RICommandRing
-void InitRICommandRingBuffer( struct RIDevice_s *dev, struct RIQueue_s *queue, struct RICommandRingBuffer_s *ring, bool syncPrimitives );
-void FreeRICommandRingBuffer( struct RIDevice_s *dev, struct RICommandRingBuffer_s *ring );
-void AdvanceRICommandRingBuffer( struct RICommandRingBuffer_s *ring );
-struct RICommandRingElement_s GetRICommandRingElement( struct RIDevice_s *dev, struct RICommandRingBuffer_s *ring, uint32_t numCmds );
 void WaitRICommandRingElement( struct RIDevice_s *dev, struct RICommandRingElement_s *element );
+
+template<uint32_t MaxPoolCount, uint32_t CmdPerPool>
+void InitRICommandRingBuffer( struct RIDevice_s *dev, struct RIQueue_s *queue,
+                              struct RICommandRingBuffer_s<MaxPoolCount, CmdPerPool> *ring,
+                              uint32_t poolCount, uint32_t cmdPerPool, bool syncPrimitives )
+{
+	assert( poolCount > 0 && poolCount <= MaxPoolCount );
+	assert( cmdPerPool > 0 && cmdPerPool <= CmdPerPool );
+	memset( ring, 0, sizeof( *ring ) );
+	ring->poolCount = poolCount;
+	ring->cmdPerPool = cmdPerPool;
+	ring->syncPrimitive = syncPrimitives;
+
+	ring->poolIndex = 0;
+	ring->cmdIndex = 0;
+	ring->fenceIndex = 0;
+
+	for( uint32_t poolIdx = 0; poolIdx < ring->poolCount; poolIdx++ ) {
+		InitRIPool( dev, &ring->pools[poolIdx], queue );
+		for( uint32_t cmdIdx = 0; cmdIdx < ring->cmdPerPool; cmdIdx++ ) {
+			InitRICmd( dev, &ring->pools[poolIdx], &ring->cmds[poolIdx][cmdIdx] );
+#if ( DEVICE_IMPL_VULKAN )
+			if( syncPrimitives ) {
+				VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
+				VK_WrapResult( vkCreateSemaphore( dev->vk.device, &semaphoreCreateInfo, NULL, &ring->vk.semaphores[poolIdx][cmdIdx] ) );
+
+				VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
+				fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+				VK_WrapResult( vkCreateFence( dev->vk.device, &fenceCreateInfo, NULL, &ring->vk.fences[poolIdx][cmdIdx] ) );
+			}
+#endif
+		}
+	}
+}
+
+template<uint32_t MaxPoolCount, uint32_t CmdPerPool>
+void FreeRICommandRingBuffer( struct RIDevice_s *dev,
+                              struct RICommandRingBuffer_s<MaxPoolCount, CmdPerPool> *ring )
+{
+	for( uint32_t poolIdx = 0; poolIdx < ring->poolCount; poolIdx++ ) {
+		for( uint32_t cmdIdx = 0; cmdIdx < ring->cmdPerPool; cmdIdx++ ) {
+			FreeRICmd( dev, &ring->cmds[poolIdx][cmdIdx] );
+#if ( DEVICE_IMPL_VULKAN )
+			if( ring->syncPrimitive ) {
+				vkDestroySemaphore( dev->vk.device, ring->vk.semaphores[poolIdx][cmdIdx], NULL );
+				vkDestroyFence( dev->vk.device, ring->vk.fences[poolIdx][cmdIdx], NULL );
+			}
+#endif
+		}
+		FreeRIPool( dev, &ring->pools[poolIdx] );
+	}
+}
+
+template<uint32_t MaxPoolCount, uint32_t CmdPerPool>
+void AdvanceRICommandRingBuffer( struct RICommandRingBuffer_s<MaxPoolCount, CmdPerPool> *ring )
+{
+	ring->poolIndex = ( ring->poolIndex + 1 ) % ring->poolCount;
+	ring->cmdIndex = 0;
+	ring->fenceIndex = 0;
+}
+
+template<uint32_t MaxPoolCount, uint32_t CmdPerPool>
+struct RICommandRingElement_s GetRICommandRingElement( struct RIDevice_s *dev,
+                                                       struct RICommandRingBuffer_s<MaxPoolCount, CmdPerPool> *ring,
+                                                       uint32_t numCmds )
+{
+	struct RICommandRingElement_s result;
+	memset( &result, 0, sizeof( struct RICommandRingElement_s ) );
+
+	assert( numCmds <= ring->cmdPerPool );
+	assert( numCmds + ring->cmdIndex <= ring->cmdPerPool );
+
+	result.cmds = &ring->cmds[ring->poolIndex][ring->cmdIndex];
+	result.numCmds = numCmds;
+	result.pool = &ring->pools[ring->poolIndex];
+#if ( DEVICE_IMPL_VULKAN )
+	if( ring->syncPrimitive ) {
+		result.vk.semaphore = ring->vk.semaphores[ring->poolIndex][ring->fenceIndex];
+		result.vk.fence = ring->vk.fences[ring->poolIndex][ring->fenceIndex];
+	}
+#endif
+
+	ring->fenceIndex += 1;
+	ring->cmdIndex += numCmds;
+
+	return result;
+}
 
 // // RIAccelStructure
 // // query backing-storage and scratch sizes before InitRIAccelStructure; any out-pointer may be NULL.

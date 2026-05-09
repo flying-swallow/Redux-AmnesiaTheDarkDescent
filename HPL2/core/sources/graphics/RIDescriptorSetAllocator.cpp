@@ -69,7 +69,7 @@ void detachDescriptorSlot( struct RIDescriptorSetAlloc *alloc, struct RIDescript
 		if( alloc->hash_slots[hashIndex] == slot ) {
 			alloc->hash_slots[hashIndex] = slot->hNext;
 			if( slot->hNext ) {
-				slot->hPrev = NULL;
+				slot->hNext->hPrev = alloc->hash_slots[hashIndex];
 			}
 		} else {
 			if( slot->hPrev ) {
@@ -79,6 +79,8 @@ void detachDescriptorSlot( struct RIDescriptorSetAlloc *alloc, struct RIDescript
 				slot->hNext->hPrev = slot->hPrev;
 			}
 		}
+		slot->hPrev = NULL;
+		slot->hNext = NULL;
 	}
 }
 

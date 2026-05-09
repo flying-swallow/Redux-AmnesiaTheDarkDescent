@@ -214,7 +214,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   renderingInfo.pColorAttachments = &colorAttachment;
   renderingInfo.pDepthAttachment = &depthStencil;
   renderingInfo.pStencilAttachment = NULL;
- 	vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderingInfo);
+  vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderingInfo);
 
   ///////////////////////////
   // Draw set

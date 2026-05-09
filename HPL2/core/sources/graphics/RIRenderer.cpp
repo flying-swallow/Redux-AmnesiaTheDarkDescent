@@ -374,7 +374,7 @@ int EnumerateRIAdapters( struct RIRenderer_s *renderer, struct RIPhysicalAdapter
 				physicalAdapter->bufferMaxSize = props13.maxBufferSize;
 
 				physicalAdapter->uploadBufferTextureRowAlignment = (uint32_t)limits->optimalBufferCopyRowPitchAlignment;
-				physicalAdapter->uploadBufferTextureSliceAlignment = (uint32_t)limits->optimalBufferCopyOffsetAlignment; // TODO: ?
+				physicalAdapter->uploadBufferOffsetAlignment = (uint32_t)limits->optimalBufferCopyOffsetAlignment;
 				physicalAdapter->bufferShaderResourceOffsetAlignment = (uint32_t)std::max( limits->minTexelBufferOffsetAlignment, limits->minStorageBufferOffsetAlignment );
 				physicalAdapter->constantBufferOffsetAlignment = (uint32_t)limits->minUniformBufferOffsetAlignment;
 				if( hasAccelStructExt ) {
@@ -1103,11 +1103,18 @@ void RIFinalizeDescriptor( struct RIDevice_s *dev, struct RIDescriptor_s *desc )
 	{
 		switch( desc->vk.type ) {
 			case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
-			case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+			case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE: {
+				// For sampled/storage images Vulkan ignores the sampler field of
+				// VkDescriptorImageInfo; hashing it wastes entropy and is a foot-gun
+				// if any caller leaves it uninitialised.
+				assert( desc->texture );
+				hash_t cookie = hash_u64( HASH_INITIAL_VALUE, desc->vk.type );
+				cookie = hash_u64( cookie, (uint64_t)desc->vk.image.imageView );
+				cookie = hash_u32( cookie, (uint32_t)desc->vk.image.imageLayout );
+				desc->cookie = cookie;
+				break;
+			}
 			case VK_DESCRIPTOR_TYPE_SAMPLER:
-				// test some assumptions
-				assert( desc->vk.type == VK_DESCRIPTOR_TYPE_SAMPLER ||
-						( desc->texture && ( desc->vk.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE || desc->vk.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ) ) );
 				desc->cookie = hash_data( hash_u64( HASH_INITIAL_VALUE, desc->vk.type ), &desc->vk.image, sizeof( desc->vk.image ) );
 				break;
 			case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
@@ -1289,82 +1296,6 @@ void EndRICmd( struct RIDevice_s *dev, struct RICmd_s *cmd )
 		return;
 	}
 #endif
-}
-
-void InitRICommandRingBuffer( struct RIDevice_s *dev, struct RIQueue_s *queue, struct RICommandRingBuffer_s *ring, bool syncPrimitives )
-{
-	memset( ring, 0, sizeof( struct RICommandRingBuffer_s ) );
-	ring->poolCount = RI_COMMAND_RING_POOL_COUNT;
-	ring->cmdPerPool = RI_COMMAND_RING_CMD_PER_POOL;
-	ring->syncPrimitive = syncPrimitives;
-
-	ring->poolIndex = 0;
-	ring->cmdIndex = 0;
-	ring->fenceIndex = 0;
-
-	for( uint32_t poolIndex = 0; poolIndex < ring->poolCount; poolIndex++ ) {
-		InitRIPool( dev, &ring->pools[poolIndex], queue );
-		for( uint32_t cmdIndex = 0; cmdIndex < ring->cmdPerPool; cmdIndex++ ) {
-			InitRICmd( dev, &ring->pools[poolIndex], &ring->cmds[poolIndex][cmdIndex] );
-#if ( DEVICE_IMPL_VULKAN )
-			if( syncPrimitives ) {
-				VkSemaphoreCreateInfo semaphoreCreateInfo = { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
-				VK_WrapResult( vkCreateSemaphore( dev->vk.device, &semaphoreCreateInfo, NULL, &ring->vk.semaphores[poolIndex][cmdIndex] ) );
-
-				VkFenceCreateInfo fenceCreateInfo = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO };
-				fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-				VK_WrapResult( vkCreateFence( dev->vk.device, &fenceCreateInfo, NULL, &ring->vk.fences[poolIndex][cmdIndex] ) );
-			}
-#endif
-		}
-	}
-}
-
-void FreeRICommandRingBuffer( struct RIDevice_s *dev, struct RICommandRingBuffer_s *ring )
-{
-	for( uint32_t poolIndex = 0; poolIndex < ring->poolCount; poolIndex++ ) {
-		for( uint32_t cmdIndex = 0; cmdIndex < ring->cmdPerPool; cmdIndex++ ) {
-			FreeRICmd( dev, &ring->cmds[poolIndex][cmdIndex] );
-#if ( DEVICE_IMPL_VULKAN )
-			if( ring->syncPrimitive ) {
-				vkDestroySemaphore( dev->vk.device, ring->vk.semaphores[poolIndex][cmdIndex], NULL );
-				vkDestroyFence( dev->vk.device, ring->vk.fences[poolIndex][cmdIndex], NULL );
-			}
-#endif
-		}
-		FreeRIPool( dev, &ring->pools[poolIndex] );
-	}
-}
-
-void AdvanceRICommandRingBuffer( struct RICommandRingBuffer_s *ring )
-{
-	ring->poolIndex = ( ring->poolIndex + 1 ) % ring->poolCount;
-	ring->cmdIndex = 0;
-	ring->fenceIndex = 0;
-}
-
-struct RICommandRingElement_s GetRICommandRingElement( struct RIDevice_s *dev, struct RICommandRingBuffer_s *ring, uint32_t numCmds )
-{
-	struct RICommandRingElement_s result;
-	memset( &result, 0, sizeof( struct RICommandRingElement_s ) );
-
-	assert( numCmds <= ring->cmdPerPool );
-	assert( numCmds + ring->cmdIndex <= ring->cmdPerPool );
-
-	result.cmds = &ring->cmds[ring->poolIndex][ring->cmdIndex];
-	result.numCmds = numCmds;
-	result.pool = &ring->pools[ring->poolIndex];
-#if ( DEVICE_IMPL_VULKAN )
-	if( ring->syncPrimitive ) {
-		result.vk.semaphore = ring->vk.semaphores[ring->poolIndex][ring->fenceIndex];
-		result.vk.fence = ring->vk.fences[ring->poolIndex][ring->fenceIndex];
-	}
-#endif
-
-	ring->fenceIndex += 1;
-	ring->cmdIndex += numCmds;
-
-	return result;
 }
 
 void WaitRICommandRingElement( struct RIDevice_s *dev, struct RICommandRingElement_s *element )

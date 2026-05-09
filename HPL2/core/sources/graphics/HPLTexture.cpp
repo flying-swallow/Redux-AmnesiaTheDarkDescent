@@ -17,14 +17,13 @@
 
 namespace hpl {
 void HPLTexture::HPLTexture_Delete(HPLTexture *texture) {
-	WaitRIQueueIdle(&RI.device, &RI.device.queues[RI_QUEUE_COPY]); // TODO: fix synchronization
-	//WaitRIQueueIdle(&RI.device, &RI.device.queues[RI_QUEUE_GRAPHICS]);
-  vkDestroyImageView(RI.device.vk.device,
-                     texture->binding.vk.image.imageView, NULL);
-  vkDestroyImage(RI.device.vk.device, texture->handle.vk.image,
-                 NULL);
-  vmaFreeMemory(RI.device.vk.vmaAllocator,
-                texture->vk.vmaAlloc);
+  // Defer GPU resource destruction to the next time this frame slot is
+  // reused — by then the ring fence has signaled and the GPU is done with
+  // anything that referenced this texture.
+  RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
+  cntx->freelist.push_back(RIFree(texture->binding.vk.image.imageView));
+  cntx->freelist.push_back(RIFree(texture->handle.vk.image));
+  cntx->freelist.push_back(RIFree(texture->vk.vmaAlloc));
   delete texture;
 }
 
@@ -248,8 +247,8 @@ bool HPLTexture::LoadBitmap(
       info.arrayLayers = 6;
     }
   }
-  info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT |
-               VK_IMAGE_CREATE_EXTENDED_USAGE_BIT; // typeless
+  info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT |
+                VK_IMAGE_CREATE_EXTENDED_USAGE_BIT; // typeless
   info.imageType = depth > 1
                        ? VK_IMAGE_TYPE_3D
                        : ((bitmap.GetWidth() == 1 || bitmap.GetHeight() == 1)
@@ -287,7 +286,8 @@ bool HPLTexture::LoadBitmap(
 	createInfo.format = RIFormatToVK( destFormat );
 	createInfo.subresourceRange = subresource;
 	createInfo.image = handle.vk.image;
-		
+
+	binding = {};
 	binding.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
 	binding.texture = &handle;
 	binding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
