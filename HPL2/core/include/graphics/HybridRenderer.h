@@ -1,6 +1,7 @@
 #ifndef HPL_RENDERER_HYBRID_H
 #define HPL_RENDERER_HYBRID_H
 
+#include "graphics/HPLGraphicsConfig.h"
 #include "graphics/Material.h"
 #include "graphics/Renderer.h"
 #include "graphics/RIRenderer.h"

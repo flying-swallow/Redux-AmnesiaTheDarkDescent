@@ -59,7 +59,7 @@ void BindlessPool::detachSlot(struct BindlessPoolSlot *slot) {
     if (hashSlots[hashIndex] == slot) {
       hashSlots[hashIndex] = slot->hNext;
       if (slot->hNext) {
-        slot->hPrev = NULL;
+        slot->hNext->hPrev = NULL;
       }
     } else {
       if (slot->hPrev) {

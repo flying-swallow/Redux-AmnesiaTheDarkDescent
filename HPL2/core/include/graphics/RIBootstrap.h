@@ -3,6 +3,7 @@
 #define HPL_GRAPHICS_BACKEND_H
 
 #include "graphics/GraphicsTypes.h"
+#include "graphics/HPLGraphicsConfig.h"
 #include "graphics/RISegmentAlloc.h"
 #include "graphics/RITypes.h"
 #include <array>
@@ -32,7 +33,7 @@ public:
 
   RIRenderer_s renderer;
   RIDevice_s device;
-  RISwapchain_s swapchain;
+  RISwapchain_s<> swapchain;
 	RIProgram gui;
 
   struct RINulTexture whiteTexture2D;
@@ -43,7 +44,7 @@ public:
 	struct RITextureView_s depthView[RI_MAX_SWAPCHAIN_IMAGES];
 	struct RI_PogoBuffer pogoBuffer[RI_MAX_SWAPCHAIN_IMAGES];
 
-	struct RICommandRingBuffer_s graphicsCmdRing;
+	RICommandRingBuffer_s<RI_COMMAND_RING_POOL_COUNT, RI_COMMAND_RING_CMD_PER_POOL> graphicsCmdRing;
 	struct RICommandRingElement_s primary;
 
   struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> guiVertexAlloc;

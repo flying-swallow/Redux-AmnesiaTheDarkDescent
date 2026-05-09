@@ -5,6 +5,7 @@
 #include <system/Types.h>
 #include <system/stb_ds.h>
 
+#include "graphics/HPLGraphicsConfig.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/spirv_reflect.h"
 

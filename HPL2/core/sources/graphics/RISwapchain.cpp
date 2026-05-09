@@ -36,12 +36,12 @@ static uint32_t __priority_BT2020_G2084_10BIT( const VkSurfaceFormatKHR *surface
 
 #endif
 
-int InitRISwapchain( struct RIDevice_s *dev, struct RISwapchainDesc_s *init, struct RISwapchain_s *swapchain )
+int InitRISwapchain( struct RIDevice_s *dev, struct RISwapchainDesc_s *init, RISwapchain_s<> *swapchain )
 {
 	assert( init->windowHandle );
 	assert( init );
 	assert( swapchain );
-	assert( init->imageCount <= ARRAY_COUNT( swapchain->vk.images ) && init->imageCount > 0 );
+	assert( init->requestImageCount <= ARRAY_COUNT( swapchain->vk.images ) && init->requestImageCount > 0 );
 	swapchain->width = init->width;
 	swapchain->height = init->height;
 	swapchain->presentQueue = init->queue;
@@ -94,17 +94,12 @@ int InitRISwapchain( struct RIDevice_s *dev, struct RISwapchainDesc_s *init, str
 		}
 	}
 #endif
+	VkSurfaceCapabilitiesKHR surfaceCaps = {0};
 	{
 		VkBool32 supported = VK_FALSE;
 		result = vkGetPhysicalDeviceSurfaceSupportKHR(dev->physicalAdapter.vk.physicalDevice, init->queue->vk.queueFamilyIdx, swapchain->vk.surface, &supported);
 		VK_WrapResult(result);
 
-		VkSurfaceCapabilitiesKHR surfaceCaps = {0};
-		result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dev->physicalAdapter.vk.physicalDevice, swapchain->vk.surface, &surfaceCaps);
-		VK_WrapResult(result);
-    VkPhysicalDeviceSurfaceInfo2KHR surfaceInfo = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SURFACE_INFO_2_KHR};
-    surfaceInfo.surface = swapchain->vk.surface;
-		
 		result = vkGetPhysicalDeviceSurfaceCapabilitiesKHR(dev->physicalAdapter.vk.physicalDevice, swapchain->vk.surface, &surfaceCaps);
 		VK_WrapResult(result);
 	}
@@ -173,7 +168,13 @@ int InitRISwapchain( struct RIDevice_s *dev, struct RISwapchainDesc_s *init, str
 		VkSwapchainCreateInfoKHR swapChainCreateInfo = { VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR };
 		swapChainCreateInfo.flags = 0;
 		swapChainCreateInfo.surface = swapchain->vk.surface;
-		swapChainCreateInfo.minImageCount = init->imageCount;
+		// clamp the requested image count to the surface capabilities. maxImageCount == 0 means "no upper limit" per Vulkan spec.
+		uint32_t desiredImageCount = init->requestImageCount;
+		if( surfaceCaps.minImageCount > 0 && desiredImageCount < surfaceCaps.minImageCount )
+			desiredImageCount = surfaceCaps.minImageCount;
+		if( surfaceCaps.maxImageCount > 0 && desiredImageCount > surfaceCaps.maxImageCount )
+			desiredImageCount = surfaceCaps.maxImageCount;
+		swapChainCreateInfo.minImageCount = desiredImageCount;
 		swapChainCreateInfo.imageFormat = selectedSurf->format;
 		swapChainCreateInfo.imageColorSpace = selectedSurf->colorSpace;
 		swapChainCreateInfo.imageExtent.width = init->width ;
@@ -194,7 +195,7 @@ int InitRISwapchain( struct RIDevice_s *dev, struct RISwapchainDesc_s *init, str
 	{
 		uint32_t imageNum = 0;
 		vkGetSwapchainImagesKHR(dev->vk.device, swapchain->vk.swapchain, &imageNum, NULL);
-		assert(imageNum <= RI_MAX_SWAPCHAIN_IMAGES);
+		assert(imageNum <= swapchain->MAX_IMAGE_COUNT);
 		vkGetSwapchainImagesKHR(dev->vk.device, swapchain->vk.swapchain, &imageNum, swapchain->vk.images);
 		for(size_t i = 0; i < imageNum; i++) {
 			swapchain->textures[i].vk.image = swapchain->vk.images[i];
@@ -220,8 +221,9 @@ int InitRISwapchain( struct RIDevice_s *dev, struct RISwapchainDesc_s *init, str
   return RI_SUCCESS;
 }
 
-uint32_t RISwapchainAcquireNextTexture( struct RIDevice_s *dev, struct RISwapchain_s *swapchain )
+uint32_t RISwapchainAcquireNextTexture( struct RIDevice_s *dev, RISwapchain_s<> *swapchain )
 {
+	assert( swapchain->imageCount > 0 );
 #if ( DEVICE_IMPL_VULKAN )
 	{
 		VkSemaphore imageAcquiredSemaphore = swapchain->vk.imageAcquireSem[swapchain->vk.frameIndex];
@@ -232,7 +234,7 @@ uint32_t RISwapchainAcquireNextTexture( struct RIDevice_s *dev, struct RISwapcha
 	return 0;
 }
 
-void RISwapchainPresent(struct RIDevice_s* dev, struct RISwapchain_s* swapchain) {
+void RISwapchainPresent(struct RIDevice_s* dev, RISwapchain_s<>* swapchain) {
 #if ( DEVICE_IMPL_VULKAN )
 	{
 		VkSemaphore imageAcquiredSemaphore = swapchain->vk.imageAcquireSem[swapchain->vk.frameIndex];
@@ -275,7 +277,7 @@ void RISwapchainPresent(struct RIDevice_s* dev, struct RISwapchain_s* swapchain)
 #endif
 }
 
-void FreeRISwapchain( struct RIDevice_s *dev, struct RISwapchain_s *swapchain )
+void FreeRISwapchain( struct RIDevice_s *dev, RISwapchain_s<> *swapchain )
 {
 #if ( DEVICE_IMPL_VULKAN )
 	{
@@ -290,7 +292,7 @@ void FreeRISwapchain( struct RIDevice_s *dev, struct RISwapchain_s *swapchain )
 		if( swapchain->vk.surface )
 			vkDestroySurfaceKHR( dev->renderer->vk.instance, swapchain->vk.surface, NULL );
 	}
-	memset( swapchain, 0, sizeof( struct RISwapchain_s ) );
+	memset( swapchain, 0, sizeof( RISwapchain_s<> ) );
 #endif
 }
 

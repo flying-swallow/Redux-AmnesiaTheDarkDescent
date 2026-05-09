@@ -1,7 +1,7 @@
 #define DEVICE_SUPPORT_VULKAN
-#define RI_MAX_SWAPCHAIN_IMAGES 8
-#define RI_NUMBER_FRAMES_FLIGHT 5 
-#define RI_NUMBER_FRAME_SEGMENTS 6 
+
+// Compile-time maximums for templated/array-sized backing storage.
+#define RI_MAX_SWAPCHAIN_IMAGES 8 
 
 #ifdef DEVICE_SUPPORT_VULKAN
 #define VK_NO_PROPERTIES
