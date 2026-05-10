@@ -152,6 +152,10 @@ else()
   set(IL_JASPER_LIB ON CACHE BOOL "" FORCE)
   set(IL_NO_JP2 1 CACHE STRING "" FORCE)
 
+  # ILUT is the GL/GLUT/D3D helper layer; HPL2 only uses IL/ILU. Skip it so
+  # CI doesn't need freeglut on Windows or libglut3-dev on Linux.
+  set(IL_BUILD_ILUT OFF CACHE BOOL "" FORCE)
+
   option(IL_TESTS "" OFF)
   option(BUILD_SHARED_LIBS "" OFF)
   add_subdirectory(DevIL/DevIL)
