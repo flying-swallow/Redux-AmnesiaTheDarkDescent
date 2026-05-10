@@ -35,7 +35,9 @@
 #endif
 
 #ifdef __linux__
+#if !SDL_VERSION_ATLEAST(2,0,0)
 #include <FL/fl_ask.H>
+#endif
 
 #include <sys/types.h>
 #endif

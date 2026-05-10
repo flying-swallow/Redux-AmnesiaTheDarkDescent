@@ -17,7 +17,7 @@ VkImageMemoryBarrier2 VK_RI_PogoShaderMemoryBarrier2( VkImage image, bool initia
 	imageBarriers.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	imageBarriers.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	imageBarriers.image = image;
-	imageBarriers.subresourceRange = (VkImageSubresourceRange){
+	imageBarriers.subresourceRange = VkImageSubresourceRange{
 		VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS,
 	};
 	return imageBarriers;
@@ -35,7 +35,7 @@ VkImageMemoryBarrier2 VK_RI_PogoAttachmentMemoryBarrier2( VkImage image, bool in
 	imageBarriers.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	imageBarriers.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 	imageBarriers.image = image;
-	imageBarriers.subresourceRange = (VkImageSubresourceRange){
+	imageBarriers.subresourceRange = VkImageSubresourceRange{
 		VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS,
 	};
 	return imageBarriers;
@@ -75,7 +75,7 @@ void RI_PogoBufferInit( struct RIDevice_s *device, struct RI_PogoBuffer *pogo, u
 
 		VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 		createInfo.pNext = &usageInfo;
-		createInfo.subresourceRange = (VkImageSubresourceRange){
+		createInfo.subresourceRange = VkImageSubresourceRange{
 			VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
 		};
 		createInfo.image = pogo->textures[p].vk.image;
@@ -98,8 +98,8 @@ void RI_PogoBufferDestroy( struct RIDevice_s *device, struct RI_PogoBuffer *pogo
 	for( size_t p = 0; p < 2; p++ ) {
 		vkDestroyImageView( device->vk.device, pogo->pogoAttachment[p].vk.image.imageView, NULL );
 		vmaDestroyImage( device->vk.vmaAllocator, pogo->textures[p].vk.image, pogo->textures[p].vk.allocation );
-		pogo->pogoAttachment[p] = (struct RIDescriptor_s){};
-		pogo->textures[p] = (struct RITexture_s){};
+		pogo->pogoAttachment[p] = RIDescriptor_s{};
+		pogo->textures[p] = RITexture_s{};
 	}
 #endif
 }
