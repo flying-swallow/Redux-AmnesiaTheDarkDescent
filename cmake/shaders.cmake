@@ -18,15 +18,17 @@ function(target_shaders target)
             COMMENT
                 "Build shader file ${shader_file}"
             MAIN_DEPENDENCY
-                "${shader_file}"      
+                "${shader_file}"
+            DEPENDS
+                glslang-standalone
             VERBATIM
             WORKING_DIRECTORY
                 "${CMAKE_CURRENT_SOURCE_DIR}"
             COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${target}>/compiled_shaders
             COMMAND
-                glslc ${shader_file} -o $<TARGET_FILE_DIR:${target}>/compiled_shaders/${shader_output_name}.spv 
+                $<TARGET_FILE:glslang-standalone> -V ${shader_file} -o $<TARGET_FILE_DIR:${target}>/compiled_shaders/${shader_output_name}.spv
             OUTPUT
-                ${shader_output_name}.spv 
+                ${shader_output_name}.spv
         )
     endforeach()
 endfunction()
