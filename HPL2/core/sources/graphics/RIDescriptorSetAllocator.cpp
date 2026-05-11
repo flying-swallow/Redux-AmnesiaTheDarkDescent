@@ -69,7 +69,7 @@ void detachDescriptorSlot( struct RIDescriptorSetAlloc *alloc, struct RIDescript
 		if( alloc->hash_slots[hashIndex] == slot ) {
 			alloc->hash_slots[hashIndex] = slot->hNext;
 			if( slot->hNext ) {
-				slot->hNext->hPrev = alloc->hash_slots[hashIndex];
+				slot->hNext->hPrev = NULL;
 			}
 		} else {
 			if( slot->hPrev ) {
@@ -84,33 +84,33 @@ void detachDescriptorSlot( struct RIDescriptorSetAlloc *alloc, struct RIDescript
 	}
 }
 
-struct RIDescriptorSetResult resolveDescriptorSetAlloc( struct RIDevice_s *device, struct RIDescriptorSetAlloc *alloc, uint32_t frameCount, uint32_t hash )
+struct RIDescriptorSetResult resolveDescriptorSetAlloc( struct RIDevice_s *device, struct RIDescriptorSetAlloc *alloc, uint32_t frameCount, hash_t hash )
 {
 	struct RIDescriptorSetResult result = { 0 };
 	const size_t hashIndex = hash % ALLOC_HASH_RESERVE;
 	for( struct RIDescriptorSetSlot *c = alloc->hash_slots[hashIndex]; c; c = c->hNext ) {
 		if( c->hash == hash ) {
-			if( alloc->queue_end == c ) {
-				// already at the end of the queue
-			} else if (alloc->queue_begin == c) {
-				alloc->queue_begin = c->quNext;
-				if( c->quNext ) {
-					c->quNext->quPrev = NULL;
+			if( alloc->queue_end != c ) {
+				if( alloc->queue_begin == c ) {
+					alloc->queue_begin = c->quNext;
+					if( c->quNext ) {
+						c->quNext->quPrev = NULL;
+					}
+				} else {
+					if( c->quPrev ) {
+						c->quPrev->quNext = c->quNext;
+					}
+					if( c->quNext ) {
+						c->quNext->quPrev = c->quPrev;
+					}
 				}
-			} else {
-				if( c->quPrev ) {
-					c->quPrev->quNext = c->quNext;
+				c->quNext = NULL;
+				c->quPrev = alloc->queue_end;
+				if( alloc->queue_end ) {
+					alloc->queue_end->quNext = c;
 				}
-				if( c->quNext ) {
-					c->quNext->quPrev = c->quPrev;
-				}
+				alloc->queue_end = c;
 			}
-			c->quNext = NULL;
-			c->quPrev = alloc->queue_end;
-			if( alloc->queue_end ) {
-				alloc->queue_end->quNext = c;
-			}
-			alloc->queue_end = c;
 
 			c->frameCount = frameCount;
 			result.set = c;

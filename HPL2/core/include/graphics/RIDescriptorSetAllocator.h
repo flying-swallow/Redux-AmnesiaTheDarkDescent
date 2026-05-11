@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "graphics/RITypes.h"
+#include "system/Hasher.h"
 
 #define RESERVE_BLOCK_SIZE 1024
 #define ALLOC_HASH_RESERVE 256
@@ -12,7 +13,7 @@
 #define DESCRIPTOR_RESERVED_SIZE 64
 
 struct RIDescriptorSetSlot {
-	uint32_t hash;
+	hash_t hash;
 	uint32_t frameCount;
 	// queue
 	struct RIDescriptorSetSlot *quNext;
@@ -66,7 +67,7 @@ struct RIDescriptorSetResult {
 struct RIDescriptorSetResult resolveDescriptorSetAlloc( struct RIDevice_s *device,
 													 struct RIDescriptorSetAlloc *alloc,
 													 uint32_t frameCount,
-													 uint32_t hash );
+													 hash_t hash);
 void freeDescriptorSetAlloc( struct RIDevice_s *device, struct RIDescriptorSetAlloc *alloc );
 
 // utility

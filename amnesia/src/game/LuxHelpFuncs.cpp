@@ -190,7 +190,9 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
 
   VkRenderingAttachmentInfo colorAttachment = {
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-  RI_VK_FillColorAttachment(&colorAttachment, &cntx->colorAttachment, abClearScreen);
+  RI_VK_FillColorAttachmentView(&colorAttachment ,
+                                &RI.swapchainView[RI.swapchainIndex],
+                                /*attachAndClear=*/false);
   colorAttachment.clearValue.color.float32[0] = aCol.r;
   colorAttachment.clearValue.color.float32[1] = aCol.g;
   colorAttachment.clearValue.color.float32[2] = aCol.b;

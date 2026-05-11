@@ -1,4 +1,5 @@
 #version 440
+#extension GL_GOOGLE_include_directive : require
 /// Copyright © 2009-2020 Frictional Games
 /// Copyright 2023 Michael Pollind
 /// SPDX-License-Identifier: GPL-3.0

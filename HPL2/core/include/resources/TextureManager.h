@@ -24,6 +24,7 @@
 #include "graphics/Texture.h"
 
 #include <functional>
+#include <vector>
 
 namespace hpl {
 
@@ -58,6 +59,16 @@ namespace hpl {
 		Image* CreateCubeMapImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage=eTextureUsage_Normal,
 					unsigned int alTextureSizeLevel=0);
 
+		/**
+		 * Create an animated Image from a frame-numbered sequence. The first frame name must
+		 * end in "01.<ext>"; subsequent frames are discovered as "02.<ext>", "03.<ext>", ...
+		 * The returned Image holds an Image::AnimatedImage variant; cTextureManager::Update
+		 * advances the frame index over time.
+		 */
+		Image* CreateAnimImage(const tString& asName, bool abUseMipMaps, eTextureType aType,
+								eTextureUsage aUsage=eTextureUsage_Normal,
+								unsigned int alTextureSizeLevel=0);
+
 		[[deprecated("create_1D")]]
 		iTexture* Create1D(	const tString& asName,bool abUseMipMaps, eTextureUsage aUsage=eTextureUsage_Normal,
 							unsigned int alTextureSizeLevel=0);
@@ -88,7 +99,9 @@ namespace hpl {
 
 		void Update(float afTimeStep);
 
-		int GetMemoryUsage(){ return mlMemoryUsage;}
+		// Stub — memory accounting was dropped during the Image* migration; no consumer reads
+		// the per-byte total today and the old iTexture cast in Destroy() was UB for Image*.
+		int GetMemoryUsage(){ return 0; }
 
 	private:
 		iTexture* CreateSimpleTexture(const tString& asName,bool abUseMipMaps, 
@@ -97,14 +110,19 @@ namespace hpl {
 
 		iTexture* FindTexture2D(const tString &asName, tWString &asFilePath);
 		
-		Image* wrap_image_resource(const tString& asName, std::function<Image*(const tString& asName, const tWString& path, cBitmap* bitmap)> createImageHandler);
-		Image* find_image_resource(const tString &asName, tWString &asFilePath);
+		Image* _wrapperImageResource(const tString& asName, std::function<Image*(const tString& asName, const tWString& path, cBitmap* bitmap)> createImageHandler);
+		Image* FindImageResource(const tString &asName, tWString &asFilePath);
 
 		tTextureAttenuationMap m_mapAttenuationTextures;
-		
+
 		tStringVec mvCubeSideSuffixes;
 
-		int mlMemoryUsage;
+		// Image resources produced by Create*Image. Maintained alongside the base-class
+		// m_mapResources so Update() can iterate only Image-typed entries (the map can
+		// also hold iTexture* via the legacy CreateSimpleTexture path). Stored as
+		// iResourceBase* to avoid any cross-hierarchy cast at insert/erase time;
+		// Update() casts to Image* only when it's known the entry came from here.
+		std::vector<iResourceBase*> m_imageResources;
 
 		cGraphics* mpGraphics;
 		cResources* mpResources;

@@ -255,6 +255,7 @@ enum RIAccelBuildMode_e {
 
 // matches VkAabbPositionsKHR layout
 struct RIAccelAabb_s {
+	RIAccelAabb_s() { memset(this, 0, sizeof(*this)); }
 	float minX, minY, minZ;
 	float maxX, maxY, maxZ;
 };
@@ -262,6 +263,7 @@ struct RIAccelAabb_s {
 // callers fill a buffer of these and pass it as the TLAS instance buffer;
 // matches VkAccelerationStructureInstanceKHR layout (64 bytes)
 struct RIAccelInstance_s {
+	RIAccelInstance_s() { memset(this, 0, sizeof(*this)); }
 	float matrix[3][4];
 	uint32_t instanceCustomIndex            : 24;
 	uint32_t mask                           : 8;
@@ -295,6 +297,7 @@ struct RIAccelAabbsDesc_s {
 };
 
 struct RIAccelGeometryDesc_s {
+	RIAccelGeometryDesc_s() { memset(this, 0, sizeof(*this)); }
 	enum RIAccelGeometryType_e type;
 	uint32_t flags;                     // RIAccelGeometryBits_e
 	union {
@@ -357,6 +360,10 @@ enum RIWindowType_e {
 };
 
 struct RIBuffer_s {
+	RIBuffer_s() { memset(this, 0, sizeof(*this)); }
+
+	uint64_t GetDeviceHandle(struct RIDevice_s *device);
+
 	union {
     #if(DEVICE_IMPL_VULKAN)
     struct {
@@ -369,6 +376,7 @@ struct RIBuffer_s {
 };
 
 struct RIBarrierImageHandle_s {
+	RIBarrierImageHandle_s() { memset(this, 0, sizeof(*this)); }
 	union {
 #if ( DEVICE_IMPL_VULKAN )
 		struct {
@@ -381,6 +389,7 @@ struct RIBarrierImageHandle_s {
 };
 
 struct RIBarrierBufferHandle_s {
+	RIBarrierBufferHandle_s() { memset(this, 0, sizeof(*this)); }
 	union {
 #if ( DEVICE_IMPL_VULKAN )
 		struct {
@@ -392,6 +401,7 @@ struct RIBarrierBufferHandle_s {
 };
 
 struct RITexture_s {
+	RITexture_s() { memset(this, 0, sizeof(*this)); }
 	union {
     #if(DEVICE_IMPL_VULKAN)
     struct {
@@ -403,6 +413,7 @@ struct RITexture_s {
 };
 
 struct RITextureView_s {
+	RITextureView_s() { memset(this, 0, sizeof(*this)); }
 	union {
 #if ( DEVICE_IMPL_VULKAN )
 		struct {
@@ -458,6 +469,7 @@ enum RIDescriptorFlags_e {
 };
 
 struct DescriptorBindingID {
+  DescriptorBindingID() { memset(this, 0, sizeof(*this)); }
   const char *name;
   hash_t hash;
 	static DescriptorBindingID Create(const char* name) {
@@ -476,6 +488,7 @@ static inline struct DescriptorBindingID CreateDescriptorBindingID(const char *n
 }
 
 struct RIDescriptor_s {
+	RIDescriptor_s() { memset(this, 0, sizeof(*this)); }
 	// unique id to mark the descriptor
 	hash_t cookie;
 	uint8_t flags;
@@ -495,6 +508,7 @@ struct RIDescriptor_s {
 };
 
 struct RIAccelStructure_s {
+	RIAccelStructure_s() { memset(this, 0, sizeof(*this)); }
 	enum RIAccelStructureType_e type;
 	uint32_t flags;                     // RIAccelStructureBuildBits_e snapshot
 	uint64_t buildScratchSize;
@@ -512,6 +526,7 @@ struct RIAccelStructure_s {
 };
 
 struct RIAccelStructureDesc_s {
+	RIAccelStructureDesc_s() { memset(this, 0, sizeof(*this)); }
 	enum RIAccelStructureType_e type;
 	uint32_t flags;                                  // RIAccelStructureBuildBits_e
 	uint32_t geometryOrInstanceNum;                  // BLAS: geometry count, TLAS: max instance count
@@ -522,6 +537,7 @@ struct RIAccelStructureDesc_s {
 };
 
 struct RIBuildBlasDesc_s {
+	RIBuildBlasDesc_s() { memset(this, 0, sizeof(*this)); }
 	struct RIAccelStructure_s *dst;
 	struct RIAccelStructure_s *src;                  // NULL unless mode==UPDATE
 	enum RIAccelBuildMode_e mode;
@@ -532,6 +548,7 @@ struct RIBuildBlasDesc_s {
 };
 
 struct RIBuildTlasDesc_s {
+	RIBuildTlasDesc_s() { memset(this, 0, sizeof(*this)); }
 	struct RIAccelStructure_s *dst;
 	struct RIAccelStructure_s *src;                  // NULL unless mode==UPDATE
 	enum RIAccelBuildMode_e mode;
@@ -543,6 +560,7 @@ struct RIBuildTlasDesc_s {
 };
 
 struct RIRect_s {
+    RIRect_s() { memset(this, 0, sizeof(*this)); }
     int16_t x;
     int16_t y;
     int16_t width;
@@ -550,6 +568,7 @@ struct RIRect_s {
 };
 
 struct RIViewport_s {
+    RIViewport_s() { memset(this, 0, sizeof(*this)); }
     float x;
     float y;
     float width;
@@ -560,6 +579,7 @@ struct RIViewport_s {
 };
 
 struct RIPool_s {
+	RIPool_s() { memset(this, 0, sizeof(*this)); }
 	union {
 #if ( DEVICE_IMPL_VULKAN )
 		struct {
@@ -571,6 +591,7 @@ struct RIPool_s {
 };
 
 struct RICmd_s {
+	RICmd_s() { memset(this, 0, sizeof(*this)); }
 	union {
     #if(DEVICE_IMPL_VULKAN)
     struct {
@@ -586,6 +607,7 @@ struct RICmd_s {
 #define RI_COMMAND_RING_CMD_PER_POOL 32
 
 struct RICommandRingElement_s {
+	RICommandRingElement_s() { memset(this, 0, sizeof(*this)); }
 	struct RICmd_s *cmds;
 	uint32_t numCmds;
 	struct RIPool_s *pool;
@@ -602,6 +624,7 @@ struct RICommandRingElement_s {
 template<uint32_t MaxPoolCount = RI_COMMAND_RING_POOL_COUNT,
          uint32_t CmdPerPool   = RI_COMMAND_RING_CMD_PER_POOL>
 struct RICommandRingBuffer_s {
+	RICommandRingBuffer_s() { memset(this, 0, sizeof(*this)); }
 	static constexpr uint32_t MAX_POOL_COUNT = MaxPoolCount;
 	static constexpr uint32_t CMD_PER_POOL = CmdPerPool;
 
@@ -628,6 +651,7 @@ struct RICommandRingBuffer_s {
 
 
 struct RIQueue_s {
+  RIQueue_s() { memset(this, 0, sizeof(*this)); }
   union {
     #if(DEVICE_IMPL_VULKAN)
       struct {
@@ -642,6 +666,7 @@ struct RIQueue_s {
 
 template<uint32_t MaxImageCount = RI_MAX_SWAPCHAIN_IMAGES>
 struct RISwapchain_s {
+	RISwapchain_s() { memset(this, 0, sizeof(*this)); }
 	static constexpr uint32_t MAX_IMAGE_COUNT = MaxImageCount;
 
 	struct RIQueue_s* presentQueue;
@@ -667,7 +692,8 @@ struct RISwapchain_s {
 };
 
 struct RIRenderer_s {
-  uint8_t api; // RIDeviceAPI_e  
+  RIRenderer_s() { memset(this, 0, sizeof(*this)); }
+  uint8_t api; // RIDeviceAPI_e
   union {
     #if(DEVICE_IMPL_VULKAN)
       struct {
@@ -697,6 +723,7 @@ struct RIBackendInit_s {
 };
 
 struct RIPhysicalAdapter_s {
+	RIPhysicalAdapter_s() { memset(this, 0, sizeof(*this)); }
 	char name[256];
 	uint64_t luid;
 	uint64_t videoMemorySize;
@@ -956,6 +983,7 @@ struct RIPhysicalAdapter_s {
 };
 
 struct RIDevice_s {
+	RIDevice_s() { memset(this, 0, sizeof(*this)); }
 	struct RIPhysicalAdapter_s physicalAdapter;
   struct RIRenderer_s* renderer;
   struct RIQueue_s queues[RI_QUEUE_LEN];

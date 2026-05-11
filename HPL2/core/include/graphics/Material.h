@@ -23,9 +23,11 @@
 #include "system/SystemTypes.h"
 #include "math/MathTypes.h"
 #include "graphics/GraphicsTypes.h"
+#include "graphics/ImageResourceWrapper.h"
 #include "graphics/IndexPool.h"
 #include "resources/ResourceBase.h"
 
+#include <array>
 #include <cstdint>
 
 namespace hpl {
@@ -34,6 +36,7 @@ namespace hpl {
 
 	class cGraphics;
 	class cResources;
+	class Image;
 	class iTexture;
 	class iGpuProgram;
 	class iMaterialType;
@@ -163,8 +166,24 @@ namespace hpl {
 
 		void Compile();
 
+		[[deprecated("use SetImage")]]
 		void SetTexture(eMaterialTexture aType, iTexture *apTexture);
+		[[deprecated("use GetImage")]]
 		iTexture *GetTexture(eMaterialTexture aType);
+
+		// Image* binding API. Storage owns the Image (auto-destroyed when the
+		// material is destroyed), unless SetAutoDestroyTextures(false) was set.
+		void SetImage(eMaterialTexture aType, Image* apImage);
+		Image* GetImage(eMaterialTexture aType) const;
+
+		// Per-material sampler state. Applied uniformly to all texture bindings
+		// at draw time by the Forward+ shader's static samplers.
+		inline eTextureWrap GetTextureWrap() const { return m_textureWrap; }
+		inline eTextureFilter GetTextureFilter() const { return m_textureFilter; }
+		inline float GetTextureAnisotropy() const { return m_textureAnisotropy; }
+		void setTextureWrap(eTextureWrap aWrap);
+		void setTextureFilter(eTextureFilter aFilter);
+		void SetTextureAnisotropy(float afX);
 
 		void SetVars(iMaterialVars *apVars){ mpVars = apVars;}
 		iMaterialVars* GetVars(){ return mpVars;}
@@ -280,6 +299,14 @@ namespace hpl {
 		iGpuProgram *mvPrograms[2][eMaterialRenderMode_LastEnum]; //[2] == If it has skeleton or not.
 		iTexture* mvTextures[eMaterialTexture_LastEnum];
 		iTexture* mvTextureInUnit[eMaterialRenderMode_LastEnum][kMaxTextureUnits];
+
+		// Image* binding storage (parallel to mvTextures during the iTexture* → Image* migration).
+		std::array<ImageResourceWrapper, eMaterialTexture_LastEnum> m_image;
+
+		// Per-material sampler state.
+		eTextureWrap m_textureWrap = eTextureWrap_Repeat;
+		eTextureFilter m_textureFilter = eTextureFilter_Bilinear;
+		float m_textureAnisotropy = 1.0f;
 
 		std::vector<cMaterialUvAnimation> mvUvAnimations;
 		bool mbHasUvAnimation;

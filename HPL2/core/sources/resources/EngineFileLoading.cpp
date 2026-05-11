@@ -18,6 +18,7 @@
  */
 
 #include "resources/EngineFileLoading.h"
+#include "graphics/Image.h"
 
 #include "resources/XmlDocument.h"
 #include "resources/Resources.h"
@@ -236,7 +237,7 @@ namespace hpl {
 			tString sSpotFalloffMap = apElement->GetAttributeString("SpotFalloffMap");
 			if(sSpotFalloffMap != "")
 			{
-				iTexture *pFalloff = apResources->GetTextureManager()->Create1D(sSpotFalloffMap,true);
+				Image *pFalloff = apResources->GetTextureManager()->Create1DImage(sSpotFalloffMap,true);
 				if(pFalloff) pLightSpot->SetSpotFalloffMap(pFalloff);
 			}
 		}
@@ -264,7 +265,7 @@ namespace hpl {
 			tString sFalloffMap = apElement->GetAttributeString("FalloffMap");
 			if(sFalloffMap != "")
 			{
-				iTexture *pFalloff = apResources->GetTextureManager()->Create1D(sFalloffMap,true);
+				Image *pFalloff = apResources->GetTextureManager()->Create1DImage(sFalloffMap,true);
 				if(pFalloff) pLight->SetFalloffMap(pFalloff);
 			}
 
@@ -275,22 +276,22 @@ namespace hpl {
 				eTextureAnimMode animMode = ToTextureAnimMode(apElement->GetAttributeString("GoboAnimMode",""));
 				float fAnimFrameTime = apElement->GetAttributeFloat("GoboAnimFrameTime", 1);
 
-				iTexture *pGoboTex=NULL;
+				Image *pGoboTex=NULL;
 				if(lightType  == eLightType_Spot)
 				{
 					if(animMode == eTextureAnimMode_None)
-						pGoboTex = apResources->GetTextureManager()->Create2D(sGobo,true);
+						pGoboTex = apResources->GetTextureManager()->Create2DImage(sGobo,true);
 					else
-						pGoboTex = apResources->GetTextureManager()->CreateAnim(sGobo, true, eTextureType_2D);
+						pGoboTex = apResources->GetTextureManager()->CreateAnimImage(sGobo, true, eTextureType_2D);
 				}
 				else
 				{
 					if(animMode == eTextureAnimMode_None)
-						pGoboTex = apResources->GetTextureManager()->CreateCubeMap(sGobo,true);
+						pGoboTex = apResources->GetTextureManager()->CreateCubeMapImage(sGobo,true);
 					else
-						pGoboTex = apResources->GetTextureManager()->CreateAnim(sGobo,true, eTextureType_CubeMap);
+						pGoboTex = apResources->GetTextureManager()->CreateAnimImage(sGobo,true, eTextureType_CubeMap);
 				}
-	
+
 				if(pGoboTex)
 				{
 					pLight->SetGoboTexture(pGoboTex);

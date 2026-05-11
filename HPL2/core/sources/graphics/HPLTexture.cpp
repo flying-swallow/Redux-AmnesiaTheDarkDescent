@@ -273,7 +273,7 @@ bool HPLTexture::LoadBitmap(
 	
 	VkImageViewUsageCreateInfo usageInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO };
 	VkImageSubresourceRange subresource = {
-		VK_IMAGE_ASPECT_COLOR_BIT, 0, std::max<uint32_t>(info.mipLevels, 1), 0, 1,
+		VK_IMAGE_ASPECT_COLOR_BIT, 0, std::max<uint32_t>(info.mipLevels, 1), 0, info.arrayLayers,
 	};
 	VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 	if(!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &info, &memReqs, &handle.vk.image, &vk.vmaAlloc, NULL))) {
@@ -282,7 +282,18 @@ bool HPLTexture::LoadBitmap(
 
 	usageInfo.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
 	createInfo.pNext = &usageInfo;
-	createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	// The view type must be compatible with info.imageType (Vulkan
+	// VUID-VkImageViewCreateInfo-subResourceRange-01021). 1xN/Nx1 sources
+	// become VK_IMAGE_TYPE_1D above, so a hardcoded 2D view fails validation.
+	if (options.use_cubemap) {
+		createInfo.viewType = options.use_array ? VK_IMAGE_VIEW_TYPE_CUBE_ARRAY : VK_IMAGE_VIEW_TYPE_CUBE;
+	} else if (info.imageType == VK_IMAGE_TYPE_3D) {
+		createInfo.viewType = VK_IMAGE_VIEW_TYPE_3D;
+	} else if (info.imageType == VK_IMAGE_TYPE_1D) {
+		createInfo.viewType = options.use_array ? VK_IMAGE_VIEW_TYPE_1D_ARRAY : VK_IMAGE_VIEW_TYPE_1D;
+	} else {
+		createInfo.viewType = options.use_array ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+	}
 	createInfo.format = RIFormatToVK( destFormat );
 	createInfo.subresourceRange = subresource;
 	createInfo.image = handle.vk.image;
@@ -305,8 +316,11 @@ bool HPLTexture::LoadBitmap(
       const uint32_t w = MIP_REDUCE(info.extent.width, mipLevel);
       const uint32_t h = MIP_REDUCE(info.extent.height, mipLevel);
 
-      const uint32_t srcSliceNum = (h / srcProps->blockHeight);
-      const uint32_t srcRowPitch = (w / srcProps->blockWidth) * srcProps->stride;
+      // Compressed mip levels below blockWidth/blockHeight still occupy one
+      // full block. Without the max() clamp small mips give rowPitch == 0,
+      // which triggers a divide-by-zero in RI_ResourceEndCopyTexture.
+      const uint32_t srcSliceNum = std::max<uint32_t>(1u, h / srcProps->blockHeight);
+      const uint32_t srcRowPitch = std::max<uint32_t>(1u, w / srcProps->blockWidth) * srcProps->stride;
       const auto& input = bitmap.GetData(arrIndex, mipLevel);
       if (input == NULL || input->mpData == NULL) {
         Warning("HPLTexture::LoadBitmap: missing source data for array %u mip %u\n",
@@ -318,8 +332,8 @@ bool HPLTexture::LoadBitmap(
       uploadDesc.target = handle;
       uploadDesc.width = w;
       uploadDesc.height = h;
-      uploadDesc.sliceNum = (h / destProps->blockHeight);
-      uploadDesc.rowPitch = (w / destProps->blockWidth) * destProps->stride;
+      uploadDesc.sliceNum = std::max<uint32_t>(1u, h / destProps->blockHeight);
+      uploadDesc.rowPitch = std::max<uint32_t>(1u, w / destProps->blockWidth) * destProps->stride;
       uploadDesc.arrayOffset = arrIndex;
       uploadDesc.mipOffset = mipLevel;
       uploadDesc.x = 0;

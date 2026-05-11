@@ -20,12 +20,14 @@
 #ifndef HPL_LIGHT_SPOT_H
 #define HPL_LIGHT_SPOT_H
 
+#include "graphics/ImageResourceWrapper.h"
 #include "scene/Light.h"
 
 namespace hpl {
 
 	class cResources;
 	class iTexture;
+	class Image;
 	class cFrustum;
 
 	//------------------------------------------
@@ -59,8 +61,13 @@ namespace hpl {
 		
 		cFrustum* GetFrustum();
 
+		[[deprecated("use GetSpotFalloffImage")]]
 		iTexture *GetSpotFalloffMap();
+		[[deprecated("use SetSpotFalloffMap(Image*)")]]
 		void SetSpotFalloffMap(iTexture* apTexture);
+
+		void SetSpotFalloffMap(Image* apImage);
+		Image* GetSpotFalloffImage() const;
 
 		bool CollidesWithBV(cBoundingVolume *apBV);
 		bool CollidesWithFrustum(cFrustum *apFrustum);
@@ -77,6 +84,9 @@ namespace hpl {
 		cFrustum *mpFrustum;
 
 		iTexture *mpSpotFalloffMap;
+
+		// Image* parallel storage.
+		ImageResourceWrapper m_spotFalloffMap;
 
 		float mfFOV;
 		float mfAspect;

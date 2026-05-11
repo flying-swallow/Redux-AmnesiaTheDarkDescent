@@ -47,15 +47,15 @@ namespace hpl::material {
         // TinyImageFormat_ChannelCount which has no Amnesia64 equivalent yet.
         // The IsAlphaSingleChannel / IsHeightMapSingleChannel flags stay 0 until then.
         uint32_t flags =
-            (material.GetTexture(eMaterialTexture_Diffuse) ? EnableDiffuse : 0) |
-            (material.GetTexture(eMaterialTexture_NMap) ? EnableNormal : 0) |
-            (material.GetTexture(eMaterialTexture_Specular) ? EnableSpecular : 0) |
-            (material.GetTexture(eMaterialTexture_Alpha) ? EnableAlpha : 0) |
-            (material.GetTexture(eMaterialTexture_Height) ? EnableHeight : 0) |
-            (material.GetTexture(eMaterialTexture_Illumination) ? EnableIllumination : 0) |
-            (material.GetTexture(eMaterialTexture_CubeMap) ? EnableCubeMap : 0) |
-            (material.GetTexture(eMaterialTexture_DissolveAlpha) ? EnableDissolveAlpha : 0) |
-            (material.GetTexture(eMaterialTexture_CubeMapAlpha) ? EnableCubeMapAlpha : 0);
+            (material.GetImage(eMaterialTexture_Diffuse) ? EnableDiffuse : 0) |
+            (material.GetImage(eMaterialTexture_NMap) ? EnableNormal : 0) |
+            (material.GetImage(eMaterialTexture_Specular) ? EnableSpecular : 0) |
+            (material.GetImage(eMaterialTexture_Alpha) ? EnableAlpha : 0) |
+            (material.GetImage(eMaterialTexture_Height) ? EnableHeight : 0) |
+            (material.GetImage(eMaterialTexture_Illumination) ? EnableIllumination : 0) |
+            (material.GetImage(eMaterialTexture_CubeMap) ? EnableCubeMap : 0) |
+            (material.GetImage(eMaterialTexture_DissolveAlpha) ? EnableDissolveAlpha : 0) |
+            (material.GetImage(eMaterialTexture_CubeMapAlpha) ? EnableCubeMapAlpha : 0);
 
         const ShaderMaterialData& descriptor = material.Descriptor();
         switch (descriptor.m_id) {

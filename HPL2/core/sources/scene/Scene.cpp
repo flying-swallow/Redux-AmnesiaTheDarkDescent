@@ -186,7 +186,7 @@ namespace hpl {
 			tViewportListIt viewIt = mlstViewports.begin();
 			
 			VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-			RI_VK_FillColorAttachment( &colorAttachment, &cntx->colorAttachment , true );
+			RI_VK_FillColorAttachmentView( &colorAttachment, &RI.swapchainView[RI.swapchainIndex] , true );
 
 			VkRenderingAttachmentInfo depthStencil = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
 			RI_VK_FillDepthAttachment( &depthStencil, &RI.depthView[RI.swapchainIndex], true );

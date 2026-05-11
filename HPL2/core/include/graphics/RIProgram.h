@@ -45,6 +45,7 @@ public:
     };
     struct RIDescriptorSetAlloc alloc; // the set allocator
     uint16_t samplerMaxNum;
+    uint16_t combinedImageSamplerMaxNum;
     uint16_t constantBufferMaxNum;
     uint16_t dynamicConstantBufferMaxNum;
     uint16_t textureMaxNum;
@@ -110,13 +111,13 @@ private:
       VkPipelineLayout pipelineLayout;
 #endif
     } vk;
-  } impl;
+  } impl{};
   RIDevice_s *device = NULL;
   uint16_t reflection_len = 0;
   uint32_t vertex_input_mask = 0;
   std::array<uint32_t, MAX_VERTEX_ATTRIBUTES> vertex_input_format{};
   bool hasPushConstant = false;
-  std::array<struct DescriptorSetSlot, DESCRIPTOR_SET_MAX> programDescriptors;
+  std::array<struct DescriptorSetSlot, DESCRIPTOR_SET_MAX> programDescriptors{};
   std::array<ShaderBinary, PROGRAM_STAGES_MAX> shaderBin;
   std::unordered_map<hash_t, PipelineSlot> pipeline;
   std::vector<BindingReflection> bindingReflection;

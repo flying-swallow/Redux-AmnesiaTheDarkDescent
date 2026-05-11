@@ -6,28 +6,28 @@
 #include <array>
 #include <cassert>
 
-struct RISegmentAllocDesc_s{
-	uint32_t numElements;
-	uint16_t elementStride;
-	uint16_t numSegments;
-	uint16_t maxElements; 
+struct RISegmentAllocDesc_s {
+  uint32_t numElements;
+  uint16_t elementStride;
+  uint16_t numSegments;
+  uint16_t maxElements;
 };
 
 struct RISegmentReq_s {
-	uint16_t elementStride;
-	uint32_t elementOffset;
-	uint32_t numElements;
+  uint16_t elementStride;
+  uint32_t elementOffset;
+  uint32_t numElements;
 };
 
-template<size_t N> 
-struct RISegmentAlloc {
+template <size_t N> struct RISegmentAlloc {
   static constexpr uint32_t SEGMENTS = N;
   RISegmentAlloc() { segment.fill(Segment{0, 0}); }
-  RISegmentAlloc(struct RISegmentAllocDesc_s* desc);
-  bool request(uint32_t frameIndex, size_t numElements, struct RISegmentReq_s *req); 
+  RISegmentAlloc(struct RISegmentAllocDesc_s *desc);
+  bool request(uint32_t frameIndex, size_t numElements,
+               struct RISegmentReq_s *req);
 
   uint16_t elementStride = 0;
- 	uint16_t numSegments = 0;
+  uint16_t numSegments = 0;
   uint16_t maxElements = 0;
 
   // data
@@ -42,21 +42,24 @@ struct RISegmentAlloc {
   std::array<Segment, N> segment;
 };
 
-template<size_t N> 
-RISegmentAlloc<N>::RISegmentAlloc(struct RISegmentAllocDesc_s* desc) {
-	  assert( desc );
-	  segment.fill(Segment{0, 0});
-	  elementStride = desc->elementStride;
-	  tail = 0;
-	  head = 1;
-	  numSegments = desc->numSegments;
-	  maxElements = desc->maxElements;
-	  assert(numSegments <= N);
-	  assert( elementStride > 0 );
+template <size_t N>
+RISegmentAlloc<N>::RISegmentAlloc(struct RISegmentAllocDesc_s *desc) {
+  assert(desc);
+  segment.fill(Segment{0, 0});
+  elementStride = desc->elementStride;
+  tail = 0;
+  head = 1;
+  numSegments = desc->numSegments;
+  maxElements = desc->maxElements;
+  assert(numSegments != 0);
+  assert(numSegments <= N);
+  assert(elementStride > 0);
 }
 template <size_t N>
 bool RISegmentAlloc<N>::request(uint32_t frameIndex, size_t reqElements,
                                 struct RISegmentReq_s *req) {
+  if (maxElements == 0)
+    return false;
   // reclaim segments that are unused
   while (tail != head && frameIndex >= (segment[tail].frameNum + numSegments)) {
     assert(numElements >= segment[tail].numElements);
@@ -105,7 +108,8 @@ bool RISegmentAlloc<N>::request(uint32_t frameIndex, size_t reqElements,
 
   req->elementOffset = elmentEndOffset;
   req->elementStride = elementStride;
-  req->numElements = reqElements; // includes the padding on the end of the buffer
+  req->numElements =
+      reqElements; // includes the padding on the end of the buffer
   return true;
 }
 

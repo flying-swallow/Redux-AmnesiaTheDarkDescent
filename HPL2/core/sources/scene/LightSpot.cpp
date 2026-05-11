@@ -18,6 +18,7 @@
  */
 
 #include "scene/LightSpot.h"
+#include "graphics/Image.h"
 
 #include "impl/tinyXML/tinyxml.h"
 #include "math/Math.h"
@@ -75,9 +76,9 @@ namespace hpl {
 		m_mtxViewProj = cMatrixf::Identity;
 		m_mtxProjection = cMatrixf::Identity;
 
-		mpSpotFalloffMap = mpTextureManager->Create1D("core_falloff_linear",false);
-		mpSpotFalloffMap->SetWrapS(eTextureWrap_ClampToEdge);
-		mpSpotFalloffMap->SetWrapT(eTextureWrap_ClampToEdge);
+		// Forward+ uses a clamp-to-edge static sampler at the spot-falloff binding,
+		// so the per-texture wrap call from the legacy path is unnecessary.
+		SetSpotFalloffMap(mpTextureManager->Create1DImage("core_falloff_linear", false));
 
 		UpdateBoundingVolume();
 	}
@@ -219,6 +220,16 @@ namespace hpl {
 		}
 	}
 
+	void cLightSpot::SetSpotFalloffMap(Image* apImage)
+	{
+		m_spotFalloffMap = ImageResourceWrapper(mpTextureManager, apImage, /*autoDestroy=*/true);
+	}
+
+	Image* cLightSpot::GetSpotFalloffImage() const
+	{
+		return m_spotFalloffMap.GetImage();
+	}
+
 	//-----------------------------------------------------------------------
 
 
@@ -260,23 +271,25 @@ namespace hpl {
 
 		eTextureAnimMode animMode = GetAnimMode(cString::ToString(apMainElem->Attribute("ProjectionAnimMode"),"None"));
 		float fFrameTime = cString::ToFloat(apMainElem->Attribute("ProjectionFrameTime"),1.0f);
-		iTexture *pTex = NULL;
+		Image *pImage = NULL;
 
-        if(animMode != eTextureAnimMode_None)
+		if(animMode != eTextureAnimMode_None)
 		{
-			pTex = mpTextureManager->CreateAnim(sTexture,true,eTextureType_2D);
-			pTex->SetAnimMode(animMode);
-			pTex->SetFrameTime(fFrameTime);
+			pImage = mpTextureManager->CreateAnimImage(sTexture,true,eTextureType_2D);
+			if(pImage)
+			{
+				pImage->SetAnimMode(animMode);
+				pImage->SetFrameTime(fFrameTime);
+			}
 		}
 		else
 		{
-			pTex = mpTextureManager->Create2D(sTexture,true);
+			pImage = mpTextureManager->Create2DImage(sTexture,true);
 		}
-		
-		
-		if(pTex)
+
+		if(pImage)
 		{
-			SetGoboTexture(pTex);
+			SetGoboTexture(pImage);
 		}
 
 		mfAspect = cString::ToFloat(apMainElem->Attribute("Aspect"),mfAspect);

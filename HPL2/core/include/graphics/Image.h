@@ -56,7 +56,8 @@ public:
 
   Image(Image &&other);
   Image(const Image &other) = delete;
-  bool isAnimated() const; 
+  bool isAnimated() const;
+  bool IsValid() const;
   Image &operator=(const Image &other) = delete;
   void operator=(Image &&other);
 

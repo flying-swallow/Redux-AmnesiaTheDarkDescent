@@ -22,12 +22,13 @@
 
 #include "scene/Entity3D.h"
 #include "graphics/GraphicsTypes.h"
+#include "graphics/ImageResourceWrapper.h"
 #include "graphics/Renderable.h"
 
 class TiXmlElement;
 
 namespace hpl {
-	
+
 	//------------------------------------------
 
 	class iLowLevelGraphics;
@@ -36,6 +37,7 @@ namespace hpl {
 	class cFrustum;
 	class iGpuProgram;
 	class iTexture;
+	class Image;
 	class cTextureManager;
 	class cResources;
 	class cFileSearcher;
@@ -93,11 +95,22 @@ namespace hpl {
 		
 		eLightType GetLightType(){ return mLightType;}
 
+		[[deprecated("use GetFalloffImage")]]
 		iTexture *GetFalloffMap();
+		[[deprecated("use SetFalloffMap(Image*)")]]
 		void SetFalloffMap(iTexture* apTexture);
-		
+
+		[[deprecated("use SetGoboTexture(Image*)")]]
 		void SetGoboTexture(iTexture *apTexture);
+		[[deprecated("use GetGoboImage")]]
 		iTexture* GetGoboTexture();
+
+		// Image* binding API.
+		void SetFalloffMap(Image* apImage);
+		Image* GetFalloffImage() const;
+
+		void SetGoboTexture(Image* apImage);
+		Image* GetGoboImage() const;
 
 		///////////////////////////////
 		//iEntity implementation
@@ -234,8 +247,12 @@ namespace hpl {
 		cWorld *mpWorld;
 
 		iTexture *mpFalloffMap;
-		
+
 		iTexture *mpGoboTexture;
+
+		// Image* parallel storage.
+		ImageResourceWrapper m_falloffMap;
+		ImageResourceWrapper m_goboImage;
 
 		eShadowMapResolution mShadowMapResolution;
 		float mfShadowMapBlurAmount;

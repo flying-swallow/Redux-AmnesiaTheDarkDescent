@@ -66,6 +66,7 @@ namespace hpl {
 	class cAINodeGeneratorParams;
 	class iVertexBuffer;
 	class iTexture;
+	class Image;
 	class cGuiSet;
 	class cRopeEntity;
 	class iPhysicsRope;
@@ -200,11 +201,15 @@ namespace hpl {
 
 		///// SKYBOX ////////////////////////////////
 
+		[[deprecated("use SetSkyBox(Image*, bool)")]]
 		void SetSkyBox(iTexture *apTexture, bool abAutoDestroy);
+		void SetSkyBox(Image *apImage, bool abAutoDestroy);
 		void SetSkyBoxActive(bool abX);
 		void SetSkyBoxColor(const cColor& aColor);
 
+		[[deprecated("use GetSkyBoxImage")]]
 		iTexture* GetSkyBoxTexture(){return mpSkyBoxTexture;}
+		Image* GetSkyBoxImage() const { return mpSkyBoxImage; }
 		iVertexBuffer *GetSkyBoxVertexBuffer(){ return mpSkyBoxVtxBuffer;}
 		bool GetSkyBoxActive(){ return mbSkyBoxActive;}
 		cColor GetSkyBoxColor(){ return mSkyBoxColor;}
@@ -388,6 +393,7 @@ namespace hpl {
 
 		iVertexBuffer* mpSkyBoxVtxBuffer;
 		iTexture* mpSkyBoxTexture;
+		Image* mpSkyBoxImage = nullptr;
 		bool mbAutoDestroySkybox;
 		bool mbSkyBoxActive;
 		cColor mSkyBoxColor;
