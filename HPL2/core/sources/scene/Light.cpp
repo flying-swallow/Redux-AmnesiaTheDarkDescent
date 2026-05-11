@@ -94,9 +94,9 @@ namespace hpl {
 
 		///////////////////////////////
 		//Data init
-		mpFalloffMap = mpTextureManager->Create1D("core_falloff_linear",false);
-//		mpFalloffMap->SetWrapS(eTextureWrap_ClampToEdge);
-//		mpFalloffMap->SetWrapT(eTextureWrap_ClampToEdge);
+		// Forward+ uses a clamp-to-edge static sampler at the falloff binding.
+		mpFalloffMap = nullptr;
+		SetFalloffMap(mpTextureManager->Create1DImage("core_falloff_linear", false));
 
 		mpGoboTexture = NULL;
 
@@ -443,7 +443,29 @@ namespace hpl {
 
 	iTexture* iLight::GetGoboTexture()
 	{
-		return mpGoboTexture;	
+		return mpGoboTexture;
+	}
+
+	//-----------------------------------------------------------------------
+
+	void iLight::SetFalloffMap(Image* apImage)
+	{
+		m_falloffMap = ImageResourceWrapper(mpTextureManager, apImage, /*autoDestroy=*/true);
+	}
+
+	Image* iLight::GetFalloffImage() const
+	{
+		return m_falloffMap.GetImage();
+	}
+
+	void iLight::SetGoboTexture(Image* apImage)
+	{
+		m_goboImage = ImageResourceWrapper(mpTextureManager, apImage, /*autoDestroy=*/true);
+	}
+
+	Image* iLight::GetGoboImage() const
+	{
+		return m_goboImage.GetImage();
 	}
 
 	//-----------------------------------------------------------------------
@@ -520,8 +542,8 @@ namespace hpl {
 					mDiffuseColor.a = cString::ToFloat(pMainElem->Attribute("Specular"),mDiffuseColor.a);
 					
 					tString sFalloffImage = cString::ToString(pMainElem->Attribute("FalloffImage"),"");
-					iTexture *pTexture = mpTextureManager->Create1D(sFalloffImage,false);
-					if(pTexture) SetFalloffMap(pTexture);
+					Image *pImage = mpTextureManager->Create1DImage(sFalloffImage,false);
+					if(pImage) SetFalloffMap(pImage);
 
 					ExtraXMLProperties(pMainElem);
 				}

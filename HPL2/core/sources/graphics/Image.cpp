@@ -59,6 +59,10 @@ bool Image::isAnimated() const {
   return std::holds_alternative<AnimatedImage>(value);
 }
 
+bool Image::IsValid() const {
+  return GetTexture() != nullptr;
+}
+
 void Image::SetAnimMode(eTextureAnimMode aMode) {
   if (AnimatedImage *animImage = std::get_if<AnimatedImage>(&value)) {
     animImage->animMode = aMode;

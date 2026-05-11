@@ -18,6 +18,7 @@
  */
 
 #include "resources/MaterialManager.h"
+#include "graphics/Image.h"
 
 #include "system/LowLevelSystem.h"
 #include "system/String.h"
@@ -186,17 +187,12 @@ namespace hpl {
 	{
 		if(aFilter == mTextureFilter) return;
 		mTextureFilter = aFilter;
-		
+
 		tResourceBaseMapIt it = m_mapResources.begin();
 		for(; it != m_mapResources.end(); ++it)
 		{
 			cMaterial *pMat = static_cast<cMaterial*>(it->second);
-
-            for(int i=0; i<eMaterialTexture_LastEnum; ++i)
-			{
-				iTexture *pTex = pMat->GetTexture((eMaterialTexture)i);
-				if(pTex)pTex->SetFilter(aFilter);
-			}
+			pMat->setTextureFilter(aFilter);
 		}
 	}
 
@@ -220,12 +216,7 @@ namespace hpl {
 		for(; it != m_mapResources.end(); ++it)
 		{
 			cMaterial *pMat = static_cast<cMaterial*>(it->second);
-
-			for(int i=0; i<eMaterialTexture_LastEnum; ++i)
-			{
-				iTexture *pTex = pMat->GetTexture((eMaterialTexture)i);
-				if(pTex)pTex->SetAnisotropyDegree(mfTextureAnisotropy);
-			}
+			pMat->SetTextureAnisotropy(mfTextureAnisotropy);
 		}
 	}
 
@@ -366,19 +357,21 @@ namespace hpl {
 
 		//Log("Material %s\n",asName.c_str());
 		
+		// Per-material sampler state (applied uniformly to all bindings).
+		// Wrap is taken from the first texture entry that specifies it; filter and
+		// anisotropy come from the cMaterialManager's global setting.
+		pMat->setTextureFilter(mTextureFilter);
+		pMat->SetTextureAnisotropy(mfTextureAnisotropy);
+
 		for(int i=0; i< pMatType->GetUsedTextureNum(); ++i)
 		{
 			cMaterialUsedTexture* pUsedTexture = pMatType->GetUsedTexture(i);
-			iTexture *pTex = NULL;
+			Image *pImage = NULL;
 
 			tString sTextureType = GetTextureString(pUsedTexture->mType);
-			//Log("Trying to load type: %s\n",sTextureType.c_str());
-			
+
 			cXmlElement* pTexChild = pTexRoot->GetFirstElement(sTextureType.c_str());
 			if(pTexChild==NULL){
-				//Log(" Texture unit element missing!\n");
-				/*hplDelete(pMat);
-				return NULL;*/
 				continue;
 			}
 
@@ -387,69 +380,63 @@ namespace hpl {
 			bool bMipMaps = pTexChild->GetAttributeBool("MipMaps", true);
 			bool bCompress = pTexChild->GetAttributeBool("Compress", false);
 			eTextureWrap wrap = GetWrap(pTexChild->GetAttributeString("Wrap", ""));
-			
+
 			eTextureAnimMode animMode = GetAnimMode(pTexChild->GetAttributeString("AnimMode", "None"));
 			float fFrameTime = pTexChild->GetAttributeFloat("AnimFrameTime", 1.0f);
-			
+
 			if(sFile=="") continue;
-			
+
 			if(cString::GetFilePath(sFile).length() <= 1)
 			{
 				sFile = cString::SetFilePath(sFile, cString::To8Char(cString::GetFilePathW(asPath)));
 			}
-			//Log("Texture: '%s'\n",sFile.c_str());
-			//Log(" Loading!\n");
 
 			if(animMode != eTextureAnimMode_None)
 			{
-				pTex = mpResources->GetTextureManager()->CreateAnim(sFile,bMipMaps,type,eTextureUsage_Normal,mlTextureSizeDownScaleLevel);
+				pImage = mpResources->GetTextureManager()->CreateAnimImage(sFile,bMipMaps,type,eTextureUsage_Normal,mlTextureSizeDownScaleLevel);
 			}
 			else
 			{
-				
 				if(type == eTextureType_1D)
 				{
-					pTex = mpResources->GetTextureManager()->Create1D(sFile,bMipMaps,
-																			eTextureUsage_Normal,
-																			mlTextureSizeDownScaleLevel);
+					pImage = mpResources->GetTextureManager()->Create1DImage(sFile,bMipMaps,
+																				eTextureUsage_Normal,
+																				mlTextureSizeDownScaleLevel);
 				}
 				else if(type == eTextureType_2D)
 				{
-					pTex = mpResources->GetTextureManager()->Create2D(sFile,bMipMaps, eTextureType_2D,
-																		eTextureUsage_Normal,
-																		mlTextureSizeDownScaleLevel);
-				}
-				else if(type == eTextureType_3D)
-				{
-					pTex = mpResources->GetTextureManager()->Create3D(sFile,bMipMaps,
-																		eTextureUsage_Normal,
-																		mlTextureSizeDownScaleLevel);
-				}
-				else if(type == eTextureType_CubeMap)
-				{
-					//Check for DDS ending and load cubemap as file.
-					pTex = mpResources->GetTextureManager()->CreateCubeMap(sFile,bMipMaps,
+					pImage = mpResources->GetTextureManager()->Create2DImage(sFile,bMipMaps, eTextureType_2D,
 																			eTextureUsage_Normal,
 																			mlTextureSizeDownScaleLevel);
 				}
+				else if(type == eTextureType_3D)
+				{
+					pImage = mpResources->GetTextureManager()->Create3DImage(sFile,bMipMaps,
+																			eTextureUsage_Normal,
+																			mlTextureSizeDownScaleLevel);
+				}
+				else if(type == eTextureType_CubeMap)
+				{
+					pImage = mpResources->GetTextureManager()->CreateCubeMapImage(sFile,bMipMaps,
+																					eTextureUsage_Normal,
+																					mlTextureSizeDownScaleLevel);
+				}
 			}
 
-			if(pTex==NULL)
+			if(pImage==NULL)
 			{
 				mpResources->DestroyXmlDocument(pDoc);
 				hplDelete(pMat);
 				return NULL;
 			}
 
-			pTex->SetFrameTime(fFrameTime);
-			pTex->SetAnimMode(animMode);
+			pImage->SetFrameTime(fFrameTime);
+			pImage->SetAnimMode(animMode);
 
-			pTex->SetWrapSTR(wrap);
-			
-			pTex->SetFilter(mTextureFilter);
-			pTex->SetAnisotropyDegree(mfTextureAnisotropy);
+			// Wrap is per-material in the new model; record the last texture entry's wrap.
+			pMat->setTextureWrap(wrap);
 
-			pMat->SetTexture(pUsedTexture->mType, pTex);
+			pMat->SetImage(pUsedTexture->mType, pImage);
 		}
 
 		///////////////////////////

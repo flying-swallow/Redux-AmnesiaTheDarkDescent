@@ -583,7 +583,7 @@ public:
 			mpWorld = gpEngine->GetScene()->CreateWorld("Temp");
 			mpPhysicsWorld = NULL;
 			
-			iTexture *pSkyBox = gpEngine->GetResources()->GetTextureManager()->CreateCubeMap("cubemap_evening.dds",false);
+			Image *pSkyBox = gpEngine->GetResources()->GetTextureManager()->CreateCubeMapImage("cubemap_evening.dds",false);
 			if(pSkyBox)
 			{
 				mpWorld->SetSkyBox(pSkyBox,true);
@@ -843,9 +843,7 @@ public:
 
 		//////////////////////////////////
 		//Add a skybox now for fun!
-		//iTexture *pSkyBox = gpEngine->GetResources()->GetTextureManager()->CreateCubeMap("dds_cubemap_test.dds",false);
-		iTexture *pSkyBox = gpEngine->GetResources()->GetTextureManager()->CreateCubeMap("cubemap_evening.dds",false);
-		//iTexture *pSkyBox = gpEngine->GetResources()->GetTextureManager()->CreateCubeMap("stevecube",false);
+		Image *pSkyBox = gpEngine->GetResources()->GetTextureManager()->CreateCubeMapImage("cubemap_evening.dds",false);
 		if(pSkyBox)
 		{
 			mpWorld->SetSkyBox(pSkyBox,true);

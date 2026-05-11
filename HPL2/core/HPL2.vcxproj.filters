@@ -1108,9 +1108,6 @@
     <ClInclude Include="include\graphics\RIGPUPreset.h">
       <Filter>Graphics</Filter>
     </ClInclude>
-    <ClInclude Include="include\graphics\RINulTexture.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
     <ClInclude Include="include\graphics\RIPogoBuffer.h">
       <Filter>Graphics</Filter>
     </ClInclude>
@@ -2059,9 +2056,6 @@
       <Filter>Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\graphics\RIFormat.c">
-      <Filter>Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\RINulTexture.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\graphics\RIProgram.cpp">

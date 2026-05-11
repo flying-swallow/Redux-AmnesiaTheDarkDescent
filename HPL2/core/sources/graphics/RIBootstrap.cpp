@@ -25,7 +25,7 @@ void RIBootstrap::Dispose() {
     RI_PogoBufferDestroy(&device, &pogoBuffer[i]);
     FreeRITextureView(&device, &depthView[i]);
     FreeRITexture(&device, &depthTextures[i]);
-    FreeRIDescriptor(&device, &colorAttachment[i]);
+    FreeRITextureView(&device, &depthView[i]);
   }
 
   for (auto &set : frameSets) {
@@ -55,7 +55,7 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
     imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imageBarriers[0].image = cntx->colorAttachment.texture->vk.image;
+    imageBarriers[0].image = RI.swapchain.vk.images[RI.swapchainIndex];
     imageBarriers[0].subresourceRange = VkImageSubresourceRange{
         VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
         VK_REMAINING_ARRAY_LAYERS,
@@ -109,8 +109,10 @@ void RIBootstrap::BeginActiveSet() {
 
   // cleanup
   RIResetScratchAlloc(&RI.device, &cntx->uboScratchAlloc);
-  cntx->colorAttachment = RI.colorAttachment[RI.swapchainIndex];
+  //cntx->colorAttachment = RI.colorAttachment[RI.swapchainIndex];
+  //RIFinalizeDescriptor(&RI.device, &cntx->colorAttachment);
   cntx->textureLink.clear();
+  cntx->bufferLink.clear();
 
   BeginRICmd(&RI.device, &RI.primary.cmds[0]);
   {
@@ -126,7 +128,7 @@ void RIBootstrap::BeginActiveSet() {
     imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imageBarriers[0].image = cntx->colorAttachment.texture->vk.image;
+    imageBarriers[0].image = RI.swapchain.vk.images[RI.swapchainIndex]; // cntx->colorAttachment.texture->vk.image;
     imageBarriers[0].subresourceRange = VkImageSubresourceRange{
         VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
         VK_REMAINING_ARRAY_LAYERS,

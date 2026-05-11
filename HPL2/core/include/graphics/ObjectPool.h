@@ -7,7 +7,7 @@
 template <typename T> class ObjectPool {
 public:
   ObjectPool(size_t chunkSize)
-      : start(NULL), end(NULL), poolIndex(0), chunkSize(chunkSize) {}
+      : start(NULL), end(NULL), poolIndex(0), chunkSize(chunkSize), pool(NULL) {}
 
   struct PoolSlot {
     struct PoolSlot *next;

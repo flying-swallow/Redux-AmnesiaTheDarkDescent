@@ -42,6 +42,20 @@ static inline void RI_VK_FillColorAttachment(VkRenderingAttachmentInfo *info,
   info->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 }
 
+static inline void
+RI_VK_FillColorAttachmentView(VkRenderingAttachmentInfo *info,
+                              struct RITextureView_s *view,
+                              bool attachAndClear) {
+  info->imageView = view->vk.image;
+  info->imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  info->resolveMode = VK_RESOLVE_MODE_NONE;
+  info->resolveImageView = VK_NULL_HANDLE;
+  info->resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  info->loadOp =
+      attachAndClear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
+  info->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+}
+
 static inline void RI_VK_FillDepthAttachment( VkRenderingAttachmentInfo *info, struct RITextureView_s *view, bool attachAndClear )
 {
 	info->imageView = view->vk.image;

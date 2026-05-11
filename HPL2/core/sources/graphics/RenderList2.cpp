@@ -42,6 +42,31 @@
 
 namespace hpl {
 
+    // Pack (anisotropy, wrap, filter) into a single uint32_t so sorting groups
+     // solids by the sampler state the bindless renderer would otherwise have to
+     // re-bind for every batch.
+    static uint32_t ResolveTextureFilterGroup(float afAnisotropy,
+                                              eTextureWrap aWrap,
+                                              eTextureFilter aFilter) {
+        const uint32_t kFilterCount = static_cast<uint32_t>(eTextureFilter_LastEnum);
+        const uint32_t kWrapCount = static_cast<uint32_t>(eTextureWrap_LastEnum);
+        const uint32_t anisotropyGroup =
+            (kFilterCount * kWrapCount) * static_cast<uint32_t>(afAnisotropy);
+        return anisotropyGroup +
+               (static_cast<uint32_t>(aWrap) * kFilterCount +
+                static_cast<uint32_t>(aFilter));
+    }
+
+    static bool SortFunc_Solid(iRenderable* apObjectA, iRenderable* apObjectB) {
+        cMaterial* pMatA = apObjectA->GetMaterial();
+        cMaterial* pMatB = apObjectB->GetMaterial();
+        const uint32_t filterA = ResolveTextureFilterGroup(
+            pMatA->GetTextureAnisotropy(), pMatA->GetTextureWrap(), pMatA->GetTextureFilter());
+        const uint32_t filterB = ResolveTextureFilterGroup(
+            pMatB->GetTextureAnisotropy(), pMatB->GetTextureWrap(), pMatB->GetTextureFilter());
+        return filterA < filterB;
+    }
+
     static bool SortFunc_Z(iRenderable* apObjectA, iRenderable* apObjectB) {
         cMaterial* pMatA = apObjectA->GetMaterial();
         cMaterial* pMatB = apObjectB->GetMaterial();
@@ -145,6 +170,10 @@ namespace hpl {
     }
 
     void cRenderList2::End(tRenderListCompileFlag aFlags) {
+        // Batch solids by sampler state so the bindless renderer can issue
+        // contiguous draws without re-binding per-material descriptor sets.
+        std::sort(m_solidObjects.begin(), m_solidObjects.end(), SortFunc_Solid);
+
         auto sortRenderType = [&](eRenderListType type) {
             switch (type) {
                 case eRenderListType_Translucent:
@@ -378,7 +407,7 @@ namespace hpl {
             // Solid
             else {
                 m_solidObjects.push_back(apObject);
-                if (pMaterial->GetTexture(eMaterialTexture_Illumination) && apObject->GetIlluminationAmount() > 0) {
+                if (pMaterial->GetImage(eMaterialTexture_Illumination) && apObject->GetIlluminationAmount() > 0) {
                     m_illumObjects.push_back(apObject);
                 }
             }

@@ -172,3 +172,9 @@ endif()
 
 add_subdirectory(MathLib)
 
+# MathLib uses SSE3+ intrinsics that GCC/Clang gate behind -msse* flags (MSVC
+# enables them implicitly on x64).
+if(NOT MSVC AND NOT (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64|arm"))
+    target_compile_options(MathLib INTERFACE -msse4.2)
+endif()
+

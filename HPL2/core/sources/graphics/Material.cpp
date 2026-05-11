@@ -209,12 +209,41 @@ namespace hpl {
 	{
 		mvTextures[aType] = apTexture;
 	}
-	
+
 	//-----------------------------------------------------------------------
 
 	iTexture *cMaterial::GetTexture(eMaterialTexture aType)
 	{
 		return mvTextures[aType];
+	}
+
+	//-----------------------------------------------------------------------
+
+	void cMaterial::SetImage(eMaterialTexture aType, Image* apImage)
+	{
+		m_image[aType] = ImageResourceWrapper(mpResources->GetTextureManager(), apImage, mbAutoDestroyTextures);
+	}
+
+	Image* cMaterial::GetImage(eMaterialTexture aType) const
+	{
+		return m_image[aType].GetImage();
+	}
+
+	//-----------------------------------------------------------------------
+
+	void cMaterial::setTextureWrap(eTextureWrap aWrap)
+	{
+		m_textureWrap = aWrap;
+	}
+
+	void cMaterial::setTextureFilter(eTextureFilter aFilter)
+	{
+		m_textureFilter = aFilter;
+	}
+
+	void cMaterial::SetTextureAnisotropy(float afX)
+	{
+		m_textureAnisotropy = afX;
 	}
 
 	//-----------------------------------------------------------------------

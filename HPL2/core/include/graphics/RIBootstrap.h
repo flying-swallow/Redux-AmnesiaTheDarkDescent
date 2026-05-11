@@ -11,23 +11,26 @@
 #include <graphics/RIResourceUploader.h>
 #include <graphics/RIScratchAlloc.h>
 #include <graphics/RIProgram.h>
-#include <graphics/RINulTexture.h>
 #include <graphics/RIPogoBuffer.h>
 #include <memory>
 
 namespace hpl {
 struct HPLTexture;
 
+
 //bootstrap implementation
 struct RIBootstrap {
 public:
+  static constexpr RI_Format_e VisibilityFormat = RI_FORMAT_R32_UINT;
+  static constexpr RI_Format_e DepthFormat = RI_FORMAT_D32_SFLOAT;
+
   explicit RIBootstrap() {
 
   }
   struct FrameContext {
     struct RIScratchAlloc_s uboScratchAlloc;
-    struct RIDescriptor_s colorAttachment;
     std::vector<std::shared_ptr<HPLTexture>> textureLink; // keep track of textures that are used in this frame
+    std::vector<std::shared_ptr<RIBuffer_s>> bufferLink; 
     std::vector<RIFree> freelist;
   };
 
@@ -35,14 +38,24 @@ public:
   RIDevice_s device;
 	RIProgram gui;
 
-  struct RINulTexture whiteTexture2D;
+  // 1x1 white texture used as the default texture binding when no real
+  // texture is available.
+  struct RITexture_s whiteTexture2D;
+  struct RIDescriptor_s whiteTexture2DBinding;
 
-  RI_Format_e depthFormat;
+  // Zero-filled vertex buffer bound into vertex input slots that don't have
+  // a real stream — the vertex fetcher reads zeros for those attributes.
+  struct RIBuffer_s nulVertexBuffer;
+
   RISwapchain_s<RI_MAX_SWAPCHAIN_IMAGES> swapchain;
-	struct RIDescriptor_s colorAttachment[RI_MAX_SWAPCHAIN_IMAGES];
+	struct RITextureView_s swapchainView[RI_MAX_SWAPCHAIN_IMAGES];
 	struct RITexture_s depthTextures[RI_MAX_SWAPCHAIN_IMAGES];
 	struct RITextureView_s depthView[RI_MAX_SWAPCHAIN_IMAGES];
 	struct RI_PogoBuffer pogoBuffer[RI_MAX_SWAPCHAIN_IMAGES];
+
+  struct RITexture_s visiblityTexture[RI_MAX_SWAPCHAIN_IMAGES];
+  struct RITextureView_s visiblityView[RI_MAX_SWAPCHAIN_IMAGES];
+
 
 	RICommandRingBuffer_s<RI_COMMAND_RING_POOL_COUNT, RI_COMMAND_RING_CMD_PER_POOL> graphicsCmdRing;
 	struct RICommandRingElement_s primary;
@@ -55,7 +68,7 @@ public:
   std::array<FrameContext, RI_NUMBER_FRAMES_FLIGHT> frameSets;
 	std::array<RIDescriptor_s, 1024> cachedFilters; 
   uint32_t swapchainIndex;
-  uint64_t frameIndex = 0;
+  uint32_t frameIndex = 0;
 
   struct RIResourceUploader_s uploader = {};
 

@@ -126,21 +126,23 @@ add_custom_target(deploy
     -DAMNESIA_GAME_DIRECTORY=${AMNESIA_GAME_DIRECTORY}
     -DAMNESIA_EXECUTABLE_OUTPUT_PATH="$<TARGET_FILE_DIR:Amnesia>"
     -P ${CMAKE_CURRENT_SOURCE_DIR}/copy_game_assets.cmake
-    COMMENT "packaging assets ...")
+    COMMENT "copying assets ...")
 
 
 
 # file(GENERATE OUTPUT AMNESIA_SHADER_DIR CONTENT $<TARGET_FILE_DIR:Amnesia>/compiled_shaders)
 
 # file(MAKE_DIRECTORY ${AMNESIA_SHADER_DIR})
-target_shaders( 
+target_shaders(
     Amnesia
-SHADERS 
+SHADERS
     ./glsl/gui.frag
     ./glsl/gui.vert
+    ./glsl/forward_diffuse.frag
+    ./glsl/forward_diffuse.vert
 OUTPUT_FOLDER
 ${AMNESIA_SHADER_DIR}
-) 
+)
 
 #add_custom_target(shaders
 #    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} 

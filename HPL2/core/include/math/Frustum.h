@@ -24,6 +24,7 @@
 #include "graphics/GraphicsTypes.h"
 #include "system/SystemTypes.h"
 #include "math/BoundingVolume.h"
+#include "math/Math.h"
 
 namespace hpl {
 
@@ -57,6 +58,10 @@ namespace hpl {
 		
 		inline const cMatrixf& GetProjectionMatrix() const { return m_mtxProj;}
 		inline const cMatrixf& GetViewMatrix()const { return m_mtxView;}
+
+		inline ml::float4x4 GetProjectionMat() const { return cMath::ToFloatTranspose4x4(m_mtxProj);}
+		inline ml::float4x4 GetViewMat() const { return cMath::ToFloatTranspose4x4(m_mtxView);}
+		inline ml::float4x4 GetViewProjectionMat() const { return cMath::ToFloatTranspose4x4(m_mtxViewProj);}
 
 		inline float GetFarPlane()const { return mfFarPlane;}
 		inline float GetNearPlane()const { return mfNearPlane;}

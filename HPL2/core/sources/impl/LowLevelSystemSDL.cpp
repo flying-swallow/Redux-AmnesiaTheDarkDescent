@@ -20,6 +20,7 @@
 //#include <vld.h>
 //Use this to check for memory leaks!
 
+#include <cassert>
 #ifdef _WIN32
 #pragma comment(lib, "angelscript.lib")
 #define UNICODE
@@ -238,6 +239,7 @@ namespace hpl {
 #endif
 		SDL_Quit();
 #endif
+		assert(false);
 		cPlatform::CreateMessageBox(eMsgBoxType_Error, _W("FATAL ERROR"), _W("%ls"), cString::To16Char(sMess).c_str());
 
 		exit(1);

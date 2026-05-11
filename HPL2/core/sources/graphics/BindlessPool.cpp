@@ -18,7 +18,7 @@ void BindlessPool::reset(uint32_t numElements) {
   poolSlotPool.reset();
 }
 
-void BindlessPool::free(uint32_t cookie) {
+void BindlessPool::free(hash_t cookie) {
   const size_t hashIndex = cookie % hashSlots.size();
   for (BindlessPool::BindlessPoolSlot *c = hashSlots[hashIndex]; c;
        c = c->hNext) {
@@ -96,7 +96,7 @@ void BindlessPool::attachSlot(struct BindlessPoolSlot *slot) {
   }
 }
 
-BindlessPool::BindlessPoolReq  BindlessPool::request(uint32_t cookie, uint32_t frameIndex) {
+BindlessPool::BindlessPoolReq  BindlessPool::request(hash_t cookie, uint32_t frameIndex) {
   const size_t hashIndex = cookie % hashSlots.size();
   for (BindlessPool::BindlessPoolSlot *c = hashSlots[hashIndex]; c;
        c = c->hNext) {
@@ -120,7 +120,7 @@ BindlessPool::BindlessPoolReq  BindlessPool::request(uint32_t cookie, uint32_t f
       }
       queueEnd = c;
       // found a slot with the same cookie
-      return BindlessPool::BindlessPoolReq{ c->id, true};
+      return BindlessPool::BindlessPoolReq{ c->id, true, false};
     }
   }
 
@@ -130,16 +130,21 @@ BindlessPool::BindlessPoolReq  BindlessPool::request(uint32_t cookie, uint32_t f
     slot->frameIndex = frameIndex;
     slot->cookie = cookie;
     attachSlot(slot);
-    return BindlessPool::BindlessPoolReq{ slot->id, false};
+    return BindlessPool::BindlessPoolReq{ slot->id, false, false};
   }
 
+  const uint32_t id = pool.requestId();
+  if (id == UINT32_MAX) {
+    // pool is full and no slot is old enough to evict — caller must skip.
+    return BindlessPool::BindlessPoolReq{ UINT32_MAX, false, true };
+  }
   BindlessPool::BindlessPoolSlot* slot =  poolSlotPool.allocate();
   memset(slot, 0, sizeof(BindlessPool::BindlessPoolSlot));
   assert(slot);
   slot->cookie = cookie;
   slot->frameIndex = frameIndex;
-  slot->id = pool.requestId();
+  slot->id = id;
   attachSlot(slot);
-  return BindlessPool::BindlessPoolReq{ slot->id, false};
+  return BindlessPool::BindlessPoolReq{ slot->id, false, false};
 }
 } // namespace hpl

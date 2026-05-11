@@ -20,7 +20,6 @@
 #ifndef HPL_RENDERABLE_H
 #define HPL_RENDERABLE_H
 
-#include "graphics/DrawPacket.h"
 #include "math/MathTypes.h"
 #include "graphics/GraphicsTypes.h"
 #include "system/SystemTypes.h"
@@ -54,7 +53,6 @@ namespace hpl {
 
 		virtual cMaterial *GetMaterial()=0;
 		virtual iVertexBuffer* GetVertexBuffer()=0;
-    virtual DrawPacket ResolveDrawPacket(std::span<eVertexBufferElement> elements) { return DrawPacket{};};
 
 		virtual bool CollidesWithBV(cBoundingVolume *apBV);
 		virtual bool CollidesWithFrustum(cFrustum *apFrustum);

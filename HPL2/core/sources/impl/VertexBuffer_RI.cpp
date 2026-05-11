@@ -18,11 +18,15 @@
  */
 
 #include "graphics/VertexBuffer_RI.h"
+#include "graphics/RIBootstrap.h"
+#include "graphics/RIRenderer.h"
+#include "graphics/RIResourceUploader.h"
 #include "math/Math.h"
 #include "system/LowLevelSystem.h"
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdio>
 #include <vector>
 
 namespace hpl {
@@ -65,26 +69,6 @@ void VertexBuffer_RI::DrawIndices(	unsigned int *apIndices, int alCount,
 	
 void VertexBuffer_RI::CreateShadowDouble(bool abUpdateData) {}
 
-// void VertexBuffer_RI::cmdBindGeometry(Cmd* cmd,
-// ForgeRenderer::CommandResourcePool* resourcePool,
-// LegacyVertexBuffer::GeometryBinding& binding) {
-//     folly::small_vector<Buffer*, 16> vbBuffer;
-//     folly::small_vector<uint64_t, 16> vbOffsets;
-//     folly::small_vector<uint32_t, 16> vbStride;
-
-//     for (auto& element : binding.m_vertexElement) {
-//         vbBuffer.push_back(element.element->m_buffer.m_handle);
-//         vbOffsets.push_back(element.offset);
-//         vbStride.push_back(element.element->Stride());
-//         resourcePool->Push(element.element->m_buffer);
-//     }
-//     resourcePool->Push(*binding.m_indexBuffer.element);
-
-//     cmdBindVertexBuffer(cmd, binding.m_vertexElement.size(), vbBuffer.data(),
-//     vbStride.data(), vbOffsets.data()); cmdBindIndexBuffer(cmd,
-//     binding.m_indexBuffer.element->m_handle, INDEX_TYPE_UINT32,
-//     binding.m_indexBuffer.offset);
-// }
 void VertexBuffer_RI::PushVertexElements(
     std::span<const float> values, eVertexBufferElement elementType,
     std::span<VertexBuffer_RI::VertexElement> elements) {
@@ -334,12 +318,112 @@ bool VertexBuffer_RI::Compile(tVertexCompileFlag aFlags) {
         reinterpret_cast<float *>(normalElement->m_shadowData.data()),
         positionElement->NumElements());
   }
-  // SyncToken token = {};
+  // Shared deleter: route through the active frame's deferred-free queue so
+  // the VkBuffer outlives any in-flight upload / draw command buffer that
+  // still references it. The buffer + allocation get destroyed when the set
+  // rotates back around (i.e. RI_NUMBER_FRAMES_FLIGHT frames later).
+  auto destroyBuffer = [](RIBuffer_s *b) {
+    if (b->vk.buffer) {
+      auto *cntx = RI.GetActiveSet();
+      cntx->freelist.push_back(RIFree(b->vk.buffer));
+      cntx->freelist.push_back(RIFree(b->vk.allocation));
+    }
+    delete b;
+  };
+
+  VmaAllocator allocator = RI.device.vk.vmaAllocator;
+
+  auto elementTypeName = [](eVertexBufferElement type) -> const char * {
+    switch (type) {
+    case eVertexBufferElement_Position: return "Position";
+    case eVertexBufferElement_Normal: return "Normal";
+    case eVertexBufferElement_Color0: return "Color0";
+    case eVertexBufferElement_Color1: return "Color1";
+    case eVertexBufferElement_Texture0: return "Texture0";
+    case eVertexBufferElement_Texture1Tangent: return "Texture1Tangent";
+    case eVertexBufferElement_Texture1: return "Texture1";
+    case eVertexBufferElement_Texture2: return "Texture2";
+    case eVertexBufferElement_Texture3: return "Texture3";
+    case eVertexBufferElement_Texture4: return "Texture4";
+    case eVertexBufferElement_User0: return "User0";
+    case eVertexBufferElement_User1: return "User1";
+    case eVertexBufferElement_User2: return "User2";
+    case eVertexBufferElement_User3: return "User3";
+    default: return "Unknown";
+    }
+  };
+
+  auto uploadBuffer = [&](VkDeviceSize size, const void *src,
+                          VkBufferUsageFlags usage,
+                          VkPipelineStageFlags2 postStage,
+                          VkAccessFlags2 postAccess,
+                          const char *label)
+      -> std::shared_ptr<RIBuffer_s> {
+    std::shared_ptr<RIBuffer_s> buf(new RIBuffer_s(), destroyBuffer);
+
+    uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
+    VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    VK_ConfigureBufferQueueFamilies(&bci, RI.device.queues, RI_QUEUE_LEN,
+                                    queueFamilies, RI_QUEUE_LEN);
+    bci.size = size;
+    bci.usage = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+
+    VmaAllocationCreateInfo aci = {};
+    aci.usage = VMA_MEMORY_USAGE_AUTO;
+    VK_WrapResult(vmaCreateBuffer(allocator, &bci, &aci, &buf->vk.buffer,
+                                  &buf->vk.allocation, nullptr));
+
+    if (vkSetDebugUtilsObjectNameEXT) {
+      char debugName[128];
+      std::snprintf(debugName, sizeof(debugName), "VB[%p]:%s",
+                    static_cast<void *>(this), label ? label : "Unknown");
+      VkDebugUtilsObjectNameInfoEXT nameInfo = {
+          VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, NULL,
+          VK_OBJECT_TYPE_BUFFER, (uint64_t)buf->vk.buffer, debugName};
+      VK_WrapResult(
+          vkSetDebugUtilsObjectNameEXT(RI.device.vk.device, &nameInfo));
+    }
+
+    RIResourceBufferTransaction_s trans = {};
+    trans.target = *buf;
+    trans.size = size;
+    trans.offset = 0;
+    trans.vk.current_stage = VK_PIPELINE_STAGE_2_NONE;
+    trans.vk.current_access = VK_ACCESS_2_NONE;
+    trans.vk.post_stage = postStage;
+    trans.vk.post_access = postAccess;
+    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+    std::memcpy(trans.mapped.data, src, size);
+    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+    
+    auto *cntx = RI.GetActiveSet();
+    cntx->bufferLink.push_back(buf);
+
+    return buf;
+  };
 
   for (auto &element : m_vertexElements) {
-    m_updateFlags |= element.flag;
+    if (element.m_shadowData.empty())
+      continue;
+    element.buffer = uploadBuffer(
+        element.m_shadowData.size(), element.m_shadowData.data(),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+            VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+        elementTypeName(element.type));
   }
-  m_updateIndices = true;
+
+  if (!m_indices.empty()) {
+    m_indexBuffer = uploadBuffer(
+        m_indices.size() * sizeof(uint32_t), m_indices.data(),
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+        VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
+        "Index");
+  }
+
+  m_updateFlags = 0;
+  m_updateIndices = false;
   return true;
 }
 

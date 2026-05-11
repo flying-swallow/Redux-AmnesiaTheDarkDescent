@@ -1070,13 +1070,11 @@ void __stdcall cLuxScriptHandler::SetSkyBoxTexture(std::string& asTexture)
 {
 	cWorld *pWorld = gpBase->mpMapHandler->GetCurrentMap()->GetWorld();
 
-    iTexture *pTexture;
+	Image *pImage = nullptr;
 	if(asTexture != "")
-		pTexture = gpBase->mpEngine->GetResources()->GetTextureManager()->CreateCubeMap(asTexture,true);
-	else
-		pTexture = NULL;
-    
-	pWorld->SetSkyBox(pTexture, true);
+		pImage = gpBase->mpEngine->GetResources()->GetTextureManager()->CreateCubeMapImage(asTexture,true);
+
+	pWorld->SetSkyBox(pImage, true);
 }
 
 void __stdcall cLuxScriptHandler::SetSkyBoxColor(float afR, float afG, float afB, float afA)

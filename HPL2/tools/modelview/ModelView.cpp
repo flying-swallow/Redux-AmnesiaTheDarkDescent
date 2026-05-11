@@ -513,8 +513,8 @@ public:
 		/////////////////////////////////
 		// Load extra
 
-		mpTexDiffuseNull = gpEngine->GetResources()->GetTextureManager()->Create2D("modelview_diffuse_null.jpg",true);
-		mpTexNMapNull = gpEngine->GetResources()->GetTextureManager()->Create2D("modelview_nmap_null.jpg",true);
+		mpTexDiffuseNull = gpEngine->GetResources()->GetTextureManager()->Create2DImage("modelview_diffuse_null.jpg",true);
+		mpTexNMapNull = gpEngine->GetResources()->GetTextureManager()->Create2DImage("modelview_nmap_null.jpg",true);
 		
 		/////////////////////////////////
 		// Init variables
@@ -1799,8 +1799,8 @@ public:
 			}
 			else
 			{
-				if(texType == eMaterialTexture_Diffuse)		pMat->SetTexture(texType,mpTexDiffuseNull);
-				else if(texType == eMaterialTexture_NMap)	pMat->SetTexture(texType,mpTexNMapNull);
+				if(texType == eMaterialTexture_Diffuse)		pMat->SetImage(texType,mpTexDiffuseNull);
+				else if(texType == eMaterialTexture_NMap)	pMat->SetImage(texType,mpTexNMapNull);
 				else										pMat->SetTexture(texType,NULL);
 			}
 			
@@ -2246,8 +2246,8 @@ public:
 	cWidgetComboBox *mpCBAnimations;
 
 	std::vector<cMaterialData> mvMaterialData;
-	iTexture *mpTexDiffuseNull;
-	iTexture *mpTexNMapNull;
+	Image *mpTexDiffuseNull;
+	Image *mpTexNMapNull;
 };
 
 //-----------------------------------------------------------------------

@@ -22,6 +22,7 @@
 #include "engine/EngineTypes.h"
 #include "engine/Updateable.h"
 
+#include "graphics/RIFormat.h"
 #include "system/LowLevelSystem.h"
 #include "system/String.h"
 #include "system/Platform.h"
@@ -157,7 +158,7 @@ namespace hpl {
 			mbScreenIsSetup = false;
 		}
 		{
-		struct RIBackendInit_s backendInit = { 0 };
+		struct RIBackendInit_s backendInit = {};
 		backendInit.api = RI_DEVICE_API_VK;
 		backendInit.applicationName = "HPL2";
 #ifndef NDEBUG
@@ -211,7 +212,6 @@ namespace hpl {
 		swapchainInit.width = alWidth;
 		swapchainInit.height = alHeight;
 		swapchainInit.format = RI_SWAPCHAIN_BT709_G22_8BIT;
-		RI.depthFormat = RI_FORMAT_D32_SFLOAT;
 		InitRISwapchain(&RI.device, &swapchainInit, &RI.swapchain);
 
 		{
@@ -232,12 +232,14 @@ namespace hpl {
 					createInfo.image = RI.swapchain.vk.images[i];
 					createInfo.format = RIFormatToVK( RI.swapchain.format );
 					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D; // | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-					RI.colorAttachment[i].flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-					RI.colorAttachment[i].texture = &RI.swapchain.textures[i];
-					RI.colorAttachment[i].vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-					RI.colorAttachment[i].vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.colorAttachment[i].vk.image.imageView ) );
-					RIFinalizeDescriptor( &RI.device, &RI.colorAttachment[i] );
+					//RI.colorAttachment[i].flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
+					//RI.colorAttachment[i].texture = &RI.swapchain.textures[i];
+					//RI.colorAttachment[i].vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+					//RI.colorAttachment[i].vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.swapchainView[i].vk.image) );
+
+					//VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.colorAttachment[i].vk.image.imageView ) );
+					//RIFinalizeDescriptor( &RI.device, &RI.colorAttachment[i] );
 				}
 				{
 					VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
@@ -253,19 +255,48 @@ namespace hpl {
 					info.pQueueFamilyIndices = queueFamilies;
 					VK_ConfigureImageQueueFamilies( &info, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
 					info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-					info.format = RIFormatToVK( RI.depthFormat);
+					info.format = RIFormatToVK( RIBootstrap::DepthFormat);
 					info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 					VK_WrapResult( vmaCreateImage( RI.device.vk.vmaAllocator, &info, &mem_reqs, &RI.depthTextures[i].vk.image, &RI.depthTextures[i].vk.allocation, NULL ) );
 				}
 				{
 					VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-					createInfo.format = RIFormatToVK( RI.depthFormat );
+					createInfo.format = RIFormatToVK( RIBootstrap::DepthFormat );
 					createInfo.subresourceRange = VkImageSubresourceRange{
 						VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1,
 					};
 					createInfo.image = RI.depthTextures[i].vk.image;
 					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.depthView[i].vk.image ) );
+				}
+				{
+
+					VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+					info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+					info.imageType = VK_IMAGE_TYPE_2D;
+					info.extent.width = RI.swapchain.width;
+					info.extent.height = RI.swapchain.height;
+					info.extent.depth = 1;
+					info.mipLevels = 1;
+					info.arrayLayers = 1;
+					info.samples = VK_SAMPLE_COUNT_1_BIT;
+					info.tiling = VK_IMAGE_TILING_OPTIMAL;
+					info.pQueueFamilyIndices = queueFamilies;
+					VK_ConfigureImageQueueFamilies( &info, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
+					info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+					info.format = RIFormatToVK( RIBootstrap::VisibilityFormat);
+					info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+					VK_WrapResult( vmaCreateImage( RI.device.vk.vmaAllocator, &info, &mem_reqs, &RI.visiblityTexture[i].vk.image, &RI.visiblityTexture[i].vk.allocation, NULL ) );
+				}
+				{
+					VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+					createInfo.format = RIFormatToVK( RIBootstrap::VisibilityFormat);
+					createInfo.subresourceRange = VkImageSubresourceRange{
+						VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
+					};
+					createInfo.image = RI.visiblityTexture[i].vk.image;
+					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.visiblityView[i].vk.image ) );
 				}
 				RI_PogoBufferInit( &RI.device, &RI.pogoBuffer[i], RI.swapchain.width, RI.swapchain.height, RI_FORMAT_RGBA8_UNORM );
 			}
@@ -286,10 +317,139 @@ namespace hpl {
 			struct RICommandRingElement_s initElem = GetRICommandRingElement( &RI.device, &RI.graphicsCmdRing, 1 );
 			ResetRIPool( &RI.device, initElem.pool );
 			BeginRICmd( &RI.device, &initElem.cmds[0] );
-			if (!RINulTexture::Create2DNulWhite(&initElem.cmds[0], &RI.device, &RI.whiteTexture2D)) {
-				FatalError("Failed to create white texture!\n");
-				return false;
+
+			VkBuffer whiteUploadStaging = VK_NULL_HANDLE;
+			VmaAllocation whiteUploadStagingAlloc = VK_NULL_HANDLE;
+
+			// 1x1 white texture — staged upload, then transitioned to SHADER_READ_ONLY_OPTIMAL.
+			{
+				VkImageCreateInfo imageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+				imageInfo.imageType = VK_IMAGE_TYPE_2D;
+				imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
+				imageInfo.extent = { 1, 1, 1 };
+				imageInfo.mipLevels = 1;
+				imageInfo.arrayLayers = 1;
+				imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+				imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+				imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+				imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+				uint32_t imageQueueFamilies[RI_QUEUE_LEN] = { 0 };
+				imageInfo.pQueueFamilyIndices = imageQueueFamilies;
+				VK_ConfigureImageQueueFamilies(&imageInfo, RI.device.queues, RI_QUEUE_LEN, imageQueueFamilies, RI_QUEUE_LEN);
+
+				VmaAllocationCreateInfo imageAllocInfo = {};
+				imageAllocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+				if (!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo, &imageAllocInfo,
+				                                  &RI.whiteTexture2D.vk.image, &RI.whiteTexture2D.vk.allocation, nullptr))) {
+					FatalError("Failed to create white texture image!\n");
+					return false;
+				}
+
+				const uint8_t whitePixel[4] = { 255, 255, 255, 255 };
+				VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+				bufferInfo.size = sizeof(whitePixel);
+				bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+				bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+				VmaAllocationCreateInfo stagingAllocInfo = {};
+				stagingAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+				stagingAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
+				                         VMA_ALLOCATION_CREATE_MAPPED_BIT;
+				VmaAllocationInfo stagingInfo = {};
+				if (!VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferInfo, &stagingAllocInfo,
+				                                   &whiteUploadStaging, &whiteUploadStagingAlloc, &stagingInfo))) {
+					FatalError("Failed to create white texture staging buffer!\n");
+					return false;
+				}
+				memcpy(stagingInfo.pMappedData, whitePixel, sizeof(whitePixel));
+				vmaFlushAllocation(RI.device.vk.vmaAllocator, whiteUploadStagingAlloc, 0, VK_WHOLE_SIZE);
+
+				VkImageSubresourceRange colorRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+
+				VkImageMemoryBarrier2 toTransfer = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+				toTransfer.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+				toTransfer.srcAccessMask = 0;
+				toTransfer.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+				toTransfer.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				toTransfer.image = RI.whiteTexture2D.vk.image;
+				toTransfer.subresourceRange = colorRange;
+				VkDependencyInfo depToTransfer = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+				depToTransfer.imageMemoryBarrierCount = 1;
+				depToTransfer.pImageMemoryBarriers = &toTransfer;
+				vkCmdPipelineBarrier2(initElem.cmds[0].vk.cmd, &depToTransfer);
+
+				VkBufferImageCopy copyRegion = {};
+				copyRegion.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+				copyRegion.imageExtent = { 1, 1, 1 };
+				vkCmdCopyBufferToImage(initElem.cmds[0].vk.cmd, whiteUploadStaging, RI.whiteTexture2D.vk.image,
+				                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+
+				VkImageMemoryBarrier2 toShaderRead = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+				toShaderRead.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
+				toShaderRead.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				toShaderRead.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+				toShaderRead.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+				toShaderRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+				toShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				toShaderRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				toShaderRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				toShaderRead.image = RI.whiteTexture2D.vk.image;
+				toShaderRead.subresourceRange = colorRange;
+				VkDependencyInfo depToShaderRead = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+				depToShaderRead.imageMemoryBarrierCount = 1;
+				depToShaderRead.pImageMemoryBarriers = &toShaderRead;
+				vkCmdPipelineBarrier2(initElem.cmds[0].vk.cmd, &depToShaderRead);
+
+				VkImageViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+				viewInfo.image = RI.whiteTexture2D.vk.image;
+				viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+				viewInfo.format = imageInfo.format;
+				viewInfo.subresourceRange = colorRange;
+				if (!VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, nullptr,
+				                                    &RI.whiteTexture2DBinding.vk.image.imageView))) {
+					FatalError("Failed to create white texture image view!\n");
+					return false;
+				}
+				RI.whiteTexture2DBinding.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
+				RI.whiteTexture2DBinding.texture = &RI.whiteTexture2D;
+				RI.whiteTexture2DBinding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+				RI.whiteTexture2DBinding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				RIFinalizeDescriptor(&RI.device, &RI.whiteTexture2DBinding);
 			}
+
+			// Zero-filled vertex buffer — small mapped buffer, never modified after init.
+			{
+				constexpr VkDeviceSize kNulVertexSize = 64;
+				uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
+				VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+				bufferInfo.size = kNulVertexSize;
+				bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+				VK_ConfigureBufferQueueFamilies(&bufferInfo, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
+
+				VmaAllocationCreateInfo allocInfo = {};
+				allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+				allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
+				                  VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+				VmaAllocationInfo allocationInfo = {};
+				if (!VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferInfo, &allocInfo,
+				                                   &RI.nulVertexBuffer.vk.buffer, &RI.nulVertexBuffer.vk.allocation,
+				                                   &allocationInfo))) {
+					FatalError("Failed to create null vertex buffer!\n");
+					return false;
+				}
+				if (allocationInfo.pMappedData) {
+					memset(allocationInfo.pMappedData, 0, kNulVertexSize);
+					vmaFlushAllocation(RI.device.vk.vmaAllocator, RI.nulVertexBuffer.vk.allocation, 0, VK_WHOLE_SIZE);
+				}
+				RI.nulVertexBuffer.mappedAddress = allocationInfo.pMappedData;
+			}
+
 			EndRICmd( &RI.device, &initElem.cmds[0] );
 
 			VkCommandBufferSubmitInfo cmdSubmitInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
@@ -303,7 +463,9 @@ namespace hpl {
 			VK_WrapResult( vkQueueSubmit2( RI.device.queues[RI_QUEUE_GRAPHICS].vk.queue, 1, &submitInfo, initElem.vk.fence ) );
 			WaitRIQueueIdle(&RI.device, &RI.device.queues[RI_QUEUE_GRAPHICS]);
 
-			RINulTexture::Free2DNulWhiteUploadScratch(&RI.device, &RI.whiteTexture2D);
+			if (whiteUploadStaging != VK_NULL_HANDLE) {
+				vmaDestroyBuffer(RI.device.vk.vmaAllocator, whiteUploadStaging, whiteUploadStagingAlloc);
+			}
 		}
 		{
 			auto vert_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "gui.vert.spv");

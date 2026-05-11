@@ -238,7 +238,7 @@ namespace hpl {
 	{
 		////////////////////////
 		//If there is an alpha texture, set alpha mode to trans, else solid.
-		if(apMaterial->GetTexture(eMaterialTexture_Alpha))
+		if(apMaterial->GetImage(eMaterialTexture_Alpha))
 		{
 			apMaterial->SetAlphaMode(eMaterialAlphaMode_Trans);
 		}
@@ -471,7 +471,7 @@ namespace hpl {
 		if(aRenderMode == eMaterialRenderMode_Z)
 		{
 			tFlag lFlags =0;
-			if(apMaterial->GetTexture(eMaterialTexture_Alpha))	lFlags |= eFeature_Z_UseAlpha;
+			if(apMaterial->GetImage(eMaterialTexture_Alpha))	lFlags |= eFeature_Z_UseAlpha;
 			if(apMaterial->HasUvAnimation())					lFlags |= eFeature_Z_UvAnimation;
 			if(pVars->mbAlphaDissolveFilter)					lFlags |= eFeature_Z_UseAlphaDissolveFilter;
 
@@ -483,8 +483,8 @@ namespace hpl {
 		{
 			tFlag lFlags =0;
 			lFlags |= eFeature_Z_Dissolve;
-			if(apMaterial->GetTexture(eMaterialTexture_Alpha))			lFlags |= eFeature_Z_UseAlpha;
-			if(apMaterial->GetTexture(eMaterialTexture_DissolveAlpha))	lFlags |= eFeature_Z_DissolveAlpha;
+			if(apMaterial->GetImage(eMaterialTexture_Alpha))			lFlags |= eFeature_Z_UseAlpha;
+			if(apMaterial->GetImage(eMaterialTexture_DissolveAlpha))	lFlags |= eFeature_Z_DissolveAlpha;
 			if(apMaterial->HasUvAnimation())							lFlags |= eFeature_Z_UvAnimation;
 			if(pVars->mbAlphaDissolveFilter)							lFlags |= eFeature_Z_UseAlphaDissolveFilter;
 
@@ -495,14 +495,14 @@ namespace hpl {
 		else if(aRenderMode == eMaterialRenderMode_Diffuse)
 		{
 			tFlag lFlags =0;
-			if(apMaterial->GetTexture(eMaterialTexture_NMap))			lFlags |= eFeature_Diffuse_NormalMaps;
-			if(apMaterial->GetTexture(eMaterialTexture_Specular))		lFlags |= eFeature_Diffuse_Specular;
-			if(	apMaterial->GetTexture(eMaterialTexture_Height) && 
+			if(apMaterial->GetImage(eMaterialTexture_NMap))			lFlags |= eFeature_Diffuse_NormalMaps;
+			if(apMaterial->GetImage(eMaterialTexture_Specular))		lFlags |= eFeature_Diffuse_Specular;
+			if(	apMaterial->GetImage(eMaterialTexture_Height) && 
 				iRenderer::GetParallaxEnabled())			    		lFlags |= eFeature_Diffuse_Parallax;
-			if(apMaterial->GetTexture(eMaterialTexture_CubeMap))
+			if(apMaterial->GetImage(eMaterialTexture_CubeMap))
 			{	
 				lFlags |= eFeature_Diffuse_EnvMap;
-				if(apMaterial->GetTexture(eMaterialTexture_CubeMapAlpha))	lFlags |= eFeature_Diffuse_CubeMapAlpha;
+				if(apMaterial->GetImage(eMaterialTexture_CubeMapAlpha))	lFlags |= eFeature_Diffuse_CubeMapAlpha;
 			}
 			if(apMaterial->HasUvAnimation())							lFlags |= eFeature_Diffuse_UvAnimation;
 			

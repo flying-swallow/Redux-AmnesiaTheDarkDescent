@@ -712,7 +712,7 @@ namespace hpl {
 				uniformBlock.textureCfg |= (1 << 1); // Has clip planes
 			}
 
-			struct RIProgram::DescriptorBinding bindings[6] = { 0 };
+			struct RIProgram::DescriptorBinding bindings[6] = {};
 			size_t numBindings = 0;
 			if(pTexture) {
 				std::shared_ptr<HPLTexture> texture = pTexture->GetTexture();
@@ -720,7 +720,7 @@ namespace hpl {
 				bindings[numBindings].descriptor = texture->binding;
 				cntx->textureLink.push_back(texture);
 			} else {
-				bindings[numBindings].descriptor = RI.whiteTexture2D.binding;
+				bindings[numBindings].descriptor = RI.whiteTexture2DBinding;
 			}
 			bindings[numBindings++].handle = DescriptorBindingID::Create("diffuseMap");
 
@@ -734,7 +734,7 @@ namespace hpl {
 			bindings[numBindings++].handle = DescriptorBindingID::Create("diffuseSampler");
 
 			hash_t hash = hash_u32(HASH_INITIAL_VALUE, materialType);
-			hash = hash_u32(hash, RI.depthFormat);
+			hash = hash_u32(hash, RIBootstrap::DepthFormat);
 			hash = hash_u32(hash, RI.swapchain.format);
 			hash = hash_u32(hash, mbIs3D);
 			VkPipelineVertexInputStateCreateInfo vertexInputState = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
@@ -769,7 +769,7 @@ namespace hpl {
 			pipelineRenderingCreateInfo.colorAttachmentCount = 1;
 			VkFormat colorFormats[1] = { RIFormatToVK( RI.swapchain.format) };
 			pipelineRenderingCreateInfo.pColorAttachmentFormats = colorFormats;
-			pipelineRenderingCreateInfo.depthAttachmentFormat = RIFormatToVK( RI.depthFormat );
+			pipelineRenderingCreateInfo.depthAttachmentFormat = RIFormatToVK( RIBootstrap::DepthFormat );
 			pipelineRenderingCreateInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED; 
 
 			VkPipelineViewportStateCreateInfo viewportState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };

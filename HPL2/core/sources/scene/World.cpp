@@ -30,6 +30,7 @@
 
 #include "engine/Engine.h"
 
+#include "graphics/Image.h"
 #include "graphics/Mesh.h"
 #include "graphics/SubMesh.h"
 #include "graphics/Graphics.h"
@@ -158,6 +159,10 @@ namespace hpl {
 		if(mpSkyBoxTexture && mbAutoDestroySkybox)
 		{
 			mpResources->GetTextureManager()->Destroy(mpSkyBoxTexture);
+		}
+		if(mpSkyBoxImage && mbAutoDestroySkybox)
+		{
+			mpResources->GetTextureManager()->Destroy(mpSkyBoxImage);
 		}
 
 		for(tEntFileListIt it = mlstEntFileCache.begin(); it != mlstEntFileCache.end(); ++it)
@@ -330,6 +335,16 @@ namespace hpl {
 			mpSkyBoxTexture->SetWrapS(eTextureWrap_ClampToEdge);
 			mpSkyBoxTexture->SetWrapT(eTextureWrap_ClampToEdge);
 		}
+	}
+
+	void cWorld::SetSkyBox(Image *apImage, bool abAutoDestroy)
+	{
+		if(mpSkyBoxImage && mbAutoDestroySkybox)
+		{
+			mpResources->GetTextureManager()->Destroy(mpSkyBoxImage);
+		}
+		mbAutoDestroySkybox = abAutoDestroy;
+		mpSkyBoxImage = apImage;
 	}
 
 	void cWorld::SetSkyBoxActive(bool abX)
@@ -515,16 +530,16 @@ namespace hpl {
 
 		if(asGobo != "")
 		{
-			iTexture *pTexture = mpResources->GetTextureManager()->CreateCubeMap(asGobo,true);
-			if(pTexture!=NULL)
-				pLight->SetGoboTexture(pTexture);
+			Image *pImage = mpResources->GetTextureManager()->CreateCubeMapImage(asGobo,true);
+			if(pImage!=NULL)
+				pLight->SetGoboTexture(pImage);
 			else
 				Warning("Couldn't load gobo texture '%s' for light '%s'",asGobo.c_str(), asName.c_str());
 		}
 
 		pLight->SetStatic(abStatic);
 		AddRenderableToContainer(pLight);
-		
+
 		pLight->SetWorld(this);
 
 		return pLight;
@@ -540,9 +555,9 @@ namespace hpl {
 
 		if(asGobo != "")
 		{
-			iTexture *pTexture = mpResources->GetTextureManager()->Create2D(asGobo,true);
-			if(pTexture!=NULL)
-				pLight->SetGoboTexture(pTexture);
+			Image *pImage = mpResources->GetTextureManager()->Create2DImage(asGobo,true);
+			if(pImage!=NULL)
+				pLight->SetGoboTexture(pImage);
 			else
 				Warning("Couldn't load gobo texture '%s' for light '%s'",asGobo.c_str(), asName.c_str());
 		}

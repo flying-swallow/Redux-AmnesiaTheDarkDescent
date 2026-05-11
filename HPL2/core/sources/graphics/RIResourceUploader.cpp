@@ -153,7 +153,7 @@ static void __AllocateTemporaryBuffer( struct RIDevice_s *device, struct RITrans
 	bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 	bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
-	struct RIBuffer_s tmp = { 0 };
+	struct RIBuffer_s tmp = {};
 	VmaAllocationInfo vmaInfo = { 0 };
 	VK_WrapResult( vmaCreateBuffer( device->vk.vmaAllocator, &bufInfo, &allocInfo, &tmp.vk.buffer, &tmp.vk.allocation, &vmaInfo ) );
 
@@ -380,7 +380,7 @@ struct RIResourceUploaderVKResult_s RI_VKFlushResourceUpdate( struct RIDevice_s 
 
 	VkSemaphoreSubmitInfo signalSem = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
 	signalSem.semaphore = group->vk.semaphores[active_set];
-	signalSem.value = 0; // binary semaphore
+	signalSem.value = 0; /* binary semaphore */
 	signalSem.stageMask = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
 	signalSem.deviceIndex = 0;
 
@@ -392,6 +392,7 @@ struct RIResourceUploaderVKResult_s RI_VKFlushResourceUpdate( struct RIDevice_s 
 	submitInfo.signalSemaphoreInfoCount = 1;
 	submitInfo.pSignalSemaphoreInfos = &signalSem;
 
+	/* Fence must already be signalled before we reset it; assert to catch bugs. */
 	assert( vkGetFenceStatus( device->vk.device, group->vk.fences[active_set] ) == VK_SUCCESS );
 	VK_WrapResult( vkResetFences( device->vk.device, 1, &group->vk.fences[active_set] ) );
 	VK_WrapResult( vkQueueSubmit2( group->queue->vk.queue, 1, &submitInfo, group->vk.fences[active_set] ) );

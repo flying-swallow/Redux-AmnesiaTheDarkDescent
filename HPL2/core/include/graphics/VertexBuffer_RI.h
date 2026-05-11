@@ -130,6 +130,8 @@ public:
 
   const VertexBuffer_RI::VertexElement *GetElement(eVertexBufferElement elementType);
 
+  const std::shared_ptr<RIBuffer_s> &GetIndexRIBuffer() const { return m_indexBuffer; }
+
 protected:
   static void
   PushVertexElements(std::span<const float> values,

@@ -17,6 +17,8 @@ static void vkDescriptorSetAlloc( struct RIDevice_s *device, struct RIDescriptor
   size_t descriptorPoolLen = 0;
   if( programDescriptor->samplerMaxNum > 0 )
   	descriptorPoolSize[descriptorPoolLen++] = VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER, (uint32_t)programDescriptor->samplerMaxNum * DESCRIPTOR_MAX_SIZE };
+  if( programDescriptor->combinedImageSamplerMaxNum > 0 )
+  	descriptorPoolSize[descriptorPoolLen++] = VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, (uint32_t)programDescriptor->combinedImageSamplerMaxNum * DESCRIPTOR_MAX_SIZE };
   if( programDescriptor->constantBufferMaxNum > 0 )
   	descriptorPoolSize[descriptorPoolLen++] = VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, (uint32_t)programDescriptor->constantBufferMaxNum * DESCRIPTOR_MAX_SIZE };
   if( programDescriptor->dynamicConstantBufferMaxNum > 0 )
@@ -418,10 +420,13 @@ void RIProgram::initialize(RIDevice_s* device,std::span<ModuleStage> moduleInit)
           layoutBinding->descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
           program_desc->structuredBufferMaxNum += bindingCount;
           break;
+        case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+          layoutBinding->descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+          program_desc->combinedImageSamplerMaxNum += bindingCount;
+          break;
         case SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
         case SPV_REFLECT_DESCRIPTOR_TYPE_INPUT_ATTACHMENT:
         case SPV_REFLECT_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
-        case SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
           assert(false);
           break;
         }

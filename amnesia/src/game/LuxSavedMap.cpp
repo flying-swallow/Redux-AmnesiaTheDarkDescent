@@ -18,6 +18,7 @@
  */
 
 #include "LuxSavedMap.h"
+#include "graphics/Image.h"
 
 #include "LuxMapHandler.h"
 #include "LuxMap.h"
@@ -86,7 +87,7 @@ void cLuxSavedMap::FromMap(cLuxMap *apMap)
 	/////////////////////////////////
 	// Sky box
 	mbSkyBoxActive = pWorld->GetSkyBoxActive();
-	msSkyboxTexture = pWorld->GetSkyBoxTexture() ? pWorld->GetSkyBoxTexture()->GetName() : "";
+	msSkyboxTexture = pWorld->GetSkyBoxImage() ? pWorld->GetSkyBoxImage()->GetName() : "";
 	mSkyBoxColor = pWorld->GetSkyBoxColor();
 
 	/////////////////////////////////
@@ -247,12 +248,12 @@ void cLuxSavedMap::ToMap(cLuxMap *apMap)
 	pWorld->SetSkyBoxActive(mbSkyBoxActive);
 	if(msSkyboxTexture=="")	
 	{
-		pWorld->SetSkyBox(NULL, true);
+		pWorld->SetSkyBox(static_cast<Image*>(nullptr), true);
 	}
 	else
 	{
-		iTexture *pTexture = gpBase->mpEngine->GetResources()->GetTextureManager()->CreateCubeMap(msSkyboxTexture, true);
-		pWorld->SetSkyBox(pTexture, true);
+		Image *pImage = gpBase->mpEngine->GetResources()->GetTextureManager()->CreateCubeMapImage(msSkyboxTexture, true);
+		pWorld->SetSkyBox(pImage, true);
 	}
 
 	pWorld->SetSkyBoxColor(mSkyBoxColor);

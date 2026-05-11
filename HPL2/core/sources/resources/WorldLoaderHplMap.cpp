@@ -302,8 +302,8 @@ namespace hpl {
 		tString sSkyBoxTexture = pXmlMapData->GetAttributeString("SkyBoxTexture","");
 		if(sSkyBoxTexture!="")
 		{
-			iTexture *pSkyBoxTexture = mpResources->GetTextureManager()->CreateCubeMap(sSkyBoxTexture,false);
-			if(pSkyBoxTexture) mpCurrentWorld->SetSkyBox(pSkyBoxTexture, true);
+			Image *pSkyBoxImage = mpResources->GetTextureManager()->CreateCubeMapImage(sSkyBoxTexture,false);
+			if(pSkyBoxImage) mpCurrentWorld->SetSkyBox(pSkyBoxImage, true);
 		}
 
 

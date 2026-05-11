@@ -175,7 +175,6 @@
     <ClInclude Include="include\graphics\RIDescriptorSetAllocator.h" />
     <ClInclude Include="include\graphics\RIFormat.h" />
     <ClInclude Include="include\graphics\RIGPUPreset.h" />
-    <ClInclude Include="include\graphics\RINulTexture.h" />
     <ClInclude Include="include\graphics\RIPogoBuffer.h" />
     <ClInclude Include="include\graphics\RIProgram.h" />
     <ClInclude Include="include\graphics\RIRenderer.h" />
@@ -534,7 +533,6 @@
     <ClCompile Include="sources\graphics\RIBootstrap.cpp" />
     <ClCompile Include="sources\graphics\RIDescriptorSetAllocator.cpp" />
     <ClCompile Include="sources\graphics\RIFormat.c" />
-    <ClCompile Include="sources\graphics\RINulTexture.cpp" />
     <ClCompile Include="sources\graphics\RIProgram.cpp" />
     <ClCompile Include="sources\graphics\RIRenderer.cpp" />
     <ClCompile Include="sources\graphics\RIResourceUploader.cpp" />
