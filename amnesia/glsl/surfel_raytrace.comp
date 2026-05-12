@@ -1,0 +1,161 @@
+#version 460
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_ray_tracing : enable
+#extension GL_EXT_ray_query : enable
+#extension GL_ARB_shader_clock : enable                 // Using clockARB
+#extension GL_EXT_shader_image_load_formatted : enable  // The folowing extension allow to pass images as function parameters
+
+#extension GL_NV_shader_sm_builtins : require     // Debug - gl_WarpIDNV, gl_SMIDNV
+#extension GL_ARB_gpu_shader_int64 : enable       // Debug - heatmap value
+#extension GL_EXT_shader_realtime_clock : enable  // Debug - heatmap timing
+
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_debug_printf : enable
+#extension GL_KHR_vulkan_glsl : enable
+
+#include "host_device.h"
+
+layout(push_constant) uniform _RtxState
+{
+  RtxState rtxState;
+};
+
+#include "globals.glsl"
+
+PtPayload        prd;
+ShadowHitPayload shadow_payload;
+
+#include "layouts.glsl"
+#include "random.glsl"
+#include "common.glsl"
+#include "compress.glsl"
+#include "traceray_rq.glsl"
+
+#include "pathtrace.glsl"
+
+// surfel buffers
+layout(set = 4, binding = 0,  scalar)		buffer _SurfelCounter		{ SurfelCounter surfelCounter; };
+layout(set = 4, binding = 1,  scalar)		buffer _SurfelBuffer		{ Surfel surfelBuffer[]; };
+layout(set = 4, binding = 2,  scalar)		buffer _SurfelAlive		    { uint surfelAlive[]; };
+layout(set = 4, binding = 3,  scalar)		buffer _SurfelDead		    { uint surfelDead[]; };
+layout(set = 4, binding = 4,  scalar)		buffer _SurfelDirty		    { uint surfelDirty[]; };
+layout(set = 4, binding = 5,  scalar)		buffer _SurfelRecycle		{ SurfelRecycleInfo surfelRecycleInfo[]; };
+layout(set = 4, binding = 6,  scalar)		buffer _SurfelRayBuffer		{ SurfelRay surfelRayBuffer[]; };
+
+layout(set = 5,   binding = 0)				uniform sampler2D	surfelIrradianceSampler;
+layout(set = 5,   binding = 1)				uniform image2D		surfelIrradianceMap;
+layout(set = 5,   binding = 2)				uniform sampler2D	surfelDepthSampler;
+layout(set = 5,   binding = 3)				uniform image2D		surfelDepthImage;
+
+// cell buffer
+layout(set = 6, binding = 0,  scalar)		buffer _CellBuffer			{ CellInfo cellBuffer[]; };
+layout(set = 6, binding = 1,  scalar)		buffer _CellCounter			{ CellCounter cellCounter; };
+layout(set = 6, binding = 2,  scalar)		buffer _CellToSurfel		{ uint cellToSurfel[]; };
+
+#include "shaderUtils_surfel_cell.glsl"
+#include "shaderUtils.glsl"
+
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	if (index >= surfelCounter.surfelRayCnt)
+	{
+		return;
+	}
+
+	SurfelRay surfelRay = surfelRayBuffer[index];
+	uint frameHash = lowbias32(rtxState.totalFrames);
+	uint randSeed = tea(lowbias32(index), frameHash);
+    uint surfelIndex = surfelRay.surfelID;
+	bool isSleeping = (surfelRecycleInfo[surfelIndex].status & 0x0001u) != 0u;
+
+	// use ray guiding
+	uint irradianceUint = surfelBuffer[surfelIndex].irradiance;
+    float surfelIrradiance = uintBitsToFloat(irradianceUint);
+	bool isFull = (irradianceUint & 0x01) > 0 && surfelIrradiance > 1e-12;
+    vec3 dirL;
+    float pdf;
+
+	if (isFull && (surfelBuffer[surfelIndex].rayCount > 16))
+    //if (isFull)
+    {
+	    ivec2 IrradianceMapRes = textureSize(surfelIrradianceSampler, 0);
+
+        ivec2 irrMapBase = ivec2(
+            surfelIndex % (IrradianceMapRes.x / 6),
+            surfelIndex / (IrradianceMapRes.x / 6)
+        );
+        irrMapBase *= ivec2(6,6);
+
+        float threshold = rand(randSeed) * surfelIrradiance;
+        float cummulative = 0.f;
+
+        uvec2 rayCoord = uvec2(100);
+        for (uint y = 0; y < 6; ++y)
+        {
+            for (uint x = 0; x < 6; ++x)
+            {
+                float irr = texelFetch(surfelIrradianceSampler, irrMapBase + ivec2(x, y), 0).r;
+                cummulative += irr;
+                if (cummulative >= threshold)
+                {
+                    rayCoord = uvec2(x, y);
+                    pdf = irr / surfelIrradiance;
+                    break;
+                }
+            }
+
+            if (cummulative >= threshold)
+                break;
+        }
+
+        vec2 uv = vec2(rayCoord - 3) / vec2(3.0);
+        // add small noise to direction.
+        uv += rand2(randSeed) * 0.1f;
+        dirL = OctUVToDir(uv);
+    }
+    else
+    {
+        // use cosine weighted sampling
+        vec2 uv = rand2(randSeed);
+        dirL = CosineSampleHemisphere(uv.x, uv.y);
+        pdf = dirL.z * M_1_OVER_PI;
+    }
+
+
+	// use cosine weighted sampling
+//	vec2 dirUV = rand2(randSeed);
+//	vec3 dirL = CosineSampleHemisphere(dirUV.x, dirUV.y);
+//	float pdf = dirL.z * M_1_OVER_PI;
+
+    vec3 N = decompress_unit_vec(surfelBuffer[surfelIndex].normal);
+    
+    vec3 T, B;
+    CreateCoordinateSystem(N, T, B);
+    vec3 dirW = normalize(dirL.x * T + dirL.y * B + dirL.z * N);
+
+
+	Ray ray = Ray(surfelBuffer[surfelIndex].position, dirW);
+	//ray.origin = OffsetRay(ray.origin, N);
+    ray.origin += 0.05f * N;
+
+    int maxDepth = isSleeping ? 5 : 3;
+    surfelRay.radiance = surfelPathTrace(ray, maxDepth, surfelIndex, surfelRay.t);
+    float lum = dot(surfelRay.radiance, vec3(0.212671f, 0.715160f, 0.072169f));
+    if(lum > rtxState.fireflyClampThreshold)
+    {
+      surfelRay.radiance *= rtxState.fireflyClampThreshold / lum;
+    }
+	surfelRay.dir_o = compress_unit_vec(dirL);
+	surfelRay.pdf = pdf;
+
+	surfelRayBuffer[index] = surfelRay;
+
+}

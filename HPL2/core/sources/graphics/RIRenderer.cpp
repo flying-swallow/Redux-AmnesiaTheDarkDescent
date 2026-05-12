@@ -4,7 +4,9 @@
 #include "system/QStr.h"
 #include "graphics/RIConversion.h"
 #include "graphics/RIGPUPreset.h"
+#include "graphics/RIVK.h"
 #include "system/stb_ds.h"
+#include <vector>
 
 #if ( DEVICE_IMPL_VULKAN )
 
@@ -1123,6 +1125,11 @@ void RIFinalizeDescriptor( struct RIDevice_s *dev, struct RIDescriptor_s *desc )
 				desc->vk.buffer.buffer = desc->buffer->vk.buffer;
 				desc->cookie = hash_data( hash_u64( HASH_INITIAL_VALUE, desc->vk.type ), &desc->vk.buffer, sizeof( desc->vk.buffer ) );
 				break;
+			case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
+				assert( desc->accelStructure );
+				desc->vk.accelStructure = desc->accelStructure->vk.handle;
+				desc->cookie = hash_u64( hash_u64( HASH_INITIAL_VALUE, desc->vk.type ), (uint64_t)desc->vk.accelStructure );
+				break;
 			default:
 				assert( false );
 				break;
@@ -1175,6 +1182,11 @@ assert(free);
 			break;
 		case RI_FREE_VK_BUFFER_VIEW:
 			vkDestroyBufferView(dev->vk.device, mem->vkBufferView, NULL);
+			break;
+		case RI_FREE_VK_ACCELERATION_STRUCTURE:
+			if (mem->vkAccelStructure) {
+				vkDestroyAccelerationStructureKHR(dev->vk.device, mem->vkAccelStructure, NULL);
+			}
 			break;
 #endif
 		default:
@@ -1353,6 +1365,335 @@ int FreeRIDevice( struct RIDevice_s *dev ) {
 	dev->vk.vmaAllocator = NULL;
 #endif
 	return 0;
+}
+
+// =================================================================================================
+// Acceleration structures (VK_KHR_acceleration_structure)
+// =================================================================================================
+
+#if ( DEVICE_IMPL_VULKAN )
+
+// Returns 0 if buffer is NULL. Callers ORing this with an offset get a device-side pointer suitable
+// for VkDeviceOrHostAddressConstKHR / VkDeviceOrHostAddressKHR.
+static VkDeviceAddress RI_VK_BufferDeviceAddress( struct RIDevice_s *dev, struct RIBuffer_s *buf ) {
+	if( !buf || buf->vk.buffer == VK_NULL_HANDLE )
+		return 0;
+	VkBufferDeviceAddressInfo info = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
+	info.buffer = buf->vk.buffer;
+	return vkGetBufferDeviceAddress( dev->vk.device, &info );
+}
+
+// Fill VkAccelerationStructureGeometryKHR + maxPrimitiveCount from an RIAccelGeometryDesc_s.
+// resolveAddresses=false skips reading buffer device addresses (used by the size query, which only
+// needs the geometry layout / formats / counts).
+static void RI_VK_FillGeometry( struct RIDevice_s *dev,
+                                const struct RIAccelGeometryDesc_s *src,
+                                VkAccelerationStructureGeometryKHR *outGeom,
+                                uint32_t *outMaxPrimitiveCount,
+                                bool resolveAddresses )
+{
+	memset( outGeom, 0, sizeof(*outGeom) );
+	outGeom->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+	outGeom->flags = RI_VK_AccelGeometryFlags( src->flags );
+
+	switch( src->type ) {
+		case RI_ACCEL_GEOMETRY_TYPE_TRIANGLES: {
+			const struct RIAccelTrianglesDesc_s *tri = &src->triangles;
+			outGeom->geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+			VkAccelerationStructureGeometryTrianglesDataKHR *t = &outGeom->geometry.triangles;
+			t->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+			t->vertexFormat = RIFormatToVK( (uint32_t)tri->vertexFormat );
+			t->vertexStride = tri->vertexStride;
+			t->maxVertex = tri->vertexNum ? tri->vertexNum - 1 : 0;
+			t->indexType = ( tri->indexBuffer ) ? ri_vk_RIIndexTypeToVK( tri->indexType ) : VK_INDEX_TYPE_NONE_KHR;
+			if( resolveAddresses ) {
+				t->vertexData.deviceAddress    = tri->vertexBuffer->GetDeviceHandle(dev) + tri->vertexOffset;
+				// indexBuffer/transformBuffer are optional: unindexed geometry
+				// passes a null indexBuffer (indexType already set to NONE_KHR
+				// above), and per-triangle transforms are opt-in (identity if
+				// transformData.deviceAddress == 0).
+				t->indexData.deviceAddress     = tri->indexBuffer
+					? tri->indexBuffer->GetDeviceHandle(dev) + tri->indexOffset
+					: 0;
+				t->transformData.deviceAddress = tri->transformBuffer
+					? tri->transformBuffer->GetDeviceHandle(dev) + tri->transformOffset
+					: 0;
+			}
+			// Build range covers triangleCount = indexNum/3 (indexed) or vertexNum/3 (unindexed).
+			const uint32_t indexCount = tri->indexBuffer ? tri->indexNum : tri->vertexNum;
+			*outMaxPrimitiveCount = indexCount / 3;
+			break;
+		}
+		case RI_ACCEL_GEOMETRY_TYPE_AABBS: {
+			const struct RIAccelAabbsDesc_s *aab = &src->aabbs;
+			outGeom->geometryType = VK_GEOMETRY_TYPE_AABBS_KHR;
+			VkAccelerationStructureGeometryAabbsDataKHR *a = &outGeom->geometry.aabbs;
+			a->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR;
+			a->stride = aab->stride ? aab->stride : sizeof(struct RIAccelAabb_s);
+			if( resolveAddresses ) {
+				a->data.deviceAddress = RI_VK_BufferDeviceAddress( dev, aab->buffer ) + aab->offset;
+			}
+			*outMaxPrimitiveCount = aab->num;
+			break;
+		}
+	}
+}
+
+#endif // DEVICE_IMPL_VULKAN
+
+void GetRIAccelStructureMemoryReqs( struct RIDevice_s *dev,
+                                    const struct RIAccelStructureDesc_s *desc,
+                                    uint64_t *outStorageSize,
+                                    uint64_t *outBuildScratchSize,
+                                    uint64_t *outUpdateScratchSize )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	assert( dev );
+	assert( desc );
+
+	VkAccelerationStructureBuildGeometryInfoKHR buildInfo = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR };
+	buildInfo.type = RI_VK_AccelStructureType( desc->type );
+	buildInfo.flags = RI_VK_AccelBuildFlags( desc->flags );
+	buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+
+	// VkAccelerationStructureBuildSizesInfoKHR scales with maxPrimitiveCounts[]; addresses ignored.
+	std::vector<VkAccelerationStructureGeometryKHR> geoms;
+	std::vector<uint32_t> maxPrims;
+	if( desc->type == RI_ACCEL_STRUCTURE_TYPE_BOTTOM_LEVEL ) {
+		geoms.resize( desc->geometryOrInstanceNum );
+		maxPrims.resize( desc->geometryOrInstanceNum );
+		for( uint32_t i = 0; i < desc->geometryOrInstanceNum; ++i ) {
+			RI_VK_FillGeometry( dev, &desc->geometries[i], &geoms[i], &maxPrims[i], false );
+		}
+		buildInfo.geometryCount = (uint32_t)geoms.size();
+		buildInfo.pGeometries = geoms.data();
+	} else {
+		// TLAS: a single instances geometry with maxPrim = instance count.
+		geoms.resize( 1 );
+		maxPrims.resize( 1 );
+		memset( &geoms[0], 0, sizeof(geoms[0]) );
+		geoms[0].sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+		geoms[0].geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+		geoms[0].geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
+		maxPrims[0] = desc->geometryOrInstanceNum;
+		buildInfo.geometryCount = 1;
+		buildInfo.pGeometries = geoms.data();
+	}
+
+	VkAccelerationStructureBuildSizesInfoKHR sizesInfo = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR };
+	vkGetAccelerationStructureBuildSizesKHR( dev->vk.device,
+	                                         VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+	                                         &buildInfo,
+	                                         maxPrims.data(),
+	                                         &sizesInfo );
+
+	// CmdBuildRI{Blas,Tlas} rounds scratchData.deviceAddress up to
+	// minAccelerationStructureScratchOffsetAlignment, consuming up to
+	// (alignment - 1) bytes off the front of the buffer. Pad the reported
+	// scratch sizes so callers allocate enough headroom to absorb that
+	// round-up regardless of where vmaCreateBuffer landed the base address.
+	const uint64_t scratchPad =
+		dev->physicalAdapter.accelerationStructureScratchOffsetAlignment > 1
+			? (uint64_t)dev->physicalAdapter.accelerationStructureScratchOffsetAlignment - 1
+			: 0;
+
+	if( outStorageSize )       *outStorageSize       = sizesInfo.accelerationStructureSize;
+	if( outBuildScratchSize )  *outBuildScratchSize  = sizesInfo.buildScratchSize + scratchPad;
+	if( outUpdateScratchSize ) *outUpdateScratchSize = sizesInfo.updateScratchSize + scratchPad;
+#endif
+}
+
+int InitRIAccelStructure( struct RIDevice_s *dev,
+                          const struct RIAccelStructureDesc_s *desc,
+                          struct RIAccelStructure_s *outAS )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	assert( dev );
+	assert( desc );
+	assert( outAS );
+	assert( desc->storage );
+	assert( desc->storage->vk.buffer != VK_NULL_HANDLE );
+	assert( desc->storageSize > 0 );
+
+	outAS->type = desc->type;
+	outAS->flags = desc->flags;
+	outAS->storage = desc->storage;
+	outAS->storageOffset = desc->storageOffset;
+
+	VkAccelerationStructureCreateInfoKHR createInfo = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
+	createInfo.buffer = desc->storage->vk.buffer;
+	createInfo.offset = desc->storageOffset;
+	createInfo.size = desc->storageSize;
+	createInfo.type = RI_VK_AccelStructureType( desc->type );
+
+	VkResult res = vkCreateAccelerationStructureKHR( dev->vk.device, &createInfo, NULL, &outAS->vk.handle );
+	if( !VK_WrapResult( res ) )
+		return RI_FAIL;
+
+	VkAccelerationStructureDeviceAddressInfoKHR addrInfo = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR };
+	addrInfo.accelerationStructure = outAS->vk.handle;
+	outAS->vk.deviceAddress = vkGetAccelerationStructureDeviceAddressKHR( dev->vk.device, &addrInfo );
+
+	return RI_SUCCESS;
+#else
+	return RI_FAIL;
+#endif
+}
+
+void FreeRIAccelStructure( struct RIDevice_s *dev, struct RIAccelStructure_s *as )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	if( !dev || !as ) return;
+	if( as->vk.handle != VK_NULL_HANDLE ) {
+		vkDestroyAccelerationStructureKHR( dev->vk.device, as->vk.handle, NULL );
+	}
+	// Storage buffer is caller-owned; we do not touch it here.
+	memset( as, 0, sizeof(*as) );
+#endif
+}
+
+uint64_t GetRIAccelStructureDeviceAddress( struct RIDevice_s *dev, const struct RIAccelStructure_s *as )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	(void)dev;
+	if( !as ) return 0;
+	return as->vk.deviceAddress;
+#else
+	return 0;
+#endif
+}
+
+void RIFinalizeAccelStructureDescriptor( struct RIDevice_s *dev,
+                                         struct RIDescriptor_s *desc,
+                                         struct RIAccelStructure_s *as )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	assert( desc );
+	assert( as );
+	desc->accelStructure = as;
+	desc->vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+	RIFinalizeDescriptor( dev, desc );
+#endif
+}
+
+void CmdBuildRIBlas( struct RIDevice_s *dev, struct RICmd_s *cmd, const struct RIBuildBlasDesc_s *descs, uint32_t numDescs )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	if( numDescs == 0 ) return;
+	assert( dev );
+	assert( cmd );
+	assert( descs );
+
+	// Each build needs: a geometry array (one entry per BLAS geometry), a range array (one entry
+	// per geometry) and a build-geometry-info that points to both. Vulkan takes parallel arrays:
+	// one VkAccelerationStructureBuildGeometryInfoKHR per build, one VkAccelerationStructureBuildRangeInfoKHR* per build.
+	std::vector<VkAccelerationStructureBuildGeometryInfoKHR> buildInfos( numDescs );
+	std::vector<std::vector<VkAccelerationStructureGeometryKHR>> geomStorage( numDescs );
+	std::vector<std::vector<VkAccelerationStructureBuildRangeInfoKHR>> rangeStorage( numDescs );
+	std::vector<const VkAccelerationStructureBuildRangeInfoKHR *> rangePtrs( numDescs );
+
+	for( uint32_t i = 0; i < numDescs; ++i ) {
+		const struct RIBuildBlasDesc_s *d = &descs[i];
+		assert( d->dst );
+		assert( d->scratchBuffer );
+		assert( d->geometryNum > 0 );
+
+		geomStorage[i].resize( d->geometryNum );
+		rangeStorage[i].resize( d->geometryNum );
+		for( uint32_t g = 0; g < d->geometryNum; ++g ) {
+			uint32_t maxPrims = 0;
+			RI_VK_FillGeometry( dev, &d->geometries[g], &geomStorage[i][g], &maxPrims, true );
+			rangeStorage[i][g].primitiveCount = maxPrims;
+			rangeStorage[i][g].primitiveOffset = 0;
+			rangeStorage[i][g].firstVertex = 0;
+			rangeStorage[i][g].transformOffset = 0;
+		}
+		rangePtrs[i] = rangeStorage[i].data();
+
+		VkAccelerationStructureBuildGeometryInfoKHR *bi = &buildInfos[i];
+		bi->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+		bi->type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+		bi->flags = RI_VK_AccelBuildFlags( d->dst->flags );
+		bi->mode = ( d->mode == RI_ACCEL_BUILD_MODE_UPDATE )
+		               ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
+		               : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+		bi->srcAccelerationStructure = ( d->src ? d->src->vk.handle : VK_NULL_HANDLE );
+		bi->dstAccelerationStructure = d->dst->vk.handle;
+		bi->geometryCount = d->geometryNum;
+		bi->pGeometries = geomStorage[i].data();
+		// VUID-vkCmdBuildAccelerationStructuresKHR-pInfos-03710: scratchData.deviceAddress
+		// must be a multiple of minAccelerationStructureScratchOffsetAlignment. The buffer
+		// base address VMA hands back is not guaranteed to satisfy that, so round up.
+		{
+			const uint64_t scratchAlign = dev->physicalAdapter.accelerationStructureScratchOffsetAlignment;
+			const uint64_t scratchAddr = RI_VK_BufferDeviceAddress( dev, d->scratchBuffer ) + d->scratchOffset;
+			bi->scratchData.deviceAddress = ( scratchAlign > 1 )
+				? ( ( scratchAddr + scratchAlign - 1 ) & ~( scratchAlign - 1 ) )
+				: scratchAddr;
+		}
+	}
+
+	vkCmdBuildAccelerationStructuresKHR( cmd->vk.cmd, numDescs, buildInfos.data(), rangePtrs.data() );
+#endif
+}
+
+void CmdBuildRITlas( struct RIDevice_s *dev, struct RICmd_s *cmd, const struct RIBuildTlasDesc_s *descs, uint32_t numDescs )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	if( numDescs == 0 ) return;
+	assert( dev );
+	assert( cmd );
+	assert( descs );
+
+	std::vector<VkAccelerationStructureBuildGeometryInfoKHR> buildInfos( numDescs );
+	std::vector<VkAccelerationStructureGeometryKHR> geoms( numDescs );
+	std::vector<VkAccelerationStructureBuildRangeInfoKHR> ranges( numDescs );
+	std::vector<const VkAccelerationStructureBuildRangeInfoKHR *> rangePtrs( numDescs );
+
+	for( uint32_t i = 0; i < numDescs; ++i ) {
+		const struct RIBuildTlasDesc_s *d = &descs[i];
+		assert( d->dst );
+		assert( d->scratchBuffer );
+		assert( d->instanceBuffer );
+
+		VkAccelerationStructureGeometryKHR *g = &geoms[i];
+		memset( g, 0, sizeof(*g) );
+		g->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+		g->geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+		g->geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
+		g->geometry.instances.arrayOfPointers = VK_FALSE;
+		g->geometry.instances.data.deviceAddress =
+		    RI_VK_BufferDeviceAddress( dev, d->instanceBuffer ) + d->instanceOffset;
+
+		ranges[i].primitiveCount = d->instanceNum;
+		ranges[i].primitiveOffset = 0;
+		ranges[i].firstVertex = 0;
+		ranges[i].transformOffset = 0;
+		rangePtrs[i] = &ranges[i];
+
+		VkAccelerationStructureBuildGeometryInfoKHR *bi = &buildInfos[i];
+		bi->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+		bi->type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+		bi->flags = RI_VK_AccelBuildFlags( d->dst->flags );
+		bi->mode = ( d->mode == RI_ACCEL_BUILD_MODE_UPDATE )
+		               ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
+		               : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+		bi->srcAccelerationStructure = ( d->src ? d->src->vk.handle : VK_NULL_HANDLE );
+		bi->dstAccelerationStructure = d->dst->vk.handle;
+		bi->geometryCount = 1;
+		bi->pGeometries = g;
+		// VUID-vkCmdBuildAccelerationStructuresKHR-pInfos-03710 (same as BLAS).
+		{
+			const uint64_t scratchAlign = dev->physicalAdapter.accelerationStructureScratchOffsetAlignment;
+			const uint64_t scratchAddr = RI_VK_BufferDeviceAddress( dev, d->scratchBuffer ) + d->scratchOffset;
+			bi->scratchData.deviceAddress = ( scratchAlign > 1 )
+				? ( ( scratchAddr + scratchAlign - 1 ) & ~( scratchAlign - 1 ) )
+				: scratchAddr;
+		}
+	}
+
+	vkCmdBuildAccelerationStructuresKHR( cmd->vk.cmd, numDescs, buildInfos.data(), rangePtrs.data() );
+#endif
 }
 
 

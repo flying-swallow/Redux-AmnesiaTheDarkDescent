@@ -5,10 +5,10 @@
 
 namespace hpl {
 
-BindlessPool::BindlessPool(uint32_t numElements, uint32_t frameInFlight)
+LRUCache::LRUCache(uint32_t numElements, uint32_t frameInFlight)
     : pool(numElements), frameInFlight(frameInFlight), poolSlotPool(RESERVED_POOL_SLOTS), hashSlots() {}
 
-void BindlessPool::reset(uint32_t numElements) {
+void LRUCache::reset(uint32_t numElements) {
   for(size_t i = 0; i < hashSlots.size(); ++i) {
     hashSlots[i] = NULL;
   }
@@ -18,9 +18,9 @@ void BindlessPool::reset(uint32_t numElements) {
   poolSlotPool.reset();
 }
 
-void BindlessPool::free(hash_t cookie) {
+void LRUCache::free(hash_t cookie) {
   const size_t hashIndex = cookie % hashSlots.size();
-  for (BindlessPool::BindlessPoolSlot *c = hashSlots[hashIndex]; c;
+  for (LRUCache::BindlessPoolSlot *c = hashSlots[hashIndex]; c;
        c = c->hNext) {
     if (c->cookie == cookie) {
       pool.returnId(c->id);
@@ -30,7 +30,7 @@ void BindlessPool::free(hash_t cookie) {
   }
 }
 
-void BindlessPool::detachSlot(struct BindlessPoolSlot *slot) {
+void LRUCache::detachSlot(struct BindlessPoolSlot *slot) {
   assert(slot);
   // remove from queue
   {
@@ -71,7 +71,7 @@ void BindlessPool::detachSlot(struct BindlessPoolSlot *slot) {
     }
   }
 }
-void BindlessPool::attachSlot(struct BindlessPoolSlot *slot) {
+void LRUCache::attachSlot(struct BindlessPoolSlot *slot) {
   assert(slot);
   {
     slot->quNext = NULL;
@@ -96,9 +96,9 @@ void BindlessPool::attachSlot(struct BindlessPoolSlot *slot) {
   }
 }
 
-BindlessPool::BindlessPoolReq  BindlessPool::request(hash_t cookie, uint32_t frameIndex) {
+LRUCache::BindlessPoolReq  LRUCache::request(hash_t cookie, uint32_t frameIndex) {
   const size_t hashIndex = cookie % hashSlots.size();
-  for (BindlessPool::BindlessPoolSlot *c = hashSlots[hashIndex]; c;
+  for (LRUCache::BindlessPoolSlot *c = hashSlots[hashIndex]; c;
        c = c->hNext) {
     if (c->cookie == cookie) {
       if (queueEnd == c) {
@@ -120,31 +120,31 @@ BindlessPool::BindlessPoolReq  BindlessPool::request(hash_t cookie, uint32_t fra
       }
       queueEnd = c;
       // found a slot with the same cookie
-      return BindlessPool::BindlessPoolReq{ c->id, true, false};
+      return LRUCache::BindlessPoolReq{ c->id, true, false};
     }
   }
 
   if (queueBegin && frameIndex > queueBegin->frameIndex + frameInFlight) {
-    BindlessPool::BindlessPoolSlot *slot = queueBegin;
+    LRUCache::BindlessPoolSlot *slot = queueBegin;
     detachSlot(slot);
     slot->frameIndex = frameIndex;
     slot->cookie = cookie;
     attachSlot(slot);
-    return BindlessPool::BindlessPoolReq{ slot->id, false, false};
+    return LRUCache::BindlessPoolReq{ slot->id, false, false};
   }
 
   const uint32_t id = pool.requestId();
   if (id == UINT32_MAX) {
     // pool is full and no slot is old enough to evict — caller must skip.
-    return BindlessPool::BindlessPoolReq{ UINT32_MAX, false, true };
+    return LRUCache::BindlessPoolReq{ UINT32_MAX, false, true };
   }
-  BindlessPool::BindlessPoolSlot* slot =  poolSlotPool.allocate();
-  memset(slot, 0, sizeof(BindlessPool::BindlessPoolSlot));
+  LRUCache::BindlessPoolSlot* slot =  poolSlotPool.allocate();
+  memset(slot, 0, sizeof(LRUCache::BindlessPoolSlot));
   assert(slot);
   slot->cookie = cookie;
   slot->frameIndex = frameIndex;
   slot->id = id;
   attachSlot(slot);
-  return BindlessPool::BindlessPoolReq{ slot->id, false, false};
+  return LRUCache::BindlessPoolReq{ slot->id, false, false};
 }
 } // namespace hpl

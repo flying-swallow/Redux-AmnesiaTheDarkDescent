@@ -132,6 +132,12 @@ public:
 
   const std::shared_ptr<RIBuffer_s> &GetIndexRIBuffer() const { return m_indexBuffer; }
 
+  // Lazily builds (or returns) a BLAS for this VB's position/index buffers. Returns nullptr
+  // if RT isn't supported, the VB hasn't been Compile()'d, or there's no index buffer.
+  // The build is recorded into `cmd`; the caller must ensure that command buffer is submitted
+  // and finished before the BLAS is read (e.g. by inserting a barrier before the TLAS build).
+  struct RIAccelStructure_s *GetOrBuildBlas(struct RIDevice_s *device, struct RICmd_s *cmd);
+
 protected:
   static void
   PushVertexElements(std::span<const float> values,
@@ -146,6 +152,12 @@ protected:
   size_t m_indexBufferActiveCopy = 0;
   tVertexElementFlag m_updateFlags = 0; // update no need to rebuild buffers
   bool m_updateIndices = false;
+
+  // Cached BLAS built on first GetOrBuildBlas call. Storage shares the deferred-free path
+  // (same shared_ptr deleter as element buffers) so it outlives any in-flight build.
+  std::shared_ptr<RIBuffer_s> m_blasStorage;
+  RIAccelStructure_s m_blas = {};
+  bool m_blasValid = false;
 
   friend struct VertexElement;
 };

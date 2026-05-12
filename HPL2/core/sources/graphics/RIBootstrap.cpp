@@ -26,6 +26,8 @@ void RIBootstrap::Dispose() {
     FreeRITextureView(&device, &depthView[i]);
     FreeRITexture(&device, &depthTextures[i]);
     FreeRITextureView(&device, &depthView[i]);
+    FreeRITextureView(&device, &normalView[i]);
+    FreeRITexture(&device, &normalTexture[i]);
   }
 
   for (auto &set : frameSets) {

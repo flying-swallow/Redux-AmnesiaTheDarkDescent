@@ -1,0 +1,78 @@
+#version 460
+
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_ray_tracing : enable
+#extension GL_EXT_ray_query : enable
+#extension GL_ARB_shader_clock : enable                 // Using clockARB
+#extension GL_EXT_shader_image_load_formatted : enable  // The folowing extension allow to pass images as function parameters
+#extension GL_EXT_debug_printf : enable                 // Debug - printf
+#extension GL_NV_shader_sm_builtins : require     // Debug - gl_WarpIDNV, gl_SMIDNV
+#extension GL_EXT_shader_realtime_clock : enable  // Debug - heatmap timing
+
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+
+#include "host_device.h"
+#include "compress.glsl"
+
+// surfel buffers
+layout(set = 0, binding = 0,  scalar)		buffer _SurfelCounter		{ SurfelCounter surfelCounter; };
+layout(set = 0, binding = 1,  scalar)		buffer _SurfelBuffer		{ Surfel surfelBuffer[]; };
+layout(set = 0, binding = 2,  scalar)		buffer _SurfelAlive		    { uint surfelAlive[]; };
+layout(set = 0, binding = 3,  scalar)		buffer _SurfelDead		    { uint surfelDead[]; };
+layout(set = 0, binding = 4,  scalar)		buffer _SurfelDirty		    { uint surfelDirty[]; };
+layout(set = 0, binding = 5,  scalar)		buffer _SurfelRecycle		{ SurfelRecycleInfo surfelRecycleInfo[]; };
+layout(set = 0, binding = 6,  scalar)		buffer _SurfelRayBuffer		{ SurfelRay surfelRayBuffer[]; };
+
+// cell buffer
+layout(set = 1, binding = 0, scalar)		buffer _CellBuffer			{ CellInfo cellBuffer[]; };
+layout(set = 1, binding = 1,  scalar)		buffer _CellCounter			{ CellCounter cellCounter; };
+layout(set = 1, binding = 2,  scalar)		buffer _CellToSurfel		{ uint cellToSurfel[]; };
+
+layout(push_constant) uniform _RtxState
+{
+  RtxState rtxState;
+};
+
+#include "shaderUtils_surfel_cell.glsl"
+
+// Compute input
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+	uint idx = gl_GlobalInvocationID.x;
+	if (idx == 0)
+	{
+		surfelCounter.surfelRayCnt = 0;
+		cellCounter.aliveSurfelInCell = 0;
+	}
+	//clear cellBuffer
+	cellBuffer[idx].surfelCount = 0;
+	cellBuffer[idx].surfelOffset = 0;
+	// tmp value
+	/*
+	if (rtxState.frame > 1000)
+	{
+		surfelCounter.aliveSurfelCnt = 0;
+		surfelCounter.deadSurfelCnt = kMaxSurfelCount;
+		surfelDead[gl_GlobalInvocationID.x] = gl_GlobalInvocationID.x;
+		surfelAlive[gl_GlobalInvocationID.x] = 0;
+		Surfel surfel;
+		surfel.position = vec3(0.0f);
+		surfel.normal = 0;
+		surfel.radius = 0.0f;
+		surfel.radiance = vec3(0.0f);
+		surfelBuffer[gl_GlobalInvocationID.x] = surfel;
+	}*/
+
+	/*
+	surfelCounter.dirtySurfelCnt = surfelCounter.aliveSurfelCnt;
+    if(idx < surfelCounter.aliveSurfelCnt) {
+        surfelDirty[idx] = surfelAlive[idx];
+    }*/
+
+	// Reset alive surfel counter
+}

@@ -1,0 +1,283 @@
+#version 460
+
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_ray_tracing : enable
+#extension GL_EXT_ray_query : enable
+#extension GL_ARB_shader_clock : enable                 // Using clockARB
+#extension GL_EXT_shader_image_load_formatted : enable  // The folowing extension allow to pass images as function parameters
+#extension GL_EXT_debug_printf : enable                 // Debug - printf
+#extension GL_NV_shader_sm_builtins : require     // Debug - gl_WarpIDNV, gl_SMIDNV
+#extension GL_EXT_shader_realtime_clock : enable  // Debug - heatmap timing
+
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+
+#define IRRADIANCE_SHARE 1
+
+#include "host_device.h"
+#include "compress.glsl"
+#include "msme.glsl"
+
+layout(push_constant) uniform _RtxState
+{
+  RtxState rtxState;
+};
+
+// surfel buffers
+layout(set = 0, binding = 0, scalar)		buffer _SurfelCounter { SurfelCounter surfelCounter; };
+layout(set = 0, binding = 1, scalar)		buffer _SurfelBuffer { Surfel surfelBuffer[]; };
+layout(set = 0, binding = 2, scalar)		buffer _SurfelAlive { uint surfelAlive[]; };
+layout(set = 0, binding = 3, scalar)		buffer _SurfelDead { uint surfelDead[]; };
+layout(set = 0, binding = 4, scalar)		buffer _SurfelDirty { uint surfelDirty[]; };
+layout(set = 0, binding = 5, scalar)		buffer _SurfelRecycle { SurfelRecycleInfo surfelRecycleInfo[]; };
+layout(set = 0, binding = 6, scalar)		buffer _SurfelRayBuffer { SurfelRay surfelRayBuffer[]; };
+
+layout(set = 1,   binding = 0)				uniform sampler2D	surfelIrradianceSampler;
+layout(set = 1,   binding = 1)				uniform image2D		surfelIrradianceMap;
+layout(set = 1,   binding = 2)				uniform sampler2D	surfelDepthSampler;
+layout(set = 1,   binding = 3)				uniform image2D		surfelDepthMap;
+
+// cell buffer
+layout(set = 2, binding = 0,  scalar)		buffer _CellBuffer			{ CellInfo cellBuffer[]; };
+layout(set = 2, binding = 1,  scalar)		buffer _CellCounter			{ CellCounter cellCounter; };
+layout(set = 2, binding = 2,  scalar)		buffer _CellToSurfel		{ uint cellToSurfel[]; };
+
+// scene buffers
+layout(set = 3, binding = 0,  scalar)		uniform _SceneCamera		{ SceneCamera sceneCamera; };
+
+#include "shaderUtils_surfel_cell.glsl"
+#include "shaderUtils.glsl"
+#include "random.glsl"
+
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	if (index >= surfelCounter.aliveSurfelCnt)
+	{
+		return;
+	}
+    uint frameHash = lowbias32(rtxState.totalFrames);
+	uint randSeed = tea(index, frameHash);
+    uint surfelIndex = surfelAlive[index];
+	Surfel surfel = surfelBuffer[surfelIndex];
+
+    if (surfel.rayCount == 0)
+        return;
+
+    ivec2 IrradianceMapRes = textureSize(surfelIrradianceSampler, 0);
+
+    ivec2 irrMapBase = ivec2(
+        surfelIndex % (IrradianceMapRes.x / 6),
+        surfelIndex / (IrradianceMapRes.x / 6)
+    );
+    irrMapBase *= ivec2(6,6);
+
+    ivec2 DepthMapRes = textureSize(surfelDepthSampler, 0);
+
+    ivec2 depthMapBase = ivec2(
+		surfelIndex % (DepthMapRes.x / 6),
+		surfelIndex / (DepthMapRes.x / 6)
+	);
+    depthMapBase *= ivec2(6,6);
+
+    vec3 totalRadiance = vec3(0.0);
+    bool newSurfel = surfelRecycleInfo[surfelIndex].frame == 0;
+
+    if (newSurfel)
+    {
+        for (uint y = 0; y < 6; ++y)
+        {
+            for (uint x = 0; x < 6; ++x)
+            {
+                imageStore(surfelIrradianceMap, irrMapBase + ivec2(x,y), vec4(0.0));
+            }
+        }
+    }
+
+    uint samplePack = max(4u, surfel.rayCount / 4);
+    uint packCounter = 0;
+    vec3 meanRadiance = vec3(0.0);
+    for (uint i = 0; i < surfel.rayCount; i++)
+	{
+		SurfelRay rayResult = surfelRayBuffer[surfel.rayOffset + i];
+		float depth = clamp(rayResult.t, 0, surfel.radius) / surfel.radius;
+
+		vec3 norL = decompress_unit_vec(rayResult.dir_o);
+        vec3 inRadiance = rayResult.radiance * norL.z / max(1e-12f, rayResult.pdf);
+        float lum = dot(inRadiance, vec3(0.212671f, 0.715160f, 0.072169f));
+        if(lum > rtxState.fireflyClampThreshold)
+        {
+            inRadiance *= rtxState.fireflyClampThreshold / lum;
+        }
+        totalRadiance += inRadiance;
+
+        packCounter++;
+        if (packCounter == samplePack || i == surfel.rayCount - 1)
+        {
+			totalRadiance /= packCounter;
+			packCounter = 0;
+            MSME(totalRadiance, surfel.msmeData, 0.01);
+            totalRadiance = vec3(0.0);
+		}
+
+        vec2 mapUV = DirToOctUV(norL);
+
+		// write to irradiance map
+		ivec2 mapOffset = 3 + ivec2(
+            sign(mapUV.x) * round(abs(mapUV.x * 3.0)),
+            sign(mapUV.y) * round(abs(mapUV.y * 3.0))
+        );
+        ivec2 mapCoord = irrMapBase + mapOffset;
+
+        float lumn = max(1e-12, dot(rayResult.radiance, vec3(0.2126, 0.7152, 0.0722)));
+        float old;
+        float delta;
+        if (newSurfel)
+		{
+			old = 0.0;
+			delta = lumn;
+		}
+		else
+		{
+			old = texelFetch(surfelIrradianceSampler, mapCoord, 0).r;
+			delta = 0.2 * (lumn - old);
+		}
+        imageStore(surfelIrradianceMap, mapCoord, vec4(old + delta, 1, 1, 1));
+        //imageStore(surfelIrradianceMap, mapCoord, vec4(1.f));
+
+        // write to depth map
+        mapCoord = depthMapBase + mapOffset;
+        vec2 oldDepth;
+        vec2 delta2;
+        if (newSurfel)
+        {
+            oldDepth = vec2(0);
+            delta2 = vec2(depth, pow(depth, 2));
+        
+        }
+        else
+        {
+            oldDepth = texelFetch(surfelDepthSampler, mapCoord, 0).rg;
+			delta2 = 0.2 * (vec2(depth, pow(depth, 2)) - oldDepth);
+        }
+        imageStore(surfelDepthMap, mapCoord, vec4(oldDepth + delta2, 0, 0));
+	}
+
+    float irradianceSum = 0.0;
+    bool isFull = true;
+
+    for (uint y = 0; y < 6; ++y)
+    {
+        for (uint x = 0; x < 6; ++x)
+        {
+            float irr = texelFetch(surfelIrradianceSampler, irrMapBase + ivec2(x, y), 0).r;
+            irradianceSum += irr;
+            if (isFull && (irr == 0.0))
+                isFull = false;
+        }
+    }
+
+    surfel.irradiance = floatBitsToUint(irradianceSum);
+    surfel.irradiance |= uint(isFull);
+
+    if (surfel.rayCount > 0) totalRadiance /= surfel.rayCount;
+
+#if IRRADIANCE_SHARE
+
+    vec3 camPos = getCameraPosition(sceneCamera);
+    ivec4 cellPosIndex = getCellPosNonUniform(surfel.position, camPos);
+    
+    vec4 sharedRadiance = vec4(0.0);
+    if (isCellValid(cellPosIndex))
+	{
+	    //uint flattenIndex = getFlattenCellIndex(cellPosIndex);
+        uint flattenIndex = getFlattenCellIndexNonUniform(cellPosIndex);
+        vec3 normal = decompress_unit_vec(surfel.normal);
+
+	    CellInfo cellInfo = cellBuffer[flattenIndex];
+	    uint cellOffset = cellInfo.surfelOffset;
+	    uint cellSurfelCount = cellInfo.surfelCount;
+        uint targetShareCount = min(64u, cellSurfelCount);
+        float cellSurfelCntF = float(cellSurfelCount);
+        uint passCount = 0;
+
+        for (uint i = 0; i < cellSurfelCount; i++)
+	    {
+            //uint currIndex = targetShareCount == cellInfo.surfelCount ? i : uint(rand(randSeed) * cellSurfelCntF);
+            //if (passCount >= 16)
+			// 	break;
+            uint currIndex = i;
+		    uint surfelIndex = cellToSurfel[cellOffset + currIndex];
+		    Surfel neiSurfel = surfelBuffer[surfelIndex];
+            vec3 neiNor = decompress_unit_vec(neiSurfel.normal);
+		    vec3 distV = neiSurfel.position - surfel.position;
+            float dist = length(distV);
+            float cosineTheta = dot(distV, normal) / dist;
+
+            // skip surfels on the backside
+            if (cosineTheta < -0.2 || dot(-distV, neiNor) / dist < -0.2)
+				continue;
+
+            //float cellRadius = 1.0 * cellSize * sqrt(3.0);
+            float surfelRad = 2.0 * surfel.radius;
+
+		    if (dist < surfelRad)
+            {
+                vec3 surfelNor = decompress_unit_vec(neiSurfel.normal);
+                float dotN = dot(normal, surfelNor);
+                float contribution = 1.f;
+                if (dotN > 0.f)
+                {
+                    contribution *= min(dotN, 1.f);
+                    contribution *= clamp(1.f - dist / surfelRad, 0.f, 1.f);
+                    contribution = smoothstep(0, 1, contribution);
+                }
+                else
+                {
+					contribution *= max(cosineTheta, 0.f);
+                    contribution *= pow(1.f - dist / surfelRad, 2.0);
+				}
+
+                // lower the weight of new surfels
+                contribution *= smoothstep(0.f, 10.f, float(surfelRecycleInfo[surfelIndex].frame));
+                sharedRadiance += vec4(neiSurfel.radiance, 1.f) * contribution;
+                passCount++;
+		        
+		    }
+            if(rtxState.debugging_mode == esNonUniformGrid) break;
+	    }
+        
+
+        if (sharedRadiance.w > 0.1)
+        {
+            //sharedRadiance += vec4(surfel.msmeData.mean, 1.f);
+            sharedRadiance.xyz /= sharedRadiance.w;
+            MSME(sharedRadiance.xyz, surfel.msmeData, 0.04);
+//            vec3 mean = mix(
+//                surfel.msmeData.mean,
+//                sharedRadiance.xyz,
+//                clamp(length(surfel.msmeData.variance) * 20.f, 0.4f, 1.0f)
+//                //0.8f
+//            );
+        }
+
+    }
+
+#endif
+
+//    float ratio = surfelRecycleInfo[surfelIndex].frame > 0 ? 
+//        float(surfelRecycleInfo[surfelIndex].frame - 1) / float(surfelRecycleInfo[surfelIndex].frame) : 0.f;
+//    ratio  = min(ratio, 31.0f / 32.0f);
+//    totalRadiance = mix(totalRadiance, surfel.radiance, ratio);
+
+    //vec3 mean = MSME(totalRadiance, surfel.msmeData, 0.04);
+
+    //surfelBuffer[surfelIndex].radiance = surfel.msmeData.mean;
+    surfelBuffer[surfelIndex].msmeData = surfel.msmeData;
+    
+}

@@ -1,0 +1,245 @@
+#version 460
+
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_EXT_nonuniform_qualifier : enable
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_EXT_scalar_block_layout : enable
+#extension GL_EXT_ray_tracing : enable
+#extension GL_EXT_ray_query : enable
+#extension GL_ARB_shader_clock : enable                 // Using clockARB
+#extension GL_EXT_shader_image_load_formatted : enable  // The folowing extension allow to pass images as function parameters
+#extension GL_EXT_debug_printf : enable                 // Debug - printf
+#extension GL_NV_shader_sm_builtins : require     // Debug - gl_WarpIDNV, gl_SMIDNV
+#extension GL_EXT_shader_realtime_clock : enable  // Debug - heatmap timing
+
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+
+#include "host_device.h"
+#include "compress.glsl"
+#include "random.glsl"
+
+// surfel buffers
+layout(set = 0, binding = 0,  scalar)		buffer _SurfelCounter		{ SurfelCounter surfelCounter; };
+layout(set = 0, binding = 1,  scalar)		buffer _SurfelBuffer		{ Surfel surfelBuffer[]; };
+layout(set = 0, binding = 2,  scalar)		buffer _SurfelAlive		    { uint surfelAlive[]; };
+layout(set = 0, binding = 3,  scalar)		buffer _SurfelDead		    { uint surfelDead[]; };
+layout(set = 0, binding = 4,  scalar)		buffer _SurfelDirty		    { uint surfelDirty[]; };
+layout(set = 0, binding = 5,  scalar)		buffer _SurfelRecycle		{ SurfelRecycleInfo surfelRecycleInfo[]; };
+layout(set = 0, binding = 6,  scalar)		buffer _SurfelRayBuffer		{ SurfelRay surfelRayBuffer[]; };
+
+// cell buffer
+layout(set = 1, binding = 0,  scalar)		buffer _CellBuffer			{ CellInfo cellBuffer[]; };
+layout(set = 1, binding = 1,  scalar)		buffer _CellCounter			{ CellCounter cellCounter; };
+layout(set = 1, binding = 2,  scalar)		buffer _CellToSurfel		{ uint cellToSurfel[]; };
+
+// scene buffers
+layout(set = 2, binding = 0,  scalar)		uniform _SceneCamera		{ SceneCamera sceneCamera; };
+
+// gbuffers
+layout(set = 3, binding = 0)	uniform usampler2D primObjIDMap;
+layout(set = 3, binding = 1)	uniform usampler2D normalMap;
+layout(set = 3, binding = 2)	uniform sampler2D depthMap;
+
+layout(push_constant) uniform _RtxState
+{
+  RtxState rtxState;
+};
+
+#include "shaderUtils_surfel_cell.glsl"
+#include "shaderUtils.glsl"
+
+
+uint randSeed = 0;
+
+void recycleSurfelInAlive(uint aliveArrayIndex) {
+    // Get the actual surfelID
+    uint surfelIndexToRecycle = surfelAlive[aliveArrayIndex]; 
+
+    // Update alive counter atomically
+    uint newAliveCnt = atomicAdd(surfelCounter.aliveSurfelCnt, -1) - 1;
+	uint endSurfelIndex = surfelAlive[newAliveCnt];
+
+	// insert end surfel to new position
+	surfelAlive[aliveArrayIndex] = endSurfelIndex;
+
+	// recycle to dead buffer
+    uint newDeadIndex = kMaxSurfelCount - newAliveCnt - 1;
+	surfelDead[newDeadIndex] = surfelIndexToRecycle;
+}
+
+bool shouldRecycleSurfel(in Surfel surfel, in SurfelRecycleInfo recycleInfo, in bool lastSeen, float surfelToCameraDistance) {
+
+    // base check
+    if(surfel.radius < 0.001 || recycleInfo.life == 0)
+        return true;
+
+	// if last seen, do not recycle
+	if (lastSeen)
+	    return false;
+
+    // Distance factor - recycle if too far
+    float distanceFactor = smoothstep(50.0, 100.0, surfelToCameraDistance);
+    
+    // Normal factor - recycle if facing away from camera
+    vec3 viewDir = normalize(getCameraPosition(sceneCamera) - surfel.position);
+    vec3 surfelNormal = decompress_unit_vec(surfel.normal);
+    float normalFactor = 1.0 - max(0.0, dot(viewDir, surfelNormal));
+    
+    // Life cycle factor
+    float lifeFactor = (float(kMaxLife) - float(recycleInfo.life)) / float(kMaxLife);
+	lifeFactor = pow(lifeFactor, 2.0);
+
+    // Combine factors with weights
+    float recycleProb = 0.1 * distanceFactor +
+                        //0.05 * normalFactor +
+                        0.4 * lifeFactor;
+    
+    // Scale by surfel density
+    float surfelCountFactor = float(surfelCounter.aliveSurfelCnt) / float(kMaxSurfelCount);
+	surfelCountFactor *= step(0.8, surfelCountFactor);
+    recycleProb *= surfelCountFactor;
+    
+    // Use rand() instead of direct tea result for better distribution
+    return rand(randSeed) < recycleProb;
+}
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+void main()
+{
+	uint idx = gl_GlobalInvocationID.x;
+
+	// Calculate how much surfels are located at cell.
+	// Do not use dirty any more.
+	// Still put it in descriptors for future use.
+
+	if(idx >= surfelCounter.aliveSurfelCnt) return;
+
+	randSeed = tea(idx, rtxState.totalFrames);
+
+	uint surfelIndex = surfelAlive[idx];
+    Surfel surfel = surfelBuffer[surfelIndex];
+	surfel.radiance = surfel.msmeData.mean;
+
+	float surfelRadius = surfel.radius;
+	SurfelRecycleInfo recycleInfo = surfelRecycleInfo[surfelIndex];
+	bool isSleeping = (recycleInfo.status & 0x0001u) != 0u;
+	bool lastSeen = (recycleInfo.status & 0x0002u) != 0u;
+	bool lastRefed = (recycleInfo.status & 0x0004u) != 0u;
+
+	// Increase frame count
+	recycleInfo.life = max(recycleInfo.life - 1, 0);
+	recycleInfo.frame = uint(clamp(int(recycleInfo.frame) + 1, 0, 65535));
+
+	// update sleep surfel life
+	if (isSleeping && lastRefed)
+        recycleInfo.life = kMaxLife / 2;
+
+
+	if(lastSeen){
+		//recycleInfo.lastSeenFrame = recycleInfo.frame;
+		recycleInfo.life = kMaxLife;
+		if(isSleeping){ isSleeping = false; }
+	}
+
+	
+
+
+	float surfelToCameraDistance = distance(surfel.position, getCameraPosition(sceneCamera));
+
+	// Check if surfel valid
+	if(!shouldRecycleSurfel(surfel, recycleInfo, lastSeen || lastRefed, surfelToCameraDistance)){
+
+		// Reset surfel radius
+		float surfelToCameraDistance = distance(surfel.position, getCameraPosition(sceneCamera));
+		float fov = sceneCamera.fov;
+		ivec2 imageRes = rtxState.size;
+		vec2 resolution = vec2(imageRes.x, imageRes.y);
+
+		float newRadius =  calcSurfelRadius(surfelToCameraDistance, fov, resolution);
+		float surfelMaxSize = getSurfelMaxSize(surfelToCameraDistance);
+		if(isSleeping) {
+			newRadius = min(newRadius, surfelMaxSize * 2.f); 
+		}else{
+			newRadius = min(newRadius, surfelMaxSize);
+		}
+
+		if (lastSeen) newRadius = mix(surfel.radius, newRadius, 0.1f);
+		newRadius = max(newRadius, surfelMaxSize * surfelMinSizeRatio);
+		float radDiff = abs(surfel.radius - newRadius);
+		surfel.msmeData.variance *= 1.0 + radDiff * 10.0;
+
+		surfel.radius = newRadius;
+		
+		// Calculate number of surfels located at cell
+		vec3 camPos = getCameraPosition(sceneCamera);
+		//vec3 cellPosIndex = getCellPos(surfel.position, camPos); 
+		ivec4 cellPosIndex = getCellPosNonUniform(surfel.position, camPos);
+		for(uint i = 0; i < 27; i++)
+		{
+			//iterate through 3x3x3 cell neighbours, put surfel into all neighbours cells
+			// vec3 neighbourPos = cellPosIndex + neighborOffset[i];
+			vec3 neighbourPos3 = cellPosIndex.xyz + neighborOffset[i];
+			ivec4 neighbourPos = ivec4(neighbourPos3, cellPosIndex.w);
+			
+			if (isSurfelIntersectCellNonUniform(surfel, neighbourPos, camPos))
+			{ 
+				//uint flattenIndex = getFlattenCellIndex(neighbourPos);
+				uint flattenIndex = getFlattenCellIndexNonUniform(neighbourPos);
+				atomicAdd(cellBuffer[flattenIndex].surfelCount, 1);
+				//if(idx == 40) debugPrintfEXT("surfelCount[%d]: %d\n",flattenIndex, cellBuffer[flattenIndex].surfelCount); 
+			}
+		}
+
+		//Update ray information
+		float variance = length(surfel.msmeData.variance);
+
+		// if ray cnt is always too low, sometimes stimulate them
+//		if (variance < 0.01 && rand(randSeed) < 0.01)
+//		{
+//			surfel.msmeData.variance = vec3(1.0);
+//			variance = 1.0;
+//		}
+
+		uint rayRequestCnt = uint(mix(4.0, 64.0, clamp(variance * 1.2, 0.f, 1.f)));
+		//uint rayRequestCnt = 32;
+
+
+		if (isSleeping || !lastSeen) rayRequestCnt = rayRequestCnt / 4;
+		if (recycleInfo.frame < 20) rayRequestCnt = 64;
+
+		// allocate ray buffer
+		uint rayOffset = atomicAdd(surfelCounter.surfelRayCnt, rayRequestCnt);
+		if (rayOffset < kMaxRayCount)
+        {
+            surfel.rayOffset = rayOffset;
+            surfel.rayCount = rayRequestCnt;
+
+            SurfelRay initSurfelRay;
+            initSurfelRay.surfelID = surfelIndex;
+
+            for (uint rayIndex = 0; rayIndex < rayRequestCnt; ++rayIndex)
+			{
+				surfelRayBuffer[rayOffset + rayIndex] = initSurfelRay;
+			}   
+        }
+		else
+		{
+			atomicAdd(surfelCounter.surfelRayCnt, -rayRequestCnt);
+		}
+
+		// Update surfel
+		surfelBuffer[surfelIndex] = surfel;
+	}
+	else
+	{
+		recycleSurfelInAlive(idx);
+	}
+
+	// reset lastSeen
+	recycleInfo.status = isSleeping ? 0x0001 : 0x0000;
+	// write back
+	surfelRecycleInfo[surfelIndex] = recycleInfo;
+	
+	return;
+}

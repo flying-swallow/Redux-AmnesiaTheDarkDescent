@@ -362,6 +362,8 @@ enum RIWindowType_e {
 struct RIBuffer_s {
 	RIBuffer_s() { memset(this, 0, sizeof(*this)); }
 
+
+	void setDebugObjectName(struct RIDevice_s *device, const char* name);
 	uint64_t GetDeviceHandle(struct RIDevice_s *device);
 
 	union {
@@ -487,6 +489,8 @@ static inline struct DescriptorBindingID CreateDescriptorBindingID(const char *n
   return key;
 }
 
+struct RIAccelStructure_s;
+
 struct RIDescriptor_s {
 	RIDescriptor_s() { memset(this, 0, sizeof(*this)); }
 	// unique id to mark the descriptor
@@ -494,6 +498,7 @@ struct RIDescriptor_s {
 	uint8_t flags;
 	struct RIBuffer_s* buffer;
 	struct RITexture_s* texture;
+	struct RIAccelStructure_s* accelStructure;
 	union {
 #if( DEVICE_IMPL_VULKAN )
 		struct {
@@ -501,6 +506,7 @@ struct RIDescriptor_s {
 			union {
 				struct VkDescriptorImageInfo image;
 				struct VkDescriptorBufferInfo buffer;
+				VkAccelerationStructureKHR accelStructure;
 			};
 		} vk;
 #endif

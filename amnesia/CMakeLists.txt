@@ -138,8 +138,8 @@ target_shaders(
 SHADERS
     ./glsl/gui.frag
     ./glsl/gui.vert
-    ./glsl/forward_diffuse.frag
-    ./glsl/forward_diffuse.vert
+    ./glsl/gbuffer.frag
+    ./glsl/gbuffer.vert
 OUTPUT_FOLDER
 ${AMNESIA_SHADER_DIR}
 )

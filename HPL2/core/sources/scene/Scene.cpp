@@ -185,60 +185,67 @@ namespace hpl {
 			RIBootstrap::FrameContext* cntx = RI.GetActiveSet();
 			tViewportListIt viewIt = mlstViewports.begin();
 			
-			VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-			RI_VK_FillColorAttachmentView( &colorAttachment, &RI.swapchainView[RI.swapchainIndex] , true );
-
-			VkRenderingAttachmentInfo depthStencil = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-			RI_VK_FillDepthAttachment( &depthStencil, &RI.depthView[RI.swapchainIndex], true );
-			VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-			renderingInfo.flags = 0;
-			renderingInfo.renderArea = VkRect2D{ { 0, 0 }, { RI.swapchain.width, RI.swapchain.height } };
-			renderingInfo.layerCount = 1;
-			renderingInfo.viewMask = 0;
-			renderingInfo.colorAttachmentCount = 1;
-			renderingInfo.pColorAttachments = &colorAttachment;
-			renderingInfo.pDepthAttachment = &depthStencil;
-			renderingInfo.pStencilAttachment = NULL;
-			vkCmdBeginRendering( RI.primary.cmds[0].vk.cmd , &renderingInfo );
+			// Rendering-instance contract:
+			//   * pRenderer->Draw is called with NO active rendering instance and
+			//     leaves none active. The renderer owns its own begin/end pairs
+			//     for whatever passes it needs (e.g. HybridRenderer's MRT pass).
+			//   * Scene opens its own rendering instance here to host the GUI
+			//     passes (Render3DGui + RenderScreenGui), then closes it.
 			for(; viewIt != mlstViewports.end(); ++viewIt)
 			{
 					cViewport *pViewPort = *viewIt;
 					if(pViewPort->IsVisible()==false) continue;
-            
-          iRenderer* pRenderer = pViewPort->GetRenderer();
-      		cCamera* pCamera = pViewPort->GetCamera();
-          cFrustum* pFrustum = pCamera ? pCamera->GetFrustum() : NULL;
-			
+
+					iRenderer* pRenderer = pViewPort->GetRenderer();
+					cCamera* pCamera = pViewPort->GetCamera();
+					cFrustum* pFrustum = pCamera ? pCamera->GetFrustum() : NULL;
+
 					if(alFlags & tSceneRenderFlag_World)
 					{
 						pViewPort->RunViewportCallbackMessage(eViewportMessage_OnPreWorldDraw);
-            if (pRenderer && pViewPort->GetWorld() && pFrustum) {
-              pRenderer->Draw(
-                  cntx,
-                  pViewPort,
-                  afFrameTime,
-                  pFrustum,
-                  pViewPort->GetWorld(),
-                  pViewPort->GetRenderSettings(),
-                  false);
-        		}
-            pViewPort->RunViewportCallbackMessage(eViewportMessage_OnPostWorldDraw);
-            // Render 3D GuiSets
-            //  Should this really be here? Or perhaps send in a frame buffer depending on the renderer.
-            START_TIMING(Render3DGui)
-            Render3DGui(pViewPort, pFrustum, afFrameTime);
-            STOP_TIMING(Render3DGui)
+						if (pRenderer && pViewPort->GetWorld() && pFrustum) {
+							pRenderer->Draw(
+									cntx,
+									pViewPort,
+									afFrameTime,
+									pFrustum,
+									pViewPort->GetWorld(),
+									pViewPort->GetRenderSettings(),
+									false);
+						}
+						pViewPort->RunViewportCallbackMessage(eViewportMessage_OnPostWorldDraw);
 					}
 
-		 			// render frame ...
+					// GUI block: open a rendering instance with color + depth, render
+					// the GUIs, close it. Depth uses LOAD so 3D Gui can depth-test
+					// against whatever pRenderer wrote (cleared if no renderer ran).
+					VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+					RI_VK_FillColorAttachmentView( &colorAttachment, &RI.swapchainView[RI.swapchainIndex] , true );
+					VkRenderingAttachmentInfo depthStencil = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+					RI_VK_FillDepthAttachment( &depthStencil, &RI.depthView[RI.swapchainIndex], false );
+					VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+					renderingInfo.renderArea = VkRect2D{ { 0, 0 }, { RI.swapchain.width, RI.swapchain.height } };
+					renderingInfo.layerCount = 1;
+					renderingInfo.colorAttachmentCount = 1;
+					renderingInfo.pColorAttachments = &colorAttachment;
+					renderingInfo.pDepthAttachment = &depthStencil;
+					vkCmdBeginRendering( RI.primary.cmds[0].vk.cmd , &renderingInfo );
+
+					if(alFlags & tSceneRenderFlag_World)
+					{
+						START_TIMING(Render3DGui)
+						Render3DGui(pViewPort, pFrustum, afFrameTime);
+						STOP_TIMING(Render3DGui)
+					}
 					if(alFlags & tSceneRenderFlag_Gui)
 					{
 						START_TIMING(RenderGUI)
 						RenderScreenGui(pViewPort, afFrameTime);
 						STOP_TIMING(RenderGUI)
 					}
+
+					vkCmdEndRendering( RI.primary.cmds[0].vk.cmd );
 			}
-			vkCmdEndRendering( RI.primary.cmds[0].vk.cmd );
 		}
 
 

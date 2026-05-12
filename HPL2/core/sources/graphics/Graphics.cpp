@@ -298,6 +298,34 @@ namespace hpl {
 					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.visiblityView[i].vk.image ) );
 				}
+				{
+					VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
+					info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+					info.imageType = VK_IMAGE_TYPE_2D;
+					info.extent.width = RI.swapchain.width;
+					info.extent.height = RI.swapchain.height;
+					info.extent.depth = 1;
+					info.mipLevels = 1;
+					info.arrayLayers = 1;
+					info.samples = VK_SAMPLE_COUNT_1_BIT;
+					info.tiling = VK_IMAGE_TILING_OPTIMAL;
+					info.pQueueFamilyIndices = queueFamilies;
+					VK_ConfigureImageQueueFamilies( &info, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
+					info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+					info.format = RIFormatToVK( RIBootstrap::NormalFormat );
+					info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+					VK_WrapResult( vmaCreateImage( RI.device.vk.vmaAllocator, &info, &mem_reqs, &RI.normalTexture[i].vk.image, &RI.normalTexture[i].vk.allocation, NULL ) );
+				}
+				{
+					VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+					createInfo.format = RIFormatToVK( RIBootstrap::NormalFormat );
+					createInfo.subresourceRange = VkImageSubresourceRange{
+						VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
+					};
+					createInfo.image = RI.normalTexture[i].vk.image;
+					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.normalView[i].vk.image ) );
+				}
 				RI_PogoBufferInit( &RI.device, &RI.pogoBuffer[i], RI.swapchain.width, RI.swapchain.height, RI_FORMAT_RGBA8_UNORM );
 			}
 		}

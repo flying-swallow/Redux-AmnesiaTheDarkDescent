@@ -23,6 +23,7 @@ struct RIBootstrap {
 public:
   static constexpr RI_Format_e VisibilityFormat = RI_FORMAT_R32_UINT;
   static constexpr RI_Format_e DepthFormat = RI_FORMAT_D32_SFLOAT;
+  static constexpr RI_Format_e NormalFormat = RI_FORMAT_RGBA8_UNORM;
 
   explicit RIBootstrap() {
 
@@ -56,6 +57,8 @@ public:
   struct RITexture_s visiblityTexture[RI_MAX_SWAPCHAIN_IMAGES];
   struct RITextureView_s visiblityView[RI_MAX_SWAPCHAIN_IMAGES];
 
+  struct RITexture_s normalTexture[RI_MAX_SWAPCHAIN_IMAGES];
+  struct RITextureView_s normalView[RI_MAX_SWAPCHAIN_IMAGES];
 
 	RICommandRingBuffer_s<RI_COMMAND_RING_POOL_COUNT, RI_COMMAND_RING_CMD_PER_POOL> graphicsCmdRing;
 	struct RICommandRingElement_s primary;
