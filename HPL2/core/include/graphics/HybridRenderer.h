@@ -66,6 +66,13 @@ private:
   struct RIBuffer_s m_surfelRecycleBuffer;
   struct RIBuffer_s m_surfelRayBuffer;
 
+  // Cell-grid resources (set=0 bindings 17..19). Static infrastructure shared
+  // by every surfel/cell compute pass; never resized at runtime.
+  struct RIBuffer_s m_cellInfoBuffer;
+  struct RIBuffer_s m_cellCounterBuffer;
+  struct RIBuffer_s m_cellToSurfelBuffer;
+
+
   RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> m_indirectSegment;
   struct RIBuffer_s m_indirectDrawBuffer;
 
@@ -82,7 +89,19 @@ private:
   struct RIBuffer_s m_tlasInstanceBuffer = {};
   uint32_t m_tlasCapacity = 0;
 
+  // Surfel-generation output — full-res HDR storage image written by
+  // surfel_generation_pass.comp (set=3, binding=1). One per swapchain image.
+  struct RITexture_s     m_surfelResultTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+  struct RITextureView_s m_surfelResultView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+  uint32_t m_surfelResultWidth = 0;
+  uint32_t m_surfelResultHeight = 0;
+
+  // prepare gbuffer
 	RIProgram m_gbuffer;
+
+  // surfel prepare
+	RIProgram m_surfelPrepare;
+	RIProgram m_surfelGenerate;
 };
 
 } // namespace hpl

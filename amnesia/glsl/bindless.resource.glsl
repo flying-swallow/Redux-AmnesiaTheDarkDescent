@@ -7,6 +7,7 @@
 #extension GL_EXT_scalar_block_layout                   : require
 
 #include "host_device.h"
+#include "forward_shared.h"  // UniformObject, DiffuseMaterial used in bindings 20..21
 
 // Engine-wide bindless texture set. Populated by cHybridRenderer's LRU
 // texture slot allocator (m_textureBindless); any shader that includes this
@@ -61,5 +62,25 @@ layout(set = 0, binding = 13, scalar) buffer _SurfelDead      { uint            
 layout(set = 0, binding = 14, scalar) buffer _SurfelDirty     { uint              surfelDirty[];       };
 layout(set = 0, binding = 15, scalar) buffer _SurfelRecycle   { SurfelRecycleInfo surfelRecycleInfo[]; };
 layout(set = 0, binding = 16, scalar) buffer _SurfelRayBuffer { SurfelRay         surfelRayBuffer[];   };
+
+// Cell-grid SSBOs — static infrastructure shared by all surfel passes.
+// Sizes come from forward_shared.h (CELL_COUNT, CELL_TO_SURFEL_CAPACITY).
+layout(set = 0, binding = 17, scalar) buffer _CellBuffer      { CellInfo          cellBuffer[];        };
+layout(set = 0, binding = 18, scalar) buffer _CellCounter     { CellCounter       cellCounter;         };
+layout(set = 0, binding = 19, scalar) buffer _CellToSurfel    { uint              cellToSurfel[];      };
+
+// Scene-object / opaque-material tables — slot-allocated alongside the other
+// bindless pools (m_diffuseObjectBuffer, m_opaqueMaterialBuffer in
+// cHybridRenderer). Capacities: OBJECT_SLOT_CAPACITY / MATERIAL_SLOT_CAPACITY.
+layout(set = 0, binding = 20) readonly buffer SceneObjectsBlock {
+    UniformObject data[];
+} sceneObjectsBuf;
+
+layout(set = 0, binding = 21) readonly buffer OpaqueMaterialBlock {
+    DiffuseMaterial data[];
+} opaqueMaterialBuf;
+
+#define sceneObjects   sceneObjectsBuf.data
+#define opaqueMaterial opaqueMaterialBuf.data
 
 #endif // BINDLESS_RESOURCE_GLSL

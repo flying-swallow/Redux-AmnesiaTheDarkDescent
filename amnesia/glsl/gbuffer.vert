@@ -6,7 +6,8 @@
 /// Copyright © 2009-2020 Frictional Games
 /// Copyright 2023 Michael Pollind
 /// SPDX-License-Identifier: GPL-3.0
-#include "forward_resource.glsl"
+#include "bindless.resource.glsl"
+#include "gbuffer.resource.glsl"
 
 // Local buffer_reference types — kept out of the bindless SSBO declarations
 // (which hold raw uint64 device addresses) so spirv-reflect can walk those
@@ -22,7 +23,7 @@ layout(location = 1) out vec2 v_uv;
 layout(location = 2) out vec3 v_normal;
 layout(location = 3) out vec3 v_tangent;
 layout(location = 4) out vec3 v_bitangent;
-layout(location = 5) flat out uint v_drawId;
+layout(location = 5) flat out uint v_objectId;
 
 void main() {
     uint instanceId = uint(gl_InstanceIndex);
@@ -63,7 +64,7 @@ void main() {
     v_normal    = normalize(normalMat * a_normal);
     v_tangent   = normalize(normalMat * a_tangent);
     v_bitangent = normalize(normalMat * cross(a_tangent, a_normal));
-    v_drawId    = instanceId;
+    v_objectId    = instanceId;
 
     gl_Position = modelViewPrj * vec4(a_position, 1.0);
 }

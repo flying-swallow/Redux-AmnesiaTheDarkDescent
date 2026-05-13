@@ -62,7 +62,7 @@ public:
 
 class RIProgram {
 public:
-  static constexpr size_t DESCRIPTOR_SET_MAX = 3;
+  static constexpr size_t DESCRIPTOR_SET_MAX = 4;
   static constexpr size_t MAX_VERTEX_ATTRIBUTES = 16;
   struct PipelineSlot {
     union {

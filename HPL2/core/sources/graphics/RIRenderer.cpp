@@ -1696,4 +1696,40 @@ void CmdBuildRITlas( struct RIDevice_s *dev, struct RICmd_s *cmd, const struct R
 #endif
 }
 
+void CmdDispatch( struct RICmd_s *cmd,
+                  uint32_t groupCountX, uint32_t groupCountY, uint32_t groupCountZ ) {
+	vkCmdDispatch( cmd->vk.cmd, groupCountX, groupCountY, groupCountZ );
+}
+
+void CmdDispatchIndirect( struct RICmd_s *cmd,
+                          struct RIBuffer_s *buffer, VkDeviceSize offset ) {
+	vkCmdDispatchIndirect( cmd->vk.cmd, buffer->vk.buffer, offset );
+}
+
+void CmdDraw( struct RICmd_s *cmd,
+              uint32_t vertexCount, uint32_t instanceCount,
+              uint32_t firstVertex, uint32_t firstInstance ) {
+	vkCmdDraw( cmd->vk.cmd, vertexCount, instanceCount, firstVertex, firstInstance );
+}
+
+void CmdDrawIndexed( struct RICmd_s *cmd,
+                     uint32_t indexCount, uint32_t instanceCount,
+                     uint32_t firstIndex, int32_t vertexOffset,
+                     uint32_t firstInstance ) {
+	vkCmdDrawIndexed( cmd->vk.cmd, indexCount, instanceCount, firstIndex,
+	                  vertexOffset, firstInstance );
+}
+
+void CmdDrawIndirect( struct RICmd_s *cmd,
+                      struct RIBuffer_s *buffer, VkDeviceSize offset,
+                      uint32_t drawCount, uint32_t stride ) {
+	vkCmdDrawIndirect( cmd->vk.cmd, buffer->vk.buffer, offset, drawCount, stride );
+}
+
+void CmdDrawIndexedIndirect( struct RICmd_s *cmd,
+                             struct RIBuffer_s *buffer, VkDeviceSize offset,
+                             uint32_t drawCount, uint32_t stride ) {
+	vkCmdDrawIndexedIndirect( cmd->vk.cmd, buffer->vk.buffer, offset, drawCount, stride );
+}
+
 

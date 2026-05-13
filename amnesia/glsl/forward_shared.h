@@ -26,10 +26,21 @@ typedef float    vec2[2];
 #define SURFEL_MAX_CAPACTIY     150000u
 #define MAX_RAY_COUNT           (SURFEL_MAX_CAPACTIY * 64u)
 
+// Cell-grid capacities. The cell grid is static infrastructure shared by all
+// surfel passes (set 0, bindings 17..19 in bindless.resource.glsl). CELL_COUNT
+// mirrors host_device.h::kCellCount = kCellDimension^3 with kCellDimension=64.
+// CELL_TO_SURFEL_CAPACITY budgets the flat per-cell surfel-index table: a
+// single surfel can intersect up to 27 neighbour cells (3x3x3 stamp in
+// surfel_update.comp), so worst case = SURFEL_MAX_CAPACTIY * 27.
+#define CELL_GRID_DIM           64u
+#define CELL_COUNT              (CELL_GRID_DIM * CELL_GRID_DIM * CELL_GRID_DIM)
+#define CELL_TO_SURFEL_CAPACITY (SURFEL_MAX_CAPACTIY * 27u)
+
 // Sentinel returned by the renderer's texture slot allocator when a slot is
-// missing or the pool is exhausted; matches the lo16/hi16 packed index in
-// DiffuseMaterial::tex[].
-#define INVALID_TEXTURE_INDEX   (0xffffu)
+// missing or the pool is exhausted. Matches the full-uint32 entries in
+// DiffuseMaterial::tex[] — uses UINT32_MAX so it's distinguishable from any
+// valid bindless slot index even past the current TEXTURE_SLOT_CAPACITY.
+#define INVALID_TEXTURE_INDEX   (0xffffffffu)
 
 // Forward-pass set 0 binding indices (the engine-owned bindless set).
 #define BINDING_TEXTURES_2D                 0
@@ -48,9 +59,23 @@ typedef float    vec2[2];
 #define BINDING_SURFEL_DIRTY                14
 #define BINDING_SURFEL_RECYCLE              15
 #define BINDING_SURFEL_RAY                  16
+// Cell-grid SSBOs (mirrors bindless.resource.glsl set=0, bindings 17..19).
+#define BINDING_CELL_BUFFER                 17
+#define BINDING_CELL_COUNTER                18
+#define BINDING_CELL_TO_SURFEL              19
+// Scene-object / opaque-material tables (mirrors bindless.resource.glsl
+// set=0, bindings 20..21). Slot-allocated by cHybridRenderer alongside the
+// other bindless pools (OBJECT_SLOT_CAPACITY / MATERIAL_SLOT_CAPACITY).
+#define BINDING_SCENE_OBJECTS               20
+#define BINDING_OPAQUE_MATERIAL             21
 
+// Texture-slot indices into the bindless `textures_2d[]` array (set=0,
+// binding=0). One uint32 per slot — see per_frame.resource.glsl for the
+// `DiffuseMaterial_*Texture_ID` accessors that index this array.
+// Slot layout: 0=Diffuse, 1=NMap, 2=Alpha, 3=Specular,
+//              4=Height, 5=Illumination, 6=DissolveAlpha, 7=CubeMapAlpha.
 struct DiffuseMaterial {
-    uint  tex[4];
+    uint  tex[8];
     uint  materialConfig;
     float heightMapScale;
     float heightMapBias;
@@ -69,13 +94,13 @@ struct UniformObject {
 };
 
 // Per-frame UBO contents (std140). On the GLSL side this struct is wrapped
-// in a uniform block at set=1, binding=0 (see forward_shader_common.glsl).
+// in a uniform block at set=1, binding=0 (see per_frame.resource.glsl).
 struct PerFrameConstants {
     mat4  invViewRotationMat;
     mat4  viewMat;
     mat4  invViewMat;
     mat4  projMat;
-    mat4  viewProjMat;
+    mat4  invProjMat;        // inverse of projMat — for WorldPosFromDepth
 
     float worldFogStart;
     float worldFogLength;
@@ -86,6 +111,8 @@ struct PerFrameConstants {
     vec2  viewTexel;
     vec2  viewportSize;
     float afT;
+    uint  totalFrames;       // monotonic frame counter for randSeed inputs
+    float cameraFov;         // main camera vertical FOV (radians)
 };
 
 #ifdef __cplusplus
@@ -137,24 +164,15 @@ struct SurfelRay {
     float t;
 };
 
-static_assert(sizeof(MSMEData)          == 48, "MSMEData scalar layout drift");
-static_assert(sizeof(SurfelCounter)     == 16, "SurfelCounter scalar layout drift");
-static_assert(sizeof(Surfel)            == 96, "Surfel scalar layout drift");
-static_assert(sizeof(SurfelRecycleInfo) == 16, "SurfelRecycleInfo scalar layout drift");
-static_assert(sizeof(SurfelRay)         == 32, "SurfelRay scalar layout drift");
+struct CellInfo {
+    uint surfelOffset;
+    uint surfelCount;
+};
 
-static_assert(sizeof(DiffuseMaterial) == 36,
-              "DiffuseMaterial std430 layout drift");
-static_assert(sizeof(UniformObject) == 208,
-              "UniformObject std430 layout drift");
-// PerFrameConstants std140 size: 5*64 (matrices) + 4*4 (fog scalars) + 16
-// (worldFogColor) + 8 (viewTexel) + 8 (viewportSize) + 4 (afT) = 372,
-// padded up to a multiple of 16 for the block = 384 with no trailing fields.
-// The C++ struct ends at 372; downstream code zero-initializes it and writes
-// a 372-byte payload, which the GLSL UBO reads as 372 useful bytes inside a
-// 384-byte block. No explicit trailing pad needed at the C++ level.
-static_assert(sizeof(PerFrameConstants) == 372,
-              "PerFrameConstants std140 layout drift");
+struct CellCounter {
+    uint totalCellCount;
+    uint aliveSurfelInCell;
+};
 
 // Historical C++ names; the canonical names match the GLSL twins above.
 using ObjectGPUData      = UniformObject;

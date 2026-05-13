@@ -1,7 +1,7 @@
 #ifndef LIGHT_CULL_RESOURCES_GLSL
 #define LIGHT_CULL_RESOURCES_GLSL
 
-#include "forward_shader_common.glsl"
+#include "per_frame.resource.glsl"
 
 layout(push_constant) uniform RootConstantsBlock {
     uvec2 windowSize;

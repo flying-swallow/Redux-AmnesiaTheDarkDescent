@@ -13,15 +13,15 @@ vec3 hash3u1(uint n)
     return vec3(k & uvec3(0x7fffffffU)) / float(0x7fffffff);
 }
 
-vec3 WorldPosFromDepth(in vec2 uv, in float depth)
+vec3 WorldPosFromDepth(in vec2 uv, in float depth, in mat4 invProj, in mat4 invView)
 {
     //float z = depth * 2.0 - 1.0;
     float z = depth;
     //uv.y = 1.f - uv.y;
     vec4 clipSpacePosition = vec4(uv * 2.0 - 1.0, z, 1.0);
-    vec4 viewSpacePosition = sceneCamera.projInverse * clipSpacePosition;
+    vec4 viewSpacePosition = invProj * clipSpacePosition;
 	viewSpacePosition /= viewSpacePosition.w;
-    vec4 worldSpacePosition = sceneCamera.viewInverse * viewSpacePosition;
+    vec4 worldSpacePosition = invView * viewSpacePosition;
 	worldSpacePosition /= worldSpacePosition.w;
     return worldSpacePosition.xyz;
 }
@@ -49,7 +49,7 @@ vec3 WorldPosFromDepth(in vec2 uv, in float depth)
         VertexAttributes attr2 = vertices.v[tri.z];
 
         // reconstruct world position from depth
-        vec3 worldPos = WorldPosFromDepth(texCoord, depth);
+        vec3 worldPos = WorldPosFromDepth(texCoord, depth, sceneCamera.projInverse, sceneCamera.viewInverse);
 
         // decompress normal
         //vec3 normal = decompress_unit_vec(texelFetch(gbufferNormal, ivec2(gl_FragCoord.xy), 0).r) * 2.0 - 1.0;

@@ -25,6 +25,20 @@
 #ifndef RAYCOMMON_GLSL
 #define RAYCOMMON_GLSL
 
+#include "globals.glsl"  // M_1_OVER_PI used in GetSphericalUv
+
+//-----------------------------------------------------------------------
+// Visibility-buffer packing — top 16 bits = object id (the scene-object
+// slot / `gl_InstanceIndex` of the draw that rasterized the pixel), bottom
+// 16 bits = `gl_PrimitiveID` of the triangle within that draw. Producer:
+// gbuffer.frag. Consumers: any deferred re-shade path reading primObjIDMap.
+//-----------------------------------------------------------------------
+uint pack_visibility(uint objectId, uint primitiveId) {
+    return (objectId << 16) | (primitiveId & 0xffffu);
+}
+
+uint unpack_object_id(uint visibility)    { return visibility >> 16; }
+uint unpack_primitive_id(uint visibility) { return visibility & 0xffffu; }
 
 //-----------------------------------------------------------------------
 // Debugging
