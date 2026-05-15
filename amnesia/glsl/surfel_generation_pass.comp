@@ -4,6 +4,8 @@
 // Required by `image2D resultImage` below — declared without a format
 // qualifier so the host-side pipeline can pick the storage format.
 #extension GL_EXT_shader_image_load_formatted            : require
+#extension GL_EXT_debug_printf                            : enable
+#extension GL_EXT_spirv_intrinsics                        : enable
 
 #include "host_device.h"
 #include "compress.glsl"
@@ -261,9 +263,10 @@ void main()
 
   //Surfel mainSurfel = surfelBuffer[maxContributionSurfelIndex];
   //imageStore(resultImage, imageCoords, vec4(mainSurfel.radiance, 1.f));
-  //	vec3 mainNor = decompress_unit_vec(mainSurfel.normal);
-  //	// get the depth value
-  //	imageStore(resultImage, imageCoords, vec4(vec3(mainNor * 0.5f + 0.5f), 1.f));
+  	//vec3 mainNor = decompress_unit_vec(mainSurfel.normal);
+  	// get the depth value
+  	//imageStore(resultImage, imageCoords, vec4(vec3(mainNor * 0.5f + 0.5f), 1.f));
   //imageStore(resultImage, imageCoords, vec4(vec3(coverage), 1.f));
   //imageStore(resultImage, imageCoords, vec4(vec3(cellSurfelCount) / 500.f, 1.f));
+
 }

@@ -95,6 +95,10 @@ const static char *DefaultDeviceExtension[] = {
 	// Nsight Aftermath
 	/************************************************************************/
 	VK_EXT_ASTC_DECODE_MODE_EXTENSION_NAME,
+	/************************************************************************/
+	// Shader debug printf (required by GL_EXT_debug_printf in GLSL)
+	/************************************************************************/
+	VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
 };
 
 void VK_ConfigureBufferQueueFamilies( VkBufferCreateInfo *info, struct RIQueue_s *queues, size_t numQueues, uint32_t *queueFamilies, size_t reservedLen )
@@ -166,6 +170,8 @@ VkBool32 VKAPI_PTR __VK_DebugUtilsMessenger( VkDebugUtilsMessageSeverityFlagBits
 			hpl::Warning( "VK WARNING: %s\n", callbackData->pMessage );
 			break;
 		default:
+
+			printf( "VK INFO: %s\n", callbackData->pMessage );
 			hpl::Log( "VK INFO: %s\n", callbackData->pMessage );
 			break;
 	}
@@ -1009,6 +1015,18 @@ int InitRIRenderer( const struct RIBackendInit_s *init, struct RIRenderer_s *ren
 		validationFeatures.enabledValidationFeatureCount = ARRAY_COUNT( enabledValidationFeatures );
 		validationFeatures.pEnabledValidationFeatures = enabledValidationFeatures;
 
+		// Chained into VkInstanceCreateInfo::pNext so the validation layer has
+		// an INFO-severity-capable messenger during vkCreateInstance itself.
+		// Without this, debug-printf output emitted during instance creation
+		// (and the validation layer's own setup messages) is lost, and the
+		// layer prints a hint warning that INFO logging is not enabled.
+		VkDebugUtilsMessengerCreateInfoEXT instanceDebugCreateInfo = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT };
+		instanceDebugCreateInfo.pfnUserCallback = __VK_DebugUtilsMessenger;
+		instanceDebugCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT |
+		                                          VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+		instanceDebugCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+		                                      VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+
 		VkInstanceCreateInfo instanceCreateInfo = { VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO };
 		instanceCreateInfo.pApplicationInfo = &appInfo;
 		const char *enabledLayerNames[8] = { 0 };
@@ -1073,6 +1091,7 @@ int InitRIRenderer( const struct RIBackendInit_s *init, struct RIRenderer_s *ren
 
 		if( init->vk.enableValidationLayer ) {
 			R_VK_ADD_STRUCT( &instanceCreateInfo, &validationFeatures );
+			R_VK_ADD_STRUCT( &instanceCreateInfo, &instanceDebugCreateInfo );
 		}
 
 		VkResult result = vkCreateInstance( &instanceCreateInfo, NULL, &renderer->vk.instance );

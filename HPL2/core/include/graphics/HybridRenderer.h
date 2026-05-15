@@ -110,6 +110,7 @@ private:
 	RIProgram m_surfelGenerate;
 	RIProgram m_surfelUpdate;
 	RIProgram m_cellInfoUpdate;
+	RIProgram m_cellToSurfelUpdate;
 	RIProgram m_surfelRaytrace;
 
 	// Surfel-ray irradiance map sampled by surfel_raytrace.comp's ray-guiding

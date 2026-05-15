@@ -295,6 +295,13 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       m_cellInfoUpdate.initialize(&RI.device, stages, externalLayouts);
     }
     {
+      auto comp_cellToSurfel = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
+                                                  "cellToSurfel_update_pass.comp.spv");
+      std::array<RIProgram::ModuleStage, 1> stages = {
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_COMPUTE, comp_cellToSurfel}};
+      m_cellToSurfelUpdate.initialize(&RI.device, stages, externalLayouts);
+    }
+    {
       auto comp_raytrace = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
                                                   "surfel_raytrace.comp.spv");
       std::array<RIProgram::ModuleStage, 1> stages = {
@@ -372,6 +379,13 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
         &RI.device, 1, sizeof(CellCounter), kStorage);
     m_cellToSurfelBuffer = detail::CreateBindlessSlotBuffer(
         &RI.device, CELL_TO_SURFEL_CAPACITY, sizeof(uint32_t), kStorage);
+
+    {
+      auto *cellCnt =
+          static_cast<CellCounter *>(m_cellCounterBuffer.mappedAddress);
+      cellCnt->totalCellCount = CELL_COUNT;
+      cellCnt->aliveSurfelInCell = 0;
+    }
 
     // Point-light SSBO. Unlike the bindless slot buffers above, this is
     // device-local — the per-frame fill in Draw() stages through
@@ -1362,9 +1376,45 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                 (CELL_COUNT + 31u) / 32u, 1u, 1u);
   }
 
-  // m_surfelRaytrace reads the surfel/cell state that m_cellInfoUpdate just
-  // wrote (cellBuffer[].surfelOffset, surfelCount reset). Same compute-shader
-  // SSBO hazard pattern as the previous dispatches.
+  // m_cellToSurfelUpdate reads cellBuffer[].surfelOffset that m_cellInfoUpdate
+  // just wrote, then atomically increments cellBuffer[].surfelCount back up to
+  // populate cellToSurfel[]. Same compute-shader SSBO hazard pattern as the
+  // previous dispatches.
+  {
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    mem.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+  }
+
+  // Per-surfel scatter into cellToSurfel[]. aliveSurfelCnt lives on the GPU
+  // so we dispatch the SURFEL_MAX_CAPACTIY upper bound and let the shader's
+  // `idx >= surfelCounter.aliveSurfelCnt` early-out cull excess invocations.
+  {
+    VkComputePipelineCreateInfo computeCreate = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    const hash_t kCellToSurfelUpdateHash =
+        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_cellToSurfelUpdate.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+                                             kCellToSurfelUpdateHash,
+                                             "hybrid.cell_to_surfel_update",
+                                             &computeCreate);
+    m_cellToSurfelUpdate.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_COMPUTE);
+    CmdDispatch(&RI.primary.cmds[0],
+                (SURFEL_MAX_CAPACTIY + 31u) / 32u, 1u, 1u);
+  }
+
+  // m_surfelRaytrace reads cellBuffer[].surfelCount/surfelOffset and the
+  // cellToSurfel[] mapping that m_cellToSurfelUpdate just populated.
   {
     VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     mem.srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
@@ -1402,58 +1452,58 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
   }
 
-  {
-    VkComputePipelineCreateInfo computeCreate = {
-        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kSurfelRaytraceHash =
-        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_surfelRaytrace.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
-                                         kSurfelRaytraceHash,
-                                         "hybrid.surfel_raytrace",
-                                         &computeCreate);
-    m_surfelRaytrace.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &m_bindlessSet, 0,
-        VK_PIPELINE_BIND_POINT_COMPUTE);
+  //{
+  //  VkComputePipelineCreateInfo computeCreate = {
+  //      VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+  //  const hash_t kSurfelRaytraceHash =
+  //      hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+  //  m_surfelRaytrace.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+  //                                       kSurfelRaytraceHash,
+  //                                       "hybrid.surfel_raytrace",
+  //                                       &computeCreate);
+  //  m_surfelRaytrace.bindBindlessDescriptorSet(
+  //      &RI.primary.cmds[0], &m_bindlessSet, 0,
+  //      VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    std::vector<RIProgram::DescriptorBinding> bindings;
-    bindings.reserve(3);
-    {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("perFrame");
-      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-      bindings.push_back(b);
-    }
-    {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("topLevelAS");
-      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-      b.descriptor.vk.accelStructure = m_tlas.vk.handle;
-      RIFinalizeDescriptor(&RI.device, &b.descriptor);
-      bindings.push_back(b);
-    }
-    {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("surfelIrradianceSampler");
-      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-      b.descriptor.vk.image.sampler = m_materialSampler->vk.image.sampler;
-      b.descriptor.vk.image.imageView =
-          m_surfelIrradianceView[RI.swapchainIndex].vk.image;
-      b.descriptor.vk.image.imageLayout =
-          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      RIFinalizeDescriptor(&RI.device, &b.descriptor);
-      bindings.push_back(b);
-    }
+  //  std::vector<RIProgram::DescriptorBinding> bindings;
+  //  bindings.reserve(3);
+  //  {
+  //    RIProgram::DescriptorBinding b;
+  //    b.handle = DescriptorBindingID::Create("perFrame");
+  //    RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+  //    bindings.push_back(b);
+  //  }
+  //  {
+  //    RIProgram::DescriptorBinding b;
+  //    b.handle = DescriptorBindingID::Create("topLevelAS");
+  //    b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+  //    b.descriptor.vk.accelStructure = m_tlas.vk.handle;
+  //    RIFinalizeDescriptor(&RI.device, &b.descriptor);
+  //    bindings.push_back(b);
+  //  }
+  //  {
+  //    RIProgram::DescriptorBinding b;
+  //    b.handle = DescriptorBindingID::Create("surfelIrradianceSampler");
+  //    b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+  //    b.descriptor.vk.image.sampler = m_materialSampler->vk.image.sampler;
+  //    b.descriptor.vk.image.imageView =
+  //        m_surfelIrradianceView[RI.swapchainIndex].vk.image;
+  //    b.descriptor.vk.image.imageLayout =
+  //        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  //    RIFinalizeDescriptor(&RI.device, &b.descriptor);
+  //    bindings.push_back(b);
+  //  }
 
-    m_surfelRaytrace.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                     RI.frameIndex, bindings.data(),
-                                     bindings.size(),
-                                     VK_PIPELINE_BIND_POINT_COMPUTE);
+  //  m_surfelRaytrace.bindDescriptors(&RI.device, &RI.primary.cmds[0],
+  //                                   RI.frameIndex, bindings.data(),
+  //                                   bindings.size(),
+  //                                   VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    // One thread per pending surfel ray. surfelCounter.surfelRayCnt early-outs
-    // the tail; overdispatching to MAX_RAY_COUNT is fine.
-    CmdDispatch(&RI.primary.cmds[0],
-                (MAX_RAY_COUNT + 31u) / 32u, 1u, 1u);
-  }
+  //  // One thread per pending surfel ray. surfelCounter.surfelRayCnt early-outs
+  //  // the tail; overdispatching to MAX_RAY_COUNT is fine.
+  //  CmdDispatch(&RI.primary.cmds[0],
+  //              (MAX_RAY_COUNT + 31u) / 32u, 1u, 1u);
+  //}
 }
 
 cHybridRenderer::~cHybridRenderer() {
