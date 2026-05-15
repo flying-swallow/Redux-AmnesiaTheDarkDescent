@@ -1,49 +1,13 @@
 #version 460
 
-#extension GL_ARB_separate_shader_objects : enable
-#extension GL_EXT_nonuniform_qualifier : enable
-#extension GL_GOOGLE_include_directive : enable
-#extension GL_EXT_scalar_block_layout : enable
-#extension GL_EXT_ray_tracing : enable
-#extension GL_EXT_ray_query : enable
-#extension GL_ARB_shader_clock : enable                 // Using clockARB
-#extension GL_EXT_shader_image_load_formatted : enable  // The folowing extension allow to pass images as function parameters
-#extension GL_EXT_debug_printf : enable                 // Debug - printf
-#extension GL_NV_shader_sm_builtins : require     // Debug - gl_WarpIDNV, gl_SMIDNV
-#extension GL_EXT_shader_realtime_clock : enable  // Debug - heatmap timing
-
+#extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
 #include "host_device.h"
 #include "compress.glsl"
 #include "random.glsl"
-
-// surfel buffers
-layout(set = 0, binding = 0,  scalar)		buffer _SurfelCounter		{ SurfelCounter surfelCounter; };
-layout(set = 0, binding = 1,  scalar)		buffer _SurfelBuffer		{ Surfel surfelBuffer[]; };
-layout(set = 0, binding = 2,  scalar)		buffer _SurfelAlive		    { uint surfelAlive[]; };
-layout(set = 0, binding = 3,  scalar)		buffer _SurfelDead		    { uint surfelDead[]; };
-layout(set = 0, binding = 4,  scalar)		buffer _SurfelDirty		    { uint surfelDirty[]; };
-layout(set = 0, binding = 5,  scalar)		buffer _SurfelRecycle		{ SurfelRecycleInfo surfelRecycleInfo[]; };
-layout(set = 0, binding = 6,  scalar)		buffer _SurfelRayBuffer		{ SurfelRay surfelRayBuffer[]; };
-
-// cell buffer
-layout(set = 1, binding = 0,  scalar)		buffer _CellBuffer			{ CellInfo cellBuffer[]; };
-layout(set = 1, binding = 1,  scalar)		buffer _CellCounter			{ CellCounter cellCounter; };
-layout(set = 1, binding = 2,  scalar)		buffer _CellToSurfel		{ uint cellToSurfel[]; };
-
-// scene buffers
-layout(set = 2, binding = 0,  scalar)		uniform _SceneCamera		{ SceneCamera sceneCamera; };
-
-// gbuffers
-layout(set = 3, binding = 0)	uniform usampler2D primObjIDMap;
-layout(set = 3, binding = 1)	uniform usampler2D normalMap;
-layout(set = 3, binding = 2)	uniform sampler2D depthMap;
-
-layout(push_constant) uniform _RtxState
-{
-  RtxState rtxState;
-};
+#include "bindless.resource.glsl"
+#include "per_frame.resource.glsl"
 
 #include "shaderUtils_surfel_cell.glsl"
 #include "shaderUtils.glsl"
@@ -81,7 +45,7 @@ bool shouldRecycleSurfel(in Surfel surfel, in SurfelRecycleInfo recycleInfo, in 
     float distanceFactor = smoothstep(50.0, 100.0, surfelToCameraDistance);
     
     // Normal factor - recycle if facing away from camera
-    vec3 viewDir = normalize(getCameraPosition(sceneCamera) - surfel.position);
+    vec3 viewDir = normalize(invViewMat[3].xyz - surfel.position);
     vec3 surfelNormal = decompress_unit_vec(surfel.normal);
     float normalFactor = 1.0 - max(0.0, dot(viewDir, surfelNormal));
     
@@ -115,7 +79,7 @@ void main()
 
 	if(idx >= surfelCounter.aliveSurfelCnt) return;
 
-	randSeed = tea(idx, rtxState.totalFrames);
+	randSeed = tea(idx, totalFrames);
 
 	uint surfelIndex = surfelAlive[idx];
     Surfel surfel = surfelBuffer[surfelIndex];
@@ -145,15 +109,15 @@ void main()
 	
 
 
-	float surfelToCameraDistance = distance(surfel.position, getCameraPosition(sceneCamera));
+	float surfelToCameraDistance = distance(surfel.position, invViewMat[3].xyz);
 
 	// Check if surfel valid
 	if(!shouldRecycleSurfel(surfel, recycleInfo, lastSeen || lastRefed, surfelToCameraDistance)){
 
 		// Reset surfel radius
-		float surfelToCameraDistance = distance(surfel.position, getCameraPosition(sceneCamera));
-		float fov = sceneCamera.fov;
-		ivec2 imageRes = rtxState.size;
+		float surfelToCameraDistance = distance(surfel.position, invViewMat[3].xyz);
+		float fov = cameraFov;
+		ivec2 imageRes = ivec2(viewportSize);
 		vec2 resolution = vec2(imageRes.x, imageRes.y);
 
 		float newRadius =  calcSurfelRadius(surfelToCameraDistance, fov, resolution);
@@ -172,7 +136,7 @@ void main()
 		surfel.radius = newRadius;
 		
 		// Calculate number of surfels located at cell
-		vec3 camPos = getCameraPosition(sceneCamera);
+		vec3 camPos = invViewMat[3].xyz;
 		//vec3 cellPosIndex = getCellPos(surfel.position, camPos); 
 		ivec4 cellPosIndex = getCellPosNonUniform(surfel.position, camPos);
 		for(uint i = 0; i < 27; i++)

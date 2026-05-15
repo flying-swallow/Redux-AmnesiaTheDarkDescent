@@ -18,6 +18,7 @@
 #include "resources/Resources.h"
 #include "scene/RenderableContainer.h"
 #include "scene/World.h"
+#include "scene/Light.h"
 #include "system/LowLevelSystem.h"
 
 #include <algorithm>
@@ -130,7 +131,13 @@ struct GBufferMRTPipelineDesc {
     depthStencilState.minDepthBounds = 0.0f;
     depthStencilState.maxDepthBounds = 1.0f;
 
-    blendAttachments[0] = {VK_TRUE,
+    // Both gbuffer outputs are written as plain SRC=ONE/DST=ZERO copies — no
+    // actual blending. The visibility attachment (uint) doesn't support
+    // VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT, so blendEnable must be
+    // VK_FALSE for it. Disabling on the normal attachment too keeps the
+    // behavior identical (factors were already an identity copy) and drops
+    // the dependency on COLOR_ATTACHMENT_BLEND_BIT.
+    blendAttachments[0] = {VK_FALSE,
                            VK_BLEND_FACTOR_ONE,
                            VK_BLEND_FACTOR_ZERO,
                            VK_BLEND_OP_ADD,
@@ -141,7 +148,7 @@ struct GBufferMRTPipelineDesc {
                                VK_COLOR_COMPONENT_B_BIT |
                                VK_COLOR_COMPONENT_A_BIT};
     blendAttachments[1] = {
-        VK_TRUE,         VK_BLEND_FACTOR_ONE,     VK_BLEND_FACTOR_ZERO,
+        VK_FALSE,        VK_BLEND_FACTOR_ONE,     VK_BLEND_FACTOR_ZERO,
         VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE,     VK_BLEND_FACTOR_ZERO,
         VK_BLEND_OP_ADD, VK_COLOR_COMPONENT_R_BIT};
     colorBlendState = {
@@ -178,24 +185,32 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
   {
     {
       std::vector<RIBindlessDescriptorSet::Binding> bindings = {};
-      // textures_2d[]
+      // textures_2d[] — sampled by gbuffer (FS) and surfel_raytrace (CS) for
+      // bindless material albedo fetches.
       bindings.push_back((RIBindlessDescriptorSet::Binding){
           BINDING_TEXTURES_2D, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
           TEXTURE_SLOT_CAPACITY,
-          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+              VK_SHADER_STAGE_COMPUTE_BIT,
           VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
               VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT});
-      // opaque*Handles bindings 3..8
+      // opaque*Handles bindings 3..8 — vertex pulling for gbuffer VS and BDA
+      // hit fetches in surfel_raytrace CS.
       for (uint32_t i = 0; i < 6; ++i) {
         bindings.push_back((RIBindlessDescriptorSet::Binding){
             BINDING_OPAQUE_POSITION_HANDLES + i,
             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0});
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+                VK_SHADER_STAGE_COMPUTE_BIT,
+            0});
       }
-      // materialSampler
+      // materialSampler — combined with textures_2d at FS sites and at the
+      // surfel_raytrace CS albedo fetch.
       bindings.push_back((RIBindlessDescriptorSet::Binding){
           BINDING_MATERIAL_SAMPLER, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
-          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0});
+          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+              VK_SHADER_STAGE_COMPUTE_BIT,
+          0});
       // Surfel-GI SSBOs (bindings 10..16) + cell-grid SSBOs (bindings 17..19).
       // Used by compute (surfel_*.comp) and sampled in fragment shading once
       // the GI path lights surfaces.
@@ -211,21 +226,29 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
             VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0});
       }
       // Scene-object + opaque-material tables (bindings 20..21). Read by the
-      // gbuffer pipeline (VS reads sceneObjects, FS reads opaqueMaterial).
+      // gbuffer pipeline (VS reads sceneObjects, FS reads opaqueMaterial) and
+      // by surfel_raytrace CS (both, for hit-data + albedo fetches).
       const uint32_t kSceneTableBindings[] = {
           BINDING_SCENE_OBJECTS, BINDING_OPAQUE_MATERIAL,
       };
       for (uint32_t b : kSceneTableBindings) {
         bindings.push_back((RIBindlessDescriptorSet::Binding){
             b, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0});
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+                VK_SHADER_STAGE_COMPUTE_BIT,
+            0});
       }
+      // Point-light SSBO (binding 22). Compute reads it during surfel raytrace;
+      // fragment will read it once forward+ lighting lands.
+      bindings.push_back((RIBindlessDescriptorSet::Binding){
+          BINDING_POINT_LIGHTS, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+          VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0});
 
       VkDescriptorPoolSize poolSizes[3] = {};
       poolSizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                                           TEXTURE_SLOT_CAPACITY};
-      // 6 opaque*Handles + 7 surfel + 3 cell + 2 scene/material = 18.
-      poolSizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 18};
+      // 6 opaque*Handles + 7 surfel + 3 cell + 2 scene/material + 1 point-light = 19.
+      poolSizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 19};
       poolSizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLER, 1};
 
       m_bindlessSet.initialize(&RI.device, bindings, poolSizes);
@@ -256,6 +279,27 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       std::array<RIProgram::ModuleStage, 1> stages = {
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_COMPUTE, comp_generate}};
       m_surfelGenerate.initialize(&RI.device, stages, externalLayouts);
+    }
+    {
+      auto comp_update = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
+                                                  "surfel_update.comp.spv");
+      std::array<RIProgram::ModuleStage, 1> stages = {
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_COMPUTE, comp_update}};
+      m_surfelUpdate.initialize(&RI.device, stages, externalLayouts);
+    }
+    {
+      auto comp_cellInfo = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
+                                                  "cellInfo_update_pass.comp.spv");
+      std::array<RIProgram::ModuleStage, 1> stages = {
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_COMPUTE, comp_cellInfo}};
+      m_cellInfoUpdate.initialize(&RI.device, stages, externalLayouts);
+    }
+    {
+      auto comp_raytrace = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
+                                                  "surfel_raytrace.comp.spv");
+      std::array<RIProgram::ModuleStage, 1> stages = {
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_COMPUTE, comp_raytrace}};
+      m_surfelRaytrace.initialize(&RI.device, stages, externalLayouts);
     }
 
     const VkBufferUsageFlags kStorage =
@@ -329,6 +373,27 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     m_cellToSurfelBuffer = detail::CreateBindlessSlotBuffer(
         &RI.device, CELL_TO_SURFEL_CAPACITY, sizeof(uint32_t), kStorage);
 
+    // Point-light SSBO. Unlike the bindless slot buffers above, this is
+    // device-local — the per-frame fill in Draw() stages through
+    // RI.uploader rather than memcpy'ing into mapped memory the GPU may
+    // still be reading from a prior frame.
+    {
+      uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
+      VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+      VK_ConfigureBufferQueueFamilies(&bci, RI.device.queues, RI_QUEUE_LEN,
+                                      queueFamilies, RI_QUEUE_LEN);
+      bci.size = (VkDeviceSize)LIGHT_SLOT_CAPACITY * sizeof(PointLight);
+      bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                  VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+      VmaAllocationCreateInfo aci = {};
+      aci.usage = VMA_MEMORY_USAGE_AUTO;
+
+      VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bci, &aci,
+                                    &m_pointLightBuffer.vk.buffer,
+                                    &m_pointLightBuffer.vk.allocation, nullptr));
+    }
+
     // Surfel-generation output image — one storage texture per swapchain
     // image. RGBA16F so HDR radiance survives; SAMPLED so a future
     // composite pass can read it back. View aspect color, full mip 0.
@@ -366,6 +431,46 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
       VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
                                       &m_surfelResultView[i].vk.image));
+    }
+
+    // Surfel-ray irradiance atlas — single-channel R16F, 4096x4096 fits
+    // SURFEL_MAX_CAPACTIY surfels at 6x6 cells each (the shader computes
+    // tile pos as `surfelIndex % (W/6), surfelIndex / (W/6)`). SAMPLED so the
+    // raytrace shader's ray-guiding branch can read it; STORAGE so a future
+    // accumulation pass can write into it. Untouched here — stays at the
+    // SHADER_READ_ONLY_OPTIMAL layout after the first transition below.
+    for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
+      uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
+      VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+      imgInfo.imageType = VK_IMAGE_TYPE_2D;
+      imgInfo.format = VK_FORMAT_R16_SFLOAT;
+      imgInfo.extent = {4096u, 4096u, 1u};
+      imgInfo.mipLevels = 1;
+      imgInfo.arrayLayers = 1;
+      imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+      imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+      imgInfo.usage =
+          VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+      imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
+                                     queueFamilies, RI_QUEUE_LEN);
+      imgInfo.pQueueFamilyIndices = queueFamilies;
+
+      VmaAllocationCreateInfo alloc = {};
+      alloc.usage = VMA_MEMORY_USAGE_AUTO;
+      VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imgInfo, &alloc,
+                                   &m_surfelIrradianceTexture[i].vk.image,
+                                   &m_surfelIrradianceTexture[i].vk.allocation,
+                                   NULL));
+
+      VkImageViewCreateInfo viewInfo = {
+          VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+      viewInfo.image = m_surfelIrradianceTexture[i].vk.image;
+      viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+      viewInfo.format = VK_FORMAT_R16_SFLOAT;
+      viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
+                                      &m_surfelIrradianceView[i].vk.image));
     }
 
     m_materialBindless.reset(MATERIAL_SLOT_CAPACITY);
@@ -407,6 +512,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           {BINDING_CELL_TO_SURFEL,  &m_cellToSurfelBuffer,   CELL_TO_SURFEL_CAPACITY * sizeof(uint32_t)},
           {BINDING_SCENE_OBJECTS,   &m_diffuseObjectBuffer,  OBJECT_SLOT_CAPACITY    * sizeof(ObjectGPUData)},
           {BINDING_OPAQUE_MATERIAL, &m_opaqueMaterialBuffer, MATERIAL_SLOT_CAPACITY  * sizeof(DiffuseMaterialGPU)},
+          {BINDING_POINT_LIGHTS,    &m_pointLightBuffer,     LIGHT_SLOT_CAPACITY     * sizeof(PointLight)},
       };
       
       RIBindlessDescriptorSet::WriteBinding writes[std::size(ssbos) + 1] = {};
@@ -538,7 +644,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         eRenderListCompileFlag_Decal | eRenderListCompileFlag_Illumination |
         eRenderListCompileFlag_FogArea);
   }
-  auto solids = m_rendererList.GetSolidObjects();
 
   PerFrameConstants perFrame{};
   std::memcpy(perFrame.viewMat, mainFrustumViewMat.a, sizeof(perFrame.viewMat));
@@ -562,19 +667,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Fog params + worldFogColor + invViewRotationMat default to zero — fine for
   // the first pass; populate when the deferred-fog path needs them.
 
-  // Ring-allocate one VkDrawIndirectCommand per visible renderable. On wrap /
-  // exhaustion, drop the frame's dispatch — reallocation grows the underlying
-  // buffer, but for now we cap at maxElements.
+  auto solids = m_rendererList.GetSolidObjects();
+  auto lights = m_rendererList.GetLights();
   RISegmentReq_s indirectReq = {};
   const bool indirectOk =
       m_indirectSegment.request(RI.frameIndex, solids.size(), &indirectReq);
+  assert(indirectOk);
   auto *indirectDst =
-      indirectOk
-          ? reinterpret_cast<VkDrawIndirectCommand *>(
-                static_cast<uint8_t *>(m_indirectDrawBuffer.mappedAddress) +
-                (size_t)indirectReq.elementOffset *
-                    sizeof(VkDrawIndirectCommand))
-          : nullptr;
+      reinterpret_cast<VkDrawIndirectCommand *>(
+          static_cast<uint8_t *>(m_indirectDrawBuffer.mappedAddress) +
+          (size_t)indirectReq.elementOffset * sizeof(VkDrawIndirectCommand));
   uint32_t writtenDraws = 0;
 
   // TLAS instance accumulator. Built up alongside the indirect-draw write so
@@ -585,9 +687,51 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   if (rtEnabled)
     tlasInstances.reserve(solids.size());
 
-  // Contract: Scene::Render hands control to Draw with NO active rendering
-  // instance and expects none on return. The MRT pass below opens and closes
-  // its own rendering in one tight block.
+  size_t num_point_lights = 0;
+  for (iLight *pLight : lights) {
+    if (pLight->GetLightType() != eLightType_Point)
+      continue;
+    if (num_point_lights >= LIGHT_SLOT_CAPACITY) {
+      Warning("Point-light slot capacity exhausted; dropping remaining lights");
+      break;
+    }
+    PointLight pl{};
+    const cVector3f pos = pLight->GetWorldPosition();
+    pl.position[0] = pos.x;
+    pl.position[1] = pos.y;
+    pl.position[2] = pos.z;
+    pl.radius = pLight->GetRadius();
+    const cColor c = pLight->GetDiffuseColor();
+    pl.color[0] = c.r;
+    pl.color[1] = c.g;
+    pl.color[2] = c.b;
+    pl.intensity = c.a;
+    m_pointLightScratch[num_point_lights++] = pl;
+  }
+  perFrame.pointLightCount = static_cast<uint32_t>(num_point_lights);
+
+  if (num_point_lights > 0) {
+    const size_t uploadBytes =
+        num_point_lights * sizeof(PointLight);
+    RIResourceBufferTransaction_s trans = {};
+    trans.target = m_pointLightBuffer;
+    trans.size = uploadBytes;
+    trans.offset = 0;
+    // After the first frame the buffer was previously read as a storage
+    // resource; tell the uploader to barrier from that to TRANSFER_WRITE
+    // and back. On the very first frame the buffer is uninitialised, so
+    // the src side of the barrier is a no-op against zero contents — safe.
+    trans.vk.current_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    trans.vk.post_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+
+    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+    std::memcpy(trans.mapped.data, m_pointLightScratch.data(), uploadBytes);
+    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+  }
 
   for (iRenderable *pObject : solids) {
     cMatrixf *pMtx = pObject->GetModelMatrix(apFrustum);
@@ -690,7 +834,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // firstInstance carries the slot id to the VS via gl_InstanceIndex;
     // the VS pulls vertex / index data via BDA from the bindless set 0 SSBOs,
     // so vertexCount is the index count (one VS invocation per index).
-    if (indirectDst && writtenDraws < indirectReq.numElements) {
+    if (writtenDraws < indirectReq.numElements) {
       indirectDst[writtenDraws++] = VkDrawIndirectCommand{
           /*vertexCount   =*/(uint32_t)pVB->GetIndexNum(),
           /*instanceCount =*/1u,
@@ -928,7 +1072,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       toColor[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     }
     toColor[0].image = RI.normalTexture[RI.swapchainIndex].vk.image;
-    toColor[1].image = RI.visiblityTexture[RI.swapchainIndex].vk.image;
+    toColor[1].image = RI.visibilityTexture[RI.swapchainIndex].vk.image;
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dep.imageMemoryBarrierCount = 2;
     dep.pImageMemoryBarriers = toColor;
@@ -943,7 +1087,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   colorAttachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   colorAttachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   colorAttachments[0].clearValue.color = {{0.f, 0.f, 0.f, 0.f}};
-  colorAttachments[1].imageView = RI.visiblityView[RI.swapchainIndex].vk.image;
+  colorAttachments[1].imageView = RI.visibilityView[RI.swapchainIndex].vk.image;
   colorAttachments[1].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
   colorAttachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   colorAttachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1031,7 +1175,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       toRead[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     }
     toRead[0].image = RI.normalTexture[RI.swapchainIndex].vk.image;
-    toRead[1].image = RI.visiblityTexture[RI.swapchainIndex].vk.image;
+    toRead[1].image = RI.visibilityTexture[RI.swapchainIndex].vk.image;
 
     // Depth -> SHADER_READ_ONLY for the compute pass.
     toRead[2].srcStageMask =
@@ -1065,9 +1209,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     vkCmdPipelineBarrier2(cmd, &dep);
   }
 
-  // Surfel generation — reads gbuffer (set=2: primObjIDMap/normalMap/depthMap)
-  // + perFrame (set=1) + bindless SSBOs (set=0), writes m_surfelResultTexture
-  // (set=2 binding=3). Runs once per frame at half-resolution.
   {
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
@@ -1098,17 +1239,28 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       b.descriptor.vk.image.sampler = sampler;
       b.descriptor.vk.image.imageView = view;
       b.descriptor.vk.image.imageLayout = layout;
+      // RIFinalizeDescriptor stamps a non-zero cookie. Without it
+      // RI_IsEmptyDescriptor returns true and bindDescriptors silently
+      // skips the binding, leaving the shader's set unbound.
+      RIFinalizeDescriptor(&RI.device, &b.descriptor);
       computeBindings.push_back(b);
     };
     const VkSampler sampler = m_materialSampler->vk.image.sampler;
-    pushImage("primObjIDMap",
-              RI.visiblityView[RI.swapchainIndex].vk.image,
+    // Integer formats (R32_UINT for visibility + normal) can't be linearly
+    // filtered. Use a NEAREST sampler for those two; depth stays on the
+    // trilinear sampler (D32_SFLOAT supports linear filtering).
+    RIDescriptor_s *nearestSamplerDesc = RI.resolve_filter_descriptor(
+        eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
+        eTextureWrap_ClampToEdge, eTextureFilter_Nearest);
+    const VkSampler nearestSampler = nearestSamplerDesc->vk.image.sampler;
+    pushImage("visibilityBuffer",
+              RI.visibilityView[RI.swapchainIndex].vk.image,
               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-              VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, sampler);
+              VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nearestSampler);
     pushImage("normalMap",
               RI.normalView[RI.swapchainIndex].vk.image,
               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-              VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, sampler);
+              VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nearestSampler);
     pushImage("depthMap",
               RI.depthView[RI.swapchainIndex].vk.image,
               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -1128,8 +1280,180 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     CmdDispatch(&RI.primary.cmds[0], (halfW + 15u) / 16u,
                 (halfH + 15u) / 16u, 1u);
   }
-  // Exit contract: no active rendering instance. Scene::Render opens its own
-  // rendering for the GUI passes that follow this call.
+
+  // surfel_update reads aliveSurfelCnt + surfel/cell SSBOs that surfel_generate
+  // just wrote. One global memory barrier is the cheapest correct sync between
+  // the two compute dispatches.
+  {
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    mem.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+  }
+
+  {
+    VkComputePipelineCreateInfo computeCreate = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    const hash_t kSurfelUpdateHash =
+        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_surfelUpdate.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+                                       kSurfelUpdateHash,
+                                       "hybrid.surfel_update",
+                                       &computeCreate);
+    m_surfelUpdate.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    std::vector<RIProgram::DescriptorBinding> computeBindings;
+    computeBindings.reserve(1);
+    {
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("perFrame");
+      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      computeBindings.push_back(b);
+    }
+
+    m_surfelUpdate.bindDescriptors(&RI.device, &RI.primary.cmds[0],
+                                   RI.frameIndex, computeBindings.data(),
+                                   computeBindings.size(),
+                                   VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    CmdDispatch(&RI.primary.cmds[0],
+                (SURFEL_MAX_CAPACTIY + 31u) / 32u, 1u, 1u);
+  }
+
+  // m_cellInfoUpdate reads cellBuffer[].surfelCount that m_surfelUpdate just
+  // wrote. Same global compute-shader storage barrier shape as the previous
+  // one between generate and update.
+  {
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    mem.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+  }
+
+  {
+    VkComputePipelineCreateInfo computeCreate = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    const hash_t kCellInfoUpdateHash =
+        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_cellInfoUpdate.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+                                         kCellInfoUpdateHash,
+                                         "hybrid.cell_info_update",
+                                         &computeCreate);
+    m_cellInfoUpdate.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_COMPUTE);
+    CmdDispatch(&RI.primary.cmds[0],
+                (CELL_COUNT + 31u) / 32u, 1u, 1u);
+  }
+
+  // m_surfelRaytrace reads the surfel/cell state that m_cellInfoUpdate just
+  // wrote (cellBuffer[].surfelOffset, surfelCount reset). Same compute-shader
+  // SSBO hazard pattern as the previous dispatches.
+  {
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    mem.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+  }
+
+  // The irradiance atlas is allocated UNDEFINED and never written by us yet.
+  // Transition UNDEFINED -> SHADER_READ_ONLY_OPTIMAL each frame (the
+  // existing m_surfelResultTexture path does the same UNDEFINED-src trick at
+  // ~line 1179) so the raytrace dispatch can sample it. Reads return zero,
+  // which keeps surfel_raytrace.comp on the cosine-weighted branch.
+  {
+    VkImageMemoryBarrier2 toRead = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    toRead.srcStageMask  = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+    toRead.srcAccessMask = 0;
+    toRead.dstStageMask  = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    toRead.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    toRead.oldLayout     = VK_IMAGE_LAYOUT_UNDEFINED;
+    toRead.newLayout     = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    toRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toRead.image = m_surfelIrradianceTexture[RI.swapchainIndex].vk.image;
+    toRead.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &toRead;
+    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+  }
+
+  {
+    VkComputePipelineCreateInfo computeCreate = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    const hash_t kSurfelRaytraceHash =
+        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_surfelRaytrace.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+                                         kSurfelRaytraceHash,
+                                         "hybrid.surfel_raytrace",
+                                         &computeCreate);
+    m_surfelRaytrace.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    std::vector<RIProgram::DescriptorBinding> bindings;
+    bindings.reserve(3);
+    {
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("perFrame");
+      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      bindings.push_back(b);
+    }
+    {
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("topLevelAS");
+      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+      b.descriptor.vk.accelStructure = m_tlas.vk.handle;
+      RIFinalizeDescriptor(&RI.device, &b.descriptor);
+      bindings.push_back(b);
+    }
+    {
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("surfelIrradianceSampler");
+      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+      b.descriptor.vk.image.sampler = m_materialSampler->vk.image.sampler;
+      b.descriptor.vk.image.imageView =
+          m_surfelIrradianceView[RI.swapchainIndex].vk.image;
+      b.descriptor.vk.image.imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      RIFinalizeDescriptor(&RI.device, &b.descriptor);
+      bindings.push_back(b);
+    }
+
+    m_surfelRaytrace.bindDescriptors(&RI.device, &RI.primary.cmds[0],
+                                     RI.frameIndex, bindings.data(),
+                                     bindings.size(),
+                                     VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    // One thread per pending surfel ray. surfelCounter.surfelRayCnt early-outs
+    // the tail; overdispatching to MAX_RAY_COUNT is fine.
+    CmdDispatch(&RI.primary.cmds[0],
+                (MAX_RAY_COUNT + 31u) / 32u, 1u, 1u);
+  }
 }
 
 cHybridRenderer::~cHybridRenderer() {
@@ -1147,6 +1471,11 @@ cHybridRenderer::~cHybridRenderer() {
                      m_tlasInstanceBuffer.vk.allocation);
     m_tlasInstanceBuffer = {};
   }
+  if (m_pointLightBuffer.vk.buffer) {
+    vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_pointLightBuffer.vk.buffer,
+                     m_pointLightBuffer.vk.allocation);
+    m_pointLightBuffer = {};
+  }
   for (uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; ++i) {
     if (m_surfelResultView[i].vk.image != VK_NULL_HANDLE) {
       vkDestroyImageView(RI.device.vk.device, m_surfelResultView[i].vk.image,
@@ -1158,6 +1487,17 @@ cHybridRenderer::~cHybridRenderer() {
                       m_surfelResultTexture[i].vk.image,
                       m_surfelResultTexture[i].vk.allocation);
       m_surfelResultTexture[i] = {};
+    }
+    if (m_surfelIrradianceView[i].vk.image != VK_NULL_HANDLE) {
+      vkDestroyImageView(RI.device.vk.device,
+                         m_surfelIrradianceView[i].vk.image, NULL);
+      m_surfelIrradianceView[i] = {};
+    }
+    if (m_surfelIrradianceTexture[i].vk.image != VK_NULL_HANDLE) {
+      vmaDestroyImage(RI.device.vk.vmaAllocator,
+                      m_surfelIrradianceTexture[i].vk.image,
+                      m_surfelIrradianceTexture[i].vk.allocation);
+      m_surfelIrradianceTexture[i] = {};
     }
   }
   m_bindlessSet.destroy(&RI.device);

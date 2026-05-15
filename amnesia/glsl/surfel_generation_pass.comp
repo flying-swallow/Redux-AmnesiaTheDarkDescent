@@ -10,17 +10,13 @@
 #include "bindless.resource.glsl"
 #include "per_frame.resource.glsl"
 
-// Compile-time debug-visualization gate. Default eNoDebug — the GLSL compiler
-// folds every `if (DEBUGGING_MODE == esRadiance)` style branch into a constant
-// and dead-strips the rest. Override at build time:
-//   glslang -V -DDEBUGGING_MODE=esRadiance surfel_generation_pass.comp ...
 #ifndef DEBUGGING_MODE
 #define DEBUGGING_MODE eNoDebug
 #endif
 
 // gbuffers — set=1 is owned by the shared perFrame UBO (binding=0), so the
 // gbuffer-sampler block lives on set=2. Per-pass wiring on the C++ side.
-layout(set = 2, binding = 0) uniform usampler2D primObjIDMap;
+layout(set = 2, binding = 0) uniform usampler2D visibilityBuffer;
 layout(set = 2, binding = 1) uniform usampler2D normalMap;
 layout(set = 2, binding = 2) uniform sampler2D depthMap;
 layout(set = 2, binding = 3) uniform image2D resultImage;
@@ -59,7 +55,7 @@ void main()
     return;
   }
 
-  uint objID = texelFetch(primObjIDMap, imageCoords * 2, 0).r;
+  uint objID = texelFetch(visibilityBuffer, imageCoords * 2, 0).r;
   uint randSeed = initRandom(imageRes, imageCoords, lowbias32(totalFrames));
 
   // get the normal

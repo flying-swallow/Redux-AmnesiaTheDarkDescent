@@ -1108,10 +1108,24 @@ void RIFinalizeDescriptor( struct RIDevice_s *dev, struct RIDescriptor_s *desc )
 			case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE: {
 				// For sampled/storage images Vulkan ignores the sampler field of
 				// VkDescriptorImageInfo; hashing it wastes entropy and is a foot-gun
-				// if any caller leaves it uninitialised.
-				assert( desc->texture );
+				// if any caller leaves it uninitialised. desc->texture is optional:
+				// callers may attach a long-lived RITexture_s, or fill the inline
+				// vk.image.imageView directly (e.g. per-pass compute pushes).
+				assert( desc->vk.image.imageView );
 				hash_t cookie = hash_u64( HASH_INITIAL_VALUE, desc->vk.type );
 				cookie = hash_u64( cookie, (uint64_t)desc->vk.image.imageView );
+				cookie = hash_u32( cookie, (uint32_t)desc->vk.image.imageLayout );
+				desc->cookie = cookie;
+				break;
+			}
+			case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER: {
+				// Sampler MATTERS for this type (unlike SAMPLED/STORAGE_IMAGE);
+				// the combined-sampler binding uses both view and sampler.
+				assert( desc->vk.image.imageView );
+				assert( desc->vk.image.sampler );
+				hash_t cookie = hash_u64( HASH_INITIAL_VALUE, desc->vk.type );
+				cookie = hash_u64( cookie, (uint64_t)desc->vk.image.imageView );
+				cookie = hash_u64( cookie, (uint64_t)desc->vk.image.sampler );
 				cookie = hash_u32( cookie, (uint32_t)desc->vk.image.imageLayout );
 				desc->cookie = cookie;
 				break;
@@ -1126,8 +1140,13 @@ void RIFinalizeDescriptor( struct RIDevice_s *dev, struct RIDescriptor_s *desc )
 				desc->cookie = hash_data( hash_u64( HASH_INITIAL_VALUE, desc->vk.type ), &desc->vk.buffer, sizeof( desc->vk.buffer ) );
 				break;
 			case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
-				assert( desc->accelStructure );
-				desc->vk.accelStructure = desc->accelStructure->vk.handle;
+				// desc->accelStructure is optional: callers may attach a
+				// long-lived RIAccelStructure_s, or fill the inline
+				// vk.accelStructure handle directly (per-pass compute pushes).
+				if( desc->accelStructure ) {
+					desc->vk.accelStructure = desc->accelStructure->vk.handle;
+				}
+				assert( desc->vk.accelStructure );
 				desc->cookie = hash_u64( hash_u64( HASH_INITIAL_VALUE, desc->vk.type ), (uint64_t)desc->vk.accelStructure );
 				break;
 			default:

@@ -1,10 +1,10 @@
 #include "shaderUtil_grid.glsl"
 // Surfel and cells
 
-vec3 getCameraPosition(SceneCamera camera)
-{
-    return vec3(camera.viewInverse[3]);
-}
+//vec3 getCameraPosition(SceneCamera camera)
+//{
+//    return vec3(camera.viewInverse[3]);
+//}
 
 
 bool isCellValid(vec3 cellPos)
@@ -123,24 +123,110 @@ const vec3 neighborOffset[27] = vec3[27](
 
 #ifdef LAYOUTS_GLSL
 
-float brdfWeight(vec3 V, vec3 N, vec3 L, float roughness)
-{
-    float NdotL = dot(N, L);
-    if (NdotL < 0.0)
-        return 0.0;
+// Bindless surfel-ray path tracer.
+//
+// History: the original version (still in git) implemented a full Disney /
+// GLTF pathtracer on top of the NVIDIA RTX sample scene model. The bindless
+// renderer doesn't carry that scene representation, so the path is now a
+// Lambertian + bindless-material trace using:
+//   - sceneObjects[] / opaqueMaterial[] / textures_2d[] from bindless.resource.glsl
+//   - opaque{Position,Normal,Uv0,Index}Handles[]  for BDA vertex pulling
+//   - pointLights[] / pointLightCount        for direct lighting
+//   - topLevelAS                             from layouts.glsl
+// All Disney/GLTF/sun-sky/env paths have been dropped.
 
-    vec3 H = normalize(L + V);
-    float NdotV = dot(N, V);
-    float NdotH = clamp(dot(N, H), 0, 1);
-    float G = V_GGX(NdotL, NdotV, roughness);
-    float D = D_GGX(NdotH, max(0.001, roughness));
-    return G * D;
+// BDA aliases for the per-instance vertex/index buffers. Names purposely kept
+// distinct from gbuffer.vert's local aliases so this header can coexist if a
+// future shader includes both.
+layout(buffer_reference, scalar) readonly buffer RTPositionBuf { vec4 v[]; };
+layout(buffer_reference, scalar) readonly buffer RTNormalBuf   { vec3 v[]; };
+layout(buffer_reference, scalar) readonly buffer RTUv0Buf      { vec3 v[]; };
+layout(buffer_reference, scalar) readonly buffer RTIndexBuf    { uint v[]; };
+
+struct BindlessHit
+{
+    vec3 posW;
+    vec3 normalW;
+    vec2 uv;
+    vec3 albedo;
+};
+
+// Resolve a TLAS hit (described by prd) into world-space shade state pulled
+// from the bindless object/material tables. Returns zero-ish defaults for any
+// missing stream so a misconfigured object can't NaN-out the path.
+BindlessHit GetBindlessHit(in PtPayload p)
+{
+    BindlessHit h;
+
+    const uint instanceId = uint(p.instanceID);
+    const UniformObject obj = sceneObjects[instanceId];
+
+    const uint64_t indexAddr = opaqueIndexHandles.data[instanceId];
+    const uint64_t posAddr   = opaquePositionHandles.data[instanceId];
+    const uint64_t nrmAddr   = opaqueNormalHandles.data[instanceId];
+    const uint64_t uvAddr    = opaqueUv0Handles.data[instanceId];
+
+    // Triangle indices — 3 consecutive uints per primitive.
+    const uint idxBase = uint(p.primitiveID) * 3u;
+    uvec3 tri = uvec3(0u);
+    if (indexAddr != 0ul) {
+        RTIndexBuf ib = RTIndexBuf(indexAddr);
+        tri = uvec3(ib.v[idxBase + 0u], ib.v[idxBase + 1u], ib.v[idxBase + 2u]);
+    } else {
+        tri = uvec3(idxBase, idxBase + 1u, idxBase + 2u);
+    }
+
+    const vec3 bary = vec3(1.0 - p.baryCoord.x - p.baryCoord.y,
+                           p.baryCoord.x,
+                           p.baryCoord.y);
+
+    vec3 posL = vec3(0.0);
+    if (posAddr != 0ul) {
+        RTPositionBuf pb = RTPositionBuf(posAddr);
+        posL = pb.v[tri.x].xyz * bary.x +
+               pb.v[tri.y].xyz * bary.y +
+               pb.v[tri.z].xyz * bary.z;
+    }
+
+    vec3 normalL = vec3(0.0, 0.0, 1.0);
+    if (nrmAddr != 0ul) {
+        RTNormalBuf nb = RTNormalBuf(nrmAddr);
+        normalL = nb.v[tri.x] * bary.x +
+                  nb.v[tri.y] * bary.y +
+                  nb.v[tri.z] * bary.z;
+    }
+
+    vec2 uv = vec2(0.0);
+    if (uvAddr != 0ul) {
+        RTUv0Buf ub = RTUv0Buf(uvAddr);
+        uv = ub.v[tri.x].xy * bary.x +
+             ub.v[tri.y].xy * bary.y +
+             ub.v[tri.z].xy * bary.z;
+    }
+
+    h.posW    = (obj.modelMat * vec4(posL, 1.0)).xyz;
+    h.normalW = normalize(mat3(obj.invModelMat) * normalL);
+    h.uv      = uv;
+
+    // Material -> albedo: sample tex[0] (Diffuse). Missing slot -> mid-gray
+    // so geometry stays visible.
+    const DiffuseMaterial mat = opaqueMaterial[obj.materialID];
+    const uint diffuseSlot = DiffuseMaterial_DiffuseTexture_ID(mat);
+    if (diffuseSlot != INVALID_TEXTURE_INDEX) {
+        h.albedo = texture(sampler2D(textures_2d[nonuniformEXT(diffuseSlot)],
+                                     materialSampler),
+                           h.uv).rgb;
+    } else {
+        h.albedo = vec3(0.5);
+    }
+
+    return h;
 }
 
 bool finalizePathWithSurfel(vec3 worldPos, vec3 worldNor, uint randSeed, inout vec4 irradiance)
 {
     irradiance = vec4(0.0f);
-    vec3 camPos = getCameraPosition(sceneCamera);
+    vec3 camPos = invViewMat[3].xyz;
     //vec3 cellPosIndex = getCellPos(worldPos, camPos);
     ivec4 cellPosIndex = getCellPosNonUniform(worldPos, camPos);
     if (!isCellValid(cellPosIndex))
@@ -253,7 +339,7 @@ bool finalizePathWithSurfel(vec3 worldPos, vec3 worldNor, uint randSeed, inout v
     //        newSurfel.msmeData.vbbr = 0.f;
     //        newSurfel.msmeData.variance = vec3(1.f);
     //        newSurfel.msmeData.inconsistency = 1.f;
-    //        float surfelToCameraDistance = distance(worldPos, getCameraPosition(sceneCamera));
+    //        float surfelToCameraDistance = distance(worldPos, invViewMat[3].xyz);
     //        newSurfel.radius = min(calcSurfelRadius(surfelToCameraDistance, sceneCamera.fov, vec2(rtxState.size)), getSurfelMaxSize(surfelToCameraDistance) * 2.f);
 
     //        surfelBuffer[surfelID] = newSurfel;
@@ -283,170 +369,106 @@ bool finalizePathWithSurfel(vec3 worldPos, vec3 worldNor, uint randSeed, inout v
 
 }
 
+// Surfel-ray path trace.
+//
+// One ray per call. Per bounce: trace, fetch bindless shade state, accumulate
+// direct lighting from the bindless PointLight SSBO (with shadow ray), bounce
+// cosine-weighted Lambertian. If we run out of depth we fall back to the
+// surfel cache via finalizePathWithSurfel().
+//
+// Environment misses contribute zero (no IBL in the bindless model).
+// `surfelIndex` is the surfel owning this ray; used to seed RNG and to
+// constrain the surfel-cache fallback so we don't read a surfel's own
+// radiance back into itself.
 vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDepth)
 {
-    vec3 radiance = vec3(0.0);
+    vec3 radiance   = vec3(0.0);
     vec3 throughput = vec3(1.0);
-	vec3 nextThroughput = vec3(1.0);
-    vec3 absorption = vec3(0.0);
-    vec3 diffuseRatio = vec3(1.f);
-    ShadeState sstate;
-    bool valid = true;
-    int depth;
+    bool valid      = true;
+    int  depth;
+    BindlessHit lastHit;
+    lastHit.posW    = vec3(0.0);
+    lastHit.normalW = vec3(0.0, 0.0, 1.0);
+    lastHit.uv      = vec2(0.0);
+    lastHit.albedo  = vec3(0.0);
 
     for (depth = 0; depth < maxDepth; depth++)
     {
-		throughput = nextThroughput;
-        valid = true;
         ClosestHit(r);
         if (depth == 0)
         {
             firstDepth = prd.hitT;
         }
 
-        // Hitting the environment
-        if (prd.hitT == INFINITY)
-        {
-            vec3 env;
-            if (_sunAndSky.in_use == 1)
-                env = sun_and_sky(_sunAndSky, r.direction);
-            else
-            {
-                vec2 uv = GetSphericalUv(r.direction);  // See sampling.glsl
-                env = texture(environmentTexture, uv).rgb;
-            }
-            // Done sampling return
-            return radiance + (env * rtxState.hdrMultiplier * throughput);
-        }
-
-
-        BsdfSampleRec bsdfSampleRec;
-
-        // Get Position, Normal, Tangents, Texture Coordinates, Color
-        sstate = GetShadeState(prd);
-
-        State state;
-        state.position = sstate.position;
-        state.normal = sstate.normal;
-        state.tangent = sstate.tangent_u[0];
-        state.bitangent = sstate.tangent_v[0];
-        state.texCoord = sstate.text_coords[0];
-        state.matID = sstate.matIndex;
-        state.isEmitter = false;
-        state.specularBounce = false;
-        state.isSubsurface = false;
-        state.ffnormal = dot(state.normal, r.direction) <= 0.0 ? state.normal : -state.normal;
-
-        // Filling material structures
-        GetMaterialsAndTextures(state, r);
-
-        // Color at vertices
-        state.mat.albedo *= sstate.color;
-
-        diffuseRatio = state.mat.albedo * (1.0 - state.mat.metallic);
-
-        //diffuseRatio = state.mat.albedo * (1.0 - F_SchlickRoughness(state.mat.f0, max(0.0, dot(-r.direction, state.normal)), state.mat.roughness)
-        //    * (1.0 - state.mat.metallic));
-
-        // Debugging info
-        /*if (rtxState.debugging_mode != eNoDebug && rtxState.debugging_mode < eRadiance)
-            return DebugInfo(state);*/
-
-        // KHR_materials_unlit
-        if (state.mat.unlit)
-        {
-            return radiance + state.mat.albedo * throughput;
-        }
-
-        // Reset absorption when ray is going out of surface
-        if (dot(state.normal, state.ffnormal) > 0.0)
-        {
-            absorption = vec3(0.0);
-        }
-
-        // Emissive material
-        radiance += state.mat.emission * throughput;
-
-        // Add absoption (transmission / volume)
-        throughput *= exp(-absorption * prd.hitT);
-
-        // Light and environment contribution
-        VisibilityContribution vcontrib = DirectLight(r, state);
-        vcontrib.radiance *= throughput;
-
-        // Sampling for the next ray
-        bsdfSampleRec.f = Sample(state, -r.direction, state.ffnormal, bsdfSampleRec.L, bsdfSampleRec.pdf, prd.seed);
-
-        // Set absorption only if the ray is currently inside the object.
-        if (dot(state.ffnormal, bsdfSampleRec.L) < 0.0)
-        {
-            absorption = -log(state.mat.attenuationColor) / vec3(state.mat.attenuationDistance);
-        }
-
-        if (bsdfSampleRec.pdf > 0.0)
-        {
-            nextThroughput *= bsdfSampleRec.f * abs(dot(state.ffnormal, bsdfSampleRec.L)) / bsdfSampleRec.pdf;
-        }
-        else
+        // Miss → zero env contribution (no IBL in the bindless model yet).
+        if (prd.hitT >= INFINITY)
         {
             valid = false;
             break;
         }
 
-        // For Russian-Roulette (minimizing live state)
-        /*float rrPcont = (depth >= RR_DEPTH) ?
-            min(max(throughput.x, max(throughput.y, throughput.z)) * state.eta * state.eta + 0.001, 0.95) :
-            1.0;*/
+        BindlessHit hit = GetBindlessHit(prd);
+        lastHit = hit;
 
-        // Next ray
-        r.direction = bsdfSampleRec.L;
-        r.origin = OffsetRay(sstate.position, dot(bsdfSampleRec.L, state.ffnormal) > 0 ? state.ffnormal : -state.ffnormal);
-
-        // We are adding the contribution to the radiance only if the ray is not occluded by an object.
-        // This is done here to minimize live state across ray-trace calls.
-        if (vcontrib.visible == true)
+        // Direct lighting from point lights.
+        for (uint i = 0u; i < pointLightCount; ++i)
         {
-            // Shoot shadow ray up to the light (1e32 == environement)
-            Ray  shadowRay = Ray(r.origin, vcontrib.lightDir);
-            bool inShadow = AnyHit(shadowRay, vcontrib.lightDist);
-            if (!inShadow)
-            {
-                radiance += vcontrib.radiance;
-                valid = false;
-            }
+            PointLight pl = pointLights[i];
+            vec3 toL = pl.position - hit.posW;
+            float d  = length(toL);
+            if (d <= 0.0 || d > pl.radius) continue;
+            vec3 L = toL / d;
+            float ndl = max(dot(hit.normalW, L), 0.0);
+            if (ndl <= 0.0) continue;
+
+            Ray shadowRay = Ray(OffsetRayBindless(hit.posW, hit.normalW), L);
+            if (AnyHit(shadowRay, max(d - 0.01, 0.0))) continue;
+
+            // Smoothstep range falloff; intensity acts as a scalar multiplier
+            // on the diffuse color.
+            float falloff = 1.0 - smoothstep(0.0, pl.radius, d);
+            radiance += throughput * hit.albedo * pl.color * pl.intensity * ndl * falloff * M_1_OVER_PI;
         }
 
+        // Cosine-weighted Lambertian bounce. BRDF * cos / pdf simplifies to albedo.
+        vec3 T, B;
+        CreateCoordinateSystem(hit.normalW, T, B);
+        // Reuse prd.seed for path RNG — caller initialized it.
+        vec2 u = rand2(prd.seed);
+        vec3 localDir = CosineSampleHemisphere(u.x, u.y);
+        vec3 newDir = normalize(localDir.x * T + localDir.y * B + localDir.z * hit.normalW);
+        throughput *= hit.albedo;
 
-        //if (rand(prd.seed) >= rrPcont)
-        //    break;                // paths with low throughput that won't contribute
-        //throughput /= rrPcont;  // boost the energy of the non-terminated paths
+        r.origin    = OffsetRayBindless(hit.posW, hit.normalW);
+        r.direction = newDir;
     }
 
-	// use surfel indirect when the path reach max depth
+    // Surfel-cache fallback once we hit max depth.
     if (depth == maxDepth && valid)
     {
-		vec3 surfelPos = surfelBuffer[surfelIndex].position;
-		float radius = surfelBuffer[surfelIndex].radius;
-		if (dot(sstate.position, surfelPos) < radius * radius)
-		{
-			vec4 irradiance = vec4(0.0);
-            uint randSeed = tea(surfelIndex, rtxState.totalFrames);
-			bool rst = finalizePathWithSurfel(sstate.position, sstate.normal, randSeed, irradiance);
-			if (rst)
-			{
-                // apply diffuse ratio
-                irradiance.rgb *= diffuseRatio;
-				radiance += irradiance.xyz * throughput;
-			}
-		}
+        vec3 surfelPos = surfelBuffer[surfelIndex].position;
+        float radius   = surfelBuffer[surfelIndex].radius;
+        if (dot(lastHit.posW, surfelPos) < radius * radius)
+        {
+            vec4 irradiance = vec4(0.0);
+            uint randSeed   = tea(surfelIndex, totalFrames);
+            if (finalizePathWithSurfel(lastHit.posW, lastHit.normalW, randSeed, irradiance))
+            {
+                radiance += irradiance.xyz * throughput;
+            }
+        }
     }
-
 
     return radiance;
 }
 
+// surfelRefelctionTrace was the BSDF-driven reflection variant on the old
+// pathtracer. It was Disney/GLTF-specific; nothing calls it in the bindless
+// renderer. Dropped — restore from git history if a reflection-aware variant
+// is needed later.
 
-vec3 surfelRefelctionTrace(Ray r, int maxDepth, inout float firstDepth, inout BsdfSampleRec reflectSample, inout float weight)
+#if 0
+vec3 surfelRefelctionTrace_obsolete(Ray r, int maxDepth, inout float firstDepth, inout BsdfSampleRec reflectSample, inout float weight)
 {
     vec3 radiance = vec3(0.0);
     vec3 throughput = vec3(1.0);
@@ -610,5 +632,6 @@ vec3 surfelRefelctionTrace(Ray r, int maxDepth, inout float firstDepth, inout Bs
 
     return radiance;
 }
+#endif  // 0 (surfelRefelctionTrace_obsolete)
 
 #endif // LAYOUTS_GLSL

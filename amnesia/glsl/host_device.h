@@ -216,30 +216,30 @@ const int n = 64; // Split count of the uniform cube & non-unifrom frustum, must
 const float p = 1.3; // Split ratio of the non-uniform frustum
 const int m = 16; // Layers of the non-uniform frustum
 
-// Camera of the scene
-struct SceneCamera
-{
-  mat4  view;
-  mat4  proj;
-  mat4  viewInverse;
-  mat4  projInverse;
-  float focalDist;
-  float aperture;
-  float fov;
-  // Extra
-  int nbLights;
-  mat4  prevViewProj;
-  vec4  jitter; // .xy: current jitter, .z: scale, .w: padding
-};
-
-struct VertexAttributes
-{
-  vec3 position;
-  uint normal;    // compressed using oct
-  vec2 texcoord;  // Tangent handiness, stored in LSB of .y
-  uint tangent;   // compressed using oct
-  uint color;     // RGBA
-};
+//// Camera of the scene
+//struct SceneCamera
+//{
+//  mat4  view;
+//  mat4  proj;
+//  mat4  viewInverse;
+//  mat4  projInverse;
+//  float focalDist;
+//  float aperture;
+//  float fov;
+//  // Extra
+//  int nbLights;
+//  mat4  prevViewProj;
+//  vec4  jitter; // .xy: current jitter, .z: scale, .w: padding
+//};
+//
+//struct VertexAttributes
+//{
+//  vec3 position;
+//  uint normal;    // compressed using oct
+//  vec2 texcoord;  // Tangent handiness, stored in LSB of .y
+//  uint tangent;   // compressed using oct
+//  uint color;     // RGBA
+//};
 
 
 // GLTF material
@@ -340,75 +340,75 @@ const int LightType_Directional = 0;
 const int LightType_Point       = 1;
 const int LightType_Spot        = 2;
 
-struct Light
-{
-  vec3  direction;
-  float range;
-
-  vec3  color;
-  float intensity;
-
-  vec3  position;
-  float innerConeCos;
-
-  float outerConeCos;
-  int   type;
-
-  vec2 padding;
-};
-
-// Environment acceleration structure - computed in hdr_sampling
-struct EnvAccel
-{
-  uint  alias;
-  float q;
-  float pdf;
-  float aliasPdf;
-};
-
-// Tonemapper used in post.frag
-struct Tonemapper
-{
-  float brightness;
-  float contrast;
-  float saturation;
-  float vignette;
-  float avgLum;
-  float zoom;
-  vec2  renderingRatio;
-  int   autoExposure;
-  float Ywhite;  // Burning white
-  float key;     // Log-average luminance
-  int   dither;
-  int   frame;
-  vec3  padding;
-};
-
-
-struct SunAndSky
-{
-  vec3  rgb_unit_conversion;
-  float multiplier;
-
-  float haze;
-  float redblueshift;
-  float saturation;
-  float horizon_height;
-
-  vec3  ground_color;
-  float horizon_blur;
-
-  vec3  night_color;
-  float sun_disk_intensity;
-
-  vec3  sun_direction;
-  float sun_disk_scale;
-
-  float sun_glow_intensity;
-  int   y_is_up;
-  int   physically_scaled_sun;
-  int   in_use;
-};
+//struct Light
+//{
+//  vec3  direction;
+//  float range;
+//
+//  vec3  color;
+//  float intensity;
+//
+//  vec3  position;
+//  float innerConeCos;
+//
+//  float outerConeCos;
+//  int   type;
+//
+//  vec2 padding;
+//};
+//
+//// Environment acceleration structure - computed in hdr_sampling
+//struct EnvAccel
+//{
+//  uint  alias;
+//  float q;
+//  float pdf;
+//  float aliasPdf;
+//};
+//
+//// Tonemapper used in post.frag
+//struct Tonemapper
+//{
+//  float brightness;
+//  float contrast;
+//  float saturation;
+//  float vignette;
+//  float avgLum;
+//  float zoom;
+//  vec2  renderingRatio;
+//  int   autoExposure;
+//  float Ywhite;  // Burning white
+//  float key;     // Log-average luminance
+//  int   dither;
+//  int   frame;
+//  vec3  padding;
+//};
+//
+//
+//struct SunAndSky
+//{
+//  vec3  rgb_unit_conversion;
+//  float multiplier;
+//
+//  float haze;
+//  float redblueshift;
+//  float saturation;
+//  float horizon_height;
+//
+//  vec3  ground_color;
+//  float horizon_blur;
+//
+//  vec3  night_color;
+//  float sun_disk_intensity;
+//
+//  vec3  sun_direction;
+//  float sun_disk_scale;
+//
+//  float sun_glow_intensity;
+//  int   y_is_up;
+//  int   physically_scaled_sun;
+//  int   in_use;
+//};
 
 
 

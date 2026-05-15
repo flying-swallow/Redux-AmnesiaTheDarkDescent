@@ -401,12 +401,10 @@ void RIProgram::traceRays(struct RICmd_s *cmd, hash_t pipelineHash,
 void RIProgram::bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, uint32_t frameIndex, DescriptorBinding* bindings, size_t bindingCount, VkPipelineBindPoint bindPoint) {
 #if ( DEVICE_IMPL_VULKAN )
 	{
-		size_t numWrites = 0;
-		VkWriteDescriptorSet descriptorWrite[32]; // write 32 descriptors at once
-		// Acceleration-structure writes need a pNext payload alive across the
-		// vkUpdateDescriptorSets call; one entry per descriptorWrite[i] keeps
-		// the lifetimes paired through the batch flush.
-		VkWriteDescriptorSetAccelerationStructureKHR accelWrites[32] = {};
+		VkDescriptorSet setsToBind[DESCRIPTOR_SET_MAX] = { VK_NULL_HANDLE };
+		uint32_t firstSetToBind = 0;
+		uint32_t setsToBindCount = 0;
+
 		for( uint32_t setIndex = 0; setIndex < DESCRIPTOR_SET_MAX; setIndex++ ) {
 			// External sets are bound by the caller via bindBindlessDescriptorSet
 			// (or vkCmdBindDescriptorSets directly). Skip alloc/write/bind here.
@@ -418,6 +416,8 @@ void RIProgram::bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, 
 				if( !refl || setIndex != refl->set || RI_IsEmptyDescriptor( &bindings[i].descriptor ) )
 					continue;
 				hash = hash_u64( hash, refl->hash );
+				hash = hash_u64( hash, bindings[i].registerOffset );
+				assert( bindings[i].descriptor.cookie != 0 );
 				hash = hash_u64( hash, bindings[i].descriptor.cookie );
 			}
 			if( hash == HASH_INITIAL_VALUE )
@@ -425,11 +425,21 @@ void RIProgram::bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, 
 			struct DescriptorSetSlot *info = &programDescriptors[setIndex];
 			struct RIDescriptorSetResult result = resolveDescriptorSetAlloc( device, &info->alloc, frameIndex, hash );
 			if( !result.found ) {
+				size_t numWrites = 0;
+				VkWriteDescriptorSet descriptorWrite[32];
+				// Acceleration-structure writes need a pNext payload alive across the
+				// vkUpdateDescriptorSets call; one entry per descriptorWrite[i] keeps
+				// the lifetimes paired through the batch flush.
+				VkWriteDescriptorSetAccelerationStructureKHR accelWrites[32] = {};
 				for( size_t i = 0; i < bindingCount; i++ ) {
 						const struct RIProgram::BindingReflection *refl = findReflection(bindings[i].handle );
 					if( !refl || setIndex != refl->set || RI_IsEmptyDescriptor( &bindings[i].descriptor ) )
 						continue;
 
+					if( numWrites == ARRAY_COUNT( descriptorWrite ) ) {
+						vkUpdateDescriptorSets( device->vk.device, numWrites, descriptorWrite, 0, NULL );
+						numWrites = 0;
+					}
 					VkWriteDescriptorSet *vkDesc = descriptorWrite + ( numWrites++ );
 					memset( vkDesc, 0, sizeof( VkWriteDescriptorSet ) );
 					vkDesc->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -451,6 +461,7 @@ void RIProgram::bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, 
 						case VK_DESCRIPTOR_TYPE_SAMPLER:
 						case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
 						case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+						case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
 							vkDesc->pImageInfo = &bindings[i].descriptor.vk.image;
 							break;
 						case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR: {
@@ -463,21 +474,28 @@ void RIProgram::bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, 
 							break;
 						}
 						default:
-							assert( false ); // this is bad
+							assert( false );
 							break;
 					}
-
-					if( numWrites >= ARRAY_COUNT( descriptorWrite ) ) {
-						vkUpdateDescriptorSets( device->vk.device, numWrites, descriptorWrite, 0, NULL );
-						numWrites = 0;
-					}
+				}
+				if( numWrites > 0 ) {
+					vkUpdateDescriptorSets( device->vk.device, numWrites, descriptorWrite, 0, NULL );
 				}
 			}
-			VkDescriptorSet vkDescriptorSet = result.set->vk.handle;
-			vkCmdBindDescriptorSets( cmd->vk.cmd, bindPoint, impl.vk.pipelineLayout, setIndex, 1, &vkDescriptorSet, 0, NULL );
+
+			if( setsToBindCount > 0 && firstSetToBind + setsToBindCount != setIndex ) {
+				vkCmdBindDescriptorSets( cmd->vk.cmd, bindPoint, impl.vk.pipelineLayout,
+					firstSetToBind, setsToBindCount, setsToBind, 0, NULL );
+				setsToBindCount = 0;
+			}
+			if( setsToBindCount == 0 ) {
+				firstSetToBind = setIndex;
+			}
+			setsToBind[setsToBindCount++] = result.set->vk.handle;
 		}
-		if( numWrites > 0 ) {
-			vkUpdateDescriptorSets( device->vk.device, numWrites, descriptorWrite, 0, NULL );
+		if( setsToBindCount > 0 ) {
+			vkCmdBindDescriptorSets( cmd->vk.cmd, bindPoint, impl.vk.pipelineLayout,
+				firstSetToBind, setsToBindCount, setsToBind, 0, NULL );
 		}
 	}
 #endif
@@ -564,6 +582,7 @@ void RIBindlessDescriptorSet::writeDescriptors(
     case VK_DESCRIPTOR_TYPE_SAMPLER:
     case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
     case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+    case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
       vkDesc.pImageInfo = &w.descriptor.vk.image;
       break;
     default:

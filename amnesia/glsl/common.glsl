@@ -31,7 +31,7 @@
 // Visibility-buffer packing — top 16 bits = object id (the scene-object
 // slot / `gl_InstanceIndex` of the draw that rasterized the pixel), bottom
 // 16 bits = `gl_PrimitiveID` of the triangle within that draw. Producer:
-// gbuffer.frag. Consumers: any deferred re-shade path reading primObjIDMap.
+// gbuffer.frag. Consumers: any deferred re-shade path reading visibilityBuffer.
 //-----------------------------------------------------------------------
 uint pack_visibility(uint objectId, uint primitiveId) {
     return (objectId << 16) | (primitiveId & 0xffffu);

@@ -141,6 +141,9 @@ SHADERS
     ./glsl/gbuffer.frag
     ./glsl/gbuffer.vert
     ./glsl/surfel_prepare.comp
+    ./glsl/surfel_update.comp
+    ./glsl/cellInfo_update_pass.comp
+    ./glsl/surfel_raytrace.comp
     ./glsl/surfel_generation_pass.comp
 OUTPUT_FOLDER
 ${AMNESIA_SHADER_DIR}

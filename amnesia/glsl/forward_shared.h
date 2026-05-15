@@ -17,6 +17,7 @@ typedef float    vec2[2];
 #define OBJECT_SLOT_CAPACITY    (16384u * 2u)
 #define TEXTURE_SLOT_CAPACITY   16384u
 #define MATERIAL_SLOT_CAPACITY  16384u
+#define LIGHT_SLOT_CAPACITY     256u
 
 // Surfel-GI capacities. Mirrors `kMaxSurfelCount` / `kMaxRayCount` in
 // amnesia/glsl/host_device.h — kept here in C-preprocessor form so the C++
@@ -68,6 +69,10 @@ typedef float    vec2[2];
 // other bindless pools (OBJECT_SLOT_CAPACITY / MATERIAL_SLOT_CAPACITY).
 #define BINDING_SCENE_OBJECTS               20
 #define BINDING_OPAQUE_MATERIAL             21
+// Per-frame point-light SSBO. Filled by cHybridRenderer's light loop and
+// uploaded device-local via RI.uploader (no host-mapped destination), so the
+// GPU never reads partially-written data from an in-flight frame.
+#define BINDING_POINT_LIGHTS                22
 
 // Texture-slot indices into the bindless `textures_2d[]` array (set=0,
 // binding=0). One uint32 per slot — see per_frame.resource.glsl for the
@@ -93,6 +98,16 @@ struct UniformObject {
     mat4  uvMat;
 };
 
+// Scalar-layout point light. Position+radius and color+intensity pair into
+// natural 16-byte slots; the C++ side memcpy's an array of these into the
+// device-local SSBO via RI.uploader each frame.
+struct PointLight {
+    vec3  position;
+    float radius;
+    vec3  color;
+    float intensity;
+};
+
 // Per-frame UBO contents (std140). On the GLSL side this struct is wrapped
 // in a uniform block at set=1, binding=0 (see per_frame.resource.glsl).
 struct PerFrameConstants {
@@ -113,6 +128,7 @@ struct PerFrameConstants {
     float afT;
     uint  totalFrames;       // monotonic frame counter for randSeed inputs
     float cameraFov;         // main camera vertical FOV (radians)
+    uint  pointLightCount;   // active entries in the bindless pointLights[] SSBO
 };
 
 #ifdef __cplusplus

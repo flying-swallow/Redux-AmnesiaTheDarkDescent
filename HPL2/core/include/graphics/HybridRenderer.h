@@ -48,8 +48,14 @@ private:
   cRenderList2 m_rendererList;
 
   LRUCache m_diffuseBindless;
-  
+
   struct RIBuffer_s m_diffuseObjectBuffer;
+
+  // Per-frame point-light SSBO. Device-local; refilled each frame through
+  // RI.uploader (see Draw()). m_pointLightScratch is the CPU staging vector,
+  // reserved once at init so the per-frame fill doesn't reallocate.
+  struct RIBuffer_s m_pointLightBuffer = {};
+  std::array<PointLight, LIGHT_SLOT_CAPACITY> m_pointLightScratch;
   struct RIBuffer_s m_opaquePositionHandles;
   struct RIBuffer_s m_opaqueTangentHandles;
   struct RIBuffer_s m_opaqueNormalHandles;
@@ -102,6 +108,15 @@ private:
   // surfel prepare
 	RIProgram m_surfelPrepare;
 	RIProgram m_surfelGenerate;
+	RIProgram m_surfelUpdate;
+	RIProgram m_cellInfoUpdate;
+	RIProgram m_surfelRaytrace;
+
+	// Surfel-ray irradiance map sampled by surfel_raytrace.comp's ray-guiding
+	// branch. Filled in by a future pass; until then it stays zero-cleared,
+	// which keeps the cosine-weighted branch active.
+	struct RITexture_s     m_surfelIrradianceTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+	struct RITextureView_s m_surfelIrradianceView[RI_MAX_SWAPCHAIN_IMAGES]    = {};
 };
 
 } // namespace hpl

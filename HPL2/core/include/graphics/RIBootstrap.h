@@ -23,7 +23,10 @@ struct RIBootstrap {
 public:
   static constexpr RI_Format_e VisibilityFormat = RI_FORMAT_R32_UINT;
   static constexpr RI_Format_e DepthFormat = RI_FORMAT_D32_SFLOAT;
-  static constexpr RI_Format_e NormalFormat = RI_FORMAT_RGBA8_UNORM;
+  // Packed unit-vector normal — see compress_unit_vec / decompress_unit_vec.
+  // Sampled by surfel_generation_pass as `usampler2D` and unpacked back to a
+  // vec3; the surfel shaders' decompress_unit_vec(uint) expects R32_UINT.
+  static constexpr RI_Format_e NormalFormat = RI_FORMAT_R32_UINT;
 
   explicit RIBootstrap() {
 
@@ -54,8 +57,8 @@ public:
 	struct RITextureView_s depthView[RI_MAX_SWAPCHAIN_IMAGES];
 	struct RI_PogoBuffer pogoBuffer[RI_MAX_SWAPCHAIN_IMAGES];
 
-  struct RITexture_s visiblityTexture[RI_MAX_SWAPCHAIN_IMAGES];
-  struct RITextureView_s visiblityView[RI_MAX_SWAPCHAIN_IMAGES];
+  struct RITexture_s visibilityTexture[RI_MAX_SWAPCHAIN_IMAGES];
+  struct RITextureView_s visibilityView[RI_MAX_SWAPCHAIN_IMAGES];
 
   struct RITexture_s normalTexture[RI_MAX_SWAPCHAIN_IMAGES];
   struct RITextureView_s normalView[RI_MAX_SWAPCHAIN_IMAGES];

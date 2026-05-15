@@ -83,4 +83,12 @@ layout(set = 0, binding = 21) readonly buffer OpaqueMaterialBlock {
 #define sceneObjects   sceneObjectsBuf.data
 #define opaqueMaterial opaqueMaterialBuf.data
 
+// Per-frame point-light SSBO — written by cHybridRenderer::Draw() each frame
+// via RI.uploader. Count is in PerFrameConstants::pointLightCount (set 1).
+layout(set = 0, binding = 22, scalar) readonly buffer PointLightBlock {
+    PointLight data[];
+} pointLightBuf;
+
+#define pointLights pointLightBuf.data
+
 #endif // BINDLESS_RESOURCE_GLSL

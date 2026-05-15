@@ -256,7 +256,11 @@ namespace hpl {
 					VK_ConfigureImageQueueFamilies( &info, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
 					info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 					info.format = RIFormatToVK( RIBootstrap::DepthFormat);
-					info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+					// SAMPLED_BIT lets surfel_generate / surfel_raytrace bind the
+					// depth as `sampler2D depthMap` after the gbuffer pass
+					// transitions it to SHADER_READ_ONLY_OPTIMAL.
+					info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
+								 VK_IMAGE_USAGE_SAMPLED_BIT;
 					VK_WrapResult( vmaCreateImage( RI.device.vk.vmaAllocator, &info, &mem_reqs, &RI.depthTextures[i].vk.image, &RI.depthTextures[i].vk.allocation, NULL ) );
 				}
 				{
@@ -286,7 +290,7 @@ namespace hpl {
 					info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 					info.format = RIFormatToVK( RIBootstrap::VisibilityFormat);
 					info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-					VK_WrapResult( vmaCreateImage( RI.device.vk.vmaAllocator, &info, &mem_reqs, &RI.visiblityTexture[i].vk.image, &RI.visiblityTexture[i].vk.allocation, NULL ) );
+					VK_WrapResult( vmaCreateImage( RI.device.vk.vmaAllocator, &info, &mem_reqs, &RI.visibilityTexture[i].vk.image, &RI.visibilityTexture[i].vk.allocation, NULL ) );
 				}
 				{
 					VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
@@ -294,9 +298,9 @@ namespace hpl {
 					createInfo.subresourceRange = VkImageSubresourceRange{
 						VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
 					};
-					createInfo.image = RI.visiblityTexture[i].vk.image;
+					createInfo.image = RI.visibilityTexture[i].vk.image;
 					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.visiblityView[i].vk.image ) );
+					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.visibilityView[i].vk.image ) );
 				}
 				{
 					VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
