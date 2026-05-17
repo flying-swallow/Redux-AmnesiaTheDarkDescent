@@ -18,23 +18,8 @@ typedef float    vec2[2];
 #define TEXTURE_SLOT_CAPACITY   16384u
 #define MATERIAL_SLOT_CAPACITY  16384u
 #define POINT_SLOT_LIGHT_CAPACITY     256u
-
-// Clustered shading froxel grid. Mirrors AmnesiaTheDarkDescent's
-// scene_defs.h.fsl light-cluster layout: 16x9 tiles in screen space, 24
-// exponential depth slices, up to 128 lights per froxel. Cluster count and
-// data SSBOs are sized from these on the C++ side and indexed in the GLSL
-// passes via LIGHT_FROXEL_*_POS below.
-#define LIGHT_CLUSTER_WIDTH               16u
-#define LIGHT_CLUSTER_HEIGHT              9u
-#define LIGHT_CLUSTER_SLICE               24u
-#define LIGHT_CLUSTER_MAX_LIGHTS_PER_FROXEL 128u
-#define LIGHT_FROXEL_TOTAL_COUNT \
-    (LIGHT_CLUSTER_WIDTH * LIGHT_CLUSTER_HEIGHT * LIGHT_CLUSTER_SLICE)
-#define LIGHT_FROXEL_COUNT_POS(ix, iy, iz) \
-    ((LIGHT_CLUSTER_WIDTH * LIGHT_CLUSTER_HEIGHT * (iz)) + \
-     ((iy) * LIGHT_CLUSTER_WIDTH) + (ix))
-#define LIGHT_FROXEL_DATA_POS(ix, iy, iz, il) \
-    (LIGHT_FROXEL_COUNT_POS(ix, iy, iz) * LIGHT_CLUSTER_MAX_LIGHTS_PER_FROXEL + (il))
+#define SPOT_SLOT_LIGHT_CAPACITY      256u
+#define BOX_SLOT_LIGHT_CAPACITY       256u
 
 // Surfel-GI capacities. Mirrors `kMaxSurfelCount` / `kMaxRayCount` in
 // amnesia/glsl/host_device.h — kept here in C-preprocessor form so the C++
@@ -109,16 +94,12 @@ typedef float    vec2[2];
 #define BINDING_TRANSLUCENT_MATERIAL        24
 #define BINDING_WATER_MATERIAL              25
 #define BINDING_DECAL_MATERIAL              26
-// Clustered-shading SSBOs. Written every frame by the cluster build chain
-// (light_clusters_clear + point_light_clusters) and read by any future
-// forward+ shading pass. Live alongside the other bindless SSBOs so a
-// consumer reaches them through the same set 0 binding that already
-// carries point lights, scene objects, etc.
-#define BINDING_LIGHT_CLUSTERS_COUNT        27
-#define BINDING_LIGHT_CLUSTERS_DATA         28
 // Per-frame spot-light SSBO. Same upload path as point lights; consumed by
 // shading passes alongside pointLights[].
 #define BINDING_SPOT_LIGHTS                 29
+// Per-frame box-light SSBO. Same upload path; consumed by shading passes
+// alongside pointLights[]/spotLights[].
+#define BINDING_BOX_LIGHTS                  30
 
 // Texture-slot indices into the bindless `textures_2d[]` array (set=0,
 // binding=0). One uint32 per slot — see per_frame.resource.glsl for the
@@ -215,6 +196,24 @@ struct SpotLight {
     mat4  viewProjection;          // light-space ViewProj for gobo UVs
 };
 
+// Scalar-layout box (volumetric) light. World-space AABB centered on the
+// light's world position, matching RendererDeferred.cpp's box-light proxy
+// (Scale × Translate, no rotation). Pixel is "inside" when
+// abs(worldPos - center) <= halfSize component-wise.
+// Color is the legacy `cColor.rgb`; alpha is intentionally not stored
+// because the legacy box shader discards it (see
+// AmnesiaTheDarkDescent/HPL2/resource/deferred_light_box.frag.fsl).
+// Add-blend only for now (eLightBoxBlendFunc_Replace is treated as Add on
+// the C++ side; see cHybridRenderer's box-light upload loop).
+struct BoxLight {
+    vec3  center;        // world-space box center
+    float _pad0;
+    vec3  halfSize;      // world-space AABB half-extents
+    float _pad1;
+    vec3  color;
+    float _pad2;
+};
+
 // Per-frame UBO contents (std140). On the GLSL side this struct is wrapped
 // in a uniform block at set=1, binding=0 (see per_frame.resource.glsl).
 struct PerFrameConstants {
@@ -240,9 +239,9 @@ struct PerFrameConstants {
     float zNear;             // main camera near plane (view-space, positive)
     float zFar;              // main camera far plane (view-space, positive)
     uint  spotLightCount;    // active entries in the bindless spotLights[] SSBO
+    uint  boxLightCount;     // active entries in the bindless boxLights[] SSBO
     uint  _pad0;
     uint  _pad1;
-    uint  _pad2;
 };
 
 #ifdef __cplusplus

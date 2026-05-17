@@ -471,11 +471,15 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
     return;
   }
 
-  auto uploadBuffer =
-      [&](VkDeviceSize size, const void *src, VkBufferUsageFlags usage,
-          VkPipelineStageFlags2 postStage, VkAccessFlags2 postAccess,
-          const char *label) -> std::shared_ptr<RIBuffer_s> {
-    std::shared_ptr<RIBuffer_s> buf(new RIBuffer_s(), [](RIBuffer_s* buf) {buf->dispose(&RI.device);});
+  // Allocate a fresh GPU buffer. Used only on the first submit, on shadow-data
+  // growth (ResizeArray / ResizeIndices), or when a CreateCopy'd element still
+  // points at its source buffer with a zero capacity tag.
+  auto allocBuffer = [&](VkDeviceSize size, VkBufferUsageFlags usage,
+                         const char *label) -> std::shared_ptr<RIBuffer_s> {
+    std::shared_ptr<RIBuffer_s> buf(new RIBuffer_s(), [](RIBuffer_s *b) {
+      b->dispose(&RI.device);
+      delete b;
+    });
 
     uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
     VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -493,9 +497,17 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
     std::snprintf(debugName, sizeof(debugName), "VB[%p]:%s",
                   static_cast<void *>(this), label ? label : "Unknown");
     buf->setDebugObjectName(device, debugName);
+    return buf;
+  };
 
+  // Stage-copy `src` into an existing buffer. The transaction takes a value
+  // copy of the RIBuffer_s, but the underlying VkBuffer / VmaAllocation handles
+  // are shared, so the upload lands in the same GPU memory.
+  auto stageUpload = [&](RIBuffer_s *target, VkDeviceSize size, const void *src,
+                         VkPipelineStageFlags2 postStage,
+                         VkAccessFlags2 postAccess) {
     RIResourceBufferTransaction_s trans = {};
-    trans.target = *buf;
+    trans.target = *target;
     trans.size = size;
     trans.offset = 0;
     trans.vk.current_stage = VK_PIPELINE_STAGE_2_NONE;
@@ -505,34 +517,56 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
     RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
     std::memcpy(trans.mapped.data, src, size);
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
-    return buf;
   };
 
   for (auto &element : m_vertexElements) {
     if (element.m_shadowData.empty())
       continue;
+    const size_t needed = element.m_shadowData.size();
     VkBufferUsageFlags usage =
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     if (element.type == eVertexBufferElement_Position) {
       usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
     }
-    element.buffer = uploadBuffer(
-        element.m_shadowData.size(), element.m_shadowData.data(), usage,
-        VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-        elementTypeName(element.type));
+    // m_internalBufferSize == 0 with element.buffer set is the CreateCopy
+    // sentinel: the shared_ptr was inherited from the source VB but we own no
+    // GPU storage of our own yet. Treat it as "needs allocation."
+    const bool needsAlloc = !element.buffer ||
+                            element.m_internalBufferSize == 0 ||
+                            element.m_internalBufferSize < needed;
+    if (needsAlloc) {
+      element.buffer = allocBuffer(needed, usage, elementTypeName(element.type));
+      element.m_internalBufferSize = needed;
+    }
+    // Always upload on (re)alloc; otherwise only when the caller flagged this
+    // stream dirty via UpdateData().
+    if (needsAlloc || (m_updateFlags & element.flag)) {
+      stageUpload(element.buffer.get(), needed, element.m_shadowData.data(),
+                  VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+                  VK_ACCESS_2_SHADER_READ_BIT);
+    }
   }
 
   if (!m_indices.empty()) {
-    m_indexBuffer = uploadBuffer(
-        m_indices.size() * sizeof(uint32_t), m_indices.data(),
+    const size_t needed = m_indices.size() * sizeof(uint32_t);
+    const VkBufferUsageFlags idxUsage =
         VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-            VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
-        VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT,
-        "Index");
+        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+    const bool needsAlloc = !m_indexBuffer || m_indexBufferCapacity < needed;
+    if (needsAlloc) {
+      m_indexBuffer = allocBuffer(needed, idxUsage, "Index");
+      m_indexBufferCapacity = needed;
+    }
+    if (needsAlloc || m_updateIndices) {
+      stageUpload(m_indexBuffer.get(), needed, m_indices.data(),
+                  VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
+                  VK_ACCESS_2_SHADER_READ_BIT);
+    }
   }
-  m_blas.reset();
-  m_blasStorage.reset();
-
+  // Validate inputs BEFORE tearing down the cached BLAS. If we exit here we
+  // want the previously-built BLAS to remain valid so the object stays in the
+  // TLAS — destroying it first would silently drop the object from ray-traced
+  // shadows until a future successful rebuild.
   const VertexElement *position = GetElement(eVertexBufferElement_Position);
   const uint32_t vertexNum =
       position ? static_cast<uint32_t>(position->NumElements()) : 0;
@@ -541,6 +575,9 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
       indexNum < 3) {
     return;
   }
+
+  m_blas.reset();
+  m_blasStorage.reset();
 
   RIAccelGeometryDesc_s geom = {};
   geom.type = RI_ACCEL_GEOMETRY_TYPE_TRIANGLES;
@@ -611,6 +648,11 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
   buildDesc.scratchBuffer = &scratchReq.block.buffer;
   CmdBuildRIBlas(device, cmd, &buildDesc, 1);
 
+  // Dirty flags only drive the *partial* upload path above; once we've fully
+  // re-uploaded and rebuilt the BLAS, clear them so the next submit (after a
+  // future UpdateData) doesn't re-upload streams that weren't touched.
+  m_updateFlags = 0;
+  m_updateIndices = false;
   m_lastSubmitted = m_generation;
   return;
 }
@@ -634,6 +676,10 @@ void VertexBuffer_RI::AttachResourceToCntx(RIBootstrap::FrameContext *cntx) {
 void VertexBuffer_RI::UpdateData(tVertexElementFlag aTypes, bool abIndices) {
   m_updateFlags |= aTypes;
   m_updateIndices |= abIndices;
+  // Without this bump, SubmitToGPU short-circuits and the GPU buffers / BLAS
+  // stay frozen at the last submitted state — silently breaking ray-traced
+  // shadows for skinned meshes that re-skin into m_shadowData each frame.
+  m_generation++;
 }
 
 float *VertexBuffer_RI::GetFloatArray(eVertexBufferElement aElement) {
@@ -675,12 +721,14 @@ void VertexBuffer_RI::ResizeArray(eVertexBufferElement aElement, int alSize) {
   if (element != m_vertexElements.end()) {
     m_updateFlags |= element->flag;
     element->m_shadowData.resize(alSize * GetSizeFromHPL(element->format));
+    m_generation++;
   }
 }
 
 void VertexBuffer_RI::ResizeIndices(int alSize) {
   m_updateIndices = true;
   m_indices.resize(alSize);
+  m_generation++;
 }
 
 const VertexBuffer_RI::VertexElement *
@@ -1006,7 +1054,12 @@ iVertexBuffer *VertexBuffer_RI::CreateCopy(eVertexBufferType aType,
   for (auto element : m_vertexElements) {
     if (element.flag & alVtxToCopy) {
       auto &vb = vertexBuffer->m_vertexElements.emplace_back(element);
-      //vb.m_buffer.TryFree();
+      // The copied VertexElement inherited the source's GPU-buffer shared_ptr
+      // and its m_internalBufferSize. The copy needs its own GPU storage
+      // (otherwise its first UpdateData would stage into the source's buffer),
+      // so drop both — SubmitToGPU's first run will allocate fresh.
+      vb.buffer.reset();
+      vb.m_internalBufferSize = 0;
     }
   }
   vertexBuffer->Compile(0); // actually create the buffers

@@ -18,6 +18,7 @@
 
 namespace hpl {
 
+class Image;
 
 class cHybridRenderer : public iRenderer {
 public:
@@ -45,26 +46,28 @@ private:
   // material pool is exhausted.
   uint32_t resolveMaterial(RIBootstrap::FrameContext *cntx,cMaterial *mat, uint32_t frameIndex);
 
+  // Map an Image* to its bindless slot in textures_2d[]. Used by
+  // resolveMaterial() and the light upload loops (spot falloff / gobo,
+  // point/spot attenuation maps). Returns INVALID_TEXTURE_INDEX when the
+  // image is null or the bindless pool is exhausted.
+  uint32_t resolveTextureSlot(RIBootstrap::FrameContext *cntx, Image *img, uint32_t frameIndex);
+
   cRenderList2 m_rendererList;
 
   LRUCache m_diffuseBindless;
 
   struct RIBuffer_s m_diffuseObjectBuffer;
 
-  // Per-frame point-light SSBO. Device-local; refilled each frame through
-  // RI.uploader (see Draw()). m_pointLightScratch is the CPU staging vector,
+  // Per-frame light SSBOs. Device-local; refilled each frame through
+  // RI.uploader (see Draw()). The m_*Scratch arrays are CPU staging,
   // reserved once at init so the per-frame fill doesn't reallocate.
   struct RIBuffer_s m_pointLightBuffer = {};
   std::array<PointLight, POINT_SLOT_LIGHT_CAPACITY> m_pointLightScratch;
+  struct RIBuffer_s m_spotLightBuffer = {};
+  std::array<SpotLight, SPOT_SLOT_LIGHT_CAPACITY> m_spotLightScratch;
+  struct RIBuffer_s m_boxLightBuffer = {};
+  std::array<BoxLight, BOX_SLOT_LIGHT_CAPACITY> m_boxLightScratch;
 
-  // Clustered-shading output. Two device-local SSBOs: per-froxel light count
-  // (LIGHT_FROXEL_TOTAL_COUNT uints, atomically incremented during the build
-  // pass) and the packed per-froxel light-id table (count *
-  // LIGHT_CLUSTER_MAX_LIGHTS_PER_FROXEL uints). Zeroed once per frame by
-  // m_lightClustersClear; then m_pointLightClusters fills them. Bound at
-  // set=1 bindings 3/4 to whichever cluster-consuming pass runs next.
-  struct RIBuffer_s m_lightClustersCountBuffer = {};
-  struct RIBuffer_s m_lightClustersBuffer = {};
   struct RIBuffer_s m_opaquePositionHandles;
   struct RIBuffer_s m_opaqueTangentHandles;
   struct RIBuffer_s m_opaqueNormalHandles;
@@ -99,10 +102,11 @@ private:
   RIBindlessDescriptorSet m_bindlessSet;
   LRUCache m_textureBindless;
 
-  std::shared_ptr<RIBuffer_s> m_tlasStorage;
+  RIBuffer_s m_tlasStorage = {};
   struct RIAccelStructure_s m_tlas = {};
   struct RIBuffer_s m_tlasInstanceBuffer = {};
   uint32_t m_tlasCapacity = 0;
+  uint32_t m_tlasStorageCapacity = 0;
 
   // Surfel-generation output — full-res HDR storage image written by
   // surfel_generation_pass.comp (set=3, binding=1). One per swapchain image.
@@ -123,12 +127,6 @@ private:
 	RIProgram m_surfelRaytrace;
 	RIProgram m_surfelIntegrate;
 
-	// Clustered shading. Clear zeros the per-froxel counts; point fills them
-	// by testing each point light's view-space bounding sphere against every
-	// froxel AABB. Both bind the bindless set 0 and write to the cluster
-	// SSBOs at set 1, bindings 3/4 (see light_cull_resources.glsl).
-	RIProgram m_lightClustersClear;
-	RIProgram m_pointLightClusters;
 	// Final visibility-buffer composite — port of AmnesiaTheDarkDescent's
 	// visibility_emit_shade_pass.frag.fsl. Fullscreen triangle that
 	// reconstructs (objectID, primID) from the gbuffer, runs Hawkins

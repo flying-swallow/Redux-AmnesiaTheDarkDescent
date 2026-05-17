@@ -48,5 +48,6 @@ layout(set = 1, binding = 0) uniform PerFrameBlock {
 #define zNear              perFrame.u.zNear
 #define zFar               perFrame.u.zFar
 #define spotLightCount     perFrame.u.spotLightCount
+#define boxLightCount      perFrame.u.boxLightCount
 
 #endif // PER_FRAME_RESOURCE_GLSL

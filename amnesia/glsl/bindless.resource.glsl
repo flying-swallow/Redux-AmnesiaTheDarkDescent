@@ -97,19 +97,12 @@ layout(set = 0, binding = BINDING_SPOT_LIGHTS, scalar) readonly buffer SpotLight
 
 #define spotLights spotLightBuf.data
 
-// Clustered shading. Per-froxel light count + packed light-id table.
-// Indexed via LIGHT_FROXEL_COUNT_POS / LIGHT_FROXEL_DATA_POS (forward_shared.h).
-// Written each frame by light_clusters_clear.comp / point_light_clusters.comp;
-// read by shading passes that consume the cluster grid.
-layout(set = 0, binding = BINDING_LIGHT_CLUSTERS_COUNT) buffer LightClustersCountBlock {
-    uint data[];
-} lightClustersCountBuf;
+// Per-frame box-light SSBO — Add-blend volumetric tints. Same upload cadence
+// as point/spot lights; PerFrameConstants::boxLightCount holds the count.
+layout(set = 0, binding = BINDING_BOX_LIGHTS, scalar) readonly buffer BoxLightBlock {
+    BoxLight data[];
+} boxLightBuf;
 
-layout(set = 0, binding = BINDING_LIGHT_CLUSTERS_DATA) buffer LightClustersBlock {
-    uint data[];
-} lightClustersBuf;
-
-#define lightClustersCount lightClustersCountBuf.data
-#define lightClusters      lightClustersBuf.data
+#define boxLights boxLightBuf.data
 
 #endif // BINDLESS_RESOURCE_GLSL

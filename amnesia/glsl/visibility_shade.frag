@@ -200,12 +200,88 @@ void main()
         direct += pl.color * pl.intensity * attenuation * ndl * M_1_OVER_PI;
     }
 
+    // Spot lights — range + cone cull, optional ray-traced shadow, optional
+    // gobo projection through the light's view-projection matrix.
+    for (uint i = 0u; i < spotLightCount; ++i)
+    {
+        SpotLight sl = spotLights[i];
+
+        vec3 toL = sl.position - worldPos;
+        float d  = length(toL);
+        if (d <= 0.0 || d > sl.radius) continue;
+
+        vec3 L = toL / d;
+        // sl.direction is the outward forward of the cone; surface→light
+        // direction is +L, so light→surface is -L. Inside the cone when
+        // dot(-L, forward) >= cos(half-angle).
+        float cosTheta = dot(-L, sl.direction);
+        if (cosTheta < sl.cosOuterAngle) continue;
+
+        float ndl = max(dot(worldNormal, L), 0.0);
+        if (ndl <= 0.0) continue;
+
+        PtPayload hit;
+        ClosestHit(Ray(sl.position, -L), hit);
+        bool selfHit = hit.instanceCustomIndex == int(objectId) &&
+                        hit.primitiveID         == int(primId);
+        if (hit.hitT < INFINITY && !selfHit) continue;
+    
+        float attenuation = getRangeAttenuation(sl.radius, d);
+
+        // Gobo projection — sample the light's view-projection in NDC, then
+        // map [-1,1] → [0,1]. Pixels behind the light or outside the projected
+        // rect are zeroed; cosTheta already guarantees in-cone.
+        vec3 gobo = vec3(1.0);
+        if (sl.goboTextureIndex != INVALID_TEXTURE_INDEX)
+        {
+            vec4 lc = sl.viewProjection * vec4(worldPos, 1.0);
+            if (lc.w > 0.0)
+            {
+                vec3 ndc = lc.xyz / lc.w;
+                vec2 uv  = ndc.xy * 0.5 + 0.5;
+                if (all(greaterThanEqual(uv, vec2(0.0))) &&
+                    all(lessThanEqual(uv, vec2(1.0))))
+                {
+                    gobo = texture(
+                        sampler2D(textures_2d[nonuniformEXT(sl.goboTextureIndex)],
+                                  materialSampler),
+                        uv).rgb;
+                }
+                else
+                {
+                    gobo = vec3(0.0);
+                }
+            }
+            else
+            {
+                gobo = vec3(0.0);
+            }
+        }
+
+        direct += sl.color * sl.intensity * attenuation * ndl * gobo * M_1_OVER_PI;
+    }
+
     // Indirect from the surfel cache — surfel_generate pre-computed the
     // per-pixel gather at half-res into surfelIndirect. The linear sampler
     // does the upsample; no per-fragment cell iteration needed here.
     vec3 indirect = texture(surfelIndirect, uv01).rgb;
 
-    vec3 finalColor = albedo * (direct + indirect);
+    // Box lights — world-AABB tints. Matches the legacy deferred renderer's
+    // `framebuffer += diffuse * lightColor.rgb` modulation (see
+    // AmnesiaTheDarkDescent/HPL2/resource/deferred_light_box.frag.fsl). The
+    // legacy shader discards alpha, so `intensity` is intentionally unused
+    // here. Folding `box` into the inner bucket below gives it the same
+    // albedo multiply that the legacy renderer got via framebuffer blending.
+    // (eLightBoxBlendFunc_Replace is still treated as Add for now.)
+    vec3 box = vec3(0.0);
+    for (uint i = 0u; i < boxLightCount; ++i)
+    {
+        BoxLight bl = boxLights[i];
+        if (any(greaterThan(abs(worldPos - bl.center), bl.halfSize))) continue;
+        box += bl.color;
+    }
+
+    vec3 finalColor = albedo * (direct + indirect + box);
 
     // Uncharted 2 tonemap + manual linear->sRGB (swapchain is UNORM).
     vec3 mapped = toneMapUncharted(finalColor);

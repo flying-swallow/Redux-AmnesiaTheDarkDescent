@@ -394,7 +394,12 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
 
         radiance += throughput * hit.emissive;
 
-        // NEE: pick one point light per bounce instead of looping all.
+        // NEE: pick one directional (point or spot) light per bounce from the
+        // combined pool instead of looping all. Box lights are add-blend
+        // ambient (no shadow ray, no cone) and accumulate deterministically
+        // after the bounce — kept out of the stochastic pool because their
+        // contribution doesn't depend on the chosen direction.
+        //
         // Contribution is staged here; the shadow ray fires after we've
         // already updated the next-bounce ray (deferred shadow), which
         // keeps live state across AnyHit minimal per the RTX best-practice.
@@ -404,30 +409,107 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
         float pendingShadowMaxT  = 0.0;
         bool pendingShadow = false;
 
-        if (pointLightCount > 0u)
+        uint directionalLightCount = pointLightCount + spotLightCount;
+        if (directionalLightCount > 0u)
         {
-            uint lightIdx = min(uint(rand(prd.seed) * float(pointLightCount)),
-                                pointLightCount - 1u);
-            float lightPdf = 1.0 / float(pointLightCount);
-            PointLight pl = pointLights[lightIdx];
+            uint lightIdx = min(uint(rand(prd.seed) * float(directionalLightCount)),
+                                directionalLightCount - 1u);
+            float lightPdf = 1.0 / float(directionalLightCount);
 
-            vec3 toL = pl.position - hit.posW;
-            float d  = length(toL);
-            if (d > 0.0 && d <= pl.radius)
+            if (lightIdx < pointLightCount)
             {
-                vec3 L = toL / d;
-                float ndl = max(dot(ffnormal, L), 0.0);
-                if (ndl > 0.0)
+                PointLight pl = pointLights[lightIdx];
+
+                vec3 toL = pl.position - hit.posW;
+                float d  = length(toL);
+                if (d > 0.0 && d <= pl.radius)
                 {
-                    float falloff = 1.0 - smoothstep(0.0, pl.radius, d);
-                    pendingDirect = throughput * hit.albedo * pl.color * pl.intensity
-                                  * ndl * falloff * M_1_OVER_PI / lightPdf;
-                    pendingShadowOrigin = OffsetRayBindless(hit.posW, ffnormal);
-                    pendingShadowDir    = L;
-                    pendingShadowMaxT   = max(d - 0.01, 0.0);
-                    pendingShadow = true;
+                    vec3 L = toL / d;
+                    float ndl = max(dot(ffnormal, L), 0.0);
+                    if (ndl > 0.0)
+                    {
+                        float falloff = 1.0 - smoothstep(0.0, pl.radius, d);
+                        pendingDirect = throughput * hit.albedo * pl.color * pl.intensity
+                                      * ndl * falloff * M_1_OVER_PI / lightPdf;
+                        pendingShadowOrigin = OffsetRayBindless(hit.posW, ffnormal);
+                        pendingShadowDir    = L;
+                        pendingShadowMaxT   = max(d - 0.01, 0.0);
+                        pendingShadow = true;
+                    }
                 }
             }
+            else
+            {
+                SpotLight sl = spotLights[lightIdx - pointLightCount];
+
+                vec3 toL = sl.position - hit.posW;
+                float d  = length(toL);
+                if (d > 0.0 && d <= sl.radius)
+                {
+                    vec3 L = toL / d;
+                    // sl.direction is the light's outward forward; inside the
+                    // cone when dot(-L, forward) >= cos(half-angle).
+                    float cosTheta = dot(-L, sl.direction);
+                    if (cosTheta >= sl.cosOuterAngle)
+                    {
+                        float ndl = max(dot(ffnormal, L), 0.0);
+                        if (ndl > 0.0)
+                        {
+                            float falloff = 1.0 - smoothstep(0.0, sl.radius, d);
+
+                            // Optional gobo projection through the light's
+                            // view-projection. Mirrors visibility_shade.frag's
+                            // spot path — outside the projected rect is zeroed.
+                            vec3 gobo = vec3(1.0);
+                            if (sl.goboTextureIndex != INVALID_TEXTURE_INDEX)
+                            {
+                                vec4 lc = sl.viewProjection * vec4(hit.posW, 1.0);
+                                if (lc.w > 0.0)
+                                {
+                                    vec3 ndc = lc.xyz / lc.w;
+                                    vec2 uv  = ndc.xy * 0.5 + 0.5;
+                                    if (all(greaterThanEqual(uv, vec2(0.0))) &&
+                                        all(lessThanEqual(uv, vec2(1.0))))
+                                    {
+                                        gobo = texture(
+                                            sampler2D(textures_2d[nonuniformEXT(sl.goboTextureIndex)],
+                                                      materialSampler),
+                                            uv).rgb;
+                                    }
+                                    else
+                                    {
+                                        gobo = vec3(0.0);
+                                    }
+                                }
+                                else
+                                {
+                                    gobo = vec3(0.0);
+                                }
+                            }
+
+                            pendingDirect = throughput * hit.albedo * sl.color * sl.intensity
+                                          * ndl * falloff * gobo * M_1_OVER_PI / lightPdf;
+                            pendingShadowOrigin = OffsetRayBindless(hit.posW, ffnormal);
+                            pendingShadowDir    = L;
+                            pendingShadowMaxT   = max(d - 0.01, 0.0);
+                            pendingShadow = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Box lights — add-blend volumetric tints. No shadow ray, no cone:
+        // the pixel is "inside" when |hit.posW - center| <= halfSize per
+        // axis, and the contribution is just color modulated by
+        // throughput*albedo (matching visibility_shade.frag's albedo*box
+        // term). Alpha is intentionally not used — the legacy
+        // deferred_light_box.frag.fsl discards it.
+        for (uint bi = 0u; bi < boxLightCount; ++bi)
+        {
+            BoxLight bl = boxLights[bi];
+            if (any(greaterThan(abs(hit.posW - bl.center), bl.halfSize))) continue;
+            radiance += throughput * hit.albedo * bl.color;
         }
 
         // Cosine-weighted Lambertian bounce, sampled around ffnormal so

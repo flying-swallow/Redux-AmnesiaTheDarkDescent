@@ -159,6 +159,7 @@ protected:
   uint32_t m_lastSubmitted = 0;
 
   size_t m_indexBufferActiveCopy = 0;
+  size_t m_indexBufferCapacity = 0; // bytes allocated in m_indexBuffer
   tVertexElementFlag m_updateFlags = 0; // update no need to rebuild buffers
   bool m_updateIndices = false;
 

@@ -33,19 +33,6 @@ void main()
 {
     uint index = gl_GlobalInvocationID.x;
 
-    // DIAGNOSTIC (remove once root cause for black irradiance is known):
-    // thread-0, ~once-per-second, dump global counts so we can confirm the
-    // raytrace dispatch is actually running with non-zero work and a
-    // populated point-light SSBO.
-    if (index == 0u && (totalFrames & 0x3Fu) == 0u)
-    {
-        debugPrintfEXT("[surfel_rt] f=%u alive=%u rayCnt=%u plc=%u\n",
-                       totalFrames,
-                       surfelCounter.aliveSurfelCnt,
-                       surfelCounter.surfelRayCnt,
-                       pointLightCount);
-    }
-
     if (index >= surfelCounter.surfelRayCnt)
     {
         return;

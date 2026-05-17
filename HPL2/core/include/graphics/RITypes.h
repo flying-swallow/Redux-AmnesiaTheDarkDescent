@@ -251,21 +251,21 @@ struct RIAccelAabb_s {
   float maxX, maxY, maxZ;
 };
 
-// callers fill a buffer of these and pass it as the TLAS instance buffer;
-// matches VkAccelerationStructureInstanceKHR layout (64 bytes)
-struct RIAccelInstance_s {
-  RIAccelInstance_s() { memset(this, 0, sizeof(*this)); }
-  float matrix[3][4];
-  uint32_t instanceCustomIndex : 24;
-  uint32_t mask : 8;
-  uint32_t shaderBindingTableRecordOffset : 24;
-  uint32_t flags : 8; // RIAccelInstanceBits_e
-  uint64_t
-      accelerationStructureDeviceAddress; // GetRIAccelStructureDeviceAddress
-};
-static_assert(
-    sizeof(struct RIAccelInstance_s) == 64,
-    "RIAccelInstance_s must match VkAccelerationStructureInstanceKHR layout");
+//// callers fill a buffer of these and pass it as the TLAS instance buffer;
+//// matches VkAccelerationStructureInstanceKHR layout (64 bytes)
+//struct RIAccelInstance_s {
+//  RIAccelInstance_s() { memset(this, 0, sizeof(*this)); }
+//  float matrix[3][4];
+//  uint32_t instanceCustomIndex : 24;
+//  uint32_t mask : 8;
+//  uint32_t shaderBindingTableRecordOffset : 24;
+//  uint32_t flags : 8; // RIAccelInstanceBits_e
+//  uint64_t
+//      accelerationStructureDeviceAddress; // GetRIAccelStructureDeviceAddress
+//};
+//static_assert(
+//    sizeof(struct RIAccelInstance_s) == 64,
+//    "RIAccelInstance_s must match VkAccelerationStructureInstanceKHR layout");
 
 struct RIAccelTrianglesDesc_s {
   struct RIBuffer_s *vertexBuffer;

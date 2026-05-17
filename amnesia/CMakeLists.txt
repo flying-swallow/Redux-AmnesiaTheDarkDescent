@@ -149,8 +149,6 @@ SHADERS
     ./glsl/surfel_generation_pass.comp
     ./glsl/visibility_shade.vert
     ./glsl/visibility_shade.frag
-    ./glsl/light_clusters_clear.comp
-    ./glsl/point_light_clusters.comp
 OUTPUT_FOLDER
 ${AMNESIA_SHADER_DIR}
 )
