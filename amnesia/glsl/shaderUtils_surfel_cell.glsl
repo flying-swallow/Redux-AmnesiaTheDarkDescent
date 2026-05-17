@@ -384,65 +384,84 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
         BindlessHit hit = GetBindlessHit(prd);
         lastHit = hit;
 
-        // Emissive surfaces contribute on every bounce. Throughput already
-        // carries the BRDF product from prior bounces.
+        // Front-face normal: flip the shading normal toward the ray origin
+        // when we hit a back-face / thin two-sided polygon. Without this,
+        // dot(normal, L) and the cosine-weighted bounce can use a normal
+        // pointing into the surface, which produces signed throughput and
+        // negative accumulated radiance.
+        vec3 ffnormal = dot(hit.normalW, r.direction) <= 0.0
+                            ? hit.normalW : -hit.normalW;
+
         radiance += throughput * hit.emissive;
 
-        // DIAGNOSTIC (remove once root cause for black irradiance is known):
-        // count how many point lights are in radius and how many pass the
-        // shadow test so the printf below can attribute which arm dropped
-        // the direct contribution.
-        uint _plInRadius = 0u, _plVisible = 0u;
-        vec3 _plRadiance = vec3(0.0);
+        // NEE: pick one point light per bounce instead of looping all.
+        // Contribution is staged here; the shadow ray fires after we've
+        // already updated the next-bounce ray (deferred shadow), which
+        // keeps live state across AnyHit minimal per the RTX best-practice.
+        vec3 pendingDirect = vec3(0.0);
+        vec3 pendingShadowOrigin = vec3(0.0);
+        vec3 pendingShadowDir    = vec3(0.0);
+        float pendingShadowMaxT  = 0.0;
+        bool pendingShadow = false;
 
-        // Direct lighting from point lights.
-        for (uint i = 0u; i < pointLightCount; ++i)
+        if (pointLightCount > 0u)
         {
-            PointLight pl = pointLights[i];
+            uint lightIdx = min(uint(rand(prd.seed) * float(pointLightCount)),
+                                pointLightCount - 1u);
+            float lightPdf = 1.0 / float(pointLightCount);
+            PointLight pl = pointLights[lightIdx];
+
             vec3 toL = pl.position - hit.posW;
             float d  = length(toL);
-            if (d <= 0.0 || d > pl.radius) continue;
-            _plInRadius++;
-            vec3 L = toL / d;
-            float ndl = max(dot(hit.normalW, L), 0.0);
-            if (ndl <= 0.0) continue;
-
-            Ray shadowRay = Ray(OffsetRayBindless(hit.posW, hit.normalW), L);
-            if (AnyHit(shadowRay, max(d - 0.01, 0.0))) continue;
-            _plVisible++;
-
-            // Smoothstep range falloff; intensity acts as a scalar multiplier
-            // on the diffuse color.
-            float falloff = 1.0 - smoothstep(0.0, pl.radius, d);
-            vec3 contribution = throughput * hit.albedo * pl.color * pl.intensity
-                              * ndl * falloff * M_1_OVER_PI;
-            _plRadiance += contribution;
-            radiance += contribution;
+            if (d > 0.0 && d <= pl.radius)
+            {
+                vec3 L = toL / d;
+                float ndl = max(dot(ffnormal, L), 0.0);
+                if (ndl > 0.0)
+                {
+                    float falloff = 1.0 - smoothstep(0.0, pl.radius, d);
+                    pendingDirect = throughput * hit.albedo * pl.color * pl.intensity
+                                  * ndl * falloff * M_1_OVER_PI / lightPdf;
+                    pendingShadowOrigin = OffsetRayBindless(hit.posW, ffnormal);
+                    pendingShadowDir    = L;
+                    pendingShadowMaxT   = max(d - 0.01, 0.0);
+                    pendingShadow = true;
+                }
+            }
         }
 
-        // DIAGNOSTIC: bounce-0 attribution for ray 0, once per second.
-        if (gl_GlobalInvocationID.x == 0u && depth == 0
-            && (totalFrames & 0xF) == 0u)
-        {
-            debugPrintfEXT("    d=%d t=%.2f albedo=(%.2f,%.2f,%.2f) emis=(%.3f,%.3f,%.3f) plInR=%u plVis=%u L_pl=(%.3f,%.3f,%.3f)\n",
-                           depth, prd.hitT,
-                           hit.albedo.r, hit.albedo.g, hit.albedo.b,
-                           hit.emissive.r, hit.emissive.g, hit.emissive.b,
-                           _plInRadius, _plVisible,
-                           _plRadiance.r, _plRadiance.g, _plRadiance.b);
-        }
-
-        // Cosine-weighted Lambertian bounce. BRDF * cos / pdf simplifies to albedo.
+        // Cosine-weighted Lambertian bounce, sampled around ffnormal so
+        // back-face hits don't produce samples pointing into the surface.
         vec3 T, B;
-        CreateCoordinateSystem(hit.normalW, T, B);
-        // Reuse prd.seed for path RNG — caller initialized it.
+        CreateCoordinateSystem(ffnormal, T, B);
         vec2 u = rand2(prd.seed);
         vec3 localDir = CosineSampleHemisphere(u.x, u.y);
-        vec3 newDir = normalize(localDir.x * T + localDir.y * B + localDir.z * hit.normalW);
+        vec3 newDir = normalize(localDir.x * T + localDir.y * B + localDir.z * ffnormal);
         throughput *= hit.albedo;
 
-        r.origin    = OffsetRayBindless(hit.posW, hit.normalW);
+        r.origin    = OffsetRayBindless(hit.posW, ffnormal);
         r.direction = newDir;
+
+        // Deferred shadow ray for the NEE sample chosen above.
+        if (pendingShadow)
+        {
+            Ray shadowRay = Ray(pendingShadowOrigin, pendingShadowDir);
+            if (!AnyHit(shadowRay, pendingShadowMaxT))
+            {
+                radiance += pendingDirect;
+            }
+        }
+
+        // Russian roulette: from depth 2 onward, terminate paths whose
+        // throughput has decayed. Survivors get /= rrPcont so the estimator
+        // stays unbiased.
+        if (depth >= 2)
+        {
+            float rrPcont = clamp(max(throughput.x, max(throughput.y, throughput.z)),
+                                  0.05, 0.95);
+            if (rand(prd.seed) >= rrPcont) break;
+            throughput /= rrPcont;
+        }
     }
 
     // Surfel-cache fallback once we hit max depth.

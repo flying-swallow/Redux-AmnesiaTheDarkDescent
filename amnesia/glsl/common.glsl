@@ -76,6 +76,45 @@ vec3 temperature(float intensity)
 }
 
 //-----------------------------------------------------------------------
+// Light-cluster math (ported from AmnesiaTheDarkDescent's math_utils.h.fsl).
+// Pure helpers — no descriptor dependencies, safe to include anywhere.
+//-----------------------------------------------------------------------
+
+// Exponential depth split. slice in [0, totalSlices]; returns the positive
+// view-space distance for that split. The cluster pass negates the result so
+// it lands on the same -Z side of the camera the projection matrix expects.
+float getDepthClipPlane(float slice, float totalSlices, float near_, float far_)
+{
+    return near_ * pow(far_ / near_, slice / totalSlices);
+}
+
+// Project a clip-space point through invProj and divide by w to land in view
+// space. Caller supplies (clipX, clipY, -1, 1) for the near plane / far ray.
+vec3 ndcToViewSpace(vec4 ndc, mat4 invProj)
+{
+    vec4 v = invProj * ndc;
+    return v.xyz / v.w;
+}
+
+// Intersect the line segment a→b with the plane z = planeZ in view space.
+// Used to slide a corner ray onto the slice's near or far Z plane.
+vec3 lineIntersectionToZPlane(vec3 a, vec3 b, float planeZ)
+{
+    vec3  ab = b - a;
+    float t  = (planeZ - a.z) / ab.z;
+    return a + t * ab;
+}
+
+// Squared-distance sphere-vs-AABB intersect, view space. Returns true when
+// the closest point on the AABB to the sphere centre lies within the sphere.
+bool testSphereAABB(vec3 c, float r, vec3 mn, vec3 mx)
+{
+    vec3 closest = clamp(c, mn, mx);
+    vec3 d       = c - closest;
+    return dot(d, d) <= r * r;
+}
+
+//-----------------------------------------------------------------------
 // Return the UV in a lat-long HDR map
 //-----------------------------------------------------------------------
 vec2 GetSphericalUv(vec3 v)

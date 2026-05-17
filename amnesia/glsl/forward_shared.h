@@ -19,6 +19,23 @@ typedef float    vec2[2];
 #define MATERIAL_SLOT_CAPACITY  16384u
 #define POINT_SLOT_LIGHT_CAPACITY     256u
 
+// Clustered shading froxel grid. Mirrors AmnesiaTheDarkDescent's
+// scene_defs.h.fsl light-cluster layout: 16x9 tiles in screen space, 24
+// exponential depth slices, up to 128 lights per froxel. Cluster count and
+// data SSBOs are sized from these on the C++ side and indexed in the GLSL
+// passes via LIGHT_FROXEL_*_POS below.
+#define LIGHT_CLUSTER_WIDTH               16u
+#define LIGHT_CLUSTER_HEIGHT              9u
+#define LIGHT_CLUSTER_SLICE               24u
+#define LIGHT_CLUSTER_MAX_LIGHTS_PER_FROXEL 128u
+#define LIGHT_FROXEL_TOTAL_COUNT \
+    (LIGHT_CLUSTER_WIDTH * LIGHT_CLUSTER_HEIGHT * LIGHT_CLUSTER_SLICE)
+#define LIGHT_FROXEL_COUNT_POS(ix, iy, iz) \
+    ((LIGHT_CLUSTER_WIDTH * LIGHT_CLUSTER_HEIGHT * (iz)) + \
+     ((iy) * LIGHT_CLUSTER_WIDTH) + (ix))
+#define LIGHT_FROXEL_DATA_POS(ix, iy, iz, il) \
+    (LIGHT_FROXEL_COUNT_POS(ix, iy, iz) * LIGHT_CLUSTER_MAX_LIGHTS_PER_FROXEL + (il))
+
 // Surfel-GI capacities. Mirrors `kMaxSurfelCount` / `kMaxRayCount` in
 // amnesia/glsl/host_device.h — kept here in C-preprocessor form so the C++
 // allocator (cHybridRenderer) and any GLSL pass that includes this header
@@ -92,6 +109,16 @@ typedef float    vec2[2];
 #define BINDING_TRANSLUCENT_MATERIAL        24
 #define BINDING_WATER_MATERIAL              25
 #define BINDING_DECAL_MATERIAL              26
+// Clustered-shading SSBOs. Written every frame by the cluster build chain
+// (light_clusters_clear + point_light_clusters) and read by any future
+// forward+ shading pass. Live alongside the other bindless SSBOs so a
+// consumer reaches them through the same set 0 binding that already
+// carries point lights, scene objects, etc.
+#define BINDING_LIGHT_CLUSTERS_COUNT        27
+#define BINDING_LIGHT_CLUSTERS_DATA         28
+// Per-frame spot-light SSBO. Same upload path as point lights; consumed by
+// shading passes alongside pointLights[].
+#define BINDING_SPOT_LIGHTS                 29
 
 // Texture-slot indices into the bindless `textures_2d[]` array (set=0,
 // binding=0). One uint32 per slot — see per_frame.resource.glsl for the
@@ -155,11 +182,37 @@ struct UniformObject {
 // Scalar-layout point light. Position+radius and color+intensity pair into
 // natural 16-byte slots; the C++ side memcpy's an array of these into the
 // device-local SSBO via RI.uploader each frame.
+// `attenuationTextureIndex` is the bindless slot of the artist-authored
+// radial falloff LUT (canonical HPL2 attenuation, indexed by (d/r)²). Set
+// to INVALID_TEXTURE_INDEX when no map is bound and the shader will fall
+// back to saturate(1 - (d/r)²).
 struct PointLight {
     vec3  position;
     float radius;
     vec3  color;
     float intensity;
+    uint  attenuationTextureIndex;
+    uint  _pad0;
+    uint  _pad1;
+    uint  _pad2;
+};
+
+// Scalar-layout spot light. Mirrors PointLight but adds a cone forward +
+// pre-baked cos(angle/2) for the cone cull, optional gobo slot, optional
+// shadow bit, and the light's view-projection matrix for projecting the
+// gobo (and any future shadow-map UV) into the cone.
+struct SpotLight {
+    vec3  position;
+    float radius;
+    vec3  direction;        // world-space outward forward
+    float cosOuterAngle;    // cos(GetFOV() * 0.5)
+    vec3  color;
+    float intensity;
+    uint  attenuationTextureIndex; // radial atten LUT (same shape as PointLight)
+    uint  goboTextureIndex;        // INVALID_TEXTURE_INDEX → no gobo
+    uint  shadowEnabled;           // 0 or 1
+    uint  _pad0;
+    mat4  viewProjection;          // light-space ViewProj for gobo UVs
 };
 
 // Per-frame UBO contents (std140). On the GLSL side this struct is wrapped
@@ -184,6 +237,12 @@ struct PerFrameConstants {
     float cameraFov;         // main camera vertical FOV (radians)
     uint  pointLightCount;   // active entries in the bindless pointLights[] SSBO
     float fireflyClampThreshold;  // luminance cap applied in surfel raytrace + integrate
+    float zNear;             // main camera near plane (view-space, positive)
+    float zFar;              // main camera far plane (view-space, positive)
+    uint  spotLightCount;    // active entries in the bindless spotLights[] SSBO
+    uint  _pad0;
+    uint  _pad1;
+    uint  _pad2;
 };
 
 #ifdef __cplusplus

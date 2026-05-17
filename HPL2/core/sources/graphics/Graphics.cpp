@@ -338,11 +338,20 @@ namespace hpl {
 		InitRICommandRingBuffer( &RI.device, graphicsQueue, &RI.graphicsCmdRing,
 		                         RI_NUMBER_FRAMES_FLIGHT, RI_NUMBER_SUB_COMMANDS, true );
 		for(auto& set: RI.frameSets) {
-			struct RIScratchAllocDesc_s scratchDesc = {
+			struct RIScratchAllocDesc_s uboDesc = {
 					.blockSize = 256 * 128,
-					.alignmentReq = 256,
+					.alignmentReq = RI.device.physicalAdapter.constantBufferOffsetAlignment,
 					.alloc = RIUniformScratchAllocHandler };
-			InitRIScratchAlloc( &RI.device, &set.uboScratchAlloc, &scratchDesc );
+			InitRIScratchAlloc( &RI.device, &set.uboScratchAlloc, &uboDesc );
+
+			// AS build scratch pool. 1 MiB blocks fit typical TLAS/BLAS scratch
+			// for moderate scenes; oversized builds spill through the allocator's
+			// one-shot path.
+			struct RIScratchAllocDesc_s accelDesc = {
+					.blockSize = 1024 * 1024,
+					.alignmentReq = RI.device.physicalAdapter.accelerationStructureScratchOffsetAlignment,
+					.alloc = RIAccelScratchAllocHandler };
+			InitRIScratchAlloc( &RI.device, &set.accelScratchAlloc, &accelDesc );
 		}
 		}
 		{

@@ -344,13 +344,22 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       bindings.push_back(RIBindlessDescriptorSet::Binding{
           BINDING_POINT_LIGHTS, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
           VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0});
+      // Clustered-shading SSBOs (bindings 27..28). Written each frame by
+      // light_clusters_clear + point_light_clusters compute passes; read
+      // by any future forward+ shading pass.
+      bindings.push_back(RIBindlessDescriptorSet::Binding{
+          BINDING_LIGHT_CLUSTERS_COUNT, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+          VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0});
+      bindings.push_back(RIBindlessDescriptorSet::Binding{
+          BINDING_LIGHT_CLUSTERS_DATA, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+          VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0});
 
       VkDescriptorPoolSize poolSizes[3] = {};
       poolSizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                                           TEXTURE_SLOT_CAPACITY};
       // 6 opaque*Handles + 7 surfel + 3 cell + 2 scene/material + 1 point-light
-      //   + 1 surfel-lobe (Phase 4) = 20.
-      poolSizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 20};
+      //   + 2 light-cluster + 1 surfel-lobe (Phase 4) = 22.
+      poolSizes[1] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 22};
       poolSizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLER, 1};
 
       m_bindlessSet.initialize(&RI.device, bindings, poolSizes);
@@ -416,6 +425,22 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       std::array<RIProgram::ModuleStage, 1> stages = {
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_COMPUTE, comp_integrate}};
       m_surfelIntegrate.initialize(&RI.device, stages, externalLayouts);
+    }
+    {
+      auto comp_clusters_clear = RIProgram::loadShaderStage(
+          apResources->GetFileSearcher(), "light_clusters_clear.comp.spv");
+      std::array<RIProgram::ModuleStage, 1> stages = {
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_COMPUTE,
+                                 comp_clusters_clear}};
+      m_lightClustersClear.initialize(&RI.device, stages, externalLayouts);
+    }
+    {
+      auto comp_point_clusters = RIProgram::loadShaderStage(
+          apResources->GetFileSearcher(), "point_light_clusters.comp.spv");
+      std::array<RIProgram::ModuleStage, 1> stages = {
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_COMPUTE,
+                                 comp_point_clusters}};
+      m_pointLightClusters.initialize(&RI.device, stages, externalLayouts);
     }
     {
       auto vis_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
@@ -529,6 +554,34 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bci, &aci,
                                     &m_pointLightBuffer.vk.buffer,
                                     &m_pointLightBuffer.vk.allocation, nullptr));
+    }
+
+    // Clustered-shading SSBOs. Device-local; reused across frames, cleared
+    // each frame by m_lightClustersClear. Count buffer is one uint per
+    // froxel; data buffer is LIGHT_CLUSTER_MAX_LIGHTS_PER_FROXEL uints per
+    // froxel for the packed light-id table.
+    {
+      uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
+      VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+      VK_ConfigureBufferQueueFamilies(&bci, RI.device.queues, RI_QUEUE_LEN,
+                                      queueFamilies, RI_QUEUE_LEN);
+      bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+                  VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+      VmaAllocationCreateInfo aci = {};
+      aci.usage = VMA_MEMORY_USAGE_AUTO;
+
+      bci.size = (VkDeviceSize)LIGHT_FROXEL_TOTAL_COUNT * sizeof(uint32_t);
+      VK_WrapResult(vmaCreateBuffer(
+          RI.device.vk.vmaAllocator, &bci, &aci,
+          &m_lightClustersCountBuffer.vk.buffer,
+          &m_lightClustersCountBuffer.vk.allocation, nullptr));
+
+      bci.size = (VkDeviceSize)LIGHT_FROXEL_TOTAL_COUNT *
+                 LIGHT_CLUSTER_MAX_LIGHTS_PER_FROXEL * sizeof(uint32_t);
+      VK_WrapResult(vmaCreateBuffer(
+          RI.device.vk.vmaAllocator, &bci, &aci,
+          &m_lightClustersBuffer.vk.buffer,
+          &m_lightClustersBuffer.vk.allocation, nullptr));
     }
 
     // Surfel-generation output image — one storage texture per swapchain
@@ -697,6 +750,11 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           {BINDING_SCENE_OBJECTS,   &m_diffuseObjectBuffer,  OBJECT_SLOT_CAPACITY    * sizeof(ObjectGPUData)},
           {BINDING_OPAQUE_MATERIAL, &m_opaqueMaterialBuffer, MATERIAL_SLOT_CAPACITY  * sizeof(DiffuseMaterialGPU)},
           {BINDING_POINT_LIGHTS,    &m_pointLightBuffer,     POINT_SLOT_LIGHT_CAPACITY     * sizeof(PointLight)},
+          {BINDING_LIGHT_CLUSTERS_COUNT, &m_lightClustersCountBuffer,
+              LIGHT_FROXEL_TOTAL_COUNT * sizeof(uint32_t)},
+          {BINDING_LIGHT_CLUSTERS_DATA,  &m_lightClustersBuffer,
+              (VkDeviceSize)LIGHT_FROXEL_TOTAL_COUNT *
+              LIGHT_CLUSTER_MAX_LIGHTS_PER_FROXEL * sizeof(uint32_t)},
       };
       
       RIBindlessDescriptorSet::WriteBinding writes[std::size(ssbos) + 1] = {};
@@ -849,6 +907,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   perFrame.totalFrames = RI.frameIndex;
   perFrame.cameraFov = apFrustum->GetFOV();
   perFrame.fireflyClampThreshold = 10.0f;
+  perFrame.zNear = apFrustum->GetNearPlane();
+  perFrame.zFar = apFrustum->GetFarPlane();
   // Fog params + worldFogColor + invViewRotationMat default to zero — fine for
   // the first pass; populate when the deferred-fog path needs them.
 
@@ -867,10 +927,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // TLAS instance accumulator. Built up alongside the indirect-draw write so
   // visible solids whose BLAS we successfully resolve land in the TLAS exactly
   // once.
-  const bool rtEnabled = RI.device.physicalAdapter.isRayTracingSupported;
   std::vector<RIAccelInstance_s> tlasInstances;
-  if (rtEnabled)
-    tlasInstances.reserve(solids.size());
+  tlasInstances.reserve(solids.size());
 
   size_t num_point_lights = 0;
   for (iLight *pLight : lights) {
@@ -890,7 +948,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     pl.color[0] = c.r;
     pl.color[1] = c.g;
     pl.color[2] = c.b;
-    pl.intensity = c.a * 3.0;
+    pl.intensity = c.a;
     m_pointLightScratch[num_point_lights++] = pl;
   }
   perFrame.pointLightCount = static_cast<uint32_t>(num_point_lights);
@@ -959,6 +1017,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
 
     auto *vb = static_cast<VertexBuffer_RI *>(pVB);
+    vb->SubmitToGPU(&RI.primary.cmds[0], &RI.device, cntx);
     if (!req.found) {
       std::memcpy(static_cast<uint8_t *>(m_diffuseObjectBuffer.mappedAddress) +
                       req.id * sizeof(ObjectGPUData),
@@ -996,25 +1055,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       }
     }
 
-    // Keep the VertexBuffer_RI's underlying RIBuffer_s shared_ptrs alive at
-    // least until this frame's set rotates back around — the GPU dereferences
-    // their BDAs in the indirect draw, and if the renderable is destroyed
-    // mid-flight the shared_ptr deleter would otherwise free them too early.
-    {
-      auto *cntx = RI.GetActiveSet();
-      const eVertexBufferElement attrs[] = {
-          eVertexBufferElement_Position, eVertexBufferElement_Texture1Tangent,
-          eVertexBufferElement_Normal,   eVertexBufferElement_Texture0,
-          eVertexBufferElement_Color0,
-      };
-      for (auto type : attrs) {
-        const auto *element = vb->GetElement(type);
-        if (element && element->buffer)
-          cntx->bufferLink.push_back(element->buffer);
-      }
-      if (auto idx = vb->GetIndexRIBuffer())
-        cntx->bufferLink.push_back(idx);
-    }
+    vb->AttachResourceToCntx(cntx);
 
     // firstInstance carries the slot id to the VS via gl_InstanceIndex;
     // the VS pulls vertex / index data via BDA from the bindless set 0 SSBOs,
@@ -1028,32 +1069,29 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       };
     }
 
-    // Lazy BLAS build + TLAS instance emission. GetOrBuildBlas records into the
-    // same primary cmd buffer the forward pass uses; an accel-build→accel-build
-    // barrier below guarantees the TLAS read sees the BLAS writes.
-    if (rtEnabled) {
-      RIAccelStructure_s *blas =
-          vb->GetOrBuildBlas(&RI.device, &RI.primary.cmds[0]);
-      if (blas && blas->vk.handle != VK_NULL_HANDLE) {
-        // VkAccelerationStructureInstanceKHR is row-major 3x4
-        // (transform[row][col]). ml::float4x4 from ToFloatTranspose4x4 is
-        // column-major; the transpose path above already produced row-major
-        // data in payload.modelMat (16 floats), so copy the first 12 directly
-        // into the instance matrix.
-        RIAccelInstance_s inst = {};
-        // payload.modelMat is row-major 4x4; we want rows 0..2 cols 0..3.
-        for (int r = 0; r < 3; ++r) {
-          for (int c = 0; c < 4; ++c) {
-            inst.matrix[r][c] = payload.modelMat[r * 4 + c];
-          }
+    // BLAS was recorded by SubmitToGPU above into the same primary cmd buffer;
+    // the accel-build→accel-build barrier below guarantees the TLAS read sees
+    // the BLAS writes.
+    auto blas = vb->accelStructure();
+    if (blas && blas->vk.handle != VK_NULL_HANDLE) {
+      // VkAccelerationStructureInstanceKHR is row-major 3x4
+      // (transform[row][col]). ml::float4x4 from ToFloatTranspose4x4 is
+      // column-major; the transpose path above already produced row-major
+      // data in payload.modelMat (16 floats), so copy the first 12 directly
+      // into the instance matrix.
+      RIAccelInstance_s inst = {};
+      // payload.modelMat is row-major 4x4; we want rows 0..2 cols 0..3.
+      for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 4; ++c) {
+          inst.matrix[r][c] = payload.modelMat[r * 4 + c];
         }
-        inst.instanceCustomIndex = req.id;
-        inst.mask = 0xFF;
-        inst.shaderBindingTableRecordOffset = 0;
-        inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_CULL_DISABLE;
-        inst.accelerationStructureDeviceAddress = blas->vk.deviceAddress;
-        tlasInstances.push_back(inst);
       }
+      inst.instanceCustomIndex = req.id;
+      inst.mask = 0xFF;
+      inst.shaderBindingTableRecordOffset = 0;
+      inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_CULL_DISABLE;
+      inst.accelerationStructureDeviceAddress = blas->vk.deviceAddress;
+      tlasInstances.push_back(inst);
     }
   }
 
@@ -1062,7 +1100,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // the primary cmd buffer. The TLAS isn't bound to any shader yet (phase 4);
   // building it here exercises the path so RenderDoc / validation can verify
   // correctness.
-  if (rtEnabled && !tlasInstances.empty()) {
+  if (!tlasInstances.empty()) {
     const uint32_t instanceCount = (uint32_t)tlasInstances.size();
 
     auto destroyBuffer = [](RIBuffer_s *b) {
@@ -1143,7 +1181,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     // Make BLAS writes visible to the TLAS build. The plan calls this an
     // accel-build→accel-build barrier; one global memory barrier covers all
-    // BLASes that GetOrBuildBlas just emitted.
+    // BLASes that SubmitToGPU just emitted.
     VkMemoryBarrier2 blasToTlas = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     blasToTlas.srcStageMask =
         VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
@@ -1171,7 +1209,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     const bool needsTlasRealloc =
         (m_tlas.vk.handle == VK_NULL_HANDLE) ||
         (!m_tlasStorage || m_tlas.flags == 0) ||
-        (m_tlas.buildScratchSize < tlasBuildScratch) ||
         (m_tlasStorage && tlasStorageSize > 0 /*always realloc on grow*/);
     // Heuristic above keeps Phase-3 simple: rebuild storage whenever the size
     // query changed. A future phase should cache storage and reuse when sizes
@@ -1194,8 +1231,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
 
     if (m_tlas.vk.handle != VK_NULL_HANDLE) {
-      std::shared_ptr<RIBuffer_s> tlasScratch = createDeviceBuffer(
-          tlasBuildScratch, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+      // Source TLAS build scratch from the per-frame accel pool. The pool
+      // recycles its blocks across frames and uses the oversized one-shot
+      // path for builds that exceed blockSize. RIBlockMem_s embeds an
+      // RIBuffer_s, so we hand its address straight to the build desc.
+      RIBufferScratchAllocReq_s scratchReq = RIAllocBufferFromScratchAlloc(
+          &RI.device, &cntx->accelScratchAlloc, tlasBuildScratch);
 
       RIBuildTlasDesc_s build = {};
       build.dst = &m_tlas;
@@ -1204,8 +1245,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       build.instanceNum = instanceCount;
       build.instanceBuffer = &m_tlasInstanceBuffer;
       build.instanceOffset = 0;
-      build.scratchBuffer = tlasScratch.get();
-      build.scratchOffset = 0;
+      build.scratchBuffer = &scratchReq.block.buffer;
+      build.scratchOffset = scratchReq.bufferOffset;
       CmdBuildRITlas(&RI.device, &RI.primary.cmds[0], &build, 1);
 
       VkMemoryBarrier2 tlasToShader = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
@@ -1311,6 +1352,79 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // cellInfo_update_pass offset accumulation.
     CmdDispatch(&RI.primary.cmds[0],
                 (TOTAL_CELL_COUNT + 31u) / 32u, 1, 1);
+  }
+
+  // Light-cluster build. Two compute passes, both outside the rendering
+  // scope: (1) zero per-froxel counts; (2) per (light × slice × tile)
+  // sphere-vs-AABB cull writing the packed light-id table. Both cluster
+  // SSBOs live in the bindless set 0 (BINDING_LIGHT_CLUSTERS_*), so
+  // bindBindlessDescriptorSet is the only descriptor-binding call needed
+  // beyond the per-frame UBO. The point-light upload's TRANSFER_WRITE →
+  // SHADER_READ transition is owned by RI.uploader (see the
+  // m_pointLightBuffer block above), so the build pass safely reads the
+  // bindless pointLights[] binding without an extra barrier here.
+  {
+    VkComputePipelineCreateInfo computeCreate = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    const hash_t kClustersClearHash =
+        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_lightClustersClear.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+                                             kClustersClearHash,
+                                             "hybrid.light_clusters_clear",
+                                             &computeCreate);
+    m_lightClustersClear.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    CmdDispatch(&RI.primary.cmds[0], 1u, 1u, LIGHT_CLUSTER_SLICE);
+  }
+
+  // The point-cluster build atomicAdds the counts that the clear just
+  // wrote — RAW between two compute writes/reads of the same SSBO.
+  {
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+  }
+
+  if (num_point_lights > 0) {
+    VkComputePipelineCreateInfo computeCreate = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    const hash_t kPointClustersHash =
+        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_pointLightClusters.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+                                             kPointClustersHash,
+                                             "hybrid.point_light_clusters",
+                                             &computeCreate);
+    m_pointLightClusters.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    std::vector<RIProgram::DescriptorBinding> bindings;
+    bindings.reserve(1);
+    {
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("perFrame");
+      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      bindings.push_back(b);
+    }
+
+    m_pointLightClusters.bindDescriptors(
+        &RI.device, &RI.primary.cmds[0], RI.frameIndex, bindings.data(),
+        bindings.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    // (light index, 1, slice). The shader's local-size is (W,H,1), so each
+    // workgroup tests one light against one Z slice across all WxH tiles.
+    CmdDispatch(&RI.primary.cmds[0],
+                static_cast<uint32_t>(num_point_lights), 1u,
+                LIGHT_CLUSTER_SLICE);
   }
 
   VkRenderingInfo renderingInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
@@ -1910,7 +2024,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                                  &m_bindlessSet, 0);
 
     std::vector<RIProgram::DescriptorBinding> bindings;
-    bindings.reserve(5);
+    bindings.reserve(6);
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("perFrame");
@@ -1956,6 +2070,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                      m_surfelResultView[RI.swapchainIndex].vk.image,
                      linearSampler,
                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    {
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("shadowTLAS");
+      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+      b.descriptor.vk.accelStructure = m_tlas.vk.handle;
+      RIFinalizeDescriptor(&RI.device, &b.descriptor);
+      bindings.push_back(b);
+    }
 
     m_visibilityShade.bindDescriptors(&RI.device, &RI.primary.cmds[0],
                                       RI.frameIndex, bindings.data(),
@@ -1986,6 +2108,18 @@ cHybridRenderer::~cHybridRenderer() {
     vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_pointLightBuffer.vk.buffer,
                      m_pointLightBuffer.vk.allocation);
     m_pointLightBuffer = {};
+  }
+  if (m_lightClustersCountBuffer.vk.buffer) {
+    vmaDestroyBuffer(RI.device.vk.vmaAllocator,
+                     m_lightClustersCountBuffer.vk.buffer,
+                     m_lightClustersCountBuffer.vk.allocation);
+    m_lightClustersCountBuffer = {};
+  }
+  if (m_lightClustersBuffer.vk.buffer) {
+    vmaDestroyBuffer(RI.device.vk.vmaAllocator,
+                     m_lightClustersBuffer.vk.buffer,
+                     m_lightClustersBuffer.vk.allocation);
+    m_lightClustersBuffer = {};
   }
   for (uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; ++i) {
     if (m_surfelResultView[i].vk.image != VK_NULL_HANDLE) {

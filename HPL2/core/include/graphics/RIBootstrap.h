@@ -28,13 +28,16 @@ public:
   // vec3; the surfel shaders' decompress_unit_vec(uint) expects R32_UINT.
   static constexpr RI_Format_e NormalFormat = RI_FORMAT_R32_UINT;
 
+
   explicit RIBootstrap() {
 
   }
   struct FrameContext {
     struct RIScratchAlloc_s uboScratchAlloc;
+    struct RIScratchAlloc_s accelScratchAlloc;
     std::vector<std::shared_ptr<HPLTexture>> textureLink; // keep track of textures that are used in this frame
     std::vector<std::shared_ptr<RIBuffer_s>> bufferLink; 
+    std::vector<std::shared_ptr<RIAccelStructure_s>> accelLink;
     std::vector<RIFree> freelist;
   };
 

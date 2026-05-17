@@ -12,6 +12,8 @@ void RIBootstrap::IncrementFrame() {
   frameIndex++;
 }
 
+
+
 void RIBootstrap::Dispose() {
   WaitRIQueueIdle(&device, &device.queues[RI_QUEUE_GRAPHICS]);
 
@@ -36,6 +38,7 @@ void RIBootstrap::Dispose() {
     }
     set.freelist.clear();
     FreeRIScratchAlloc(&device, &set.uboScratchAlloc);
+    FreeRIScratchAlloc(&device, &set.accelScratchAlloc);
   }
 
   FreeRICommandRingBuffer(&device, &graphicsCmdRing);
@@ -111,6 +114,7 @@ void RIBootstrap::BeginActiveSet() {
 
   // cleanup
   RIResetScratchAlloc(&RI.device, &cntx->uboScratchAlloc);
+  RIResetScratchAlloc(&RI.device, &cntx->accelScratchAlloc);
   //cntx->colorAttachment = RI.colorAttachment[RI.swapchainIndex];
   //RIFinalizeDescriptor(&RI.device, &cntx->colorAttachment);
   cntx->textureLink.clear();
@@ -168,7 +172,7 @@ void RIBootstrap::UpdateFrameUBO(RIDescriptor_s *descriptor, void *data,
     struct RIBufferScratchAllocReq_s scratchReq = RIAllocBufferFromScratchAlloc(
         &device, &activeSet->uboScratchAlloc, size);
     descriptor->vk.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    descriptor->vk.buffer.buffer = scratchReq.block.vk.buffer;
+    descriptor->vk.buffer.buffer = scratchReq.block.buffer.vk.buffer;
     descriptor->vk.buffer.offset = scratchReq.bufferOffset;
     descriptor->vk.buffer.range = size;
     memcpy((uint8_t *)scratchReq.pMappedAddress + scratchReq.bufferOffset, data,

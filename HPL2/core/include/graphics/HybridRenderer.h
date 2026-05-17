@@ -56,6 +56,15 @@ private:
   // reserved once at init so the per-frame fill doesn't reallocate.
   struct RIBuffer_s m_pointLightBuffer = {};
   std::array<PointLight, POINT_SLOT_LIGHT_CAPACITY> m_pointLightScratch;
+
+  // Clustered-shading output. Two device-local SSBOs: per-froxel light count
+  // (LIGHT_FROXEL_TOTAL_COUNT uints, atomically incremented during the build
+  // pass) and the packed per-froxel light-id table (count *
+  // LIGHT_CLUSTER_MAX_LIGHTS_PER_FROXEL uints). Zeroed once per frame by
+  // m_lightClustersClear; then m_pointLightClusters fills them. Bound at
+  // set=1 bindings 3/4 to whichever cluster-consuming pass runs next.
+  struct RIBuffer_s m_lightClustersCountBuffer = {};
+  struct RIBuffer_s m_lightClustersBuffer = {};
   struct RIBuffer_s m_opaquePositionHandles;
   struct RIBuffer_s m_opaqueTangentHandles;
   struct RIBuffer_s m_opaqueNormalHandles;
@@ -113,6 +122,13 @@ private:
 	RIProgram m_cellToSurfelUpdate;
 	RIProgram m_surfelRaytrace;
 	RIProgram m_surfelIntegrate;
+
+	// Clustered shading. Clear zeros the per-froxel counts; point fills them
+	// by testing each point light's view-space bounding sphere against every
+	// froxel AABB. Both bind the bindless set 0 and write to the cluster
+	// SSBOs at set 1, bindings 3/4 (see light_cull_resources.glsl).
+	RIProgram m_lightClustersClear;
+	RIProgram m_pointLightClusters;
 	// Final visibility-buffer composite — port of AmnesiaTheDarkDescent's
 	// visibility_emit_shade_pass.frag.fsl. Fullscreen triangle that
 	// reconstructs (objectID, primID) from the gbuffer, runs Hawkins

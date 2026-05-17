@@ -3,6 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#extension GL_EXT_ray_query : require
 
 // Final composite pass for the bindless visibility-buffer renderer.
 //
@@ -43,6 +44,9 @@ layout(set = 2, binding = 2) uniform sampler2D  depthBufferTex;
 // surfel_generation_pass.comp. Sampled with linear filtering so the
 // fullscreen composite bilinearly upsamples to swapchain resolution.
 layout(set = 2, binding = 3) uniform sampler2D  surfelIndirect;
+// Same TLAS used by surfel_raytrace.comp. The accel-build -> fragment-shader
+// barrier in HybridRenderer.cpp orders the build against this read.
+layout(set = 2, binding = 4) uniform accelerationStructureEXT shadowTLAS;
 
 layout(location = 0) in  vec2 screenPosNdc;
 layout(location = 0) out vec4 fragColor;
@@ -71,6 +75,29 @@ vec3 toneMapUncharted(vec3 c)
     c = toneMapUncharted2Impl(c * exposureBias);
     vec3 whiteScale = 1.0 / toneMapUncharted2Impl(vec3(W));
     return linearTosRGB(c * whiteScale);
+}
+
+bool shadowRayBlocked(vec3 origin, vec3 dir, float tMax)
+{
+    rayQueryEXT q;
+    rayQueryInitializeEXT(
+        q, shadowTLAS,
+        gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT
+            | gl_RayFlagsSkipClosestHitShaderEXT,
+        0xFFu, origin, 0.0, dir, tMax);
+    while (rayQueryProceedEXT(q)) {}
+    return rayQueryGetIntersectionTypeEXT(q, true)
+        != gl_RayQueryCommittedIntersectionNoneEXT;
+}
+
+// glTF KHR_lights_punctual range attenuation: physical 1/d^2 with a smooth
+// (1 - (d/r)^4) rolloff that reaches zero at the light's `radius`. range <= 0
+// is treated as unlimited (matches glTF).
+float getRangeAttenuation(float range, float distance)
+{
+    if (range <= 0.0) return 1.0;
+    float rangeRolloff = max(min(1.0 - pow(distance / range, 4.0), 1.0), 0.0);
+    return rangeRolloff / max(distance * distance, 1e-6);
 }
 
 void main()
@@ -131,21 +158,39 @@ void main()
     vec2 uv01    = (vec2(pix) + vec2(0.5)) / viewportSize;
     vec3 worldPos = WorldPosFromDepth(uv01, depth, invProjMat, invViewMat);
 
-    // Direct lighting from bindless point lights. Unshadowed for the
-    // initial composite — shadow rays via the TLAS are a later add-on.
+    // Direct lighting via NEE: pick one random point light per pixel and
+    // divide the contribution by the selection PDF (1/N) so the estimator
+    // stays unbiased. O(1) shadow ray per pixel; the trade-off is visible
+    // per-frame noise without temporal accumulation.
     vec3 direct = vec3(0.0);
-    //for (uint i = 0u; i < pointLightCount; ++i)
-    //{
-    //    PointLight pl = pointLights[i];
-    //    vec3  toL = pl.position - worldPos;
-    //    float d   = length(toL);
-    //    if (d <= 0.0 || d > pl.radius) continue;
-    //    vec3  L   = toL / d;
-    //    float ndl = max(dot(worldNormal, L), 0.0);
-    //    if (ndl <= 0.0) continue;
-    //    float falloff = 1.0 - smoothstep(0.0, pl.radius, d);
-    //    direct += pl.color * pl.intensity * ndl * falloff * M_1_OVER_PI;
-    //}
+    if (pointLightCount > 0u)
+    {
+        const vec3 rayOrigin = OffsetRayGbuffer(worldPos, worldNormal, depth);
+
+        uint seed = tea(uint(pix.x) | (uint(pix.y) << 16), totalFrames);
+        uint lightIdx = min(uint(rand(seed) * float(pointLightCount)),
+                            pointLightCount - 1u);
+        float lightPdf = 1.0 / float(pointLightCount);
+        PointLight pl = pointLights[lightIdx];
+
+        vec3 toL = pl.position - rayOrigin;
+        float d  = length(toL);
+        // Early-out for out-of-range picks; getRangeAttenuation would also
+        // zero them but skipping the shadow ray is a real perf win.
+        if (d > 0.0 && d <= pl.radius)
+        {
+            vec3 L   = toL / d;
+            float ndl = max(dot(worldNormal, L), 0.0);
+            if (ndl > 0.0 && !shadowRayBlocked(rayOrigin, L, d - 1e-3))
+            {
+                float attenuation = getRangeAttenuation(pl.radius, d);
+                // Lambert BRDF = 1/pi (albedo applied below at line 179).
+                // /= lightPdf compensates for uniform 1-of-N selection.
+                direct = pl.color * pl.intensity * attenuation * ndl
+                       * M_1_OVER_PI / lightPdf;
+            }
+        }
+    }
 
     // Indirect from the surfel cache — surfel_generate pre-computed the
     // per-pixel gather at half-res into surfelIndirect. The linear sampler

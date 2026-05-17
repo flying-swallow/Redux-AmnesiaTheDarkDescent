@@ -484,8 +484,6 @@ int EnumerateRIAdapters( struct RIRenderer_s *renderer, struct RIPhysicalAdapter
 				//    physicalAdapter->shaderModel = 61;
 				// if (physicalAdapter->isShaderNativeF16Supported || physicalAdapter->isShaderNativeI16Supported)
 				//    physicalAdapter->shaderModel = 62;
-				// if (physicalAdapter->isRayTracingSupported)
-				//    physicalAdapter->shaderModel = 63;
 				// if (physicalAdapter->shadingRateTier >= 2)
 				//    physicalAdapter->shaderModel = 64;
 				// if (physicalAdapter->isMeshShaderSupported || physicalAdapter->rayTracingTier >= 2)
@@ -512,18 +510,13 @@ int EnumerateRIAdapters( struct RIRenderer_s *renderer, struct RIPhysicalAdapter
 				physicalAdapter->vk.rayQueryExtension               = ( hasRayQueryExt           && rayQueryFeatures.rayQuery )                    ? 1 : 0;
 				physicalAdapter->vk.deferredHostOperationsExtension = ( hasDeferredHostOpsExt )                                                    ? 1 : 0;
 
-				physicalAdapter->isRayTracingSupported = ( physicalAdapter->vk.accelerationStructureExtension &&
-				                                          physicalAdapter->vk.rayTracingPipelineExtension &&
-				                                          physicalAdapter->vk.deferredHostOperationsExtension ) ? 1 : 0;
 				physicalAdapter->isRayQuerySupported   = ( physicalAdapter->vk.accelerationStructureExtension &&
 				                                          physicalAdapter->vk.rayQueryExtension ) ? 1 : 0;
 
-				if( physicalAdapter->isRayTracingSupported ) {
-					// DXR 1.0 baseline; promote to 1.1 when ray query + indirect-trace are present.
-					physicalAdapter->rayTracingTier = 1;
-					if( physicalAdapter->vk.rayQueryExtension && rayTracingFeatures.rayTracingPipelineTraceRaysIndirect ) {
-						physicalAdapter->rayTracingTier = 2;
-					}
+				// DXR 1.0 baseline; promote to 1.1 when ray query + indirect-trace are present.
+				physicalAdapter->rayTracingTier = 1;
+				if( physicalAdapter->vk.rayQueryExtension && rayTracingFeatures.rayTracingPipelineTraceRaysIndirect ) {
+					physicalAdapter->rayTracingTier = 2;
 				}
 
 				// if (physicalAdapter->shadingRateTier) {
@@ -1525,19 +1518,19 @@ void GetRIAccelStructureMemoryReqs( struct RIDevice_s *dev,
 	                                         maxPrims.data(),
 	                                         &sizesInfo );
 
-	// CmdBuildRI{Blas,Tlas} rounds scratchData.deviceAddress up to
-	// minAccelerationStructureScratchOffsetAlignment, consuming up to
-	// (alignment - 1) bytes off the front of the buffer. Pad the reported
-	// scratch sizes so callers allocate enough headroom to absorb that
-	// round-up regardless of where vmaCreateBuffer landed the base address.
-	const uint64_t scratchPad =
-		dev->physicalAdapter.accelerationStructureScratchOffsetAlignment > 1
-			? (uint64_t)dev->physicalAdapter.accelerationStructureScratchOffsetAlignment - 1
-			: 0;
+	//// CmdBuildRI{Blas,Tlas} rounds scratchData.deviceAddress up to
+	//// minAccelerationStructureScratchOffsetAlignment, consuming up to
+	//// (alignment - 1) bytes off the front of the buffer. Pad the reported
+	//// scratch sizes so callers allocate enough headroom to absorb that
+	//// round-up regardless of where vmaCreateBuffer landed the base address.
+	//const uint64_t scratchPad =
+	//	dev->physicalAdapter.accelerationStructureScratchOffsetAlignment > 1
+	//		? (uint64_t)dev->physicalAdapter.accelerationStructureScratchOffsetAlignment - 1
+	//		: 0;
 
 	if( outStorageSize )       *outStorageSize       = sizesInfo.accelerationStructureSize;
-	if( outBuildScratchSize )  *outBuildScratchSize  = sizesInfo.buildScratchSize + scratchPad;
-	if( outUpdateScratchSize ) *outUpdateScratchSize = sizesInfo.updateScratchSize + scratchPad;
+	if( outBuildScratchSize )  *outBuildScratchSize  = sizesInfo.buildScratchSize;
+	if( outUpdateScratchSize ) *outUpdateScratchSize = sizesInfo.updateScratchSize;
 #endif
 }
 
@@ -1555,8 +1548,7 @@ int InitRIAccelStructure( struct RIDevice_s *dev,
 
 	outAS->type = desc->type;
 	outAS->flags = desc->flags;
-	outAS->storage = desc->storage;
-	outAS->storageOffset = desc->storageOffset;
+	//outAS->storageOffset = desc->storageOffset;
 
 	VkAccelerationStructureCreateInfoKHR createInfo = { VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR };
 	createInfo.buffer = desc->storage->vk.buffer;
@@ -1663,11 +1655,9 @@ void CmdBuildRIBlas( struct RIDevice_s *dev, struct RICmd_s *cmd, const struct R
 		// must be a multiple of minAccelerationStructureScratchOffsetAlignment. The buffer
 		// base address VMA hands back is not guaranteed to satisfy that, so round up.
 		{
-			const uint64_t scratchAlign = dev->physicalAdapter.accelerationStructureScratchOffsetAlignment;
 			const uint64_t scratchAddr = RI_VK_BufferDeviceAddress( dev, d->scratchBuffer ) + d->scratchOffset;
-			bi->scratchData.deviceAddress = ( scratchAlign > 1 )
-				? ( ( scratchAddr + scratchAlign - 1 ) & ~( scratchAlign - 1 ) )
-				: scratchAddr;
+			assert((scratchAddr % dev->physicalAdapter.accelerationStructureScratchOffsetAlignment) == 0);
+			bi->scratchData.deviceAddress = scratchAddr; 
 		}
 	}
 

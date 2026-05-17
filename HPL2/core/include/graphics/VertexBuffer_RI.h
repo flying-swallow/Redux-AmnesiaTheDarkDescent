@@ -5,6 +5,7 @@
 #include <graphics/VertexBuffer.h>
 #include <graphics/RITypes.h>
 #include <graphics/GraphicsTypes.h>
+#include <graphics/RIBootstrap.h>
 
 #include <algorithm>
 #include <array>
@@ -105,6 +106,10 @@ public:
     VertexIndexEntry m_indexBuffer;
   };
 
+  void AttachResourceToCntx(RIBootstrap::FrameContext *cntx);
+  void SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
+                   RIBootstrap::FrameContext *cntx);
+
   virtual iVertexBuffer *CreateCopy(eVertexBufferType aType,
                                     eVertexBufferUsageType aUsageType,
                                     tVertexElementFlag alVtxToCopy) override;
@@ -129,7 +134,7 @@ public:
   virtual void ResizeIndices(int alSize) override;
 
   const VertexBuffer_RI::VertexElement *GetElement(eVertexBufferElement elementType);
-
+  const std::shared_ptr<RIAccelStructure_s> accelStructure() { return m_blas; }
   const std::shared_ptr<RIBuffer_s> &GetIndexRIBuffer() const { return m_indexBuffer; }
 
   // Lazily builds (or returns) a BLAS for this VB's position/index buffers. Returns nullptr
@@ -137,6 +142,8 @@ public:
   // The build is recorded into `cmd`; the caller must ensure that command buffer is submitted
   // and finished before the BLAS is read (e.g. by inserting a barrier before the TLAS build).
   struct RIAccelStructure_s *GetOrBuildBlas(struct RIDevice_s *device, struct RICmd_s *cmd);
+
+
 
 protected:
   static void
@@ -147,7 +154,9 @@ protected:
   std::vector<VertexElement> m_vertexElements = {};
   std::shared_ptr<RIBuffer_s> m_indexBuffer;
   std::vector<uint32_t> m_indices = {};
-  uint32_t m_bufferSync = {};
+
+  uint32_t m_generation = 0; 
+  uint32_t m_lastSubmitted = 0;
 
   size_t m_indexBufferActiveCopy = 0;
   tVertexElementFlag m_updateFlags = 0; // update no need to rebuild buffers
@@ -156,8 +165,7 @@ protected:
   // Cached BLAS built on first GetOrBuildBlas call. Storage shares the deferred-free path
   // (same shared_ptr deleter as element buffers) so it outlives any in-flight build.
   std::shared_ptr<RIBuffer_s> m_blasStorage;
-  RIAccelStructure_s m_blas = {};
-  bool m_blasValid = false;
+  std::shared_ptr<RIAccelStructure_s> m_blas = {};
 
   friend struct VertexElement;
 };
