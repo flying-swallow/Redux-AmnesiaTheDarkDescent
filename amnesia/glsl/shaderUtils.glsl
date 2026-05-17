@@ -15,9 +15,8 @@ vec3 hash3u1(uint n)
 
 vec3 WorldPosFromDepth(in vec2 uv, in float depth, in mat4 invProj, in mat4 invView)
 {
-    //float z = depth * 2.0 - 1.0;
     float z = depth;
-    //uv.y = 1.f - uv.y;
+    uv.y = 1.0 - uv.y;
     vec4 clipSpacePosition = vec4(uv * 2.0 - 1.0, z, 1.0);
     vec4 viewSpacePosition = invProj * clipSpacePosition;
 	viewSpacePosition /= viewSpacePosition.w;

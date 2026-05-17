@@ -7,8 +7,8 @@
 // sceneObjects[] and opaqueMaterial[] now live in bindless.resource.glsl
 // (set=0, bindings 20..21).
 
-mat3 ToNormalMat(mat4 invModel, mat4 invView) {
-    return transpose(mat3(invModel) * mat3(invView));
+mat3 ToNormalMat(mat4 invModel) {
+    return transpose(mat3(invModel));
 }
 
 bool fetchSceneTextureFloat4(uint index, vec2 uv, inout vec4 value) {

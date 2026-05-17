@@ -60,7 +60,7 @@ void main() {
     v_pos = (modelView * vec4(a_position, 1.0)).xyz;
     v_uv  = (sceneObjects[instanceId].uvMat * vec4(a_texcoord, 0.0, 1.0)).xy;
 
-    mat3 normalMat = ToNormalMat(sceneObjects[instanceId].invModelMat, invViewMat);
+    mat3 normalMat = ToNormalMat(sceneObjects[instanceId].invModelMat);
     v_normal    = normalize(normalMat * a_normal);
     v_tangent   = normalize(normalMat * a_tangent);
     v_bitangent = normalize(normalMat * cross(a_tangent, a_normal));
