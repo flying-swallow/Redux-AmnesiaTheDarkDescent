@@ -21,6 +21,7 @@
 #define HPL_POSTEFFECT_COLOR_CONV_TEX_H
 
 #include "graphics/PostEffect.h"
+#include "graphics/Image.h"
 
 namespace hpl {
 
@@ -69,7 +70,9 @@ namespace hpl {
 		
 		iTexture* RenderEffect(iTexture *apInputTexture, iFrameBuffer *apFinalTempBuffer);
 
-		iTexture *mpColorConvTex;
+		// Vulkan-bindless port: HPLTexture-backed Image* instead of the legacy
+		// iTexture* GL path. Loaded in OnSetParams via Create1DImage.
+		Image *mpColorConvTex;
 
 		cPostEffectType_ColorConvTex* mpSpecificType;
 

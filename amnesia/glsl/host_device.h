@@ -166,6 +166,7 @@ struct Surfel
 // [status]
 // 0x0001 : isSleeping
 // 0x0002 : lastSeen
+// 0x0004 : lastRefed
 struct SurfelRecycleInfo
 {
 	uint life;
@@ -204,6 +205,10 @@ const float cellSize = 2.0f;
 const float surfelMinSizeRatio = 0.15f;
 const uint kCellDimension = 64u;
 const uint kCellCount = kCellDimension * kCellDimension * kCellDimension;
+// Total cellBuffer[] size lives in forward_shared.h::TOTAL_CELL_COUNT (the C++
+// allocator reads from that macro). Shaders pick it up transitively via
+// bindless.resource.glsl. Kept in one place so the host and device cannot
+// disagree on the cellBuffer[] extent.
 
 // Sufel
 const uint kMaxLife = 1200u;

@@ -145,7 +145,10 @@ SHADERS
     ./glsl/cellInfo_update_pass.comp
     ./glsl/cellToSurfel_update_pass.comp
     ./glsl/surfel_raytrace.comp
+    ./glsl/surfel_integrate.comp
     ./glsl/surfel_generation_pass.comp
+    ./glsl/visibility_shade.vert
+    ./glsl/visibility_shade.frag
 OUTPUT_FOLDER
 ${AMNESIA_SHADER_DIR}
 )

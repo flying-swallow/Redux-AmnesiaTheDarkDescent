@@ -237,7 +237,7 @@ bool isSurfelIntersectCellNonUniform(Surfel surfel, ivec4 cellPos, vec3 cameraPo
     // AABB-Sphere intersection test
     vec3 closestPoint = clamp(surfel.position, minPos, maxPos);
     float distanceSquared = dot(closestPoint - surfel.position, closestPoint - surfel.position);
-    return distanceSquared <= surfel.radius * surfel.radius * surfel.radius;
+    return distanceSquared <= surfel.radius * surfel.radius;
     //return true;
 }
 

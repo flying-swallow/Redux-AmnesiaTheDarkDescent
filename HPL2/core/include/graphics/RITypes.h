@@ -720,7 +720,13 @@ struct RIBackendInit_s {
     struct {
       uint32_t enableValidationLayer: 1;
       size_t numFilterLayers;
-      const char* filterLayers[]; // filter layers for the renderer 
+      // Was `const char* filterLayers[];` — a C99 flexible-array member.
+      // MSVC rejects FAMs inside an anonymous union when the enclosing
+      // struct is stack-allocated (error C2466 in Graphics.cpp::Init).
+      // No call site currently writes to this field; if filter-layer
+      // support is added later, allocate the array externally and point
+      // here.
+      const char* const* filterLayers;
     } vk;
     #endif
     #if(DEVICE_IMPL_MTL)

@@ -23,6 +23,7 @@
 //----------------------------------------------
 
 #include "LuxBase.h"
+#include "graphics/Image.h"
 
 //----------------------------------------
 
@@ -58,8 +59,11 @@ private:
 	iTexture* RenderEffect(iTexture *apInputTexture, iFrameBuffer *apFinalTempBuffer);
 
 	iGpuProgram *mpProgram;
-	std::vector<iTexture*> mvAmpMaps;
-	iTexture* mpZoomMap;
+	// Vulkan-bindless port: textures load through cTextureManager::Create2DImage
+	// (HPLTexture-backed) instead of the legacy iTexture* GL path that crashed
+	// in cSDLTexture::CopyTextureDataToGL with no GL context.
+	std::vector<Image*> mvAmpMaps;
+	Image* mpZoomMap;
 
 	float mfT;
 	float mfAnimCount;

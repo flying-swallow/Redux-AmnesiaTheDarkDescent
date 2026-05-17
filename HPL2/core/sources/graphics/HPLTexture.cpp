@@ -73,6 +73,10 @@ RI_Format from_hpl_format(ePixelFormat format) {
     return RI_FORMAT_RG32_SFLOAT;
   case ePixelFormat_RGBA32:
     return RI_FORMAT_RGBA32_SFLOAT;
+  case ePixelFormat_BGR:
+    return RI_FORMAT_BGR8_UNORM;
+  case ePixelFormat_RGB32:
+    return RI_FORMAT_RGB32_SFLOAT;
   default:
     assert(false && "Unsupported texture format");
     break;

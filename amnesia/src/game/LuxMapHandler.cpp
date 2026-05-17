@@ -164,14 +164,14 @@ cLuxMapHandler::cLuxMapHandler() : iLuxUpdateable("LuxMapHandler")
 	cGraphics *pGraphics = gpBase->mpEngine->GetGraphics();
 	cPostEffectComposite *pPostEffectComp = pGraphics->CreatePostEffectComposite();
 	mpViewport->SetPostEffectComposite(pPostEffectComp);
-	
+
 	//Bloom
 	cPostEffectParams_Bloom bloomParams;
 	bloomParams.mfBlurSize = 1.0f;
 	bloomParams.mvRgbToIntensity = bloomParams.mvRgbToIntensity * 1.0f;
 	mpPostEffect_Bloom = pGraphics->CreatePostEffect(&bloomParams);
 	pPostEffectComp->AddPostEffect(mpPostEffect_Bloom, 100);
-	
+
 	//Image trail
 	cPostEffectParams_ImageTrail imageTrailParams;
 	mpPostEffect_ImageTrail = pGraphics->CreatePostEffect(&imageTrailParams);

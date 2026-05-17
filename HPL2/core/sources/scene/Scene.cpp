@@ -200,10 +200,14 @@ namespace hpl {
 					cCamera* pCamera = pViewPort->GetCamera();
 					cFrustum* pFrustum = pCamera ? pCamera->GetFrustum() : NULL;
 
+					const bool worldRendered =
+							(alFlags & tSceneRenderFlag_World) &&
+							pRenderer && pViewPort->GetWorld() && pFrustum;
+
 					if(alFlags & tSceneRenderFlag_World)
 					{
 						pViewPort->RunViewportCallbackMessage(eViewportMessage_OnPreWorldDraw);
-						if (pRenderer && pViewPort->GetWorld() && pFrustum) {
+						if (worldRendered) {
 							pRenderer->Draw(
 									cntx,
 									pViewPort,
@@ -216,11 +220,13 @@ namespace hpl {
 						pViewPort->RunViewportCallbackMessage(eViewportMessage_OnPostWorldDraw);
 					}
 
-					// GUI block: open a rendering instance with color + depth, render
-					// the GUIs, close it. Depth uses LOAD so 3D Gui can depth-test
-					// against whatever pRenderer wrote (cleared if no renderer ran).
+					// GUI block: open a rendering instance with color + depth, render the
+					// GUIs, close it. When the world render ran, Draw left the swapchain in
+					// COLOR_ATTACHMENT_OPTIMAL with the composite inside — LOAD so the GUI
+					// overlays on top. Otherwise CLEAR (also establishes UNDEFINED → COLOR
+					// transition). Depth always LOADs (gbuffer pass populated it earlier).
 					VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-					RI_VK_FillColorAttachmentView( &colorAttachment, &RI.swapchainView[RI.swapchainIndex] , true );
+					RI_VK_FillColorAttachmentView( &colorAttachment, &RI.swapchainView[RI.swapchainIndex] , !worldRendered );
 					VkRenderingAttachmentInfo depthStencil = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
 					RI_VK_FillDepthAttachment( &depthStencil, &RI.depthView[RI.swapchainIndex], false );
 					VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };

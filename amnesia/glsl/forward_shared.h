@@ -17,25 +17,34 @@ typedef float    vec2[2];
 #define OBJECT_SLOT_CAPACITY    (16384u * 2u)
 #define TEXTURE_SLOT_CAPACITY   16384u
 #define MATERIAL_SLOT_CAPACITY  16384u
-#define LIGHT_SLOT_CAPACITY     256u
+#define POINT_SLOT_LIGHT_CAPACITY     256u
 
 // Surfel-GI capacities. Mirrors `kMaxSurfelCount` / `kMaxRayCount` in
 // amnesia/glsl/host_device.h — kept here in C-preprocessor form so the C++
 // allocator (cHybridRenderer) and any GLSL pass that includes this header
 // share a single source of truth for sizing the surfel SSBOs declared in
 // bindless.resource.glsl (set 0, bindings 10..16).
-#define SURFEL_MAX_CAPACTIY     150000u
-#define MAX_RAY_COUNT           (SURFEL_MAX_CAPACTIY * 64u)
+#define SURFEL_MAX_CAPACITY     150000u
+#define MAX_RAY_COUNT           (SURFEL_MAX_CAPACITY * 64u)
 
 // Cell-grid capacities. The cell grid is static infrastructure shared by all
-// surfel passes (set 0, bindings 17..19 in bindless.resource.glsl). CELL_COUNT
-// mirrors host_device.h::kCellCount = kCellDimension^3 with kCellDimension=64.
+// surfel passes (set 0, bindings 17..19 in bindless.resource.glsl). The grid
+// has two regions encoded into a single flat cellBuffer[] (see
+// shaderUtil_grid.glsl::getFlattenCellIndexNonUniform):
+//   - CELL_COUNT       = uniform cube region (CELL_GRID_DIM^3 cells)
+//   - frustum layers   = 6 face frustums, each with CELL_FRUSTUM_LAYERS
+//                        log-spaced depth slices of CELL_GRID_DIM^2 cells
+// TOTAL_CELL_COUNT is the size of cellBuffer[] and must match
+// host_device.h::n^3 + 6*n^2*m so spatial-hash lookups outside the central
+// 96-unit cube don't write/read out of bounds.
 // CELL_TO_SURFEL_CAPACITY budgets the flat per-cell surfel-index table: a
 // single surfel can intersect up to 27 neighbour cells (3x3x3 stamp in
-// surfel_update.comp), so worst case = SURFEL_MAX_CAPACTIY * 27.
+// surfel_update.comp), so worst case = SURFEL_MAX_CAPACITY * 27.
 #define CELL_GRID_DIM           64u
+#define CELL_FRUSTUM_LAYERS     16u
 #define CELL_COUNT              (CELL_GRID_DIM * CELL_GRID_DIM * CELL_GRID_DIM)
-#define CELL_TO_SURFEL_CAPACITY (SURFEL_MAX_CAPACTIY * 27u)
+#define TOTAL_CELL_COUNT        (CELL_COUNT + 6u * CELL_GRID_DIM * CELL_GRID_DIM * CELL_FRUSTUM_LAYERS)
+#define CELL_TO_SURFEL_CAPACITY (SURFEL_MAX_CAPACITY * 27u)
 
 // Sentinel returned by the renderer's texture slot allocator when a slot is
 // missing or the pool is exhausted. Matches the full-uint32 entries in
@@ -45,6 +54,8 @@ typedef float    vec2[2];
 
 // Forward-pass set 0 binding indices (the engine-owned bindless set).
 #define BINDING_TEXTURES_2D                 0
+#define BINDING_TEXTURES_CUBE               1
+#define BINDING_TEXTURES_2D_ARRAY           2
 #define BINDING_OPAQUE_POSITION_HANDLES     3
 #define BINDING_OPAQUE_TANGENT_HANDLES      4
 #define BINDING_OPAQUE_NORMAL_HANDLES       5
@@ -73,6 +84,14 @@ typedef float    vec2[2];
 // uploaded device-local via RI.uploader (no host-mapped destination), so the
 // GPU never reads partially-written data from an in-flight frame.
 #define BINDING_POINT_LIGHTS                22
+// Per-variant material SSBOs (mirrors MaterialID::Translucent / Water / Decal
+// on the C++ side; see Material.h). Each variant has its own bindless table so
+// structs stay at their natural size and shaders never branch on a runtime
+// `materialType` discriminator to interpret fields. The render pass binds
+// whichever buffer it needs. SolidDiffuse keeps BINDING_OPAQUE_MATERIAL above.
+#define BINDING_TRANSLUCENT_MATERIAL        24
+#define BINDING_WATER_MATERIAL              25
+#define BINDING_DECAL_MATERIAL              26
 
 // Texture-slot indices into the bindless `textures_2d[]` array (set=0,
 // binding=0). One uint32 per slot — see per_frame.resource.glsl for the
@@ -86,6 +105,41 @@ struct DiffuseMaterial {
     float heightMapBias;
     float frenselBias;
     float frenselPow;
+};
+
+// GPU twin of MaterialTranslucent (Material.h). All bool flags
+// (isAffectedByLightLevel, hasRefraction, refractionEdgeCheck,
+// refractionNormals) and the eMaterialBlendMode pack into materialConfig.
+struct TranslucentMaterial {
+    uint  tex[8];
+    uint  materialConfig;
+    float refractionScale;
+    float frenselBias;
+    float frenselPow;
+    float rimLightMul;
+    float rimLightPow;
+};
+
+// GPU twin of MaterialWater (Material.h). Bool flags (hasReflection,
+// isLargeSurface, worldReflectionOcclusionTest) pack into materialConfig.
+struct WaterMaterial {
+    uint  tex[8];
+    uint  materialConfig;
+    float refractionScale;
+    float frenselBias;
+    float frenselPow;
+    float reflectionFadeStart;
+    float reflectionFadeEnd;
+    float waveSpeed;
+    float waveAmplitude;
+    float waveFreq;
+};
+
+// GPU twin of MaterialDecal (Material.h). Only carries texture slots and
+// the blend mode (encoded in materialConfig); no per-instance scalars.
+struct DecalMaterial {
+    uint tex[8];
+    uint materialConfig;
 };
 
 struct UniformObject {
@@ -129,6 +183,7 @@ struct PerFrameConstants {
     uint  totalFrames;       // monotonic frame counter for randSeed inputs
     float cameraFov;         // main camera vertical FOV (radians)
     uint  pointLightCount;   // active entries in the bindless pointLights[] SSBO
+    float fireflyClampThreshold;  // luminance cap applied in surfel raytrace + integrate
 };
 
 #ifdef __cplusplus

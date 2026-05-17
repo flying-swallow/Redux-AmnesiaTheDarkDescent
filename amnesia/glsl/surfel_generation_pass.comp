@@ -13,7 +13,7 @@
 #include "per_frame.resource.glsl"
 
 #ifndef DEBUGGING_MODE
-#define DEBUGGING_MODE eNoDebug
+#define DEBUGGING_MODE  eNoDebug
 #endif
 
 // gbuffers — set=1 is owned by the shared perFrame UBO (binding=0), so the
@@ -40,180 +40,159 @@ void main()
     groupShareMinCoverage = floatBitsToUint(10.f);
     groupShareMaxContribution = 0;
   }
+  // Publish the sentinel init to the rest of the workgroup before any
+  // invocation runs atomicMin/atomicMax below. Without this barrier, those
+  // atomics can be ordered before the init and get overwritten by the
+  // sentinel, leaving groupShareMinCoverage stuck at floatBitsToUint(10.f) —
+  // which would make the `coverage == groupMinCoverage` spawn gate below
+  // unreachable (per-pixel coverage is ~0) and prevent any surfel spawning.
+  barrier();
 
   ivec2 imageRes = ivec2(viewportSize) / 2;
   ivec2 imageCoords = ivec2(gl_GlobalInvocationID.xy);
   vec2 uv = (vec2(imageCoords) + vec2(0.5f)) / vec2(imageRes);
 
-  if (imageCoords.x >= imageRes.x || imageCoords.y >= imageRes.y)
+  // Threads outside the half-res viewport, and sky pixels (depth==1), skip
+  // the per-pixel work but must still reach the barrier() below — GLSL
+  // requires workgroup-uniform control flow for barriers, so early returns
+  // here are UB and on some drivers leave shared memory in an inconsistent
+  // state for the spawn gate.
+  bool valid = imageCoords.x < imageRes.x && imageCoords.y < imageRes.y;
+
+  float depth = 1.f;
+  uint  objID = 0u;
+  uint  compressedNor = 0u;
+  vec3  normal   = vec3(0.f, 0.f, 1.f);
+  vec3  worldPos = vec3(0.f);
+  uint  randSeed = 0u;
+
+  if (valid)
   {
-    return;
+    depth = texelFetch(depthMap, imageCoords * 2, 0).r;
+    if (depth == 1.f)
+    {
+      imageStore(resultImage, imageCoords, vec4(0.f, 0.f, 0.f, 1.f));
+      valid = false;
+    }
+    else
+    {
+      objID         = texelFetch(visibilityBuffer, imageCoords * 2, 0).r;
+      randSeed      = initRandom(imageRes, imageCoords, lowbias32(totalFrames));
+      compressedNor = texelFetch(normalMap, imageCoords * 2, 0).r;
+      normal        = decompress_unit_vec(compressedNor);
+      worldPos      = WorldPosFromDepth(uv, depth, invProjMat, invViewMat);
+    }
   }
-  float depth = texelFetch(depthMap, imageCoords * 2, 0).r;
-
-  if (depth == 1.f)
-  {
-    imageStore(resultImage, imageCoords, vec4(0.f, 0.f, 0.f, 1.f));
-    return;
-  }
-
-  uint objID = texelFetch(visibilityBuffer, imageCoords * 2, 0).r;
-  uint randSeed = initRandom(imageRes, imageCoords, lowbias32(totalFrames));
-
-  // get the normal
-  uint compressedNor = texelFetch(normalMap, imageCoords * 2, 0).r;
-  vec3 normal = decompress_unit_vec(compressedNor);
-  vec3 worldPos = WorldPosFromDepth(uv, depth, invProjMat, invViewMat);
 
   vec4 indirectContrib = vec4(0.f);
   vec3 indirectLighting = vec3(0.f);
-
-  uint aliveSurfelCnt = surfelCounter.aliveSurfelCnt;
   float coverage = 0.f;
   float maxContribution = 0.f;
   uint maxContributionSurfelIndex = 0xffffffff;
 
-  vec3 camPos = invViewMat[3].xyz;
-  //vec3 cellPosIndex = getCellPos(worldPos, camPos);
-  //uint flattenIndex = getFlattenCellIndex(cellPosIndex);
-  ivec4 cellPosIndex = getCellPosNonUniform(worldPos, camPos);
-  uint flattenIndex = getFlattenCellIndexNonUniform(cellPosIndex);
-
-  CellInfo cellInfo = cellBuffer[flattenIndex];
-  uint cellOffset = cellInfo.surfelOffset;
-  uint cellSurfelCount = cellInfo.surfelCount;
-
-  //if(cellOffset != 0 || cellSurfelCount!= 0) debugPrintfEXT("%d, %d\n", cellOffset, cellSurfelCount);
-
-  for (uint i = 0; i < cellSurfelCount; i++)
+  if (valid)
   {
-    //uint surfelIndex = surfelAlive[i];
-    uint surfelIndex = cellToSurfel[cellOffset + i];
-    Surfel surfel = surfelBuffer[surfelIndex];
-    vec3 bias = surfel.position - worldPos;
-    float dist = length(bias);
-    float cosineTheta = dot(bias, normal) / dist;
-    //if (cosineTheta < -0.5)
-    //		continue;
+    vec3 camPos = invViewMat[3].xyz;
+    ivec4 cellPosIndex = getCellPosNonUniform(worldPos, camPos);
+    uint flattenIndex = getFlattenCellIndexNonUniform(cellPosIndex);
 
-    if (dist < surfel.radius)
+    CellInfo cellInfo = cellBuffer[flattenIndex];
+    uint cellOffset = cellInfo.surfelOffset;
+    uint cellSurfelCount = cellInfo.surfelCount;
+
+    for (uint i = 0; i < cellSurfelCount; i++)
     {
-      vec3 surfelNor = decompress_unit_vec(surfel.normal);
-      float dotN = dot(normal, surfelNor);
-      float contribution = 1.f;
-      if (dotN > 0.f)
+      uint surfelIndex = cellToSurfel[cellOffset + i];
+      Surfel surfel = surfelBuffer[surfelIndex];
+      vec3 bias = surfel.position - worldPos;
+      float dist = length(bias);
+      float cosineTheta = dot(bias, normal) / dist;
+
+      if (dist < surfel.radius)
       {
-        contribution *= clamp(dotN, 0.f, 1.f);
-        contribution *= clamp(1.f - dist / surfel.radius, 0.f, 1.f);
-        contribution = smoothstep(0, 1, contribution);
-
-        coverage += contribution;
-
-        indirectContrib += vec4(surfel.radiance, 1.f) * contribution * smoothstep(0.f, 10.f, float(surfelRecycleInfo[surfelIndex].frame));
-
-        if (maxContribution < contribution)
+        vec3 surfelNor = decompress_unit_vec(surfel.normal);
+        float dotN = dot(normal, surfelNor);
+        float contribution = 1.f;
+        if (dotN > 0.f)
         {
-          maxContribution = contribution;
-          maxContributionSurfelIndex = surfelIndex;
+          contribution *= clamp(dotN, 0.f, 1.f);
+          contribution *= clamp(1.f - dist / surfel.radius, 0.f, 1.f);
+          contribution = smoothstep(0, 1, contribution);
+
+          coverage += contribution;
+
+          // Clamp on read: surfels spawned before the upstream non-negative
+          // fix can linger up to kMaxLife frames and would otherwise keep
+          // poisoning new spawns via indirectLighting.
+          indirectContrib += vec4(max(surfel.radiance, vec3(0.0)), 1.f) * contribution
+              * smoothstep(0.f, 10.f, float(surfelRecycleInfo[surfelIndex].frame));
+
+          if (maxContribution < contribution)
+          {
+            maxContribution = contribution;
+            maxContributionSurfelIndex = surfelIndex;
+          }
+
+          // update recycle lastseen
+          surfelRecycleInfo[surfelIndex].status |= 0x0002u;
         }
-
-        // update recycle lastseen
-        surfelRecycleInfo[surfelIndex].status |= 0x0002u;
+        else
+        {
+          contribution *= max(cosineTheta, 0.f);
+          contribution *= pow(1.f - dist / surfel.radius, 2.0);
+          indirectContrib += vec4(max(surfel.radiance, vec3(0.0)), 1.f) * contribution
+              * smoothstep(0.f, 10.f, float(surfelRecycleInfo[surfelIndex].frame));
+        }
       }
-      else
-      {
-        contribution *= max(cosineTheta, 0.f);
-        contribution *= pow(1.f - dist / surfel.radius, 2.0);
-        indirectContrib += vec4(surfel.radiance, 1.f) * contribution * smoothstep(0.f, 10.f, float(surfelRecycleInfo[surfelIndex].frame));
-      }
+      if (DEBUGGING_MODE == esNonUniformGrid) break;
     }
-    if (DEBUGGING_MODE == esNonUniformGrid) break;
-  }
 
-  if (indirectContrib.w > 0)
-  {
-    indirectContrib.xyz /= indirectContrib.w;
-    indirectLighting = indirectContrib.xyz;
-  }
-
-  if (DEBUGGING_MODE != eNoDebug)
-  {
-    if (maxContributionSurfelIndex != 0xffffffff)
+    if (indirectContrib.w > 0)
     {
-      Surfel mainSurfel = surfelBuffer[maxContributionSurfelIndex];
-      //float dist  = distance(worldPos, mainSurfel.position);
-      //if (dist > 0.1 * mainSurfel.radius) maxContributionSurfelIndex = 0xffffffff;
-      if (DEBUGGING_MODE == esRadiance)
-        imageStore(resultImage, imageCoords, vec4(mainSurfel.radiance, 1.f));
-      else if (DEBUGGING_MODE == esSurfelID)
-        imageStore(resultImage, imageCoords, vec4(hash3u1(maxContributionSurfelIndex), 1.f));
-      else if (DEBUGGING_MODE == esVariance)
-        imageStore(resultImage, imageCoords, vec4(mainSurfel.msmeData.variance, 1.f));
-      else if (DEBUGGING_MODE == esRadius)
-        imageStore(resultImage, imageCoords, vec4(vec3(mainSurfel.radius), 1.f));
-      else
-        imageStore(resultImage, imageCoords, vec4(vec3(indirectLighting), 1.f));
+      indirectContrib.xyz /= indirectContrib.w;
+      indirectLighting = indirectContrib.xyz;
     }
-    else imageStore(resultImage, imageCoords, vec4(vec3(0), 1.f));
-  } else imageStore(resultImage, imageCoords, vec4(indirectLighting, 1.f));
 
-  //if ((rtxState.totalFrames & 0x000003ff) != 0) return;
+    if (DEBUGGING_MODE != eNoDebug)
+    {
+      if (maxContributionSurfelIndex != 0xffffffff)
+      {
+        Surfel mainSurfel = surfelBuffer[maxContributionSurfelIndex];
+        if (DEBUGGING_MODE == esRadiance)
+          imageStore(resultImage, imageCoords, vec4(mainSurfel.radiance, 1.f));
+        else if (DEBUGGING_MODE == esSurfelID)
+          imageStore(resultImage, imageCoords, vec4(hash3u1(maxContributionSurfelIndex), 1.f));
+        else if (DEBUGGING_MODE == esVariance)
+          imageStore(resultImage, imageCoords, vec4(mainSurfel.msmeData.variance, 1.f));
+        else if (DEBUGGING_MODE == esRadius)
+          imageStore(resultImage, imageCoords, vec4(vec3(mainSurfel.radius), 1.f));
+        else
+          imageStore(resultImage, imageCoords, vec4(vec3(indirectLighting), 1.f));
+      }
+      else imageStore(resultImage, imageCoords, vec4(vec3(0), 1.f));
+    } else imageStore(resultImage, imageCoords, vec4(indirectLighting, 1.f));
 
-  coverage += rand(randSeed) * 1e-10;
-  uint coverageData = floatBitsToUint(coverage);
-  atomicMin(groupShareMinCoverage, coverageData);
+    coverage += rand(randSeed) * 1e-10;
+    uint coverageData = floatBitsToUint(coverage);
+    atomicMin(groupShareMinCoverage, coverageData);
 
-  maxContribution += rand(randSeed) * 1e-10;
-  uint contributionData = floatBitsToUint(maxContribution);
-  atomicMax(groupShareMaxContribution, contributionData);
+    maxContribution += rand(randSeed) * 1e-10;
+    uint contributionData = floatBitsToUint(maxContribution);
+    atomicMax(groupShareMaxContribution, contributionData);
+  }
 
+  // Workgroup-uniform: every invocation reaches this regardless of `valid`.
   barrier();
+
+  if (!valid) return;
 
   float groupMinCoverage = uintBitsToFloat(groupShareMinCoverage);
   float groupMaxContribution = uintBitsToFloat(groupShareMaxContribution);
-
-  //	if ( surfelCounter.aliveSurfelCnt < kMaxSurfelCount &&
-  //		coverage == groupMinCoverage &&
-  //		coverage < 2.f &&
-  //		rand(randSeed) < depth * 0.2f)
-  //		{
-  //			float surfelToCameraDistance = distance(worldPos, getCameraPosition(sceneCamera));
-  //			generateNewSurfel(worldPos, compressedNor, surfelToCameraDistance, vec2(imageRes.x, imageRes.y));
-  //		}
-  //
-  //	imageStore(resultImage, imageCoords, vec4(indirectLighting, 1.f));
-
-  //	uint coverageData = 0;
-  //    coverageData |= floatBitsToUint(coverage) & 0xFFFF0000;
-  //    coverageData |= ((uint(255 * rand3(randSeed)) & 0x000000FF) << 8);
-  //    coverageData |= ((gl_LocalInvocationID.x & 0x0000000F) << 4);
-  //    coverageData |= ((gl_LocalInvocationID.y & 0x0000000F) << 0);
-  //
-  //    atomicMin(groupShareMinCoverage, coverageData);
-  //
-  //    uint contributionData = 0;
-  //    contributionData |= floatBitsToUint(maxContribution) & 0xFFFF0000;
-  //    contributionData |= ((maxContributionSurfelIndex & 0x0000FFFF) << 0);
-  //
-  //	atomicMax(groupShareMaxContribution, contributionData);
-  //
-  //	barrier();
-  //
-  //	coverageData = groupShareMinCoverage;
-  //    coverage = uintBitsToFloat(coverageData & 0xFFFF0000);
-  //    uint x = (coverageData & 0x000000F0) >> 4;
-  //    uint y = (coverageData & 0x0000000F) >> 0;
-  //
-  //	contributionData = groupShareMaxContribution;
-  //	maxContribution = uintBitsToFloat(contributionData & 0xFFFF0000);
-  //	maxContributionSurfelIndex = contributionData & 0x0000FFFF;
-  // sleep
 
   if (surfelCounter.aliveSurfelCnt < kMaxSurfelCount &&
       coverage == groupMinCoverage &&
       coverage < 2.0f &&
       rand(randSeed) < depth * 0.3f * max(0.0, 2.0 - coverage))
-
   {
     uint surfelAliveIndex = atomicAdd(surfelCounter.aliveSurfelCnt, 1);
     if (surfelAliveIndex < kMaxSurfelCount)
@@ -242,6 +221,7 @@ void main()
       newSurfelRecycleInfo.life = kMaxLife;
       newSurfelRecycleInfo.frame = 0;
       newSurfelRecycleInfo.status = 0;
+      newSurfelRecycleInfo.lastSeenFrame = 0;
       surfelRecycleInfo[surfelID] = newSurfelRecycleInfo;
     }
     else
@@ -260,13 +240,4 @@ void main()
       }
     }
   }
-
-  //Surfel mainSurfel = surfelBuffer[maxContributionSurfelIndex];
-  //imageStore(resultImage, imageCoords, vec4(mainSurfel.radiance, 1.f));
-  	//vec3 mainNor = decompress_unit_vec(mainSurfel.normal);
-  	// get the depth value
-  	//imageStore(resultImage, imageCoords, vec4(vec3(mainNor * 0.5f + 0.5f), 1.f));
-  //imageStore(resultImage, imageCoords, vec4(vec3(coverage), 1.f));
-  //imageStore(resultImage, imageCoords, vec4(vec3(cellSurfelCount) / 500.f, 1.f));
-
 }

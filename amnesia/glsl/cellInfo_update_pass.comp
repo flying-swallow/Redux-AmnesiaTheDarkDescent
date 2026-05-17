@@ -14,21 +14,20 @@ void main()
 {
 	uint idx = gl_GlobalInvocationID.x;
 
-	// Compute offset of the cell to surfel buffer
-	// Cell Count
-	if(idx >= kCellCount) return;
+	// Compute offset of the cell to surfel buffer.
+	// Bound by the full non-uniform grid size: uniform cube + 6 frustum
+	// faces. cellBuffer[] is allocated with TOTAL_CELL_COUNT entries so the
+	// frustum-region indices returned by getFlattenCellIndexNonUniform stay
+	// in bounds.
+	if(idx >= TOTAL_CELL_COUNT) return;
 
 	// Get the cell to process
 	CellInfo thisCell = cellBuffer[idx];
 	if (thisCell.surfelCount == 0) return;
 
-	//if(thisCell.surfelOffset != 0 &&  thisCell.surfelCount != 0) 
-	//	debugPrintfEXT("surfelOffset:%d, surfelCount:%d\n", thisCell.surfelOffset, thisCell.surfelCount); 
 	// Calculate offsets of the surfel buffer
 	uint offset = atomicAdd(cellCounter.aliveSurfelInCell, thisCell.surfelCount);
-	//if(idx == 40) debugPrintfEXT("surfelOffset:%d, surfelCount:%d\n", thisCell.surfelOffset, thisCell.surfelCount); 
 
 	cellBuffer[idx].surfelOffset = offset;
 	cellBuffer[idx].surfelCount = 0;
-	
 }

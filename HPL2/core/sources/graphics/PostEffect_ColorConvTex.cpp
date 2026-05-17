@@ -122,7 +122,7 @@ namespace hpl {
 			mpResources->GetTextureManager()->Destroy(mpColorConvTex);
 		}
 
-		mpColorConvTex = mpResources->GetTextureManager()->Create1D(mParams.msTextureFile,false);
+		mpColorConvTex = mpResources->GetTextureManager()->Create1DImage(mParams.msTextureFile,false);
 //		mpColorConvTex->SetWrapSTR(eTextureWrap_ClampToEdge);
 	}
 
@@ -131,6 +131,13 @@ namespace hpl {
 
 	iTexture* cPostEffect_ColorConvTex::RenderEffect(iTexture *apInputTexture, iFrameBuffer *apFinalTempBuffer)
 	{
+		// Vulkan-bindless port — RenderEffect is dead code: Scene.cpp's
+		// composite-render driver is commented out, so this is never called.
+		// The body below references mpCurrentComposite->SetTexture(int,iTexture*)
+		// and expects mpColorConvTex to be iTexture*, but it's now Image*.
+		// Stubbing to passthrough keeps the file compiling.
+		return apInputTexture;
+#if 0
 		/////////////////////////
 		// Init render states
 		mpCurrentComposite->SetFlatProjection();
@@ -144,7 +151,7 @@ namespace hpl {
 
 		mpCurrentComposite->SetTexture(0, apInputTexture);
 		mpCurrentComposite->SetTexture(1, mpColorConvTex);
-		
+
 		if(mParams.mfFadeAlpha >= 1)
 		{
 			mpCurrentComposite->SetProgram(mpSpecificType->mpProgram[0]);
@@ -158,11 +165,12 @@ namespace hpl {
 				mpSpecificType->mpProgram[1]->SetFloat(kVar_afFadeAlpha,fAlpha);
 			}
 		}
-		
-		
+
+
 		DrawQuad(0,1,apInputTexture, true);
-		
+
 		return apFinalTempBuffer->GetColorBuffer(0)->ToTexture();
+#endif
 	}
 
 	//-----------------------------------------------------------------------

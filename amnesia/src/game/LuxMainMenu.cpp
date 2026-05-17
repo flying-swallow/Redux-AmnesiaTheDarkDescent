@@ -1353,7 +1353,7 @@ void cLuxMainMenu::RenderBlur(iTexture *apInputTexture, iTexture *apTempTexture,
 
 void cLuxMainMenu::RenderBlurTexture()
 {
-	assert(false);
+	//assert(false);
 	//iLowLevelGraphics *pLowGfx = mpGraphics->GetLowLevel();
 
 	////////////////////////////////

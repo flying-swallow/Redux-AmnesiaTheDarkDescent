@@ -25,7 +25,7 @@ public:
   ~cHybridRenderer();
 
   // OBJECT_SLOT_CAPACITY / TEXTURE_SLOT_CAPACITY / MATERIAL_SLOT_CAPACITY and
-  // SURFEL_MAX_CAPACTIY / MAX_RAY_COUNT come from amnesia/glsl/forward_shared.h.
+  // SURFEL_MAX_CAPACITY / MAX_RAY_COUNT come from amnesia/glsl/forward_shared.h.
 
   virtual void Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                     float afFrameTime, cFrustum *apFrustum, cWorld *apWorld,
@@ -55,7 +55,7 @@ private:
   // RI.uploader (see Draw()). m_pointLightScratch is the CPU staging vector,
   // reserved once at init so the per-frame fill doesn't reallocate.
   struct RIBuffer_s m_pointLightBuffer = {};
-  std::array<PointLight, LIGHT_SLOT_CAPACITY> m_pointLightScratch;
+  std::array<PointLight, POINT_SLOT_LIGHT_CAPACITY> m_pointLightScratch;
   struct RIBuffer_s m_opaquePositionHandles;
   struct RIBuffer_s m_opaqueTangentHandles;
   struct RIBuffer_s m_opaqueNormalHandles;
@@ -112,12 +112,34 @@ private:
 	RIProgram m_cellInfoUpdate;
 	RIProgram m_cellToSurfelUpdate;
 	RIProgram m_surfelRaytrace;
+	RIProgram m_surfelIntegrate;
+	// Final visibility-buffer composite — port of AmnesiaTheDarkDescent's
+	// visibility_emit_shade_pass.frag.fsl. Fullscreen triangle that
+	// reconstructs (objectID, primID) from the gbuffer, runs Hawkins
+	// barycentric, samples diffuse + applies point-light direct + surfel
+	// indirect, and writes the swapchain image.
+	RIProgram m_visibilityShade;
 
 	// Surfel-ray irradiance map sampled by surfel_raytrace.comp's ray-guiding
-	// branch. Filled in by a future pass; until then it stays zero-cleared,
-	// which keeps the cosine-weighted branch active.
+	// branch and written by surfel_integrate.comp. Lives at VK_IMAGE_LAYOUT_GENERAL
+	// across all surfel passes so the same view can be bound as both
+	// combined-image-sampler (for reads) and storage-image (for writes) within
+	// the integrate dispatch.
 	struct RITexture_s     m_surfelIrradianceTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
 	struct RITextureView_s m_surfelIrradianceView[RI_MAX_SWAPCHAIN_IMAGES]    = {};
+
+	// Surfel-ray depth map — RG16F atlas storing (depth, depth^2) per
+	// octahedral tile texel for each surfel. Written by surfel_integrate.comp
+	// alongside the irradiance atlas; sampled by future shading passes for
+	// visibility-aware GI gather. Lives at GENERAL like the irradiance atlas.
+	struct RITexture_s     m_surfelDepthTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+	struct RITextureView_s m_surfelDepthView[RI_MAX_SWAPCHAIN_IMAGES]    = {};
+
+	// One-shot UNDEFINED -> GENERAL transition tracker for the two surfel
+	// atlases. Per-swapchain-image because each backing image needs the
+	// transition once on its first appearance; after that the atlas data
+	// must persist (integrate EMA-blends with the prior frame's values).
+	std::array<bool, RI_MAX_SWAPCHAIN_IMAGES> m_surfelAtlasesInitialized = {};
 };
 
 } // namespace hpl

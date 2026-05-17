@@ -19,6 +19,10 @@ void main()
 		surfelCounter.surfelRayCnt = 0;
 		cellCounter.aliveSurfelInCell = 0;
 	}
+	// Bound by the full non-uniform grid size (uniform cube + 6 frustum
+	// faces). The host dispatches (TOTAL_CELL_COUNT+31)/32 workgroups, which
+	// rounds up past TOTAL_CELL_COUNT on the last workgroup.
+	if (idx >= TOTAL_CELL_COUNT) return;
 	//clear cellBuffer
 	cellBuffer[idx].surfelCount = 0;
 	cellBuffer[idx].surfelOffset = 0;

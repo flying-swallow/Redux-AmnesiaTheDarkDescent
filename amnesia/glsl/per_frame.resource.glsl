@@ -44,5 +44,6 @@ layout(set = 1, binding = 0) uniform PerFrameBlock {
 #define totalFrames        perFrame.u.totalFrames
 #define cameraFov          perFrame.u.cameraFov
 #define pointLightCount    perFrame.u.pointLightCount
+#define fireflyClampThreshold perFrame.u.fireflyClampThreshold
 
 #endif // PER_FRAME_RESOURCE_GLSL

@@ -149,6 +149,7 @@ struct BindlessHit
     vec3 normalW;
     vec2 uv;
     vec3 albedo;
+    vec3 emissive;
 };
 
 // Resolve a TLAS hit (described by prd) into world-space shade state pulled
@@ -158,7 +159,16 @@ BindlessHit GetBindlessHit(in PtPayload p)
 {
     BindlessHit h;
 
-    const uint instanceId = uint(p.instanceID);
+    // Index by instanceCustomIndex, not instanceID. The TLAS build sets
+    // `inst.instanceCustomIndex = req.id` (HybridRenderer.cpp:1050), where
+    // req.id is the engine's bindless object-slot ID — the same ID that
+    // sceneObjects[], opaque*Handles[], and opaqueMaterial[] are keyed by.
+    // instanceID is the TLAS-build-order index and has no relation to
+    // the bindless slot, so using it here would read whichever object
+    // happens to occupy that slot in TLAS build order (wrong material,
+    // wrong BDA buffers, wrong UVs → black albedo, garbage hit positions
+    // that cause shadow rays to self-occlude every direct light).
+    const uint instanceId = uint(p.instanceCustomIndex);
     const UniformObject obj = sceneObjects[instanceId];
 
     const uint64_t indexAddr = opaqueIndexHandles.data[instanceId];
@@ -218,6 +228,18 @@ BindlessHit GetBindlessHit(in PtPayload p)
                            h.uv).rgb;
     } else {
         h.albedo = vec3(0.5);
+    }
+
+    // Emissive contribution: illumination texture * per-object scalar. The
+    // engine drives `illuminationAmount` per object (e.g. flickering torches),
+    // so a single-texture sample is enough; surfels integrate emission as
+    // bounce-1 radiance and propagate it the same way as point-light direct.
+    h.emissive = vec3(0.0);
+    const uint illumSlot = DiffuseMaterial_IlluminiationTexture_ID(mat);
+    if (illumSlot != INVALID_TEXTURE_INDEX && obj.illuminationAmount > 0.0) {
+        h.emissive = texture(sampler2D(textures_2d[nonuniformEXT(illumSlot)],
+                                       materialSampler),
+                             h.uv).rgb * obj.illuminationAmount;
     }
 
     return h;
@@ -316,57 +338,8 @@ bool finalizePathWithSurfel(vec3 worldPos, vec3 worldNor, uint randSeed, inout v
 	{
 		return false;
 	}
-  
-    //
-    // spawn sleeping surfel if coverage is low.
-    //if (surfelCounter.aliveSurfelCnt < kMaxSurfelCount &&
-    //    coverage < 1.f && cellInfo.surfelCount < 32)
-    //{
-    //    uint surfelAliveIndex = atomicAdd(surfelCounter.aliveSurfelCnt, 1);
-    //    if (surfelAliveIndex < kMaxSurfelCount && rand(randSeed) < 0.2)
-    //    {
-    //        uint surfelID = surfelDead[kMaxSurfelCount - surfelAliveIndex - 1];
-    //        surfelAlive[surfelAliveIndex] = surfelID;
-
-    //        Surfel newSurfel;
-    //        //newSurfel.objID = objID;
-    //        newSurfel.position = worldPos;
-    //        newSurfel.normal = compress_unit_vec(worldNor);
-    //        newSurfel.radiance = irradiance.xyz;
-    //        newSurfel.rayCount = 0;
-    //        newSurfel.msmeData.mean = irradiance.xyz;
-    //        newSurfel.msmeData.shortMean = irradiance.xyz;
-    //        newSurfel.msmeData.vbbr = 0.f;
-    //        newSurfel.msmeData.variance = vec3(1.f);
-    //        newSurfel.msmeData.inconsistency = 1.f;
-    //        float surfelToCameraDistance = distance(worldPos, invViewMat[3].xyz);
-    //        newSurfel.radius = min(calcSurfelRadius(surfelToCameraDistance, sceneCamera.fov, vec2(rtxState.size)), getSurfelMaxSize(surfelToCameraDistance) * 2.f);
-
-    //        surfelBuffer[surfelID] = newSurfel;
-
-    //        SurfelRecycleInfo newSurfelRecycleInfo;
-    //        newSurfelRecycleInfo.life = kMaxLife / 2;
-    //        newSurfelRecycleInfo.frame = 0;
-    //        newSurfelRecycleInfo.status = 1u;
-    //        surfelRecycleInfo[surfelID] = newSurfelRecycleInfo;
-    //    }
-    //    else
-    //    {
-    //        atomicAdd(surfelCounter.aliveSurfelCnt, -1);
-    //    }
-    //}
-
-    //if (maxContributionSleepingSurfelIndex != 0xffffffff && coverage > 3.f)
-    //{
-    //    
-    //    if (rand(randSeed) < 0.2)
-    //    {
-    //        surfelBuffer[maxContributionSleepingSurfelIndex].radius = 0.f;
-    //    }
-    //}
 
     return true;
-
 }
 
 // Surfel-ray path trace.
@@ -387,10 +360,11 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
     bool valid      = true;
     int  depth;
     BindlessHit lastHit;
-    lastHit.posW    = vec3(0.0);
-    lastHit.normalW = vec3(0.0, 0.0, 1.0);
-    lastHit.uv      = vec2(0.0);
-    lastHit.albedo  = vec3(0.0);
+    lastHit.posW     = vec3(0.0);
+    lastHit.normalW  = vec3(0.0, 0.0, 1.0);
+    lastHit.uv       = vec2(0.0);
+    lastHit.albedo   = vec3(0.0);
+    lastHit.emissive = vec3(0.0);
 
     for (depth = 0; depth < maxDepth; depth++)
     {
@@ -410,6 +384,17 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
         BindlessHit hit = GetBindlessHit(prd);
         lastHit = hit;
 
+        // Emissive surfaces contribute on every bounce. Throughput already
+        // carries the BRDF product from prior bounces.
+        radiance += throughput * hit.emissive;
+
+        // DIAGNOSTIC (remove once root cause for black irradiance is known):
+        // count how many point lights are in radius and how many pass the
+        // shadow test so the printf below can attribute which arm dropped
+        // the direct contribution.
+        uint _plInRadius = 0u, _plVisible = 0u;
+        vec3 _plRadiance = vec3(0.0);
+
         // Direct lighting from point lights.
         for (uint i = 0u; i < pointLightCount; ++i)
         {
@@ -417,17 +402,34 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
             vec3 toL = pl.position - hit.posW;
             float d  = length(toL);
             if (d <= 0.0 || d > pl.radius) continue;
+            _plInRadius++;
             vec3 L = toL / d;
             float ndl = max(dot(hit.normalW, L), 0.0);
             if (ndl <= 0.0) continue;
 
             Ray shadowRay = Ray(OffsetRayBindless(hit.posW, hit.normalW), L);
             if (AnyHit(shadowRay, max(d - 0.01, 0.0))) continue;
+            _plVisible++;
 
             // Smoothstep range falloff; intensity acts as a scalar multiplier
             // on the diffuse color.
             float falloff = 1.0 - smoothstep(0.0, pl.radius, d);
-            radiance += throughput * hit.albedo * pl.color * pl.intensity * ndl * falloff * M_1_OVER_PI;
+            vec3 contribution = throughput * hit.albedo * pl.color * pl.intensity
+                              * ndl * falloff * M_1_OVER_PI;
+            _plRadiance += contribution;
+            radiance += contribution;
+        }
+
+        // DIAGNOSTIC: bounce-0 attribution for ray 0, once per second.
+        if (gl_GlobalInvocationID.x == 0u && depth == 0
+            && (totalFrames & 0xF) == 0u)
+        {
+            debugPrintfEXT("    d=%d t=%.2f albedo=(%.2f,%.2f,%.2f) emis=(%.3f,%.3f,%.3f) plInR=%u plVis=%u L_pl=(%.3f,%.3f,%.3f)\n",
+                           depth, prd.hitT,
+                           hit.albedo.r, hit.albedo.g, hit.albedo.b,
+                           hit.emissive.r, hit.emissive.g, hit.emissive.b,
+                           _plInRadius, _plVisible,
+                           _plRadiance.r, _plRadiance.g, _plRadiance.b);
         }
 
         // Cosine-weighted Lambertian bounce. BRDF * cos / pdf simplifies to albedo.
