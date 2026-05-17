@@ -8,16 +8,20 @@
 // every triangle in the TLAS is fully opaque.
 //
 // Reads: topLevelAS (set 2 binding 0) — declared in layouts.glsl.
-// Writes: the global `prd` / `shadow_payload` payloads declared in the
-// including translation unit.
+// ClosestHit writes its caller-supplied `inout PtPayload prd`; AnyHit has
+// no side effects beyond its return value.
 
 #ifndef TRACERAY_RQ_GLSL
 #define TRACERAY_RQ_GLSL 1
 
 //-----------------------------------------------------------------------
-// Shoot a ray and fill `prd` with closest-hit info, or set hitT = INFINITY
-// on a miss.
-void ClosestHit(Ray r)
+// Shoot a ray and fill the caller's `prd` with closest-hit info, or set
+// hitT = INFINITY on a miss. Gated on `TRACERAY_RQ_HAS_PRD` for type
+// visibility: PtPayload is declared in globals.glsl, which fragment-shader
+// includers that only need AnyHit do not pull in. Callers that want
+// ClosestHit must `#include "globals.glsl"` and `#define TRACERAY_RQ_HAS_PRD`
+// before including this header.
+void ClosestHit(Ray r, inout PtPayload prd)
 {
   prd.hitT = INFINITY;
 
@@ -51,15 +55,13 @@ void ClosestHit(Ray r)
 
 //-----------------------------------------------------------------------
 // Shadow / visibility query — returns true if anything blocks the ray
-// within [0, maxDist].
-bool AnyHit(Ray r, float maxDist)
+// within [0, maxDist]. TLAS is passed in so this helper can be shared by
+// passes with different binding layouts (e.g. visibility_shade.frag).
+bool AnyHit(accelerationStructureEXT tlas, Ray r, float maxDist)
 {
-  shadow_payload.isHit = true;
-  shadow_payload.seed  = prd.seed;
-
   rayQueryEXT rayQuery;
   rayQueryInitializeEXT(rayQuery,
-                        topLevelAS,
+                        tlas,
                         gl_RayFlagsOpaqueEXT |
                             gl_RayFlagsTerminateOnFirstHitEXT |
                             gl_RayFlagsSkipClosestHitShaderEXT,

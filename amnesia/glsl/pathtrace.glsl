@@ -22,6 +22,10 @@ vec3 OffsetRayBindless(in vec3 posW, in vec3 normalW)
     return posW + normalW * kSelfIntersectEps;
 }
 
+// NOTE: the canonical `OffsetRay` (Ray Tracing Gems Ch. 6 integer-offset
+// variant) lives in common.glsl. Don't redefine it here — both files are
+// included by surfel_raytrace.comp and a second body would conflict.
+
 // Cosine-weighted hemisphere sample around +Z. Caller is responsible for
 // rotating into the world-space frame (CreateCoordinateSystem in common.glsl).
 // Lifted from the old pbr_disney.glsl since the BSDF file is no longer

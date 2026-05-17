@@ -10,16 +10,14 @@
 #include "bindless.resource.glsl"   // surfels + cells + pointLights at set 0
 #include "per_frame.resource.glsl"  // perFrame UBO at set 1 (totalFrames, pointLightCount)
 
-#include "globals.glsl"             // PtPayload / Ray / ShadowHitPayload structs
-
-PtPayload prd;
-ShadowHitPayload shadow_payload;
+#include "globals.glsl"             // PtPayload / Ray structs
 
 #include "layouts.glsl"             // TLAS at set 2 binding 0
 #include "random.glsl"
 #include "common.glsl"
 #include "compress.glsl"
 #include "pathtrace.glsl"           // OffsetRayBindless helper
+#define TRACERAY_RQ_HAS_PRD          // opt in to ClosestHit (needs PtPayload in scope)
 #include "traceray_rq.glsl"         // ClosestHit / AnyHit
 #include "shaderUtils_surfel_cell.glsl"
 #include "shaderUtils.glsl"
@@ -124,8 +122,9 @@ void main()
     int maxDepth = isSleeping ? 5 : 3;
     // surfelPathTrace pulls its bounce RNG from prd.seed; seed it from
     // the per-ray random state we already built above.
+    PtPayload prd;
     prd.seed = randSeed;
-    surfelRay.radiance = surfelPathTrace(ray, maxDepth, surfelIndex, surfelRay.t);
+    surfelRay.radiance = surfelPathTrace(ray, maxDepth, surfelIndex, surfelRay.t, prd);
     float lum = dot(surfelRay.radiance, vec3(0.212671f, 0.715160f, 0.072169f));
     if (lum > fireflyClampThreshold)
     {
@@ -136,19 +135,6 @@ void main()
     surfelRay.radiance = max(surfelRay.radiance, vec3(0.0));
     surfelRay.dir_o = compress_unit_vec(dirL);
     surfelRay.pdf = pdf;
-
-    // DIAGNOSTIC (remove with the rest): per-frame snapshot of ray 0's
-    // surfelPathTrace result so we can confirm whether the path tracer is
-    // returning any radiance at all.
-    if (index == 0u && (totalFrames & 0x3Fu) == 0u)
-    {
-        debugPrintfEXT("  ray0 sid=%u L=(%.4f,%.4f,%.4f) t=%.2f\n",
-                       surfelIndex,
-                       surfelRay.radiance.r,
-                       surfelRay.radiance.g,
-                       surfelRay.radiance.b,
-                       surfelRay.t);
-    }
 
     surfelRayBuffer[index] = surfelRay;
 }

@@ -714,11 +714,19 @@ namespace hpl {
 
 			struct RIProgram::DescriptorBinding bindings[6] = {};
 			size_t numBindings = 0;
-			if(pTexture) {
-				std::shared_ptr<HPLTexture> texture = pTexture->GetTexture();
+			// Resolve the diffuse texture, pin its lifetime to this frame
+			// slot BEFORE we touch any of its Vulkan handles. textureLink
+			// holds the shared_ptr until next reuse of this frame slot
+			// (after the fence wait in BeginActiveSet), so the VkImage
+			// stays alive past the submit that references it.
+			std::shared_ptr<HPLTexture> diffuseTexture;
+			if (pTexture) {
+				diffuseTexture = pTexture->GetTexture();
+			}
+			if (diffuseTexture) {
+				cntx->textureLink.push_back(diffuseTexture);
 				uniformBlock.textureCfg |= (1 << 0); // Has texture
-				bindings[numBindings].descriptor = texture->binding;
-				cntx->textureLink.push_back(texture);
+				bindings[numBindings].descriptor = diffuseTexture->binding;
 			} else {
 				bindings[numBindings].descriptor = RI.whiteTexture2DBinding;
 			}

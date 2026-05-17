@@ -353,7 +353,7 @@ bool finalizePathWithSurfel(vec3 worldPos, vec3 worldNor, uint randSeed, inout v
 // `surfelIndex` is the surfel owning this ray; used to seed RNG and to
 // constrain the surfel-cache fallback so we don't read a surfel's own
 // radiance back into itself.
-vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDepth)
+vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDepth, inout PtPayload prd)
 {
     vec3 radiance   = vec3(0.0);
     vec3 throughput = vec3(1.0);
@@ -368,7 +368,7 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
 
     for (depth = 0; depth < maxDepth; depth++)
     {
-        ClosestHit(r);
+        ClosestHit(r, prd);
         if (depth == 0)
         {
             firstDepth = prd.hitT;
@@ -439,14 +439,14 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
         vec3 newDir = normalize(localDir.x * T + localDir.y * B + localDir.z * ffnormal);
         throughput *= hit.albedo;
 
-        r.origin    = OffsetRayBindless(hit.posW, ffnormal);
+        r.origin    = OffsetRay(hit.posW, ffnormal);
         r.direction = newDir;
 
         // Deferred shadow ray for the NEE sample chosen above.
         if (pendingShadow)
         {
             Ray shadowRay = Ray(pendingShadowOrigin, pendingShadowDir);
-            if (!AnyHit(shadowRay, pendingShadowMaxT))
+            if (!AnyHit(topLevelAS, shadowRay, pendingShadowMaxT))
             {
                 radiance += pendingDirect;
             }
@@ -483,176 +483,5 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
     return radiance;
 }
 
-// surfelRefelctionTrace was the BSDF-driven reflection variant on the old
-// pathtracer. It was Disney/GLTF-specific; nothing calls it in the bindless
-// renderer. Dropped — restore from git history if a reflection-aware variant
-// is needed later.
-
-#if 0
-vec3 surfelRefelctionTrace_obsolete(Ray r, int maxDepth, inout float firstDepth, inout BsdfSampleRec reflectSample, inout float weight)
-{
-    vec3 radiance = vec3(0.0);
-    vec3 throughput = vec3(1.0);
-    vec3 nextThroughput = vec3(1.0);
-    vec3 absorption = vec3(0.0);
-	vec3 diffuseRatio = vec3(1.f);
-    ShadeState sstate;
-    bool valid = true;
-    int depth;
-
-    for (depth = 0; depth < maxDepth; depth++)
-    {
-		throughput = nextThroughput;
-        valid = true;
-        ClosestHit(r);
-        if (depth == 0)
-        {
-            firstDepth = prd.hitT;
-        }
-
-        // Hitting the environment
-        if (prd.hitT == INFINITY)
-        {
-            vec3 env;
-            if (_sunAndSky.in_use == 1)
-                env = sun_and_sky(_sunAndSky, r.direction);
-            else
-            {
-                vec2 uv = GetSphericalUv(r.direction);  // See sampling.glsl
-                env = texture(environmentTexture, uv).rgb;
-            }
-            // Done sampling return
-            return radiance + (env * rtxState.hdrMultiplier * throughput);
-        }
-
-
-        BsdfSampleRec bsdfSampleRec;
-
-        // Get Position, Normal, Tangents, Texture Coordinates, Color
-        sstate = GetShadeState(prd);
-
-        State state;
-        state.position = sstate.position;
-        state.normal = sstate.normal;
-        state.tangent = sstate.tangent_u[0];
-        state.bitangent = sstate.tangent_v[0];
-        state.texCoord = sstate.text_coords[0];
-        state.matID = sstate.matIndex;
-        state.isEmitter = false;
-        state.specularBounce = false;
-        state.isSubsurface = false;
-        state.ffnormal = dot(state.normal, r.direction) <= 0.0 ? state.normal : -state.normal;
-
-        // Filling material structures
-        GetMaterialsAndTextures(state, r);
-
-        // Color at vertices
-        state.mat.albedo *= sstate.color;
-
-        //diffuseRatio = state.mat.albedo * (M_1_OVER_PI * (1.0 - state.mat.metallic));
-
-        diffuseRatio = state.mat.albedo * (1.0 - F_SchlickRoughness(state.mat.f0, max(0.0, dot(-r.direction, state.normal)), state.mat.roughness)
-            * (1.0 - state.mat.metallic));
-
-        // Debugging info
-        /*if (rtxState.debugging_mode != eNoDebug && rtxState.debugging_mode < eRadiance)
-            return DebugInfo(state);*/
-
-            // KHR_materials_unlit
-        if (state.mat.unlit)
-        {
-            return radiance + state.mat.albedo * throughput;
-        }
-
-        // Reset absorption when ray is going out of surface
-        if (dot(state.normal, state.ffnormal) > 0.0)
-        {
-            absorption = vec3(0.0);
-        }
-
-        // Emissive material
-        radiance += state.mat.emission * throughput;
-
-        // Add absoption (transmission / volume)
-        throughput *= exp(-absorption * prd.hitT);
-
-        // Light and environment contribution
-        VisibilityContribution vcontrib = DirectLight(r, state);
-        vcontrib.radiance *= throughput;
-
-        // Sampling for the next ray
-        bsdfSampleRec.f = Sample(state, -r.direction, state.ffnormal, bsdfSampleRec.L, bsdfSampleRec.pdf, prd.seed);
-
-        if (depth == 0)
-        {
-            reflectSample = bsdfSampleRec;
-			weight = brdfWeight(-r.direction, state.ffnormal, bsdfSampleRec.L, state.mat.roughness);
-        }
-
-        // Set absorption only if the ray is currently inside the object.
-        if (dot(state.ffnormal, bsdfSampleRec.L) < 0.0)
-        {
-            absorption = -log(state.mat.attenuationColor) / vec3(state.mat.attenuationDistance);
-        }
-
-        if (bsdfSampleRec.pdf > 0.0)
-        {
-            nextThroughput *= bsdfSampleRec.f * abs(dot(state.ffnormal, bsdfSampleRec.L)) / bsdfSampleRec.pdf;
-        }
-        else
-        {
-            valid = false;
-            break;
-        }
-
-        // For Russian-Roulette (minimizing live state)
-        /*float rrPcont = (depth >= RR_DEPTH) ?
-            min(max(throughput.x, max(throughput.y, throughput.z)) * state.eta * state.eta + 0.001, 0.95) :
-            1.0;*/
-
-            // Next ray
-        r.direction = bsdfSampleRec.L;
-        r.origin = OffsetRay(sstate.position, dot(bsdfSampleRec.L, state.ffnormal) > 0 ? state.ffnormal : -state.ffnormal);
-
-        // We are adding the contribution to the radiance only if the ray is not occluded by an object.
-        // This is done here to minimize live state across ray-trace calls.
-        if (vcontrib.visible == true)
-        {
-            // Shoot shadow ray up to the light (1e32 == environement)
-            Ray  shadowRay = Ray(r.origin, vcontrib.lightDir);
-            bool inShadow = AnyHit(shadowRay, vcontrib.lightDist);
-            if (!inShadow)
-            {
-                radiance += vcontrib.radiance;
-                valid = false;
-            }
-        }
-
-
-        //if (rand(prd.seed) >= rrPcont)
-        //    break;                // paths with low throughput that won't contribute
-        //throughput /= rrPcont;  // boost the energy of the non-terminated paths
-    }
-
-    // use surfel indirect when the path reach max depth
-	if (depth == maxDepth && valid)
-    {
-        vec4 irradiance = vec4(0.0);
-        uint randSeed = initRandom(uvec2(rtxState.frame, floatBitsToUint(sstate.position.x)),
-                uvec2(floatBitsToUint(sstate.position.y), floatBitsToUint(sstate.position.z)), rtxState.totalFrames);
-        bool rst = finalizePathWithSurfel(sstate.position, sstate.normal, randSeed, irradiance);
-        //bool rst = false;
-        if (rst)
-        {
-            // apply diffuse ratio
-			irradiance.rgb *= diffuseRatio;
-            radiance += irradiance.xyz * throughput;
-        }
-    }
-
-
-    return radiance;
-}
-#endif  // 0 (surfelRefelctionTrace_obsolete)
 
 #endif // LAYOUTS_GLSL

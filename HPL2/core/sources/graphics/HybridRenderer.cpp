@@ -455,7 +455,6 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
 
     const VkBufferUsageFlags kStorage =
         VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    m_diffuseBindless.reset(OBJECT_SLOT_CAPACITY);
     m_diffuseObjectBuffer = detail::CreateBindlessSlotBuffer(
         &RI.device, OBJECT_SLOT_CAPACITY, sizeof(ObjectGPUData), kStorage);
     m_opaquePositionHandles = detail::CreateBindlessSlotBuffer(
@@ -779,14 +778,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
 
 uint32_t cHybridRenderer::resolveMaterial(RIBootstrap::FrameContext *cntx,
                                           cMaterial *mat, uint32_t frameIndex) {
-  hash_t cookie = hash_u64(HASH_INITIAL_VALUE, (uint64_t)(uintptr_t)mat);
-  cookie = hash_u64(cookie, (uint64_t)mat->Generation());
 
-  auto req = m_materialBindless.request(cookie, frameIndex);
-  if (req.exhausted)
-    return UINT32_MAX;
-  if (req.found)
-    return req.id;
 
   auto slotFor = [&](eMaterialTexture type) -> uint32_t {
     Image *img = mat->GetImage(type);
@@ -794,9 +786,9 @@ uint32_t cHybridRenderer::resolveMaterial(RIBootstrap::FrameContext *cntx,
       return INVALID_TEXTURE_INDEX;
     auto texture = img->GetTexture();
 
-    const hash_t cookie =
+    const hash_t texture_cookie =
         hash_u64(HASH_INITIAL_VALUE, (uint64_t)(uintptr_t)texture.get());
-    auto req = m_textureBindless.request(cookie, frameIndex);
+    auto req = m_textureBindless.request(texture_cookie, frameIndex);
     if (req.exhausted)
       return INVALID_TEXTURE_INDEX;
     cntx->textureLink.push_back(texture);
@@ -841,6 +833,15 @@ uint32_t cHybridRenderer::resolveMaterial(RIBootstrap::FrameContext *cntx,
     gpu.frenselPow = desc.m_solid.m_frenselPow;
   }
 
+
+  hash_t cookie = hash_u64(HASH_INITIAL_VALUE, (uint64_t)(uintptr_t)mat);
+  cookie = hash_u64(cookie, (uint64_t)mat->Generation());
+  cookie = hash_data(cookie, &gpu, sizeof(gpu));
+  auto req = m_materialBindless.request(cookie, frameIndex);
+  if (req.exhausted)
+    return UINT32_MAX;
+  if (req.found)
+    return req.id;
   std::memcpy(static_cast<uint8_t *>(m_opaqueMaterialBuffer.mappedAddress) +
                   (size_t)req.id * sizeof(DiffuseMaterialGPU),
               &gpu, sizeof(gpu));
@@ -1005,11 +1006,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     const ml::float4x4 uvF4 = cMath::ToFloatTranspose4x4(cMatrixf::Identity);
     std::memcpy(payload.uvMat, uvF4.a, sizeof(payload.uvMat));
 
-    const hash_t cookie =
-        hash_u64(HASH_INITIAL_VALUE, (uint64_t)(uintptr_t)pObject);
     const hash_t payloadHash =
-        hash_data(HASH_INITIAL_VALUE, &payload, sizeof(payload));
-    auto req = m_diffuseBindless.request(cookie, (uint32_t)RI.frameIndex);
+        hash_data(hash_u64(HASH_INITIAL_VALUE, (uint64_t)(uintptr_t)pObject), &payload, sizeof(payload));
+    auto req = m_diffuseBindless.request(payloadHash, (uint32_t)RI.frameIndex);
     if (req.exhausted) {
       // TODO: will probably resize the buffer and goto the beginning and
       // reconstruct the data
@@ -2072,7 +2071,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     {
       RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("shadowTLAS");
+      b.handle = DescriptorBindingID::Create("topLevelAS");
       b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
       b.descriptor.vk.accelStructure = m_tlas.vk.handle;
       RIFinalizeDescriptor(&RI.device, &b.descriptor);
