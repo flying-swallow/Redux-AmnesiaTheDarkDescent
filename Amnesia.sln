@@ -1,10 +1,13 @@
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio Version 16
-VisualStudioVersion = 16.0.30503.244
+# Visual Studio Version 18
+VisualStudioVersion = 18.6.11806.211 stable
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "Lux", "amnesia\src\game\Lux.vcxproj", "{451CAACC-25B3-465C-A42E-658B8883406E}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "HPL2", "HPL2\core\HPL2.vcxproj", "{4AB08447-393F-40D0-A48D-AA6CA41D50CC}"
+	ProjectSection(ProjectDependencies) = postProject
+		{A748AEF9-9068-401D-AB2B-196FDF92F5CC} = {A748AEF9-9068-401D-AB2B-196FDF92F5CC}
+	EndProjectSection
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "AngelScript", "HPL2\dependencies\sources\AngelScript\AngelScript.vcxproj", "{F52F5209-0E1B-445E-A9B5-EDEEB444215D}"
 EndProject

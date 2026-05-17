@@ -188,6 +188,34 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   VkRenderingInfo renderingInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
   RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
 
+  // Ensure we actually have a live primary command buffer for this frame.
+  // RI.primary is otherwise just zero/null until something acquires it.
+  if (RI.primary.cmds == NULL)
+  {
+	  RI.primary = GetRICommandRingElement(
+		  &RI.device,
+		  &RI.graphicsCmdRing,
+		  RI_NUMBER_SUB_COMMANDS
+	  );
+
+	  if (RI.primary.pool == NULL || RI.primary.cmds == NULL)
+	  {
+		  FatalError("Failed to acquire Vulkan primary command buffer!\n");
+		  return;
+	  }
+
+	  ResetRIPool(&RI.device, RI.primary.pool);
+	  BeginRICmd(&RI.device, &RI.primary.cmds[0]);
+  }
+
+  VkCommandBuffer cmd = RI.primary.cmds[0].vk.cmd;
+
+  if (cmd == VK_NULL_HANDLE)
+  {
+	  FatalError("Vulkan primary command buffer is null!\n");
+	  return;
+  }
+
   VkRenderingAttachmentInfo colorAttachment = {
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
   RI_VK_FillColorAttachmentView(&colorAttachment ,
@@ -216,7 +244,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   renderingInfo.pColorAttachments = &colorAttachment;
   renderingInfo.pDepthAttachment = &depthStencil;
   renderingInfo.pStencilAttachment = NULL;
-  vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderingInfo);
+  vkCmdBeginRendering(cmd, &renderingInfo);
 
   ///////////////////////////
   // Draw set
@@ -227,7 +255,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   pSet->Render(NULL);
   pSet->ClearRenderObjects();
 	
-	vkCmdEndRendering( RI.primary.cmds[0].vk.cmd );
+  vkCmdEndRendering(cmd);
 
   //mpLowLevelGfx->FlushRendering();
   //mpLowLevelGfx->SwapBuffers();

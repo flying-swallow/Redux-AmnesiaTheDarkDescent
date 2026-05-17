@@ -47,8 +47,18 @@ def main() -> int:
 
         print(f"Compiling: {shader} -> {out}")
 
+        # Ray tracing / ray query GLSL extensions require a modern Vulkan/SPIR-V target.
+        # glslc otherwise defaults conservatively, which can reject GL_EXT_ray_tracing.
+        target_env = os.environ.get("GLSLC_TARGET_ENV", "vulkan1.2")
+
         result = subprocess.run(
-            [glslc, str(shader), "-o", str(out)],
+            [
+                glslc,
+                f"--target-env={target_env}",
+                "-I", str(source_dir),
+                str(shader),
+                "-o", str(out),
+            ],
             text=True,
             capture_output=True,
         )
