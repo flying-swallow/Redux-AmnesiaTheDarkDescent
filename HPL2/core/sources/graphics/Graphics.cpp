@@ -507,6 +507,11 @@ namespace hpl {
 			if (whiteUploadStaging != VK_NULL_HANDLE) {
 				vmaDestroyBuffer(RI.device.vk.vmaAllocator, whiteUploadStaging, whiteUploadStagingAlloc);
 			}
+			// The one-time init upload used graphicsCmdRing, but it has completed.
+			// Rewind the ring so the first real frame starts with a clean command pool.
+			RI.graphicsCmdRing.cmdIndex = 0;
+			RI.graphicsCmdRing.fenceIndex = 0;
+			RI.primary = {};
 		}
 		{
 			auto vert_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "gui.vert.spv");

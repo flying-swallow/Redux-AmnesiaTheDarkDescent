@@ -84,7 +84,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;..\..\amnesia\glsl;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>WIN32;_DEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -101,7 +101,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;..\..\amnesia\glsl;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -122,7 +122,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;$(VULKAN_SDK)\Include;..\..\extern\VulkanMemoryAllocator\include;..\..\extern\MathLib;..\..\extern\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;..\..\amnesia\glsl;$(VULKAN_SDK)\Include;..\..\extern\VulkanMemoryAllocator\include;..\..\extern\MathLib;..\..\extern\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;ENABLE_SPIRV;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -139,7 +139,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;$(VULKAN_SDK)\Include;..\..\extern\VulkanMemoryAllocator\include;..\..\extern\MathLib;..\..\extern\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;..\..\amnesia\glsl;$(VULKAN_SDK)\Include;..\..\extern\VulkanMemoryAllocator\include;..\..\extern\MathLib;..\..\extern\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -163,12 +163,16 @@
     <ClInclude Include="include\graphics\AnimatedImage.h" />
     <ClInclude Include="include\graphics\BindlessPool.h" />
     <ClInclude Include="include\graphics\DrawPacket.h" />
+    <ClInclude Include="include\graphics\GraphicUtils.h" />
+    <ClInclude Include="include\graphics\HPLGraphicsConfig.h" />
     <ClInclude Include="include\graphics\HPLTexture.h" />
     <ClInclude Include="include\graphics\HybridRenderer.h" />
     <ClInclude Include="include\graphics\Image.h" />
+    <ClInclude Include="include\graphics\ImageResourceWrapper.h" />
     <ClInclude Include="include\graphics\IndexPool.h" />
     <ClInclude Include="include\graphics\MaterialResource.h" />
     <ClInclude Include="include\graphics\ObjectPool.h" />
+    <ClInclude Include="include\graphics\RenderList2.h" />
     <ClInclude Include="include\graphics\RIBootstrap.h" />
     <ClInclude Include="include\graphics\RIConversion.h" />
     <ClInclude Include="include\graphics\RIDefines.h" />
@@ -525,14 +529,20 @@
   <ItemGroup>
     <ClCompile Include="..\..\extern\volk\volk.c" />
     <ClCompile Include="sources\graphics\BindlessPool.cpp" />
+    <ClCompile Include="sources\graphics\GraphicUtils.cpp" />
     <ClCompile Include="sources\graphics\HPLTexture.cpp" />
     <ClCompile Include="sources\graphics\HybridRenderer.cpp" />
     <ClCompile Include="sources\graphics\Image.cpp" />
+    <ClCompile Include="sources\graphics\ImageResourceWrapper.cpp" />
     <ClCompile Include="sources\graphics\IndexPool.cpp" />
     <ClCompile Include="sources\graphics\MaterialResource.cpp" />
+    <ClCompile Include="sources\graphics\RenderList2.cpp" />
+    <ClCompile Include="sources\graphics\RIAccelStructure.cpp" />
     <ClCompile Include="sources\graphics\RIBootstrap.cpp" />
+    <ClCompile Include="sources\graphics\RIBuffer.cpp" />
     <ClCompile Include="sources\graphics\RIDescriptorSetAllocator.cpp" />
     <ClCompile Include="sources\graphics\RIFormat.c" />
+    <ClCompile Include="sources\graphics\RIPogoBuffer.cpp" />
     <ClCompile Include="sources\graphics\RIProgram.cpp" />
     <ClCompile Include="sources\graphics\RIRenderer.cpp" />
     <ClCompile Include="sources\graphics\RIResourceUploader.cpp" />
