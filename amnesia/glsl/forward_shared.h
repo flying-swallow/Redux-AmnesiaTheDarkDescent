@@ -163,10 +163,10 @@ struct UniformObject {
 // Scalar-layout point light. Position+radius and color+intensity pair into
 // natural 16-byte slots; the C++ side memcpy's an array of these into the
 // device-local SSBO via RI.uploader each frame.
-// `attenuationTextureIndex` is the bindless slot of the artist-authored
-// radial falloff LUT (canonical HPL2 attenuation, indexed by (d/r)²). Set
-// to INVALID_TEXTURE_INDEX when no map is bound and the shader will fall
-// back to saturate(1 - (d/r)²).
+// `attenuationTextureIndex` is reserved for a future LUT-driven radial
+// falloff (canonical HPL2 attenuation, indexed by (d/r)²). The shader
+// currently uses the analytic getRangeAttenuation = (1-(d/r)⁴)/d², so this
+// slot is uploaded as INVALID_TEXTURE_INDEX and the field is unused.
 struct PointLight {
     vec3  position;
     float radius;
@@ -182,6 +182,10 @@ struct PointLight {
 // pre-baked cos(angle/2) for the cone cull, optional gobo slot, optional
 // shadow bit, and the light's view-projection matrix for projecting the
 // gobo (and any future shadow-map UV) into the cone.
+// `attenuationTextureIndex` is reserved for a future LUT-driven radial
+// falloff pass (legacy used a 1D attenuationLightMap + 1D falloffMap pair);
+// the shader currently uses the analytic getRangeAttenuation × smooth cone
+// factor, so this slot is uploaded as INVALID_TEXTURE_INDEX and unused.
 struct SpotLight {
     vec3  position;
     float radius;
@@ -189,7 +193,7 @@ struct SpotLight {
     float cosOuterAngle;    // cos(GetFOV() * 0.5)
     vec3  color;
     float intensity;
-    uint  attenuationTextureIndex; // radial atten LUT (same shape as PointLight)
+    uint  attenuationTextureIndex; // reserved (see comment above); unused
     uint  goboTextureIndex;        // INVALID_TEXTURE_INDEX → no gobo
     uint  shadowEnabled;           // 0 or 1
     uint  _pad0;

@@ -38,6 +38,27 @@ float calcRadiusApprox(float area, float distance, float fovy, vec2 resolution) 
     return distance * tan(angle);
 }
 
+// glTF KHR_lights_punctual range attenuation: physical 1/d^2 with a smooth
+// (1 - (d/r)^4) rolloff that reaches zero at the light's `radius`. range <= 0
+// is treated as unlimited (matches glTF). Shared by visibility_shade.frag
+// (direct) and the surfel-NEE branches (LAYOUTS_GLSL block below) so the
+// direct and indirect paths can't drift apart. Kept outside any guard
+// because it has no layout / SSBO dependencies.
+float getRangeAttenuation(float range, float distance)
+{
+    if (range <= 0.0) return 1.0;
+    float rangeRolloff = max(min(1.0 - pow(distance / range, 4.0), 1.0), 0.0);
+    return rangeRolloff / max(distance * distance, 1e-6);
+}
+
+// Smooth cone taper: 1 at the cone axis, 0 at the outer edge. Approximates
+// the legacy 1D falloffMap LUT (deferred_light_spotlight.frag.fsl line 40)
+// keyed on (1 - cos)/oneMinusCosHalfSpotFov.
+float spotConeFalloff(float cosTheta, float cosOuterAngle)
+{
+    return smoothstep(cosOuterAngle, 1.0, cosTheta);
+}
+
 float calcSurfelRadius(float distance, float fovy, vec2 resolution) {
     return calcRadiusApprox(surfelSize, distance, fovy, resolution);
 }
@@ -77,7 +98,7 @@ vec3 calcCellIndirectLighting(vec3 camPos, vec3 worldPos, vec3 worldNor)
                 contribution *= clamp(1.f - dist / surfel.radius, 0.f, 1.f);
                 contribution = smoothstep(0, 1, contribution);
 
-                indirectLighting += surfel.radiance * contribution * smoothstep(0.f, 50.f, float(surfelRecycleInfo[surfelIndex].frame));
+                indirectLighting += surfel.radiance * contribution * smoothstep(0.f, 3.f, float(surfelRecycleInfo[surfelIndex].frame));
             }
 
         }
@@ -400,13 +421,18 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
         // after the bounce — kept out of the stochastic pool because their
         // contribution doesn't depend on the chosen direction.
         //
-        // Contribution is staged here; the shadow ray fires after we've
-        // already updated the next-bounce ray (deferred shadow), which
-        // keeps live state across AnyHit minimal per the RTX best-practice.
+        // Shadow-ray direction follows visibility_shade.frag's convention:
+        // light → surface, with a self-hit guard against the surfel hit's
+        // (instanceCustomIndex, primitiveID). HPL2 lights are often embedded
+        // inside their prop mesh; tracing surface→light with AnyHit reports
+        // the prop interior as an occluder and zeros the contribution.
+        // Contribution is staged here and the shadow ray fires after the
+        // next-bounce ray is set up (deferred shadow).
         vec3 pendingDirect = vec3(0.0);
-        vec3 pendingShadowOrigin = vec3(0.0);
-        vec3 pendingShadowDir    = vec3(0.0);
-        float pendingShadowMaxT  = 0.0;
+        vec3 pendingLightPos = vec3(0.0);
+        vec3 pendingL        = vec3(0.0);
+        int  pendingHitInst  = 0;
+        int  pendingHitPrim  = 0;
         bool pendingShadow = false;
 
         uint directionalLightCount = pointLightCount + spotLightCount;
@@ -428,12 +454,13 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
                     float ndl = max(dot(ffnormal, L), 0.0);
                     if (ndl > 0.0)
                     {
-                        float falloff = 1.0 - smoothstep(0.0, pl.radius, d);
+                        float attenuation = getRangeAttenuation(pl.radius, d);
                         pendingDirect = throughput * hit.albedo * pl.color * pl.intensity
-                                      * ndl * falloff * M_1_OVER_PI / lightPdf;
-                        pendingShadowOrigin = OffsetRayBindless(hit.posW, ffnormal);
-                        pendingShadowDir    = L;
-                        pendingShadowMaxT   = max(d - 0.01, 0.0);
+                                      * ndl * attenuation * M_1_OVER_PI / lightPdf;
+                        pendingLightPos = pl.position;
+                        pendingL        = L;
+                        pendingHitInst  = prd.instanceCustomIndex;
+                        pendingHitPrim  = prd.primitiveID;
                         pendingShadow = true;
                     }
                 }
@@ -455,12 +482,14 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
                         float ndl = max(dot(ffnormal, L), 0.0);
                         if (ndl > 0.0)
                         {
-                            float falloff = 1.0 - smoothstep(0.0, sl.radius, d);
+                            float attenuation = getRangeAttenuation(sl.radius, d);
 
                             // Optional gobo projection through the light's
-                            // view-projection. Mirrors visibility_shade.frag's
-                            // spot path — outside the projected rect is zeroed.
-                            vec3 gobo = vec3(1.0);
+                            // view-projection. Gobo replaces the smooth cone
+                            // factor when bound; matches the legacy
+                            // `if (HasGoboMap) ... else cone` branch.
+                            vec3  gobo = vec3(1.0);
+                            float cone = 1.0;
                             if (sl.goboTextureIndex != INVALID_TEXTURE_INDEX)
                             {
                                 vec4 lc = sl.viewProjection * vec4(hit.posW, 1.0);
@@ -486,12 +515,17 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
                                     gobo = vec3(0.0);
                                 }
                             }
+                            else
+                            {
+                                cone = spotConeFalloff(cosTheta, sl.cosOuterAngle);
+                            }
 
                             pendingDirect = throughput * hit.albedo * sl.color * sl.intensity
-                                          * ndl * falloff * gobo * M_1_OVER_PI / lightPdf;
-                            pendingShadowOrigin = OffsetRayBindless(hit.posW, ffnormal);
-                            pendingShadowDir    = L;
-                            pendingShadowMaxT   = max(d - 0.01, 0.0);
+                                          * ndl * attenuation * cone * gobo * M_1_OVER_PI / lightPdf;
+                            pendingLightPos = sl.position;
+                            pendingL        = L;
+                            pendingHitInst  = prd.instanceCustomIndex;
+                            pendingHitPrim  = prd.primitiveID;
                             pendingShadow = true;
                         }
                     }
@@ -524,11 +558,20 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
         r.origin    = OffsetRay(hit.posW, ffnormal);
         r.direction = newDir;
 
-        // Deferred shadow ray for the NEE sample chosen above.
+        // Deferred shadow ray for the NEE sample chosen above. Mirrors
+        // visibility_shade.frag's convention: shoot light→surface with a
+        // ClosestHit and accept-as-lit when either nothing was hit or the
+        // closest hit is the surfel's own triangle (self-hit guard, matched
+        // by instanceCustomIndex + primitiveID). This handles HPL2's
+        // common case of lights placed inside / behind their fixture mesh.
         if (pendingShadow)
         {
-            Ray shadowRay = Ray(pendingShadowOrigin, pendingShadowDir);
-            if (!AnyHit(topLevelAS, shadowRay, pendingShadowMaxT))
+            PtPayload occ;
+            occ.seed = prd.seed;
+            ClosestHit(Ray(pendingLightPos, -pendingL), occ);
+            bool selfHit = occ.instanceCustomIndex == pendingHitInst &&
+                           occ.primitiveID         == pendingHitPrim;
+            if (occ.hitT >= INFINITY || selfHit)
             {
                 radiance += pendingDirect;
             }

@@ -1002,8 +1002,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     sl.color[1] = c.g;
     sl.color[2] = c.b;
     sl.intensity = c.a;
-    sl.attenuationTextureIndex = resolveTextureSlot(
-        cntx, pSpot->GetSpotFalloffImage(), (uint32_t)RI.frameIndex);
+    // attenuationTextureIndex is reserved for a future LUT-driven radial
+    // falloff (legacy used a 1D attenuationLightMap + 1D falloffMap pair).
+    // The shader currently uses the analytic getRangeAttenuation × smooth
+    // cone factor and never samples this slot, so leave it invalid.
+    sl.attenuationTextureIndex = INVALID_TEXTURE_INDEX;
     sl.goboTextureIndex = resolveTextureSlot(cntx, pLight->GetGoboImage(),
                                              (uint32_t)RI.frameIndex);
     sl.shadowEnabled = pLight->GetCastShadows() ? 1u : 0u;
@@ -1188,16 +1191,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // the BLAS writes.
     auto blas = vb->accelStructure();
     if (blas && blas->vk.handle != VK_NULL_HANDLE) {
-      // VkAccelerationStructureInstanceKHR is row-major 3x4
-      // (transform[row][col]). ml::float4x4 from ToFloatTranspose4x4 is
-      // column-major; the transpose path above already produced row-major
-      // data in payload.modelMat (16 floats), so copy the first 12 directly
-      // into the instance matrix.
+      // VkAccelerationStructureInstanceKHR::transform is row-major 3x4
+      // (matrix[row][col]), translation at matrix[r][3]. payload.modelMat
+      // holds column-major storage (GLSL mat4 reading in gbuffer.vert), so
+      // index it as [col*4 + row] to extract entries row-by-row.
       VkAccelerationStructureInstanceKHR inst = {};
-      // payload.modelMat is row-major 4x4; we want rows 0..2 cols 0..3.
       for (int r = 0; r < 3; ++r) {
         for (int c = 0; c < 4; ++c) {
-          inst.transform.matrix[r][c] = payload.modelMat[r * 4 + c];
+          inst.transform.matrix[r][c] = payload.modelMat[c * 4 + r];
         }
       }
       inst.instanceCustomIndex = req.id;

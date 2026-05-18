@@ -213,7 +213,7 @@ const uint kCellCount = kCellDimension * kCellDimension * kCellDimension;
 // Sufel
 const uint kMaxLife = 1200u;
 const uint kMaxSurfelCount = 150000u;
-const uint kMaxRayCount = kMaxSurfelCount * 64;
+const uint kMaxRayCount = kMaxSurfelCount * 96;
 
 //Non-uniform frustum
 const float d = 96.0;     // Size of the uniform cube

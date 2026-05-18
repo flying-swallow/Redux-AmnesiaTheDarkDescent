@@ -84,15 +84,9 @@ vec3 toneMapUncharted(vec3 c)
     return linearTosRGB(c * whiteScale);
 }
 
-// glTF KHR_lights_punctual range attenuation: physical 1/d^2 with a smooth
-// (1 - (d/r)^4) rolloff that reaches zero at the light's `radius`. range <= 0
-// is treated as unlimited (matches glTF).
-float getRangeAttenuation(float range, float distance)
-{
-    if (range <= 0.0) return 1.0;
-    float rangeRolloff = max(min(1.0 - pow(distance / range, 4.0), 1.0), 0.0);
-    return rangeRolloff / max(distance * distance, 1e-6);
-}
+// getRangeAttenuation and spotConeFalloff are shared via
+// shaderUtils_surfel_cell.glsl (included above) so the direct (this file)
+// and surfel NEE paths can't drift apart.
 
 void main()
 {
@@ -230,8 +224,13 @@ void main()
 
         // Gobo projection — sample the light's view-projection in NDC, then
         // map [-1,1] → [0,1]. Pixels behind the light or outside the projected
-        // rect are zeroed; cosTheta already guarantees in-cone.
-        vec3 gobo = vec3(1.0);
+        // rect are zeroed; cosTheta already guarantees in-cone. When a gobo
+        // is bound it replaces the smooth cone factor (matches legacy
+        // deferred_light_spotlight.frag.fsl's `if (HasGoboMap) ... else cone`
+        // branch); otherwise apply the smooth cone falloff so the cone edge
+        // tapers rather than terminating abruptly at cosOuterAngle.
+        vec3  gobo = vec3(1.0);
+        float cone = 1.0;
         if (sl.goboTextureIndex != INVALID_TEXTURE_INDEX)
         {
             vec4 lc = sl.viewProjection * vec4(worldPos, 1.0);
@@ -257,14 +256,18 @@ void main()
                 gobo = vec3(0.0);
             }
         }
+        else
+        {
+            cone = spotConeFalloff(cosTheta, sl.cosOuterAngle);
+        }
 
-        direct += sl.color * sl.intensity * attenuation * ndl * gobo * M_1_OVER_PI;
+        direct += sl.color * sl.intensity * attenuation * ndl * gobo * cone * M_1_OVER_PI;
     }
 
     // Indirect from the surfel cache — surfel_generate pre-computed the
     // per-pixel gather at half-res into surfelIndirect. The linear sampler
     // does the upsample; no per-fragment cell iteration needed here.
-    vec3 indirect = texture(surfelIndirect, uv01).rgb;
+    vec3 indirect = texture(surfelIndirect, uv01).rgb * 10.0;
 
     // Box lights — world-AABB tints. Matches the legacy deferred renderer's
     // `framebuffer += diffuse * lightColor.rgb` modulation (see
@@ -283,7 +286,8 @@ void main()
 
     vec3 finalColor = albedo * (direct + indirect + box);
 
+    //vec3 finalColor = indirect * 10.0;
     // Uncharted 2 tonemap + manual linear->sRGB (swapchain is UNORM).
-    vec3 mapped = toneMapUncharted(finalColor);
+    vec3 mapped = linearTosRGB(finalColor);
     fragColor   = vec4(mapped, 1.0);
 }
