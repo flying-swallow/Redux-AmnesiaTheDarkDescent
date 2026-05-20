@@ -19,6 +19,8 @@ uint DiffuseMaterial_HeightTexture_ID(DiffuseMaterial m)         { return m.tex[
 uint DiffuseMaterial_IlluminiationTexture_ID(DiffuseMaterial m)  { return m.tex[5]; }
 uint DiffuseMaterial_DissolveAlphaTexture_ID(DiffuseMaterial m)  { return m.tex[6]; }
 uint DiffuseMaterial_CubeMapAlphaTexture_ID(DiffuseMaterial m)   { return m.tex[7]; }
+// Reflection cube map — bindless slot into textures_cube[]; INVALID_TEXTURE_INDEX when absent.
+uint DiffuseMaterial_CubeMapTexture_ID(DiffuseMaterial m)        { return m.cubeMapTextureIndex; }
 
 // `struct UniformObject` is provided by forward_shared.h.
 

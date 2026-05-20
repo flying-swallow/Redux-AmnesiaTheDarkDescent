@@ -152,6 +152,14 @@ private:
 	// stamped on demand via the program's PipelineSlot cache.
 	RIProgram m_particle;
 
+	// Decal pass — port of AmnesiaTheDarkDescent's decal.{vert,frag}.fsl.
+	// Runs between the visibility-shade composite and the particle pass.
+	// Reuses the opaque bindless material/object pools and BDA fan-out the same
+	// way particles do (position/uv0/color/index handles). One pipeline per
+	// blend mode is stamped on demand via the program's PipelineSlot cache.
+	// Depth test LEQUAL, depth write off, front-face culling, RGB-only writes.
+	RIProgram m_decal;
+
 	// Surfel-ray irradiance map sampled by surfel_raytrace.comp's ray-guiding
 	// branch and written by surfel_integrate.comp. Lives at VK_IMAGE_LAYOUT_GENERAL
 	// across all surfel passes so the same view can be bound as both

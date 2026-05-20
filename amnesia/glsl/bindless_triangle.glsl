@@ -15,6 +15,7 @@
 #include "bindless.resource.glsl"
 
 layout(buffer_reference, scalar) readonly buffer VBTPositionBuf { vec4 v[]; };
+layout(buffer_reference, scalar) readonly buffer VBTTangentBuf  { vec4 v[]; };
 layout(buffer_reference, scalar) readonly buffer VBTNormalBuf   { vec3 v[]; };
 layout(buffer_reference, scalar) readonly buffer VBTUv0Buf      { vec3 v[]; };
 layout(buffer_reference, scalar) readonly buffer VBTIndexBuf    { uint v[]; };
@@ -23,6 +24,12 @@ struct BindlessTriangleVtx
 {
     vec3 posL[3];     // local-space positions
     vec3 normalL[3];  // local-space normals
+    // xyz: local-space tangent. w: bitangent handedness (+/-1) — host upload
+    // is HPL2's eVertexBufferElement_Texture1Tangent (4-float). Composite
+    // derives bitangent as cross(tangent, normal) * w to match the gbuffer.vert
+    // bitangent order (cross(a_tangent, a_normal)) while preserving the export
+    // handedness.
+    vec4 tangentL[3];
     vec2 uv[3];       // UV0 per vertex
 };
 
@@ -34,6 +41,7 @@ void FetchBindlessTriangle(uint instanceId, uint primId,
     uint64_t indexAddr = opaqueIndexHandles.data[instanceId];
     uint64_t posAddr   = opaquePositionHandles.data[instanceId];
     uint64_t nrmAddr   = opaqueNormalHandles.data[instanceId];
+    uint64_t tanAddr   = opaqueTangentHandles.data[instanceId];
     uint64_t uvAddr    = opaqueUv0Handles.data[instanceId];
 
     uint idxBase = primId * 3u;
@@ -65,6 +73,29 @@ void FetchBindlessTriangle(uint instanceId, uint primId,
         vtx.normalL[0] = vec3(0.0, 0.0, 1.0);
         vtx.normalL[1] = vec3(0.0, 0.0, 1.0);
         vtx.normalL[2] = vec3(0.0, 0.0, 1.0);
+    }
+
+    if (tanAddr != 0ul) {
+        VBTTangentBuf tb = VBTTangentBuf(tanAddr);
+        vtx.tangentL[0] = tb.v[tri.x];
+        vtx.tangentL[1] = tb.v[tri.y];
+        vtx.tangentL[2] = tb.v[tri.z];
+    } else {
+        // Mesh has no tangent stream (loader didn't pass
+        // eVertexCompileFlag_CreateTangents — see MeshLoaderMSH.cpp:284). The
+        // composite still needs SOME tangent for parallax + normal mapping.
+        // Pick a helper axis NOT collinear with N and cross to land in the
+        // tangent plane. A constant fallback like (1,0,0) would be collinear
+        // with N on +/-X-facing walls and collapse to zero under Gram-Schmidt,
+        // producing NaN T/B — exactly the very-bad-warping symptom on vertical
+        // surfaces. This direction won't align with the heightmap's intended
+        // +U axis but at least keeps the basis well-defined.
+        for (uint k = 0u; k < 3u; ++k) {
+            vec3 N = vtx.normalL[k];
+            vec3 helper = (abs(N.x) < 0.9) ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
+            vec3 T = normalize(cross(helper, N));
+            vtx.tangentL[k] = vec4(T, 1.0);
+        }
     }
 
     if (uvAddr != 0ul) {

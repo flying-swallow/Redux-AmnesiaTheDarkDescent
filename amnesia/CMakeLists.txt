@@ -151,6 +151,8 @@ SHADERS
     ./glsl/visibility_shade.frag
     ./glsl/particle.vert
     ./glsl/particle.frag
+    ./glsl/decal.vert
+    ./glsl/decal.frag
 OUTPUT_FOLDER
 ${AMNESIA_SHADER_DIR}
 )

@@ -44,14 +44,20 @@ namespace hpl::material {
     uint32_t UniformMaterialBlock::CreateMaterailConfigFlags(cMaterial& material) {
         // TODO: probe alpha/height channel-count via the RIFormat once a
         // RIFormatChannelCount helper exists; reference uses TheForge's
-        // TinyImageFormat_ChannelCount which has no Amnesia64 equivalent yet.
-        // The IsAlphaSingleChannel / IsHeightMapSingleChannel flags stay 0 until then.
+        // TinyImageFormat_ChannelCount. Until then, default to the Amnesia
+        // convention: heightmaps ship as dedicated single-channel grayscale
+        // files (height in .r). Without this flag the parallax shader would
+        // sample .a — which is constant 1.0 for single-channel textures, so
+        // the POM inner loop runs the full 32 steps every fragment and the
+        // UV offset explodes at grazing angles (very bad warping on walls).
+        // IsAlphaSingleChannel stays 0 since the alpha texture is sometimes
+        // packed into RGBA and that path is less exercised.
         uint32_t flags =
             (material.GetImage(eMaterialTexture_Diffuse) ? EnableDiffuse : 0) |
             (material.GetImage(eMaterialTexture_NMap) ? EnableNormal : 0) |
             (material.GetImage(eMaterialTexture_Specular) ? EnableSpecular : 0) |
             (material.GetImage(eMaterialTexture_Alpha) ? EnableAlpha : 0) |
-            (material.GetImage(eMaterialTexture_Height) ? EnableHeight : 0) |
+            (material.GetImage(eMaterialTexture_Height) ? (EnableHeight | IsHeightMapSingleChannel) : 0) |
             (material.GetImage(eMaterialTexture_Illumination) ? EnableIllumination : 0) |
             (material.GetImage(eMaterialTexture_CubeMap) ? EnableCubeMap : 0) |
             (material.GetImage(eMaterialTexture_DissolveAlpha) ? EnableDissolveAlpha : 0) |

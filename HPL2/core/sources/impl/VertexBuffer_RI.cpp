@@ -581,7 +581,12 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
 
   RIAccelGeometryDesc_s geom = {};
   geom.type = RI_ACCEL_GEOMETRY_TYPE_TRIANGLES;
-  geom.flags = RI_ACCEL_GEOMETRY_OPAQUE;
+  // Non-opaque: candidate triangle hits are reported to the ray-query proceed
+  // loop in traceray_rq.glsl, which runs the alpha-reject test that mirrors
+  // gbuffer.frag:28-30. Marking the BLAS opaque would let the driver auto-
+  // commit hits and bypass the shader filter entirely, so shadow/surfel rays
+  // would get blocked by alpha-cutout texels the gbuffer already discarded.
+  geom.flags = 0;
   geom.triangles.vertexBuffer = position->buffer.get();
   geom.triangles.vertexOffset = 0;
   geom.triangles.vertexNum = vertexNum;

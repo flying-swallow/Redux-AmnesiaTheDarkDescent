@@ -37,7 +37,7 @@ namespace hpl {
 namespace detail {
 
 // sRGB → linear transfer (IEC 61966-2-1). Inverse of the encode the SRGB
-// swapchain applies on write, used to bring artist-authored cColor.rgb light
+// swapchain applies on write, ussed to bring artist-authored cColor.rgb light
 // values into the linear-space lighting math the shaders now run in.
 static inline float sRGBToLinear(float c) {
   if (c <= 0.04045f) return c / 12.92f;
@@ -444,6 +444,159 @@ struct ParticlePipelineDesc {
   ParticlePipelineDesc &operator=(const ParticlePipelineDesc &) = delete;
 };
 
+// Pipeline descriptor for the decal pass. Near-clone of ParticlePipelineDesc;
+// the two pieces of state that differ from particles, matching the legacy
+// AmnesiaTheDarkDescent decal pipeline (RendererDeferred.cpp:1165-1213):
+//   - cullMode = FRONT      (legacy uses front-culling on decal volumes;
+//                            particles use NONE because billboards face either way)
+//   - colorWriteMask = RGB  (legacy decals don't write alpha; particles do)
+// VS pulls Position / Texture0 / Color0 streams via BDA from opaque*Handles[],
+// indexed by gl_InstanceIndex, so no vertex bindings are declared.
+struct DecalPipelineDesc {
+  VkPipelineVertexInputStateCreateInfo vertexInputState;
+  VkPipelineInputAssemblyStateCreateInfo inputAssemblyState;
+  VkPipelineRasterizationStateCreateInfo rasterizationState;
+  VkDynamicState dynamicStates[2];
+  VkPipelineDynamicStateCreateInfo dynamicState;
+  VkFormat colorFormats[1];
+  VkPipelineRenderingCreateInfo pipelineRendering;
+  VkPipelineViewportStateCreateInfo viewportState;
+  VkPipelineMultisampleStateCreateInfo multisampleState;
+  VkPipelineDepthStencilStateCreateInfo depthStencilState;
+  VkPipelineColorBlendAttachmentState blendAttachment;
+  VkPipelineColorBlendStateCreateInfo colorBlendState;
+  VkGraphicsPipelineCreateInfo createInfo;
+  hash_t hash;
+
+  enum BlendMode : uint32_t {
+    BLEND_ADD = 0,
+    BLEND_MUL = 1,
+    BLEND_MULX2 = 2,
+    BLEND_ALPHA = 3,
+    BLEND_PREMUL_ALPHA = 4,
+    BLEND_LAST_ENUM = 5,
+  };
+
+  DecalPipelineDesc(RI_Format_e swapchainFormat, RI_Format_e depthFormat,
+                    BlendMode mode) {
+    vertexInputState = {
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    vertexInputState.vertexBindingDescriptionCount = 0;
+    vertexInputState.pVertexBindingDescriptions = nullptr;
+    vertexInputState.vertexAttributeDescriptionCount = 0;
+    vertexInputState.pVertexAttributeDescriptions = nullptr;
+
+    inputAssemblyState = {
+        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    rasterizationState = {
+        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizationState.cullMode = VK_CULL_MODE_FRONT_BIT;
+    rasterizationState.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterizationState.lineWidth = 1.0f;
+
+    dynamicStates[0] = VK_DYNAMIC_STATE_VIEWPORT;
+    dynamicStates[1] = VK_DYNAMIC_STATE_SCISSOR;
+    dynamicState = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynamicState.dynamicStateCount = ARRAY_COUNT(dynamicStates);
+    dynamicState.pDynamicStates = dynamicStates;
+
+    colorFormats[0] = RIFormatToVK(swapchainFormat);
+    pipelineRendering = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    pipelineRendering.colorAttachmentCount = 1;
+    pipelineRendering.pColorAttachmentFormats = colorFormats;
+    pipelineRendering.depthAttachmentFormat = RIFormatToVK(depthFormat);
+
+    viewportState = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    multisampleState = {
+        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    depthStencilState = {
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depthStencilState.depthTestEnable = VK_TRUE;
+    depthStencilState.depthWriteEnable = VK_FALSE;
+    depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    depthStencilState.minDepthBounds = 0.0f;
+    depthStencilState.maxDepthBounds = 1.0f;
+
+    // Blend factors match the legacy translucencyBlendTable. RGB-only
+    // colorWriteMask matches the legacy decal pipeline.
+    blendAttachment = {};
+    blendAttachment.blendEnable = VK_TRUE;
+    blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
+                                     VK_COLOR_COMPONENT_G_BIT |
+                                     VK_COLOR_COMPONENT_B_BIT;
+    blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    switch (mode) {
+    case BLEND_ADD:
+      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      break;
+    case BLEND_MUL:
+      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+      blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_SRC_COLOR;
+      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+      blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      break;
+    case BLEND_MULX2:
+      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
+      blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_SRC_COLOR;
+      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      break;
+    case BLEND_ALPHA:
+      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+      blendAttachment.dstColorBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.dstAlphaBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      break;
+    case BLEND_PREMUL_ALPHA:
+      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.dstColorBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.dstAlphaBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      break;
+    default:
+      break;
+    }
+    colorBlendState = {
+        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    colorBlendState.attachmentCount = 1;
+    colorBlendState.pAttachments = &blendAttachment;
+
+    createInfo = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    createInfo.pNext = &pipelineRendering;
+    createInfo.pVertexInputState = &vertexInputState;
+    createInfo.pInputAssemblyState = &inputAssemblyState;
+    createInfo.pRasterizationState = &rasterizationState;
+    createInfo.pDynamicState = &dynamicState;
+    createInfo.pViewportState = &viewportState;
+    createInfo.pMultisampleState = &multisampleState;
+    createInfo.pDepthStencilState = &depthStencilState;
+    createInfo.pColorBlendState = &colorBlendState;
+
+    hash = hash_u32(HASH_INITIAL_VALUE, swapchainFormat);
+    hash = hash_u32(hash, depthFormat);
+    hash = hash_u32(hash, (uint32_t)mode);
+  }
+
+  DecalPipelineDesc(const DecalPipelineDesc &) = delete;
+  DecalPipelineDesc &operator=(const DecalPipelineDesc &) = delete;
+};
+
 } // namespace
 
 cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
@@ -628,6 +781,16 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, p_vert},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, p_frag}};
       m_particle.initialize(&RI.device, stages, externalLayouts);
+    }
+    {
+      auto d_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
+                                               "decal.vert.spv");
+      auto d_frag = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
+                                               "decal.frag.spv");
+      std::array<RIProgram::ModuleStage, 2> stages = {
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, d_vert},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, d_frag}};
+      m_decal.initialize(&RI.device, stages, externalLayouts);
     }
 
     const VkBufferUsageFlags kStorage =
@@ -1026,6 +1189,19 @@ uint32_t cHybridRenderer::resolveMaterial(RIBootstrap::FrameContext *cntx,
   gpu.tex[5] = slotFor(eMaterialTexture_Illumination);
   gpu.tex[6] = slotFor(eMaterialTexture_DissolveAlpha);
   gpu.tex[7] = slotFor(eMaterialTexture_CubeMapAlpha);
+  // Reflection cube map — separate bindless table (textures_cube[]), so
+  // resolve via the cube allocator rather than slotFor (which only handles
+  // 2D). Lives outside tex[] in the GPU struct to mirror the legacy
+  // shader-global cubeMap.
+  gpu.cubeMapTextureIndex = resolveCubeTextureSlot(
+      cntx, mat->GetImage(eMaterialTexture_CubeMap), frameIndex);
+  // Material config bits — single source of truth lives in MaterialResource.
+  // The visibility composite reads bit 9 (IsHeightMapSingleChannel) to pick
+  // .r vs .a when sampling the heightmap. Without this assignment the field
+  // sat at zero and parallax always read .a (constant 1.0 for typical single-
+  // channel Amnesia heightmaps), running the full POM loop every fragment and
+  // producing severe warping at grazing angles on vertical walls.
+  gpu.materialConfig = material::UniformMaterialBlock::CreateMaterailConfigFlags(*mat);
   // Scalars: only the solid path is mapped today. Other variants leave
   // these zero (the forward-diffuse fragment shader doesn't read them on
   // the solid path either).
@@ -2333,6 +2509,227 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
   }
 
+  // Shared between the decal and particle passes: the depth image arrives in
+  // SHADER_READ_ONLY_OPTIMAL from surfel-generate and needs to flip to
+  // DEPTH_READ_ONLY_OPTIMAL for either pass's depth-test. Only the first pass
+  // that has work to draw issues the barrier; the second one reuses the layout.
+  bool depthFlippedForReadOnly = false;
+  auto flipDepthToReadOnly = [&]() {
+    if (depthFlippedForReadOnly)
+      return;
+    VkImageMemoryBarrier2 depthBarrier = {
+        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    depthBarrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    depthBarrier.srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
+                                 VK_ACCESS_2_SHADER_READ_BIT;
+    depthBarrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                                VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+    depthBarrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
+    depthBarrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    depthBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+    depthBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    depthBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    depthBarrier.image = RI.depthTextures[RI.swapchainIndex].vk.image;
+    depthBarrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &depthBarrier;
+    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+    depthFlippedForReadOnly = true;
+  };
+
+  // --------------------------------------------------------------------
+  // Decal pass.
+  //
+  // Port of AmnesiaTheDarkDescent's decal.{vert,frag}.fsl. Draws decal
+  // geometry over the visibility-shade composite, before particles. Decals
+  // share the opaque BDA fan-out + bindless material/object pools the way
+  // particles do; the VS reads position/uv0/color0/index via opaque*Handles[]
+  // indexed by gl_InstanceIndex. Hardware blend factors are picked per
+  // pipeline (one pipeline per blend mode, stamped on demand). Depth test
+  // LEQUAL, depth write off, front-face culling, RGB-only color write —
+  // matches the legacy decal pipeline state.
+  // --------------------------------------------------------------------
+  {
+    auto decalsSpan = m_rendererList.GetRenderableItems(eRenderListType_Decal);
+    std::vector<iRenderable *> decals;
+    decals.reserve(decalsSpan.size());
+    for (iRenderable *pObj : decalsSpan) {
+      if (!pObj)
+        continue;
+      cMaterial *pMat = pObj->GetMaterial();
+      if (!pMat)
+        continue;
+      const eMaterialBlendMode mode = pMat->GetBlendMode();
+      if (mode == eMaterialBlendMode_None ||
+          mode >= eMaterialBlendMode_LastEnum)
+        continue;
+      iVertexBuffer *pVB = pObj->GetVertexBuffer();
+      if (!pVB || pVB->GetIndexNum() <= 0)
+        continue;
+      decals.push_back(pObj);
+    }
+
+    if (!decals.empty()) {
+      flipDepthToReadOnly();
+
+      VkRenderingAttachmentInfo colorAttach = {
+          VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      colorAttach.imageView = RI.swapchainView[RI.swapchainIndex].vk.image;
+      colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      colorAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+      colorAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+      VkRenderingAttachmentInfo depthAttach = {
+          VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      depthAttach.imageView = RI.depthView[RI.swapchainIndex].vk.image;
+      depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+      depthAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+      depthAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+      VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+      renderInfo.renderArea = {{0, 0},
+                               {RI.swapchain.width, RI.swapchain.height}};
+      renderInfo.layerCount = 1;
+      renderInfo.colorAttachmentCount = 1;
+      renderInfo.pColorAttachments = &colorAttach;
+      renderInfo.pDepthAttachment = &depthAttach;
+      vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
+
+      VkViewport vp = {0.0f,
+                       (float)RI.swapchain.height,
+                       (float)RI.swapchain.width,
+                       -(float)RI.swapchain.height,
+                       0.0f,
+                       1.0f};
+      VkRect2D sc = {{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
+      vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
+      vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
+
+      m_decal.bindBindlessDescriptorSet(&RI.primary.cmds[0], &m_bindlessSet, 0);
+
+      std::vector<RIProgram::DescriptorBinding> decalBindings;
+      decalBindings.reserve(1);
+      {
+        RIProgram::DescriptorBinding b;
+        b.handle = DescriptorBindingID::Create("perFrame");
+        RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+        decalBindings.push_back(b);
+      }
+      m_decal.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
+                              decalBindings.data(), decalBindings.size());
+
+      auto remapBlend = [](eMaterialBlendMode m) {
+        switch (m) {
+        case eMaterialBlendMode_Add:
+          return DecalPipelineDesc::BLEND_ADD;
+        case eMaterialBlendMode_Mul:
+          return DecalPipelineDesc::BLEND_MUL;
+        case eMaterialBlendMode_MulX2:
+          return DecalPipelineDesc::BLEND_MULX2;
+        case eMaterialBlendMode_Alpha:
+          return DecalPipelineDesc::BLEND_ALPHA;
+        case eMaterialBlendMode_PremulAlpha:
+          return DecalPipelineDesc::BLEND_PREMUL_ALPHA;
+        default:
+          return DecalPipelineDesc::BLEND_ALPHA;
+        }
+      };
+
+      for (iRenderable *pObj : decals) {
+        iVertexBuffer *pVB = pObj->GetVertexBuffer();
+        cMaterial *pMat = pObj->GetMaterial();
+        const int indexCount = pVB->GetIndexNum();
+
+        uint32_t materialSlot =
+            resolveMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
+        if (materialSlot == UINT32_MAX) {
+          Warning("Material Slot exhausted (decal)");
+          continue;
+        }
+
+        cMatrixf *pMtx = pObj->GetModelMatrix(apFrustum);
+        ObjectGPUData payload{};
+        payload.dissolveAmount = 0.0f;
+        payload.materialID = materialSlot;
+        payload.lightLevel = 1.0f;
+        payload.illuminationAmount = 0.0f;
+        const ml::float4x4 modelF4 =
+            cMath::ToFloatTranspose4x4(pMtx ? *pMtx : cMatrixf::Identity);
+        std::memcpy(payload.modelMat, modelF4.a, sizeof(payload.modelMat));
+        ml::float4x4 invF4 = modelF4;
+        invF4.Invert();
+        std::memcpy(payload.invModelMat, invF4.a, sizeof(payload.invModelMat));
+        const ml::float4x4 uvF4 =
+            cMath::ToFloatTranspose4x4(cMatrixf::Identity);
+        std::memcpy(payload.uvMat, uvF4.a, sizeof(payload.uvMat));
+
+        // Per-decal cookie (pointer + frame counter). Decal VBs don't change
+        // every frame, but the BDA may still differ across frames if the
+        // backing buffer is suballocated, so hash a per-object identity rather
+        // than the payload contents to be safe.
+        hash_t cookie =
+            hash_u64(HASH_INITIAL_VALUE, (uint64_t)(uintptr_t)pObj);
+        cookie = hash_u32(cookie, (uint32_t)RI.frameIndex);
+        auto req =
+            m_diffuseBindless.request(cookie, (uint32_t)RI.frameIndex);
+        if (req.exhausted) {
+          Warning("bindless pool exhausted (decal)");
+          continue;
+        }
+
+        std::memcpy(static_cast<uint8_t *>(m_diffuseObjectBuffer.mappedAddress) +
+                        req.id * sizeof(ObjectGPUData),
+                    &payload, sizeof(payload));
+
+        auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
+        auto bdaOf = [&](eVertexBufferElement type) -> VkDeviceAddress {
+          const auto *element = vbri->GetElement(type);
+          if (!element || !element->buffer)
+            return 0;
+          return element->buffer->GetDeviceHandle(&RI.device);
+        };
+        const VkDeviceAddress posAddr =
+            bdaOf(eVertexBufferElement_Position);
+        const VkDeviceAddress uv0Addr =
+            bdaOf(eVertexBufferElement_Texture0);
+        const VkDeviceAddress colAddr =
+            bdaOf(eVertexBufferElement_Color0);
+        const VkDeviceAddress idxAddr =
+            vbri->GetIndexRIBuffer()
+                ? vbri->GetIndexRIBuffer()->GetDeviceHandle(&RI.device)
+                : 0;
+
+        auto writeSlot = [&](RIBuffer_s &buf, VkDeviceAddress addr) {
+          auto *slot = reinterpret_cast<VkDeviceAddress *>(
+              static_cast<uint8_t *>(buf.mappedAddress) +
+              req.id * sizeof(VkDeviceAddress));
+          *slot = addr;
+        };
+        writeSlot(m_opaquePositionHandles, posAddr);
+        writeSlot(m_opaqueUv0Handles, uv0Addr);
+        writeSlot(m_opaqueColorHandles, colAddr);
+        writeSlot(m_opaqueIndexHandles, idxAddr);
+        writeSlot(m_opaqueNormalHandles, 0);
+        writeSlot(m_opaqueTangentHandles, 0);
+
+        const DecalPipelineDesc::BlendMode mode =
+            remapBlend(pMat->GetBlendMode());
+        DecalPipelineDesc pipelineDesc((RI_Format_e)RI.swapchain.format,
+                                       RIBootstrap::DepthFormat, mode);
+        m_decal.bindPipeline(&RI.device, &RI.primary.cmds[0],
+                             pipelineDesc.hash, "hybrid.decal",
+                             &pipelineDesc.createInfo);
+
+        vkCmdDraw(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u, 0u,
+                  req.id);
+      }
+
+      vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+    }
+  }
+
   // --------------------------------------------------------------------
   // Particle (translucent) pass.
   //
@@ -2353,8 +2750,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   //   (a) Swapchain stays in COLOR_ATTACHMENT_OPTIMAL from the visibility
   //       composite — load to preserve the composite output.
   //   (b) Depth was last transitioned to SHADER_READ_ONLY for surfel-
-  //       generate; move it back to DEPTH_READ_ONLY_OPTIMAL so the pipeline
-  //       can read it for depth-test (write is disabled).
+  //       generate; flipDepthToReadOnly() moves it back to
+  //       DEPTH_READ_ONLY_OPTIMAL (shared with the decal pass, idempotent).
   // --------------------------------------------------------------------
   {
     // Collect particle emitters from the translucent list once so we can
@@ -2391,28 +2788,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         }
       }
 
-      // Depth SHADER_READ_ONLY_OPTIMAL -> DEPTH_READ_ONLY_OPTIMAL.
-      VkImageMemoryBarrier2 depthBarrier = {
-          VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-      depthBarrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                                  VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      depthBarrier.srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
-                                   VK_ACCESS_2_SHADER_READ_BIT;
-      depthBarrier.dstStageMask =
-          VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-          VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-      depthBarrier.dstAccessMask =
-          VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-      depthBarrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      depthBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
-      depthBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      depthBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      depthBarrier.image = RI.depthTextures[RI.swapchainIndex].vk.image;
-      depthBarrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-      VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep.imageMemoryBarrierCount = 1;
-      dep.pImageMemoryBarriers = &depthBarrier;
-      vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      flipDepthToReadOnly();
 
       VkRenderingAttachmentInfo colorAttach = {
           VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};

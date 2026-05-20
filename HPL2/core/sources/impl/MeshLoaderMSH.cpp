@@ -281,7 +281,15 @@ namespace hpl {
 			
 			///////////////////
 			//Compile vertex buffer and set to submesh
-			pVtxBuff->Compile(0);
+			// CreateTangents: derive per-vertex tangent (float4 incl. handedness
+			// .w) from position + normal + UV0 via cMath::CreateTriTangentVectors.
+			// Without this flag the tangent stream is empty, opaqueTangentHandles
+			// returns BDA=0 for the instance, and the visibility composite's
+			// bindless_triangle.glsl falls back to vec4(1,0,0,1) — which is
+			// collinear with N on +/-X-facing walls, collapses to zero under
+			// Gram-Schmidt, and produces NaN T/B → severe parallax warping on
+			// vertical surfaces. Normal mapping needs the same data.
+			pVtxBuff->Compile(eVertexCompileFlag_CreateTangents);
 
 			pSubMesh->SetVertexBuffer(pVtxBuff);
 			pSubMesh->Compile();

@@ -31,7 +31,7 @@ typedef float    vec2[2];
 // guard before a write into surfelRayBuffer[].
 #define SURFEL_MAX_CAPACITY     150000u
 #define MAX_RAY_COUNT           (SURFEL_MAX_CAPACITY * 32u)
-#define BOUNCE_INDIRECT_SCALE 10.0
+#define BOUNCE_INDIRECT_SCALE 30.0
 
 // Cell-grid capacities. The cell grid is static infrastructure shared by all
 // surfel passes (set 0, bindings 17..19 in bindless.resource.glsl). The grid
@@ -199,6 +199,12 @@ struct DiffuseMaterial {
     float heightMapBias;
     float frenselBias;
     float frenselPow;
+    // Bindless slot index into textures_cube[] (set 0, binding 1) for the
+    // material's reflection cube map. INVALID_TEXTURE_INDEX when absent.
+    // Lives outside tex[] because tex[] is the 2D-textures slot table only;
+    // the legacy renderer had a separate cubeMap global, so adding a parallel
+    // field here mirrors that and keeps the 2D layout undisturbed.
+    uint  cubeMapTextureIndex;
 };
 
 // GPU twin of MaterialTranslucent (Material.h). All bool flags

@@ -59,18 +59,8 @@ layout(location = 0) out vec4 fragColor;
 #include "bindless_triangle.glsl"
 #include "traceray_rq.glsl"          // AnyHit (shared shadow trace)
 #include "light_falloff.glsl"        // sampleAttenuation
-// NOTE: this pipeline is linear-throughout PBR.
-//   - Diffuse / illumination textures are sampled via SRGB image views, so the
-//     hardware converts sRGB-encoded asset data to linear at fetch time.
-//   - Light colors are uploaded from C++ in linear (sRGBToLinear() applied to
-//     cColor.rgb in HybridRenderer.cpp's per-light upload loops).
-//   - Lighting math uses Lambert BRDF (albedo / π) for both direct (here) and
-//     surfel-NEE (shaderUtils_surfel_cell.glsl).
-//   - Output is written linear; the SRGB swapchain (RISwapchain.cpp selects
-//     VK_FORMAT_*_SRGB) handles the linear→sRGB encode on write so the
-//     display reads correctly without any in-shader gamma transfer.
-// Non-color data textures (normal maps, specular, falloff LUTs, gobo cubes)
-// keep UNORM views so their bits are treated as data, not as perceptual color.
+#include "fresnel.glsl"              // Fresnel (legacy bias/pow fit)
+#include "parallax.glsl"             // ParallaxAdvance + PARALLAX_MULTIPLIER
 
 // Uncharted-2 tonemap. Maps open-ended HDR (multiple lights, specular peaks)
 // down into [0,1] before the SRGB swapchain quantizes and encodes. Stays in
@@ -130,10 +120,73 @@ void main()
     BarycentricDeriv bary =
         CalcFullBary(clip0, clip1, clip2, screenPosNdc, twoOverWS);
 
+    // Apply the per-object UV transform the gbuffer used (gbuffer.vert:61) so
+    // texture samples in this composite land at the same UV the gbuffer
+    // alpha-tested at. Skipping uvMat was a silent mismatch — invisible for
+    // identity uvMat (most static walls) but wrong for animated/tiled/scrolled
+    // materials.
+    mat4 uvM = obj.uvMat;
+    vec2 uv0 = (uvM * vec4(vtx.uv[0], 0.0, 1.0)).xy;
+    vec2 uv1 = (uvM * vec4(vtx.uv[1], 0.0, 1.0)).xy;
+    vec2 uv2 = (uvM * vec4(vtx.uv[2], 0.0, 1.0)).xy;
     GradientInterpolationResults uvr =
-        Interpolate2DWithDeriv(bary, vtx.uv[0], vtx.uv[1], vtx.uv[2]);
+        Interpolate2DWithDeriv(bary, uv0, uv1, uv2);
 
     DiffuseMaterial mat = opaqueMaterial[MATERIAL_ID(obj)];
+
+    // World position reconstructed straight from the visibility-buffer
+    // triangle: transform the three local-space verts to world space and
+    // interpolate with the same perspective-correct Hawkins barycentrics
+    // already in scope. Exact at the fragment center, so the shadow-ray
+    // origin is stable as the camera moves.
+    vec3 worldP0 = (obj.modelMat * vec4(vtx.posL[0], 1.0)).xyz;
+    vec3 worldP1 = (obj.modelMat * vec4(vtx.posL[1], 1.0)).xyz;
+    vec3 worldP2 = (obj.modelMat * vec4(vtx.posL[2], 1.0)).xyz;
+    vec3 worldPos = InterpolateWithDeriv_float3x3_rows(
+        bary, worldP0, worldP1, worldP2);
+
+    uint nrmPacked   = texelFetch(normalBufferTex, pix, 0).r;
+    vec3 worldNormal = decompress_unit_vec(nrmPacked);
+
+    // Tangent-space basis — bit-for-bit matching gbuffer.vert:63-66.
+    // Per-vertex normalize → Hawkins interpolate → final normalize. The
+    // bitangent is computed via cross-IN-LOCAL-space then transformed by
+    // normalMat (cross(local_tangent, local_normal) per vertex). Doing
+    // cross-in-world after transform would diverge under non-uniform scale
+    // (stretched walls) and put B out of the tangent plane — that was the
+    // residual vertical-surface warping cause.
+    mat3 normalMat = transpose(mat3(obj.invModelMat));
+
+    vec3 wT0 = normalize(normalMat * vtx.tangentL[0].xyz);
+    vec3 wT1 = normalize(normalMat * vtx.tangentL[1].xyz);
+    vec3 wT2 = normalize(normalMat * vtx.tangentL[2].xyz);
+    vec3 T = normalize(InterpolateWithDeriv_float3x3_rows(bary, wT0, wT1, wT2));
+
+    vec3 wB0 = normalize(normalMat * cross(vtx.tangentL[0].xyz, vtx.normalL[0]));
+    vec3 wB1 = normalize(normalMat * cross(vtx.tangentL[1].xyz, vtx.normalL[1]));
+    vec3 wB2 = normalize(normalMat * cross(vtx.tangentL[2].xyz, vtx.normalL[2]));
+    vec3 B = normalize(InterpolateWithDeriv_float3x3_rows(bary, wB0, wB1, wB2));
+
+    //uint heightSlot = DiffuseMaterial_HeightTexture_ID(mat);
+    //if (heightSlot != INVALID_TEXTURE_INDEX)
+    //{
+    //    // Surface→camera in world space. ParallaxAdvance is space-agnostic —
+    //    // it only needs (dir, N, T, B) consistent with each other, which they
+    //    // are here (all world space). Magnitude is irrelevant; the helper
+    //    // normalizes after WorldSpaceToTangent.
+    //    vec3 dir =   invViewMat[3].xyz - worldPos;
+    //    // materialConfig bit 9: heightmap is single-channel (.r) vs alpha-
+    //    // packed (.a). Set host-side in MaterialResource.cpp when a Height
+    //    // texture is bound.
+    //    bool isSingleChannel = (mat.materialConfig & (1u << 9)) != 0u;
+    //    vec2 dUV = ParallaxAdvance(uvr.interp, 0.0, 32.0,
+    //                               mat.heightMapScale * PARALLAX_MULTIPLIER,
+    //                               dir, worldNormal, T, B,
+    //                               isSingleChannel, heightSlot);
+    //    uvr.interp += dUV;
+    //}
+
+    // Diffuse sample (parallax-offset UV).
     uint diffSlot = DiffuseMaterial_DiffuseTexture_ID(mat);
     vec3 albedo   = vec3(0.5);
     if (diffSlot != INVALID_TEXTURE_INDEX)
@@ -158,21 +211,48 @@ void main()
         ).xy;
     }
 
-    // World normal — packed-oct from the gbuffer normal target.
-    uint nrmPacked   = texelFetch(normalBufferTex, pix, 0).r;
-    vec3 worldNormal = decompress_unit_vec(nrmPacked);
+    // Tangent-space normal map. Override `worldNormal` before the light loops
+    // so shadow rays, NdotL, and Blinn-Phong all see the perturbed normal.
+    // Note the `- 0.5` (not `* 2 - 1`): legacy normal maps are stored as
+    // `(n + 0.5)`, an asymmetric encoding. Preserving it avoids re-baking
+    // every existing normal map asset.
+    uint nrmSlot = DiffuseMaterial_NormalTexture_ID(mat);
+    if (nrmSlot != INVALID_TEXTURE_INDEX)
+    {
+        vec3 nSample = textureGrad(
+            sampler2D(textures_2d[nonuniformEXT(nrmSlot)], materialSampler),
+            uvr.interp, uvr.dx, uvr.dy
+        ).xyz - 0.5;
+        worldNormal = normalize(
+            nSample.x * T + nSample.y * B + nSample.z * worldNormal);
+    }
 
-    // World position reconstructed straight from the visibility-buffer
-    // triangle: transform the three local-space verts to world space and
-    // interpolate with the same perspective-correct Hawkins barycentrics
-    // already in scope. This is exact at the fragment center (no
-    // depth-buffer precision loss / matrix-inversion wobble), so the
-    // shadow-ray origin is stable as the camera moves.
-    vec3 worldP0 = (obj.modelMat * vec4(vtx.posL[0], 1.0)).xyz;
-    vec3 worldP1 = (obj.modelMat * vec4(vtx.posL[1], 1.0)).xyz;
-    vec3 worldP2 = (obj.modelMat * vec4(vtx.posL[2], 1.0)).xyz;
-    vec3 worldPos = InterpolateWithDeriv_float3x3_rows(
-        bary, worldP0, worldP1, worldP2);
+    // Cube-map reflection + Fresnel, folded into albedo (matches legacy
+    // `Out.diffuse = diffuseColor + reflectionColor * fFresnel` — the
+    // reflection then rides through the same `albedo * (direct + indirect)`
+    // modulation in the final composite).
+    uint cubeSlot = DiffuseMaterial_CubeMapTexture_ID(mat);
+    if (cubeSlot != INVALID_TEXTURE_INDEX)
+    {
+        vec3 V = normalize(invViewMat[3].xyz - worldPos);
+        vec3 R = reflect(-V, worldNormal);
+        vec3 envColor = texture(
+            samplerCube(textures_cube[nonuniformEXT(cubeSlot)], materialSampler),
+            R).rgb;
+        float fres = Fresnel(max(dot(V, worldNormal), 0.0),
+                             mat.frenselBias, mat.frenselPow);
+        // Optional reflection mask (legacy `reflectionColor *= cubeMapAlpha.wwww`).
+        uint cubeAlphaSlot = DiffuseMaterial_CubeMapAlphaTexture_ID(mat);
+        if (cubeAlphaSlot != INVALID_TEXTURE_INDEX)
+        {
+            float mask = textureGrad(
+                sampler2D(textures_2d[nonuniformEXT(cubeAlphaSlot)], materialSampler),
+                uvr.interp, uvr.dx, uvr.dy
+            ).a;
+            envColor *= mask;
+        }
+        albedo += envColor * fres;
+    }
 
     // uv01 still needed below for the surfel-indirect texture sample.
     vec2 uv01 = (vec2(pix) + vec2(0.5)) / viewportSize;
