@@ -14,7 +14,7 @@
 #extension GL_EXT_ray_tracing : require
 #extension GL_EXT_ray_query   : require
 
-#include "host_device.h"
+#include "forward_shared.h"
 
 // Pushed per-dispatch via RIProgram::bindDescriptors as "topLevelAS".
 // Set 2 leaves set 0 (bindless) and set 1 (perFrame) intact and matches the

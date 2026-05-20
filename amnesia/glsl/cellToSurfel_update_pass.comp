@@ -4,7 +4,7 @@
 #extension GL_EXT_debug_printf                            : enable
 #extension GL_EXT_spirv_intrinsics                        : enable
 
-#include "host_device.h"
+#include "forward_shared.h"
 #include "compress.glsl"
 #include "bindless.resource.glsl"
 #include "per_frame.resource.glsl"

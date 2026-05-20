@@ -85,6 +85,21 @@ RI_Format from_hpl_format(ePixelFormat format) {
 }
 
 
+// Upgrade a UNORM color format to its sRGB variant so the sampler decodes
+// sRGB→linear on read. Formats with no sRGB sibling (single-channel, 16-bit,
+// floats, depth) pass through unchanged.
+static RI_Format to_srgb_format(RI_Format f) {
+  switch (f) {
+  case RI_FORMAT_RGBA8_UNORM: return RI_FORMAT_RGBA8_SRGB;
+  case RI_FORMAT_BGRA8_UNORM: return RI_FORMAT_BGRA8_SRGB;
+  case RI_FORMAT_BC1_RGBA_UNORM: return RI_FORMAT_BC1_RGBA_SRGB;
+  case RI_FORMAT_BC2_RGBA_UNORM: return RI_FORMAT_BC2_RGBA_SRGB;
+  case RI_FORMAT_BC3_RGBA_UNORM: return RI_FORMAT_BC3_RGBA_SRGB;
+  case RI_FORMAT_BC7_RGBA_UNORM: return RI_FORMAT_BC7_RGBA_SRGB;
+  default: return f;
+  }
+}
+
 RI_Format to_image_supported_format(ePixelFormat format) {
   switch (format) {
   case ePixelFormat_Alpha:
@@ -228,6 +243,9 @@ bool HPLTexture::LoadBitmap(
   height = bitmap.GetHeight();
   depth = bitmap.GetDepth();
   RI_Format destFormat = hpl::to_image_supported_format(bitmap.GetPixelFormat());
+  if (options.sRGB) {
+    destFormat = to_srgb_format(destFormat);
+  }
   VkImageCreateInfo info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   const struct RIFormatProps_s *formatProps = GetRIFormatProps(destFormat);
   if (formatProps->blockWidth > 1) {

@@ -11,7 +11,7 @@
 // the ray-tracing layout) can use it. Uses distinct buffer_reference type
 // names (VBT*) so the two headers can coexist if a future shader needs both.
 
-#include "host_device.h"
+#include "forward_shared.h"
 #include "bindless.resource.glsl"
 
 layout(buffer_reference, scalar) readonly buffer VBTPositionBuf { vec4 v[]; };

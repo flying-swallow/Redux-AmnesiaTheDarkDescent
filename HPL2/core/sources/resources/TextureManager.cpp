@@ -130,11 +130,12 @@ namespace hpl {
 	}
 
 	Image* cTextureManager::Create1DImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage,
-						unsigned int alTextureSizeLevel) {
-		return _wrapperImageResource(asName, [&abUseMipMaps, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
+						unsigned int alTextureSizeLevel, bool abSRGB) {
+		return _wrapperImageResource(asName, [&abUseMipMaps, &abSRGB, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
 				Image::SingleImage singleImage = {};
 				hpl::HPLTexture::BitmapLoadOptions opts = {0};
 				opts.use_mipmaps = abUseMipMaps;
+				opts.sRGB = abSRGB;
 				RIBarrierImageHandle_s barrierHandle = {};
 				barrierHandle.vk.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				barrierHandle.vk.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
@@ -150,11 +151,12 @@ namespace hpl {
 	}
 
 	Image* cTextureManager::Create2DImage(const tString& asName,bool abUseMipMaps,eTextureType aType,
-						eTextureUsage aUsage,unsigned int alTextureSizeLevel) {
-		return _wrapperImageResource(asName, [&abUseMipMaps, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
+						eTextureUsage aUsage,unsigned int alTextureSizeLevel, bool abSRGB) {
+		return _wrapperImageResource(asName, [&abUseMipMaps, &abSRGB, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
 				Image::SingleImage singleImage = {};
 				HPLTexture::BitmapLoadOptions opts = {0};
 				opts.use_mipmaps = abUseMipMaps;
+				opts.sRGB = abSRGB;
 				RIBarrierImageHandle_s barrierHandle = {};
 				barrierHandle.vk.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				barrierHandle.vk.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
@@ -169,11 +171,12 @@ namespace hpl {
 	}
 
 	Image* cTextureManager::Create3DImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage,
-						unsigned int alTextureSizeLevel){
-		return _wrapperImageResource(asName, [&abUseMipMaps, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
+						unsigned int alTextureSizeLevel, bool abSRGB){
+		return _wrapperImageResource(asName, [&abUseMipMaps, &abSRGB, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
 				Image::SingleImage singleImage = {};
 				HPLTexture::BitmapLoadOptions opts = {0};
 				opts.use_mipmaps = abUseMipMaps;
+				opts.sRGB = abSRGB;
 				RIBarrierImageHandle_s barrierHandle = {};
 				barrierHandle.vk.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				barrierHandle.vk.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
@@ -188,7 +191,7 @@ namespace hpl {
 	}
 
 	Image* cTextureManager::CreateCubeMapImage(const tString& asPathName, bool abUseMipMaps, eTextureUsage aUsage,
-				unsigned int alTextureSizeLevel){
+				unsigned int alTextureSizeLevel, bool abSRGB){
 
 		tString sExt = cString::ToLowerCase(cString::GetFileExt(asPathName));
 
@@ -196,11 +199,12 @@ namespace hpl {
 		if(sExt == "dds")
 		{
 			return _wrapperImageResource(asPathName,
-				[&abUseMipMaps](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
+				[&abUseMipMaps, &abSRGB](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
 					Image::SingleImage singleImage = {};
 					HPLTexture::BitmapLoadOptions opts = {0};
 					opts.use_mipmaps = abUseMipMaps;
 					opts.use_cubemap = true;
+					opts.sRGB = abSRGB;
 					RIBarrierImageHandle_s barrierHandle = {};
 					barrierHandle.vk.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 					barrierHandle.vk.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
@@ -284,6 +288,7 @@ namespace hpl {
 			HPLTexture::BitmapLoadOptions opts = {0};
 			opts.use_mipmaps = abUseMipMaps;
 			opts.use_cubemap = true;
+			opts.sRGB = abSRGB;
 			RIBarrierImageHandle_s barrierHandle = {};
 			barrierHandle.vk.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			barrierHandle.vk.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
@@ -312,7 +317,7 @@ namespace hpl {
 	}
 
 	Image* cTextureManager::CreateAnimImage(const tString& asName, bool abUseMipMaps, eTextureType aType,
-											eTextureUsage aUsage, unsigned int alTextureSizeLevel)
+											eTextureUsage aUsage, unsigned int alTextureSizeLevel, bool abSRGB)
 	{
 		BeginLoad(asName);
 
@@ -402,6 +407,7 @@ namespace hpl {
 				HPLTexture::BitmapLoadOptions opts = {0};
 				opts.use_mipmaps = abUseMipMaps;
 				opts.use_cubemap = (aType == eTextureType_CubeMap);
+				opts.sRGB = abSRGB;
 				RIBarrierImageHandle_s barrierHandle = {};
 				barrierHandle.vk.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 				barrierHandle.vk.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;

@@ -44,7 +44,7 @@ layout(set = 2, binding = 4) uniform accelerationStructureEXT topLevelAS;
 layout(location = 0) in  vec2 screenPosNdc;
 layout(location = 0) out vec4 fragColor;
 
-#include "host_device.h"
+#include "forward_shared.h"
 #include "common.glsl"               // unpack_object_id, unpack_primitive_id
 #include "compress.glsl"
 #include "bindless.resource.glsl"
@@ -58,17 +58,23 @@ layout(location = 0) out vec4 fragColor;
 #include "hawkins.glsl"
 #include "bindless_triangle.glsl"
 #include "traceray_rq.glsl"          // AnyHit (shared shadow trace)
-// Piecewise sRGB transfer. Needed because the swapchain is selected as
-// VK_FORMAT_*_UNORM (see RISwapchain.cpp) so the hardware does not encode
-// gamma on write. If the swapchain is ever switched to a _SRGB variant,
-// drop the linearTosRGB() call inside toneMapUncharted().
-vec3 linearTosRGB(vec3 c)
-{
-    vec3 lo = c * 12.92;
-    vec3 hi = 1.055 * pow(max(c, vec3(0.0)), vec3(1.0 / 2.4)) - 0.055;
-    return mix(lo, hi, step(vec3(0.0031308), c));
-}
+#include "light_falloff.glsl"        // sampleAttenuation
+// NOTE: this pipeline is linear-throughout PBR.
+//   - Diffuse / illumination textures are sampled via SRGB image views, so the
+//     hardware converts sRGB-encoded asset data to linear at fetch time.
+//   - Light colors are uploaded from C++ in linear (sRGBToLinear() applied to
+//     cColor.rgb in HybridRenderer.cpp's per-light upload loops).
+//   - Lighting math uses Lambert BRDF (albedo / π) for both direct (here) and
+//     surfel-NEE (shaderUtils_surfel_cell.glsl).
+//   - Output is written linear; the SRGB swapchain (RISwapchain.cpp selects
+//     VK_FORMAT_*_SRGB) handles the linear→sRGB encode on write so the
+//     display reads correctly without any in-shader gamma transfer.
+// Non-color data textures (normal maps, specular, falloff LUTs, gobo cubes)
+// keep UNORM views so their bits are treated as data, not as perceptual color.
 
+// Uncharted-2 tonemap. Maps open-ended HDR (multiple lights, specular peaks)
+// down into [0,1] before the SRGB swapchain quantizes and encodes. Stays in
+// linear space — the hardware does the linear→sRGB transfer at swapchain write.
 vec3 toneMapUncharted2Impl(vec3 c)
 {
     const float A = 0.15, B = 0.50, C = 0.10, D = 0.20, E = 0.02, F = 0.30;
@@ -81,12 +87,13 @@ vec3 toneMapUncharted(vec3 c)
     const float exposureBias = 2.0;
     c = toneMapUncharted2Impl(c * exposureBias);
     vec3 whiteScale = 1.0 / toneMapUncharted2Impl(vec3(W));
-    return linearTosRGB(c * whiteScale);
+    return c * whiteScale;
 }
 
-// getRangeAttenuation and spotConeFalloff are shared via
-// shaderUtils_surfel_cell.glsl (included above) so the direct (this file)
-// and surfel NEE paths can't drift apart.
+
+// Spot/point light falloff helpers (sampleAttenuation, sampleSpotCone) live
+// in light_falloff.glsl (included above). The direct (this file) and surfel
+// NEE paths both use them so the two paths can't drift apart on attenuation.
 
 void main()
 {
@@ -137,6 +144,20 @@ void main()
         ).rgb;
     }
 
+    // Specular gbuffer surrogate: the visibility-buffer model resolves
+    // materials deferred, so sample the material's specular texture inline.
+    // Matches the base-game `specularMap.xy` (intensity, packed-power) read
+    // from the deferred gbuffer. Missing slot → no specular.
+    uint specSlot = DiffuseMaterial_SpecularTexture_ID(mat);
+    vec2 specularTexel = vec2(0.0);
+    if (specSlot != INVALID_TEXTURE_INDEX)
+    {
+        specularTexel = textureGrad(
+            sampler2D(textures_2d[nonuniformEXT(specSlot)], materialSampler),
+            uvr.interp, uvr.dx, uvr.dy
+        ).xy;
+    }
+
     // World normal — packed-oct from the gbuffer normal target.
     uint nrmPacked   = texelFetch(normalBufferTex, pix, 0).r;
     vec3 worldNormal = decompress_unit_vec(nrmPacked);
@@ -157,10 +178,20 @@ void main()
     vec2 uv01 = (vec2(pix) + vec2(0.5)) / viewportSize;
 
     // Direct lighting: deterministic sum over all point lights. One shadow
-    // ray per in-range light per pixel. The previous 1-of-N stochastic pick
-    // with /pdf compensation was unbiased only with temporal accumulation,
-    // which isn't wired up yet — so iterate.
-    vec3 direct = vec3(0.0);
+    // ray per in-range light per pixel.
+    //
+    // Lighting model matches the base-game deferred_light_pointlight.frag.fsl:
+    //   - `pl.color` is the final diffuse RGB; `pl.intensity` is the specular
+    //     flag/multiplier (cColor.a), NOT a diffuse multiplier.
+    //   - Attenuation comes from a 1D-as-2D LUT keyed on (d/r)^2, falling back
+    //     to saturate(1-(d/r)^2) when no map is bound. No 1/d^2 divisor.
+    //   - No 1/pi Lambert normalization (legacy artistic balance).
+    //   - Optional gobo cube projection in light-local space.
+    //   - Optional Blinn-Phong specular sampled from the material's specular
+    //     texture (above), accumulated separately so albedo doesn't dampen it.
+    vec3 direct     = vec3(0.0);
+    vec3 directSpec = vec3(0.0);
+    vec3 viewDir    = normalize(invViewMat[3].xyz - worldPos);
     for (uint i = 0u; i < pointLightCount; ++i)
     {
         PointLight pl = pointLights[i];
@@ -189,9 +220,38 @@ void main()
                        hit.primitiveID         == int(primId);
         if (hit.hitT < INFINITY && !selfHit) continue;
 
-        float attenuation = getRangeAttenuation(pl.radius, d);
-        // Lambert BRDF = 1/pi (albedo applied at finalColor).
-        direct += pl.color * pl.intensity * attenuation * ndl * M_1_OVER_PI;
+        float r2 = (d * d) / (pl.radius * pl.radius);
+        float attenuation = sampleAttenuation(pl.attenuationTextureIndex, r2);
+
+        // Gobo cube projection in the light's local frame.
+        vec3 gobo = vec3(1.0);
+        if (pl.goboTextureIndex != INVALID_TEXTURE_INDEX)
+        {
+            mat3 wToL = mat3(pl.worldToLightX, pl.worldToLightY, pl.worldToLightZ);
+            // Sample direction matches the base-game convention:
+            // light → surface in light-local space (i.e. R^T * (-L)).
+            vec3 lightLocalDir = wToL * (-L);
+            gobo = texture(
+                samplerCube(textures_cube[nonuniformEXT(pl.goboTextureIndex)],
+                            materialSampler),
+                lightLocalDir).rgb;
+        }
+
+        // Lambert BRDF: albedo / π. Albedo is applied at composite time
+        // (`finalColor = albedo * direct + ...`), so the BRDF factor that
+        // multiplies into `direct` here is just `M_1_OVER_PI`.
+        direct += pl.color * gobo * attenuation * ndl;
+
+        // Blinn-Phong specular. Gated on the legacy `lightColor.w > 0` flag
+        // (now pl.intensity) AND the presence of a material specular map.
+        if (pl.intensity > 0.0 && specSlot != INVALID_TEXTURE_INDEX)
+        {
+            vec3 H = normalize(L + viewDir);
+            float specPower = exp2(specularTexel.y * 10.0) + 1.0;
+            float specVal = pl.intensity * specularTexel.x
+                          * pow(clamp(dot(H, worldNormal), 0.0, 1.0), specPower);
+            directSpec += pl.color * gobo * specVal * attenuation;
+        }
     }
 
     // Spot lights — range + cone cull, optional ray-traced shadow, optional
@@ -205,11 +265,6 @@ void main()
         if (d <= 0.0 || d > sl.radius) continue;
 
         vec3 L = toL / d;
-        // sl.direction is the outward forward of the cone; surface→light
-        // direction is +L, so light→surface is -L. Inside the cone when
-        // dot(-L, forward) >= cos(half-angle).
-        float cosTheta = dot(-L, sl.direction);
-        if (cosTheta < sl.cosOuterAngle) continue;
 
         float ndl = max(dot(worldNormal, L), 0.0);
         if (ndl <= 0.0) continue;
@@ -219,16 +274,20 @@ void main()
         bool selfHit = hit.instanceCustomIndex == int(objectId) &&
                         hit.primitiveID         == int(primId);
         if (hit.hitT < INFINITY && !selfHit) continue;
-    
-        float attenuation = getRangeAttenuation(sl.radius, d);
+
+        // Radial attenuation: legacy 1D LUT keyed on (d/r)². When no LUT is
+        // bound, sampleAttenuation falls back to saturate(1-(d/r)²) — matches
+        // the canonical attenuationLightMap default and is NOT 1/d² physics.
+        float r2 = (d * d) / (sl.radius * sl.radius);
+        float attenuation = sampleAttenuation(sl.attenuationTextureIndex, r2);
 
         // Gobo projection — sample the light's view-projection in NDC, then
         // map [-1,1] → [0,1]. Pixels behind the light or outside the projected
         // rect are zeroed; cosTheta already guarantees in-cone. When a gobo
-        // is bound it replaces the smooth cone factor (matches legacy
+        // is bound it replaces the cone factor (matches legacy
         // deferred_light_spotlight.frag.fsl's `if (HasGoboMap) ... else cone`
-        // branch); otherwise apply the smooth cone falloff so the cone edge
-        // tapers rather than terminating abruptly at cosOuterAngle.
+        // branch); otherwise apply the 1D cone-falloff LUT (smoothstep
+        // fallback inside sampleSpotCone when no LUT is bound).
         vec3  gobo = vec3(1.0);
         float cone = 1.0;
         if (sl.goboTextureIndex != INVALID_TEXTURE_INDEX)
@@ -236,8 +295,10 @@ void main()
             vec4 lc = sl.viewProjection * vec4(worldPos, 1.0);
             if (lc.w > 0.0)
             {
-                vec3 ndc = lc.xyz / lc.w;
-                vec2 uv  = ndc.xy * 0.5 + 0.5;
+                // g_mtxTextureUnitFix is already baked into sl.viewProjection
+                // (see LightSpot::GetViewProjMatrix), so after the perspective
+                // divide the xy coords are already in [0,1] — no extra bias.
+                vec2 uv = lc.xy / lc.w;
                 if (all(greaterThanEqual(uv, vec2(0.0))) &&
                     all(lessThanEqual(uv, vec2(1.0))))
                 {
@@ -258,36 +319,46 @@ void main()
         }
         else
         {
-            cone = spotConeFalloff(cosTheta, sl.cosOuterAngle);
+            float cosTheta = dot(-L, sl.direction);
+            if (cosTheta < sl.cosOuterAngle) continue;
+            cone = sampleSpotCone(sl.coneFalloffTextureIndex, cosTheta, sl.cosOuterAngle);
         }
 
-        direct += sl.color * sl.intensity * attenuation * ndl * gobo * cone * M_1_OVER_PI;
+        // Diffuse: sl.intensity (cColor.a) is the legacy specular-only flag,
+        // not a diffuse multiplier — matches deferred_light_spotlight.frag.fsl
+        // and the point-light branch above. Lambert BRDF (`/π`) applied here
+        // for parity with the point-light loop; albedo is applied at composite.
+        direct += sl.color * attenuation * ndl * gobo * cone;
+
+        // Blinn-Phong specular. Same gate as the point-light branch
+        // (sl.intensity > 0 && material has a specular slot). gobo*cone
+        // carries the cone/gobo modulation onto specular too, mirroring the
+        // legacy `(diffuse + specular) * gobo * attenuation` composition.
+        if (sl.intensity > 0.0 && specSlot != INVALID_TEXTURE_INDEX)
+        {
+            vec3 H = normalize(L + viewDir);
+            float specPower = exp2(specularTexel.y * 10.0) + 1.0;
+            float specVal = sl.intensity * specularTexel.x
+                          * pow(clamp(dot(H, worldNormal), 0.0, 1.0), specPower);
+            directSpec += sl.color * gobo * cone * specVal * attenuation;
+        }
     }
 
     // Indirect from the surfel cache — surfel_generate pre-computed the
     // per-pixel gather at half-res into surfelIndirect. The linear sampler
     // does the upsample; no per-fragment cell iteration needed here.
-    vec3 indirect = texture(surfelIndirect, uv01).rgb * 10.0;
+    //
+    // kIndirectScale: surfel-GI contribution scale. 1.0 = full physical
+    // indirect after the Lambert-normalized NEE fix in
+    // shaderUtils_surfel_cell.glsl::surfelPathTrace. Drop toward 0.0 to bring
+    // the scene closer to legacy HPL2 (which has no indirect at all). Lives
+    // here as a knob so levels can be tuned without rebuilding the surfel
+    // passes.
+    vec3 indirect = texture(surfelIndirect, uv01).rgb * BOUNCE_INDIRECT_SCALE;
+    vec3 finalColor =  albedo * (direct + indirect) + directSpec;
 
-    // Box lights — world-AABB tints. Matches the legacy deferred renderer's
-    // `framebuffer += diffuse * lightColor.rgb` modulation (see
-    // AmnesiaTheDarkDescent/HPL2/resource/deferred_light_box.frag.fsl). The
-    // legacy shader discards alpha, so `intensity` is intentionally unused
-    // here. Folding `box` into the inner bucket below gives it the same
-    // albedo multiply that the legacy renderer got via framebuffer blending.
-    // (eLightBoxBlendFunc_Replace is still treated as Add for now.)
-    vec3 box = vec3(0.0);
-    for (uint i = 0u; i < boxLightCount; ++i)
-    {
-        BoxLight bl = boxLights[i];
-        if (any(greaterThan(abs(worldPos - bl.center), bl.halfSize))) continue;
-        box += bl.color;
-    }
-
-    vec3 finalColor = albedo * (direct + indirect + box);
-
-    //vec3 finalColor = indirect * 10.0;
-    // Uncharted 2 tonemap + manual linear->sRGB (swapchain is UNORM).
-    vec3 mapped = linearTosRGB(finalColor);
-    fragColor   = vec4(mapped, 1.0);
+    // Linear-throughout PBR (see header). Tonemap brings open-ended HDR into
+    // [0,1] linear; the SRGB swapchain handles the linear→sRGB encode on write.
+    vec3 mapped = toneMapUncharted(finalColor);
+    fragColor   = vec4(mapped, 0);
 }

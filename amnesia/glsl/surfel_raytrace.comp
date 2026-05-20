@@ -6,7 +6,7 @@
 #extension GL_EXT_ray_query                              : require
 #extension GL_EXT_debug_printf                           : enable
 
-#include "host_device.h"
+#include "forward_shared.h"
 #include "bindless.resource.glsl"   // surfels + cells + pointLights at set 0
 #include "per_frame.resource.glsl"  // perFrame UBO at set 1 (totalFrames, pointLightCount)
 

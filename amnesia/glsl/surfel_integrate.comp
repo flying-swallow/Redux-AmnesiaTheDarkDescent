@@ -10,7 +10,7 @@
 #define DEBUGGING_MODE eNoDebug
 #endif
 
-#include "host_device.h"
+#include "forward_shared.h"
 #include "compress.glsl"
 #include "msme.glsl"
 #include "bindless.resource.glsl"   // surfels + cells at set 0
@@ -232,5 +232,5 @@ void main()
     #endif
 
     surfelBuffer[surfelIndex].msmeData = surfel.msmeData;
-    surfelBuffer[surfelIndex].irradiance = surfel.irradiance;
+    // surfelBuffer[surfelIndex].irradiance = surfel.irradiance; // commented out to match SurfelPlus and disable broken ray-guiding
 }

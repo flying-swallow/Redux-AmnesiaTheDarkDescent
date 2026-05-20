@@ -6,8 +6,7 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_scalar_block_layout                   : require
 
-#include "host_device.h"
-#include "forward_shared.h"  // UniformObject, DiffuseMaterial used in bindings 20..21
+#include "forward_shared.h"
 
 // Engine-wide bindless texture set. Populated by cHybridRenderer's LRU
 // texture slot allocator (m_textureBindless); any shader that includes this
@@ -15,6 +14,11 @@
 // (HPLTexture binds as VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE); combine with
 // `materialSampler` at use sites via `sampler2D(textures_2d[i], materialSampler)`.
 layout (set = 0, binding = BINDING_TEXTURES_2D)       uniform texture2D       textures_2d[];
+
+// Cube texture bindless table — populated by cHybridRenderer::resolveCubeTextureSlot.
+// Currently only fed by point-light gobo cubes; declare with the same partial-
+// bind flags so unused slots stay valid descriptors.
+layout (set = 0, binding = BINDING_TEXTURES_CUBE)     uniform textureCube     textures_cube[];
 
 // Per-slot VkDeviceAddress arrays for each opaque vertex stream — raw uint64
 // device addresses indexed by BindlessPool slot id. Dereferencing shaders cast
@@ -49,10 +53,9 @@ layout(set = 0, binding = BINDING_OPAQUE_INDEX_HANDLES) readonly buffer OpaqueIn
 layout(set = 0, binding = BINDING_MATERIAL_SAMPLER) uniform sampler materialSampler;
 
 // Surfel GI buffers — mirror cHybridRenderer's m_surfel*Buffer members
-// (HybridRenderer.h:63-69). Types come from host_device.h; scalar layout
-// matches the C++ side in HPL2/core/include/graphics/HostDevice.h. Each
-// surfel_*.comp shader will eventually include this file in place of its
-// current inlined set=0 block.
+// (HybridRenderer.h:63-69). Types come from forward_shared.h; scalar layout
+// packs without alignment padding, matching the natural C++ layout of the
+// Surfel / SurfelRecycleInfo / etc. structs declared there.
 layout(set = 0, binding = BINDING_SURFEL_COUNTER, scalar) buffer _SurfelCounter   { SurfelCounter     surfelCounter;       };
 layout(set = 0, binding = BINDING_SURFEL_BUFFER,  scalar) buffer _SurfelBuffer    { Surfel            surfelBuffer[];      };
 layout(set = 0, binding = BINDING_SURFEL_ALIVE,   scalar) buffer _SurfelAlive     { uint              surfelAlive[];       };

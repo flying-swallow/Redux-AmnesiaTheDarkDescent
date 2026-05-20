@@ -391,9 +391,15 @@ namespace hpl {
 				sFile = cString::SetFilePath(sFile, cString::To8Char(cString::GetFilePathW(asPath)));
 			}
 
+			// Diffuse and Illumination are authored as perceptual color in sRGB;
+			// every other slot (normals, packed specular, height, alpha, dissolve,
+			// cubemap alpha) carries linear data and must keep a UNORM view.
+			const bool bSRGB = (pUsedTexture->mType == eMaterialTexture_Diffuse)
+							|| (pUsedTexture->mType == eMaterialTexture_Illumination);
+
 			if(animMode != eTextureAnimMode_None)
 			{
-				pImage = mpResources->GetTextureManager()->CreateAnimImage(sFile,bMipMaps,type,eTextureUsage_Normal,mlTextureSizeDownScaleLevel);
+				pImage = mpResources->GetTextureManager()->CreateAnimImage(sFile,bMipMaps,type,eTextureUsage_Normal,mlTextureSizeDownScaleLevel, bSRGB);
 			}
 			else
 			{
@@ -401,25 +407,25 @@ namespace hpl {
 				{
 					pImage = mpResources->GetTextureManager()->Create1DImage(sFile,bMipMaps,
 																				eTextureUsage_Normal,
-																				mlTextureSizeDownScaleLevel);
+																				mlTextureSizeDownScaleLevel, bSRGB);
 				}
 				else if(type == eTextureType_2D)
 				{
 					pImage = mpResources->GetTextureManager()->Create2DImage(sFile,bMipMaps, eTextureType_2D,
 																			eTextureUsage_Normal,
-																			mlTextureSizeDownScaleLevel);
+																			mlTextureSizeDownScaleLevel, bSRGB);
 				}
 				else if(type == eTextureType_3D)
 				{
 					pImage = mpResources->GetTextureManager()->Create3DImage(sFile,bMipMaps,
 																			eTextureUsage_Normal,
-																			mlTextureSizeDownScaleLevel);
+																			mlTextureSizeDownScaleLevel, bSRGB);
 				}
 				else if(type == eTextureType_CubeMap)
 				{
 					pImage = mpResources->GetTextureManager()->CreateCubeMapImage(sFile,bMipMaps,
 																					eTextureUsage_Normal,
-																					mlTextureSizeDownScaleLevel);
+																					mlTextureSizeDownScaleLevel, bSRGB);
 				}
 			}
 

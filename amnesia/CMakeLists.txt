@@ -149,6 +149,8 @@ SHADERS
     ./glsl/surfel_generation_pass.comp
     ./glsl/visibility_shade.vert
     ./glsl/visibility_shade.frag
+    ./glsl/particle.vert
+    ./glsl/particle.frag
 OUTPUT_FOLDER
 ${AMNESIA_SHADER_DIR}
 )

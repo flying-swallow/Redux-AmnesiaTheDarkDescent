@@ -21,13 +21,17 @@ typedef float    vec2[2];
 #define SPOT_SLOT_LIGHT_CAPACITY      256u
 #define BOX_SLOT_LIGHT_CAPACITY       256u
 
-// Surfel-GI capacities. Mirrors `kMaxSurfelCount` / `kMaxRayCount` in
-// amnesia/glsl/host_device.h — kept here in C-preprocessor form so the C++
-// allocator (cHybridRenderer) and any GLSL pass that includes this header
-// share a single source of truth for sizing the surfel SSBOs declared in
-// bindless.resource.glsl (set 0, bindings 10..16).
+// Surfel-GI capacities. Single source of truth for sizing the surfel SSBOs
+// declared in bindless.resource.glsl (set 0, bindings 10..16); the C++
+// allocator (cHybridRenderer) and the shader-side guards in surfel_update.comp
+// / surfel_prepare.comp both index against these names.
+//
+// MAX_RAY_COUNT must stay <= the actual VkBuffer size of m_surfelRayBuffer,
+// since surfel_update.comp:`if (rayOffset < MAX_RAY_COUNT)` is the only OOB
+// guard before a write into surfelRayBuffer[].
 #define SURFEL_MAX_CAPACITY     150000u
-#define MAX_RAY_COUNT           (SURFEL_MAX_CAPACITY * 64u)
+#define MAX_RAY_COUNT           (SURFEL_MAX_CAPACITY * 32u)
+#define BOUNCE_INDIRECT_SCALE 10.0
 
 // Cell-grid capacities. The cell grid is static infrastructure shared by all
 // surfel passes (set 0, bindings 17..19 in bindless.resource.glsl). The grid
@@ -36,9 +40,10 @@ typedef float    vec2[2];
 //   - CELL_COUNT       = uniform cube region (CELL_GRID_DIM^3 cells)
 //   - frustum layers   = 6 face frustums, each with CELL_FRUSTUM_LAYERS
 //                        log-spaced depth slices of CELL_GRID_DIM^2 cells
-// TOTAL_CELL_COUNT is the size of cellBuffer[] and must match
-// host_device.h::n^3 + 6*n^2*m so spatial-hash lookups outside the central
-// 96-unit cube don't write/read out of bounds.
+// TOTAL_CELL_COUNT is the size of cellBuffer[] and must match the layout
+// computed in shaderUtil_grid.glsl::getFlattenCellIndexNonUniform
+// (CELL_GRID_DIM^3 + 6 * CELL_FRUSTUM_LAYERS * CELL_GRID_DIM^2) so spatial-hash
+// lookups outside the central 96-unit cube don't write/read out of bounds.
 // CELL_TO_SURFEL_CAPACITY budgets the flat per-cell surfel-index table: a
 // single surfel can intersect up to 27 neighbour cells (3x3x3 stamp in
 // surfel_update.comp), so worst case = SURFEL_MAX_CAPACITY * 27.
@@ -47,6 +52,87 @@ typedef float    vec2[2];
 #define CELL_COUNT              (CELL_GRID_DIM * CELL_GRID_DIM * CELL_GRID_DIM)
 #define TOTAL_CELL_COUNT        (CELL_COUNT + 6u * CELL_GRID_DIM * CELL_GRID_DIM * CELL_FRUSTUM_LAYERS)
 #define CELL_TO_SURFEL_CAPACITY (SURFEL_MAX_CAPACITY * 27u)
+
+// Surfel/cell scalar constants. Shared by both languages: in C++ they live in
+// `namespace hpl` (opened above); in GLSL they're file-scope `const`s.
+const float surfelSize          = 1.3f;
+const float cellSize            = 2.0f;
+const float surfelMinSizeRatio  = 0.15f;
+const uint  kMaxLife            = 1200u;
+
+// Non-uniform frustum geometry scalars used by shaderUtil_grid.glsl.
+// (Cell counts are CELL_GRID_DIM / CELL_FRUSTUM_LAYERS above; only the
+// geometric scalars `d` and `p` need separate constants.)
+const float d = 96.0;  // size of central uniform cube
+const float p = 1.3;   // non-uniform frustum split ratio
+
+// Debug-mode tags actually consumed by surfel_generation_pass.comp and
+// surfel_integrate.comp. The other esXxx values from the legacy enum were dead.
+// `eNoDebug` is the default DEBUGGING_MODE when not set by a host-side
+// specialization constant.
+const uint eNoDebug          = 0u;
+const uint esRadiance        = 1u;
+const uint esSurfelID        = 2u;
+const uint esVariance        = 3u;
+const uint esRadius          = 4u;
+const uint esNonUniformGrid  = 14u;
+
+// Surfel-GI data structs. Scalar layout on the GLSL side packs without
+// alignment padding, which matches the natural C++ layout of `float[3]` +
+// `float`/`uint` fields used here.
+struct MSMEData {
+    vec3  mean;
+    float vbbr;
+    vec3  shortMean;
+    float inconsistency;
+    vec3  variance;
+    float pad;
+};
+
+struct SurfelCounter {
+    uint aliveSurfelCnt;
+    uint deadSurfelCnt;
+    uint dirtySurfelCnt;
+    uint surfelRayCnt;
+};
+
+struct Surfel {
+    vec3 position;  float radius;
+    vec3 radiance;  uint normal;
+    uint objID;
+    uint rayOffset;
+    uint rayCount;
+    uint irradiance;
+    MSMEData msmeData;
+};
+
+// [status] bits:
+//   0x0001 isSleeping  0x0002 lastSeen  0x0004 lastRefed
+struct SurfelRecycleInfo {
+    uint life;
+    uint frame;
+    uint status;
+    uint lastSeenFrame;
+};
+
+struct SurfelRay {
+    uint  surfelID;
+    uint  dir_o;
+    float pdf;
+    float pad;
+    vec3  radiance;
+    float t;
+};
+
+struct CellInfo {
+    uint surfelOffset;
+    uint surfelCount;
+};
+
+struct CellCounter {
+    uint totalCellCount;
+    uint aliveSurfelInCell;
+};
 
 // Sentinel returned by the renderer's texture slot allocator when a slot is
 // missing or the pool is exhausted. Matches the full-uint32 entries in
@@ -163,29 +249,45 @@ struct UniformObject {
 // Scalar-layout point light. Position+radius and color+intensity pair into
 // natural 16-byte slots; the C++ side memcpy's an array of these into the
 // device-local SSBO via RI.uploader each frame.
-// `attenuationTextureIndex` is reserved for a future LUT-driven radial
-// falloff (canonical HPL2 attenuation, indexed by (d/r)²). The shader
-// currently uses the analytic getRangeAttenuation = (1-(d/r)⁴)/d², so this
-// slot is uploaded as INVALID_TEXTURE_INDEX and the field is unused.
+// `attenuationTextureIndex` points into textures_2d[] at the light's 1D-as-2D
+// falloff LUT keyed on (d/r)²; INVALID_TEXTURE_INDEX triggers the analytic
+// saturate(1-(d/r)²) fallback in sampleAttenuation (light_falloff.glsl).
+// `intensity` mirrors the base-game `lightColor.w` specular flag/multiplier
+// (cColor.a) — used only on the specular term, not on diffuse.
+// `goboTextureIndex` points into textures_cube[] (set 0, binding 1); when
+// set, sample the cube in light-local space using the worldToLight* rows.
+// worldToLight{X,Y,Z} are the rows of the light's world rotation (R), which
+// reconstruct R^T in GLSL via `mat3(worldToLightX, worldToLightY, worldToLightZ)`
+// — see HybridRenderer.cpp's point-light upload loop for the layout choice.
 struct PointLight {
     vec3  position;
     float radius;
     vec3  color;
     float intensity;
     uint  attenuationTextureIndex;
+    uint  goboTextureIndex;
     uint  _pad0;
     uint  _pad1;
-    uint  _pad2;
+    vec3  worldToLightX;
+    float _pad2;
+    vec3  worldToLightY;
+    float _pad3;
+    vec3  worldToLightZ;
+    float _pad4;
 };
 
 // Scalar-layout spot light. Mirrors PointLight but adds a cone forward +
 // pre-baked cos(angle/2) for the cone cull, optional gobo slot, optional
 // shadow bit, and the light's view-projection matrix for projecting the
 // gobo (and any future shadow-map UV) into the cone.
-// `attenuationTextureIndex` is reserved for a future LUT-driven radial
-// falloff pass (legacy used a 1D attenuationLightMap + 1D falloffMap pair);
-// the shader currently uses the analytic getRangeAttenuation × smooth cone
-// factor, so this slot is uploaded as INVALID_TEXTURE_INDEX and unused.
+// `attenuationTextureIndex` points into textures_2d[] at the legacy 1D-as-2D
+// radial-attenuation LUT keyed on (d/r)² (cLightSpot::GetFalloffImage). When
+// INVALID_TEXTURE_INDEX, sampleAttenuation falls back to saturate(1 - (d/r)²).
+// `coneFalloffTextureIndex` is the legacy 1D cone-falloff LUT
+// (cLightSpot::GetSpotFalloffImage) keyed on (1-cosTheta)/(1-cosOuterAngle);
+// when INVALID_TEXTURE_INDEX, sampleSpotCone falls back to a cubic smoothstep.
+// Both LUTs follow the same INVALID-sentinel convention as the point-light
+// attenuation slot — matches deferred_light_spotlight.frag.fsl's two-LUT model.
 struct SpotLight {
     vec3  position;
     float radius;
@@ -193,10 +295,10 @@ struct SpotLight {
     float cosOuterAngle;    // cos(GetFOV() * 0.5)
     vec3  color;
     float intensity;
-    uint  attenuationTextureIndex; // reserved (see comment above); unused
+    uint  attenuationTextureIndex; // legacy radial LUT (d/r)²; INVALID → analytic
     uint  goboTextureIndex;        // INVALID_TEXTURE_INDEX → no gobo
     uint  shadowEnabled;           // 0 or 1
-    uint  _pad0;
+    uint  coneFalloffTextureIndex; // legacy cone LUT;        INVALID → smoothstep
     mat4  viewProjection;          // light-space ViewProj for gobo UVs
 };
 
@@ -211,11 +313,17 @@ struct SpotLight {
 // the C++ side; see cHybridRenderer's box-light upload loop).
 struct BoxLight {
     vec3  center;        // world-space box center
-    float _pad0;
+    uint  blendFunc;     // 0 = Replace, 1 = Add
     vec3  halfSize;      // world-space AABB half-extents
     float _pad1;
     vec3  color;
     float _pad2;
+    vec3  worldToLightX;
+    float _pad3;
+    vec3  worldToLightY;
+    float _pad4;
+    vec3  worldToLightZ;
+    float _pad5;
 };
 
 // Per-frame UBO contents (std140). On the GLSL side this struct is wrapped
@@ -249,65 +357,7 @@ struct PerFrameConstants {
 };
 
 #ifdef __cplusplus
-// C++ twins of the surfel structs defined in amnesia/glsl/host_device.h.
-// Kept inside the __cplusplus guard so they don't collide with the GLSL
-// definitions when this header is included from a shader. Scalar layout on
-// the GLSL side packs without alignment padding, which already matches the
-// natural C++ layout of `float[3]` + `float`/`uint` fields used here. The
-// static_asserts below catch any drift.
-struct MSMEData {
-    vec3  mean;
-    float vbbr;
-    vec3  shortMean;
-    float inconsistency;
-    vec3  variance;
-    float pad;
-};
-
-struct SurfelCounter {
-    uint aliveSurfelCnt;
-    uint deadSurfelCnt;
-    uint dirtySurfelCnt;
-    uint surfelRayCnt;
-};
-
-struct Surfel {
-    vec3 position;  float radius;
-    vec3 radiance;  uint  normal;
-    uint objID;
-    uint rayOffset;
-    uint rayCount;
-    uint irradiance;
-    MSMEData msmeData;
-};
-
-struct SurfelRecycleInfo {
-    uint life;
-    uint frame;
-    uint status;
-    uint lastSeenFrame;
-};
-
-struct SurfelRay {
-    uint  surfelID;
-    uint  dir_o;
-    float pdf;
-    float pad;
-    vec3  radiance;
-    float t;
-};
-
-struct CellInfo {
-    uint surfelOffset;
-    uint surfelCount;
-};
-
-struct CellCounter {
-    uint totalCellCount;
-    uint aliveSurfelInCell;
-};
-
-// Historical C++ names; the canonical names match the GLSL twins above.
+// Historical C++ names; the canonical names match the shared structs above.
 using ObjectGPUData      = UniformObject;
 using DiffuseMaterialGPU = DiffuseMaterial;
 

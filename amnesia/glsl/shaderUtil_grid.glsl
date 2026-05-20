@@ -8,10 +8,10 @@ vec3 getCellPos(vec3 posW, vec3 cameraPosW)
 uint getFlattenCellIndex(vec3 cellPos)
 {
 
-    uvec3 unsignedPos = uvec3(cellPos + ivec3(kCellDimension / 2));
+    uvec3 unsignedPos = uvec3(cellPos + ivec3(CELL_GRID_DIM / 2));
 
-    uint result = (unsignedPos.z * kCellDimension * kCellDimension) +
-        (unsignedPos.y * kCellDimension) +
+    uint result = (unsignedPos.z * CELL_GRID_DIM * CELL_GRID_DIM) +
+        (unsignedPos.y * CELL_GRID_DIM) +
         unsignedPos.x;
 
     return result;
@@ -24,14 +24,14 @@ ivec4 getCellPosNonUniform(vec3 posW, vec3 cameraPosW)
     // Determine region
     int region = 0;
     float half_d = d / 2.0;
-	int half_n = n / 2;
+	int half_n = int(CELL_GRID_DIM) / 2;
     if (abs(posC.x) <= half_d && abs(posC.y) <= half_d && abs(posC.z) <= half_d)
     {
         // Inside the cube
         region = 0;
-        int x_index = int((posC.x + d / 2.0) / (d / float(n)));
-        int y_index = int((posC.y + d / 2.0) / (d / float(n)));
-        int z_index = int((posC.z + d / 2.0) / (d / float(n)));
+        int x_index = int((posC.x + d / 2.0) / (d / float(CELL_GRID_DIM)));
+        int y_index = int((posC.y + d / 2.0) / (d / float(CELL_GRID_DIM)));
+        int z_index = int((posC.z + d / 2.0) / (d / float(CELL_GRID_DIM)));
 
         return ivec4(x_index, y_index, z_index, region);
     }
@@ -66,9 +66,9 @@ ivec4 getCellPosNonUniform(vec3 posW, vec3 cameraPosW)
     }
 
     float s = abs(main_axis_pos) - half_d;
-    int k = int(log(1 - n * s * (1 - p) / d) / log(p));
-    int u = int(ceil(other_axis_pos_1 * n * 0.5 / main_axis_pos)) + half_n;
-    int v = int(ceil(other_axis_pos_2 * n * 0.5 / main_axis_pos)) + half_n;
+    int k = int(log(1 - float(CELL_GRID_DIM) * s * (1 - p) / d) / log(p));
+    int u = int(ceil(other_axis_pos_1 * float(CELL_GRID_DIM) * 0.5 / main_axis_pos)) + half_n;
+    int v = int(ceil(other_axis_pos_2 * float(CELL_GRID_DIM) * 0.5 / main_axis_pos)) + half_n;
 
     if (u > 0) u--;
 	if (v > 0) v--;
@@ -85,15 +85,19 @@ uint getFlattenCellIndexNonUniform(ivec4 cellPos)
         int x = cellPos.x;
         int y = cellPos.y;
         int z = cellPos.z;
-        return uint(x + n * (y + n * z));
+        return uint(x) + CELL_GRID_DIM * (uint(y) + CELL_GRID_DIM * uint(z));
     }
     else
     {
-        int s = region - 1; 
+        int s = region - 1;
         int k = cellPos.x;
         int u = cellPos.y;
         int v = cellPos.z;
-        return uint(n * n * n) + uint(s * m * n * n) + uint(k * n * n + u * n + v);
+        return CELL_GRID_DIM * CELL_GRID_DIM * CELL_GRID_DIM
+             + uint(s) * CELL_FRUSTUM_LAYERS * CELL_GRID_DIM * CELL_GRID_DIM
+             + uint(k) * CELL_GRID_DIM * CELL_GRID_DIM
+             + uint(u) * CELL_GRID_DIM
+             + uint(v);
     }
 
     return 0;
@@ -105,13 +109,13 @@ bool isSurfelIntersectCellNonUniform(Surfel surfel, ivec4 cellPos, vec3 cameraPo
     vec3 minPos;
     vec3 maxPos;
     float half_d = d / 2.0;
-    float delta = d / float(n);
-	int half_n = n / 2;
+    float delta = d / float(CELL_GRID_DIM);
+	int half_n = int(CELL_GRID_DIM) / 2;
 
     if (region == 0)
     {
         // Inside the cube
-        
+
         int x_index = cellPos.x;
         int y_index = cellPos.y;
         int z_index = cellPos.z;
@@ -162,16 +166,16 @@ bool isSurfelIntersectCellNonUniform(Surfel surfel, ivec4 cellPos, vec3 cameraPo
         float other_axis_c_1 = 0.0f;
         float other_axis_d_1 = 0.0f;
         if (u > 0) {
-            other_axis_a_1 =  2.0 * (u - 1) / n * (half_d + main_axis_min);
-            other_axis_b_1 =  2.0 * u / n * (half_d + main_axis_max);
-            other_axis_c_1 = 2.0 * (u - 1) / n * (half_d + main_axis_max);
-            other_axis_d_1 = 2.0 * u / n * (half_d + main_axis_min);
+            other_axis_a_1 =  2.0 * float(u - 1) / float(CELL_GRID_DIM) * (half_d + main_axis_min);
+            other_axis_b_1 =  2.0 * float(u)     / float(CELL_GRID_DIM) * (half_d + main_axis_max);
+            other_axis_c_1 =  2.0 * float(u - 1) / float(CELL_GRID_DIM) * (half_d + main_axis_max);
+            other_axis_d_1 =  2.0 * float(u)     / float(CELL_GRID_DIM) * (half_d + main_axis_min);
         }
         else {
-            other_axis_a_1 = 2.0 * (u + 1) / n * (half_d + main_axis_min);
-            other_axis_b_1 = 2.0 * u / n * (half_d + main_axis_max);
-            other_axis_c_1 = 2.0 * (u + 1) / n * (half_d + main_axis_max);
-            other_axis_d_1 = 2.0 * u / n * (half_d + main_axis_min);
+            other_axis_a_1 =  2.0 * float(u + 1) / float(CELL_GRID_DIM) * (half_d + main_axis_min);
+            other_axis_b_1 =  2.0 * float(u)     / float(CELL_GRID_DIM) * (half_d + main_axis_max);
+            other_axis_c_1 =  2.0 * float(u + 1) / float(CELL_GRID_DIM) * (half_d + main_axis_max);
+            other_axis_d_1 =  2.0 * float(u)     / float(CELL_GRID_DIM) * (half_d + main_axis_min);
         }
 
         float other_axis_min_1 = min(min(other_axis_a_1, other_axis_b_1), min(other_axis_c_1, other_axis_d_1));
@@ -184,16 +188,16 @@ bool isSurfelIntersectCellNonUniform(Surfel surfel, ivec4 cellPos, vec3 cameraPo
         float other_axis_d_2 = 0.0f;
 
         if (v > 0) {
-            other_axis_a_2 = 2.0 * (v - 1) / n * (half_d + main_axis_min);
-            other_axis_b_2 = 2.0 * v / n * (half_d + main_axis_max);
-            other_axis_c_2 = 2.0 * (v - 1) / n * (half_d + main_axis_max);
-            other_axis_d_2 = 2.0 * v / n * (half_d + main_axis_min);
+            other_axis_a_2 = 2.0 * float(v - 1) / float(CELL_GRID_DIM) * (half_d + main_axis_min);
+            other_axis_b_2 = 2.0 * float(v)     / float(CELL_GRID_DIM) * (half_d + main_axis_max);
+            other_axis_c_2 = 2.0 * float(v - 1) / float(CELL_GRID_DIM) * (half_d + main_axis_max);
+            other_axis_d_2 = 2.0 * float(v)     / float(CELL_GRID_DIM) * (half_d + main_axis_min);
         }
         else {
-            other_axis_a_2 = 2.0 * (v + 1) / n * (half_d + main_axis_min);
-            other_axis_b_2 = 2.0 * v / n * (half_d + main_axis_max);
-            other_axis_c_2 = 2.0 * (v + 1) / n * (half_d + main_axis_max);
-            other_axis_d_2 = 2.0 * v / n * (half_d + main_axis_min);
+            other_axis_a_2 = 2.0 * float(v + 1) / float(CELL_GRID_DIM) * (half_d + main_axis_min);
+            other_axis_b_2 = 2.0 * float(v)     / float(CELL_GRID_DIM) * (half_d + main_axis_max);
+            other_axis_c_2 = 2.0 * float(v + 1) / float(CELL_GRID_DIM) * (half_d + main_axis_max);
+            other_axis_d_2 = 2.0 * float(v)     / float(CELL_GRID_DIM) * (half_d + main_axis_min);
         }
 
         // Calculate min and max for Other axis 2
@@ -255,16 +259,16 @@ bool isCellValid(ivec4 cellPos)
 
     if (region == 0)
     {
-        if (k < 0 || k >= n) return false;
-        if (u < 0 || u >= n) return false;
-        if (v < 0 || v >= n) return false;
+        if (k < 0 || k >= int(CELL_GRID_DIM)) return false;
+        if (u < 0 || u >= int(CELL_GRID_DIM)) return false;
+        if (v < 0 || v >= int(CELL_GRID_DIM)) return false;
         return true;
     }
     else
     {
-        if (k < 0 || k >= m) return false;
-        if (u < 0 || u >= n) return false;
-        if (v < 0 || v >= n) return false;
+        if (k < 0 || k >= int(CELL_FRUSTUM_LAYERS)) return false;
+        if (u < 0 || u >= int(CELL_GRID_DIM))      return false;
+        if (v < 0 || v >= int(CELL_GRID_DIM))      return false;
         return true;
     }
 }
@@ -272,11 +276,11 @@ bool isCellValid(ivec4 cellPos)
 
 float getSurfelMaxSize(float distance) {
     if (distance < d / 2.0) {
-		return d * 0.5f / float(n);
+		return d * 0.5f / float(CELL_GRID_DIM);
     }
     else {
 		float s = distance - d / 2.0;
-        int k = int(log(1 - n * s * (1 - p) / d) / log(p));
-		return d * 0.5f / float(n) * pow(p, float(k));
+        int k = int(log(1 - float(CELL_GRID_DIM) * s * (1 - p) / d) / log(p));
+		return d * 0.5f / float(CELL_GRID_DIM) * pow(p, float(k));
     }
 }

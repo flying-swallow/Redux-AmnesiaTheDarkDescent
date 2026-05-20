@@ -5,7 +5,7 @@
 #extension GL_EXT_debug_printf : enable
 #extension GL_EXT_spirv_intrinsics : enable
 
-#include "host_device.h"
+#include "forward_shared.h"
 #include "bindless.resource.glsl"
 
 layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;

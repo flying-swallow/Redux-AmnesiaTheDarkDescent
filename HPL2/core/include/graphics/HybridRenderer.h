@@ -52,6 +52,12 @@ private:
   // image is null or the bindless pool is exhausted.
   uint32_t resolveTextureSlot(RIBootstrap::FrameContext *cntx, Image *img, uint32_t frameIndex);
 
+  // Same as resolveTextureSlot() but writes into the textures_cube[] bindless
+  // array at BINDING_TEXTURES_CUBE. The 2D and cube pools cannot share slot
+  // ids because they index different descriptor arrays. Currently fed only
+  // by per-frame point-light gobo cube uploads.
+  uint32_t resolveCubeTextureSlot(RIBootstrap::FrameContext *cntx, Image *img, uint32_t frameIndex);
+
   cRenderList2 m_rendererList;
 
   LRUCache m_diffuseBindless;
@@ -101,6 +107,9 @@ private:
 
   RIBindlessDescriptorSet m_bindlessSet;
   LRUCache m_textureBindless;
+  // Separate LRU for cube textures. Slot ids index textures_cube[] (set 0,
+  // binding 1) and must not be confused with textures_2d[] ids.
+  LRUCache m_textureCubeBindless;
 
   RIBuffer_s m_tlasStorage = {};
   struct RIAccelStructure_s m_tlas = {};
@@ -133,6 +142,15 @@ private:
 	// barycentric, samples diffuse + applies point-light direct + surfel
 	// indirect, and writes the swapchain image.
 	RIProgram m_visibilityShade;
+
+	// Particle (translucent) pass — port of legacy RendererDeferred's
+	// translucency_particle.{vert,frag}.fsl. Reuses the opaque object/material
+	// bindless pools (one OBJECT slot + one MATERIAL slot per emitter per
+	// frame); cHybridRenderer writes the particle VB's BDA into the same
+	// opaque*Handles[] arrays so the VS can pull pos/uv/color via instanceId.
+	// Hardware blend state varies per blend mode — one pipeline per mode is
+	// stamped on demand via the program's PipelineSlot cache.
+	RIProgram m_particle;
 
 	// Surfel-ray irradiance map sampled by surfel_raytrace.comp's ray-guiding
 	// branch and written by surfel_integrate.comp. Lives at VK_IMAGE_LAYOUT_GENERAL

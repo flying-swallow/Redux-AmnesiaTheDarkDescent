@@ -1,4 +1,5 @@
 #include "shaderUtil_grid.glsl"
+#include "light_falloff.glsl"  // sampleAttenuation (point-light NEE branch)
 // Surfel and cells
 
 //vec3 getCameraPosition(SceneCamera camera)
@@ -9,11 +10,11 @@
 
 bool isCellValid(vec3 cellPos)
 {
-    if (abs(cellPos.x) >= kCellDimension / 2)
+    if (abs(cellPos.x) >= CELL_GRID_DIM / 2)
         return false;
-    if (abs(cellPos.y) >= kCellDimension / 2)
+    if (abs(cellPos.y) >= CELL_GRID_DIM / 2)
         return false;
-    if (abs(cellPos.z) >= kCellDimension / 2)
+    if (abs(cellPos.z) >= CELL_GRID_DIM / 2)
         return false;
 
     return true;
@@ -36,27 +37,6 @@ bool isSurfelIntersectCell(Surfel surfel, vec3 cellPos, vec3 cameraPosW)
 float calcRadiusApprox(float area, float distance, float fovy, vec2 resolution) {
     float angle = sqrt(area / 3.14159265359) * fovy * 2.0 / max(resolution.x, resolution.y);
     return distance * tan(angle);
-}
-
-// glTF KHR_lights_punctual range attenuation: physical 1/d^2 with a smooth
-// (1 - (d/r)^4) rolloff that reaches zero at the light's `radius`. range <= 0
-// is treated as unlimited (matches glTF). Shared by visibility_shade.frag
-// (direct) and the surfel-NEE branches (LAYOUTS_GLSL block below) so the
-// direct and indirect paths can't drift apart. Kept outside any guard
-// because it has no layout / SSBO dependencies.
-float getRangeAttenuation(float range, float distance)
-{
-    if (range <= 0.0) return 1.0;
-    float rangeRolloff = max(min(1.0 - pow(distance / range, 4.0), 1.0), 0.0);
-    return rangeRolloff / max(distance * distance, 1e-6);
-}
-
-// Smooth cone taper: 1 at the cone axis, 0 at the outer edge. Approximates
-// the legacy 1D falloffMap LUT (deferred_light_spotlight.frag.fsl line 40)
-// keyed on (1 - cos)/oneMinusCosHalfSpotFov.
-float spotConeFalloff(float cosTheta, float cosOuterAngle)
-{
-    return smoothstep(cosOuterAngle, 1.0, cosTheta);
 }
 
 float calcSurfelRadius(float distance, float fovy, vec2 resolution) {
@@ -171,6 +151,7 @@ struct BindlessHit
     vec2 uv;
     vec3 albedo;
     vec3 emissive;
+    vec2 specular; // Add specular: x = intensity, y = power
 };
 
 // Resolve a TLAS hit (described by prd) into world-space shade state pulled
@@ -261,6 +242,15 @@ BindlessHit GetBindlessHit(in PtPayload p)
         h.emissive = texture(sampler2D(textures_2d[nonuniformEXT(illumSlot)],
                                        materialSampler),
                              h.uv).rgb * obj.illuminationAmount;
+    }
+
+    // Specular texture: sample tex[3]
+    h.specular = vec2(0.0);
+    const uint specSlot = DiffuseMaterial_SpecularTexture_ID(mat);
+    if (specSlot != INVALID_TEXTURE_INDEX) {
+        h.specular = texture(sampler2D(textures_2d[nonuniformEXT(specSlot)],
+                                       materialSampler),
+                             h.uv).xy;
     }
 
     return h;
@@ -363,6 +353,168 @@ bool finalizePathWithSurfel(vec3 worldPos, vec3 worldNor, uint randSeed, inout v
     return true;
 }
 
+// Per-light NEE helpers. One function per light type — the geometry-, gobo-,
+// and falloff-related branches are simply too different to share without
+// turning the body into a tangle of `if`s. Both return `true` when the light
+// would contribute (pre-shadow); the caller fires the deferred shadow ray
+// and adds `contribution` if it survives.
+//
+// `lightPdf` is the inverse selection probability for the picked light from
+// the combined directional pool (1/(pointLightCount+spotLightCount)). Folded
+// into `contribution` here so the caller doesn't have to remember which
+// branch needed it.
+//
+// `throughput * albedo * M_1_OVER_PI` is the Lambert BRDF factor at the
+// shaded hit; `lightDir` is the surface→light unit vector returned for the
+// caller's shadow-ray setup. `lightPos` is just `light.position`, returned
+// alongside so the caller can build the shadow ray without re-reading the
+// SSBO.
+bool neePoint(in PointLight pl,
+              in vec3 posW, in vec3 ffnormal,
+              in vec3 albedo, in vec3 throughput,
+              in float lightPdf,
+              in vec3 V, in vec2 specular,
+              out vec3 contribution,
+              out vec3 lightPos,
+              out vec3 lightDir)
+{
+    contribution = vec3(0.0);
+    lightPos     = pl.position;
+    lightDir     = vec3(0.0);
+
+    vec3 toL = pl.position - posW;
+    float d  = length(toL);
+    if (d <= 0.0 || d > pl.radius) return false;
+
+    vec3 L = toL / d;
+    float ndl = max(dot(ffnormal, L), 0.0);
+    if (ndl <= 0.0) return false;
+
+    // Legacy 1D-as-2D LUT keyed on (d/r)², analytic saturate(1-(d/r)²)
+    // fallback. Matches visibility_shade.frag's direct point loop.
+    float r2 = (d * d) / (pl.radius * pl.radius);
+    float attenuation = sampleAttenuation(pl.attenuationTextureIndex, r2);
+
+    vec3 gobo = vec3(1.0);
+    if (pl.goboTextureIndex != INVALID_TEXTURE_INDEX)
+    {
+        mat3 wToL = mat3(pl.worldToLightX,
+                         pl.worldToLightY,
+                         pl.worldToLightZ);
+        vec3 lightLocalDir = wToL * (-L);
+        gobo = texture(
+            samplerCube(textures_cube[nonuniformEXT(pl.goboTextureIndex)],
+                        materialSampler),
+            lightLocalDir).rgb;
+    }
+
+    // Lambert BRDF: albedo / π.
+    vec3 diffuseTerm = albedo * ndl;
+
+    // Blinn-Phong specular term with energy normalization.
+    vec3 specularTerm = vec3(0.0);
+    if (pl.intensity > 0.0 && specular.x > 0.0)
+    {
+        vec3 H = normalize(L + V);
+        float specPower = exp2(specular.y * 10.0) + 1.0;
+        float normFactor = (specPower + 2.0) * 0.5;
+        float specVal = pl.intensity * specular.x * normFactor
+                      * pow(clamp(dot(H, ffnormal), 0.0, 1.0), specPower);
+        specularTerm = vec3(specVal);
+    }
+
+    contribution = throughput * (diffuseTerm + specularTerm)
+                 * pl.color * gobo * attenuation / lightPdf;
+    lightDir = L;
+    return true;
+}
+
+bool neeSpot(in SpotLight sl,
+             in vec3 posW, in vec3 ffnormal,
+             in vec3 albedo, in vec3 throughput,
+             in float lightPdf,
+             in vec3 V, in vec2 specular,
+             out vec3 contribution,
+             out vec3 lightPos,
+             out vec3 lightDir)
+{
+    contribution = vec3(0.0);
+    lightPos     = sl.position;
+    lightDir     = vec3(0.0);
+
+    vec3 toL = sl.position - posW;
+    float d  = length(toL);
+    if (d <= 0.0 || d > sl.radius) return false;
+
+    vec3 L = toL / d;
+    // Cone cull early — outside the cone we contribute nothing regardless
+    // of ndl or shadowing.
+    float cosTheta = dot(-L, sl.direction);
+    if (cosTheta < sl.cosOuterAngle) return false;
+
+    float ndl = max(dot(ffnormal, L), 0.0);
+    if (ndl <= 0.0) return false;
+
+    float r2 = (d * d) / (sl.radius * sl.radius);
+    float attenuation = sampleAttenuation(sl.attenuationTextureIndex, r2);
+
+    // Gobo replaces the cone-falloff LUT when present (matches legacy
+    // deferred_light_spotlight.frag.fsl's `if (HasGoboMap) ... else cone`).
+    vec3  gobo = vec3(1.0);
+    float cone = 1.0;
+    if (sl.goboTextureIndex != INVALID_TEXTURE_INDEX)
+    {
+        vec4 lc = sl.viewProjection * vec4(posW, 1.0);
+        if (lc.w > 0.0)
+        {
+            // g_mtxTextureUnitFix already baked into sl.viewProjection —
+            // xy is [0,1] after the perspective divide.
+            vec2 uv = lc.xy / lc.w;
+            if (all(greaterThanEqual(uv, vec2(0.0))) &&
+                all(lessThanEqual(uv, vec2(1.0))))
+            {
+                gobo = texture(
+                    sampler2D(textures_2d[nonuniformEXT(sl.goboTextureIndex)],
+                              materialSampler),
+                    uv).rgb;
+            }
+            else
+            {
+                gobo = vec3(0.0);
+            }
+        }
+        else
+        {
+            gobo = vec3(0.0);
+        }
+    }
+    else
+    {
+        cone = sampleSpotCone(sl.coneFalloffTextureIndex,
+                              cosTheta, sl.cosOuterAngle);
+    }
+
+    // Lambert BRDF: albedo / π.
+    vec3 diffuseTerm = albedo * ndl;
+
+    // Blinn-Phong specular term with energy normalization.
+    vec3 specularTerm = vec3(0.0);
+    if (sl.intensity > 0.0 && specular.x > 0.0)
+    {
+        vec3 H = normalize(L + V);
+        float specPower = exp2(specular.y * 10.0) + 1.0;
+        float normFactor = (specPower + 2.0) * 0.5;
+        float specVal = sl.intensity * specular.x * normFactor
+                      * pow(clamp(dot(H, ffnormal), 0.0, 1.0), specPower);
+        specularTerm = vec3(specVal);
+    }
+
+    contribution = throughput * (diffuseTerm + specularTerm)
+                 * sl.color * attenuation * cone * gobo / lightPdf;
+    lightDir = L;
+    return true;
+}
+
 // Surfel-ray path trace.
 //
 // One ray per call. Per bounce: trace, fetch bindless shade state, accumulate
@@ -428,13 +580,16 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
         // the prop interior as an occluder and zeros the contribution.
         // Contribution is staged here and the shadow ray fires after the
         // next-bounce ray is set up (deferred shadow).
-        vec3 pendingDirect = vec3(0.0);
+        vec3 pendingDirect   = vec3(0.0);
         vec3 pendingLightPos = vec3(0.0);
         vec3 pendingL        = vec3(0.0);
-        int  pendingHitInst  = 0;
-        int  pendingHitPrim  = 0;
-        bool pendingShadow = false;
+        int  pendingHitInst  = prd.instanceCustomIndex;
+        int  pendingHitPrim  = prd.primitiveID;
+        bool pendingShadow   = false;
 
+        // Stochastic single-sample NEE over the combined point+spot pool.
+        // Box lights stay out of the pool — they're add-blend ambient with
+        // no shadow ray, accumulated deterministically after the bounce.
         uint directionalLightCount = pointLightCount + spotLightCount;
         if (directionalLightCount > 0u)
         {
@@ -442,109 +597,38 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
                                 directionalLightCount - 1u);
             float lightPdf = 1.0 / float(directionalLightCount);
 
+            vec3 V = -r.direction; // View direction pointing back to ray origin / previous hit
+
             if (lightIdx < pointLightCount)
             {
-                PointLight pl = pointLights[lightIdx];
-
-                vec3 toL = pl.position - hit.posW;
-                float d  = length(toL);
-                if (d > 0.0 && d <= pl.radius)
-                {
-                    vec3 L = toL / d;
-                    float ndl = max(dot(ffnormal, L), 0.0);
-                    if (ndl > 0.0)
-                    {
-                        float attenuation = getRangeAttenuation(pl.radius, d);
-                        pendingDirect = throughput * hit.albedo * pl.color * pl.intensity
-                                      * ndl * attenuation * M_1_OVER_PI / lightPdf;
-                        pendingLightPos = pl.position;
-                        pendingL        = L;
-                        pendingHitInst  = prd.instanceCustomIndex;
-                        pendingHitPrim  = prd.primitiveID;
-                        pendingShadow = true;
-                    }
-                }
+                pendingShadow = neePoint(pointLights[lightIdx],
+                                         hit.posW, ffnormal,
+                                         hit.albedo, throughput, lightPdf,
+                                         V, hit.specular,
+                                         pendingDirect, pendingLightPos, pendingL);
             }
             else
             {
-                SpotLight sl = spotLights[lightIdx - pointLightCount];
-
-                vec3 toL = sl.position - hit.posW;
-                float d  = length(toL);
-                if (d > 0.0 && d <= sl.radius)
-                {
-                    vec3 L = toL / d;
-                    // sl.direction is the light's outward forward; inside the
-                    // cone when dot(-L, forward) >= cos(half-angle).
-                    float cosTheta = dot(-L, sl.direction);
-                    if (cosTheta >= sl.cosOuterAngle)
-                    {
-                        float ndl = max(dot(ffnormal, L), 0.0);
-                        if (ndl > 0.0)
-                        {
-                            float attenuation = getRangeAttenuation(sl.radius, d);
-
-                            // Optional gobo projection through the light's
-                            // view-projection. Gobo replaces the smooth cone
-                            // factor when bound; matches the legacy
-                            // `if (HasGoboMap) ... else cone` branch.
-                            vec3  gobo = vec3(1.0);
-                            float cone = 1.0;
-                            if (sl.goboTextureIndex != INVALID_TEXTURE_INDEX)
-                            {
-                                vec4 lc = sl.viewProjection * vec4(hit.posW, 1.0);
-                                if (lc.w > 0.0)
-                                {
-                                    vec3 ndc = lc.xyz / lc.w;
-                                    vec2 uv  = ndc.xy * 0.5 + 0.5;
-                                    if (all(greaterThanEqual(uv, vec2(0.0))) &&
-                                        all(lessThanEqual(uv, vec2(1.0))))
-                                    {
-                                        gobo = texture(
-                                            sampler2D(textures_2d[nonuniformEXT(sl.goboTextureIndex)],
-                                                      materialSampler),
-                                            uv).rgb;
-                                    }
-                                    else
-                                    {
-                                        gobo = vec3(0.0);
-                                    }
-                                }
-                                else
-                                {
-                                    gobo = vec3(0.0);
-                                }
-                            }
-                            else
-                            {
-                                cone = spotConeFalloff(cosTheta, sl.cosOuterAngle);
-                            }
-
-                            pendingDirect = throughput * hit.albedo * sl.color * sl.intensity
-                                          * ndl * attenuation * cone * gobo * M_1_OVER_PI / lightPdf;
-                            pendingLightPos = sl.position;
-                            pendingL        = L;
-                            pendingHitInst  = prd.instanceCustomIndex;
-                            pendingHitPrim  = prd.primitiveID;
-                            pendingShadow = true;
-                        }
-                    }
-                }
+                pendingShadow = neeSpot(spotLights[lightIdx - pointLightCount],
+                                        hit.posW, ffnormal,
+                                        hit.albedo, throughput, lightPdf,
+                                        V, hit.specular,
+                                        pendingDirect, pendingLightPos, pendingL);
             }
         }
 
-        // Box lights — add-blend volumetric tints. No shadow ray, no cone:
-        // the pixel is "inside" when |hit.posW - center| <= halfSize per
-        // axis, and the contribution is just color modulated by
-        // throughput*albedo (matching visibility_shade.frag's albedo*box
-        // term). Alpha is intentionally not used — the legacy
-        // deferred_light_box.frag.fsl discards it.
+        vec3 boxAdd = vec3(0);
         for (uint bi = 0u; bi < boxLightCount; ++bi)
         {
             BoxLight bl = boxLights[bi];
-            if (any(greaterThan(abs(hit.posW - bl.center), bl.halfSize))) continue;
-            radiance += throughput * hit.albedo * bl.color;
+            mat3 wToL = mat3(bl.worldToLightX, bl.worldToLightY, bl.worldToLightZ);
+            vec3 localPos = wToL * (hit.posW - bl.center);
+            if (any(greaterThan(abs(localPos), bl.halfSize))) continue;
+            boxAdd += bl.color;
         }
+        
+        radiance += throughput * hit.albedo * boxAdd;
+  
 
         // Cosine-weighted Lambertian bounce, sampled around ffnormal so
         // back-face hits don't produce samples pointing into the surface.
@@ -553,7 +637,14 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
         vec2 u = rand2(prd.seed);
         vec3 localDir = CosineSampleHemisphere(u.x, u.y);
         vec3 newDir = normalize(localDir.x * T + localDir.y * B + localDir.z * ffnormal);
-        throughput *= hit.albedo;
+
+        // Specular-aware throughput update using the normalized Blinn-Phong BRDF:
+        vec3 V = -r.direction;
+        vec3 H = normalize(newDir + V);
+        float specPower = exp2(hit.specular.y * 10.0) + 1.0;
+        float specVal = hit.specular.x * ((specPower + 2.0) * 0.5)
+                      * pow(clamp(dot(H, ffnormal), 0.0, 1.0), specPower);
+        throughput *= clamp(hit.albedo + vec3(specVal), 0.0, 0.95);
 
         r.origin    = OffsetRay(hit.posW, ffnormal);
         r.direction = newDir;
@@ -592,16 +683,11 @@ vec3 surfelPathTrace(Ray r, int maxDepth, uint surfelIndex, inout float firstDep
     // Surfel-cache fallback once we hit max depth.
     if (depth == maxDepth && valid)
     {
-        vec3 surfelPos = surfelBuffer[surfelIndex].position;
-        float radius   = surfelBuffer[surfelIndex].radius;
-        if (dot(lastHit.posW, surfelPos) < radius * radius)
+        vec4 irradiance = vec4(0.0);
+        uint randSeed   = tea(surfelIndex, totalFrames);
+        if (finalizePathWithSurfel(lastHit.posW, lastHit.normalW, randSeed, irradiance))
         {
-            vec4 irradiance = vec4(0.0);
-            uint randSeed   = tea(surfelIndex, totalFrames);
-            if (finalizePathWithSurfel(lastHit.posW, lastHit.normalW, randSeed, irradiance))
-            {
-                radiance += irradiance.xyz * throughput;
-            }
+            radiance += irradiance.xyz * throughput;
         }
     }
 

@@ -47,17 +47,21 @@ namespace hpl {
 		cTextureManager(cGraphics* apGraphics,cResources *apResources);
 		~cTextureManager();
 
+		// abSRGB requests an sRGB-format view: the sampler decodes sRGB→linear
+		// on read. Set on perceptual color sources (diffuse, illumination);
+		// leave false for linear data (normals, packed specular, height, LUTs).
 		Image* Create1DImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage=eTextureUsage_Normal,
-							unsigned int alTextureSizeLevel=0);
+							unsigned int alTextureSizeLevel=0, bool abSRGB=false);
 
 		Image* Create2DImage(const tString& asName,bool abUseMipMaps,eTextureType aType= eTextureType_2D,
-							eTextureUsage aUsage=eTextureUsage_Normal,unsigned int alTextureSizeLevel=0);
+							eTextureUsage aUsage=eTextureUsage_Normal,unsigned int alTextureSizeLevel=0,
+							bool abSRGB=false);
 
 		Image* Create3DImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage=eTextureUsage_Normal,
-							unsigned int alTextureSizeLevel=0);
+							unsigned int alTextureSizeLevel=0, bool abSRGB=false);
 
 		Image* CreateCubeMapImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage=eTextureUsage_Normal,
-					unsigned int alTextureSizeLevel=0);
+					unsigned int alTextureSizeLevel=0, bool abSRGB=false);
 
 		/**
 		 * Create an animated Image from a frame-numbered sequence. The first frame name must
@@ -67,7 +71,7 @@ namespace hpl {
 		 */
 		Image* CreateAnimImage(const tString& asName, bool abUseMipMaps, eTextureType aType,
 								eTextureUsage aUsage=eTextureUsage_Normal,
-								unsigned int alTextureSizeLevel=0);
+								unsigned int alTextureSizeLevel=0, bool abSRGB=false);
 
 		[[deprecated("create_1D")]]
 		iTexture* Create1D(	const tString& asName,bool abUseMipMaps, eTextureUsage aUsage=eTextureUsage_Normal,

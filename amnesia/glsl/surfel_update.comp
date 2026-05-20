@@ -3,7 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
-#include "host_device.h"
+#include "forward_shared.h"
 #include "compress.glsl"
 #include "random.glsl"
 #include "bindless.resource.glsl"
@@ -22,7 +22,7 @@ void recycleSurfelInAlive(uint aliveArrayIndex) {
 
   surfelAlive[aliveArrayIndex] = endSurfelIndex;
 
-  uint newDeadIndex = kMaxSurfelCount - newAliveCnt - 1;
+  uint newDeadIndex = SURFEL_MAX_CAPACITY - newAliveCnt - 1;
   surfelDead[newDeadIndex] = surfelIndexToRecycle;
 }
 
@@ -47,7 +47,7 @@ bool shouldRecycleSurfel(in Surfel surfel, in SurfelRecycleInfo recycleInfo, in 
   float recycleProb = 0.1 * distanceFactor + 0.4 * lifeFactor;
 
   // Scale by surfel density
-  float surfelCountFactor = float(surfelCounter.aliveSurfelCnt) / float(kMaxSurfelCount);
+  float surfelCountFactor = float(surfelCounter.aliveSurfelCnt) / float(SURFEL_MAX_CAPACITY);
   surfelCountFactor *= step(0.8, surfelCountFactor);
   recycleProb *= surfelCountFactor;
 
@@ -140,7 +140,7 @@ void main()
 
     // allocate ray buffer
     uint rayOffset = atomicAdd(surfelCounter.surfelRayCnt, rayRequestCnt);
-    if (rayOffset < kMaxRayCount)
+    if (rayOffset < MAX_RAY_COUNT)
     {
       surfel.rayOffset = rayOffset;
       surfel.rayCount = rayRequestCnt;

@@ -1,0 +1,119 @@
+{
+  // VSCode build/deploy tasks for Amnesia64.
+  //
+  // The CMake project is configured into `build/`. These tasks just invoke
+  // the appropriate `cmake --build` line — they do not re-configure CMake.
+  // If you've never built before, run build-windows.ps1 once first so the
+  // build/ tree exists.
+  //
+  // `Build & Deploy` runs the `deploy` target as well, which copies the
+  // original Amnesia: The Dark Descent assets (fonts, config, etc.) next to
+  // the freshly-built Amnesia.exe so it can launch. The deploy step needs
+  // AMNESIA_GAME_DIRECTORY (or ATDD_DIR) pointing at your ATDD install.
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake Build (Debug)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "${workspaceFolder}/build",
+        "--config",
+        "Debug",
+        "-j"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$msCompile"
+      ],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "CMake Build (Release)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "${workspaceFolder}/build",
+        "--config",
+        "Release",
+        "-j"
+      ],
+      "group": "build",
+      "problemMatcher": [
+        "$msCompile"
+      ],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Deploy Assets (Debug)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "${workspaceFolder}/build",
+        "--config",
+        "Debug",
+        "--target",
+        "deploy"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Deploy Assets (Release)",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "${workspaceFolder}/build",
+        "--config",
+        "Release",
+        "--target",
+        "deploy"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Build & Deploy (Debug)",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "CMake Build (Debug)",
+        "Deploy Assets (Debug)"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Build & Deploy (Release)",
+      "dependsOrder": "sequence",
+      "dependsOn": [
+        "CMake Build (Release)",
+        "Deploy Assets (Release)"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

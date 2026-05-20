@@ -156,6 +156,16 @@ switch (format) {
 		case VK_FORMAT_R32G32B32A32_SFLOAT: return  RI_FORMAT_RGBA32_SFLOAT;
 		case VK_FORMAT_A2R10G10B10_UNORM_PACK32: return  RI_FORMAT_R10_G10_B10_A2_UNORM;
 		case VK_FORMAT_A2R10G10B10_UINT_PACK32: return  RI_FORMAT_R10_G10_B10_A2_UINT;
+		// Swapchain surfaces on modern drivers commonly report the BGR-channel
+		// variant A2B10G10R10 even when 8-bit surfaces are available; without
+		// an explicit case it falls through to default and crashes
+		// InitRISwapchain with a misleading error (the default branch indexes
+		// riFormats[] by the raw VkFormat value, which happens to land on
+		// "BC3_RGBA_SRGB" for VK_FORMAT_A2B10G10R10_UNORM_PACK32 = 64). Map to
+		// the closest existing RI_Format slot; downstream renderers use this
+		// only as a tag to pick a compatible render-target format.
+		case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return  RI_FORMAT_R10_G10_B10_A2_UNORM;
+		case VK_FORMAT_A2B10G10R10_UINT_PACK32: return  RI_FORMAT_R10_G10_B10_A2_UINT;
 		case VK_FORMAT_B10G11R11_UFLOAT_PACK32: return  RI_FORMAT_R11_G11_B10_UFLOAT;
 		case VK_FORMAT_E5B9G9R9_UFLOAT_PACK32: return  RI_FORMAT_R9_G9_B9_E5_UNORM;
 		case VK_FORMAT_R5G6B5_UNORM_PACK16: return  RI_FORMAT_R5_G6_B5_UNORM;

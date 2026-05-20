@@ -7,7 +7,7 @@
 #extension GL_EXT_debug_printf                            : enable
 #extension GL_EXT_spirv_intrinsics                        : enable
 
-#include "host_device.h"
+#include "forward_shared.h"
 #include "compress.glsl"
 #include "bindless.resource.glsl"
 #include "per_frame.resource.glsl"
@@ -125,7 +125,7 @@ void main()
           // fix can linger up to kMaxLife frames and would otherwise keep
           // poisoning new spawns via indirectLighting.
           indirectContrib += vec4(max(surfel.radiance, vec3(0.0)), 1.f) * contribution
-              * smoothstep(0.f, 10.f, float(surfelRecycleInfo[surfelIndex].frame));
+              * smoothstep(0.f, 3.f, float(surfelRecycleInfo[surfelIndex].frame));
 
           if (maxContribution < contribution)
           {
@@ -141,7 +141,7 @@ void main()
           contribution *= max(cosineTheta, 0.f);
           contribution *= pow(1.f - dist / surfel.radius, 2.0);
           indirectContrib += vec4(max(surfel.radiance, vec3(0.0)), 1.f) * contribution
-              * smoothstep(0.f, 10.f, float(surfelRecycleInfo[surfelIndex].frame));
+              * smoothstep(0.f, 3.f, float(surfelRecycleInfo[surfelIndex].frame));
         }
       }
       if (DEBUGGING_MODE == esNonUniformGrid) break;
@@ -189,15 +189,15 @@ void main()
   float groupMinCoverage = uintBitsToFloat(groupShareMinCoverage);
   float groupMaxContribution = uintBitsToFloat(groupShareMaxContribution);
 
-  if (surfelCounter.aliveSurfelCnt < kMaxSurfelCount &&
+  if (surfelCounter.aliveSurfelCnt < SURFEL_MAX_CAPACITY &&
       coverage == groupMinCoverage &&
       coverage < 2.0f &&
       rand(randSeed) < depth * 0.3f * max(0.0, 2.0 - coverage))
   {
     uint surfelAliveIndex = atomicAdd(surfelCounter.aliveSurfelCnt, 1);
-    if (surfelAliveIndex < kMaxSurfelCount)
+    if (surfelAliveIndex < SURFEL_MAX_CAPACITY)
     {
-      uint surfelID = surfelDead[kMaxSurfelCount - surfelAliveIndex - 1];
+      uint surfelID = surfelDead[SURFEL_MAX_CAPACITY - surfelAliveIndex - 1];
       surfelAlive[surfelAliveIndex] = surfelID;
 
       Surfel newSurfel;

@@ -83,7 +83,7 @@ namespace hpl {
 
 		cFrustum *mpFrustum;
 
-		iTexture *mpSpotFalloffMap;
+		iTexture *mpSpotFalloffMap = nullptr;
 
 		// Image* parallel storage.
 		ImageResourceWrapper m_spotFalloffMap;
