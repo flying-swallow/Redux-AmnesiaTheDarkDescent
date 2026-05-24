@@ -100,59 +100,15 @@ void cLuxPostEffect_Insanity::Update(float afTimeStep)
 //-----------------------------------------------------------------------
 
 
-iTexture* cLuxPostEffect_Insanity::RenderEffect(iTexture *apInputTexture, iFrameBuffer *apFinalTempBuffer)
+void cLuxPostEffect_Insanity::RenderEffect(const hpl::PostEffectRenderCtx &ctx)
 {
-	// Vulkan-bindless port — RenderEffect is dead code: the composite-render
-	// driver in Scene.cpp::Render is commented out, so this is never called.
-	// The body below still references the legacy mpCurrentComposite /
-	// SetTexture(int, iTexture*) pipeline, plus expects iTexture* for the
-	// amp/zoom maps — but those storage members are now Image*. Stubbing to
-	// a passthrough keeps the file compiling without porting the whole
-	// post-effect render path to Vulkan.
-	return apInputTexture;
-#if 0
-	/////////////////////////
-	// Init render states
-	mpCurrentComposite->SetFlatProjection();
-	mpCurrentComposite->SetBlendMode(eMaterialBlendMode_None);
-	mpCurrentComposite->SetChannelMode(eMaterialChannelMode_RGBA);
-
-	/////////////////////////
-	// Render the to final buffer
-	// This function sets to frame buffer if post effect is last!
-	SetFinalFrameBuffer(apFinalTempBuffer);
-
-	mpCurrentComposite->SetTexture(0, apInputTexture);
-
-	int lAmp0 = (int)mfAnimCount;
-	int lAmp1 = (int)(mfAnimCount+1);
-	if(lAmp1 >= (int) mvAmpMaps.size()) lAmp1 = 0;
-	float fAmpT = cMath::GetFraction(mfAnimCount);
-
-	//Log("AnimCount: %f - %d %d - %f\n", mfAnimCount, lAmp0, lAmp1, fAmpT);
-
-	mpCurrentComposite->SetTexture(1, mvAmpMaps[lAmp0]);
-	mpCurrentComposite->SetTexture(2, mvAmpMaps[lAmp1]);
-	mpCurrentComposite->SetTexture(3, mpZoomMap);
-
-	mpCurrentComposite->SetProgram(mpProgram);
-	if(mpProgram)
-	{
-		mpProgram->SetFloat(kVar_afAlpha, 1.0f);
-		mpProgram->SetFloat(kVar_afT, mfT);
-		mpProgram->SetVec2f(kVar_avScreenSize, mpLowLevelGraphics->GetScreenSizeFloat());
-		mpProgram->SetFloat(kVar_afAmpT, fAmpT);
-		mpProgram->SetFloat(kVar_afWaveAlpha, mfWaveAlpha);
-		mpProgram->SetFloat(kVar_afZoomAlpha, mfZoomAlpha);
-	}
-
-
-	DrawQuad(0,1,apInputTexture, true);
-
-	mpCurrentComposite->SetTextureRange(NULL, 1);
-
-	return apFinalTempBuffer->GetColorBuffer(0)->ToTexture();
-#endif
+	// Vulkan-bindless port — the cLuxPostEffect_Insanity shader has not
+	// yet been ported to Slang. Until that lands, the effect is a no-op
+	// (composite will toggle the pogo buffer after this call without us
+	// having written anything, so the buffer halves swap roles but the
+	// "just-written" half still carries the prior effect's output —
+	// which is what a passthrough would do).
+	(void)ctx;
 }
 
 

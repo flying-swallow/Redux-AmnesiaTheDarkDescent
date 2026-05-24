@@ -1,18 +1,19 @@
 /*
  * Copyright © 2009-2020 Frictional Games
- * 
+ * Copyright 2023 Michael Pollind
+ *
  * This file is part of Amnesia: The Dark Descent.
- * 
+ *
  * Amnesia: The Dark Descent is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version. 
+ * (at your option) any later version.
 
  * Amnesia: The Dark Descent is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with Amnesia: The Dark Descent.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -20,56 +21,60 @@
 #ifndef HPL_POSTEFFECT_COMPOSITE_H
 #define HPL_POSTEFFECT_COMPOSITE_H
 
-#include "graphics/RenderFunctions.h"
+#include "graphics/RIPogoBuffer.h"
+#include "graphics/RITypes.h"
+
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <vector>
 
 namespace hpl {
 
-	//------------------------------------------
+class cGraphics;
+class iPostEffect;
 
-	class cGraphics;
-	class iLowLevelGraphics;
-	class iPostEffect;
+typedef std::multimap<int, iPostEffect *, std::greater<int>> tPostEffectMap;
+typedef tPostEffectMap::iterator tPostEffectMapIt;
 
-	//------------------------------------------
+class cPostEffectComposite {
+public:
+    cPostEffectComposite(cGraphics *apGraphics);
+    ~cPostEffectComposite();
 
-	typedef std::multimap<int, iPostEffect*, std::greater<int> > tPostEffectMap;
-	typedef tPostEffectMap::iterator tPostEffectMapIt;
-	
-	//------------------------------------------
+    // Run the active effects in priority order, ping-ponging through
+    // the supplied pogo buffer. After Render returns, the most recently
+    // written half is in SHADER_READ_ONLY_OPTIMAL and is reachable via
+    // RI_PogoBufferShaderResource(pogo); the other half is in
+    // COLOR_ATTACHMENT_OPTIMAL and reachable via RI_PogoBufferAttachment.
+    //
+    // When HasActiveEffects() is false this is a no-op — the caller can
+    // skip the call entirely or invoke it and pay only the early return.
+    void Render(float afFrameTime, struct RICmd_s *cmd,
+                struct RI_PogoBuffer *pogo, uint32_t width, uint32_t height,
+                uint32_t frameIndex);
 
-	class cPostEffectComposite : public iRenderFunctions
-	{
-	public:
-		cPostEffectComposite(cGraphics *apGraphics);
-		~cPostEffectComposite();
-		
-		void Render(float afFrameTime, cFrustum *apFrustum, iTexture *apInputTexture, cRenderTarget *apRenderTarget);
+    // Highest priority is rendered first.
+    void AddPostEffect(iPostEffect *apPostEffect, int alPrio);
+    inline int GetPostEffectNum() const {
+        return static_cast<int>(mvPostEffects.size());
+    }
+    inline iPostEffect *GetPostEffect(int alIdx) const {
+        return mvPostEffects[alIdx];
+    }
 
-		/**
-		 * Highest prio is first!
-		 */
-		void AddPostEffect(iPostEffect *apPostEffect, int alPrio);
-		inline int GetPostEffectNum()const{ return (int)mvPostEffects.size(); }
-		inline iPostEffect* GetPostEffect(int alIdx)const{ return mvPostEffects[alIdx]; }
+    bool HasActiveEffects();
 
-		bool HasActiveEffects();
+    float GetCurrentFrameTime() { return mfCurrentFrameTime; }
 
-		float GetCurrentFrameTime(){ return mfCurrentFrameTime;}
-	
-	private:
-		void BeginRendering(float afFrameTime, cFrustum *apFrustum, iTexture *apInputTexture, cRenderTarget *apRenderTarget);
-		void EndRendering();
-		void CopyToFrameBuffer(iTexture *apOutputTexture);
+private:
+    cGraphics *mpGraphics;
 
-		tPostEffectMap m_mapPostEffects;
-		std::vector<iPostEffect*> mvPostEffects;
+    tPostEffectMap m_mapPostEffects;
+    std::vector<iPostEffect *> mvPostEffects;
 
-		iFrameBuffer *mpFinalTempBuffer[2];
-
-		float mfCurrentFrameTime;
-	};
-
-	//------------------------------------------
-
+    float mfCurrentFrameTime = 0.0f;
 };
+
+}; // namespace hpl
 #endif // HPL_POSTEFFECT_COMPOSITE_H

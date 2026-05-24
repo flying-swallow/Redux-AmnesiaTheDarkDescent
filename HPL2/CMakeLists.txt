@@ -213,6 +213,7 @@ add_library(HPL2 STATIC
 set(HPL2_INCLUDES
     PUBLIC core/include
     PUBLIC ${CMAKE_SOURCE_DIR}/amnesia/glsl
+    PUBLIC ${CMAKE_SOURCE_DIR}/amnesia/slang
     #Important that this is before dependencies so the correct OpenAL headers are used
     PRIVATE ${OALWRAPPER_INCLUDE_DIR}
     PRIVATE ${IL_INCLUDE_DIR}

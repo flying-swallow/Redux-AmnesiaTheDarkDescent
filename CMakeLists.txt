@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15...3.31)
+cmake_minimum_required(VERSION 3.18...3.31)
 cmake_policy(SET CMP0091 NEW)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 message(STATUS "CMAKE_SYSTEM: " ${CMAKE_SYSTEM})
@@ -11,6 +11,7 @@ set(CMAKE_INSTALL_PREFIX ${INSTALL_OUTPUT_PATH} CACHE PATH "Install path prefix,
 
 set(CMAKE_MODULE_PATH ${CMAKE_HOME_DIRECTORY}/cmake)
 include(utils)
+include(slang)
 include(shaders)
 
 set(CMAKE_SKIP_BUILD_RPATH FALSE)

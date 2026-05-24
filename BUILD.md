@@ -1,6 +1,6 @@
 # Building Amnesia64
 
-Amnesia64 uses CMake (>= 3.15) defined in [`CMakeLists.txt`](CMakeLists.txt). The wrapper scripts below cover the common paths so you don't have to remember per-platform build commands.
+Amnesia64 uses CMake (>= 3.18) defined in [`CMakeLists.txt`](CMakeLists.txt). The wrapper scripts below cover the common paths so you don't have to remember per-platform build commands.
 
 A Visual Studio solution ([`Amnesia.sln`](Amnesia.sln)) is also shipped as an alternative Windows path — see [README.md](README.md) for details. macOS builds are not yet supported.
 
@@ -79,7 +79,11 @@ The script uses the `Visual Studio 17 2022` generator targeting `x64`. Output go
 
 ### Linux
 
-Dependencies: GCC 10+ or Clang 11+, CMake >= 3.15, GNU Make or Ninja, an assembler (NASM/GAS), plus X11/Wayland headers if those backends are enabled. Bundled dependency sources under `extern/` and `HPL2/dependencies/` cover the rest, so a system-wide install of SDL2/OpenAL/etc. is optional.
+Dependencies: GCC 10+ or Clang 11+, CMake >= 3.18, GNU Make or Ninja, an assembler (NASM/GAS), plus X11/Wayland headers if those backends are enabled. Bundled dependency sources under `extern/` and `HPL2/dependencies/` cover the rest, so a system-wide install of SDL2/OpenAL/etc. is optional.
+
+### Shader compilers
+
+GLSL shaders (`.vert`, `.frag`, `.comp`, `.rgen`, etc.) compile to SPIR-V via the bundled `glslang` submodule. Slang shaders (`.slang`) compile via a prebuilt `slangc` automatically downloaded from the [Slang releases page](https://github.com/shader-slang/slang/releases) at configure time. Override with `-DSLANGC_EXECUTABLE=/path/to/slangc` (e.g. from the Vulkan SDK) to skip the download and use a local install. The pinned Slang version is set in [`cmake/slang.cmake`](cmake/slang.cmake) (`SLANG_VERSION`).
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \

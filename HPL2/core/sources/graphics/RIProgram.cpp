@@ -78,7 +78,7 @@ void RIProgram::bindPipeline(struct RIDevice_s *device, struct RICmd_s* cmd, has
       stageCreateInfo[0] = VkPipelineShaderStageCreateInfo{ VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
       stageCreateInfo[0].stage = VK_SHADER_STAGE_VERTEX_BIT,
       stageCreateInfo[0].module = modules[numModules],
-      stageCreateInfo[0].pName = "main";
+      stageCreateInfo[0].pName = shaderBin[PROGRAM_STAGE_VERTEX].entryPoint.c_str();
       numModules++;
 
       const VkShaderModuleCreateInfo fragModuleCreateInfo = {
@@ -93,7 +93,7 @@ void RIProgram::bindPipeline(struct RIDevice_s *device, struct RICmd_s* cmd, has
       stageCreateInfo[1] = VkPipelineShaderStageCreateInfo{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
       stageCreateInfo[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
       stageCreateInfo[1].module = modules[numModules];
-      stageCreateInfo[1].pName = "main";
+      stageCreateInfo[1].pName = shaderBin[PROGRAM_STAGE_FRAGMENT].entryPoint.c_str();
       numModules++;
     } else {
       assert(false && "failed to resolve bin");
@@ -139,7 +139,7 @@ void RIProgram::bindComputePipeline(struct RIDevice_s* device, struct RICmd_s* c
     pipelineCreateInfo->stage = VkPipelineShaderStageCreateInfo{VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO};
     pipelineCreateInfo->stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     pipelineCreateInfo->stage.module = module;
-    pipelineCreateInfo->stage.pName = "main";
+    pipelineCreateInfo->stage.pName = shaderBin[PROGRAM_STAGE_COMPUTE].entryPoint.c_str();
     pipelineCreateInfo->layout = impl.vk.pipelineLayout;
     pipelineCreateInfo->basePipelineIndex = -1;
 
@@ -210,7 +210,7 @@ void RIProgram::bindRayTracingPipeline(
           VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
       stages[stageCount].stage = kRTStages[i].vkStage;
       stages[stageCount].module = modules[stageCount];
-      stages[stageCount].pName = "main";
+      stages[stageCount].pName = shaderBin[kRTStages[i].programStage].entryPoint.c_str();
       stageIdx[i] = (int32_t)stageCount;
       stageCount++;
     }
@@ -320,8 +320,8 @@ void RIProgram::bindRayTracingPipeline(
     sbtAllocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
                          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
     VmaAllocationInfo sbtAllocOut = {};
-    VK_WrapResult(vmaCreateBuffer(device->vk.vmaAllocator, &sbtBufInfo,
-                                  &sbtAllocInfo, &slot.vk.sbtBuffer,
+    VK_WrapResult(vmaCreateBufferWithAlignment(device->vk.vmaAllocator, &sbtBufInfo,
+                                  &sbtAllocInfo, baseAlign, &slot.vk.sbtBuffer,
                                   &slot.vk.sbtAlloc, &sbtAllocOut));
 
     std::vector<uint8_t> handles((size_t)handleSize * groupCount);
@@ -565,6 +565,11 @@ void RIBindlessDescriptorSet::writeDescriptors(
     return;
 
   std::vector<VkWriteDescriptorSet> vkWrites(writes.size());
+  // Acceleration-structure writes need a pNext-chained struct that must
+  // outlive the vkUpdateDescriptorSets call. Sized for the worst case so
+  // pointers into the vector stay stable across reallocs.
+  std::vector<VkWriteDescriptorSetAccelerationStructureKHR> accelWrites(
+      writes.size());
   for (size_t i = 0; i < writes.size(); ++i) {
     const WriteBinding &w = writes[i];
     VkWriteDescriptorSet &vkDesc = vkWrites[i];
@@ -585,6 +590,14 @@ void RIBindlessDescriptorSet::writeDescriptors(
     case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
       vkDesc.pImageInfo = &w.descriptor.vk.image;
       break;
+    case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR: {
+      VkWriteDescriptorSetAccelerationStructureKHR &aw = accelWrites[i];
+      aw = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
+      aw.accelerationStructureCount = 1;
+      aw.pAccelerationStructures = &w.descriptor.vk.accelStructure;
+      vkDesc.pNext = &aw;
+      break;
+    }
     default:
       assert(false && "RIBindlessDescriptorSet::writeDescriptors: "
                       "unsupported descriptor type");
@@ -640,6 +653,8 @@ void RIProgram::initialize(RIDevice_s* device, std::span<ModuleStage> moduleInit
   for (auto &init : moduleInit) {
     auto *bin = &shaderBin[init.stage];
     bin->buf.insert(bin->buf.begin(), init.data.begin(), init.data.end());
+    if (init.entryPoint && *init.entryPoint)
+      bin->entryPoint = init.entryPoint;
     SpvReflectShaderModule module = {};
     SpvReflectResult result = spvReflectCreateShaderModule(
         init.data.size(), init.data.data(), &module);

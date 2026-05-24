@@ -271,11 +271,12 @@ bool HPLTexture::LoadBitmap(
   }
   info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT |
                 VK_IMAGE_CREATE_EXTENDED_USAGE_BIT; // typeless
-  info.imageType = depth > 1
-                       ? VK_IMAGE_TYPE_3D
-                       : ((bitmap.GetWidth() == 1 || bitmap.GetHeight() == 1)
-                              ? VK_IMAGE_TYPE_1D
-                              : VK_IMAGE_TYPE_2D);
+  // 1xN / Nx1 sources stay VK_IMAGE_TYPE_2D (a 1-tall or 1-wide 2D image is
+  // valid). Every texture created here is bound into the `textures_2d[]`
+  // bindless array, whose shader OpTypeImage is 2D; a 1D view in that slot
+  // fails the descriptor view-type match at submit
+  // (VUID-vkCmdDraw-viewType-07752).
+  info.imageType = depth > 1 ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D;
   info.format = RIFormatToVK(destFormat);
   info.extent.width = bitmap.GetWidth();
   info.extent.height = bitmap.GetHeight();
@@ -304,15 +305,13 @@ bool HPLTexture::LoadBitmap(
 
 	usageInfo.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
 	createInfo.pNext = &usageInfo;
-	// The view type must be compatible with info.imageType (Vulkan
-	// VUID-VkImageViewCreateInfo-subResourceRange-01021). 1xN/Nx1 sources
-	// become VK_IMAGE_TYPE_1D above, so a hardcoded 2D view fails validation.
+	// View type must match info.imageType and the bindless array's 2D
+	// OpTypeImage. imageType is only ever 3D (depth>1) or 2D here, so 1xN/Nx1
+	// textures get a 2D view that the textures_2d[] array accepts.
 	if (options.use_cubemap) {
 		createInfo.viewType = options.use_array ? VK_IMAGE_VIEW_TYPE_CUBE_ARRAY : VK_IMAGE_VIEW_TYPE_CUBE;
 	} else if (info.imageType == VK_IMAGE_TYPE_3D) {
 		createInfo.viewType = VK_IMAGE_VIEW_TYPE_3D;
-	} else if (info.imageType == VK_IMAGE_TYPE_1D) {
-		createInfo.viewType = options.use_array ? VK_IMAGE_VIEW_TYPE_1D_ARRAY : VK_IMAGE_VIEW_TYPE_1D;
 	} else {
 		createInfo.viewType = options.use_array ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
 	}

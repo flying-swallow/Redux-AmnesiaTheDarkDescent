@@ -50,7 +50,8 @@ file(GLOB AMENISA_GAME_SOURCES RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     src/game/*.cpp
     src/game/*.h
 )
-add_executable(Amnesia WIN32 MACOSX_BUNDLE ${AMENISA_GAME_SOURCES})
+
+add_executable(Amnesia WIN32 MACOSX_BUNDLE ${AMENISA_GAME_SOURCES} ${AMNESIA_SLANG_INCLUDES})
 target_link_libraries(Amnesia HPL2)
 set_target_properties(Amnesia PROPERTIES
   COMPILE_DEFINITIONS "${compile_defs}"
@@ -136,23 +137,35 @@ add_custom_target(deploy
 target_shaders(
     Amnesia
 SHADERS
-    ./glsl/gui.frag
-    ./glsl/gui.vert
-    ./glsl/gbuffer.frag
-    ./glsl/gbuffer.vert
-    ./glsl/surfel_prepare.comp
-    ./glsl/surfel_update.comp
-    ./glsl/cellInfo_update_pass.comp
-    ./glsl/cellToSurfel_update_pass.comp
-    ./glsl/surfel_raytrace.comp
-    ./glsl/surfel_integrate.comp
-    ./glsl/surfel_generation_pass.comp
-    ./glsl/visibility_shade.vert
-    ./glsl/visibility_shade.frag
-    ./glsl/particle.vert
-    ./glsl/particle.frag
-    ./glsl/decal.vert
-    ./glsl/decal.frag
+    # Slang port of the Falcor SurfelGI render passes. Each file below has at
+    # least one shader entry point; the headers/utility .slang files in
+    # slang/ and slang/SurfelGI/ are pulled in via the INCLUDE_DIRS path
+    # below rather than listed here.
+    ./slang/Gui/gui.vert.slang
+    ./slang/Gui/gui.frag.slang
+    ./slang/InventoryPost/inventory_post.vert.slang
+    ./slang/InventoryPost/inventory_post.frag.slang
+    ./slang/ParticlePass/Particle.vert.slang
+    ./slang/ParticlePass/Particle.frag.slang
+    ./slang/SurfelGBuffer/SurfelGBuffer.3d.slang
+    ./slang/SurfelGI/SurfelPreparePass.cs.slang
+    ./slang/SurfelGI/SurfelClearByInstance.cs.slang
+    ./slang/SurfelGI/SurfelUpdatePass.cs.slang
+    ./slang/SurfelGI/SurfelGenerationPass.cs.slang
+    ./slang/SurfelGI/SurfelIntegratePass.cs.slang
+    ./slang/SurfelGI/SurfelEvaluationPass.cs.slang
+    ./slang/SurfelGI/SurfelRayTrace.rt.slang
+    ./slang/SurfelGIRenderPass/SurfelGIRenderPass.frag.slang
+    ./slang/SurfelVBuffer/SurfelVBuffer.rt.slang
+    ./slang/PostEffect/posteffect_fullscreen.vert.slang
+    ./slang/PostEffect/posteffect_blit.frag.slang
+    ./slang/PostEffect_Bloom/posteffect_bloom_blur.frag.slang
+    ./slang/PostEffect_Bloom/posteffect_bloom_add.frag.slang
+    ./slang/PostEffect_ColorConvTex/posteffect_color_conv.frag.slang
+    ./slang/PostEffect_ImageTrail/posteffect_image_trail.frag.slang
+    ./slang/PostEffect_RadialBlur/posteffect_radial_blur.frag.slang
+INCLUDE_DIRS
+    ${CMAKE_CURRENT_SOURCE_DIR}/slang
 OUTPUT_FOLDER
 ${AMNESIA_SHADER_DIR}
 )

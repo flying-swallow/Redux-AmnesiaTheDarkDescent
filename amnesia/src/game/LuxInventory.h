@@ -24,6 +24,12 @@
 
 #include "LuxBase.h"
 #include "graphics/Image.h"
+#include "graphics/HPLTexture.h"
+#include "graphics/RIBootstrap.h"
+#include "graphics/RIProgram.h"
+#include "graphics/RITypes.h"
+
+#include <memory>
 
 //----------------------------------------------
 
@@ -194,6 +200,7 @@ public:
 	void OnLeaveContainer(const tString& asNewContainer);
 
 	void OnDraw(float afFrameTime);
+	void OnPostRender(float afFrameTime);
 
 	cGuiSet* GetSet() { return mpGuiSet; }
 
@@ -427,10 +434,25 @@ private:
 	cVector2f mvGuiSetOffset;
 	cVector3f mvGuiSetStartPos;
 
-	Image *mpScreenTexture;
+	// Inventory screen-snapshot pipeline (RI backend).
+	//   m_screenColor   — copy of the rendered frame, drawn unmodified while
+	//                     the inventory fades in (mpScreenGfx).
+	//   m_screenBgColor — post-effect colorized version of m_screenColor,
+	//                     drawn at full alpha (mpScreenBgGfx).
 	cGuiGfxElement *mpScreenGfx;
-	Image *mpScreenBgTexture;
 	cGuiGfxElement *mpScreenBgGfx;
+
+	std::shared_ptr<hpl::HPLTexture> m_screenColor;
+	std::shared_ptr<hpl::HPLTexture> m_screenBgColor;
+	std::shared_ptr<hpl::Image>      m_screenImage;
+	std::shared_ptr<hpl::Image>      m_screenBgImage;
+
+	hpl::RIProgram m_invPostProgram;
+
+	// Set by RenderBackgroundImage(); drained by OnPostRender() once a
+	// command buffer is in recording state and the scene has rendered.
+	bool mbBackgroundCapturePending = false;
+	bool mbBackgroundCaptured       = false;
 
 	cGuiGfxElement* mpFrameHealthCorners[4];
 	cGuiGfxElement* mpFrameHealthBorders[4];
@@ -459,8 +481,6 @@ private:
 	cGuiGfxElement *mpJournalMouseOverGfx;
 
 	cGuiGfxElement *mpWhiteGfx;
-
-	iGpuProgram *mpEffectProgram;
 
 	iWidget * mpHealthWidget;
 	iWidget * mpSanityWidget;

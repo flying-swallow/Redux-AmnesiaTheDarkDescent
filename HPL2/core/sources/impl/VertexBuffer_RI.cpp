@@ -75,17 +75,8 @@ VertexBuffer_RI::VertexBuffer_RI(iLowLevelGraphics* apLowLevelGraphics,
 }
 
 VertexBuffer_RI::~VertexBuffer_RI() {
-  // waitForToken(&m_bufferSync);
-  // m_indexBuffer.TryFree();
-  //for (auto &element : m_vertexElements) {
-  //  //   element.m_buffer.TryFree();
-  //}
-  //if (m_blasValid && m_blas.vk.handle != VK_NULL_HANDLE) {
-  //  auto *cntx = RI.GetActiveSet();
-  //  cntx->freelist.push_back(RIFree(m_blas.vk.handle));
-  //  m_blas.vk.handle = VK_NULL_HANDLE;
-  //  m_blasValid = false;
-  //}
+  AttachResourceToCntx(RI.GetActiveSet());
+  m_onDestroyed.Signal();
 }
 void VertexBuffer_RI::Bind() {
 

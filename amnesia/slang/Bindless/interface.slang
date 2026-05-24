@@ -1,0 +1,211 @@
+#pragma once
+
+// Slang-side interfaces over the host/device-shared GPU structs declared in
+// SceneTypes.slang. Conformances are added via `extension` so the shared
+// header stays a pure data-layout file (consumed by both C++ and shader).
+//
+// Each Light/Material struct stores its type discriminator in `type` at
+// offset 0 — the contract documented in SceneTypes.slang. The interface
+// methods below assume that invariant; do not reorder fields.
+//
+// Usage example:
+//   void shadeAny<L : ILight>(L light, float3 worldPos) {
+//       LightSample ls;
+//       if (light.sample(worldPos, ls)) { ... }
+//   }
+
+#include "../HostDefinitions.h"
+import SceneTypes;            // kInvalidTextureIndex sentinel (light struct fields too)
+import Bindless.resource;     // gTextures2D, gTexturesCube, gMaterialSampler
+import LightFalloff;          // sampleAttenuation, sampleSpotCone
+
+// -----------------------------------------------------------------------------
+// ILight — common shape for the point/spot/box bindless light SSBO entries.
+// `getType()` returns the LIGHT_TYPE_* discriminator (always reads `type` at
+// offset 0). `getPosition()` returns the source for point/spot, the AABB
+// center for box. `sample()` is the NEE entry point used by the surfel ray
+// pipeline and any future direct-lighting code.
+// -----------------------------------------------------------------------------
+public interface ILight
+{
+    public uint getType();
+    public float3 getColor();
+    public float3 getPosition();
+    public bool sample(float3 shadingPosW, out LightSample ls);
+};
+
+public extension PointLight : ILight
+{
+    public uint getType()     { return type; }
+    public float3 getColor()    { return color; }
+    public float3 getPosition() { return position; }
+
+    // Matches the forward composite at visibility_shade.frag:275-323 — radial
+    // LUT via sampleAttenuation, gobo cube in light-local space, `intensity`
+    // is the legacy specular-only flag (NOT a diffuse multiplier).
+    public bool sample(float3 shadingPosW, out LightSample ls)
+    {
+        ls.Li = float3(0.0); ls.pdf = 1.0; ls.dir = float3(0,0,1); ls.distance = 0.0;
+        float3 toLight = position - shadingPosW;
+        float  dist    = length(toLight);
+        if (dist <= 0.0 || dist > radius) return false;
+        float3 L     = toLight / dist;
+        float  r2    = (dist * dist) / (radius * radius);
+        float  atten = sampleAttenuation(attenuationTextureIndex, r2);
+
+        float3 gobo = float3(1.0);
+        if (goboTextureIndex != kInvalidTextureIndex)
+        {
+            float3x3 wToL = float3x3(worldToLightX, worldToLightY, worldToLightZ);
+            float3 lightLocalDir = mul(wToL, -L);
+            gobo = gTexturesCube[NonUniformResourceIndex(goboTextureIndex)]
+                .SampleLevel(gMaterialSampler, lightLocalDir, 0.0).rgb;
+        }
+
+        ls.Li       = color * gobo * atten;
+        ls.dir      = L;
+        ls.distance = dist;
+        return true;
+    }
+};
+
+public extension SpotLight : ILight
+{
+    public uint getType()     { return type; }
+    public float3 getColor()    { return color; }
+    public float3 getPosition() { return position; }
+
+    // Matches visibility_shade.frag:339-411 — radial LUT, cone LUT or
+    // smoothstep fallback, gobo via viewProjection replaces the cone factor
+    // when bound. `intensity` is specular-only (omitted from the diffuse Li).
+    public bool sample(float3 shadingPosW, out LightSample ls)
+    {
+        ls.Li = float3(0.0); ls.pdf = 1.0; ls.dir = float3(0,0,1); ls.distance = 0.0;
+        float3 toLight = position - shadingPosW;
+        float  dist    = length(toLight);
+        if (dist <= 0.0 || dist > radius) return false;
+        float3 L     = toLight / dist;
+        float  r2    = (dist * dist) / (radius * radius);
+        float  atten = sampleAttenuation(attenuationTextureIndex, r2);
+
+        float3 gobo = float3(1.0);
+        float  cone = 1.0;
+        if (goboTextureIndex != kInvalidTextureIndex)
+        {
+            float4 lc = mul(viewProjection, float4(shadingPosW, 1.0));
+            if (lc.w <= 0.0) return false;
+            float2 uv = lc.xy / lc.w;
+            if (any(uv < float2(0.0)) || any(uv > float2(1.0))) return false;
+            gobo = gTextures2D[NonUniformResourceIndex(goboTextureIndex)]
+                .SampleLevel(gMaterialSampler, uv, 0.0).rgb;
+        }
+        else
+        {
+            float cosTheta = dot(-L, direction);
+            if (cosTheta < cosOuterAngle) return false;
+            cone = sampleSpotCone(coneFalloffTextureIndex, cosTheta, cosOuterAngle);
+        }
+
+        ls.Li       = color * atten * gobo * cone;
+        ls.dir      = L;
+        ls.distance = dist;
+        return true;
+    }
+};
+
+public extension BoxLight : ILight
+{
+    public uint getType()     { return type; }
+    public float3 getColor()    { return color; }
+    public float3 getPosition() { return center; }
+
+    // Box lights aren't iterated by the GLSL forward composite, so the NEE
+    // path stays consistent by skipping them entirely.
+    public bool sample(float3 shadingPosW, out LightSample ls)
+    {
+        ls.Li = float3(0.0); ls.pdf = 1.0; ls.dir = float3(0,1,0); ls.distance = 0.0;
+        return false;
+    }
+};
+
+// -----------------------------------------------------------------------------
+// IMaterial — common shape for the bindless material SSBO entries.
+// `getType()` returns the MATERIAL_TYPE_* discriminator (reads `type` at
+// offset 0). `getTexture(i)` indexes into the material's 2D-texture slot
+// table; `getConfig()` returns the packed flag/blend-mode bitfield (see
+// Material.h).
+// -----------------------------------------------------------------------------
+public interface IMaterial
+{
+    public uint getType();
+    public uint getTexture(uint i);
+    public uint getConfig();
+};
+
+public extension DiffuseMaterial : IMaterial
+{
+    public uint getType()          { return type; }
+    public uint getTexture(uint i) { return tex[i]; }
+    public uint getConfig()        { return materialConfig; }
+};
+
+public extension TranslucentMaterial : IMaterial
+{
+    public uint getType()          { return type; }
+    public uint getTexture(uint i) { return tex[i]; }
+    public uint getConfig()        { return materialConfig; }
+};
+
+public extension WaterMaterial : IMaterial
+{
+    public uint getType()          { return type; }
+    public uint getTexture(uint i) { return tex[i]; }
+    public uint getConfig()        { return materialConfig; }
+};
+
+public extension DecalMaterial : IMaterial
+{
+    public uint getType()          { return type; }
+    public uint getTexture(uint i) { return tex[i]; }
+    public uint getConfig()        { return materialConfig; }
+};
+
+// -----------------------------------------------------------------------------
+// HitInfo / TriangleHit (un)packing — matches the Falcor source-compat surface
+// used by the surfel passes: `HitInfo h = HitInfo(packedUVec4)`,
+// `h.isValid()`, `h.getTriangleHit()`, and `TriangleHit::pack()` for writes.
+// Layout is documented in SceneTypes.slang above HitInfo.
+// -----------------------------------------------------------------------------
+public extension HitInfo
+{
+    public bool isValid()
+    {
+        return any(packed != uint4(0u, 0u, 0u, 0u));
+    }
+
+    public TriangleHit getTriangleHit()
+    {
+        TriangleHit h;
+        h.instanceID     = packed.x;
+        h.primitiveIndex = packed.y;
+        h.barycentrics   = float2(
+            f16tof32(packed.z & 0xFFFFu),
+            f16tof32((packed.z >> 16) & 0xFFFFu));
+        return h;
+    }
+};
+
+public extension TriangleHit
+{
+    public uint4 pack()
+    {
+        uint4 r;
+        r.x = instanceID;
+        r.y = primitiveIndex;
+        r.z = (f32tof16(barycentrics.x) & 0xFFFFu)
+            | ((f32tof16(barycentrics.y) & 0xFFFFu) << 16);
+        r.w = 1u;  // non-zero w so HitInfo::isValid() returns true even when
+                   // instance id, prim index, and barys all hash to zero.
+        return r;
+    }
+};
