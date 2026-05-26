@@ -607,17 +607,23 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
         &RI.device, kObjectSlotCapacity, sizeof(UniformObject), kStorage,
         /*deviceLocalOnly*/ true);
     m_opaquePositionHandles = detail::CreateBindlessSlotBuffer(
-        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
+        /*deviceLocalOnly*/ true);
     m_opaqueTangentHandles = detail::CreateBindlessSlotBuffer(
-        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
+        /*deviceLocalOnly*/ true);
     m_opaqueNormalHandles = detail::CreateBindlessSlotBuffer(
-        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
+        /*deviceLocalOnly*/ true);
     m_opaqueUv0Handles = detail::CreateBindlessSlotBuffer(
-        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
+        /*deviceLocalOnly*/ true);
     m_opaqueColorHandles = detail::CreateBindlessSlotBuffer(
-        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
+        /*deviceLocalOnly*/ true);
     m_opaqueIndexHandles = detail::CreateBindlessSlotBuffer(
-        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
+        /*deviceLocalOnly*/ true);
 
     RISegmentAllocDesc_s indirectDesc = {};
     indirectDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
@@ -717,15 +723,39 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     // the first time it's assigned (below in Draw), so a real surfel always
     // captures a matching value and 0 can never alias a live slot.
     m_bindlessSlotGenerationBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, kObjectSlotCapacity, sizeof(uint32_t), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(uint32_t), kStorage,
+        /*deviceLocalOnly*/ true);
     m_surfelSlotGenerationBuffer = detail::CreateBindlessSlotBuffer(
         &RI.device, kTotalSurfelLimit, sizeof(uint32_t), kStorage);
-    std::memset(m_bindlessSlotGenerationBuffer.mappedAddress, 0,
-                (size_t)kObjectSlotCapacity * sizeof(uint32_t));
+    // m_bindlessSlotGenerationBuffer is now device-local (no mappedAddress); the
+    // CPU shadow mirror is zero-initialized by init() below and markAllDirty()
+    // forces the first frame's flushBindlessMirrors() to seed the device buffer
+    // to zero before collectCellInfo reads it. m_surfelSlotGenerationBuffer stays
+    // host-mapped (GPU-written each frame; only this boot zero touches it).
     std::memset(m_surfelSlotGenerationBuffer.mappedAddress, 0,
                 (size_t)kTotalSurfelLimit * sizeof(uint32_t));
     // Per-slot "geometry rebuilt" flags, parallel to the generation buffer.
     m_slotGeomDirty.assign(kObjectSlotCapacity, 0u);
+
+    // Shadow mirrors for the seven device-local bindless slot buffers. All host
+    // writes target these (never GPU-mapped memory); flushBindlessMirrors()
+    // stages the dirty range once per frame. markAllDirty() seeds the device
+    // buffers from the zeroed shadow on the first frame, giving a clean
+    // device == mirror invariant for every slot.
+    m_opaquePositionMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+    m_opaqueTangentMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+    m_opaqueNormalMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+    m_opaqueUv0Mirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+    m_opaqueColorMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+    m_opaqueIndexMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+    m_bindlessSlotGenerationMirror.init(kObjectSlotCapacity, sizeof(uint32_t));
+    m_opaquePositionMirror.markAllDirty();
+    m_opaqueTangentMirror.markAllDirty();
+    m_opaqueNormalMirror.markAllDirty();
+    m_opaqueUv0Mirror.markAllDirty();
+    m_opaqueColorMirror.markAllDirty();
+    m_opaqueIndexMirror.markAllDirty();
+    m_bindlessSlotGenerationMirror.markAllDirty();
 
 
     // Light SSBOs (point/spot/box). Unlike the bindless slot buffers above
@@ -1617,9 +1647,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // slot's state for us.
     if (!req.found && req.state) {
       req.state->onDestroy = EventHandler<>([this, slot = req.id]() {
-        static_cast<uint32_t *>(
-            m_bindlessSlotGenerationBuffer.mappedAddress)[slot] =
-            ++m_nextSlotGeneration;
+        // Writes the CPU shadow only (may fire off-frame during teardown); the
+        // next Draw()'s flushBindlessMirrors() stages it before the surfel
+        // passes read it, keeping the stale-anchor invalidation race-free.
+        m_bindlessSlotGenerationMirror.write<uint32_t>(slot,
+                                                       ++m_nextSlotGeneration);
       });
       req.state->onDestroy.Connect(vb->OnDestroyed());
       // Geometry-rebuild hook: a Compile / SubmitToGPU realloc on this VB marks
@@ -1635,9 +1667,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // — carrying a cached primitiveIndex from the *previous* occupant's mesh —
       // is detected as stale by collectCellInfo before it dereferences the new
       // geometry's vertex/index BDA (the GPUVM-fault path). A unique monotonic
-      // value lets us write the slot without reading back write-combined memory.
-      static_cast<uint32_t *>(m_bindlessSlotGenerationBuffer.mappedAddress)[req.id] =
-          ++m_nextSlotGeneration;
+      // value lets us write the slot without reading back the GPU buffer.
+      m_bindlessSlotGenerationMirror.write<uint32_t>(req.id,
+                                                     ++m_nextSlotGeneration);
       {
         RIResourceBufferTransaction_s trans = {};
         trans.target = m_diffuseObjectBuffer;
@@ -1661,8 +1693,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // surfels still carry a primitiveIndex from the old layout; bump the slot
       // generation so collectCellInfo treats them as stale before the OOB deref
       // — same mechanism as the miss path above.
-      static_cast<uint32_t *>(m_bindlessSlotGenerationBuffer.mappedAddress)[req.id] =
-          ++m_nextSlotGeneration;
+      m_bindlessSlotGenerationMirror.write<uint32_t>(req.id,
+                                                     ++m_nextSlotGeneration);
     }
     m_slotGeomDirty[req.id] = 0u; // consumed (the miss path already bumped)
 
@@ -1696,16 +1728,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
             ? vb->GetIndexRIBuffer()->GetDeviceHandle(&RI.device)
             : 0,
     };
-    RIBuffer_s *const handleBuffers[] = {
-        &m_opaquePositionHandles, &m_opaqueTangentHandles,
-        &m_opaqueNormalHandles,   &m_opaqueUv0Handles,
-        &m_opaqueColorHandles,    &m_opaqueIndexHandles,
+    BindlessShadowMirror *const handleMirrors[] = {
+        &m_opaquePositionMirror, &m_opaqueTangentMirror,
+        &m_opaqueNormalMirror,   &m_opaqueUv0Mirror,
+        &m_opaqueColorMirror,    &m_opaqueIndexMirror,
     };
-    for (size_t i = 0; i < std::size(handleBuffers); ++i) {
-      auto *slot = reinterpret_cast<VkDeviceAddress *>(
-          static_cast<uint8_t *>(handleBuffers[i]->mappedAddress) +
-          req.id * sizeof(VkDeviceAddress));
-      *slot = addrs[i];
+    for (size_t i = 0; i < std::size(handleMirrors); ++i) {
+      handleMirrors[i]->write<VkDeviceAddress>(req.id, addrs[i]);
     }
 
     vb->AttachResourceToCntx(cntx);
@@ -3190,6 +3219,23 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           continue;
         }
 
+        // Particles share m_diffuseBindless with opaque solids. When the LRU
+        // hands this slot to a particle (a fresh assignment, req.found == false)
+        // the handle BDAs below get overwritten with the particle's smaller
+        // vertex/index buffers. A surfel still anchored to the slot's previous
+        // opaque occupant would otherwise pass collectCellInfo's slotStale guard
+        // (its captured generation still matches) and feed its stale opaque
+        // primitiveIndex into fetchBindlessTriangle against the particle mesh —
+        // an unbounded raw-BDA read off the end of the index/vertex buffer ->
+        // GPUVM fault. Bump the slot generation on (re)assignment, exactly like
+        // the opaque miss path, so those surfels self-invalidate. The bump is
+        // staged with every other mirror write at the Draw() tail and applied by
+        // the uploader pre-pass before this same frame's surfel passes run.
+        if (!req.found) {
+          m_bindlessSlotGenerationMirror.write<uint32_t>(req.id,
+                                                         ++m_nextSlotGeneration);
+        }
+
         {
           RIResourceBufferTransaction_s trans = {};
           trans.target = m_diffuseObjectBuffer;
@@ -3227,18 +3273,15 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // Only the four streams the particle VS reads need to be valid;
         // tangent/normal stay zero so any leftover handles from a prior
         // opaque draw at this slot are deref-safe-but-unused.
-        auto writeSlot = [&](RIBuffer_s &buf, VkDeviceAddress addr) {
-          auto *slot = reinterpret_cast<VkDeviceAddress *>(
-              static_cast<uint8_t *>(buf.mappedAddress) +
-              req.id * sizeof(VkDeviceAddress));
-          *slot = addr;
+        auto writeSlot = [&](BindlessShadowMirror &mir, VkDeviceAddress addr) {
+          mir.write<VkDeviceAddress>(req.id, addr);
         };
-        writeSlot(m_opaquePositionHandles, posAddr);
-        writeSlot(m_opaqueUv0Handles, uv0Addr);
-        writeSlot(m_opaqueColorHandles, colAddr);
-        writeSlot(m_opaqueIndexHandles, idxAddr);
-        writeSlot(m_opaqueNormalHandles, 0);
-        writeSlot(m_opaqueTangentHandles, 0);
+        writeSlot(m_opaquePositionMirror, posAddr);
+        writeSlot(m_opaqueUv0Mirror, uv0Addr);
+        writeSlot(m_opaqueColorMirror, colAddr);
+        writeSlot(m_opaqueIndexMirror, idxAddr);
+        writeSlot(m_opaqueNormalMirror, 0);
+        writeSlot(m_opaqueTangentMirror, 0);
 
         const ParticlePipelineDesc::BlendMode mode =
             remapBlend(pMat->GetBlendMode());
@@ -3303,6 +3346,52 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     dep.imageMemoryBarrierCount = 1;
     dep.pImageMemoryBarriers = &restoreDepth;
     vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+  }
+
+  // Commit every bindless handle / slot-generation write made this frame. The
+  // uploader records into its own transfer cmd buffer, flushed as a fenced
+  // pre-pass the primary submit waits on (RIBootstrap), so this single tail call
+  // lands all copies ahead of every primary read regardless of recording order.
+  flushBindlessMirrors();
+}
+
+void cHybridRenderer::flushBindlessMirrors() {
+  struct Item {
+    RIBuffer_s *buf;
+    BindlessShadowMirror *mir;
+  };
+  const Item items[] = {
+      {&m_opaquePositionHandles, &m_opaquePositionMirror},
+      {&m_opaqueTangentHandles, &m_opaqueTangentMirror},
+      {&m_opaqueNormalHandles, &m_opaqueNormalMirror},
+      {&m_opaqueUv0Handles, &m_opaqueUv0Mirror},
+      {&m_opaqueColorHandles, &m_opaqueColorMirror},
+      {&m_opaqueIndexHandles, &m_opaqueIndexMirror},
+      {&m_bindlessSlotGenerationBuffer, &m_bindlessSlotGenerationMirror},
+  };
+  for (const auto &it : items) {
+    if (!it.mir->hasDirty())
+      continue;
+    const size_t off = it.mir->dirtyMinByte;
+    const size_t sz = it.mir->dirtyMaxByte - off;
+    RIResourceBufferTransaction_s trans = {};
+    trans.target = *it.buf;
+    trans.size = sz;
+    trans.offset = off;
+    // Read as storage buffers by the gbuffer VS (vertex pull), the surfel
+    // VBuffer / ray-trace chit+ahit, and collectCellInfo (compute). The WAR
+    // pre-barrier (current_stage/access) waits on the prior frame's reads before
+    // the staged copy overwrites the slot; this is the m_diffuseObjectBuffer path.
+    trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
+                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                             VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    trans.vk.post_stage = trans.vk.current_stage;
+    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+    std::memcpy(trans.mapped.data, it.mir->shadow.data() + off, sz);
+    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+    it.mir->clearDirty();
   }
 }
 
