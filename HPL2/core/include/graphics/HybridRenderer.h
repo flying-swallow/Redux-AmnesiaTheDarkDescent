@@ -62,10 +62,19 @@ private:
 
   cRenderList2 m_rendererList;
 
-  // Object-slot cache. Each slot stores an EventHandler bound to the owning
-  // vertex buffer's destroy event, so the slot is retired for surfel cleanup
-  // when its geometry is destroyed (see the solids loop in Draw()).
-  LRUCacheState<EventHandler<>> m_diffuseBindless;
+  // Per-object-slot hooks into the owning vertex buffer. onDestroy retires the
+  // slot for surfel cleanup when the geometry is freed; onGeometryChanged marks
+  // the slot dirty when the geometry is rebuilt (Compile / SubmitToGPU realloc)
+  // so the slot's reuse generation gets bumped. Both are reset (disconnected)
+  // when the cache evicts the slot. See the solids loop in Draw().
+  struct SlotHooks {
+    EventHandler<> onDestroy;
+    EventHandler<> onGeometryChanged;
+  };
+
+  // Object-slot cache. Slot state is a SlotHooks bound to the owning vertex
+  // buffer's destroy / geometry-changed events.
+  LRUCacheState<SlotHooks> m_diffuseBindless;
 
   struct RIBuffer_s m_diffuseObjectBuffer;
 
@@ -187,18 +196,13 @@ private:
   RIProgram m_surfelUpdateAccumulate;
   RIProgram m_surfelUpdateScatter;
 
-  // Stage D-pre: free surfels anchored to geometry destroyed mid-level. The
-  // handler queues retired bindless object slots fired by
-  // VertexBuffer_RI::s_onGiSlotRetired; the clear pass marks matching surfels
-  // dead before collectCellInfo re-resolves their (now dangling) cached hit
-  // through gScene.getVertexData(). Complements resetSurfelState() (map loads).
-  RIProgram m_surfelClearByInstance;
-  // Bindless object slots whose backing geometry was destroyed. A VB's destroy
-  // handler (owned by m_diffuseBindless's per-slot state) pushes the slot it
-  // occupied; the clear pass drains this each frame. Single-threaded game, so a
-  // plain vector — no lock. The handlers live in m_diffuseBindless (a member),
-  // so they can't fire after this renderer (and this vector) are gone.
-  std::vector<uint32_t> m_retiredGiSlots;
+  // Per-object-slot "geometry rebuilt" flag (sized kObjectSlotCapacity). A VB's
+  // onGeometryChanged handler (owned by m_diffuseBindless's per-slot state) sets
+  // its slot's byte when the VB recompiles or reallocs; the solids loop in Draw
+  // consumes it and bumps the slot's reuse generation so anchored surfels with a
+  // stale primitiveIndex self-invalidate before the OOB deref. Single-threaded
+  // game (handler fires synchronously inside Compile/SubmitToGPU), so no lock.
+  std::vector<uint8_t> m_slotGeomDirty;
 
   // Stage E: path-tracer RT pipeline. One ray per pending SurfelRayResult
   // slot; the rgen drives an iterative trace loop (no recursive TraceRay),

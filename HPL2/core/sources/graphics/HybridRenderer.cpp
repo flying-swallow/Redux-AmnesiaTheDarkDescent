@@ -529,10 +529,6 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     // (kBindingSurfelCounter on the bindless set 0), so the dispatch
     // site is unchanged — only the loaded SPV + entry point differ.
     loadSlangCompute(m_surfelPrepare, "SurfelPreparePass.cs.spv", "csMain");
-    // Frees surfels anchored to geometry destroyed mid-level (dispatched only
-    // when VertexBuffer destructions have queued retired bindless slots).
-    loadSlangCompute(m_surfelClearByInstance, "SurfelClearByInstance.cs.spv",
-                     "csMain");
     // Cell-clearing + ref-counter-clearing are now folded into the
     // SurfelPreparePass + SurfelUpdatePass Slang side; the dedicated
     // GLSL clear passes were removed in the GLSL wipe.
@@ -690,6 +686,32 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     m_surfelBoundsBuffer = detail::CreateBindlessSlotBuffer(
         &RI.device, kTotalSurfelLimit, sizeof(SurfelBounds), kStorage);
 
+    // Seed the surfel free-list. gSurfelCounter[Free] is a stack pointer and
+    // gSurfelFreeIndexBuffer holds the available slot indices; at boot every
+    // slot is free, so Free = kTotalSurfelLimit and the index buffer is iota
+    // [0..kTotalSurfelLimit). Without this the free list starts empty (Free=0):
+    // SurfelGenerationPass can never allocate a surfel (its InterlockedAdd(Free,
+    // -1) underflows past zero, wrapping to ~2^32 — which SurfelPreparePass then
+    // clamps back to 0 via clamp(asint(Free),0,limit)), so Valid/Dirty stay 0
+    // forever => no rays => no indirect light. The free list can't bootstrap
+    // from the recycle path either: collectCellInfo only pushes freed slots for
+    // *dirty* surfels, and there are never any. The Falcor reference seeds the
+    // equivalent via kInitialStatus={0,0,kTotalSurfelLimit,...} + an iota free
+    // buffer. Both buffers are host-mapped (CreateBindlessSlotBuffer is not
+    // device-local) and no GPU work is in flight at construction, so seed them
+    // directly — same pattern as the slot-generation memset just below.
+    {
+      auto *counter =
+          static_cast<uint32_t *>(m_surfelCounterBuffer.mappedAddress);
+      std::memset(counter, 0, kSurfelCounterSlotCount * sizeof(uint32_t));
+      counter[kSurfelCounterFree] = kTotalSurfelLimit;
+
+      auto *freeIdx =
+          static_cast<uint32_t *>(m_surfelFreeBuffer.mappedAddress);
+      for (uint32_t i = 0; i < kTotalSurfelLimit; ++i)
+        freeIdx[i] = i;
+    }
+
     // Slot-reuse generation buffers (see m_bindlessSlotGenerationBuffer). Both
     // start at 0; the host bumps a slot's generation to a unique nonzero value
     // the first time it's assigned (below in Draw), so a real surfel always
@@ -702,6 +724,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                 (size_t)kObjectSlotCapacity * sizeof(uint32_t));
     std::memset(m_surfelSlotGenerationBuffer.mappedAddress, 0,
                 (size_t)kTotalSurfelLimit * sizeof(uint32_t));
+    // Per-slot "geometry rebuilt" flags, parallel to the generation buffer.
+    m_slotGeomDirty.assign(kObjectSlotCapacity, 0u);
 
 
     // Light SSBOs (point/spot/box). Unlike the bindless slot buffers above
@@ -834,7 +858,9 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       imgInfo.arrayLayers = 1;
       imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
       imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+      // TRANSFER_DST: this atlas is seeded once via vkCmdClearColorImage.
+      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                      VK_IMAGE_USAGE_TRANSFER_DST_BIT;
       imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
       VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
                                      queueFamilies, RI_QUEUE_LEN);
@@ -873,7 +899,9 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       imgInfo.arrayLayers = 1;
       imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
       imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+      // TRANSFER_DST: this atlas is seeded once via vkCmdClearColorImage.
+      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                      VK_IMAGE_USAGE_TRANSFER_DST_BIT;
       imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
       VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
                                      queueFamilies, RI_QUEUE_LEN);
@@ -1528,28 +1556,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
   }
 
-  // Retire bindless object slots whose vertex buffers were freed since last
-  // frame (VertexBuffer_RI dtor -> m_onDestroyed -> m_retiredGiSlots). Stamp
-  // their stream handles with the retired sentinel HERE, before the per-draw
-  // fan-out below, so a slot reused by a live object this frame still gets its
-  // fresh BDA written and wins. SurfelUpdatePass::collectCellInfo recycles any
-  // surfel whose cached slot reads the sentinel — so a dangling cached hit can
-  // never deref a freed buffer-device-address (GPUVM fault). The sentinel (not
-  // 0) keeps a legitimately-zero handle distinguishable from a retired one.
-  // Replaces the old per-surfel SurfelClearByInstance scan.
-  if (!m_retiredGiSlots.empty()) {
-    RIBuffer_s *const retiredHandleBuffers[] = {
-        &m_opaquePositionHandles, &m_opaqueTangentHandles,
-        &m_opaqueNormalHandles,   &m_opaqueUv0Handles,
-        &m_opaqueColorHandles,    &m_opaqueIndexHandles,
-    };
-    for (uint32_t slot : m_retiredGiSlots)
-      for (RIBuffer_s *hb : retiredHandleBuffers)
-        reinterpret_cast<VkDeviceAddress *>(hb->mappedAddress)[slot] =
-            HPL_RETIRED_GEOMETRY_HANDLE;
-    m_retiredGiSlots.clear();
-  }
-
   for (iRenderable *pObject : solids) {
     cMatrixf *pMtx = pObject->GetModelMatrix(apFrustum);
     iVertexBuffer *pVB = pObject->GetVertexBuffer();
@@ -1598,16 +1604,30 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     vb->SubmitToGPU(&RI.primary.cmds[0], &RI.device, cntx);
     // The first time this bindless slot is (re)assigned to this VB
     // (req.found == false), park a destroy handler in the slot's cache state.
-    // On the VB's destruction it retires this slot; the clear pass then purges
-    // surfels whose cached hit's instanceID == slot before their freed vertex
-    // BDA is dereferenced. Capturing `this` is safe: the handler lives in
-    // m_diffuseBindless (a renderer member), so it can't fire after the renderer
-    // (and m_retiredGiSlots) are gone. On a cache hit the handler is already
-    // bound to this VB; on eviction the cache reset the slot's state for us.
+    // On the VB's destruction it bumps the slot's reuse generation, so any
+    // surfel still anchored here (cached primitiveIndex against the now-freed
+    // geometry) trips collectCellInfo's slotStale guard and recycles before it
+    // dereferences the freed vertex/index BDA (GPUVM fault) — destruction is
+    // just one more reason the slot's geometry is no longer what the surfel
+    // captured, handled by the same generation bump as slot reuse / rebuild
+    // below. Single-threaded game, so the mapped write needs no lock. Capturing
+    // `this` is safe: the handler lives in m_diffuseBindless (a renderer
+    // member), so it can't fire after the renderer is gone. On a cache hit the
+    // handler is already bound to this VB; on eviction the cache reset the
+    // slot's state for us.
     if (!req.found && req.state) {
-      *req.state = EventHandler<>(
-          [this, slot = req.id]() { m_retiredGiSlots.push_back(slot); });
-      req.state->Connect(vb->OnDestroyed());
+      req.state->onDestroy = EventHandler<>([this, slot = req.id]() {
+        static_cast<uint32_t *>(
+            m_bindlessSlotGenerationBuffer.mappedAddress)[slot] =
+            ++m_nextSlotGeneration;
+      });
+      req.state->onDestroy.Connect(vb->OnDestroyed());
+      // Geometry-rebuild hook: a Compile / SubmitToGPU realloc on this VB marks
+      // the slot dirty so the generation bump below invalidates anchored surfels
+      // whose cached primitiveIndex no longer fits the rebuilt geometry.
+      req.state->onGeometryChanged = EventHandler<>(
+          [this, slot = req.id]() { m_slotGeomDirty[slot] = 1u; });
+      req.state->onGeometryChanged.Connect(vb->OnGeometryChanged());
     }
     if (!req.found) {
       // This slot now hosts a different object (fresh allocation or
@@ -1633,7 +1653,18 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         std::memcpy(trans.mapped.data, &payload, sizeof(payload));
         RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
       }
+    } else if (m_slotGeomDirty[req.id]) {
+      // Cache hit, but this VB's geometry was rebuilt since we last visited the
+      // slot — onGeometryChanged fired from Compile, or from the SubmitToGPU
+      // realloc just above (synchronously, so an in-loop realloc is caught this
+      // same frame). The handle BDAs below now point at the new geometry, but
+      // surfels still carry a primitiveIndex from the old layout; bump the slot
+      // generation so collectCellInfo treats them as stale before the OOB deref
+      // — same mechanism as the miss path above.
+      static_cast<uint32_t *>(m_bindlessSlotGenerationBuffer.mappedAddress)[req.id] =
+          ++m_nextSlotGeneration;
     }
+    m_slotGeomDirty[req.id] = 0u; // consumed (the miss path already bumped)
 
     // Per-stream VkDeviceAddress fan-out into the parallel handle buffers.
     // Missing streams write 0 — shaders branch on non-zero before deref.
@@ -2323,30 +2354,81 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // imageLoads gSurfelIrradianceMap; the dst stage mask covers both the
   // rgen read and the later integrate read/write.
   if (!m_surfelAtlasesInitialized[RI.swapchainIndex]) {
-    VkImageMemoryBarrier2 toGeneral[2] = {
+    // First touch of this swapchain image's atlases: UNDEFINED -> GENERAL and
+    // *seed their contents*. SurfelIntegratePass accumulates into both via an
+    // EMA read-modify-write (gIrradianceMap / gSurfelDepthMap), so the starting
+    // value must be defined — UNDEFINED discards it, leaving uninitialized /
+    // NaN reads that poison the EMA and the generation pass's Chebyshev weight.
+    // Irradiance (ray-guiding) seeds to 0. The depth atlas stores (E[z], E[z^2])
+    // per octahedral texel; seed E[z^2] high so the generation pass's weight
+    //   variance / (variance + (dist - mean)^2),  variance = E[z^2] - E[z]^2
+    // starts ~1 (no visibility suppression) and tightens only as real
+    // first-bounce depths converge. Clearing to 0 instead would make variance=0
+    // => weight 0 => every surfel contribution zeroed until the atlas fills in
+    // (~hundreds of frames), i.e. a multi-second indirect black-out on enable.
+    VkImageMemoryBarrier2 toClear[2] = {
         {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
         {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}};
     for (uint32_t i = 0; i < 2; ++i) {
-      toGeneral[i].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-      toGeneral[i].srcAccessMask = 0;
-      toGeneral[i].dstStageMask =
+      toClear[i].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+      toClear[i].srcAccessMask = 0;
+      toClear[i].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+      toClear[i].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      toClear[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      toClear[i].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      toClear[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toClear[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toClear[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    }
+    toClear[0].image = m_surfelIrradianceTexture[RI.swapchainIndex].vk.image;
+    toClear[1].image = m_surfelDepthTexture[RI.swapchainIndex].vk.image;
+    {
+      VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+      dep.imageMemoryBarrierCount = 2;
+      dep.pImageMemoryBarriers = toClear;
+      vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+    }
+
+    VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkClearColorValue irrClear = {}; // 0
+    vkCmdClearColorImage(RI.primary.cmds[0].vk.cmd,
+                         m_surfelIrradianceTexture[RI.swapchainIndex].vk.image,
+                         VK_IMAGE_LAYOUT_GENERAL, &irrClear, 1, &range);
+    VkClearColorValue depthClear = {};
+    depthClear.float32[0] = 0.0f;     // E[z]
+    depthClear.float32[1] = 60000.0f; // E[z^2] seeded high (half-float safe)
+    vkCmdClearColorImage(RI.primary.cmds[0].vk.cmd,
+                         m_surfelDepthTexture[RI.swapchainIndex].vk.image,
+                         VK_IMAGE_LAYOUT_GENERAL, &depthClear, 1, &range);
+
+    // Clear (transfer) -> integrate's storage RW + ray-trace / generation reads
+    // (sampled). Same GENERAL layout, availability/visibility only.
+    VkImageMemoryBarrier2 toShader[2] = {
+        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
+        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}};
+    for (uint32_t i = 0; i < 2; ++i) {
+      toShader[i].srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+      toShader[i].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      toShader[i].dstStageMask =
           VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
           VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-      toGeneral[i].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
-                                   VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
-                                   VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-      toGeneral[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      toGeneral[i].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-      toGeneral[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      toGeneral[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      toGeneral[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      toShader[i].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
+                                  VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
+                                  VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+      toShader[i].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+      toShader[i].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      toShader[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toShader[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toShader[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     }
-    toGeneral[0].image = m_surfelIrradianceTexture[RI.swapchainIndex].vk.image;
-    toGeneral[1].image = m_surfelDepthTexture[RI.swapchainIndex].vk.image;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 2;
-    dep.pImageMemoryBarriers = toGeneral;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+    toShader[0].image = m_surfelIrradianceTexture[RI.swapchainIndex].vk.image;
+    toShader[1].image = m_surfelDepthTexture[RI.swapchainIndex].vk.image;
+    {
+      VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+      dep.imageMemoryBarrierCount = 2;
+      dep.pImageMemoryBarriers = toShader;
+      vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+    }
     m_surfelAtlasesInitialized[RI.swapchainIndex] = true;
   }
 
@@ -2476,16 +2558,20 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     toRead[1].subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
     toRead[1].image = RI.depthTextures[RI.swapchainIndex].vk.image;
 
-    // Surfel-result image: Stage F's surfel_generation_pass writes into it
-    // as a storage image. Discard-on-acquire pattern — the engine frame
-    // fence orders any previous sample against this overwrite, and
-    // surfel_generation_pass itself unconditionally writes every in-bounds
-    // pixel (miss / out-of-cell pixels get vec4(0,0,0,1)), so the prior
-    // vkCmdClearColorImage + sync barrier are no longer needed.
+    // Surfel-result image: surfel_generation_pass only writes gOutput for
+    // pixels actually covered by a surfel (indirectLighting.w > 0). Valid-hit
+    // pixels with no surfel coverage — and out-of-cell pixels — are left
+    // untouched (the pass was refactored to drop its miss-write, so it no
+    // longer "unconditionally writes every in-bounds pixel"). But the composite
+    // (SurfelGIRenderPass.frag) samples gIndirectLighting for EVERY valid-hit
+    // pixel, so with sparse surfel coverage most of the screen would sample
+    // undefined memory. Clear to (0,0,0,1) each frame so uncovered pixels read
+    // as zero indirect instead of garbage. UNDEFINED oldLayout discards stale
+    // contents; the clear (transfer) is handed off to the compute write below.
     toRead[2].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
     toRead[2].srcAccessMask = 0;
-    toRead[2].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    toRead[2].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    toRead[2].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    toRead[2].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
     toRead[2].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     toRead[2].newLayout = VK_IMAGE_LAYOUT_GENERAL;
     toRead[2].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -2494,6 +2580,34 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dep.imageMemoryBarrierCount = 3;
     dep.pImageMemoryBarriers = toRead;
+    vkCmdPipelineBarrier2(cmd, &dep);
+  }
+
+  // Clear the surfel-result image to zero indirect (see toRead[2] above), then
+  // make the clear visible to surfel_generation_pass's storage write.
+  {
+    VkClearColorValue clearColor = {};
+    clearColor.float32[3] = 1.0f; // (0,0,0,1): zero radiance, opaque alpha
+    VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdClearColorImage(cmd, m_surfelResultTexture[RI.swapchainIndex].vk.image,
+                         VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
+
+    VkImageMemoryBarrier2 afterClear = {
+        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    afterClear.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    afterClear.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    afterClear.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    afterClear.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                               VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    afterClear.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    afterClear.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    afterClear.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    afterClear.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    afterClear.image = m_surfelResultTexture[RI.swapchainIndex].vk.image;
+    afterClear.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &afterClear;
     vkCmdPipelineBarrier2(cmd, &dep);
   }
 
@@ -2546,8 +2660,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
     mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    // SAMPLED_READ: with USE_SURFEL_DEPTH the generation pass samples the depth
+    // atlas (gSurfelDepth) that integrate just wrote via a storage image; the
+    // sampled read needs the write made visible to it, not just storage reads.
     mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+                        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dep.memoryBarrierCount = 1;
     dep.pMemoryBarriers = &mem;

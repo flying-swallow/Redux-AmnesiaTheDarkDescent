@@ -446,9 +446,12 @@ bool VertexBuffer_RI::Compile(tVertexCompileFlag aFlags) {
   //      "Index");
   //}
 
-  m_generation++; 
+  m_generation++;
   m_updateFlags = 0;
   m_updateIndices = false;
+  // Topology rebuilt: tell the renderer so it bumps the reuse generation of any
+  // bindless slot anchoring surfels to this VB (see OnGeometryChanged()).
+  m_onGeometryChanged.Signal();
   return true;
 }
 
@@ -510,6 +513,13 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
   };
 
+  // Set when any stream gets a fresh VkBuffer below (first submit, shadow-data
+  // growth, CreateCopy sentinel). A realloc moves the buffer-device-address, so
+  // any surfel anchored here via the old BDA / triangle count is now stale; we
+  // signal OnGeometryChanged once after the uploads so the renderer bumps the
+  // slot generation.
+  bool reallocated = false;
+
   for (auto &element : m_vertexElements) {
     if (element.m_shadowData.empty())
       continue;
@@ -528,6 +538,7 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
     if (needsAlloc) {
       element.buffer = allocBuffer(needed, usage, elementTypeName(element.type));
       element.m_internalBufferSize = needed;
+      reallocated = true;
     }
     // Always upload on (re)alloc; otherwise only when the caller flagged this
     // stream dirty via UpdateData().
@@ -547,6 +558,7 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
     if (needsAlloc) {
       m_indexBuffer = allocBuffer(needed, idxUsage, "Index");
       m_indexBufferCapacity = needed;
+      reallocated = true;
     }
     if (needsAlloc || m_updateIndices) {
       stageUpload(m_indexBuffer.get(), needed, m_indices.data(),
@@ -554,6 +566,12 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
                   VK_ACCESS_2_SHADER_READ_BIT);
     }
   }
+  // A realloc already moved the BDAs above, so notify regardless of whether the
+  // BLAS rebuild below proceeds — surfels anchored to the old address must be
+  // invalidated either way.
+  if (reallocated)
+    m_onGeometryChanged.Signal();
+
   // Validate inputs BEFORE tearing down the cached BLAS. If we exit here we
   // want the previously-built BLAS to remain valid so the object stays in the
   // TLAS — destroying it first would silently drop the object from ray-traced

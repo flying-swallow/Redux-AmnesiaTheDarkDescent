@@ -64,33 +64,26 @@ void collectCellInfo(uint3 dispatchThreadId: SV_DispatchThreadID)
     if (surfelRadius > 0)              InterlockedAdd(gSurfelCounter[kSurfelCounterDbgRadiusPos], 1u);
     if (surfelRecycleInfo.life > 0)    InterlockedAdd(gSurfelCounter[kSurfelCounterDbgLifePos],   1u);
 
-    // Cached primary-ray triangle hit + live-geometry check. When a surfel's
-    // backing vertex buffer is freed, the host stamps that bindless slot's
-    // stream handles with HPL_RETIRED_GEOMETRY_HANDLE (see cHybridRenderer::
-    // Draw). getVertexData would otherwise deref a stale buffer-device-address
-    // and GPUVM-fault, so treat retired geometry exactly like an expired
-    // surfel: skip the alive branch and let the recycle (free-list) else-branch
-    // below return the slot. The sentinel (not 0) keeps a legitimately-zero
-    // handle from being mistaken for retired.
+    // Cached primary-ray triangle hit + stale-anchor guard. A surfel's bindless
+    // anchor slot goes stale whenever the slot's geometry changes out from under
+    // it: the backing vertex buffer is freed, the slot is REUSED by a different
+    // object (common on map load, when the new map floods the bindless pool and
+    // evicts the old map's slots), or the mesh is rebuilt in place. In every
+    // case getVertexData would pull this surfel's cached primitiveIndex against
+    // the wrong / freed geometry -> out-of-bounds vertex/index BDA read -> GPUVM
+    // fault. The host bumps the slot's reuse generation on each of those events
+    // (destroy / reuse / rebuild); if it no longer matches what this surfel
+    // captured at spawn, the anchor is stale, so skip the alive branch and let
+    // the recycle (free-list) else-branch below return the slot. instanceID
+    // always came from a real hit, so indexing gBindlessSlotGeneration is in
+    // bounds.
     HitInfo hi;
     hi.packed = gSurfelGeometryBuffer[surfelIndex];
     TriangleHit hit = hi.getTriangleHit();
-    bool geometryAlive =
-        gOpaquePositionHandles[hit.instanceID] != HPL_RETIRED_GEOMETRY_HANDLE;
-
-    // Slot-reuse guard. geometryAlive only catches a slot that was retired and
-    // left unused; a slot REUSED by different geometry (common on map load, when
-    // the new map floods the bindless pool and evicts the old map's slots) keeps
-    // a live handle, so the retired check passes and getVertexData would pull
-    // this surfel's stale primitiveIndex against the wrong mesh -> out-of-bounds
-    // index/vertex BDA read -> GPUVM fault. The host bumps the slot's generation
-    // on every reassignment; if it no longer matches what this surfel captured
-    // at spawn, the anchor is stale. instanceID always came from a real hit, so
-    // indexing gBindlessSlotGeneration is in bounds.
     bool slotStale =
         gSurfelSlotGeneration[surfelIndex] != gBindlessSlotGeneration[hit.instanceID];
 
-    if (surfelRadius > 0 && surfelRecycleInfo.life > 0 && geometryAlive && !slotStale)
+    if (surfelRadius > 0 && surfelRecycleInfo.life > 0 && !slotStale)
     {
         // DEBUG: dirty surfels that reach the cell-binding branch.
         InterlockedAdd(gSurfelCounter[kSurfelCounterDbgAlive], 1u);

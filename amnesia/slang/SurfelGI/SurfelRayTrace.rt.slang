@@ -76,9 +76,13 @@ struct DiffuseShading
     float3 posW;
     float3 normalW;
     float3 albedo;
+    float3 emission;
 };
 
-DiffuseShading prepareDiffuseShading(VertexData v, uint materialID)
+// `illuminationAmount` is the per-object glow scalar (UniformObject); emission =
+// illumination-map texel (DiffuseMaterial slot 5) * that scalar. Objects with no
+// illumination map (slot 5 invalid) or amount 0 emit nothing.
+DiffuseShading prepareDiffuseShading(VertexData v, uint materialID, float illuminationAmount)
 {
     DiffuseShading sd;
     sd.posW    = v.posW;
@@ -90,6 +94,14 @@ DiffuseShading prepareDiffuseShading(VertexData v, uint materialID)
     else
         sd.albedo = gTextures2D[NonUniformResourceIndex(diffuseTex)]
                         .SampleLevel(gMaterialSampler, v.texC, 0.0f).rgb;
+
+    uint illumTex = m.tex[5];
+    if (illumTex == kInvalidTextureIndex || illuminationAmount <= 0.f)
+        sd.emission = float3(0.f);
+    else
+        sd.emission = gTextures2D[NonUniformResourceIndex(illumTex)]
+                          .SampleLevel(gMaterialSampler, v.texC, 0.0f).rgb
+                      * illuminationAmount;
     return sd;
 }
 
@@ -303,10 +315,16 @@ void handleHit(TriangleHit triangleHit, inout ScatterPayload scatterPayload)
 {
     VertexData v = gScene.getVertexData(triangleHit);
     uint materialID = gScene.getMaterialID(triangleHit.instanceID);
-    DiffuseShading sd = prepareDiffuseShading(v, materialID);
+    float illuminationAmount = gScene.getObject(triangleHit.instanceID).illuminationAmount;
+    DiffuseShading sd = prepareDiffuseShading(v, materialID, illuminationAmount);
 
     if (scatterPayload.currStep == 1u)
         scatterPayload.firstRayLength = distance(scatterPayload.origin, v.posW);
+
+    // Emission — emissive (illumination-map) surfaces add radiance directly into
+    // the path, so they bounce into the surfel cache. Matches the reference's
+    // `radiance += thp * emission`.
+    scatterPayload.radiance += scatterPayload.thp * sd.emission;
 
     // Pull the RNG out of the payload, run NEE + bounce sample, push back.
     RNG rng;

@@ -2,31 +2,6 @@
 
 #include "HostDefinitions.h"
 
-// Bindless object slots a single SurfelClearByInstance *dispatch* carries (the
-// per-dispatch gClearParams UBO holds a uint[] of this size). A plain macro so
-// it works as an array bound in both the host C struct and the shader struct
-// without depending on cross-module const propagation.
-//
-// This is a per-dispatch BATCH size, not a frame cap: cHybridRenderer::Draw
-// loops the dispatch in chunks of this size until the entire retired-slot list
-// is drained in the SAME frame. Retired slots reference freed vertex buffers,
-// so deferring any of them to a later frame would let collectCellInfo deref a
-// freed buffer-device-address (GPUVM fault) — they must all clear now.
-//
-// 4096 uints == 16384 B == the Vulkan-guaranteed maxUniformBufferRange, so the
-// UBO is portable to any device. The valid count for the final (partial) batch
-// is delivered via push constant (see SurfelClearByInstance.cs.slang).
-#define HPL_RETIRED_SLOTS_PER_DISPATCH 4096
-
-// Sentinel written into a bindless slot's vertex stream handles
-// (gOpaque*Handles) when its VertexBuffer is freed (see cHybridRenderer::Draw).
-// 0 is a legitimate handle value (zero-init / "no optional stream"), so retired
-// slots are marked with an address that can never be a valid VkDeviceAddress
-// rather than 0. SurfelUpdatePass::collectCellInfo recycles any surfel whose
-// cached slot reads this value instead of dereferencing the freed
-// buffer-device-address (GPUVM fault).
-#define HPL_RETIRED_GEOMETRY_HANDLE 0xFFFFFFFFFFFFFFFFull
-
 // Surfel GI behavior knobs & runtime-param defaults.
 // Bindless buffer capacities, counter-buffer layout, and atlas dimensions
 // also live here (moved from SceneTypes.slang).
@@ -214,12 +189,25 @@ SHARED_CONST uint kSurfelCounterDbgFinalizeHit   = 14u;
 SHARED_CONST uint kSurfelCounterDbgGenSurfelMax  = 15u;
 SHARED_CONST uint kSurfelCounterSlotCount        = 16u;
 
-// Static toggle defaults (set/cleared from the host via addDefine in SurfelGI.cpp).
-// USE_SURFEL_RADIANCE      - default ON
-// LIMIT_SURFEL_SEARCH      - default OFF
-// USE_RAY_GUIDING          - default OFF
-// USE_SURFEL_DEPTH         - default ON
-// USE_IRRADIANCE_SHARING   - default ON
+// Static feature toggles. The Falcor reference set these via host addDefine;
+// here we #define them directly (Constants.h is included by every SurfelGI
+// shader, so the #ifdef blocks see them). Comment a line out to disable.
+//   USE_SURFEL_RADIANCE   - multi-bounce surfel feedback in the ray trace.
+//                           (the port's `finalize` runs unconditionally, so
+//                           this define is informational — kept for parity.)
+//   USE_IRRADIANCE_SHARING- SurfelIntegratePass blends each surfel's radiance
+//                           with its cell neighbours' — smooths the splotchy
+//                           look of sparse coverage.
+//   USE_SURFEL_DEPTH      - Chebyshev visibility weighting (reduces light leak)
+//                           + writes the surfel-depth atlas. Reference default
+//                           ON; left OFF here until enabled deliberately (its
+//                           weight suppresses contributions until the depth
+//                           atlas converges over the first ~100 frames).
+//   USE_RAY_GUIDING       - reference default OFF; leave off.
+#define USE_SURFEL_RADIANCE    1
+#define USE_IRRADIANCE_SHARING 1
+#define USE_SURFEL_DEPTH       1
+// #define USE_RAY_GUIDING     1
 
 // -----------------------------------------------------------------------------
 // Runtime param defaults (originally SurfelGI::RuntimeParams in SurfelGI.h).
@@ -233,7 +221,12 @@ SHARED_CONST uint  kDefaultChancePower          = 1u;
 SHARED_CONST float kDefaultPlacementThreshold   = 2.f;
 SHARED_CONST float kDefaultRemovalThreshold     = 4.f;
 SHARED_CONST float kDefaultThresholdGap         = 2.f;
-SHARED_CONST uint  kDefaultBlendingDelay        = 240u;
+// Frames a freshly-spawned surfel ramps in over before it contributes fully
+// to the indirect output (smoothstep(0, delay, frame) in SurfelGenerationPass).
+// The Falcor reference uses 240 (~4s @ 60fps); on this camera-relative grid a
+// surfel must survive that long before it shows up, so a moving camera / churn
+// can keep indirect at ~0. Reduced to ramp in under ~0.5s while debugging.
+SHARED_CONST uint  kDefaultBlendingDelay        = 30u;
 
 // Ray tracing.
 SHARED_CONST float kDefaultVarianceSensitivity  = 40.f;

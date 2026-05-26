@@ -149,7 +149,6 @@ SHADERS
     ./slang/ParticlePass/Particle.frag.slang
     ./slang/SurfelGBuffer/SurfelGBuffer.3d.slang
     ./slang/SurfelGI/SurfelPreparePass.cs.slang
-    ./slang/SurfelGI/SurfelClearByInstance.cs.slang
     ./slang/SurfelGI/SurfelUpdatePass.cs.slang
     ./slang/SurfelGI/SurfelGenerationPass.cs.slang
     ./slang/SurfelGI/SurfelIntegratePass.cs.slang

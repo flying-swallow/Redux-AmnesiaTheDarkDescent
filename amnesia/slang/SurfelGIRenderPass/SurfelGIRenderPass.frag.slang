@@ -52,9 +52,13 @@ struct DiffuseShading
     float3 posW;
     float3 normalW;
     float3 albedo;
+    float3 emission;
 };
 
-DiffuseShading prepareDiffuseShading(VertexData v, uint materialID)
+// emission = illumination-map texel (DiffuseMaterial slot 5) * per-object glow
+// scalar (UniformObject.illuminationAmount). Without this the surfel composite
+// ignores illumination entirely and glowing textures render dark.
+DiffuseShading prepareDiffuseShading(VertexData v, uint materialID, float illuminationAmount)
 {
     DiffuseShading sd;
     sd.posW    = v.posW;
@@ -66,6 +70,14 @@ DiffuseShading prepareDiffuseShading(VertexData v, uint materialID)
     else
         sd.albedo = gTextures2D[NonUniformResourceIndex(diffuseTex)]
                         .SampleLevel(gMaterialSampler, v.texC, 0.0f).rgb;
+
+    uint illumTex = m.tex[5];
+    if (illumTex == kInvalidTextureIndex || illuminationAmount <= 0.f)
+        sd.emission = float3(0.f);
+    else
+        sd.emission = gTextures2D[NonUniformResourceIndex(illumTex)]
+                          .SampleLevel(gMaterialSampler, v.texC, 0.0f).rgb
+                      * illuminationAmount;
     return sd;
 }
 
@@ -131,7 +143,8 @@ float4 psMain(PSIn pin) : SV_Target
     TriangleHit triangleHit = hitInfo.getTriangleHit();
     VertexData v = gScene.getVertexData(triangleHit);
     uint materialID = gScene.getMaterialID(triangleHit.instanceID);
-    DiffuseShading sd = prepareDiffuseShading(v, materialID);
+    float illuminationAmount = gScene.getObject(triangleHit.instanceID).illuminationAmount;
+    DiffuseShading sd = prepareDiffuseShading(v, materialID, illuminationAmount);
 
     bool wantDirect   = kDefaultRenderDirectLighting   != 0u;
     bool wantIndirect = kDefaultRenderIndirectLighting != 0u;
@@ -151,6 +164,10 @@ float4 psMain(PSIn pin) : SV_Target
     {
         finalGather = direct + indirect;
     }
+
+    // Emissive (illumination-map) surfaces glow regardless of the direct /
+    // indirect toggles — added on top so glowing textures aren't dark.
+    finalGather += sd.emission;
 
     return float4(finalGather, 1.f);
 }
