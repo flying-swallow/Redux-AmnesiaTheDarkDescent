@@ -169,6 +169,13 @@ private:
   BindlessShadowMirror m_opaqueIndexMirror;
   BindlessShadowMirror m_bindlessSlotGenerationMirror;
 
+  // Boot-seed-only shadow for the now device-local m_surfelCounterBuffer. The
+  // host writes it exactly once (Free = kTotalSurfelLimit, rest 0); markAllDirty
+  // stages that seed on the first frame's flushBindlessMirrors(), ahead of the
+  // surfel passes. The GPU owns the counter every frame after, so this mirror is
+  // never written or re-dirtied — unlike the per-frame handle mirrors above.
+  BindlessShadowMirror m_surfelCounterMirror;
+
   // Stage every dirty mirror into its matching device-local buffer. Called once
   // at the end of Draw() so all bindless handle / slot-generation writes land
   // ahead of the primary submit's reads regardless of recording order.

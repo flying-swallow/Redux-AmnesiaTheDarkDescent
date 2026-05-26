@@ -79,8 +79,16 @@ void csMain(
         {
             TriangleHit triangleHit = hitInfo.getTriangleHit();
             v = gScene.getVertexData(triangleHit);
-            float4 curPosH = mul(gScene.camera.getViewProjNoJitter(), float4(v.posW, 1.f));
-            depth = curPosH.z / curPosH.w;
+            // Linear, scale-correct placement depth. The reference used NDC
+            // z/w here, but under this engine's 0.05–1000 camera far plane that
+            // ratio saturates to ~1 for all geometry past ~1 m, defeating the
+            // distance-based placement throttle below (chance = pow(depth, P)).
+            // Use linear camera distance normalized to the GI grid's half-extent
+            // — the range where surfels actually live — so the bias ramps 0→1
+            // across it and near-camera over-placement is curbed. Auto-scales
+            // with kCellUnit.
+            const float kPlacementDepthRange = max(1e-3f, (float)(kCellDimension / 2u) * kCellUnit);
+            depth = saturate(distance(cameraPos, v.posW) / kPlacementDepthRange);
 
             int3 cellPos = getCellPos(v.posW, cameraPos, kCellUnit);
             if (!isCellValid(cellPos))

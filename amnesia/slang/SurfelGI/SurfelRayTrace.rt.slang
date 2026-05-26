@@ -175,9 +175,11 @@ float3 evalAnalyticLight(DiffuseShading sd, inout RNG rng)
     float3 origin = sd.posW + sd.normalW * kRayEps;
     if (!gScene.materials.traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
 
-    // Lambert diffuse BRDF = albedo/π. Matches the reference NEE (mi.eval =
-    // albedo/π · cosθ) and the final composite in SurfelGIRenderPass.frag.
-    float3 Lr = sd.albedo * kInvPi * ls.Li * NdotL * invPdf;
+    // Lambert diffuse BRDF = albedo/π. kIndirectLightScale is a non-physical
+    // boost that cheats the GI/indirect term brighter without touching direct
+    // (which lives in SurfelGIRenderPass.frag). π cancels the 1/π so indirect
+    // matches the base-game no-1/π convention; raise above π to over-cheat.
+    float3 Lr = sd.albedo * kInvPi * ls.Li * NdotL * invPdf * kIndirectLightScale;
 
     // DEBUG: NEE samples that survived the gate and contribute non-zero
     // radiance. Compare against DbgScatHit; if Hit > 0 but NeeNonZero ≈ 0,

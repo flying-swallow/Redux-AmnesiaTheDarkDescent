@@ -106,7 +106,10 @@ float3 evalAnalyticLight(DiffuseShading sd)
 
         if (!gScene.materials.traceShadowRay(origin, ls.dir, ls.distance)) continue;
 
-        Lr += sd.albedo * kInvPi * ls.Li * NdotL;
+        // Base game omits the 1/π Lambert factor (deferred_light_pointlight.frag.fsl
+        // / visibility_shade.frag: albedo·color·atten·ndl); match it so direct
+        // reads at the original brightness. Albedo is applied here (composite).
+        Lr += sd.albedo * ls.Li * NdotL;
     }
     return Lr;
 }

@@ -663,7 +663,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     static_assert(sizeof(SurfelRecycleInfo) == 6,   "SurfelRecycleInfo host size != Slang scalar ArrayStride (6)");
 
     m_surfelCounterBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, kSurfelCounterSlotCount, sizeof(uint32_t), kStorage);
+        &RI.device, kSurfelCounterSlotCount, sizeof(uint32_t), kStorage,
+        /*deviceLocalOnly*/ true);
     m_surfelBuffer = detail::CreateBindlessSlotBuffer(
         &RI.device, kTotalSurfelLimit, sizeof(Surfel), kStorage);
     m_surfelGeometryBuffer = detail::CreateBindlessSlotBuffer(
@@ -703,15 +704,14 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     // from the recycle path either: collectCellInfo only pushes freed slots for
     // *dirty* surfels, and there are never any. The Falcor reference seeds the
     // equivalent via kInitialStatus={0,0,kTotalSurfelLimit,...} + an iota free
-    // buffer. Both buffers are host-mapped (CreateBindlessSlotBuffer is not
-    // device-local) and no GPU work is in flight at construction, so seed them
-    // directly — same pattern as the slot-generation memset just below.
+    // buffer. m_surfelFreeBuffer is host-mapped so its iota seed is written
+    // directly here; m_surfelCounterBuffer is device-local, so its Free seed is
+    // staged through m_surfelCounterMirror (set up with the other mirrors below)
+    // on the first frame's flushBindlessMirrors().
     {
-      auto *counter =
-          static_cast<uint32_t *>(m_surfelCounterBuffer.mappedAddress);
-      std::memset(counter, 0, kSurfelCounterSlotCount * sizeof(uint32_t));
-      counter[kSurfelCounterFree] = kTotalSurfelLimit;
-
+      // m_surfelCounterBuffer is now device-local; its boot seed (Free =
+      // kTotalSurfelLimit) is staged through m_surfelCounterMirror below.
+      // m_surfelFreeBuffer stays host-mapped, so seed its iota free list here.
       auto *freeIdx =
           static_cast<uint32_t *>(m_surfelFreeBuffer.mappedAddress);
       for (uint32_t i = 0; i < kTotalSurfelLimit; ++i)
@@ -756,6 +756,15 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     m_opaqueColorMirror.markAllDirty();
     m_opaqueIndexMirror.markAllDirty();
     m_bindlessSlotGenerationMirror.markAllDirty();
+
+    // Boot-seed the device-local surfel counter: init() zero-fills, then set
+    // Free = kTotalSurfelLimit (the free-list stack pointer). markAllDirty()
+    // stages the seed on the first frame's flushBindlessMirrors(), which lands
+    // ahead of the surfel passes via RI.uploader's fenced pre-pass. The host
+    // never touches this mirror again — the GPU owns the counter thereafter.
+    m_surfelCounterMirror.init(kSurfelCounterSlotCount, sizeof(uint32_t));
+    m_surfelCounterMirror.write<uint32_t>(kSurfelCounterFree, kTotalSurfelLimit);
+    m_surfelCounterMirror.markAllDirty();
 
 
     // Light SSBOs (point/spot/box). Unlike the bindless slot buffers above
@@ -1193,58 +1202,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                            float afFrameTime, cFrustum *apFrustum,
                            cWorld *apWorld, cRenderSettings *apSettings,
                            bool abSendFrameBufferToPostEffects) {
-
-  // SurfelGI debug-stats readback. The counter buffer is host-mapped (made
-  // via detail::CreateBindlessSlotBuffer); the GPU writes to it from the
-  // surfel passes below and we read whatever value the previous frame's
-  // dispatches left there. There's no explicit fence — the in-flight-frame
-  // count is small enough that the lag is just a frame or two, which is
-  // fine for human-eyeball debugging. Log accumulates per-second sums and
-  // dumps via the standard engine Log() once each interval rolls over.
-  {
-    static double sStatsAccum[kSurfelCounterSlotCount] = {0};
-    static uint32_t sStatsFrameCount = 0;
-    static float    sStatsTimer = 0.0f;
-    if (m_surfelCounterBuffer.mappedAddress) {
-      const auto *counters = static_cast<const uint32_t *>(
-          m_surfelCounterBuffer.mappedAddress);
-      for (uint32_t i = 0; i < kSurfelCounterSlotCount; ++i) {
-        sStatsAccum[i] += double(counters[i]);
-      }
-      sStatsFrameCount++;
-      sStatsTimer += afFrameTime;
-      if (sStatsTimer >= 1.0f && sStatsFrameCount > 0) {
-        const double n = double(sStatsFrameCount);
-        Log("[SurfelGI] frames=%u  Valid=%.0f Dirty=%.0f Free=%.0f Cell=%.0f "
-            "ReqRay=%.0f MissBnc=%.0f  "
-            "DbgAlive=%.0f DbgRadPos=%.0f DbgLifePos=%.0f "
-            "DbgCellHits=%.0f DbgCellInvalid=%.0f  "
-            "ScatHit=%.0f ScatMiss=%.0f NeeNZ=%.0f FinHit=%.0f  "
-            "GenSurfMax(avg)=%.0f\n",
-            sStatsFrameCount,
-            sStatsAccum[kSurfelCounterValid] / n,
-            sStatsAccum[kSurfelCounterDirty] / n,
-            sStatsAccum[kSurfelCounterFree] / n,
-            sStatsAccum[kSurfelCounterCell] / n,
-            sStatsAccum[kSurfelCounterRequestedRay] / n,
-            sStatsAccum[kSurfelCounterMissBounce] / n,
-            sStatsAccum[kSurfelCounterDbgAlive] / n,
-            sStatsAccum[kSurfelCounterDbgRadiusPos] / n,
-            sStatsAccum[kSurfelCounterDbgLifePos] / n,
-            sStatsAccum[kSurfelCounterDbgCellHits] / n,
-            sStatsAccum[kSurfelCounterDbgCellInvalid] / n,
-            sStatsAccum[kSurfelCounterDbgScatHit] / n,
-            sStatsAccum[kSurfelCounterDbgScatMiss] / n,
-            sStatsAccum[kSurfelCounterDbgScatNeeNonZero] / n,
-            sStatsAccum[kSurfelCounterDbgFinalizeHit] / n,
-            sStatsAccum[kSurfelCounterDbgGenSurfelMax] / n);
-        for (uint32_t i = 0; i < kSurfelCounterSlotCount; ++i)
-          sStatsAccum[i] = 0;
-        sStatsFrameCount = 0;
-        sStatsTimer = 0.0f;
-      }
-    }
-  }
 
   ml::float4x4 mainFrustumViewInvMat = apFrustum->GetViewMat();
   mainFrustumViewInvMat.Invert();
@@ -3368,6 +3325,9 @@ void cHybridRenderer::flushBindlessMirrors() {
       {&m_opaqueColorHandles, &m_opaqueColorMirror},
       {&m_opaqueIndexHandles, &m_opaqueIndexMirror},
       {&m_bindlessSlotGenerationBuffer, &m_bindlessSlotGenerationMirror},
+      // Boot-seed only: dirty on frame 0 (Free = kTotalSurfelLimit), a no-op
+      // every frame after — the GPU owns the counter once the passes run.
+      {&m_surfelCounterBuffer, &m_surfelCounterMirror},
   };
   for (const auto &it : items) {
     if (!it.mir->hasDirty())

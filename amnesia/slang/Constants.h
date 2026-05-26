@@ -102,11 +102,11 @@ SHARED_CONST uint kInvalidTextureIndex       = 0xffffffffu;
 //   kSurfelDepth{Width,Height,Unit}:   depth atlas (same geometry).
 // -----------------------------------------------------------------------------
 SHARED_CONST uint  kTotalSurfelLimit    = 150000u;
-SHARED_CONST uint  kRayBudget           = kTotalSurfelLimit * 64u;
+SHARED_CONST uint  kRayBudget           = kTotalSurfelLimit * 128u;
 SHARED_CONST uint  kCellDimension       = 250u;
 SHARED_CONST uint  kCellCount           = kCellDimension * kCellDimension * kCellDimension;
 SHARED_CONST uint  kCellToSurfelCapacity = kTotalSurfelLimit * 125u;
-SHARED_CONST float kCellUnit            = 6.0f;
+SHARED_CONST float kCellUnit            = 0.5f;
 SHARED_CONST float kSurfelTargetArea    = 40000.0f;
 SHARED_CONST uint  kPerCellSurfelLimit  = 1024u;
 SHARED_CONST uint  kRefCountThreshold   = 32u;
@@ -214,6 +214,13 @@ SHARED_CONST uint kSurfelCounterSlotCount        = 16u;
 // Kept here so host and UI code share one source of truth.
 // -----------------------------------------------------------------------------
 SHARED_CONST uint  kMaxSurfelForStep            = 10u;
+
+// Non-physical boost on the light radiance the surfel NEE integrates — cheats
+// the indirect/GI term brighter without touching direct. The surfel NEE keeps
+// its 1/π Lambert, so π (≈3.14) cancels it → indirect uses the same no-1/π
+// convention as the (base-matched) direct in SurfelGIRenderPass.frag; raise
+// above π to over-cheat the GI fill.
+SHARED_CONST float kIndirectLightScale          = 50.0f;
 
 // Surfel generation.
 SHARED_CONST float kDefaultChanceMultiply       = 0.3f;
