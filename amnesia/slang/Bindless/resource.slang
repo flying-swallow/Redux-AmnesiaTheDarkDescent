@@ -122,6 +122,16 @@ public RWStructuredBuffer<uint> gBindlessSlotGeneration;
 [vk::binding(kBindingSurfelSlotGeneration, 0)]
 public RWStructuredBuffer<uint> gSurfelSlotGeneration;
 
+// Coarse world-space light grid (LightGridBuildPass writes, SurfelRayTrace NEE
+// reads). gLightGridList stores unified light indices (point then spot) for
+// each cell, packed kLightsPerCellMax per cell; gLightGridCount is the (capped)
+// per-cell length.
+[vk::binding(kBindingLightGridCount, 0)]
+public RWStructuredBuffer<uint> gLightGridCount;
+
+[vk::binding(kBindingLightGridList, 0)]
+public RWStructuredBuffer<uint> gLightGridList;
+
 // -----------------------------------------------------------------------------
 // Scene-object + per-material-variant tables. Slot-allocated by the same
 // bindless pool as opaque materials; each variant has its own table so

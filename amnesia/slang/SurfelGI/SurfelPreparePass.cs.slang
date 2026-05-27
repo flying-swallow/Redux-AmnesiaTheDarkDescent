@@ -22,19 +22,4 @@ void csMain(uint3 dispatchThreadId: SV_DispatchThreadID)
     gSurfelCounter[kSurfelCounterCell]          = 0u;
     gSurfelCounter[kSurfelCounterRequestedRay] = 0u;
     gSurfelCounter[kSurfelCounterMissBounce]   = 0u;
-
-    // Debug counters added for the surfel→cell binding investigation.
-    // Same per-frame zeroing as the rest; without this they accumulate
-    // monotonically across the whole run and the host's per-second average
-    // ends up dividing a growing total by frame count (≈ frame-index/2).
-    gSurfelCounter[kSurfelCounterDbgAlive]          = 0u;
-    gSurfelCounter[kSurfelCounterDbgCellHits]       = 0u;
-    gSurfelCounter[kSurfelCounterDbgCellInvalid]    = 0u;
-    gSurfelCounter[kSurfelCounterDbgRadiusPos]      = 0u;
-    gSurfelCounter[kSurfelCounterDbgLifePos]        = 0u;
-    gSurfelCounter[kSurfelCounterDbgScatHit]        = 0u;
-    gSurfelCounter[kSurfelCounterDbgScatMiss]       = 0u;
-    gSurfelCounter[kSurfelCounterDbgScatNeeNonZero] = 0u;
-    gSurfelCounter[kSurfelCounterDbgFinalizeHit]    = 0u;
-    gSurfelCounter[kSurfelCounterDbgGenSurfelMax]   = 0u;
 }

@@ -163,9 +163,43 @@ float3 evalAnalyticLight(DiffuseShading sd, inout RNG rng)
     uint lightCount = gScene.getLightCount();
     if (lightCount == 0) return float3(0.f);
 
-    uint lightIdx = rng.next_uint(lightCount - 1u);
-    float invPdf  = float(lightCount); // uniform discrete pdf = 1/N
+    // Importance-sample lights from the world-space light grid: pick uniformly
+    // among only the lights whose radius reaches this shading point's cell
+    // (pdf = 1/listLen). Falls back to uniform-over-all when the cell is
+    // out-of-grid or empty — both unbiased, and the fallback stops a missed bin
+    // from dimming a lit region. next_uint(N) covers [0,N) (the old `N-1` form
+    // dropped the last light).
+    uint  lightIdx;
+    float invPdf;
+    int3  lcell = getLightCellPos(sd.posW, gScene.camera.getPosition());
+    if (isLightCellValid(lcell))
+    {
+        uint flat = getLightFlattenCellIndex(lcell);
+        uint L    = min(gLightGridCount[flat], kLightsPerCellMax);
+        if (L > 0u)
+        {
+            uint pick = rng.next_uint(L);
+            lightIdx  = gLightGridList[flat * kLightsPerCellMax + pick];
+            invPdf    = float(L);
+        }
+        else
+        {
+            lightIdx = rng.next_uint(lightCount);
+            invPdf   = float(lightCount);
+        }
+    }
+    else
+    {
+        lightIdx = rng.next_uint(lightCount);
+        invPdf   = float(lightCount);
+    }
 
+    // Type-aware sample. Point lights use their full sampler (incl. gobo cube).
+    // Spot lights use a GI-only SPHERICAL sampler (radial falloff, no cone /
+    // gobo) so they contribute to indirect across their whole radius — the
+    // cone-restricted SpotLight.sample() (used for direct in
+    // SurfelGIRenderPass.frag) lights almost no surfels. Box lights aren't
+    // NEE-sampled (and aren't binned into the grid).
     LightSample ls;
     if (!gScene.sampleLightByIndex(lightIdx, sd.posW, ls)) return float3(0.f);
 
@@ -180,12 +214,6 @@ float3 evalAnalyticLight(DiffuseShading sd, inout RNG rng)
     // (which lives in SurfelGIRenderPass.frag). π cancels the 1/π so indirect
     // matches the base-game no-1/π convention; raise above π to over-cheat.
     float3 Lr = sd.albedo * kInvPi * ls.Li * NdotL * invPdf * kIndirectLightScale;
-
-    // DEBUG: NEE samples that survived the gate and contribute non-zero
-    // radiance. Compare against DbgScatHit; if Hit > 0 but NeeNonZero ≈ 0,
-    // NEE is the bottleneck (sample failures, NdotL, or occlusion).
-    if (any(Lr > 0.f))
-        InterlockedAdd(gSurfelCounter[kSurfelCounterDbgScatNeeNonZero], 1u);
 
     return Lr;
 }
@@ -308,8 +336,6 @@ bool finalize(inout ScatterPayload scatterPayload, const VertexData v, const Tri
     Lr.xyz /= Lr.w;
     scatterPayload.radiance += scatterPayload.thp * Lr.xyz;
 
-    // DEBUG: finalize calls that found cached surfel radiance to add.
-    InterlockedAdd(gSurfelCounter[kSurfelCounterDbgFinalizeHit], 1u);
     return true;
 }
 
@@ -387,9 +413,6 @@ void handleHit(TriangleHit triangleHit, inout ScatterPayload scatterPayload)
 [shader("miss")]
 void scatterMiss(inout ScatterPayload scatterPayload)
 {
-    // DEBUG: scatter rays that escaped the scene without hitting anything.
-    InterlockedAdd(gSurfelCounter[kSurfelCounterDbgScatMiss], 1u);
-
     // Environment map evaluator isn't ported — treat the miss as black
     // radiance and terminate. When an env map binding gets added, this is
     // where the lookup goes.
@@ -413,11 +436,6 @@ void scatterAnyHit(inout ScatterPayload scatterPayload, BuiltInTriangleIntersect
 [shader("closesthit")]
 void scatterCloseHit(inout ScatterPayload scatterPayload, BuiltInTriangleIntersectionAttributes attribs)
 {
-    // DEBUG: scatter rays that actually hit geometry. If this stays at 0
-    // while DbgScatMiss is huge, the TraceRay (or the TLAS / mask / flags)
-    // is the bug, not the shading.
-    InterlockedAdd(gSurfelCounter[kSurfelCounterDbgScatHit], 1u);
-
     TriangleHit triangleHit;
     triangleHit.instanceID     = InstanceID();
     triangleHit.primitiveIndex = PrimitiveIndex();

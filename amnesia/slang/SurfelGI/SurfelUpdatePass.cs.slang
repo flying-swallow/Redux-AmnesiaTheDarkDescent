@@ -59,11 +59,6 @@ void collectCellInfo(uint3 dispatchThreadId: SV_DispatchThreadID)
     uint2  resolution = uint2(gPerFrame.viewportSize);
     float  fovy = gPerFrame.cameraFov;
 
-    // DEBUG: split the alive gate so we can see which arm is failing when
-    // DbgAlive collapses to 0. Counted on every dispatched thread.
-    if (surfelRadius > 0)              InterlockedAdd(gSurfelCounter[kSurfelCounterDbgRadiusPos], 1u);
-    if (surfelRecycleInfo.life > 0)    InterlockedAdd(gSurfelCounter[kSurfelCounterDbgLifePos],   1u);
-
     // Cached primary-ray triangle hit + stale-anchor guard. A surfel's bindless
     // anchor slot goes stale whenever the slot's geometry changes out from under
     // it: the backing vertex buffer is freed, the slot is REUSED by a different
@@ -85,9 +80,6 @@ void collectCellInfo(uint3 dispatchThreadId: SV_DispatchThreadID)
 
     if (surfelRadius > 0 && surfelRecycleInfo.life > 0 && !slotStale)
     {
-        // DEBUG: dirty surfels that reach the cell-binding branch.
-        InterlockedAdd(gSurfelCounter[kSurfelCounterDbgAlive], 1u);
-
         uint validSurfelCount;
         InterlockedAdd(gSurfelCounter[kSurfelCounterValid], 1u, validSurfelCount);
         gSurfelValidIndexBuffer[validSurfelCount] = surfelIndex;
@@ -123,22 +115,10 @@ void collectCellInfo(uint3 dispatchThreadId: SV_DispatchThreadID)
         for (uint i = 0; i < 125; ++i)
         {
             int3 neighborPos = cellPos + neighborOffset[i];
-
-            // DEBUG: split the validity vs intersection checks so we can
-            // distinguish "cell off the grid" from "surfel didn't reach
-            // this neighbor". isSurfelIntersectCell normally short-circuits
-            // on isCellValid and we'd never know how many neighbors fell
-            // outside ±kCellDimension/2.
-            if (!isCellValid(neighborPos))
-            {
-                InterlockedAdd(gSurfelCounter[kSurfelCounterDbgCellInvalid], 1u);
-                continue;
-            }
             if (isSurfelIntersectCell(surfel, neighborPos, cameraPos, kCellUnit))
             {
                 uint flattenIndex = getFlattenCellIndex(neighborPos);
                 InterlockedAdd(gCellInfoBuffer[flattenIndex].surfelCount, 1u);
-                InterlockedAdd(gSurfelCounter[kSurfelCounterDbgCellHits], 1u);
             }
         }
 

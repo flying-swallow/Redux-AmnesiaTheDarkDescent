@@ -66,6 +66,8 @@ SHARED_CONST uint kBindingTlas                        = 36u;  // RaytracingAccel
 SHARED_CONST uint kBindingSurfelBounds                = 37u;  // SurfelBounds (compact cull record, kTotalSurfelLimit)
 SHARED_CONST uint kBindingBindlessSlotGeneration      = 38u;  // per object slot: reuse generation (kObjectSlotCapacity)
 SHARED_CONST uint kBindingSurfelSlotGeneration        = 39u;  // per surfel: anchor-slot generation captured at spawn (kTotalSurfelLimit)
+SHARED_CONST uint kBindingLightGridCount              = 40u;  // RWStructuredBuffer<uint> (kLightGridCellCount) — world-space light grid
+SHARED_CONST uint kBindingLightGridList               = 41u;  // RWStructuredBuffer<uint> (kLightGridCellCount * kLightsPerCellMax)
 
 // -----------------------------------------------------------------------------
 // Bindless pool capacities + sentinel.
@@ -87,6 +89,18 @@ SHARED_CONST uint kBoxSlotLightCapacity      = 256u;
 SHARED_CONST uint kInvalidTextureIndex       = 0xffffffffu;
 
 // -----------------------------------------------------------------------------
+// Material-config flag bits packed into DiffuseMaterial.materialConfig by the
+// host (CreateMaterailConfigFlags). MIRROR of the TextureConfigFlags enum in
+// HPL2/core/include/graphics/MaterialResource.h — keep the two in sync. Shaders
+// gate optional shading (e.g. the GGX specular lobe) on these; e.g.
+// `(m.materialConfig & kMaterialFlagEnableSpecular) != 0u`.
+// -----------------------------------------------------------------------------
+SHARED_CONST uint kMaterialFlagEnableNormal   = 1u << 1;
+SHARED_CONST uint kMaterialFlagEnableSpecular = 1u << 2;
+SHARED_CONST uint kMaterialFlagEnableHeight   = 1u << 4;
+SHARED_CONST uint kMaterialFlagEnableCubeMap  = 1u << 6;
+
+// -----------------------------------------------------------------------------
 // Surfel-GI capacities + cell-grid sizing.
 //   kTotalSurfelLimit:    surfel buffer head count.
 //   kRayBudget:           per-frame ray slots in gSurfelRayResultBuffer.
@@ -102,12 +116,12 @@ SHARED_CONST uint kInvalidTextureIndex       = 0xffffffffu;
 //   kSurfelDepth{Width,Height,Unit}:   depth atlas (same geometry).
 // -----------------------------------------------------------------------------
 SHARED_CONST uint  kTotalSurfelLimit    = 150000u;
-SHARED_CONST uint  kRayBudget           = kTotalSurfelLimit * 128u;
+SHARED_CONST uint  kRayBudget           = kTotalSurfelLimit * 64u;
 SHARED_CONST uint  kCellDimension       = 250u;
 SHARED_CONST uint  kCellCount           = kCellDimension * kCellDimension * kCellDimension;
 SHARED_CONST uint  kCellToSurfelCapacity = kTotalSurfelLimit * 125u;
 SHARED_CONST float kCellUnit            = 0.5f;
-SHARED_CONST float kSurfelTargetArea    = 40000.0f;
+SHARED_CONST float kSurfelTargetArea    = 50000.0f;
 SHARED_CONST uint  kPerCellSurfelLimit  = 1024u;
 SHARED_CONST uint  kRefCountThreshold   = 32u;
 SHARED_CONST uint  kMaxLife             = 240u;
@@ -118,6 +132,15 @@ SHARED_CONST uint2 kIrradianceMapRes       = uint2(4096, 4096);
 SHARED_CONST uint2 kIrradianceMapUnit      = uint2(7, 7);
 SHARED_CONST uint2 kSurfelDepthTextureRes  = uint2(4096, 4096);
 SHARED_CONST uint2 kSurfelDepthTextureUnit = uint2(7, 7);
+
+// World-space light grid (coarse, camera-centered) for surfel NEE importance
+// sampling. Covers the same extent as the surfel grid (kCellDimension·kCellUnit)
+// but at a coarse resolution so per-cell light lists stay short. Built each
+// frame by LightGridBuildPass; read by SurfelRayTrace.rt evalAnalyticLight.
+SHARED_CONST uint  kLightGridDim       = 32u;
+SHARED_CONST float kLightGridUnit      = (float(kCellDimension) * kCellUnit) / float(kLightGridDim);
+SHARED_CONST uint  kLightGridCellCount = kLightGridDim * kLightGridDim * kLightGridDim;  // 32768
+SHARED_CONST uint  kLightsPerCellMax   = 32u;                                            // per-cell cap
 
 // -----------------------------------------------------------------------------
 // gSurfelCounter slot indices. The counter is a flat
@@ -132,62 +155,7 @@ SHARED_CONST uint kSurfelCounterFree           = 2u;
 SHARED_CONST uint kSurfelCounterCell           = 3u;
 SHARED_CONST uint kSurfelCounterRequestedRay   = 4u;
 SHARED_CONST uint kSurfelCounterMissBounce     = 5u;
-
-// Debug counters for SurfelUpdatePass::collectCellInfo. Populated only
-// inside that entry point; surfaced in HybridRenderer's per-second
-// [SurfelGI] log line. Cheap (atomic-add per dirty surfel × 125 neighbor
-// slots in the worst case), kept always-on while the surfel→cell binding
-// path stabilises. Remove (and drop the slot count back to 6) once the
-// pipeline is settled.
-//   DbgAlive       : dirty surfels that passed the radius>0 && life>0
-//                    gate — i.e. that reach the cell-binding branch.
-//                    Should be == Dirty when surfels are healthy; if
-//                    much smaller, surfels are dying before they bind.
-//   DbgCellHits    : total (surfel, neighbor-cell) intersections — the
-//                    number of InterlockedAdd calls that actually
-//                    incremented gCellInfoBuffer.surfelCount. Should be
-//                    on the order of DbgAlive × (a few). Zero means
-//                    isSurfelIntersectCell rejected every neighbor.
-//   DbgCellInvalid : neighbor cells rejected by isCellValid (off the
-//                    grid). A scene where the camera + surfels are far
-//                    from origin can push the camera-relative cellPos
-//                    past ±kCellDimension/2 and silently lose binds.
-SHARED_CONST uint kSurfelCounterDbgAlive        = 6u;
-SHARED_CONST uint kSurfelCounterDbgCellHits     = 7u;
-SHARED_CONST uint kSurfelCounterDbgCellInvalid  = 8u;
-// Finer-grained splits of the alive gate (counted on dirty surfels only,
-// i.e. one per dispatched thread that survived the dispatch-bounds check).
-//   DbgRadiusPos : dirty surfels whose prior-frame radius > 0
-//   DbgLifePos   : dirty surfels whose decremented life > 0
-// If DbgAlive == 0 but Dirty > 0, comparing these tells you which arm of
-// the gate is killing the surfels.
-SHARED_CONST uint kSurfelCounterDbgRadiusPos    = 9u;
-SHARED_CONST uint kSurfelCounterDbgLifePos      = 10u;
-
-// Scatter-path counters (SurfelGI/SurfelRayTrace.rt.slang). Tells you why
-// `surfel.radiance` is staying at zero after the integrate pass:
-//   DbgScatHit       : scatterCloseHit invocations — primary scatter-ray
-//                      hits. Compares against DbgScatMiss; if Hit≈0 the
-//                      TraceRay isn't reaching geometry at all.
-//   DbgScatMiss      : scatterMiss invocations.
-//   DbgScatNeeNonZero: handleHit calls where evalAnalyticLight returned
-//                      a strictly positive direct-lighting contribution.
-//                      Hit > 0 but NeeNonZero ≈ 0 means NEE is always
-//                      shadowed / out-of-range / NdotL≤0; no surfel
-//                      luminance because nothing's feeding it.
-//   DbgFinalizeHit   : finalize() calls that found ≥1 surfel in the cell
-//                      and added cache radiance. While the cache is cold
-//                      this stays at 0 — the surfels boot from NEE alone.
-SHARED_CONST uint kSurfelCounterDbgScatHit       = 11u;
-SHARED_CONST uint kSurfelCounterDbgScatMiss      = 12u;
-SHARED_CONST uint kSurfelCounterDbgScatNeeNonZero = 13u;
-SHARED_CONST uint kSurfelCounterDbgFinalizeHit   = 14u;
-// Largest per-cell surfelCount the generation pass walked this frame
-// (InterlockedMax, one global atomic per 16x16 tile from the elected
-// thread). Surfaced as an avg-of-per-frame-max in the [SurfelGI] log line;
-// used to size the Stage-2 cooperative-LDS budget. Remove once tuned.
-SHARED_CONST uint kSurfelCounterDbgGenSurfelMax  = 15u;
-SHARED_CONST uint kSurfelCounterSlotCount        = 16u;
+SHARED_CONST uint kSurfelCounterSlotCount      = 6u;
 
 // Static feature toggles. The Falcor reference set these via host addDefine;
 // here we #define them directly (Constants.h is included by every SurfelGI
@@ -220,7 +188,7 @@ SHARED_CONST uint  kMaxSurfelForStep            = 10u;
 // its 1/π Lambert, so π (≈3.14) cancels it → indirect uses the same no-1/π
 // convention as the (base-matched) direct in SurfelGIRenderPass.frag; raise
 // above π to over-cheat the GI fill.
-SHARED_CONST float kIndirectLightScale          = 50.0f;
+SHARED_CONST float kIndirectLightScale          = 20.0f;
 
 // Surfel generation.
 SHARED_CONST float kDefaultChanceMultiply       = 0.3f;

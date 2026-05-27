@@ -212,6 +212,47 @@ bool isSurfelIntersectCell(Surfel surfel, int3 cellPos, float3 cameraPosW, float
     return dist < surfel.radius;
 }
 
+// --- Coarse world-space light grid — analogs of the surfel-grid helpers above,
+// parameterized for kLightGridDim / kLightGridUnit and a (center,radius) sphere
+// instead of a Surfel. Used by LightGridBuildPass (binning) and SurfelRayTrace
+// NEE (lookup). Camera-centered, same convention as getCellPos. ---
+int3 getLightCellPos(float3 posW, float3 cameraPosW)
+{
+    float3 posC = (posW - cameraPosW) / kLightGridUnit;
+    return (int3)round(posC);
+}
+
+uint getLightFlattenCellIndex(int3 cellPos)
+{
+    uint3 unsignedPos = cellPos + uint3(kLightGridDim / 2);
+    return (unsignedPos.z * kLightGridDim * kLightGridDim) + (unsignedPos.y * kLightGridDim) + unsignedPos.x;
+}
+
+bool isLightCellValid(int3 cellPos)
+{
+    if (abs(cellPos.x) >= kLightGridDim / 2)
+        return false;
+    if (abs(cellPos.y) >= kLightGridDim / 2)
+        return false;
+    if (abs(cellPos.z) >= kLightGridDim / 2)
+        return false;
+
+    return true;
+}
+
+bool sphereIntersectsLightCell(float3 center, float radius, int3 cellPos, float3 cameraPosW)
+{
+    if (!isLightCellValid(cellPos))
+        return false;
+
+    float3 half3   = float3(kLightGridUnit, kLightGridUnit, kLightGridUnit) / 2.0f;
+    float3 minPosW = cellPos * kLightGridUnit - half3 + cameraPosW;
+    float3 maxPosW = cellPos * kLightGridUnit + half3 + cameraPosW;
+    float3 closePoint = min(max(center, minPosW), maxPosW);
+
+    return distance(closePoint, center) < radius;
+}
+
 float3x3 get_tangentspace(in float3 normal)
 {
     float3 helper = abs(normal.x) > 0.99 ? float3(0, 0, 1) : float3(1, 0, 0);

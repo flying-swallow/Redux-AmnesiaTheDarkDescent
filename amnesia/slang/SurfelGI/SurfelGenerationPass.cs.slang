@@ -231,13 +231,6 @@ void csMain(
     uint  x = (electedData & 0x000000F0) >> 4;
     uint  y = (electedData & 0x0000000F) >> 0;
 
-    // DEBUG (Stage 0): sample per-cell surfel list length to size the
-    // cooperative-LDS budget. One global atomic per tile from the elected
-    // (min-coverage) thread — that thread is guaranteed valid (it ran the
-    // InterlockedMin above) and reaches here without early-returning.
-    if (groupThreadID.x == x && groupThreadID.y == y)
-        InterlockedMax(gSurfelCounter[kSurfelCounterDbgGenSurfelMax], cellInfo.surfelCount);
-
     if (cellInfo.surfelCount < kPerCellSurfelLimit)
     {
         if (groupThreadID.x == x && groupThreadID.y == y)

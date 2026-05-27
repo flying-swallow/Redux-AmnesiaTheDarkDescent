@@ -53,7 +53,7 @@ struct DiffuseShading
     float3 normalW;
     float3 albedo;
     float3 emission;
-};
+    };
 
 // emission = illumination-map texel (DiffuseMaterial slot 5) * per-object glow
 // scalar (UniformObject.illuminationAmount). Without this the surfel composite
@@ -161,7 +161,7 @@ float4 psMain(PSIn pin) : SV_Target
         // Diffuse Lambert: weight = f(wi, wo) * dot(wo, n) / pdf(wo).
         // With f = albedo / π and pdf = cosθ / π for the cosine-sampled
         // surfel cache that produced indirect, this reduces to albedo.
-        finalGather = direct + sd.albedo * indirect;
+        finalGather = sd.albedo * (direct  + indirect);
     }
     else
     {

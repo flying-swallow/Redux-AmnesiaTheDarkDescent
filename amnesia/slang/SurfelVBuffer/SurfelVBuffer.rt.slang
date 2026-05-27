@@ -20,6 +20,13 @@ import Scene;
 import Bindless.resource;
 import Bindless.interface;
 import PerFrame.resource;
+import Brdf;
+
+// A V-buffer pixel stores one hit, so the one-bounce reroute can only
+// represent a sharp (mirror) reflection. Reflective materials whose GGX
+// roughness exceeds this fall through to the primary hit and are reflected
+// by SurfelGIRenderPass's Fresnel-weighted cubemap path instead.
+static const float kMirrorRoughThreshold = 0.1f;
 
 // Resolution comes from DispatchRaysDimensions() — no per-pass CB.
 // gPackedHitInfo is on the bindless set (kBindingPackedHitInfo, set 0).
