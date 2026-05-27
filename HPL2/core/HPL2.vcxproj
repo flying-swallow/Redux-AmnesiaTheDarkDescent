@@ -122,7 +122,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;..\..\amnesia\glsl;$(VULKAN_SDK)\Include;..\..\extern\VulkanMemoryAllocator\include;..\..\extern\MathLib;..\..\extern\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;..\..\amnesia\slang;$(VULKAN_SDK)\Include;..\..\extern\VulkanMemoryAllocator\include;..\..\extern\MathLib;..\..\extern\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>_DEBUG;_LIB;_WINDOWS;_USRDLL;HPL_EXPORTS;MEMORY_MANAGER_ACTIVE;USE_SDL2;USE_GAMEPAD;_CRT_SECURE_NO_WARNINGS;GLEW_STATIC;_NEWTON_USE_LIB;IL_STATIC_LIB;HAVE_LIBC;AL_LIBTYPE_STATIC;WIN32_LEAN_AND_MEAN;NOMINMAX;VK_NO_PROTOTYPES;VK_USE_PLATFORM_WIN32_KHR;ENABLE_SPIRV;%(PreprocessorDefinitions)</PreprocessorDefinitions>
@@ -139,7 +139,7 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;..\..\amnesia\glsl;$(VULKAN_SDK)\Include;..\..\extern\VulkanMemoryAllocator\include;..\..\extern\MathLib;..\..\extern\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\include;..\dependencies\include;..\dependencies\include\AL;..\dependencies\sources\zlib;..\dependencies\sources\AngelScript\include;..\..\amnesia\slang;$(VULKAN_SDK)\Include;..\..\extern\VulkanMemoryAllocator\include;..\..\extern\MathLib;..\..\extern\volk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
@@ -172,6 +172,7 @@
     <ClInclude Include="include\graphics\IndexPool.h" />
     <ClInclude Include="include\graphics\MaterialResource.h" />
     <ClInclude Include="include\graphics\ObjectPool.h" />
+    <ClInclude Include="include\graphics\PostEffectHelpers.h" />
     <ClInclude Include="include\graphics\RenderList2.h" />
     <ClInclude Include="include\graphics\RIBootstrap.h" />
     <ClInclude Include="include\graphics\RIConversion.h" />
@@ -181,6 +182,7 @@
     <ClInclude Include="include\graphics\RIGPUPreset.h" />
     <ClInclude Include="include\graphics\RIPogoBuffer.h" />
     <ClInclude Include="include\graphics\RIProgram.h" />
+    <ClInclude Include="include\graphics\RIProgramHelpers.h" />
     <ClInclude Include="include\graphics\RIRenderer.h" />
     <ClInclude Include="include\graphics\RIResourceUploader.h" />
     <ClInclude Include="include\graphics\RIScratchAlloc.h" />
@@ -203,6 +205,7 @@
     <ClInclude Include="include\resources\SpvResourceLoader.h" />
     <ClInclude Include="include\system\BinTree.h" />
     <ClInclude Include="include\system\Container.h" />
+    <ClInclude Include="include\system\Event.h" />
     <ClInclude Include="include\system\Hasher.h" />
     <ClInclude Include="include\system\LogicTimer.h" />
     <ClInclude Include="include\system\LowLevelSystem.h" />
@@ -536,6 +539,7 @@
     <ClCompile Include="sources\graphics\ImageResourceWrapper.cpp" />
     <ClCompile Include="sources\graphics\IndexPool.cpp" />
     <ClCompile Include="sources\graphics\MaterialResource.cpp" />
+    <ClCompile Include="sources\graphics\PostEffectHelpers.cpp" />
     <ClCompile Include="sources\graphics\RenderList2.cpp" />
     <ClCompile Include="sources\graphics\RIAccelStructure.cpp" />
     <ClCompile Include="sources\graphics\RIBootstrap.cpp" />
@@ -544,6 +548,7 @@
     <ClCompile Include="sources\graphics\RIFormat.c" />
     <ClCompile Include="sources\graphics\RIPogoBuffer.cpp" />
     <ClCompile Include="sources\graphics\RIProgram.cpp" />
+    <ClCompile Include="sources\graphics\RIProgramHelpers.cpp" />
     <ClCompile Include="sources\graphics\RIRenderer.cpp" />
     <ClCompile Include="sources\graphics\RIResourceUploader.cpp" />
     <ClCompile Include="sources\graphics\RIScratchAlloc.cpp" />

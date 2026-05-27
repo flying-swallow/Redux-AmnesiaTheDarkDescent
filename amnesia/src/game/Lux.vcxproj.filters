@@ -219,8 +219,8 @@
     <ClInclude Include="LuxPlayerState_UseItem.h" />
     <ClInclude Include="LuxSavedGame.h" />
     <ClInclude Include="resource.h" />
-    <ClInclude Include="..\..\glsl\forward_shared.h">
-      <Filter>glsl</Filter>
+    <ClInclude Include="..\..\slang\Constants.h">
+      <Filter>slang</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -230,8 +230,8 @@
     <None Include="Lux.ico" />
   </ItemGroup>
   <ItemGroup>
-    <Filter Include="glsl">
-      <UniqueIdentifier>{534e336b-d65a-4203-825b-8cb418d5ba48}</UniqueIdentifier>
+    <Filter Include="slang">
+      <UniqueIdentifier>{da6abc7d-bf7b-4e6e-a91d-2db8d016a2f7}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
 </Project>

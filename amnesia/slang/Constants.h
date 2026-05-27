@@ -188,7 +188,7 @@ SHARED_CONST uint  kMaxSurfelForStep            = 10u;
 // its 1/π Lambert, so π (≈3.14) cancels it → indirect uses the same no-1/π
 // convention as the (base-matched) direct in SurfelGIRenderPass.frag; raise
 // above π to over-cheat the GI fill.
-SHARED_CONST float kIndirectLightScale          = 20.0f;
+SHARED_CONST float kIndirectLightScale          = 40.0f;
 
 // Surfel generation.
 SHARED_CONST float kDefaultChanceMultiply       = 0.3f;
