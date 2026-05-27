@@ -93,6 +93,8 @@ public:
   virtual void SetupRenderList() override {};
   virtual void RenderObjects() override {};
 
+  cRenderList2* GetRenderList() { return &m_rendererList; };
+
 private:
   // Resolve `mat` to its slot in m_opaqueMaterialBuffer. Allocates a slot on
   // first sight, resolves and uploads texture indices when the material's

@@ -40,6 +40,7 @@
 #include "graphics/RIPogoBuffer.h"
 #include "system/Hasher.h"
 #include "graphics/LowLevelGraphics.h"
+#include "graphics/RenderList2.h"
 
 #include "sound/Sound.h"
 #include "sound/LowLevelSound.h"
@@ -444,6 +445,10 @@ namespace hpl {
 
 	cWorld* cScene::LoadWorld(const tString& asFile, tWorldLoadFlag aFlags)
 	{
+		cHybridRenderer* pHybridRenderer = static_cast<cHybridRenderer*>(mpGraphics->GetRenderer(eRenderer_Main));
+		cRenderList2* pRenderList = pHybridRenderer->GetRenderList();
+		pRenderList->ClearPersistentObjectsForMapChange();
+
 		///////////////////////////////////
 		// Load the map file
 		tWString asPath = mpResources->GetFileSearcher()->GetFilePath(asFile);
