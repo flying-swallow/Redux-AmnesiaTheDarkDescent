@@ -119,6 +119,12 @@ LRUCache::BindlessPoolReq  LRUCache::request(hash_t cookie, uint32_t frameIndex)
         queueEnd->quNext = c;
       }
       queueEnd = c;
+      // Refresh last-use so the eviction guard below measures frames since
+      // this access, not since first allocation. Without this a texture used
+      // every frame keeps a stale frameIndex; once it falls to queueBegin the
+      // guard passes and its slot is recycled (descriptor overwritten) while
+      // frames still in flight reference it — the wrong texture flashes.
+      c->frameIndex = frameIndex;
       // found a slot with the same cookie
       return LRUCache::BindlessPoolReq{ c->id, true, false};
     }

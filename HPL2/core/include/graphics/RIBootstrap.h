@@ -44,6 +44,10 @@ public:
   RIRenderer_s renderer;
   RIDevice_s device;
 	RIProgram gui;
+	// Fullscreen passthrough (posteffect_fullscreen.vert + posteffect_blit.frag)
+	// used to blit the renderer's pogo "read" half to the swapchain. Lives here
+	// so cScene can present after applying the viewport's post-effect composite.
+	RIProgram postEffectBlit;
 
   // 1x1 white texture used as the default texture binding when no real
   // texture is available.

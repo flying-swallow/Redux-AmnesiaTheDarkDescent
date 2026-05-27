@@ -153,18 +153,7 @@ cLuxInventory::cLuxInventory() : iLuxUpdateable("LuxInventory")
 
 	mpWhiteGfx = mpGui->CreateGfxFilledRect(cColor(1,1), eGuiMaterial_Alpha);
 
-	{
-		cResources *pResources = gpBase->mpEngine->GetResources();
-		auto vert_stage = hpl::RIProgram::loadShaderStage(pResources->GetFileSearcher(), "inventory_post.vert.spv");
-		auto frag_stage = hpl::RIProgram::loadShaderStage(pResources->GetFileSearcher(), "inventory_post.frag.spv");
-		// Slang-compiled (amnesia/slang/InventoryPost/inventory_post.{vert,frag}.slang).
-		// Entry points are "vsMain" / "psMain" per the project convention.
-		std::array<hpl::RIProgram::ModuleStage, 2> stages = {
-			hpl::RIProgram::ModuleStage{hpl::RIProgram::PROGRAM_STAGE_VERTEX,   vert_stage, "vsMain"},
-			hpl::RIProgram::ModuleStage{hpl::RIProgram::PROGRAM_STAGE_FRAGMENT, frag_stage, "psMain"},
-		};
-		m_invPostProgram.initialize(&hpl::RI.device, stages);
-	}
+	mScreenCapture.Init(mpGui);
 
 	mpFontDefault = NULL;
 	mpFontHeader = NULL;
@@ -892,13 +881,13 @@ void cLuxInventory::OnDraw(float afFrameTime)
 	// Suppress the snapshot quads until the deferred OnPostRender capture has
 	// run at least once — otherwise we'd sample texture memory that's still
 	// in its initial UNDEFINED layout.
-	if(mbBackgroundCaptured)
+	if(mScreenCapture.IsCaptured())
 	{
-		if(mpScreenGfx && mfAlpha<1)
-			mpGuiSet->DrawGfx(mpScreenGfx,mvGuiSetStartPos+cVector3f(0,0,0),mvGuiSetSize);
+		if(mScreenCapture.GetScreenGfx() && mfAlpha<1)
+			mpGuiSet->DrawGfx(mScreenCapture.GetScreenGfx(),mvGuiSetStartPos+cVector3f(0,0,0),mvGuiSetSize);
 
-		if(mpScreenBgGfx)
-			mpGuiSet->DrawGfx(mpScreenBgGfx,mvGuiSetStartPos+cVector3f(0,0,0.2f),mvGuiSetSize,cColor(1, mfAlpha));
+		if(mScreenCapture.GetScreenBgGfx())
+			mpGuiSet->DrawGfx(mScreenCapture.GetScreenBgGfx(),mvGuiSetStartPos+cVector3f(0,0,0.2f),mvGuiSetSize,cColor(1, mfAlpha));
 	}
 
 	//////////////////////////////////
@@ -1550,347 +1539,22 @@ bool cLuxInventory::CheckSpecialCombineAction(cLuxInventory_Item *apItemA, cLuxI
 
 void cLuxInventory::CreateBackground()
 {
-	CreateScreenTextures();
-	RenderBackgroundImage();
-}
-
-//-----------------------------------------------------------------------
-
-// Allocate `outTex` as a screen-sized RGBA8 color attachment that is also
-// sampleable as a 2D texture, and wire up the descriptor binding used by
-// cGui::CreateGfxTexture / RIProgram::bindDescriptors. The HPLTexture_Delete
-// deleter expects `handle.vk.image`, `vk.vmaAlloc`, and `binding.vk.image.imageView`
-// to be set — see HPLTexture.cpp:19 — so we fill all three.
-static bool LuxInventory_CreateScreenRenderTarget(
-		std::shared_ptr<hpl::HPLTexture> &outTex,
-		uint32_t width, uint32_t height, const char *debugName)
-{
-	using namespace hpl;
-	auto tex = std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete);
-	tex->width  = static_cast<uint16_t>(width);
-	tex->height = static_cast<uint16_t>(height);
-	tex->depth  = 1;
-	tex->mipNum = 1;
-
-	const VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
-	VkImageCreateInfo imageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-	imageInfo.imageType   = VK_IMAGE_TYPE_2D;
-	imageInfo.format      = format;
-	imageInfo.extent      = { width, height, 1 };
-	imageInfo.mipLevels   = 1;
-	imageInfo.arrayLayers = 1;
-	imageInfo.samples     = VK_SAMPLE_COUNT_1_BIT;
-	imageInfo.tiling      = VK_IMAGE_TILING_OPTIMAL;
-	imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT |
-	                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-	                  VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-	VmaAllocationCreateInfo memReqs = {};
-	memReqs.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-	if (!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo, &memReqs,
-	                                  &tex->handle.vk.image, &tex->vk.vmaAlloc, NULL))) {
-		return false;
-	}
-
-	VkImageViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-	viewInfo.image    = tex->handle.vk.image;
-	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	viewInfo.format   = format;
-	viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-	tex->binding = {};
-	tex->binding.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-	tex->binding.texture = &tex->handle;
-	tex->binding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-	tex->binding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	if (!VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
-	                                     &tex->binding.vk.image.imageView))) {
-		return false;
-	}
-	RIFinalizeDescriptor(&RI.device, &tex->binding);
-	tex->setDebugName(debugName);
-
-	outTex = std::move(tex);
-	return true;
-}
-
-void cLuxInventory::CreateScreenTextures()
-{
-	const uint32_t w = hpl::RI.swapchain.width;
-	const uint32_t h = hpl::RI.swapchain.height;
-
-	LuxInventory_CreateScreenRenderTarget(m_screenColor,   w, h, "inventory.screen");
-	LuxInventory_CreateScreenRenderTarget(m_screenBgColor, w, h, "inventory.screenBg");
-
-	m_screenImage   = std::make_shared<hpl::Image>(hpl::Image::SingleImage{m_screenColor});
-	m_screenBgImage = std::make_shared<hpl::Image>(hpl::Image::SingleImage{m_screenBgColor});
-
-	mpScreenGfx   = mpGui->CreateGfxTexture(m_screenImage.get(),   false, eGuiMaterial_Diffuse);
-	mpScreenBgGfx = mpGui->CreateGfxTexture(m_screenBgImage.get(), false, eGuiMaterial_Alpha);
-}
-
-//-----------------------------------------------------------------------
-
-void cLuxInventory::RenderBackgroundImage()
-{
-	// The actual GPU capture has to happen while a command buffer is in
-	// recording state (between RI::BeginActiveSet and CloseAndSubmitActiveSet)
-	// and after the scene has rendered. OnEnterContainer fires during input
-	// handling, so we defer the work to the next OnPostRender — that's the
-	// nearest hook that satisfies both constraints. See Engine.cpp:528-540.
-	mbBackgroundCapturePending = true;
-	mbBackgroundCaptured       = false;
+	mScreenCapture.CreateTextures();
+	mScreenCapture.RequestCapture();
 }
 
 //-----------------------------------------------------------------------
 
 void cLuxInventory::DestroyBackground()
 {
-	if(mpScreenGfx)   mpGui->DestroyGfx(mpScreenGfx);
-	if(mpScreenBgGfx) mpGui->DestroyGfx(mpScreenBgGfx);
-	mpScreenGfx   = NULL;
-	mpScreenBgGfx = NULL;
-
-	// The shared_ptr deleter (HPLTexture::HPLTexture_Delete) pushes the
-	// VkImage / VkImageView / VmaAllocation onto the active frame slot's
-	// freelist; they're released when that slot is reused next, by which
-	// time the ring fence has signaled. So no explicit queue wait here.
-	m_screenImage.reset();
-	m_screenBgImage.reset();
-	m_screenColor.reset();
-	m_screenBgColor.reset();
-
-	mbBackgroundCapturePending = false;
-	mbBackgroundCaptured       = false;
+	mScreenCapture.Destroy();
 }
 
 //-----------------------------------------------------------------------
 
-// Lay down a single image memory barrier on the active command buffer.
-// Helper so RenderInventoryBackgroundCapture stays readable.
-static void LuxInventory_ImageBarrier(VkCommandBuffer cmd, VkImage image,
-		VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess, VkImageLayout oldLayout,
-		VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess, VkImageLayout newLayout)
-{
-	VkImageMemoryBarrier2 barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-	barrier.srcStageMask = srcStage;
-	barrier.srcAccessMask = srcAccess;
-	barrier.dstStageMask = dstStage;
-	barrier.dstAccessMask = dstAccess;
-	barrier.oldLayout = oldLayout;
-	barrier.newLayout = newLayout;
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = image;
-	barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-	VkDependencyInfo depInfo = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-	depInfo.imageMemoryBarrierCount = 1;
-	depInfo.pImageMemoryBarriers = &barrier;
-	vkCmdPipelineBarrier2(cmd, &depInfo);
-}
-
 void cLuxInventory::OnPostRender(float afFrameTime)
 {
-	using namespace hpl;
-
-	if (!mbBackgroundCapturePending) {
-		return;
-	}
-	if (!m_screenColor || !m_screenBgColor || m_invPostProgram.getPipelineLayout() == VK_NULL_HANDLE) {
-		return;
-	}
-
-	VkCommandBuffer cmd = RI.primary.cmds[0].vk.cmd;
-	if (cmd == VK_NULL_HANDLE) {
-		return; // No active frame to ride on; try again next post-render.
-	}
-
-	VkImage swapImage = RI.swapchain.vk.images[RI.swapchainIndex];
-	const uint32_t w = RI.swapchain.width;
-	const uint32_t h = RI.swapchain.height;
-
-	// Keep the textures alive until the GPU has consumed them — BeginActiveSet
-	// drains textureLink only after the frame slot's fence signals.
-	auto *frameCtx = RI.GetActiveSet();
-	frameCtx->textureLink.push_back(m_screenColor);
-	frameCtx->textureLink.push_back(m_screenBgColor);
-
-	////////////////////////////////////////////////
-	// Pass 1: blit the live swapchain image into m_screenColor.
-	////////////////////////////////////////////////
-
-	// Swapchain is currently in COLOR_ATTACHMENT_OPTIMAL (see RIBootstrap::BeginActiveSet).
-	LuxInventory_ImageBarrier(cmd, swapImage,
-			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			VK_PIPELINE_STAGE_2_BLIT_BIT,
-			VK_ACCESS_2_TRANSFER_READ_BIT,
-			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-
-	LuxInventory_ImageBarrier(cmd, m_screenColor->handle.vk.image,
-			VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_PIPELINE_STAGE_2_BLIT_BIT,
-			VK_ACCESS_2_TRANSFER_WRITE_BIT,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-	{
-		VkImageBlit2 region = { VK_STRUCTURE_TYPE_IMAGE_BLIT_2 };
-		region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-		region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-		region.srcOffsets[0] = { 0, 0, 0 };
-		region.srcOffsets[1] = { (int32_t)w, (int32_t)h, 1 };
-		region.dstOffsets[0] = { 0, 0, 0 };
-		region.dstOffsets[1] = { (int32_t)w, (int32_t)h, 1 };
-
-		VkBlitImageInfo2 blitInfo = { VK_STRUCTURE_TYPE_BLIT_IMAGE_INFO_2 };
-		blitInfo.srcImage = swapImage;
-		blitInfo.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-		blitInfo.dstImage = m_screenColor->handle.vk.image;
-		blitInfo.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		blitInfo.regionCount = 1;
-		blitInfo.pRegions = &region;
-		blitInfo.filter = VK_FILTER_LINEAR;
-		vkCmdBlitImage2(cmd, &blitInfo);
-	}
-
-	// Restore swapchain to color-attachment so CloseAndSubmitActiveSet's later
-	// PRESENT_SRC transition starts from the layout it expects.
-	LuxInventory_ImageBarrier(cmd, swapImage,
-			VK_PIPELINE_STAGE_2_BLIT_BIT,
-			VK_ACCESS_2_TRANSFER_READ_BIT,
-			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-	// Move m_screenColor from copy dest to sampled, and prep m_screenBgColor
-	// as the post-effect render target.
-	LuxInventory_ImageBarrier(cmd, m_screenColor->handle.vk.image,
-			VK_PIPELINE_STAGE_2_BLIT_BIT,
-			VK_ACCESS_2_TRANSFER_WRITE_BIT,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-	LuxInventory_ImageBarrier(cmd, m_screenBgColor->handle.vk.image,
-			VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-
-	////////////////////////////////////////////////
-	// Pass 2: fullscreen post-effect — sample m_screenColor, write m_screenBgColor.
-	////////////////////////////////////////////////
-
-	VkRenderingAttachmentInfo colorAttach = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-	colorAttach.imageView   = m_screenBgColor->binding.vk.image.imageView;
-	colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
-
-	VkRenderingInfo renderInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-	renderInfo.renderArea = { { 0, 0 }, { w, h } };
-	renderInfo.layerCount = 1;
-	renderInfo.colorAttachmentCount = 1;
-	renderInfo.pColorAttachments = &colorAttach;
-	vkCmdBeginRendering(cmd, &renderInfo);
-
-	VkViewport viewport = {};
-	viewport.x = 0.0f; viewport.y = 0.0f;
-	viewport.width = (float)w; viewport.height = (float)h;
-	viewport.minDepth = 0.0f; viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(cmd, 0, 1, &viewport);
-	VkRect2D scissor = { { 0, 0 }, { w, h } };
-	vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-	// Build the (cached) pipeline. No vertex input — vertex shader synthesises
-	// the fullscreen triangle from gl_VertexIndex.
-	const VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
-	VkPipelineRenderingCreateInfo pipelineRendering = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
-	pipelineRendering.colorAttachmentCount    = 1;
-	pipelineRendering.pColorAttachmentFormats = &colorFormat;
-
-	VkPipelineVertexInputStateCreateInfo vertexInputState = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-
-	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
-	inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-	VkPipelineRasterizationStateCreateInfo rasterizationState = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
-	rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
-	rasterizationState.cullMode    = VK_CULL_MODE_NONE;
-	rasterizationState.lineWidth   = 1.0f;
-
-	VkPipelineViewportStateCreateInfo viewportState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
-	viewportState.viewportCount = 1;
-	viewportState.scissorCount  = 1;
-
-	VkPipelineMultisampleStateCreateInfo multisampleState = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
-	multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-	VkPipelineDepthStencilStateCreateInfo depthStencilState = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
-
-	VkPipelineColorBlendAttachmentState blendAttachment = {};
-	blendAttachment.colorWriteMask =
-		VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-		VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-	VkPipelineColorBlendStateCreateInfo colorBlendState = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
-	colorBlendState.attachmentCount = 1;
-	colorBlendState.pAttachments    = &blendAttachment;
-
-	VkDynamicState dynamicStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-	VkPipelineDynamicStateCreateInfo dynamicState = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
-	dynamicState.dynamicStateCount = ARRAY_COUNT(dynamicStates);
-	dynamicState.pDynamicStates    = dynamicStates;
-
-	VkGraphicsPipelineCreateInfo pipelineCreateInfo = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
-	pipelineCreateInfo.pNext               = &pipelineRendering;
-	pipelineCreateInfo.pVertexInputState   = &vertexInputState;
-	pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
-	pipelineCreateInfo.pRasterizationState = &rasterizationState;
-	pipelineCreateInfo.pViewportState      = &viewportState;
-	pipelineCreateInfo.pMultisampleState   = &multisampleState;
-	pipelineCreateInfo.pDepthStencilState  = &depthStencilState;
-	pipelineCreateInfo.pColorBlendState    = &colorBlendState;
-	pipelineCreateInfo.pDynamicState       = &dynamicState;
-
-	const hash_t pipelineHash = hash_u32(HASH_INITIAL_VALUE, (uint32_t)colorFormat);
-	m_invPostProgram.bindPipeline(&RI.device, &RI.primary.cmds[0], pipelineHash,
-	                              "inventory.post", &pipelineCreateInfo);
-
-	RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
-		eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
-		eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
-	assert(samplerDesc);
-
-	RIProgram::DescriptorBinding bindings[2] = {};
-	bindings[0].descriptor = *samplerDesc;
-	bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
-	bindings[1].descriptor = m_screenColor->binding;
-	bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-	m_invPostProgram.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-	                                 RI.frameIndex, bindings, 2);
-
-	vkCmdDraw(cmd, 3, 1, 0, 0);
-	vkCmdEndRendering(cmd);
-
-	// m_screenBgColor → SHADER_READ_ONLY so subsequent GUI draws can sample it.
-	LuxInventory_ImageBarrier(cmd, m_screenBgColor->handle.vk.image,
-			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-	mbBackgroundCapturePending = false;
-	mbBackgroundCaptured       = true;
+	mScreenCapture.OnPostRender();
 }
 
 //-----------------------------------------------------------------------

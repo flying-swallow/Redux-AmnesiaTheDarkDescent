@@ -23,6 +23,7 @@
 //----------------------------------------------
 
 #include "LuxBase.h"
+#include "LuxScreenCapture.h"
 
 
 enum eLuxMainMenuWindow
@@ -146,9 +147,6 @@ private:
 	void SetupTopMenuLabel(cWidgetLabel *apLabel);
 
 	void CreateBackground();
-	void CreateScreenTextures();
-	void RenderBlurTexture();
-	void RenderBlur(iTexture *apInputTexture, iTexture *apTempTexture, iFrameBuffer **apBlurBuffers);
 
 	void DestroyBackground();
 
@@ -268,11 +266,8 @@ private:
 	
 	cViewport *mpViewport;
 
-	Image* mpScreenTexture;
-	cGuiGfxElement *mpScreenGfx;
-	Image* mpScreenBlurTexture;
-	cGuiGfxElement *mpScreenBlurGfx;
-	iGpuProgram *mpBlurProgram[2]; //0=Hori, 1=Vert
+	// In-game (escape) menu backdrop: blurred snapshot of the game screen.
+	cLuxScreenCapture mScreenCapture;
 
 	cGuiGfxElement *mpLogoGfx;
 	

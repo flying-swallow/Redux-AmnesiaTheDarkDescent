@@ -502,6 +502,15 @@ namespace hpl {
 			};
 			RI.gui.initialize(&RI.device, stages);
 		}
+		{
+			auto vert_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "posteffect_fullscreen.vert.spv");
+			auto frag_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "posteffect_blit.frag.spv");
+			std::array<RIProgram::ModuleStage, 2> stages = {
+				RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, vert_stage, "vsMain"},
+				RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, frag_stage, "psMain"}
+			};
+			RI.postEffectBlit.initialize(&RI.device, stages);
+		}
 		////////////////////////////////////////////////
 		// Create systems
 		mpMeshCreator = hplNew( cMeshCreator,(mpLowLevelGraphics, apResources));

@@ -23,6 +23,7 @@
 //----------------------------------------------
 
 #include "LuxBase.h"
+#include "LuxScreenCapture.h"
 
 //----------------------------------------
 
@@ -156,6 +157,7 @@ public:
 	void OnLeaveContainer(const tString& asNewContainer);
 
 	void OnDraw(float afFrameTime);
+	void OnPostRender(float afFrameTime);
 
 	cGuiSet* GetSet() { return mpGuiSet; }
 
@@ -212,8 +214,6 @@ private:
 	void CreateOpenNoteGui();
 
 	void CreateBackground();
-	void RenderBackgroundImage();
-	void CreateScreenTextures();
 	void DestroyBackground();
 
 	///////////////////////
@@ -313,17 +313,13 @@ private:
 	iWidget		 *mpWidgetReturn[eLuxJournalState_LastEnum];
 	cWidgetImage *mpImageBackward[eLuxJournalState_LastEnum];
 	
-	Image *mpScreenTexture;
-	cGuiGfxElement *mpScreenGfx;
-	Image  *mpScreenBgTexture;
-	cGuiGfxElement *mpScreenBgGfx;
+	// Screen-snapshot pipeline drawn behind the note/diary GUI (RI backend).
+	cLuxScreenCapture mScreenCapture;
 
 	cGuiGfxElement *mpWhiteGfx;
 
 	iFontData *mpFontDefault;
 	iFontData *mpFontMenu;
-
-	iGpuProgram *mpEffectProgram;
 
 	cVector2f mvScreenSize;
 	cVector2f mvGuiSetCenterSize;//Size of the part that is inside a 4:3 ratio!

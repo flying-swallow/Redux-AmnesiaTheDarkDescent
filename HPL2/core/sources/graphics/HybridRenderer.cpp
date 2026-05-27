@@ -407,6 +407,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           kBindingSurfelRefCounter,  kBindingSurfelReservation,
           kBindingSurfelBounds,
           kBindingBindlessSlotGeneration, kBindingSurfelSlotGeneration,
+          kBindingLightGridCount,         kBindingLightGridList,
       };
       const VkShaderStageFlags kSurfelStageFlags =
           VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
@@ -458,12 +459,12 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       // Sampled-image budget covers textures_2d[] + textures_cube[].
       poolSizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                                           kTextureSlotCapacity * 2};
-      // Storage-buffer pool budget: 6 opaque*Handles + 15 surfel/cell bindings
-      // (kSurfelCellBindings, incl. kBindingSurfelBounds + the two slot-generation
-      // buffers) + 2 scene/material + 3 light SSBOs = 26. Round up to 27 for one
-      // slot of slack.
+      // Storage-buffer pool budget: 6 opaque*Handles + 17 surfel/cell bindings
+      // (kSurfelCellBindings, incl. kBindingSurfelBounds, the two slot-generation
+      // buffers, and the two light-grid buffers) + 2 scene/material + 3 light
+      // SSBOs = 28. Round up to 29 for one slot of slack.
       poolSizes[1] =
-          VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 27};
+          VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 29};
       // Two samplers: gMaterialSampler + gSurfelDepthSampler.
       poolSizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLER, 2};
 
@@ -564,6 +565,9 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_ANY_HIT,     rt_bin, "scatterAnyHit"}};
       m_surfelRT.initialize(&RI.device, stages, externalLayouts);
     }
+    // LightGridBuildPass — single compute entry (binLights) that bins point/spot
+    // lights into the coarse world-space light grid each frame.
+    loadSlangCompute(m_lightGridBin, "LightGridBuildPass.cs.spv", "binLights");
     loadSlangCompute(m_surfelIntegrate,  "SurfelIntegratePass.cs.spv",   "csMain");
     loadSlangCompute(m_surfelGenerate,   "SurfelGenerationPass.cs.spv",  "csMain");
     // SurfelGIRender — now a graphics pass writing into the pogo buffer's
@@ -577,13 +581,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                       "posteffect_fullscreen.vert.spv",
                       "SurfelGIRenderPass.frag.spv", "vsMain", "psMain",
                       externalLayouts);
-    // Tail blit: copies the post-effect chain's final pogo "read" half
-    // into the swapchain image. Lives in HybridRenderer (not in the
-    // composite) so it can target the swapchain directly. No bindless
-    // needed — set 0 holds just sampler + Texture2D.
-    LoadSlangGraphics(&RI.device, m_postEffectBlit, apResources,
-                      "posteffect_fullscreen.vert.spv",
-                      "posteffect_blit.frag.spv");
+    // The pogo "read" half -> swapchain tail blit now lives in cScene (after the
+    // viewport's post-effect composite), using RI.postEffectBlit.
     {
       // Slang-compiled (amnesia/slang/ParticlePass) — entry-point names go in
       // the SPV as-is because slangc is invoked with -fvk-use-entrypoint-name.
@@ -692,6 +691,15 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     // pulled from a cell list has already passed through collect this frame).
     m_surfelBoundsBuffer = detail::CreateBindlessSlotBuffer(
         &RI.device, kTotalSurfelLimit, sizeof(SurfelBounds), kStorage);
+    // Coarse world-space light grid. GPU-only: zeroed each frame via
+    // vkCmdFillBuffer and (re)filled by LightGridBuildPass before the ray trace,
+    // so no host seeding / mapping is needed (deviceLocalOnly).
+    m_lightGridCountBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kLightGridCellCount, sizeof(uint32_t), kStorage,
+        /*deviceLocalOnly*/ true);
+    m_lightGridListBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kLightGridCellCount * kLightsPerCellMax, sizeof(uint32_t),
+        kStorage, /*deviceLocalOnly*/ true);
 
     // Seed the surfel free-list. gSurfelCounter[Free] is a stack pointer and
     // gSurfelFreeIndexBuffer holds the available slot indices; at boot every
@@ -1025,6 +1033,10 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
            kObjectSlotCapacity * sizeof(uint32_t)},
           {kBindingSurfelSlotGeneration, &m_surfelSlotGenerationBuffer,
            kTotalSurfelLimit * sizeof(uint32_t)},
+          {kBindingLightGridCount, &m_lightGridCountBuffer,
+           kLightGridCellCount * sizeof(uint32_t)},
+          {kBindingLightGridList, &m_lightGridListBuffer,
+           (size_t)kLightGridCellCount * kLightsPerCellMax * sizeof(uint32_t)},
           {kBindingSceneObjects, &m_diffuseObjectBuffer,
            kObjectSlotCapacity * sizeof(UniformObject)},
           {kBindingOpaqueMaterial, &m_opaqueMaterialBuffer,
@@ -2332,6 +2344,69 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     vkCmdPipelineBarrier2(cmd, &dep);
   }
 
+  // ----------------------------------------------------------------------
+  // World-space light grid build (feeds the surfel ray-trace NEE importance
+  // sampling). Zero the per-cell counts, then bin point/spot lights into the
+  // coarse grid. The light SSBOs were uploaded + barriered to SHADER_READ
+  // earlier this frame, so binLights reads them directly. Placed here (after
+  // the cell scatter, before Stage E) for ordering only — it's independent of
+  // the surfel cell grid.
+  // ----------------------------------------------------------------------
+  {
+    vkCmdFillBuffer(cmd, m_lightGridCountBuffer.vk.buffer, 0, VK_WHOLE_SIZE, 0u);
+    // Fill (transfer) -> binLights atomic RMW on the counts (compute).
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.dstAccessMask =
+        VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(cmd, &dep);
+  }
+  {
+    VkComputePipelineCreateInfo computeCreate = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_lightGridBin.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
+                                       "LightGridBuildPass.cs:binLights",
+                                       &computeCreate);
+    m_lightGridBin.bindBindlessDescriptorSet(&RI.primary.cmds[0], &m_bindlessSet,
+                                             0, VK_PIPELINE_BIND_POINT_COMPUTE);
+    std::vector<RIProgram::DescriptorBinding> bnd;
+    bnd.reserve(1);
+    {
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("gPerFrame");
+      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      bnd.push_back(b);
+    }
+    m_lightGridBin.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
+                                   bnd.data(), bnd.size(),
+                                   VK_PIPELINE_BIND_POINT_COMPUTE);
+    // One thread per light over the capacity (the shader early-outs past the
+    // active point+spot count). 512 lights -> 8 groups; trivial.
+    CmdDispatch(&RI.primary.cmds[0],
+                (kPointSlotLightCapacity + kSpotSlotLightCapacity + 63u) / 64u,
+                1u, 1u);
+  }
+  {
+    // binLights writes -> surfel ray-trace NEE reads (ray tracing); compute kept
+    // in dst for safety.
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    mem.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR |
+                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(cmd, &dep);
+  }
+
   // One-shot UNDEFINED -> GENERAL transition for both surfel atlases the
   // first time each swapchain image appears. Subsequent frames skip this —
   // the atlas stays in GENERAL for life so integrate's EMA-blend reads keep
@@ -2859,113 +2934,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // so downstream post-effects + tail blit can sample it.
   RI_PogoBufferToggle(&RI.device, pogo, &RI.primary.cmds[0]);
 
-  // Post-effect composite (no-op when no active effects).
-  //if (viewport && viewport->GetPostEffectComposite() &&
-  //    viewport->GetPostEffectComposite()->HasActiveEffects()) {
-  //  viewport->GetPostEffectComposite()->Render(
-  //      afFrameTime, &RI.primary.cmds[0], pogo, RI.swapchain.width,
-  //      RI.swapchain.height, RI.frameIndex);
-  //}
-
-  // Tail blit: pogo "read" half → swapchain. First transition swapchain
-  // UNDEFINED → COLOR_ATTACHMENT_OPTIMAL.
-  {
-    VkImageMemoryBarrier2 swapBarrier = {
-        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    swapBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_NONE;
-    swapBarrier.srcAccessMask = 0;
-    swapBarrier.dstStageMask =
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    swapBarrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    swapBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    swapBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    swapBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    swapBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    swapBarrier.image = RI.swapchain.vk.images[RI.swapchainIndex];
-    swapBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers    = &swapBarrier;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-  }
-
-  {
-    VkRenderingAttachmentInfo colorAttach = {
-        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    colorAttach.imageView = RI.swapchainView[RI.swapchainIndex].vk.image;
-    colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
-
-    VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-    renderInfo.renderArea = {{0, 0},
-                             {RI.swapchain.width, RI.swapchain.height}};
-    renderInfo.layerCount = 1;
-    renderInfo.colorAttachmentCount = 1;
-    renderInfo.pColorAttachments    = &colorAttach;
-    vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
-
-    VkViewport vp = {0.0f,
-                     0.0f,
-                     static_cast<float>(RI.swapchain.width),
-                     static_cast<float>(RI.swapchain.height),
-                     0.0f,
-                     1.0f};
-    vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
-    VkRect2D sc = {{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
-    vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
-
-    PostEffectPipelineState blitState{};
-    InitPostEffectPipelineState(
-        blitState, RIFormatToVK((RI_Format_e)RI.swapchain.format),
-        /*alphaBlend=*/false);
-
-    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/1u);
-    m_postEffectBlit.bindPipeline(&RI.device, &RI.primary.cmds[0], kHash,
-                                  "PostEffect.tailBlit",
-                                  &blitState.createInfo);
-
-    RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
-        eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
-        eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
-
-    RIProgram::DescriptorBinding bindings[2] = {};
-    bindings[0].descriptor = *samplerDesc;
-    bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
-    bindings[1].descriptor = *RI_PogoBufferShaderResource(pogo);
-    bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-    m_postEffectBlit.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                     RI.frameIndex, bindings, 2);
-
-    vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3, 1, 0, 0);
-    vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
-  }
-
-  // Swapchain self-sync: blit's COLOR_ATTACHMENT_OUTPUT writes must
-  // complete before the particle pass's COLOR_ATTACHMENT_OUTPUT writes
-  // (dynamic rendering has no implicit hand-off). Layout stays
-  // COLOR_ATTACHMENT_OPTIMAL.
-  {
-    VkImageMemoryBarrier2 swapBarrier = {
-        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    swapBarrier.srcStageMask =
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    swapBarrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    swapBarrier.dstStageMask =
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    swapBarrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
-                                VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT;
-    swapBarrier.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    swapBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    swapBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    swapBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    swapBarrier.image = RI.swapchain.vk.images[RI.swapchainIndex];
-    swapBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers    = &swapBarrier;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-  }
+  // The viewport's post-effect composite and the pogo->swapchain tail blit run
+  // in cScene::Render after this Draw returns — Draw just leaves the finished
+  // scene (incl. particles) in the pogo "read" half.
 
   // Shared between the decal and particle passes: the depth image arrives in
   // SHADER_READ_ONLY_OPTIMAL from surfel-generate and needs to flip to
@@ -3058,9 +3029,26 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
       flipDepthToReadOnly();
 
+      // Render translucent particles INTO the pogo "read" half (which holds the
+      // composited + post-effected scene), not the swapchain — so the pogo (and
+      // anything that samples it, e.g. the menu/inventory screen capture) carries
+      // particles too. Flip that half COLOR_ATTACHMENT for the draw, then back to
+      // SHADER_READ after, so the tail blit below can sample it.
+      const int   pogoReadIdx   = (pogo->attachmentIndex + 1) % 2;
+      VkImage     pogoReadImage = pogo->textures[pogoReadIdx].vk.image;
+      VkImageView pogoReadView  = pogo->pogoAttachment[pogoReadIdx].vk.image.imageView;
+      {
+        VkImageMemoryBarrier2 b =
+            VK_RI_PogoAttachmentMemoryBarrier2(pogoReadImage, /*initial=*/false);
+        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      }
+
       VkRenderingAttachmentInfo colorAttach = {
           VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-      colorAttach.imageView = RI.swapchainView[RI.swapchainIndex].vk.image;
+      colorAttach.imageView = pogoReadView;
       colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
       colorAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
       colorAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -3260,6 +3248,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       }
 
       vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+
+      // pogo "read" half back to SHADER_READ_ONLY so the tail blit can sample it.
+      {
+        VkImageMemoryBarrier2 b =
+            VK_RI_PogoShaderMemoryBarrier2(pogoReadImage, /*initial=*/false);
+        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      }
     }
   }
 
@@ -3374,6 +3372,16 @@ cHybridRenderer::~cHybridRenderer() {
     vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_pointLightBuffer.vk.buffer,
                      m_pointLightBuffer.vk.allocation);
     m_pointLightBuffer = {};
+  }
+  if (m_lightGridCountBuffer.vk.buffer) {
+    vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_lightGridCountBuffer.vk.buffer,
+                     m_lightGridCountBuffer.vk.allocation);
+    m_lightGridCountBuffer = {};
+  }
+  if (m_lightGridListBuffer.vk.buffer) {
+    vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_lightGridListBuffer.vk.buffer,
+                     m_lightGridListBuffer.vk.allocation);
+    m_lightGridListBuffer = {};
   }
   if (m_spotLightBuffer.vk.buffer) {
     vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_spotLightBuffer.vk.buffer,

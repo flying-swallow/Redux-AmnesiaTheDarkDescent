@@ -137,6 +137,9 @@ public:
         if (queueEnd)
           queueEnd->quNext = c;
         queueEnd = c;
+        // Refresh last-use so the eviction guard measures frames since this
+        // access, not since first allocation (see LRUCache::request).
+        c->frameIndex = frameIndex;
         return Req{c->id, true, false, &c->state};
       }
     }

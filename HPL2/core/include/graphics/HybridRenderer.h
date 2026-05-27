@@ -209,6 +209,11 @@ private:
   // pass's hot loop in place of the full m_surfelBuffer gather.
   struct RIBuffer_s m_surfelBoundsBuffer;
 
+  // Coarse world-space light grid (LightGridBuildPass writes, SurfelRayTrace
+  // NEE reads): per-cell light count + packed per-cell unified-light-index list.
+  struct RIBuffer_s m_lightGridCountBuffer;
+  struct RIBuffer_s m_lightGridListBuffer;
+
   // Per-surfel copy of its anchor slot's generation, captured at spawn and
   // compared against m_bindlessSlotGenerationBuffer in collectCellInfo.
   struct RIBuffer_s m_surfelSlotGenerationBuffer;
@@ -272,6 +277,7 @@ private:
   RIProgram m_surfelUpdateCollect;
   RIProgram m_surfelUpdateAccumulate;
   RIProgram m_surfelUpdateScatter;
+  RIProgram m_lightGridBin;
 
   // Per-object-slot "geometry rebuilt" flag (sized kObjectSlotCapacity). A VB's
   // onGeometryChanged handler (owned by m_diffuseBindless's per-slot state) sets
@@ -330,12 +336,6 @@ private:
 	// transition once on its first appearance; after that the atlas data
 	// must persist (integrate EMA-blends with the prior frame's values).
 	std::array<bool, RI_MAX_SWAPCHAIN_IMAGES> m_surfelAtlasesInitialized = {};
-
-	// Tail blit pass that copies the final pogo "read" half into the
-	// swapchain image. Lives between the post-effect composite (or
-	// directly after the surfel-GI write, when the composite has no
-	// active effects) and the particle/decal pass.
-	RIProgram m_postEffectBlit;
 
 	// One-shot UNDEFINED transition tracker for the pogo halves. Per
 	// swapchain image, since each backing image needs the initial

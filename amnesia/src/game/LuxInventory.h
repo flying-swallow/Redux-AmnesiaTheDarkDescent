@@ -23,13 +23,7 @@
 //----------------------------------------------
 
 #include "LuxBase.h"
-#include "graphics/Image.h"
-#include "graphics/HPLTexture.h"
-#include "graphics/RIBootstrap.h"
-#include "graphics/RIProgram.h"
-#include "graphics/RITypes.h"
-
-#include <memory>
+#include "LuxScreenCapture.h"
 
 //----------------------------------------------
 
@@ -284,8 +278,6 @@ private:
 	bool CheckSpecialCombineAction(cLuxInventory_Item *apItemA, cLuxInventory_Item *apItemB, int alSlotIndex);
 
 	void CreateBackground();
-	void RenderBackgroundImage();
-	void CreateScreenTextures();
 	void DestroyBackground();
 
 	void CreateGui();
@@ -434,25 +426,8 @@ private:
 	cVector2f mvGuiSetOffset;
 	cVector3f mvGuiSetStartPos;
 
-	// Inventory screen-snapshot pipeline (RI backend).
-	//   m_screenColor   — copy of the rendered frame, drawn unmodified while
-	//                     the inventory fades in (mpScreenGfx).
-	//   m_screenBgColor — post-effect colorized version of m_screenColor,
-	//                     drawn at full alpha (mpScreenBgGfx).
-	cGuiGfxElement *mpScreenGfx;
-	cGuiGfxElement *mpScreenBgGfx;
-
-	std::shared_ptr<hpl::HPLTexture> m_screenColor;
-	std::shared_ptr<hpl::HPLTexture> m_screenBgColor;
-	std::shared_ptr<hpl::Image>      m_screenImage;
-	std::shared_ptr<hpl::Image>      m_screenBgImage;
-
-	hpl::RIProgram m_invPostProgram;
-
-	// Set by RenderBackgroundImage(); drained by OnPostRender() once a
-	// command buffer is in recording state and the scene has rendered.
-	bool mbBackgroundCapturePending = false;
-	bool mbBackgroundCaptured       = false;
+	// Screen-snapshot pipeline drawn behind the inventory GUI (RI backend).
+	cLuxScreenCapture mScreenCapture;
 
 	cGuiGfxElement* mpFrameHealthCorners[4];
 	cGuiGfxElement* mpFrameHealthBorders[4];
