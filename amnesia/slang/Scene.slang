@@ -261,6 +261,12 @@ public struct Scene
              + gPerFrame.boxLightCount;
     }
 
+    // Box lights are volumetric ambient fills consumed only by the surfel GI
+    // (SurfelIntegratePass), never the direct loop. Expose them via gScene so
+    // passes that don't bind gPerFrame/gBoxLights directly can iterate them.
+    public uint getBoxLightCount() { return gPerFrame.boxLightCount; }
+    public BoxLight getBoxLight(uint i) { return gBoxLights[i]; }
+
     // Performance path for surfel NEE: branches directly on the slice
     // index and calls the typed PointLight/SpotLight/BoxLight.sample()
     // without going through an interface existential. Box lights NEE-

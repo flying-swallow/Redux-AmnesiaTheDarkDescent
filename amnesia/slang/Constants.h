@@ -190,6 +190,14 @@ SHARED_CONST uint  kMaxSurfelForStep            = 10u;
 // above π to over-cheat the GI fill.
 SHARED_CONST float kIndirectLightScale          = 40.0f;
 
+// Box lights are volumetric ambient fills that contribute to GI only (never
+// direct). SurfelIntegratePass adds a box's color to surfels inside its AABB,
+// faded toward the faces. kBoxLightIndirectScale is the overall strength (cheat
+// knob, like kIndirectLightScale); kBoxFalloffBegin is the normalized distance
+// (0 at center, 1 at the face) where the edge fade starts.
+SHARED_CONST float kBoxLightIndirectScale       = 4.0f;
+SHARED_CONST float kBoxFalloffBegin             = 0.6f;
+
 // Surfel generation.
 SHARED_CONST float kDefaultChanceMultiply       = 0.3f;
 SHARED_CONST uint  kDefaultChancePower          = 1u;

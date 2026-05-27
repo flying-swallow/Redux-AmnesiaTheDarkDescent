@@ -155,18 +155,13 @@ float4 psMain(PSIn pin) : SV_Target
     float3 direct   = wantDirect   ? evalAnalyticLight(sd) : float3(0.f);
     float3 indirect = wantIndirect ? gIndirectLighting[pixelPos].xyz : float3(0.f);
 
-    float3 finalGather;
-    if (wantDirect && wantIndirect)
-    {
-        // Diffuse Lambert: weight = f(wi, wo) * dot(wo, n) / pdf(wo).
-        // With f = albedo / π and pdf = cosθ / π for the cosine-sampled
-        // surfel cache that produced indirect, this reduces to albedo.
-        finalGather = sd.albedo * (direct  + indirect);
-    }
-    else
-    {
-        finalGather = direct + indirect;
-    }
+    // direct already carries albedo (evalAnalyticLight applies it once, matching
+    // the base game's albedo·color·atten·NdotL). indirect is incoming irradiance
+    // from the cosine-sampled surfel cache (f = albedo/π, pdf = cosθ/π → reduces
+    // to albedo), so it takes exactly one albedo to become outgoing radiance.
+    // Applying albedo to (direct + indirect) double-counted it on direct, which
+    // dimmed all direct lighting (spotlight cones especially) vs the base game.
+    float3 finalGather = direct + sd.albedo * indirect;
 
     // Emissive (illumination-map) surfaces glow regardless of the direct /
     // indirect toggles — added on top so glowing textures aren't dark.
