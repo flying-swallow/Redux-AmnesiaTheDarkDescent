@@ -99,6 +99,12 @@ const static char *DefaultDeviceExtension[] = {
 	// Shader debug printf (required by GL_EXT_debug_printf in GLSL)
 	/************************************************************************/
 	VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
+	/************************************************************************/
+	// SV_Barycentrics support — SurfelGBuffer's psMain reads barycentric
+	// coords directly off the fragment input to pack into the visibility
+	// buffer (see amnesia/slang/SurfelGBuffer/SurfelGBuffer.3d.slang).
+	/************************************************************************/
+	VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME,
 };
 
 void VK_ConfigureBufferQueueFamilies( VkBufferCreateInfo *info, struct RIQueue_s *queues, size_t numQueues, uint32_t *queueFamilies, size_t reservedLen )
@@ -858,6 +864,11 @@ int InitRIDevice( struct RIRenderer_s *renderer, struct RIDeviceDesc_s *init, st
 			R_VK_ADD_STRUCT( &features, &rayQueryFeatures );
 		}
 
+		VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR fragmentBarycentricFeatures = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADER_BARYCENTRIC_FEATURES_KHR };
+		if( __VK_isExtensionNamesSupported( qCToStrRef( VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME ), enabledExtensionNames, arrlen( enabledExtensionNames ) ) ) {
+			R_VK_ADD_STRUCT( &features, &fragmentBarycentricFeatures );
+		}
+
    // VkPhysicalDeviceRayTracingMaintenance1FeaturesKHR rayTracingMaintenanceFeatures = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_MAINTENANCE_1_FEATURES_KHR};
    // if (IsExtensionSupported(VK_KHR_RAY_TRACING_MAINTENANCE_1_EXTENSION_NAME, desiredDeviceExts)) {
    //     APPEND_EXT(rayTracingMaintenanceFeatures);
@@ -895,12 +906,27 @@ int InitRIDevice( struct RIRenderer_s *renderer, struct RIDeviceDesc_s *init, st
 
 		vkGetPhysicalDeviceFeatures2( physicalAdapter->vk.physicalDevice, &features );
 
+		// Declared up front so the scalar-block-layout `goto vk_done` below
+		// doesn't skip an initialization (MSVC C2362). Reused by both the
+		// vkCreateDevice and vmaCreateAllocator calls further down.
+		VkResult result = VK_SUCCESS;
+
+		// Scalar block layout is load-bearing: the Slang structs in SceneTypes.slang
+		// are compiled with -fvk-use-scalar-layout and the host C++ packing matches
+		// that layout (no _pad fields). Without this feature, SSBO/UBO reads land
+		// at the wrong offsets and validation layers emit VUID-...-Layout errors.
+		if( !features12.scalarBlockLayout ) {
+			hpl::Log( "ERROR: Vulkan device does not advertise scalarBlockLayout — required by SceneTypes.slang scalar layout\n" );
+			riResult = RI_FAIL;
+			goto vk_done;
+		}
+
 		deviceCreateInfo.pNext = &features;
 		deviceCreateInfo.pQueueCreateInfos = deviceQueueCreateInfo;
 		deviceCreateInfo.enabledExtensionCount = (uint32_t)arrlen( enabledExtensionNames );
 		deviceCreateInfo.ppEnabledExtensionNames = enabledExtensionNames;
 
-		VkResult result = vkCreateDevice( physicalAdapter->vk.physicalDevice, &deviceCreateInfo, NULL, &device->vk.device );
+		result = vkCreateDevice( physicalAdapter->vk.physicalDevice, &deviceCreateInfo, NULL, &device->vk.device );
 		if( !VK_WrapResult( result ) ) {
 			riResult = RI_FAIL;
 			goto vk_done;
@@ -1002,7 +1028,24 @@ int InitRIRenderer( const struct RIBackendInit_s *init, struct RIRenderer_s *ren
 
     renderer->vk.apiVersion = appInfo.apiVersion;
 
-		const VkValidationFeatureEnableEXT enabledValidationFeatures[] = { VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT };
+		// GPU-Assisted Validation is enabled here to localize the surfel-branch
+		// GPUVM read fault (TCP client, RW:0, high BDA-range address): with GPU-AV
+		// on, the Khronos layer instruments shader buffer access — including
+		// buffer_reference (BDA) derefs and descriptor-indexed reads — and emits a
+		// precise ERROR naming the faulting shader + access BEFORE it becomes a
+		// hardware page fault. RESERVE_BINDING_SLOT keeps GPU-AV's internal
+		// descriptor set from colliding with the bindless set. Drop GPU_ASSISTED +
+		// RESERVE_BINDING_SLOT once the offending access is fixed (it adds notable
+		// per-dispatch overhead).
+		// NOTE: DEBUG_PRINTF is intentionally omitted while GPU-AV is on — on most
+		// Khronos layer versions the two are mutually exclusive and enabling both
+		// makes the layer silently disable GPU-AV. debugPrintfEXT calls in shaders
+		// still work under unified GPU-AV and no-op harmlessly otherwise. Restore
+		// DEBUG_PRINTF (and drop the two GPU_ASSISTED entries) when done debugging.
+		const VkValidationFeatureEnableEXT enabledValidationFeatures[] = {
+			VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT,
+			VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT,
+		};
 
 		VkValidationFeaturesEXT validationFeatures = { VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT };
 		validationFeatures.enabledValidationFeatureCount = ARRAY_COUNT( enabledValidationFeatures );

@@ -226,6 +226,7 @@ namespace hpl {
 		cEntFileManager* GetEntFileManager(){ return mpEntFileManager; }
 
 		iLowLevelSystem* GetLowLevelSystem(){ return mpLowLevelSystem;}
+		iLowLevelGraphics* GetLowLevelGraphics() { return mpLowLevelGraphics; }
 
 		static void SetForceCacheLoadingAndSkipSaving(bool abX){ mbForceCacheLoadingAndSkipSaving = abX;}
 		static bool GetForceCacheLoadingAndSkipSaving(){ return mbForceCacheLoadingAndSkipSaving ;}

@@ -1,18 +1,19 @@
 /*
  * Copyright © 2009-2020 Frictional Games
- * 
+ * Copyright 2023 Michael Pollind
+ *
  * This file is part of Amnesia: The Dark Descent.
- * 
+ *
  * Amnesia: The Dark Descent is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version. 
+ * (at your option) any later version.
 
  * Amnesia: The Dark Descent is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with Amnesia: The Dark Descent.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -20,136 +21,108 @@
 #include "graphics/PostEffect_RadialBlur.h"
 
 #include "graphics/Graphics.h"
-
-#include "graphics/LowLevelGraphics.h"
-#include "graphics/PostEffectComposite.h"
-#include "graphics/FrameBuffer.h"
-#include "graphics/Texture.h"
-#include "graphics/GPUProgram.h"
-#include "graphics/GPUShader.h"
-
-#include "system/PreprocessParser.h"
+#include "graphics/PostEffectHelpers.h"
+#include "graphics/RIBootstrap.h"
+#include "graphics/RIProgramHelpers.h"
+#include "graphics/RIRenderer.h"
+#include "system/Hasher.h"
+#include "system/LowLevelSystem.h"
 
 namespace hpl {
-	
-	//////////////////////////////////////////////////////////////////////////
-	// PROGRAM VARS
-	//////////////////////////////////////////////////////////////////////////
 
-	#define kVar_afSize				0
-	#define kVar_avHalfScreenSize	1
-	#define kVar_afBlurStartDist	2
+namespace {
+struct RadialBlurPushConstants {
+    float size;
+    float blurStartDist;
+    float screenDim[2];
+};
+} // namespace
 
-	//////////////////////////////////////////////////////////////////////////
-	// POST EFFECT BASE
-	//////////////////////////////////////////////////////////////////////////
-
-	//-----------------------------------------------------------------------
-	
-	cPostEffectType_RadialBlur::cPostEffectType_RadialBlur(cGraphics *apGraphics, cResources *apResources) : iPostEffectType("RadialBlur",apGraphics,apResources)
-	{
-		cParserVarContainer vars;
-		mpProgram = mpGraphics->CreateGpuProgramFromShaders("RadialBlur","deferred_base_vtx.glsl", "posteffect_radial_blur_frag.glsl", &vars);
-		if(mpProgram)
-		{
-			mpProgram->GetVariableAsId("afSize",kVar_afSize);
-			mpProgram->GetVariableAsId("avHalfScreenSize",kVar_avHalfScreenSize);
-			mpProgram->GetVariableAsId("afBlurStartDist", kVar_afBlurStartDist);
-		}
-	}
-	
-	//-----------------------------------------------------------------------
-
-	cPostEffectType_RadialBlur::~cPostEffectType_RadialBlur()
-	{
-
-	}
-
-	//-----------------------------------------------------------------------
-
-	iPostEffect * cPostEffectType_RadialBlur::CreatePostEffect(iPostEffectParams *apParams)
-	{
-		cPostEffect_RadialBlur *pEffect = hplNew(cPostEffect_RadialBlur, (mpGraphics,mpResources,this));
-		cPostEffectParams_RadialBlur *pRadialBlurParams = static_cast<cPostEffectParams_RadialBlur*>(apParams);
-
-		return pEffect;
-	}
-	
-	//-----------------------------------------------------------------------
-
-	//////////////////////////////////////////////////////////////////////////
-	// POST EFFECT
-	//////////////////////////////////////////////////////////////////////////
-
-	//-----------------------------------------------------------------------
-
-	cPostEffect_RadialBlur::cPostEffect_RadialBlur(cGraphics *apGraphics, cResources *apResources, iPostEffectType *apType) : iPostEffect(apGraphics,apResources,apType)
-	{
-		cVector2l vSize = mpLowLevelGraphics->GetScreenSizeInt();
-		
-		mpRadialBlurType = static_cast<cPostEffectType_RadialBlur*>(mpType);
-	}
-
-	//-----------------------------------------------------------------------
-
-	cPostEffect_RadialBlur::~cPostEffect_RadialBlur()
-	{
-
-	}
-
-	//-----------------------------------------------------------------------
-
-	void cPostEffect_RadialBlur::Reset()
-	{
-	}
-
-	//-----------------------------------------------------------------------
-
-	void cPostEffect_RadialBlur::OnSetParams()
-	{	
-	}
-	
-	
-	//-----------------------------------------------------------------------
-
-
-	iTexture* cPostEffect_RadialBlur::RenderEffect(iTexture *apInputTexture, iFrameBuffer *apFinalTempBuffer)
-	{
-		/////////////////////////
-		// Init render states
-		mpCurrentComposite->SetFlatProjection();
-		mpCurrentComposite->SetBlendMode(eMaterialBlendMode_None);
-		mpCurrentComposite->SetChannelMode(eMaterialChannelMode_RGBA);
-		mpCurrentComposite->SetTextureRange(NULL,1);
-
-		cVector2l vRenderTargetSize = mpCurrentComposite->GetRenderTargetSize();
-		cVector2f vRenderTargetSizeFloat((float)vRenderTargetSize.x, (float)vRenderTargetSize.y);
-
-		/////////////////////////
-		// Render to accum buffer
-		// This function sets to frame buffer is post effect is last!
-		SetFinalFrameBuffer(apFinalTempBuffer);
-
-		mpCurrentComposite->SetProgram(mpRadialBlurType->mpProgram);
-		
-		if(mpRadialBlurType->mpProgram)
-		{
-			mpRadialBlurType->mpProgram->SetFloat(kVar_afSize, mParams.mfSize*vRenderTargetSizeFloat.x);
-			mpRadialBlurType->mpProgram->SetFloat(kVar_afBlurStartDist, mParams.mfBlurStartDist);
-			mpRadialBlurType->mpProgram->SetVec2f(kVar_avHalfScreenSize,  vRenderTargetSizeFloat*0.5f);
-		}
-				
-		mpCurrentComposite->SetTexture(0, apInputTexture);
-					
-				
-		DrawQuad(0, 1, apInputTexture, true);
-
-		mpCurrentComposite->SetProgram(NULL);
-		mpCurrentComposite->SetBlendMode(eMaterialBlendMode_None);
-		
-		return apFinalTempBuffer->GetColorBuffer(0)->ToTexture();
-	}
-
-	//-----------------------------------------------------------------------
-
+cPostEffectType_RadialBlur::cPostEffectType_RadialBlur(cGraphics *apGraphics,
+                                                       cResources *apResources)
+    : iPostEffectType("RadialBlur", apGraphics, apResources) {
+    LoadSlangGraphics(&RI.device, m_program, apResources,
+                      "posteffect_fullscreen.vert.spv",
+                      "posteffect_radial_blur.frag.spv");
 }
+
+cPostEffectType_RadialBlur::~cPostEffectType_RadialBlur() {}
+
+iPostEffect *
+cPostEffectType_RadialBlur::CreatePostEffect(iPostEffectParams *apParams) {
+    // cGraphics::CreatePostEffect already calls SetParams on the returned
+    // effect — leave initialisation to that single site.
+    (void)apParams;
+    return hplNew(cPostEffect_RadialBlur, (mpGraphics, mpResources, this));
+}
+
+//-----------------------------------------------------------------------
+
+cPostEffect_RadialBlur::cPostEffect_RadialBlur(cGraphics *apGraphics,
+                                               cResources *apResources,
+                                               iPostEffectType *apType)
+    : iPostEffect(apGraphics, apResources, apType),
+      mpRadialBlurType(static_cast<cPostEffectType_RadialBlur *>(mpType)) {}
+
+cPostEffect_RadialBlur::~cPostEffect_RadialBlur() {}
+
+void cPostEffect_RadialBlur::RenderEffect(const PostEffectRenderCtx &ctx) {
+    VkCommandBuffer cmd = ctx.cmd->vk.cmd;
+
+    VkRenderingAttachmentInfo colorAttach = {
+        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    colorAttach.imageView   = ctx.outputView;
+    colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+
+    VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+    renderInfo.renderArea           = {{0, 0}, {ctx.width, ctx.height}};
+    renderInfo.layerCount           = 1;
+    renderInfo.colorAttachmentCount = 1;
+    renderInfo.pColorAttachments    = &colorAttach;
+    vkCmdBeginRendering(cmd, &renderInfo);
+
+    VkViewport viewport = {0.0f,
+                           0.0f,
+                           static_cast<float>(ctx.width),
+                           static_cast<float>(ctx.height),
+                           0.0f,
+                           1.0f};
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+    VkRect2D scissor = {{0, 0}, {ctx.width, ctx.height}};
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    PostEffectPipelineState state{};
+    InitPostEffectPipelineState(state, VK_FORMAT_R8G8B8A8_UNORM, false);
+
+    const hash_t pipelineHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    mpRadialBlurType->m_program.bindPipeline(&RI.device, ctx.cmd, pipelineHash,
+                                             "PostEffect_RadialBlur",
+                                             &state.createInfo);
+
+    RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+        eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
+        eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
+
+    RIProgram::DescriptorBinding bindings[2] = {};
+    bindings[0].descriptor = *samplerDesc;
+    bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
+    bindings[1].descriptor = *ctx.inputSrv;
+    bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
+    mpRadialBlurType->m_program.bindDescriptors(&RI.device, ctx.cmd,
+                                                ctx.frameIndex, bindings, 2);
+
+    RadialBlurPushConstants pc{};
+    pc.size          = mParams.mfSize;
+    pc.blurStartDist = mParams.mfBlurStartDist;
+    pc.screenDim[0]  = static_cast<float>(ctx.width);
+    pc.screenDim[1]  = static_cast<float>(ctx.height);
+    vkCmdPushConstants(cmd, mpRadialBlurType->m_program.getPipelineLayout(),
+                       VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    vkCmdEndRendering(cmd);
+}
+
+} // namespace hpl

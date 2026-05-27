@@ -23,7 +23,7 @@
 //----------------------------------------------
 
 #include "LuxBase.h"
-#include "graphics/Image.h"
+#include "LuxScreenCapture.h"
 
 //----------------------------------------------
 
@@ -194,6 +194,7 @@ public:
 	void OnLeaveContainer(const tString& asNewContainer);
 
 	void OnDraw(float afFrameTime);
+	void OnPostRender(float afFrameTime);
 
 	cGuiSet* GetSet() { return mpGuiSet; }
 
@@ -277,8 +278,6 @@ private:
 	bool CheckSpecialCombineAction(cLuxInventory_Item *apItemA, cLuxInventory_Item *apItemB, int alSlotIndex);
 
 	void CreateBackground();
-	void RenderBackgroundImage();
-	void CreateScreenTextures();
 	void DestroyBackground();
 
 	void CreateGui();
@@ -427,10 +426,8 @@ private:
 	cVector2f mvGuiSetOffset;
 	cVector3f mvGuiSetStartPos;
 
-	Image *mpScreenTexture;
-	cGuiGfxElement *mpScreenGfx;
-	Image *mpScreenBgTexture;
-	cGuiGfxElement *mpScreenBgGfx;
+	// Screen-snapshot pipeline drawn behind the inventory GUI (RI backend).
+	cLuxScreenCapture mScreenCapture;
 
 	cGuiGfxElement* mpFrameHealthCorners[4];
 	cGuiGfxElement* mpFrameHealthBorders[4];
@@ -459,8 +456,6 @@ private:
 	cGuiGfxElement *mpJournalMouseOverGfx;
 
 	cGuiGfxElement *mpWhiteGfx;
-
-	iGpuProgram *mpEffectProgram;
 
 	iWidget * mpHealthWidget;
 	iWidget * mpSanityWidget;

@@ -56,7 +56,7 @@ public:
 	void SetWaveSpeed(float afX){ mfWaveSpeed = afX;}
 
 private:
-	iTexture* RenderEffect(iTexture *apInputTexture, iFrameBuffer *apFinalTempBuffer);
+	void RenderEffect(const hpl::PostEffectRenderCtx &ctx) override;
 
 	iGpuProgram *mpProgram;
 	// Vulkan-bindless port: textures load through cTextureManager::Create2DImage

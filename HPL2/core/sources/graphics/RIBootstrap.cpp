@@ -28,8 +28,8 @@ void RIBootstrap::Dispose() {
     FreeRITextureView(&device, &depthView[i]);
     FreeRITexture(&device, &depthTextures[i]);
     FreeRITextureView(&device, &depthView[i]);
-    FreeRITextureView(&device, &normalView[i]);
-    FreeRITexture(&device, &normalTexture[i]);
+    FreeRITextureView(&device, &visibilityView[i]);
+    FreeRITexture(&device, &visibilityTexture[i]);
   }
 
   for (auto &set : frameSets) {
@@ -82,14 +82,36 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
 
     RIResourceUploaderVKResult_s uploadResult =
         RI_VKFlushResourceUpdate(&RI.device, &RI.uploader, 0, NULL);
-    VkSemaphoreSubmitInfo waitUpload = {
-        VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+
+    // The graphics submit transitions the swapchain image's layout, so it
+    // must wait on the acquire semaphore signaled by vkAcquireNextImageKHR
+    // before touching the image, and must signal finishSem so present can
+    // wait on the rendering work to complete.
+    VkSemaphoreSubmitInfo waitInfos[2] = {};
+    uint32_t waitCount = 0;
+    waitInfos[waitCount].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    waitInfos[waitCount].semaphore =
+        RI.swapchain.vk.imageAcquireSem[RI.swapchain.vk.frameIndex];
+    waitInfos[waitCount].stageMask =
+        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    waitCount++;
     if (uploadResult.signaled) {
-      waitUpload.semaphore = uploadResult.vk.semaphore;
-      waitUpload.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-      submitInfo.waitSemaphoreInfoCount = 1;
-      submitInfo.pWaitSemaphoreInfos = &waitUpload;
+      waitInfos[waitCount].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+      waitInfos[waitCount].semaphore = uploadResult.vk.semaphore;
+      waitInfos[waitCount].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+      waitCount++;
     }
+    submitInfo.waitSemaphoreInfoCount = waitCount;
+    submitInfo.pWaitSemaphoreInfos = waitInfos;
+
+    VkSemaphoreSubmitInfo signalFinish = {
+        VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+    signalFinish.semaphore =
+        RI.swapchain.vk.finishSem[RI.swapchain.vk.frameIndex];
+    signalFinish.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    submitInfo.signalSemaphoreInfoCount = 1;
+    submitInfo.pSignalSemaphoreInfos = &signalFinish;
+
     VK_WrapResult(vkResetFences(RI.device.vk.device, 1, &RI.primary.vk.fence));
     VK_WrapResult(vkQueueSubmit2(graphicsQueue->vk.queue, 1, &submitInfo,
                                  RI.primary.vk.fence));
@@ -119,6 +141,13 @@ void RIBootstrap::BeginActiveSet() {
   //RIFinalizeDescriptor(&RI.device, &cntx->colorAttachment);
   cntx->textureLink.clear();
   cntx->bufferLink.clear();
+  // accelLink defers BLAS-handle release by frames-in-flight, mirroring
+  // bufferLink (which holds the BLAS *storage* + vertex/index buffers).
+  // Without this clear the vector grew unbounded (handles never released) and,
+  // worse, decoupled the handle's lifetime from its backing storage. The Draw
+  // path re-parks every BLAS-backed geometry here each frame, so a BLAS stays
+  // resident as long as it (or a TLAS that references it) can be in flight.
+  cntx->accelLink.clear();
 
   BeginRICmd(&RI.device, &RI.primary.cmds[0]);
   {

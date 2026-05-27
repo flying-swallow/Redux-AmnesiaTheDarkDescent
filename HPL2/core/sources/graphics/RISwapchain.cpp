@@ -180,7 +180,14 @@ int InitRISwapchain( struct RIDevice_s *dev, struct RISwapchainDesc_s *init, RIS
 		swapChainCreateInfo.imageExtent.width = init->width ;
 		swapChainCreateInfo.imageExtent.height = init->height;
 		swapChainCreateInfo.imageArrayLayers = 1;
-		swapChainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+		// SurfelGI composite now writes into the pogo buffer (a separate
+		// color attachment) instead of the swapchain image, so STORAGE_BIT
+		// is no longer required on the swapchain — and many sRGB swapchain
+		// formats (e.g. VK_FORMAT_B8G8R8A8_SRGB with OPTIMAL tiling) don't
+		// advertise STORAGE in their format-feature flags, which the
+		// validation layer flags via VUID-VkSwapchainCreateInfoKHR-imageFormat-01778.
+		swapChainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+		                                 VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 		swapChainCreateInfo.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
 		swapChainCreateInfo.queueFamilyIndexCount = 0;
 		swapChainCreateInfo.pQueueFamilyIndices = NULL;
@@ -237,24 +244,7 @@ uint32_t RISwapchainAcquireNextTexture( struct RIDevice_s *dev, RISwapchain_s<> 
 void RISwapchainPresent(struct RIDevice_s* dev, RISwapchain_s<>* swapchain) {
 #if ( DEVICE_IMPL_VULKAN )
 	{
-		VkSemaphore imageAcquiredSemaphore = swapchain->vk.imageAcquireSem[swapchain->vk.frameIndex];
 		VkSemaphore renderingFinishedSemaphore = swapchain->vk.finishSem[swapchain->vk.frameIndex];
-		{ // Wait & Signal
-			VkSemaphoreSubmitInfo waitSemaphore = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-			waitSemaphore.semaphore = imageAcquiredSemaphore;
-			waitSemaphore.stageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-
-			VkSemaphoreSubmitInfo signalSemaphore = { VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO };
-			signalSemaphore.semaphore = renderingFinishedSemaphore;
-			signalSemaphore.stageMask = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-
-			VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
-			submitInfo.waitSemaphoreInfoCount = 1;
-			submitInfo.pWaitSemaphoreInfos = &waitSemaphore;
-			submitInfo.signalSemaphoreInfoCount = 1;
-			submitInfo.pSignalSemaphoreInfos = &signalSemaphore;
-			VK_WrapResult( vkQueueSubmit2( swapchain->presentQueue->vk.queue, 1, &submitInfo, VK_NULL_HANDLE ) );
-		}
 		{
 			VkPresentInfoKHR presentInfo = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
 			presentInfo.waitSemaphoreCount = 1;

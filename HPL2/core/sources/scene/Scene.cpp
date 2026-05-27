@@ -36,7 +36,11 @@
 #include "graphics/Graphics.h"
 #include "graphics/Renderer.h"
 #include "graphics/PostEffectComposite.h"
+#include "graphics/PostEffectHelpers.h"
+#include "graphics/RIPogoBuffer.h"
+#include "system/Hasher.h"
 #include "graphics/LowLevelGraphics.h"
+#include "graphics/RenderList2.h"
 
 #include "sound/Sound.h"
 #include "sound/LowLevelSound.h"
@@ -220,6 +224,78 @@ namespace hpl {
 						pViewPort->RunViewportCallbackMessage(eViewportMessage_OnPostWorldDraw);
 					}
 
+					// Apply the viewport's post-effect composite to the renderer's pogo
+					// output, then blit it to the swapchain — BEFORE the GUI overlays. The
+					// renderer's Draw leaves the finished scene (incl. particles) in the pogo
+					// "read" half; this mirrors the old Scene::Render post-effect step.
+					if(worldRendered)
+					{
+						RI_PogoBuffer *pogo = &RI.pogoBuffer[RI.swapchainIndex];
+
+						cPostEffectComposite *pComposite = pViewPort->GetPostEffectComposite();
+						if(pComposite && (alFlags & tSceneRenderFlag_PostEffects) && pComposite->HasActiveEffects())
+						{
+							pComposite->Render(afFrameTime, &RI.primary.cmds[0], pogo,
+							                   RI.swapchain.width, RI.swapchain.height, RI.frameIndex);
+						}
+
+						// Tail blit: pogo "read" half -> swapchain (UNDEFINED -> COLOR first).
+						{
+							VkImageMemoryBarrier2 swapBarrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
+							swapBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_NONE;
+							swapBarrier.srcAccessMask = 0;
+							swapBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+							swapBarrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+							swapBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+							swapBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+							swapBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+							swapBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+							swapBarrier.image = RI.swapchain.vk.images[RI.swapchainIndex];
+							swapBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+							VkDependencyInfo dep = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
+							dep.imageMemoryBarrierCount = 1;
+							dep.pImageMemoryBarriers    = &swapBarrier;
+							vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+						}
+						{
+							VkRenderingAttachmentInfo colorAttach = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+							colorAttach.imageView   = RI.swapchainView[RI.swapchainIndex].vk.image;
+							colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+							colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+							colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+							VkRenderingInfo renderInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+							renderInfo.renderArea = { { 0, 0 }, { RI.swapchain.width, RI.swapchain.height } };
+							renderInfo.layerCount = 1;
+							renderInfo.colorAttachmentCount = 1;
+							renderInfo.pColorAttachments    = &colorAttach;
+							vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
+
+							VkViewport vp = { 0.0f, 0.0f, (float)RI.swapchain.width, (float)RI.swapchain.height, 0.0f, 1.0f };
+							vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
+							VkRect2D scr = { { 0, 0 }, { RI.swapchain.width, RI.swapchain.height } };
+							vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &scr);
+
+							PostEffectPipelineState blitState{};
+							InitPostEffectPipelineState(blitState, RIFormatToVK((RI_Format_e)RI.swapchain.format), false);
+							const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, 1u);
+							RI.postEffectBlit.bindPipeline(&RI.device, &RI.primary.cmds[0], kHash,
+							                               "PostEffect.tailBlit", &blitState.createInfo);
+
+							RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+							    eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
+							    eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
+							RIProgram::DescriptorBinding bindings[2] = {};
+							bindings[0].descriptor = *samplerDesc;
+							bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
+							bindings[1].descriptor = *RI_PogoBufferShaderResource(pogo);
+							bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
+							RI.postEffectBlit.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, bindings, 2);
+
+							vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3, 1, 0, 0);
+							vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+						}
+					}
+
 					// GUI block: open a rendering instance with color + depth, render the
 					// GUIs, close it. When the world render ran, Draw left the swapchain in
 					// COLOR_ATTACHMENT_OPTIMAL with the composite inside — LOAD so the GUI
@@ -369,6 +445,10 @@ namespace hpl {
 
 	cWorld* cScene::LoadWorld(const tString& asFile, tWorldLoadFlag aFlags)
 	{
+		cHybridRenderer* pHybridRenderer = static_cast<cHybridRenderer*>(mpGraphics->GetRenderer(eRenderer_Main));
+		cRenderList2* pRenderList = pHybridRenderer->GetRenderList();
+		pRenderList->ClearPersistentObjectsForMapChange();
+
 		///////////////////////////////////
 		// Load the map file
 		tWString asPath = mpResources->GetFileSearcher()->GetFilePath(asFile);

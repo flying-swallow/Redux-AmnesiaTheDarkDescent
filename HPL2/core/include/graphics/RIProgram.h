@@ -5,6 +5,7 @@
 #include "system/Hasher.h"
 #include <array>
 #include <span>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -133,6 +134,12 @@ public:
   };
   struct ShaderBinary {
     std::vector<char> buf;
+    // SPIR-V entry-point function name. Defaults to "main" (GLSL +
+    // single-entry-point HLSL); Slang shaders compiled with
+    // `-fvk-use-entrypoint-name` keep their function name in OpEntryPoint
+    // (e.g. "csMain", "collectCellInfo"), which must match
+    // VkPipelineShaderStageCreateInfo::pName exactly.
+    std::string entryPoint = "main";
   };
 
   struct BindingReflection {
@@ -161,6 +168,11 @@ public:
   struct ModuleStage {
     uint8_t stage;
     std::span<char> data;
+    // Optional override of the entry-point function name. Leave as "main"
+    // for GLSL or default-named HLSL. Slang shaders compiled with
+    // `-fvk-use-entrypoint-name` emit OpEntryPoint with the source
+    // function name; set this to match (e.g. "csMain", "collectCellInfo").
+    const char *entryPoint = "main";
   };
   const struct BindingReflection *
   findReflection(const struct DescriptorBindingID &handle);

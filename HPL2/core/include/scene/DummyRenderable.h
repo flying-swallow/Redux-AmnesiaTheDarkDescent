@@ -23,6 +23,8 @@
 #include "graphics/GraphicsTypes.h"
 #include "graphics/Renderable.h"
 
+#include "graphics/Graphics.h"
+
 namespace hpl {
 	
 	//------------------------------------------
@@ -37,7 +39,7 @@ namespace hpl {
 	class cDummyRenderable : public iRenderable
 	{
 	public:
-		cDummyRenderable(tString asName);
+		cDummyRenderable(tString asName, cGraphics* apGraphics);
 		virtual ~cDummyRenderable();
 
 		//////////////////////////////
@@ -58,6 +60,8 @@ namespace hpl {
 		cMatrixf* GetModelMatrix(cFrustum* apFrustum);
 		
 	private:
+		cGraphics* mpGraphics;
+
 		cMatrixf m_mtxModelOutput;
 	};
 

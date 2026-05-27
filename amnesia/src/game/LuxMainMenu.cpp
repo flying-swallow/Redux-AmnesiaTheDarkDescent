@@ -191,22 +191,8 @@ cLuxMainMenu::cLuxMainMenu() : iLuxUpdateable("LuxDebugHandler")
 	mpTopBackground = mpGui->CreateGfxFilledRect(cColor(0,1),eGuiMaterial_Alpha);
 	mpBlackFade = mpGui->CreateGfxFilledRect(cColor(0,1),eGuiMaterial_Alpha);
 
-	//Crete programs for blur
-	for(int i=0; i<2;++i)
-	{
-		cParserVarContainer programVars;
-		if(i==0) programVars.Add("BlurHorisontal");
-		
-		mpBlurProgram[i] = mpGraphics->CreateGpuProgramFromShaders("MainMenuBlur"+cString::ToString(i),
-																	"mainmenu_screen_blur_vtx.glsl",
-																	"mainmenu_screen_blur_frag.glsl",
-																	&programVars);
-	}
-
-	mpScreenTexture = NULL;
-	mpScreenGfx = NULL;
-	mpScreenBlurTexture = NULL;
-	mpScreenBlurGfx = NULL;
+	// Snapshot-blur pipeline for the in-game (escape) menu backdrop.
+	mScreenCapture.Init(mpGui, cLuxScreenCapture::Effect::Blur);
 
 	mpBgCamera = NULL;
 	mpBgWorld = NULL;
@@ -457,14 +443,19 @@ void cLuxMainMenu::Update(float afTimeStep)
 void cLuxMainMenu::OnDraw(float afFrameTime)
 {
 	/////////////////////////////////
-	//Screen background
-	if(mpScreenGfx)
+	//Screen background (in-game escape menu: blurred snapshot)
+	if(mScreenCapture.GetScreenGfx())
 	{
-		if(mpScreenGfx && mfMenuFadeAlpha>0) 
-			mpGuiSet->DrawGfx(mpScreenGfx,cVector3f(0,0,0),mvScreenSize);
-		
-		if(mpScreenBlurGfx)
-			mpGuiSet->DrawGfx(mpScreenBlurGfx,cVector3f(0,0,0.2f),mvScreenSize,cColor(1, 1-mfMenuFadeAlpha));
+		// Suppress the snapshot quads until the deferred OnPostRender capture
+		// has run once — otherwise we'd sample still-UNDEFINED texture memory.
+		if(mScreenCapture.IsCaptured())
+		{
+			if(mfMenuFadeAlpha>0)
+				mpGuiSet->DrawGfx(mScreenCapture.GetScreenGfx(),cVector3f(0,0,0),mvScreenSize);
+
+			if(mScreenCapture.GetScreenBgGfx())
+				mpGuiSet->DrawGfx(mScreenCapture.GetScreenBgGfx(),cVector3f(0,0,0.2f),mvScreenSize,cColor(1, 1-mfMenuFadeAlpha));
+		}
 
 		if(	mfMenuFadeAlpha > 0 && mbExiting && mExitMessage != eLuxMainMenuExit_ReturnToGame )
 		{
@@ -492,9 +483,8 @@ void cLuxMainMenu::OnDraw(float afFrameTime)
 
 void cLuxMainMenu::OnPostRender(float afFrameTime)
 {
-	//Debug:
-	//Turn of logging so it only happens one frame?
-	//mpViewport->GetRenderSettings()->mbLog->mbLog = true;
+	// Deferred screen-snapshot capture for the in-game (escape) menu backdrop.
+	mScreenCapture.OnPostRender();
 }
 
 //-----------------------------------------------------------------------
@@ -1249,8 +1239,8 @@ void cLuxMainMenu::CreateBackground()
 	// A map is loaded, use a screen shot as background.
 	if(gpBase->mpMapHandler->MapIsLoaded())
 	{
-		CreateScreenTextures();
-		RenderBlurTexture();
+		mScreenCapture.CreateTextures();
+		mScreenCapture.RequestCapture();
 	}
 	////////////////////////////
 	// No map is loaded, create scene.
@@ -1302,117 +1292,6 @@ void cLuxMainMenu::CreateBackground()
 
 //-----------------------------------------------------------------------
 
-void cLuxMainMenu::CreateScreenTextures()
-{
-	iLowLevelGraphics *pLowGfx = mpGraphics->GetLowLevel();
-	cVector3l vTexSize = pLowGfx->GetScreenSizeInt();
-	vTexSize.z = 0;
-
-	mpScreenTexture = hplNew(Image, ());// mpGraphics->CreateTexture("Screen",eTextureType_Rect,eTextureUsage_RenderTarget);
-	mpScreenTexture->SetImage(Image::SingleImage{std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete)}); 
-	
-	mpScreenBlurTexture  = hplNew(Image, ()); //mpGraphics->CreateTexture("ScreenBlur",eTextureType_Rect,eTextureUsage_RenderTarget);
-	mpScreenBlurTexture->SetImage(Image::SingleImage{std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete)}); 
-
-
-	//mpScreenTexture = mpGraphics->CreateTexture("Screen",eTextureType_Rect,eTextureUsage_RenderTarget);
-	//mpScreenTexture->CreateFromRawData(vTexSize,ePixelFormat_RGBA,NULL);
-	//mpScreenTexture->SetWrapSTR(eTextureWrap_ClampToEdge);
-
-	//mpScreenBlurTexture = mpGraphics->CreateTexture("ScreenBlur",eTextureType_Rect,eTextureUsage_RenderTarget);
-	//mpScreenBlurTexture->CreateFromRawData(vTexSize,ePixelFormat_RGBA,NULL);
-	
-	mpScreenGfx = mpGui->CreateGfxTexture(mpScreenTexture,false,eGuiMaterial_Diffuse);
-	mpScreenBlurGfx = mpGui->CreateGfxTexture(mpScreenBlurTexture,false,eGuiMaterial_Alpha);
-}
-
-//-----------------------------------------------------------------------
-
-void cLuxMainMenu::RenderBlur(iTexture *apInputTexture, iTexture *apTempTexture, iFrameBuffer **apBlurBuffers)
-{
-	iLowLevelGraphics *pLowGfx = mpGraphics->GetLowLevel();
-
-	//Draw horizontal blur to temp from screen
-	mpBlurProgram[0]->Bind();
-	pLowGfx->SetCurrentFrameBuffer(apBlurBuffers[0]);
-
-	pLowGfx->SetTexture(0,apInputTexture);
-
-	pLowGfx->DrawQuad(0,mvScreenSize,cVector2f(0, mvScreenSize.y),cVector2f(mvScreenSize.x,0),cColor(1,1));
-	mpBlurProgram[0]->UnBind();
-
-	//Draw vertical blur to final from temp
-	mpBlurProgram[1]->Bind();
-	pLowGfx->SetCurrentFrameBuffer(apBlurBuffers[1]);
-
-	pLowGfx->SetTexture(0,apTempTexture);
-
-	pLowGfx->DrawQuad(0,mvScreenSize,cVector2f(0, mvScreenSize.y),cVector2f(mvScreenSize.x,0),cColor(1,1));
-	mpBlurProgram[1]->UnBind();
-}
-
-void cLuxMainMenu::RenderBlurTexture()
-{
-	//assert(false);
-	//iLowLevelGraphics *pLowGfx = mpGraphics->GetLowLevel();
-
-	////////////////////////////////
-	//// Create frame buffers
-	//iTexture* pTempBlurTexture = mpGraphics->CreateTexture("TempBlur",eTextureType_Rect,eTextureUsage_RenderTarget);
-	//pTempBlurTexture->CreateFromRawData(cVector3l((int)mvScreenSize.x, (int)mvScreenSize.y,0),ePixelFormat_RGBA,NULL);
-	//pTempBlurTexture->SetWrapSTR(eTextureWrap_ClampToEdge);
-	//
-	//iFrameBuffer *pBlurBuffer[2];
-	//for(int i=0; i<2; ++i)
-	//{
-	//	pBlurBuffer[i] = mpGraphics->CreateFrameBuffer("MainMenuBlurBuffer"+cString::ToString(i));
-	//	if(i==0) pBlurBuffer[i]->SetTexture2D(0,pTempBlurTexture);
-	//	else	pBlurBuffer[i]->SetTexture2D(0,mpScreenBlurTexture);
-
-	//	pBlurBuffer[i]->CompileAndValidate();
-	//}
-	//
-	////////////////////////////////
-	//// Render
-
-	////Set up main states
-	//pLowGfx->SetBlendActive(false);
-	//pLowGfx->SetDepthTestActive(false);
-	//pLowGfx->SetDepthWriteActive(false);
-	//
-	//pLowGfx->SetOrthoProjection(mvScreenSize,-1000,1000);
-	//pLowGfx->SetIdentityMatrix(eMatrix_ModelView);
-
-	////Copy screen to screen texture
-	//pLowGfx->CopyFrameBufferToTexure(mpScreenTexture,0,pLowGfx->GetScreenSizeInt(),0);
-	//
-	//RenderBlur(mpScreenTexture,pTempBlurTexture,pBlurBuffer);
-
-	//for(int i=0; i<6; ++i)
-	//	RenderBlur(mpScreenBlurTexture,pTempBlurTexture,pBlurBuffer);
-
-	/////////////////////////
-	//// Exit
-
-	////Render states
-	//pLowGfx->SetTexture(0,NULL);
-	//pLowGfx->SetCurrentFrameBuffer(NULL);
-	//pLowGfx->SetDepthTestActive(true);
-
-	////Flush the rendering
-	//pLowGfx->FlushRendering();
-	//pLowGfx->WaitAndFinishRendering();
-	//
-	////Destroy data
-	//mpGraphics->DestroyTexture(pTempBlurTexture);
-	//for(int i=0; i<2; ++i)
-	//{
-	//	mpGraphics->DestroyFrameBuffer(pBlurBuffer[i]);
-	//}
-}
-
-//-----------------------------------------------------------------------
-
 void cLuxMainMenu::DestroyBackground()
 {
 	///////////////////////////
@@ -1432,18 +1311,10 @@ void cLuxMainMenu::DestroyBackground()
 		mpBgWorld = NULL;
 	}
 	///////////////////////////
-	//No background is loaded.
+	//No background world — the in-game menu used a screen snapshot instead.
 	else
 	{
-		if(mpScreenGfx) mpGui->DestroyGfx(mpScreenGfx);
-		if(mpScreenTexture) hplFree(mpScreenTexture);
-		if(mpScreenBlurGfx) mpGui->DestroyGfx(mpScreenBlurGfx);
-		if(mpScreenBlurTexture) hplFree(mpScreenBlurTexture);
-
-		mpScreenGfx = NULL;
-		mpScreenTexture = NULL;
-		mpScreenBlurTexture = NULL;
-		mpScreenBlurGfx = NULL;
+		mScreenCapture.Destroy();
 	}
 }
 

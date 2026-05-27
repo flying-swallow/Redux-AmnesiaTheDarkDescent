@@ -7,9 +7,14 @@
 #include "graphics/Material.h"
 #include "graphics/MaterialResource.h"
 #include "graphics/MaterialType.h"
+#include "graphics/PostEffectComposite.h"
+#include "graphics/PostEffectHelpers.h"
 #include "graphics/RIBootstrap.h"
+#include "graphics/RIPogoBuffer.h"
+#include "graphics/RIProgramHelpers.h"
 #include "graphics/RIResourceUploader.h"
 #include "graphics/RIVK.h"
+#include "scene/Viewport.h"
 #include "graphics/Renderable.h"
 #include "graphics/VertexBuffer.h"
 #include "graphics/VertexBuffer_RI.h"
@@ -27,6 +32,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cmath>
 #include <cstring>
 #include <iterator>
 #include <unordered_set>
@@ -48,7 +54,8 @@ static inline float sRGBToLinear(float c) {
 static struct RIBuffer_s CreateBindlessSlotBuffer(RIDevice_s *device,
                                                   uint32_t slotCount,
                                                   size_t elementStride,
-                                                  VkBufferUsageFlags usage) {
+                                                  VkBufferUsageFlags usage,
+                                                  bool deviceLocalOnly = false) {
   uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
   VkBufferCreateInfo bufferCreateInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   VK_ConfigureBufferQueueFamilies(&bufferCreateInfo, device->queues,
@@ -57,16 +64,22 @@ static struct RIBuffer_s CreateBindlessSlotBuffer(RIDevice_s *device,
   bufferCreateInfo.usage = usage;
 
   VmaAllocationCreateInfo allocInfo = {};
-  allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
-                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+  if (deviceLocalOnly) {
+    // Pure device-local heap. Caller must seed contents via RI.uploader
+    // (RI_ResourceBeginCopyBuffer / EndCopyBuffer) — out.mappedAddress is null.
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  } else {
+    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
+                      VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+  }
 
   VmaAllocationInfo allocationInfo = {};
   struct RIBuffer_s out;
   VK_WrapResult(vmaCreateBuffer(device->vk.vmaAllocator, &bufferCreateInfo,
                                 &allocInfo, &out.vk.buffer, &out.vk.allocation,
                                 &allocationInfo));
-  out.mappedAddress = allocationInfo.pMappedData;
+  out.mappedAddress = deviceLocalOnly ? nullptr : allocationInfo.pMappedData;
   return out;
 }
 
@@ -74,7 +87,7 @@ static struct RIBuffer_s CreateBindlessSlotBuffer(RIDevice_s *device,
 
 namespace {
 
-// Holder for the static portion of the "hybrid.gbuffer_mrt"
+// Holder for the static portion of the "SurfelGBuffer.3d"
 // VkGraphicsPipelineCreateInfo. Owns every sub-struct so the pointer
 // chain stays valid as long as the holder lives. Non-copyable /
 // non-movable - the pNext / pXxxState pointers would dangle.
@@ -84,18 +97,17 @@ struct GBufferMRTPipelineDesc {
   VkPipelineRasterizationStateCreateInfo rasterizationState;
   VkDynamicState dynamicStates[2];
   VkPipelineDynamicStateCreateInfo dynamicState;
-  VkFormat colorFormats[2];
+  VkFormat colorFormat;
   VkPipelineRenderingCreateInfo pipelineRendering;
   VkPipelineViewportStateCreateInfo viewportState;
   VkPipelineMultisampleStateCreateInfo multisampleState;
   VkPipelineDepthStencilStateCreateInfo depthStencilState;
-  VkPipelineColorBlendAttachmentState blendAttachments[2];
+  VkPipelineColorBlendAttachmentState blendAttachment;
   VkPipelineColorBlendStateCreateInfo colorBlendState;
   VkGraphicsPipelineCreateInfo createInfo;
   hash_t hash;
 
-  GBufferMRTPipelineDesc(RI_Format_e normalFormat, RI_Format_e visibilityFormat,
-                         RI_Format_e depthFormat) {
+  GBufferMRTPipelineDesc(RI_Format_e visibilityFormat, RI_Format_e depthFormat) {
     // VS pulls all per-vertex data via buffer_reference from set 0 SSBOs,
     // so the pipeline declares zero vertex input bindings and attributes.
     vertexInputState = {
@@ -122,11 +134,13 @@ struct GBufferMRTPipelineDesc {
     dynamicState.dynamicStateCount = ARRAY_COUNT(dynamicStates);
     dynamicState.pDynamicStates = dynamicStates;
 
-    colorFormats[0] = RIFormatToVK(normalFormat);
-    colorFormats[1] = RIFormatToVK(visibilityFormat);
+    // Single MRT — packed TriangleHit (uint4). The Slang psMain writes only
+    // SV_TARGET0; downstream consumers (visibility_shade.frag, surfel passes)
+    // decode the uint4 directly.
+    colorFormat = RIFormatToVK(visibilityFormat);
     pipelineRendering = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    pipelineRendering.colorAttachmentCount = 2;
-    pipelineRendering.pColorAttachmentFormats = colorFormats;
+    pipelineRendering.colorAttachmentCount = 1;
+    pipelineRendering.pColorAttachmentFormats = &colorFormat;
     pipelineRendering.depthAttachmentFormat = RIFormatToVK(depthFormat);
 
     viewportState = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
@@ -145,127 +159,14 @@ struct GBufferMRTPipelineDesc {
     depthStencilState.minDepthBounds = 0.0f;
     depthStencilState.maxDepthBounds = 1.0f;
 
-    // Both gbuffer outputs are written as plain SRC=ONE/DST=ZERO copies — no
-    // actual blending. The visibility attachment (uint) doesn't support
-    // VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT, so blendEnable must be
-    // VK_FALSE for it. Disabling on the normal attachment too keeps the
-    // behavior identical (factors were already an identity copy) and drops
-    // the dependency on COLOR_ATTACHMENT_BLEND_BIT.
-    blendAttachments[0] = {VK_FALSE,
-                           VK_BLEND_FACTOR_ONE,
-                           VK_BLEND_FACTOR_ZERO,
-                           VK_BLEND_OP_ADD,
-                           VK_BLEND_FACTOR_ONE,
-                           VK_BLEND_FACTOR_ZERO,
-                           VK_BLEND_OP_ADD,
-                           VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                               VK_COLOR_COMPONENT_B_BIT |
-                               VK_COLOR_COMPONENT_A_BIT};
-    blendAttachments[1] = {
+    // uint MRT — blendEnable must be VK_FALSE (uint formats don't carry
+    // VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT). Factors stay identity.
+    blendAttachment = {
         VK_FALSE,        VK_BLEND_FACTOR_ONE,     VK_BLEND_FACTOR_ZERO,
         VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE,     VK_BLEND_FACTOR_ZERO,
-        VK_BLEND_OP_ADD, VK_COLOR_COMPONENT_R_BIT};
-    colorBlendState = {
-        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    colorBlendState.attachmentCount = 2;
-    colorBlendState.pAttachments = blendAttachments;
-
-    createInfo = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-    createInfo.pNext = &pipelineRendering;
-    createInfo.pVertexInputState = &vertexInputState;
-    createInfo.pInputAssemblyState = &inputAssemblyState;
-    createInfo.pRasterizationState = &rasterizationState;
-    createInfo.pDynamicState = &dynamicState;
-    createInfo.pViewportState = &viewportState;
-    createInfo.pMultisampleState = &multisampleState;
-    createInfo.pDepthStencilState = &depthStencilState;
-    createInfo.pColorBlendState = &colorBlendState;
-
-    hash = hash_u32(HASH_INITIAL_VALUE, normalFormat);
-    hash = hash_u32(hash, depthFormat);
-  }
-
-  GBufferMRTPipelineDesc(const GBufferMRTPipelineDesc &) = delete;
-  GBufferMRTPipelineDesc &operator=(const GBufferMRTPipelineDesc &) = delete;
-};
-
-// Pipeline descriptor for the final visibility-buffer composite. Fullscreen
-// triangle, zero vertex inputs (procedurally generated in the vertex
-// shader from gl_VertexIndex), one color target = swapchain image, no
-// depth/stencil, no blending. Same lifetime contract as
-// GBufferMRTPipelineDesc — keep alive across the pipeline create call.
-struct VisibilityShadePipelineDesc {
-  VkPipelineVertexInputStateCreateInfo vertexInputState;
-  VkPipelineInputAssemblyStateCreateInfo inputAssemblyState;
-  VkPipelineRasterizationStateCreateInfo rasterizationState;
-  VkDynamicState dynamicStates[2];
-  VkPipelineDynamicStateCreateInfo dynamicState;
-  VkFormat colorFormats[1];
-  VkPipelineRenderingCreateInfo pipelineRendering;
-  VkPipelineViewportStateCreateInfo viewportState;
-  VkPipelineMultisampleStateCreateInfo multisampleState;
-  VkPipelineDepthStencilStateCreateInfo depthStencilState;
-  VkPipelineColorBlendAttachmentState blendAttachment;
-  VkPipelineColorBlendStateCreateInfo colorBlendState;
-  VkGraphicsPipelineCreateInfo createInfo;
-  hash_t hash;
-
-  explicit VisibilityShadePipelineDesc(RI_Format_e swapchainFormat) {
-    vertexInputState = {
-        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    vertexInputState.vertexBindingDescriptionCount = 0;
-    vertexInputState.pVertexBindingDescriptions = nullptr;
-    vertexInputState.vertexAttributeDescriptionCount = 0;
-    vertexInputState.pVertexAttributeDescriptions = nullptr;
-
-    inputAssemblyState = {
-        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    rasterizationState = {
-        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-    rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizationState.cullMode = VK_CULL_MODE_NONE;
-    rasterizationState.frontFace = VK_FRONT_FACE_CLOCKWISE;
-    rasterizationState.lineWidth = 1.0f;
-
-    dynamicStates[0] = VK_DYNAMIC_STATE_VIEWPORT;
-    dynamicStates[1] = VK_DYNAMIC_STATE_SCISSOR;
-    dynamicState = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-    dynamicState.dynamicStateCount = ARRAY_COUNT(dynamicStates);
-    dynamicState.pDynamicStates = dynamicStates;
-
-    colorFormats[0] = RIFormatToVK(swapchainFormat);
-    pipelineRendering = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    pipelineRendering.colorAttachmentCount = 1;
-    pipelineRendering.pColorAttachmentFormats = colorFormats;
-    pipelineRendering.depthAttachmentFormat = VK_FORMAT_UNDEFINED;
-    pipelineRendering.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
-
-    viewportState = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-    viewportState.viewportCount = 1;
-    viewportState.scissorCount = 1;
-
-    multisampleState = {
-        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-    multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    depthStencilState = {
-        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    depthStencilState.depthTestEnable = VK_FALSE;
-    depthStencilState.depthWriteEnable = VK_FALSE;
-    depthStencilState.minDepthBounds = 0.0f;
-    depthStencilState.maxDepthBounds = 1.0f;
-
-    blendAttachment = {VK_FALSE,
-                       VK_BLEND_FACTOR_ONE,
-                       VK_BLEND_FACTOR_ZERO,
-                       VK_BLEND_OP_ADD,
-                       VK_BLEND_FACTOR_ONE,
-                       VK_BLEND_FACTOR_ZERO,
-                       VK_BLEND_OP_ADD,
-                       VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
+        VK_BLEND_OP_ADD,
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
     colorBlendState = {
         VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     colorBlendState.attachmentCount = 1;
@@ -282,13 +183,14 @@ struct VisibilityShadePipelineDesc {
     createInfo.pDepthStencilState = &depthStencilState;
     createInfo.pColorBlendState = &colorBlendState;
 
-    hash = hash_u32(HASH_INITIAL_VALUE, swapchainFormat);
+    hash = hash_u32(HASH_INITIAL_VALUE, visibilityFormat);
+    hash = hash_u32(hash, depthFormat);
   }
 
-  VisibilityShadePipelineDesc(const VisibilityShadePipelineDesc &) = delete;
-  VisibilityShadePipelineDesc &
-  operator=(const VisibilityShadePipelineDesc &) = delete;
+  GBufferMRTPipelineDesc(const GBufferMRTPipelineDesc &) = delete;
+  GBufferMRTPipelineDesc &operator=(const GBufferMRTPipelineDesc &) = delete;
 };
+
 
 // Pipeline descriptor for the particle (translucent) pass. One instance per
 // blend mode — the hardware blend factors come from the legacy
@@ -444,257 +346,127 @@ struct ParticlePipelineDesc {
   ParticlePipelineDesc &operator=(const ParticlePipelineDesc &) = delete;
 };
 
-// Pipeline descriptor for the decal pass. Near-clone of ParticlePipelineDesc;
-// the two pieces of state that differ from particles, matching the legacy
-// AmnesiaTheDarkDescent decal pipeline (RendererDeferred.cpp:1165-1213):
-//   - cullMode = FRONT      (legacy uses front-culling on decal volumes;
-//                            particles use NONE because billboards face either way)
-//   - colorWriteMask = RGB  (legacy decals don't write alpha; particles do)
-// VS pulls Position / Texture0 / Color0 streams via BDA from opaque*Handles[],
-// indexed by gl_InstanceIndex, so no vertex bindings are declared.
-struct DecalPipelineDesc {
-  VkPipelineVertexInputStateCreateInfo vertexInputState;
-  VkPipelineInputAssemblyStateCreateInfo inputAssemblyState;
-  VkPipelineRasterizationStateCreateInfo rasterizationState;
-  VkDynamicState dynamicStates[2];
-  VkPipelineDynamicStateCreateInfo dynamicState;
-  VkFormat colorFormats[1];
-  VkPipelineRenderingCreateInfo pipelineRendering;
-  VkPipelineViewportStateCreateInfo viewportState;
-  VkPipelineMultisampleStateCreateInfo multisampleState;
-  VkPipelineDepthStencilStateCreateInfo depthStencilState;
-  VkPipelineColorBlendAttachmentState blendAttachment;
-  VkPipelineColorBlendStateCreateInfo colorBlendState;
-  VkGraphicsPipelineCreateInfo createInfo;
-  hash_t hash;
-
-  enum BlendMode : uint32_t {
-    BLEND_ADD = 0,
-    BLEND_MUL = 1,
-    BLEND_MULX2 = 2,
-    BLEND_ALPHA = 3,
-    BLEND_PREMUL_ALPHA = 4,
-    BLEND_LAST_ENUM = 5,
-  };
-
-  DecalPipelineDesc(RI_Format_e swapchainFormat, RI_Format_e depthFormat,
-                    BlendMode mode) {
-    vertexInputState = {
-        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    vertexInputState.vertexBindingDescriptionCount = 0;
-    vertexInputState.pVertexBindingDescriptions = nullptr;
-    vertexInputState.vertexAttributeDescriptionCount = 0;
-    vertexInputState.pVertexAttributeDescriptions = nullptr;
-
-    inputAssemblyState = {
-        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    rasterizationState = {
-        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-    rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizationState.cullMode = VK_CULL_MODE_FRONT_BIT;
-    rasterizationState.frontFace = VK_FRONT_FACE_CLOCKWISE;
-    rasterizationState.lineWidth = 1.0f;
-
-    dynamicStates[0] = VK_DYNAMIC_STATE_VIEWPORT;
-    dynamicStates[1] = VK_DYNAMIC_STATE_SCISSOR;
-    dynamicState = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-    dynamicState.dynamicStateCount = ARRAY_COUNT(dynamicStates);
-    dynamicState.pDynamicStates = dynamicStates;
-
-    colorFormats[0] = RIFormatToVK(swapchainFormat);
-    pipelineRendering = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    pipelineRendering.colorAttachmentCount = 1;
-    pipelineRendering.pColorAttachmentFormats = colorFormats;
-    pipelineRendering.depthAttachmentFormat = RIFormatToVK(depthFormat);
-
-    viewportState = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-    viewportState.viewportCount = 1;
-    viewportState.scissorCount = 1;
-
-    multisampleState = {
-        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-    multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    depthStencilState = {
-        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    depthStencilState.depthTestEnable = VK_TRUE;
-    depthStencilState.depthWriteEnable = VK_FALSE;
-    depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-    depthStencilState.minDepthBounds = 0.0f;
-    depthStencilState.maxDepthBounds = 1.0f;
-
-    // Blend factors match the legacy translucencyBlendTable. RGB-only
-    // colorWriteMask matches the legacy decal pipeline.
-    blendAttachment = {};
-    blendAttachment.blendEnable = VK_TRUE;
-    blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
-                                     VK_COLOR_COMPONENT_G_BIT |
-                                     VK_COLOR_COMPONENT_B_BIT;
-    blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-    blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
-    switch (mode) {
-    case BLEND_ADD:
-      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      break;
-    case BLEND_MUL:
-      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO;
-      blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_SRC_COLOR;
-      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-      blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      break;
-    case BLEND_MULX2:
-      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
-      blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_SRC_COLOR;
-      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      break;
-    case BLEND_ALPHA:
-      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-      blendAttachment.dstColorBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.dstAlphaBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      break;
-    case BLEND_PREMUL_ALPHA:
-      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.dstColorBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.dstAlphaBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      break;
-    default:
-      break;
-    }
-    colorBlendState = {
-        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    colorBlendState.attachmentCount = 1;
-    colorBlendState.pAttachments = &blendAttachment;
-
-    createInfo = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-    createInfo.pNext = &pipelineRendering;
-    createInfo.pVertexInputState = &vertexInputState;
-    createInfo.pInputAssemblyState = &inputAssemblyState;
-    createInfo.pRasterizationState = &rasterizationState;
-    createInfo.pDynamicState = &dynamicState;
-    createInfo.pViewportState = &viewportState;
-    createInfo.pMultisampleState = &multisampleState;
-    createInfo.pDepthStencilState = &depthStencilState;
-    createInfo.pColorBlendState = &colorBlendState;
-
-    hash = hash_u32(HASH_INITIAL_VALUE, swapchainFormat);
-    hash = hash_u32(hash, depthFormat);
-    hash = hash_u32(hash, (uint32_t)mode);
-  }
-
-  DecalPipelineDesc(const DecalPipelineDesc &) = delete;
-  DecalPipelineDesc &operator=(const DecalPipelineDesc &) = delete;
-};
 
 } // namespace
 
 cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     : iRenderer("Hybrid", apGraphics, apResources, 0),
-      m_diffuseBindless(OBJECT_SLOT_CAPACITY, RI_NUMBER_FRAMES_FLIGHT),
-      m_textureBindless(TEXTURE_SLOT_CAPACITY, RI_NUMBER_FRAMES_FLIGHT),
-      m_textureCubeBindless(TEXTURE_SLOT_CAPACITY, RI_NUMBER_FRAMES_FLIGHT),
-      m_materialBindless(MATERIAL_SLOT_CAPACITY, RI_NUMBER_FRAMES_FLIGHT) {
+      m_diffuseBindless(kObjectSlotCapacity, RI_NUMBER_FRAMES_FLIGHT),
+      m_textureBindless(kTextureSlotCapacity, RI_NUMBER_FRAMES_FLIGHT),
+      m_textureCubeBindless(kTextureSlotCapacity, RI_NUMBER_FRAMES_FLIGHT),
+      m_materialBindless(kMaterialSlotCapacity, RI_NUMBER_FRAMES_FLIGHT) {
   {
     {
       std::vector<RIBindlessDescriptorSet::Binding> bindings = {};
-      // textures_2d[] — sampled by gbuffer (FS) and surfel_raytrace (CS) for
-      // bindless material albedo fetches.
-      bindings.push_back(RIBindlessDescriptorSet::Binding{
-          BINDING_TEXTURES_2D, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-          TEXTURE_SLOT_CAPACITY,
+      // Stage mask shared by every binding the SurfelGI RT pipeline touches —
+      // raygen/any-hit/closest-hit/miss all need bindless texture+vertex
+      // access for the alpha test, camera-ray reconstruction, and (in Stage E)
+      // material shading inside the path-tracer.
+      const VkShaderStageFlags kRtSharedStages =
           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-              VK_SHADER_STAGE_COMPUTE_BIT,
+          VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+          VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+          VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR;
+      // textures_2d[] — sampled by gbuffer (FS), visibility_shade (FS), and
+      // the SurfelGI RT pipeline's any-hit alpha test + closest-hit albedo.
+      bindings.push_back(RIBindlessDescriptorSet::Binding{
+          kBindingTextures2D, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+          kTextureSlotCapacity, kRtSharedStages,
           VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
               VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT});
-      // textures_cube[] — fed by per-frame point-light gobo uploads. Same
-      // descriptor type as textures_2d, but indexed at BINDING_TEXTURES_CUBE
-      // and allocated from m_textureCubeBindless to keep slot ids distinct.
+      // textures_cube[] — point-light gobos + env maps; also sampled by
+      // the RT pipeline's miss shader (env-light contribution, Stage E).
       bindings.push_back(RIBindlessDescriptorSet::Binding{
-          BINDING_TEXTURES_CUBE, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-          TEXTURE_SLOT_CAPACITY,
-          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-              VK_SHADER_STAGE_COMPUTE_BIT,
+          kBindingTexturesCube, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+          kTextureSlotCapacity, kRtSharedStages,
           VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
               VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT});
-      // opaque*Handles bindings 3..8 — vertex pulling for gbuffer VS and BDA
-      // hit fetches in surfel_raytrace CS.
+      // opaque*Handles bindings 3..8 — vertex pulling for gbuffer VS,
+      // bindless triangle fetch in visibility_shade FS, and barycentric
+      // hit fetches in the SurfelGI RT pipeline.
       for (uint32_t i = 0; i < 6; ++i) {
         bindings.push_back(RIBindlessDescriptorSet::Binding{
-            BINDING_OPAQUE_POSITION_HANDLES + i,
-            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-                VK_SHADER_STAGE_COMPUTE_BIT,
-            0});
+            kBindingOpaquePositionHandles + i,
+            VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kRtSharedStages, 0});
       }
-      // materialSampler — combined with textures_2d at FS sites and at the
-      // surfel_raytrace CS albedo fetch.
+      // materialSampler — paired with textures_2d at every sample site.
       bindings.push_back(RIBindlessDescriptorSet::Binding{
-          BINDING_MATERIAL_SAMPLER, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
-          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-              VK_SHADER_STAGE_COMPUTE_BIT,
-          0});
-      // Surfel-GI SSBOs (bindings 10..16) + cell-grid SSBOs (bindings 17..19).
-      // Used by compute (surfel_*.comp) and sampled in fragment shading once
-      // the GI path lights surfaces.
+          kBindingMaterialSampler, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
+          kRtSharedStages, 0});
+      // SurfelGI SSBOs (bindings 10..19, 27..28). Reachable from compute,
+      // ray-tracing, and fragment stages — visibility_shade.frag samples the
+      // resulting indirect texture, the update/raytrace passes use compute,
+      // and the VBuffer rgen / surfel_rt.rgen write/read these bindings via
+      // the ray-tracing pipeline (Stages B, E).
       const uint32_t kSurfelCellBindings[] = {
-          BINDING_SURFEL_COUNTER, BINDING_SURFEL_BUFFER, BINDING_SURFEL_ALIVE,
-          BINDING_SURFEL_DEAD,    BINDING_SURFEL_DIRTY,  BINDING_SURFEL_RECYCLE,
-          BINDING_SURFEL_RAY,     BINDING_CELL_BUFFER,   BINDING_CELL_COUNTER,
-          BINDING_CELL_TO_SURFEL,
+          kBindingSurfelCounter,      kBindingSurfelBuffer,
+          kBindingSurfelGeometry,     kBindingSurfelValidIndex,
+          kBindingSurfelDirtyIndex,  kBindingSurfelFreeIndex,
+          kBindingSurfelRecycle,      kBindingSurfelRayResult,
+          kBindingCellInfo,           kBindingCellToSurfel,
+          kBindingSurfelRefCounter,  kBindingSurfelReservation,
+          kBindingSurfelBounds,
+          kBindingBindlessSlotGeneration, kBindingSurfelSlotGeneration,
+          kBindingLightGridCount,         kBindingLightGridList,
       };
+      const VkShaderStageFlags kSurfelStageFlags =
+          VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+          VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+          VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR;
       for (uint32_t b : kSurfelCellBindings) {
         bindings.push_back(RIBindlessDescriptorSet::Binding{
-            b, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-            VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0});
+            b, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kSurfelStageFlags, 0});
       }
       // Scene-object + opaque-material tables (bindings 20..21). Read by the
-      // gbuffer pipeline (VS reads sceneObjects, FS reads opaqueMaterial) and
-      // by surfel_raytrace CS (both, for hit-data + albedo fetches).
+      // gbuffer pipeline (VS / FS), by visibility_shade.frag, and by the
+      // SurfelGI RT pipeline at every hit-shader site.
       const uint32_t kSceneTableBindings[] = {
-          BINDING_SCENE_OBJECTS,
-          BINDING_OPAQUE_MATERIAL,
+          kBindingSceneObjects,
+          kBindingOpaqueMaterial,
       };
       for (uint32_t b : kSceneTableBindings) {
         bindings.push_back(RIBindlessDescriptorSet::Binding{
-            b, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-                VK_SHADER_STAGE_COMPUTE_BIT,
-            0});
+            b, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kRtSharedStages, 0});
       }
-      // Point/spot/box-light SSBOs (bindings 22, 29, 30). Compute reads
-      // pointLights[] during surfel raytrace; fragment reads all three in
-      // visibility_shade.frag.
+      // Point/spot/box-light SSBOs (bindings 22, 29, 30). visibility_shade
+      // reads all three; the Stage E path-tracer also reads them for NEE.
       bindings.push_back(RIBindlessDescriptorSet::Binding{
-          BINDING_POINT_LIGHTS, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-          VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0});
+          kBindingPointLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+          kRtSharedStages, 0});
       bindings.push_back(RIBindlessDescriptorSet::Binding{
-          BINDING_SPOT_LIGHTS, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-          VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0});
+          kBindingSpotLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+          kRtSharedStages, 0});
       bindings.push_back(RIBindlessDescriptorSet::Binding{
-          BINDING_BOX_LIGHTS, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-          VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0});
+          kBindingBoxLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+          kRtSharedStages, 0});
+
+      // gSurfelDepthSampler stays on set 0 — it's an immutable sampler
+      // that never collides with the in-flight frame. All other surfel
+      // images (gPackedHitInfo / gIrradianceMap / gSurfelDepthMap /
+      // gSurfelDepth) plus the TLAS now live on set 1 and get pushed
+      // per-dispatch via RIProgram::bindDescriptors (the same path
+      // gPerFrame uses), since RIProgram allocates set 1 from a
+      // frame-rotated pool that doesn't collide with in-flight frames.
+      bindings.push_back(RIBindlessDescriptorSet::Binding{
+          kBindingSurfelDepthSampler, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
+          VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+              VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+              VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+              VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
+          0});
 
       VkDescriptorPoolSize poolSizes[3] = {};
-      // Sampled-image budget covers both textures_2d[] and textures_cube[]
-      // bindings, each sized TEXTURE_SLOT_CAPACITY.
+      // Sampled-image budget covers textures_2d[] + textures_cube[].
       poolSizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                                          TEXTURE_SLOT_CAPACITY * 2};
-      // 6 opaque*Handles + 7 surfel + 3 cell + 2 scene/material
-      //   + 3 light (point/spot/box) + 1 surfel-lobe (Phase 4) = 22.
+                                          kTextureSlotCapacity * 2};
+      // Storage-buffer pool budget: 6 opaque*Handles + 17 surfel/cell bindings
+      // (kSurfelCellBindings, incl. kBindingSurfelBounds, the two slot-generation
+      // buffers, and the two light-grid buffers) + 2 scene/material + 3 light
+      // SSBOs = 28. Round up to 29 for one slot of slack.
       poolSizes[1] =
-          VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 22};
-      poolSizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLER, 1};
+          VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 29};
+      // Two samplers: gMaterialSampler + gSurfelDepthSampler.
+      poolSizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLER, 2};
 
       m_bindlessSet.initialize(&RI.device, bindings, poolSizes);
     }
@@ -702,177 +474,306 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     const VkDescriptorSetLayout externalLayouts[] = {
         m_bindlessSet.vk.m_bindlessSetLayout};
     {
-      auto vert_stage = RIProgram::loadShaderStage(
-          apResources->GetFileSearcher(), "gbuffer.vert.spv");
-      auto frag_stage = RIProgram::loadShaderStage(
-          apResources->GetFileSearcher(), "gbuffer.frag.spv");
+      // Slang gbuffer pass: one .spv with two named entry points
+      // (vsMain / psMain). slangc was invoked with
+      // -fvk-use-entrypoint-name so the names survive into SPIR-V and the
+      // RIProgram loader can request them through pName.
+      auto gbuffer_bin = RIProgram::loadShaderStage(
+          apResources->GetFileSearcher(), "SurfelGBuffer.3d.spv");
       std::array<RIProgram::ModuleStage, 2> stages = {
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, vert_stage},
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT,
-                                 frag_stage}};
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, gbuffer_bin,
+                                 "vsMain"},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, gbuffer_bin,
+                                 "psMain"}};
       m_gbuffer.initialize(&RI.device, stages, externalLayouts);
     }
 
+    // SurfelGI compute / RT programs are introduced in stages B–F of the
+    // port. The old surfel_prepare / surfel_update / surfel_raytrace /
+    // surfel_integrate / surfel_generation_pass programs are gone because
+    // their on-disk .comp sources no longer compile against the new shared
+    // structs in forward_shared.h; replacements live alongside the new
+    // VBuffer (Stage B), update (Stage D), ray-trace (Stage E), and
+    // integrate / generation passes (Stage F).
+    // SurfelVBuffer — single Slang .spv with four [shader(...)]-attributed
+    // entry points (rayGen / miss / closeHit / anyHit). slangc was invoked
+    // with -fvk-use-entrypoint-name so the names survive into SPIR-V; share
+    // one blob across all four ModuleStage entries, same pattern as
+    // m_surfelUpdate*.
     {
-      auto comp_prepare = RIProgram::loadShaderStage(
-          apResources->GetFileSearcher(), "surfel_prepare.comp.spv");
+      auto vb_bin = RIProgram::loadShaderStage(
+          apResources->GetFileSearcher(), "SurfelVBuffer.rt.spv");
+      std::array<RIProgram::ModuleStage, 4> stages = {
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_RAYGEN,      vb_bin, "rayGen"},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_MISS,        vb_bin, "miss"},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_CLOSEST_HIT, vb_bin, "closeHit"},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_ANY_HIT,     vb_bin, "anyHit"}};
+      m_surfelVBuffer.initialize(&RI.device, stages, externalLayouts);
+    }
+    auto loadComputeProgram = [&](RIProgram &prog, const char *name) {
+      auto bin = RIProgram::loadShaderStage(apResources->GetFileSearcher(), name);
       std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
-          RIProgram::PROGRAM_STAGE_COMPUTE, comp_prepare}};
-      m_surfelPrepare.initialize(&RI.device, stages, externalLayouts);
-    }
-    {
-      auto comp_generate = RIProgram::loadShaderStage(
-          apResources->GetFileSearcher(), "surfel_generation_pass.comp.spv");
+          RIProgram::PROGRAM_STAGE_COMPUTE, bin}};
+      prog.initialize(&RI.device, stages, externalLayouts);
+    };
+    // Slang-compiled compute. Same load path, but the entry-point name in
+    // the SPV is the Slang function name (slangc is invoked with
+    // -fvk-use-entrypoint-name), so we pass it through to ModuleStage.
+    auto loadSlangCompute = [&](RIProgram &prog, const char *name,
+                                const char *entryPoint) {
+      auto bin = RIProgram::loadShaderStage(apResources->GetFileSearcher(), name);
       std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
-          RIProgram::PROGRAM_STAGE_COMPUTE, comp_generate}};
-      m_surfelGenerate.initialize(&RI.device, stages, externalLayouts);
-    }
+          RIProgram::PROGRAM_STAGE_COMPUTE, bin, entryPoint}};
+      prog.initialize(&RI.device, stages, externalLayouts);
+    };
+    // SurfelPreparePass: the only buffer it touches is gSurfelCounter
+    // (kBindingSurfelCounter on the bindless set 0), so the dispatch
+    // site is unchanged — only the loaded SPV + entry point differ.
+    loadSlangCompute(m_surfelPrepare, "SurfelPreparePass.cs.spv", "csMain");
+    // Cell-clearing + ref-counter-clearing are now folded into the
+    // SurfelPreparePass + SurfelUpdatePass Slang side; the dedicated
+    // GLSL clear passes were removed in the GLSL wipe.
+    // SurfelUpdatePass — single .spv with three [numthreads]-marked entry
+    // points (collectCellInfo / accumulateCellInfo / updateCellToSurfelBuffer).
+    // Load the blob once and reuse the std::span<char> across three
+    // initializations; the vector must stay in scope through all three
+    // `initialize()` calls because ModuleStage holds a non-owning view.
     {
-      auto comp_update = RIProgram::loadShaderStage(
-          apResources->GetFileSearcher(), "surfel_update.comp.spv");
-      std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
-          RIProgram::PROGRAM_STAGE_COMPUTE, comp_update}};
-      m_surfelUpdate.initialize(&RI.device, stages, externalLayouts);
+      auto upd_bin = RIProgram::loadShaderStage(
+          apResources->GetFileSearcher(), "SurfelUpdatePass.cs.spv");
+      auto initFromBlob = [&](RIProgram &prog, const char *entryPoint) {
+        std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
+            RIProgram::PROGRAM_STAGE_COMPUTE, upd_bin, entryPoint}};
+        prog.initialize(&RI.device, stages, externalLayouts);
+      };
+      initFromBlob(m_surfelUpdateCollect,    "collectCellInfo");
+      initFromBlob(m_surfelUpdateAccumulate, "accumulateCellInfo");
+      initFromBlob(m_surfelUpdateScatter,    "updateCellToSurfelBuffer");
     }
+    // SurfelRayTrace — single Slang .spv with four [shader(...)] entry points
+    // (rayGen / scatterMiss / scatterCloseHit / scatterAnyHit). Shadow rays
+    // use inline RayQuery in the same shader so no second miss / anyhit
+    // group is needed — keeps the SBT inside RIProgram's single-ray-type
+    // hit-group layout.
     {
-      auto comp_cellInfo = RIProgram::loadShaderStage(
-          apResources->GetFileSearcher(), "cellInfo_update_pass.comp.spv");
-      std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
-          RIProgram::PROGRAM_STAGE_COMPUTE, comp_cellInfo}};
-      m_cellInfoUpdate.initialize(&RI.device, stages, externalLayouts);
+      auto rt_bin = RIProgram::loadShaderStage(
+          apResources->GetFileSearcher(), "SurfelRayTrace.rt.spv");
+      std::array<RIProgram::ModuleStage, 4> stages = {
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_RAYGEN,      rt_bin, "rayGen"},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_MISS,        rt_bin, "scatterMiss"},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_CLOSEST_HIT, rt_bin, "scatterCloseHit"},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_ANY_HIT,     rt_bin, "scatterAnyHit"}};
+      m_surfelRT.initialize(&RI.device, stages, externalLayouts);
     }
+    // LightGridBuildPass — single compute entry (binLights) that bins point/spot
+    // lights into the coarse world-space light grid each frame.
+    loadSlangCompute(m_lightGridBin, "LightGridBuildPass.cs.spv", "binLights");
+    loadSlangCompute(m_surfelIntegrate,  "SurfelIntegratePass.cs.spv",   "csMain");
+    loadSlangCompute(m_surfelGenerate,   "SurfelGenerationPass.cs.spv",  "csMain");
+    // SurfelGIRender — now a graphics pass writing into the pogo buffer's
+    // color attachment (was a compute pass writing into the swapchain as
+    // a storage image). The post-effect chain ping-pongs through pogo
+    // and a tail blit copies the final pogo half into the swapchain;
+    // keeping the surfel composite as a fragment pass means the same
+    // COLOR_ATTACHMENT ↔ FRAGMENT_SHADER barrier helpers in RIPogoBuffer
+    // cover the entire chain.
+    LoadSlangGraphics(&RI.device, m_surfelGIRender, apResources,
+                      "posteffect_fullscreen.vert.spv",
+                      "SurfelGIRenderPass.frag.spv", "vsMain", "psMain",
+                      externalLayouts);
+    // The pogo "read" half -> swapchain tail blit now lives in cScene (after the
+    // viewport's post-effect composite), using RI.postEffectBlit.
     {
-      auto comp_cellToSurfel = RIProgram::loadShaderStage(
-          apResources->GetFileSearcher(), "cellToSurfel_update_pass.comp.spv");
-      std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
-          RIProgram::PROGRAM_STAGE_COMPUTE, comp_cellToSurfel}};
-      m_cellToSurfelUpdate.initialize(&RI.device, stages, externalLayouts);
-    }
-    {
-      auto comp_raytrace = RIProgram::loadShaderStage(
-          apResources->GetFileSearcher(), "surfel_raytrace.comp.spv");
-      std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
-          RIProgram::PROGRAM_STAGE_COMPUTE, comp_raytrace}};
-      m_surfelRaytrace.initialize(&RI.device, stages, externalLayouts);
-    }
-    {
-      auto comp_integrate = RIProgram::loadShaderStage(
-          apResources->GetFileSearcher(), "surfel_integrate.comp.spv");
-      std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
-          RIProgram::PROGRAM_STAGE_COMPUTE, comp_integrate}};
-      m_surfelIntegrate.initialize(&RI.device, stages, externalLayouts);
-    }
-    {
-      auto vis_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
-                                                 "visibility_shade.vert.spv");
-      auto vis_frag = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
-                                                 "visibility_shade.frag.spv");
-      std::array<RIProgram::ModuleStage, 2> stages = {
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, vis_vert},
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, vis_frag}};
-      m_visibilityShade.initialize(&RI.device, stages, externalLayouts);
-    }
-    {
+      // Slang-compiled (amnesia/slang/ParticlePass) — entry-point names go in
+      // the SPV as-is because slangc is invoked with -fvk-use-entrypoint-name.
       auto p_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
-                                               "particle.vert.spv");
+                                               "Particle.vert.spv");
       auto p_frag = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
-                                               "particle.frag.spv");
+                                               "Particle.frag.spv");
       std::array<RIProgram::ModuleStage, 2> stages = {
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, p_vert},
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, p_frag}};
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, p_vert, "vsMain"},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, p_frag, "psMain"}};
       m_particle.initialize(&RI.device, stages, externalLayouts);
     }
-    {
-      auto d_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
-                                               "decal.vert.spv");
-      auto d_frag = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
-                                               "decal.frag.spv");
-      std::array<RIProgram::ModuleStage, 2> stages = {
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, d_vert},
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, d_frag}};
-      m_decal.initialize(&RI.device, stages, externalLayouts);
-    }
+    // Decal pass: no Slang port yet — legacy GLSL was wiped, dispatch
+    // site below skips decals until the port lands.
 
     const VkBufferUsageFlags kStorage =
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT;  // surfelValid→surfelDirty ping-pong copy
     m_diffuseObjectBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, OBJECT_SLOT_CAPACITY, sizeof(ObjectGPUData), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(UniformObject), kStorage,
+        /*deviceLocalOnly*/ true);
     m_opaquePositionHandles = detail::CreateBindlessSlotBuffer(
-        &RI.device, OBJECT_SLOT_CAPACITY, sizeof(VkDeviceAddress), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
+        /*deviceLocalOnly*/ true);
     m_opaqueTangentHandles = detail::CreateBindlessSlotBuffer(
-        &RI.device, OBJECT_SLOT_CAPACITY, sizeof(VkDeviceAddress), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
+        /*deviceLocalOnly*/ true);
     m_opaqueNormalHandles = detail::CreateBindlessSlotBuffer(
-        &RI.device, OBJECT_SLOT_CAPACITY, sizeof(VkDeviceAddress), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
+        /*deviceLocalOnly*/ true);
     m_opaqueUv0Handles = detail::CreateBindlessSlotBuffer(
-        &RI.device, OBJECT_SLOT_CAPACITY, sizeof(VkDeviceAddress), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
+        /*deviceLocalOnly*/ true);
     m_opaqueColorHandles = detail::CreateBindlessSlotBuffer(
-        &RI.device, OBJECT_SLOT_CAPACITY, sizeof(VkDeviceAddress), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
+        /*deviceLocalOnly*/ true);
     m_opaqueIndexHandles = detail::CreateBindlessSlotBuffer(
-        &RI.device, OBJECT_SLOT_CAPACITY, sizeof(VkDeviceAddress), kStorage);
+        &RI.device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
+        /*deviceLocalOnly*/ true);
 
     RISegmentAllocDesc_s indirectDesc = {};
     indirectDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
     indirectDesc.elementStride = sizeof(VkDrawIndirectCommand);
-    indirectDesc.maxElements = (uint16_t)OBJECT_SLOT_CAPACITY;
+    indirectDesc.maxElements = (uint16_t)kObjectSlotCapacity;
     m_indirectSegment = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>(&indirectDesc);
     m_indirectDrawBuffer = detail::CreateBindlessSlotBuffer(
         &RI.device, indirectDesc.maxElements, sizeof(VkDrawIndirectCommand),
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
-    // Surfel-GI SSBOs (bindless.resource.glsl set=0 bindings 10..16). Sizes
-    // come from forward_shared.h; element strides come from the matching C++
-    // twin structs declared in the same header.
+    // === SurfelGI SSBOs (bindless.resource.glsl set=0, bindings 10..19, 27..28) ===
+    // Sizes come from forward_shared.h:
+    //   surfelCounter         : kSurfelCounterSlotCount × uint32
+    //   surfel/geometry/etc   : kTotalSurfelLimit × element
+    //   surfelRayResult       : kRayBudget × SurfelRayResult (~460 MB)
+    //   cellInfo / reservation: kCellCount × element  (15.6M cells × 8B/4B)
+    //   cellToSurfel          : kCellToSurfelCapacity × uint32  (75 MB)
+    // The reference layout adds m_surfelGeometryBuffer (cached uint4 triangle
+    // hit per surfel) and m_surfelRayResultBuffer (replaces the old SurfelRay
+    // type with a larger SurfelRayResult). m_cellCounterBuffer is gone — its
+    // contents fold into surfelCounter[kSurfelCounterCell].
+    // Lock host sizeof against the Slang ArrayStride for every SSBO struct the
+    // host allocates by sizeof(). Mismatches here silently undersize the
+    // bindless buffer; robust-access turns the out-of-bounds writes into no-ops
+    // and reads return zeros — which manifested as Cell=0/ReqRay=0 because every
+    // dirty surfel's data came back as zero.
+    //
+    // The shaders compile with `-fvk-use-scalar-layout` (cmake/shaders.cmake),
+    // so the GPU strides are the natural/packed sizes (float3 = 12B, no 16B
+    // struct rounding) and match the host's plain-C layout. These are NOT the
+    // std430 values (which would be 128/32/64). Re-measure after any struct or
+    // layout-flag change: `slangc … -target spirv-assembly | grep ArrayStride`.
+    static_assert(sizeof(Surfel)            == 104, "Surfel host size != Slang scalar ArrayStride (104); re-check struct layout / -fvk-use-scalar-layout");
+    static_assert(sizeof(SurfelBounds)      == 28,  "SurfelBounds host size != Slang scalar ArrayStride (28)");
+    static_assert(sizeof(SurfelRayResult)   == 48,  "SurfelRayResult host size != Slang scalar ArrayStride (48)");
+    static_assert(sizeof(CellInfo)          == 8,   "CellInfo host size != Slang scalar ArrayStride (8)");
+    static_assert(sizeof(SurfelRecycleInfo) == 6,   "SurfelRecycleInfo host size != Slang scalar ArrayStride (6)");
+
     m_surfelCounterBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, 1, sizeof(SurfelCounter), kStorage);
+        &RI.device, kSurfelCounterSlotCount, sizeof(uint32_t), kStorage,
+        /*deviceLocalOnly*/ true);
     m_surfelBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, SURFEL_MAX_CAPACITY, sizeof(Surfel), kStorage);
-    m_surfelAliveBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, SURFEL_MAX_CAPACITY, sizeof(uint32_t), kStorage);
-    m_surfelDeadBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, SURFEL_MAX_CAPACITY, sizeof(uint32_t), kStorage);
-    m_surfelDirtyBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, SURFEL_MAX_CAPACITY, sizeof(uint32_t), kStorage);
+        &RI.device, kTotalSurfelLimit, sizeof(Surfel), kStorage);
+    m_surfelGeometryBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kTotalSurfelLimit, sizeof(uint32_t) * 4u, kStorage);
+    m_surfelValidBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kTotalSurfelLimit, sizeof(uint32_t), kStorage);
+    m_surfelDirtyIndexBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kTotalSurfelLimit, sizeof(uint32_t), kStorage);
+    m_surfelFreeBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kTotalSurfelLimit, sizeof(uint32_t), kStorage);
     m_surfelRecycleBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, SURFEL_MAX_CAPACITY, sizeof(SurfelRecycleInfo), kStorage);
-    m_surfelRayBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, MAX_RAY_COUNT, sizeof(SurfelRay), kStorage);
-
-    // Seed the surfel free-list: every slot starts dead. surfel_generation_pass
-    // consumes m_surfelDeadBuffer from the back (SURFEL_MAX_CAPACITY - i - 1), so
-    // the stack is [0..N-1] and deadSurfelCnt = N marks the top of the stack.
-    {
-      auto *dead = static_cast<uint32_t *>(m_surfelDeadBuffer.mappedAddress);
-      for (uint32_t i = 0; i < SURFEL_MAX_CAPACITY; ++i) {
-        dead[i] = i;
-      }
-      auto *counter =
-          static_cast<SurfelCounter *>(m_surfelCounterBuffer.mappedAddress);
-      counter->aliveSurfelCnt = 0;
-      counter->deadSurfelCnt = SURFEL_MAX_CAPACITY;
-      counter->dirtySurfelCnt = 0;
-      counter->surfelRayCnt = 0;
-    }
-
-    // Cell-grid SSBOs (bindless.resource.glsl set=0 bindings 17..19). Sizing
-    // from forward_shared.h: TOTAL_CELL_COUNT cells of CellInfo (uniform cube
-    // CELL_COUNT + 6 frustum-face regions of CELL_FRUSTUM_LAYERS log-spaced
-    // slices), a single CellCounter, and a flat CELL_TO_SURFEL_CAPACITY-entry
-    // uint table. Sizing only the central cube would OOB on any worldPos
-    // farther than d/2 (=48u) from the camera — getFlattenCellIndexNonUniform
-    // returns indices in [CELL_COUNT, TOTAL_CELL_COUNT) for those pixels.
+        &RI.device, kTotalSurfelLimit, sizeof(SurfelRecycleInfo), kStorage);
+    m_surfelRayResultBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kRayBudget, sizeof(SurfelRayResult), kStorage);
+    m_surfelRefCounterBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kTotalSurfelLimit, sizeof(uint32_t), kStorage);
+    m_surfelReservationBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kCellCount, sizeof(uint32_t), kStorage);
     m_cellInfoBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, TOTAL_CELL_COUNT, sizeof(CellInfo), kStorage);
-    m_cellCounterBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, 1, sizeof(CellCounter), kStorage);
+        &RI.device, kCellCount, sizeof(CellInfo), kStorage);
     m_cellToSurfelBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, CELL_TO_SURFEL_CAPACITY, sizeof(uint32_t), kStorage);
+        &RI.device, kCellToSurfelCapacity, sizeof(uint32_t), kStorage);
+    // Compact cull record per surfel; written by collectCellInfo before the
+    // generation pass reads it, so no defensive zeroing is needed (every index
+    // pulled from a cell list has already passed through collect this frame).
+    m_surfelBoundsBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kTotalSurfelLimit, sizeof(SurfelBounds), kStorage);
+    // Coarse world-space light grid. GPU-only: zeroed each frame via
+    // vkCmdFillBuffer and (re)filled by LightGridBuildPass before the ray trace,
+    // so no host seeding / mapping is needed (deviceLocalOnly).
+    m_lightGridCountBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kLightGridCellCount, sizeof(uint32_t), kStorage,
+        /*deviceLocalOnly*/ true);
+    m_lightGridListBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kLightGridCellCount * kLightsPerCellMax, sizeof(uint32_t),
+        kStorage, /*deviceLocalOnly*/ true);
 
+    // Seed the surfel free-list. gSurfelCounter[Free] is a stack pointer and
+    // gSurfelFreeIndexBuffer holds the available slot indices; at boot every
+    // slot is free, so Free = kTotalSurfelLimit and the index buffer is iota
+    // [0..kTotalSurfelLimit). Without this the free list starts empty (Free=0):
+    // SurfelGenerationPass can never allocate a surfel (its InterlockedAdd(Free,
+    // -1) underflows past zero, wrapping to ~2^32 — which SurfelPreparePass then
+    // clamps back to 0 via clamp(asint(Free),0,limit)), so Valid/Dirty stay 0
+    // forever => no rays => no indirect light. The free list can't bootstrap
+    // from the recycle path either: collectCellInfo only pushes freed slots for
+    // *dirty* surfels, and there are never any. The Falcor reference seeds the
+    // equivalent via kInitialStatus={0,0,kTotalSurfelLimit,...} + an iota free
+    // buffer. m_surfelFreeBuffer is host-mapped so its iota seed is written
+    // directly here; m_surfelCounterBuffer is device-local, so its Free seed is
+    // staged through m_surfelCounterMirror (set up with the other mirrors below)
+    // on the first frame's flushBindlessMirrors().
     {
-      auto *cellCnt =
-          static_cast<CellCounter *>(m_cellCounterBuffer.mappedAddress);
-      cellCnt->totalCellCount = TOTAL_CELL_COUNT;
-      cellCnt->aliveSurfelInCell = 0;
+      // m_surfelCounterBuffer is now device-local; its boot seed (Free =
+      // kTotalSurfelLimit) is staged through m_surfelCounterMirror below.
+      // m_surfelFreeBuffer stays host-mapped, so seed its iota free list here.
+      auto *freeIdx =
+          static_cast<uint32_t *>(m_surfelFreeBuffer.mappedAddress);
+      for (uint32_t i = 0; i < kTotalSurfelLimit; ++i)
+        freeIdx[i] = i;
     }
+
+    // Slot-reuse generation buffers (see m_bindlessSlotGenerationBuffer). Both
+    // start at 0; the host bumps a slot's generation to a unique nonzero value
+    // the first time it's assigned (below in Draw), so a real surfel always
+    // captures a matching value and 0 can never alias a live slot.
+    m_bindlessSlotGenerationBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kObjectSlotCapacity, sizeof(uint32_t), kStorage,
+        /*deviceLocalOnly*/ true);
+    m_surfelSlotGenerationBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kTotalSurfelLimit, sizeof(uint32_t), kStorage);
+    // m_bindlessSlotGenerationBuffer is now device-local (no mappedAddress); the
+    // CPU shadow mirror is zero-initialized by init() below and markAllDirty()
+    // forces the first frame's flushBindlessMirrors() to seed the device buffer
+    // to zero before collectCellInfo reads it. m_surfelSlotGenerationBuffer stays
+    // host-mapped (GPU-written each frame; only this boot zero touches it).
+    std::memset(m_surfelSlotGenerationBuffer.mappedAddress, 0,
+                (size_t)kTotalSurfelLimit * sizeof(uint32_t));
+    // Per-slot "geometry rebuilt" flags, parallel to the generation buffer.
+    m_slotGeomDirty.assign(kObjectSlotCapacity, 0u);
+
+    // Shadow mirrors for the seven device-local bindless slot buffers. All host
+    // writes target these (never GPU-mapped memory); flushBindlessMirrors()
+    // stages the dirty range once per frame. markAllDirty() seeds the device
+    // buffers from the zeroed shadow on the first frame, giving a clean
+    // device == mirror invariant for every slot.
+    m_opaquePositionMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+    m_opaqueTangentMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+    m_opaqueNormalMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+    m_opaqueUv0Mirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+    m_opaqueColorMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+    m_opaqueIndexMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+    m_bindlessSlotGenerationMirror.init(kObjectSlotCapacity, sizeof(uint32_t));
+    m_opaquePositionMirror.markAllDirty();
+    m_opaqueTangentMirror.markAllDirty();
+    m_opaqueNormalMirror.markAllDirty();
+    m_opaqueUv0Mirror.markAllDirty();
+    m_opaqueColorMirror.markAllDirty();
+    m_opaqueIndexMirror.markAllDirty();
+    m_bindlessSlotGenerationMirror.markAllDirty();
+
+    // Boot-seed the device-local surfel counter: init() zero-fills, then set
+    // Free = kTotalSurfelLimit (the free-list stack pointer). markAllDirty()
+    // stages the seed on the first frame's flushBindlessMirrors(), which lands
+    // ahead of the surfel passes via RI.uploader's fenced pre-pass. The host
+    // never touches this mirror again — the GPU owns the counter thereafter.
+    m_surfelCounterMirror.init(kSurfelCounterSlotCount, sizeof(uint32_t));
+    m_surfelCounterMirror.write<uint32_t>(kSurfelCounterFree, kTotalSurfelLimit);
+    m_surfelCounterMirror.markAllDirty();
+
 
     // Light SSBOs (point/spot/box). Unlike the bindless slot buffers above
     // these are device-local — the per-frame fill in Draw() stages through
@@ -889,17 +790,17 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       VmaAllocationCreateInfo aci = {};
       aci.usage = VMA_MEMORY_USAGE_AUTO;
 
-      bci.size = (VkDeviceSize)POINT_SLOT_LIGHT_CAPACITY * sizeof(PointLight);
+      bci.size = (VkDeviceSize)kPointSlotLightCapacity * sizeof(PointLight);
       VK_WrapResult(vmaCreateBuffer(
           RI.device.vk.vmaAllocator, &bci, &aci, &m_pointLightBuffer.vk.buffer,
           &m_pointLightBuffer.vk.allocation, nullptr));
 
-      bci.size = (VkDeviceSize)SPOT_SLOT_LIGHT_CAPACITY * sizeof(SpotLight);
+      bci.size = (VkDeviceSize)kSpotSlotLightCapacity * sizeof(SpotLight);
       VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bci, &aci,
                                     &m_spotLightBuffer.vk.buffer,
                                     &m_spotLightBuffer.vk.allocation, nullptr));
 
-      bci.size = (VkDeviceSize)BOX_SLOT_LIGHT_CAPACITY * sizeof(BoxLight);
+      bci.size = (VkDeviceSize)kBoxSlotLightCapacity * sizeof(BoxLight);
       VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bci, &aci,
                                     &m_boxLightBuffer.vk.buffer,
                                     &m_boxLightBuffer.vk.allocation, nullptr));
@@ -908,15 +809,12 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     // Surfel-generation output image — one storage texture per swapchain
     // image. RGBA16F so HDR radiance survives; SAMPLED so a future
     // composite pass can read it back. View aspect color, full mip 0.
-    // Sized at HALF the swapchain resolution because surfel_generation_pass
-    // dispatches at imageRes = viewportSize/2 and writes imageStore at
-    // imageCoords ∈ [0, halfW)×[0, halfH). A full-res allocation would leave
-    // 3/4 of the texture uninitialised, and visibility_shade.frag samples at
-    // uv01 across the full [0,1] range — so it would read mostly garbage and
-    // surfelIndirect would appear to contribute nothing. The linear sampler
-    // in the composite still upsamples back to swapchain resolution.
-    m_surfelResultWidth = (RI.swapchain.width + 1u) / 2u;
-    m_surfelResultHeight = (RI.swapchain.height + 1u) / 2u;
+    // Sized at FULL swapchain resolution: surfel_generation_pass dispatches
+    // at imageRes = viewportSize and writes every pixel, so every texel of
+    // this image is initialised each frame. visibility_shade.frag samples
+    // uv01 across the full [0,1] range and reads valid radiance.
+    m_surfelResultWidth  = RI.swapchain.width;
+    m_surfelResultHeight = RI.swapchain.height;
     for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
       uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
       VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -927,7 +825,12 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       imgInfo.arrayLayers = 1;
       imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
       imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+      // TRANSFER_DST is needed for the per-frame vkCmdClearColorImage in
+      // Draw() — the generation pass only writes pixels with surfel
+      // contribution, so the rest must be explicitly zeroed each frame.
+      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT |
+                      VK_IMAGE_USAGE_SAMPLED_BIT |
+                      VK_IMAGE_USAGE_TRANSFER_DST_BIT;
       imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
       VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
                                      queueFamilies, RI_QUEUE_LEN);
@@ -950,8 +853,44 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                       &m_surfelResultView[i].vk.image));
     }
 
+    // Stage B packed visibility — RGBA32UI storage image written by the
+    // surfel_vbuffer RT pipeline and sampled by Stage D / F passes. Same
+    // swapchain-sized footprint as m_surfelResultTexture.
+    for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
+      uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
+      VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+      imgInfo.imageType = VK_IMAGE_TYPE_2D;
+      imgInfo.format = VK_FORMAT_R32G32B32A32_UINT;
+      imgInfo.extent = {m_surfelResultWidth, m_surfelResultHeight, 1};
+      imgInfo.mipLevels = 1;
+      imgInfo.arrayLayers = 1;
+      imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+      imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+      imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
+                                     queueFamilies, RI_QUEUE_LEN);
+      imgInfo.pQueueFamilyIndices = queueFamilies;
+
+      VmaAllocationCreateInfo alloc = {};
+      alloc.usage = VMA_MEMORY_USAGE_AUTO;
+      VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imgInfo, &alloc,
+                                   &m_packedHitInfoTexture[i].vk.image,
+                                   &m_packedHitInfoTexture[i].vk.allocation,
+                                   NULL));
+
+      VkImageViewCreateInfo viewInfo = {
+          VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+      viewInfo.image = m_packedHitInfoTexture[i].vk.image;
+      viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+      viewInfo.format = VK_FORMAT_R32G32B32A32_UINT;
+      viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
+                                      &m_packedHitInfoView[i].vk.image));
+    }
+
     // Surfel-ray irradiance atlas — single-channel R16F, 4096x4096 fits
-    // SURFEL_MAX_CAPACITY surfels at 6x6 cells each (the shader computes
+    // kTotalSurfelLimit surfels at 6x6 cells each (the shader computes
     // tile pos as `surfelIndex % (W/6), surfelIndex / (W/6)`). SAMPLED so the
     // raytrace shader's ray-guiding branch can read it; STORAGE so a future
     // accumulation pass can write into it. Untouched here — stays at the
@@ -966,7 +905,9 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       imgInfo.arrayLayers = 1;
       imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
       imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+      // TRANSFER_DST: this atlas is seeded once via vkCmdClearColorImage.
+      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                      VK_IMAGE_USAGE_TRANSFER_DST_BIT;
       imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
       VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
                                      queueFamilies, RI_QUEUE_LEN);
@@ -1005,7 +946,9 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       imgInfo.arrayLayers = 1;
       imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
       imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+      // TRANSFER_DST: this atlas is seeded once via vkCmdClearColorImage.
+      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                      VK_IMAGE_USAGE_TRANSFER_DST_BIT;
       imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
       VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
                                      queueFamilies, RI_QUEUE_LEN);
@@ -1028,10 +971,10 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                       &m_surfelDepthView[i].vk.image));
     }
 
-    m_materialBindless.reset(MATERIAL_SLOT_CAPACITY);
-    m_opaqueMaterialBuffer =
-        detail::CreateBindlessSlotBuffer(&RI.device, MATERIAL_SLOT_CAPACITY,
-                                         sizeof(DiffuseMaterialGPU), kStorage);
+    m_materialBindless.reset(kMaterialSlotCapacity);
+    m_opaqueMaterialBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kMaterialSlotCapacity, sizeof(DiffuseMaterial), kStorage,
+        /*deviceLocalOnly*/ true);
 
     // Default linear/wrap sampler for all bindless texture fetches. The
     // engine's filter cache (RIBootstrap::resolve_filter_descriptor) hands
@@ -1043,55 +986,70 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
 
     {
       const VkDeviceSize kOpaqueHandleRange =
-          OBJECT_SLOT_CAPACITY * sizeof(VkDeviceAddress);
+          kObjectSlotCapacity * sizeof(VkDeviceAddress);
       const struct {
         uint32_t binding;
         RIBuffer_s *buffer;
         VkDeviceSize range;
       } ssbos[] = {
-          {BINDING_OPAQUE_POSITION_HANDLES, &m_opaquePositionHandles,
+          {kBindingOpaquePositionHandles, &m_opaquePositionHandles,
            kOpaqueHandleRange},
-          {BINDING_OPAQUE_TANGENT_HANDLES, &m_opaqueTangentHandles,
+          {kBindingOpaqueTangentHandles, &m_opaqueTangentHandles,
            kOpaqueHandleRange},
-          {BINDING_OPAQUE_NORMAL_HANDLES, &m_opaqueNormalHandles,
+          {kBindingOpaqueNormalHandles, &m_opaqueNormalHandles,
            kOpaqueHandleRange},
-          {BINDING_OPAQUE_UV0_HANDLES, &m_opaqueUv0Handles, kOpaqueHandleRange},
-          {BINDING_OPAQUE_COLOR_HANDLES, &m_opaqueColorHandles,
+          {kBindingOpaqueUv0Handles, &m_opaqueUv0Handles, kOpaqueHandleRange},
+          {kBindingOpaqueColorHandles, &m_opaqueColorHandles,
            kOpaqueHandleRange},
-          {BINDING_OPAQUE_INDEX_HANDLES, &m_opaqueIndexHandles,
+          {kBindingOpaqueIndexHandles, &m_opaqueIndexHandles,
            kOpaqueHandleRange},
-          {BINDING_SURFEL_COUNTER, &m_surfelCounterBuffer,
-           sizeof(SurfelCounter)},
-          {BINDING_SURFEL_BUFFER, &m_surfelBuffer,
-           SURFEL_MAX_CAPACITY * sizeof(Surfel)},
-          {BINDING_SURFEL_ALIVE, &m_surfelAliveBuffer,
-           SURFEL_MAX_CAPACITY * sizeof(uint32_t)},
-          {BINDING_SURFEL_DEAD, &m_surfelDeadBuffer,
-           SURFEL_MAX_CAPACITY * sizeof(uint32_t)},
-          {BINDING_SURFEL_DIRTY, &m_surfelDirtyBuffer,
-           SURFEL_MAX_CAPACITY * sizeof(uint32_t)},
-          {BINDING_SURFEL_RECYCLE, &m_surfelRecycleBuffer,
-           SURFEL_MAX_CAPACITY * sizeof(SurfelRecycleInfo)},
-          {BINDING_SURFEL_RAY, &m_surfelRayBuffer,
-           MAX_RAY_COUNT * sizeof(SurfelRay)},
-          {BINDING_CELL_BUFFER, &m_cellInfoBuffer,
-           TOTAL_CELL_COUNT * sizeof(CellInfo)},
-          {BINDING_CELL_COUNTER, &m_cellCounterBuffer, sizeof(CellCounter)},
-          {BINDING_CELL_TO_SURFEL, &m_cellToSurfelBuffer,
-           CELL_TO_SURFEL_CAPACITY * sizeof(uint32_t)},
-          {BINDING_SCENE_OBJECTS, &m_diffuseObjectBuffer,
-           OBJECT_SLOT_CAPACITY * sizeof(ObjectGPUData)},
-          {BINDING_OPAQUE_MATERIAL, &m_opaqueMaterialBuffer,
-           MATERIAL_SLOT_CAPACITY * sizeof(DiffuseMaterialGPU)},
-          {BINDING_POINT_LIGHTS, &m_pointLightBuffer,
-           POINT_SLOT_LIGHT_CAPACITY * sizeof(PointLight)},
-          {BINDING_SPOT_LIGHTS, &m_spotLightBuffer,
-           SPOT_SLOT_LIGHT_CAPACITY * sizeof(SpotLight)},
-          {BINDING_BOX_LIGHTS, &m_boxLightBuffer,
-           BOX_SLOT_LIGHT_CAPACITY * sizeof(BoxLight)},
+          {kBindingSurfelCounter, &m_surfelCounterBuffer,
+           kSurfelCounterSlotCount * sizeof(uint32_t)},
+          {kBindingSurfelBuffer, &m_surfelBuffer,
+           kTotalSurfelLimit * sizeof(Surfel)},
+          {kBindingSurfelGeometry, &m_surfelGeometryBuffer,
+           kTotalSurfelLimit * sizeof(uint32_t) * 4u},
+          {kBindingSurfelValidIndex, &m_surfelValidBuffer,
+           kTotalSurfelLimit * sizeof(uint32_t)},
+          {kBindingSurfelDirtyIndex, &m_surfelDirtyIndexBuffer,
+           kTotalSurfelLimit * sizeof(uint32_t)},
+          {kBindingSurfelFreeIndex, &m_surfelFreeBuffer,
+           kTotalSurfelLimit * sizeof(uint32_t)},
+          {kBindingSurfelRecycle, &m_surfelRecycleBuffer,
+           kTotalSurfelLimit * sizeof(SurfelRecycleInfo)},
+          {kBindingSurfelRayResult, &m_surfelRayResultBuffer,
+           kRayBudget * sizeof(SurfelRayResult)},
+          {kBindingCellInfo, &m_cellInfoBuffer,
+           kCellCount * sizeof(CellInfo)},
+          {kBindingCellToSurfel, &m_cellToSurfelBuffer,
+           kCellToSurfelCapacity * sizeof(uint32_t)},
+          {kBindingSurfelRefCounter, &m_surfelRefCounterBuffer,
+           kTotalSurfelLimit * sizeof(uint32_t)},
+          {kBindingSurfelReservation, &m_surfelReservationBuffer,
+           kCellCount * sizeof(uint32_t)},
+          {kBindingSurfelBounds, &m_surfelBoundsBuffer,
+           kTotalSurfelLimit * sizeof(SurfelBounds)},
+          {kBindingBindlessSlotGeneration, &m_bindlessSlotGenerationBuffer,
+           kObjectSlotCapacity * sizeof(uint32_t)},
+          {kBindingSurfelSlotGeneration, &m_surfelSlotGenerationBuffer,
+           kTotalSurfelLimit * sizeof(uint32_t)},
+          {kBindingLightGridCount, &m_lightGridCountBuffer,
+           kLightGridCellCount * sizeof(uint32_t)},
+          {kBindingLightGridList, &m_lightGridListBuffer,
+           (size_t)kLightGridCellCount * kLightsPerCellMax * sizeof(uint32_t)},
+          {kBindingSceneObjects, &m_diffuseObjectBuffer,
+           kObjectSlotCapacity * sizeof(UniformObject)},
+          {kBindingOpaqueMaterial, &m_opaqueMaterialBuffer,
+           kMaterialSlotCapacity * sizeof(DiffuseMaterial)},
+          {kBindingPointLights, &m_pointLightBuffer,
+           kPointSlotLightCapacity * sizeof(PointLight)},
+          {kBindingSpotLights, &m_spotLightBuffer,
+           kSpotSlotLightCapacity * sizeof(SpotLight)},
+          {kBindingBoxLights, &m_boxLightBuffer,
+           kBoxSlotLightCapacity * sizeof(BoxLight)},
       };
 
-      RIBindlessDescriptorSet::WriteBinding writes[std::size(ssbos) + 1] = {};
+      RIBindlessDescriptorSet::WriteBinding writes[std::size(ssbos) + 2] = {};
       size_t count = 0;
       for (uint32_t i = 0; i < std::size(ssbos); ++i) {
         writes[count].binding = ssbos[i].binding;
@@ -1102,10 +1060,22 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
         writes[count].descriptor.vk.buffer.range = ssbos[i].range;
         count++;
       }
-      writes[count].binding = BINDING_MATERIAL_SAMPLER;
+      writes[count].binding = kBindingMaterialSampler;
       writes[count].arrayElement = 0;
       writes[count].descriptor = *m_materialSampler;
       count++;
+      // gSurfelDepthSampler — immutable bilinear clamp sampler, written
+      // once at init time. The image views it samples (kBindingSurfelDepthSampled
+      // / kBindingSurfelDepth) live on set 1 and are pushed per-dispatch.
+      {
+        RIDescriptor_s *surfelDepthDesc = RI.resolve_filter_descriptor(
+            eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
+            eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
+        writes[count].binding = kBindingSurfelDepthSampler;
+        writes[count].arrayElement = 0;
+        writes[count].descriptor = *surfelDepthDesc;
+        count++;
+      }
       m_bindlessSet.writeDescriptors(&RI.device,
                                      std::span(writes).subspan(0, count));
     }
@@ -1115,16 +1085,15 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
 uint32_t cHybridRenderer::resolveTextureSlot(RIBootstrap::FrameContext *cntx,
                                              Image *img, uint32_t frameIndex) {
   if (!img)
-    return INVALID_TEXTURE_INDEX;
+    return kInvalidTextureIndex;
   auto texture = img->GetTexture();
   if (!texture)
-    return INVALID_TEXTURE_INDEX;
-
+    return kInvalidTextureIndex;
   const hash_t texture_cookie =
       hash_u64(HASH_INITIAL_VALUE, (uint64_t)(uintptr_t)texture.get());
   auto req = m_textureBindless.request(texture_cookie, frameIndex);
   if (req.exhausted)
-    return INVALID_TEXTURE_INDEX;
+    return kInvalidTextureIndex;
   cntx->textureLink.push_back(texture);
   // BindlessPool reports `found == true` only when the same cookie still
   // owns the slot. Fresh allocations and LRU recycles both come back with
@@ -1147,20 +1116,20 @@ uint32_t cHybridRenderer::resolveTextureSlot(RIBootstrap::FrameContext *cntx,
 uint32_t cHybridRenderer::resolveCubeTextureSlot(
     RIBootstrap::FrameContext *cntx, Image *img, uint32_t frameIndex) {
   if (!img)
-    return INVALID_TEXTURE_INDEX;
+    return kInvalidTextureIndex;
   auto texture = img->GetTexture();
   if (!texture)
-    return INVALID_TEXTURE_INDEX;
+    return kInvalidTextureIndex;
 
   const hash_t texture_cookie =
       hash_u64(HASH_INITIAL_VALUE, (uint64_t)(uintptr_t)texture.get());
   auto req = m_textureCubeBindless.request(texture_cookie, frameIndex);
   if (req.exhausted)
-    return INVALID_TEXTURE_INDEX;
+    return kInvalidTextureIndex;
   cntx->textureLink.push_back(texture);
   if (!req.found) {
     RIBindlessDescriptorSet::WriteBinding binding = {};
-    binding.binding = BINDING_TEXTURES_CUBE;
+    binding.binding = kBindingTexturesCube;
     binding.arrayElement = req.id;
     binding.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     binding.descriptor.vk.image.sampler = VK_NULL_HANDLE;
@@ -1180,7 +1149,8 @@ uint32_t cHybridRenderer::resolveMaterial(RIBootstrap::FrameContext *cntx,
 
   // Slot layout must match the DiffuseMaterial_*Texture_ID accessors in
   // amnesia/glsl/per_frame.resource.glsl. One uint32 per texture index.
-  DiffuseMaterialGPU gpu = {};
+  DiffuseMaterial gpu = {};
+  gpu.type = MATERIAL_TYPE_DIFFUSE;
   gpu.tex[0] = slotFor(eMaterialTexture_Diffuse);
   gpu.tex[1] = slotFor(eMaterialTexture_NMap);
   gpu.tex[2] = slotFor(eMaterialTexture_Alpha);
@@ -1221,9 +1191,21 @@ uint32_t cHybridRenderer::resolveMaterial(RIBootstrap::FrameContext *cntx,
     return UINT32_MAX;
   if (req.found)
     return req.id;
-  std::memcpy(static_cast<uint8_t *>(m_opaqueMaterialBuffer.mappedAddress) +
-                  (size_t)req.id * sizeof(DiffuseMaterialGPU),
-              &gpu, sizeof(gpu));
+  {
+    RIResourceBufferTransaction_s trans = {};
+    trans.target = m_opaqueMaterialBuffer;
+    trans.size = sizeof(DiffuseMaterial);
+    trans.offset = (size_t)req.id * sizeof(DiffuseMaterial);
+    trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
+                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                             VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    trans.vk.post_stage = trans.vk.current_stage;
+    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+    std::memcpy(trans.mapped.data, &gpu, sizeof(gpu));
+    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+  }
 
   return req.id;
 }
@@ -1265,9 +1247,37 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         eRenderListCompileFlag_Diffuse | eRenderListCompileFlag_Translucent |
         eRenderListCompileFlag_Decal | eRenderListCompileFlag_Illumination |
         eRenderListCompileFlag_FogArea);
+
+    // Park every BLAS-backed geometry on this frame's context, unfiltered by
+    // frustum/visibility culling. The TLAS (m_tlas) is persistent and only
+    // rebuilt on frames that gather visible instances (see "TLAS build"
+    // below, guarded by `!tlasInstances.empty()`); a stale m_tlas keeps
+    // referencing the BLAS device addresses of geometry that was freed on a
+    // map transition, and the surfel RT passes trace it every frame -> a
+    // dangling acceleration-structure / vertex-buffer dereference -> GPUVM
+    // read fault -> device lost. AttachResourceToCntx pushes the BLAS handle,
+    // its storage, and the vertex/index buffers onto accelLink/bufferLink,
+    // which defer release by frames-in-flight, so any BLAS the TLAS can still
+    // reference outlives the in-flight window even after its owning renderable
+    // is destroyed. Only geometry with a built BLAS is parked (the rest can't
+    // be in the TLAS).
+    std::function<void(iRenderableContainerNode *)> retainGeometryBlas =
+        [&](iRenderableContainerNode *node) {
+          node->UpdateBeforeUse();
+          for (auto *child : node->GetChildNodes())
+            retainGeometryBlas(child);
+          for (auto *pObject : node->GetObjects()) {
+            auto *pVB =
+                static_cast<VertexBuffer_RI *>(pObject->GetVertexBuffer());
+            if (pVB && pVB->accelStructure())
+              pVB->AttachResourceToCntx(cntx);
+          }
+        };
+    retainGeometryBlas(dynamicContainer->GetRoot());
+    retainGeometryBlas(staticContainer->GetRoot());
   }
 
-  PerFrameConstants perFrame{};
+  SceneConstants perFrame{};
   std::memcpy(perFrame.viewMat, mainFrustumViewMat.a, sizeof(perFrame.viewMat));
   std::memcpy(perFrame.invViewMat, mainFrustumViewInvMat.a,
               sizeof(perFrame.invViewMat));
@@ -1292,6 +1302,37 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Fog params + worldFogColor + invViewRotationMat default to zero — fine for
   // the first pass; populate when the deferred-fog path needs them.
 
+  // Falcor-style pinhole camera basis. mainFrustumViewInvMat memory is laid
+  // out so each 4-float "row" corresponds to one column of the logical
+  // (column-vector math) view-inverse — that is, the camera's world-space
+  // basis vectors (right, up, back, origin). Slang's -matrix-layout-column-
+  // major flag flips the interpretation back to column-vector math GPU-side,
+  // so the offsets line up with what the shader expects.
+  {
+    const float *invV = mainFrustumViewInvMat.a;
+    const hpl::float3 rightW{invV[0], invV[1], invV[2]};
+    const hpl::float3 upW{invV[4], invV[5], invV[6]};
+    const hpl::float3 backW{invV[8], invV[9], invV[10]};
+    const hpl::float3 posW{invV[12], invV[13], invV[14]};
+
+    const float aspect = apFrustum->GetAspect();
+    const float tanHalfFov = std::tan(0.5f * apFrustum->GetFOV());
+    constexpr float focalLength = 1.0f;
+    const float uScale = focalLength * tanHalfFov * aspect;
+    const float vScale = focalLength * tanHalfFov;
+
+    perFrame.posW = posW;
+    perFrame.cameraU = {uScale * rightW.x, uScale * rightW.y, uScale * rightW.z};
+    perFrame.cameraV = {vScale * upW.x, vScale * upW.y, vScale * upW.z};
+    // cameraW points from the camera through the image-plane center =
+    // focalLength * forward. The view-inverse stores back (negative forward)
+    // in column 2, so negate.
+    perFrame.cameraW = {-focalLength * backW.x, -focalLength * backW.y,
+                        -focalLength * backW.z};
+    perFrame.jitterX = 0.0f; // TAA not yet wired up; computeRayPinhole's
+    perFrame.jitterY = 0.0f; // applyJitter=true is a no-op while these are 0.
+  }
+
   auto solids = m_rendererList.GetSolidObjects();
   auto lights = m_rendererList.GetLights();
   RISegmentReq_s indirectReq = {};
@@ -1312,11 +1353,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   for (iLight *pLight : lights) {
     if (pLight->GetLightType() != eLightType_Point)
       continue;
-    if (num_point_lights >= POINT_SLOT_LIGHT_CAPACITY) {
+    if (num_point_lights >= kPointSlotLightCapacity) {
       Warning("Point-light slot capacity exhausted; dropping remaining lights");
       break;
     }
     PointLight pl{};
+    pl.type = LIGHT_TYPE_POINT;
     const cVector3f pos = pLight->GetWorldPosition();
     pl.position[0] = pos.x;
     pl.position[1] = pos.y;
@@ -1373,12 +1415,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   for (iLight *pLight : lights) {
     if (pLight->GetLightType() != eLightType_Spot)
       continue;
-    if (num_spot_lights >= SPOT_SLOT_LIGHT_CAPACITY) {
+    if (num_spot_lights >= kSpotSlotLightCapacity) {
       Warning("Spot-light slot capacity exhausted; dropping remaining lights");
       break;
     }
     cLightSpot *pSpot = static_cast<cLightSpot *>(pLight);
     SpotLight sl{};
+    sl.type = LIGHT_TYPE_SPOT;
     const cVector3f pos = pLight->GetWorldPosition();
     sl.position[0] = pos.x;
     sl.position[1] = pos.y;
@@ -1411,7 +1454,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // Legacy two-LUT spotlight falloff (deferred_light_spotlight.frag.fsl):
     //   - GetFalloffImage() = 1D radial attenuation, keyed on (d/r)² in shader
     //   - GetSpotFalloffImage() = 1D cone falloff, keyed on (1-cosT)/(1-cosOA)
-    // Either may be missing (INVALID_TEXTURE_INDEX), in which case the shader
+    // Either may be missing (kInvalidTextureIndex), in which case the shader
     // falls back to saturate(1-(d/r)²) / smoothstep respectively.
     sl.attenuationTextureIndex = resolveTextureSlot(
         cntx, pLight->GetFalloffImage(), (uint32_t)RI.frameIndex);
@@ -1452,12 +1495,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   for (iLight *pLight : lights) {
     if (pLight->GetLightType() != eLightType_Box)
       continue;
-    if (num_box_lights >= BOX_SLOT_LIGHT_CAPACITY) {
+    if (num_box_lights >= kBoxSlotLightCapacity) {
       Warning("Box-light slot capacity exhausted; dropping remaining lights");
       break;
     }
     cLightBox *pBox = static_cast<cLightBox *>(pLight);
     BoxLight bl{};
+    bl.type = LIGHT_TYPE_BOX;
     bl.blendFunc = (pBox->GetBlendFunc() == eLightBoxBlendFunc_Replace) ? 0u : 1u;
     // Matches RendererDeferred's box-light proxy: AABB at the light's world position, 
     // now correctly supporting entity rotation using a world-to-local rotation matrix.
@@ -1527,7 +1571,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       }
     }
 
-    ObjectGPUData payload{};
+    UniformObject payload{};
     payload.dissolveAmount = pObject->GetCoverageAmount();
     payload.materialID = materialSlot;
     payload.lightLevel = 1.0f;
@@ -1557,41 +1601,109 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     auto *vb = static_cast<VertexBuffer_RI *>(pVB);
     vb->SubmitToGPU(&RI.primary.cmds[0], &RI.device, cntx);
+    // The first time this bindless slot is (re)assigned to this VB
+    // (req.found == false), park a destroy handler in the slot's cache state.
+    // On the VB's destruction it bumps the slot's reuse generation, so any
+    // surfel still anchored here (cached primitiveIndex against the now-freed
+    // geometry) trips collectCellInfo's slotStale guard and recycles before it
+    // dereferences the freed vertex/index BDA (GPUVM fault) — destruction is
+    // just one more reason the slot's geometry is no longer what the surfel
+    // captured, handled by the same generation bump as slot reuse / rebuild
+    // below. Single-threaded game, so the mapped write needs no lock. Capturing
+    // `this` is safe: the handler lives in m_diffuseBindless (a renderer
+    // member), so it can't fire after the renderer is gone. On a cache hit the
+    // handler is already bound to this VB; on eviction the cache reset the
+    // slot's state for us.
+    if (!req.found && req.state) {
+      req.state->onDestroy = EventHandler<>([this, slot = req.id]() {
+        // Writes the CPU shadow only (may fire off-frame during teardown); the
+        // next Draw()'s flushBindlessMirrors() stages it before the surfel
+        // passes read it, keeping the stale-anchor invalidation race-free.
+        m_bindlessSlotGenerationMirror.write<uint32_t>(slot,
+                                                       ++m_nextSlotGeneration);
+      });
+      req.state->onDestroy.Connect(vb->OnDestroyed());
+      // Geometry-rebuild hook: a Compile / SubmitToGPU realloc on this VB marks
+      // the slot dirty so the generation bump below invalidates anchored surfels
+      // whose cached primitiveIndex no longer fits the rebuilt geometry.
+      req.state->onGeometryChanged = EventHandler<>(
+          [this, slot = req.id]() { m_slotGeomDirty[slot] = 1u; });
+      req.state->onGeometryChanged.Connect(vb->OnGeometryChanged());
+    }
     if (!req.found) {
-      std::memcpy(static_cast<uint8_t *>(m_diffuseObjectBuffer.mappedAddress) +
-                      req.id * sizeof(ObjectGPUData),
-                  &payload, sizeof(payload));
-
-      // Per-stream VkDeviceAddress fan-out into the parallel handle buffers.
-      // Missing streams write 0 — shaders branch on non-zero before deref.
-      auto bdaOf = [&](eVertexBufferElement type) -> VkDeviceAddress {
-        const auto *element = vb->GetElement(type);
-        if (!element || !element->buffer)
-          return 0;
-        return element->buffer->GetDeviceHandle(&RI.device);
-      };
-
-      const VkDeviceAddress addrs[] = {
-          bdaOf(eVertexBufferElement_Position),
-          bdaOf(eVertexBufferElement_Texture1Tangent),
-          bdaOf(eVertexBufferElement_Normal),
-          bdaOf(eVertexBufferElement_Texture0),
-          bdaOf(eVertexBufferElement_Color0),
-          vb->GetIndexRIBuffer()
-              ? vb->GetIndexRIBuffer()->GetDeviceHandle(&RI.device)
-              : 0,
-      };
-      RIBuffer_s *const handleBuffers[] = {
-          &m_opaquePositionHandles, &m_opaqueTangentHandles,
-          &m_opaqueNormalHandles,   &m_opaqueUv0Handles,
-          &m_opaqueColorHandles,    &m_opaqueIndexHandles,
-      };
-      for (size_t i = 0; i < std::size(handleBuffers); ++i) {
-        auto *slot = reinterpret_cast<VkDeviceAddress *>(
-            static_cast<uint8_t *>(handleBuffers[i]->mappedAddress) +
-            req.id * sizeof(VkDeviceAddress));
-        *slot = addrs[i];
+      // This slot now hosts a different object (fresh allocation or
+      // eviction-reuse). Bump its generation so any surfel still anchored to it
+      // — carrying a cached primitiveIndex from the *previous* occupant's mesh —
+      // is detected as stale by collectCellInfo before it dereferences the new
+      // geometry's vertex/index BDA (the GPUVM-fault path). A unique monotonic
+      // value lets us write the slot without reading back the GPU buffer.
+      m_bindlessSlotGenerationMirror.write<uint32_t>(req.id,
+                                                     ++m_nextSlotGeneration);
+      {
+        RIResourceBufferTransaction_s trans = {};
+        trans.target = m_diffuseObjectBuffer;
+        trans.size = sizeof(UniformObject);
+        trans.offset = (size_t)req.id * sizeof(UniformObject);
+        trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
+                                 VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                 VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+        trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+        trans.vk.post_stage = trans.vk.current_stage;
+        trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+        RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+        std::memcpy(trans.mapped.data, &payload, sizeof(payload));
+        RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
       }
+    } else if (m_slotGeomDirty[req.id]) {
+      // Cache hit, but this VB's geometry was rebuilt since we last visited the
+      // slot — onGeometryChanged fired from Compile, or from the SubmitToGPU
+      // realloc just above (synchronously, so an in-loop realloc is caught this
+      // same frame). The handle BDAs below now point at the new geometry, but
+      // surfels still carry a primitiveIndex from the old layout; bump the slot
+      // generation so collectCellInfo treats them as stale before the OOB deref
+      // — same mechanism as the miss path above.
+      m_bindlessSlotGenerationMirror.write<uint32_t>(req.id,
+                                                     ++m_nextSlotGeneration);
+    }
+    m_slotGeomDirty[req.id] = 0u; // consumed (the miss path already bumped)
+
+    // Per-stream VkDeviceAddress fan-out into the parallel handle buffers.
+    // Missing streams write 0 — shaders branch on non-zero before deref.
+    //
+    // Rewritten EVERY frame, not just on cache miss: the diffuse cache key is
+    // pObject + transform (see m_diffuseBindless.request above), which does NOT
+    // capture the VB's device address. SubmitToGPU hands back a brand-new
+    // VkBuffer (new device address) on first submit, shadow-data growth, or the
+    // CreateCopy sentinel (VertexBuffer_RI.cpp). On a cache *hit* after such a
+    // realloc, a once-only write would leave this slot pointing at the freed
+    // address; gbuffer.vert / the surfel RT vbuffer chit then deref a non-null
+    // dangling pointer -> GPUVM read fault -> device lost. The particle path
+    // dodges this by folding RI.frameIndex into its key; opaque draws share a
+    // slot across frames, so the handle itself must be refreshed here.
+    auto bdaOf = [&](eVertexBufferElement type) -> VkDeviceAddress {
+      const auto *element = vb->GetElement(type);
+      if (!element || !element->buffer)
+        return 0;
+      return element->buffer->GetDeviceHandle(&RI.device);
+    };
+
+    const VkDeviceAddress addrs[] = {
+        bdaOf(eVertexBufferElement_Position),
+        bdaOf(eVertexBufferElement_Texture1Tangent),
+        bdaOf(eVertexBufferElement_Normal),
+        bdaOf(eVertexBufferElement_Texture0),
+        bdaOf(eVertexBufferElement_Color0),
+        vb->GetIndexRIBuffer()
+            ? vb->GetIndexRIBuffer()->GetDeviceHandle(&RI.device)
+            : 0,
+    };
+    BindlessShadowMirror *const handleMirrors[] = {
+        &m_opaquePositionMirror, &m_opaqueTangentMirror,
+        &m_opaqueNormalMirror,   &m_opaqueUv0Mirror,
+        &m_opaqueColorMirror,    &m_opaqueIndexMirror,
+    };
+    for (size_t i = 0; i < std::size(handleMirrors); ++i) {
+      handleMirrors[i]->write<VkDeviceAddress>(req.id, addrs[i]);
     }
 
     vb->AttachResourceToCntx(cntx);
@@ -1784,7 +1896,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
       tlasToShader.srcAccessMask =
           VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-      tlasToShader.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+      // Also visible to the Stage B SurfelGI VBuffer RT pipeline (rgen +
+      // chit + ahit + miss) — kept in one barrier with the fragment-shader
+      // ray-query consumer in visibility_shade.frag.
+      tlasToShader.dstStageMask =
+          VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+          VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
       tlasToShader.dstAccessMask =
           VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
       VkDependencyInfo dep2 = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
@@ -1793,6 +1910,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep2);
     }
   }
+
+  // m_packedHitInfoView / m_surfelIrradianceView / m_surfelDepthView and the
+  // freshly built TLAS now live on set 1 and are pushed per-dispatch via
+  // RIProgram::bindDescriptors below (see the m_surfelVBuffer / m_surfelRT
+  // / m_surfelIntegrate / m_surfelGenerate / m_surfelGIRender call sites).
+  // Set 1 is allocated from a frame-rotated pool, so each frame's writes
+  // land on an idle descriptor set.
 
   VkCommandBuffer cmd = RI.primary.cmds[0].vk.cmd;
   std::vector<RIProgram::DescriptorBinding> bindings;
@@ -1806,53 +1930,108 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     bindings.push_back(b);
   };
 
+  // Per-dispatch helpers for the set-1 surfel image / TLAS pushes —
+  // `gPackedHitInfo` / `gIrradianceMap` / `gSurfelDepthMap` are
+  // RWTexture2D (GENERAL layout, storage image), `gSurfelDepth` is the
+  // sampled view of the same depth image (still GENERAL since the
+  // image stays GENERAL across the frame and GENERAL satisfies both
+  // storage + sampled access). `gRtAccel` is the freshly built TLAS.
+  // Each helper appends to a local std::vector<DescriptorBinding> so
+  // multiple shaders can mix-and-match the subset they need.
+  auto pushSurfelStorageImage =
+      [&](std::vector<RIProgram::DescriptorBinding> &v, const char *name,
+          VkImageView view) {
+        RIProgram::DescriptorBinding b;
+        b.handle = DescriptorBindingID::Create(name);
+        b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+        b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
+        b.descriptor.vk.image.imageView = view;
+        b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        RIFinalizeDescriptor(&RI.device, &b.descriptor);
+        v.push_back(b);
+      };
+  auto pushSurfelSampledImage =
+      [&](std::vector<RIProgram::DescriptorBinding> &v, const char *name,
+          VkImageView view) {
+        RIProgram::DescriptorBinding b;
+        b.handle = DescriptorBindingID::Create(name);
+        b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+        b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
+        b.descriptor.vk.image.imageView = view;
+        b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        RIFinalizeDescriptor(&RI.device, &b.descriptor);
+        v.push_back(b);
+      };
+  auto pushTlas = [&](std::vector<RIProgram::DescriptorBinding> &v) {
+    RIProgram::DescriptorBinding b;
+    b.handle = DescriptorBindingID::Create("gRtAccel");
+    b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+    b.descriptor.vk.accelStructure = m_tlas.vk.handle;
+    RIFinalizeDescriptor(&RI.device, &b.descriptor);
+    v.push_back(b);
+  };
+
   // sceneObjectsBuf / opaqueMaterialBuf now live in the bindless set (set=0
   // bindings 20..21), wired up by bindBindlessDescriptorSet() below — no
   // per-draw pushBinding needed.
 
   {
     RIProgram::DescriptorBinding b;
-    b.handle = DescriptorBindingID::Create("perFrame");
+    b.handle = DescriptorBindingID::Create("gPerFrame");
     RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
     bindings.push_back(b);
   }
 
   // Scene's rendering was already ended above (before the BLAS/TLAS work).
-  // Transition the MRT targets and begin the MRT pass.
+  // Transition the MRT target (single packed-TriangleHit attachment) and
+  // the depth image into their gbuffer-pass layouts. Both use the
+  // UNDEFINED-discard pattern: loadOp=CLEAR on both attachments means we
+  // never need prior contents preserved, so it doesn't matter what layout
+  // the previous frame's last consumer left them in (depth is left in
+  // DEPTH_READ_ONLY_OPTIMAL by the translucent/decal flipDepthToReadOnly
+  // path below, which the gbuffer's expected DEPTH_ATTACHMENT_OPTIMAL
+  // wouldn't otherwise match).
   {
-    VkImageMemoryBarrier2 toColor[2] = {
+    VkImageMemoryBarrier2 attachmentBarriers[2] = {
         {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
         {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}};
-    for (uint32_t i = 0; i < 2; ++i) {
-      toColor[i].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-      toColor[i].srcAccessMask = 0;
-      toColor[i].dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-      toColor[i].dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-      toColor[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      toColor[i].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-      toColor[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    }
-    toColor[0].image = RI.normalTexture[RI.swapchainIndex].vk.image;
-    toColor[1].image = RI.visibilityTexture[RI.swapchainIndex].vk.image;
+
+    VkImageMemoryBarrier2 &toColor = attachmentBarriers[0];
+    toColor.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+    toColor.srcAccessMask = 0;
+    toColor.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    toColor.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    toColor.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    toColor.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    toColor.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    toColor.image = RI.visibilityTexture[RI.swapchainIndex].vk.image;
+
+    VkImageMemoryBarrier2 &toDepth = attachmentBarriers[1];
+    toDepth.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+    toDepth.srcAccessMask = 0;
+    toDepth.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                           VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+    toDepth.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    toDepth.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    toDepth.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    toDepth.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+    toDepth.image = RI.depthTextures[RI.swapchainIndex].vk.image;
+
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dep.imageMemoryBarrierCount = 2;
-    dep.pImageMemoryBarriers = toColor;
+    dep.pImageMemoryBarriers = attachmentBarriers;
     vkCmdPipelineBarrier2(cmd, &dep);
   }
 
-  VkRenderingAttachmentInfo colorAttachments[2] = {
-      {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO},
-      {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}};
-  colorAttachments[0].imageView = RI.normalView[RI.swapchainIndex].vk.image;
-  colorAttachments[0].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-  colorAttachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  colorAttachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-  colorAttachments[0].clearValue.color = {{0.f, 0.f, 0.f, 0.f}};
-  colorAttachments[1].imageView = RI.visibilityView[RI.swapchainIndex].vk.image;
-  colorAttachments[1].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-  colorAttachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  colorAttachments[1].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-  colorAttachments[1].clearValue.color.uint32[0] = 0;
+  VkRenderingAttachmentInfo colorAttachment = {
+      VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+  colorAttachment.imageView = RI.visibilityView[RI.swapchainIndex].vk.image;
+  colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+  colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  // Cleared to all-zero. psMain writes .w=0 for hit; the depth test at the
+  // composite gates miss pixels independently, so no miss sentinel needed.
+  colorAttachment.clearValue.color = {{0u, 0u, 0u, 0u}};
 
   VkRenderingAttachmentInfo depthAttachment = {
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -1860,33 +2039,527 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   RI_VK_FillDepthAttachment(&depthAttachment, &RI.depthView[RI.swapchainIndex],
                             /*attachAndClear=*/true);
 
-  // Surfel-grid prep — clears cellBuffer + a couple of counters at the top of
-  // each frame, ahead of any future surfel/cell compute passes. Reads/writes
-  // the bindless surfel+cell SSBOs (set=0 bindings 10..19); no push constants,
-  // no per-pass descriptors. Must run outside any vkCmdBeginRendering scope.
+  // SurfelGI compute passes are temporarily skipped during the
+  // /home/m_pol/.claude/plans/can-we-discard-most-crispy-hennessy.md port.
+  // The frame still produces a working image because
+  // m_surfelResultTexture is cleared to zero below before the composite
+  // samples it — visibility_shade reads vec3(0) for indirect and falls
+  // back to direct + specular lighting only. Stages B–F will reintroduce
+  // the prepare / VBuffer / update / raytrace / integrate / generation
+  // dispatches around this scaffold.
+
+  // ----------------------------------------------------------------------
+  // Stage D — surfel prepare + cell/ref-counter clear.
+  //
+  // Runs first each frame: promote the previous frame's ValidSurfel count
+  // to DirtySurfel, zero the per-frame counters, and clear the cellInfo /
+  // surfelReservation / surfelRefCounter buffers so the update pass can
+  // accumulate from scratch.
+  //
+  // Stage E (raytrace) and Stage F (integrate / generation) aren't here
+  // yet, so the surfel pool stays empty across frames — these dispatches
+  // currently no-op (DirtySurfel = 0) but they must run to keep the
+  // counter state consistent.
+  // ----------------------------------------------------------------------
   {
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kSurfelPrepareHash =
-        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_surfelPrepare.bindComputePipeline(
-        &RI.device, &RI.primary.cmds[0], kSurfelPrepareHash,
-        "hybrid.surfel_prepare", &computeCreate);
+    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_surfelPrepare.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+                                        kHash, "SurfelPreparePass.cs",
+                                        &computeCreate);
     m_surfelPrepare.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &m_bindlessSet, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
-    // Cover the full grid (uniform cube + 6 frustum-face regions) — the
-    // frustum cells need clearing every frame too, otherwise stale
-    // surfelCount/surfelOffset values stick around and corrupt next frame's
-    // cellInfo_update_pass offset accumulation.
-    CmdDispatch(&RI.primary.cmds[0], (TOTAL_CELL_COUNT + 31u) / 32u, 1, 1);
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_COMPUTE);
+    CmdDispatch(&RI.primary.cmds[0], 1u, 1u, 1u);
+  }
+
+  // Ping-pong the surfel-index buffers: copy this frame's previously-valid
+  // indices into the dirty buffer so surfel_update_collect.comp can walk
+  // them. SurfelGI's reference declares gSurfelValidIndexBuffer (RW) and
+  // gSurfelDirtyIndexBuffer (R/O) as separate Slang bindings; Falcor's host
+  // either aliases or ping-pongs them across frames. We do a straight copy
+  // each frame — simplest, and the cost is negligible (≤600 KB).
+  //
+  // Source data was last written by the previous frame's update_collect /
+  // generation_pass / rchit::finalize. The engine frame fence already
+  // ordered that work against this frame's command buffer, so we don't
+  // need a transition barrier before the copy. The post-copy barrier
+  // (combined with the prepare-pass writes above) covers both the copy's
+  // TRANSFER_WRITE and prepare's SHADER_WRITE against update_collect's
+  // SHADER_READ.
+  {
+    VkBufferCopy region = {};
+    region.srcOffset = 0;
+    region.dstOffset = 0;
+    region.size = (VkDeviceSize)kTotalSurfelLimit * sizeof(uint32_t);
+    vkCmdCopyBuffer(cmd,
+                    m_surfelValidBuffer.vk.buffer,
+                    m_surfelDirtyIndexBuffer.vk.buffer,
+                    1, &region);
+  }
+  {
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                       VK_PIPELINE_STAGE_2_COPY_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(cmd, &dep);
+  }
+  // Cell + ref-counter clears are now done by SurfelPreparePass +
+  // SurfelUpdatePass on the Slang side. No standalone clear dispatch.
+  {
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                       VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(cmd, &dep);
+  }
+
+  // ----------------------------------------------------------------------
+  // Stage B — primary-ray VBuffer.
+  //
+  // RT pipeline that traces one ray per swapchain pixel through m_tlas and
+  // packs the closest-hit (instanceCustomIndex, primitiveID, attribs) into
+  // m_packedHitInfoTexture. Stages D/F consume this image; for the current
+  // frame the output goes unused so the dispatch's correctness needs to be
+  // verified through validation-layer signals (no SBT/descriptor errors,
+  // no VK_ERROR_DEVICE_LOST).
+  // ----------------------------------------------------------------------
+  {
+    VkImageMemoryBarrier2 toGeneral = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    toGeneral.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+    toGeneral.srcAccessMask = 0;
+    toGeneral.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    toGeneral.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    toGeneral.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    toGeneral.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toGeneral.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toGeneral.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toGeneral.image = m_packedHitInfoTexture[RI.swapchainIndex].vk.image;
+    toGeneral.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &toGeneral;
+    vkCmdPipelineBarrier2(cmd, &dep);
+  }
+
+  if (m_tlas.vk.handle != VK_NULL_HANDLE) {
+    VkRayTracingPipelineCreateInfoKHR rtCreate = {
+        VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR};
+    // closesthit in SurfelVBuffer.rt.slang fires one mirror-reflection
+    // TraceRay before recording the second hit (Falcor's one-bounce
+    // V-buffer trick), so the pipeline needs depth=2: raygen→chit is
+    // depth 1, the recursive TraceRay from inside chit lands at depth 2.
+    // depth=1 silently leaves hit pixels unwritten and produced "holes"
+    // in gPackedHitInfo against the UNDEFINED initial image contents.
+    rtCreate.maxPipelineRayRecursionDepth = 2;
+    const hash_t kVBufferHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_surfelVBuffer.bindRayTracingPipeline(&RI.device, &RI.primary.cmds[0],
+                                           kVBufferHash, "SurfelVBuffer.rt",
+                                           &rtCreate);
+    m_surfelVBuffer.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
+
+    std::vector<RIProgram::DescriptorBinding> vbBindings;
+    vbBindings.reserve(3);
+    {
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("gPerFrame");
+      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      vbBindings.push_back(b);
+    }
+    pushSurfelStorageImage(vbBindings, "gPackedHitInfo",
+                           m_packedHitInfoView[RI.swapchainIndex].vk.image);
+    pushTlas(vbBindings);
+
+    m_surfelVBuffer.bindDescriptors(
+        &RI.device, &RI.primary.cmds[0], RI.frameIndex, vbBindings.data(),
+        vbBindings.size(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
+
+    m_surfelVBuffer.traceRays(&RI.primary.cmds[0], kVBufferHash,
+                              RI.swapchain.width, RI.swapchain.height, 1u);
+  }
+
+  {
+    // m_packedHitInfoTexture is written by the rgen + miss + chit triplet
+    // above. Transition it to SHADER_READ_ONLY_OPTIMAL so consumers can
+    // Downstream consumers (SurfelEvaluation / SurfelGeneration /
+    // SurfelGIRender) read gPackedHitInfo via direct `[pixel]` storage
+    // loads on the bindless RWTexture2D — layout must stay GENERAL
+    // through the frame, so this is just a memory/execution sync, not
+    // a layout transition. The bindless descriptor was written with
+    // VK_IMAGE_LAYOUT_GENERAL at frame start.
+    VkMemoryBarrier2 vbufferToConsumers = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    vbufferToConsumers.srcStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    vbufferToConsumers.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    vbufferToConsumers.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                       VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                                       VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    vbufferToConsumers.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &vbufferToConsumers;
+    vkCmdPipelineBarrier2(cmd, &dep);
+  }
+
+  // ----------------------------------------------------------------------
+  // (Surfels anchored to destroyed geometry are handled before the opaque
+  // draw loop above: the retired slots' stream handles are zeroed, so
+  // collectCellInfo below recycles those surfels via its free-list branch
+  // instead of dereferencing a freed vertex buffer-device-address. Map-load
+  // wholesale resets are handled separately by resetSurfelState().)
+  // ----------------------------------------------------------------------
+
+  // ----------------------------------------------------------------------
+  // Stage D — surfel update (collect → accumulate → scatter).
+  //
+  // collect: per dirty surfel, refresh pos/normal from gSurfelGeometryBuffer,
+  //          allocate ray budget by MSME variance, bump cellInfo counts
+  // accumulate: prefix-sum the per-cell counts into cellToSurfelBufferOffset
+  // scatter: per valid surfel, write its index into cellToSurfel[] for each
+  //          of the 125 neighbour cells it intersects.
+  //
+  // The geometry buffer (cached uint4 hits) is filled by the Stage F
+  // generation pass; until that lands DirtySurfel stays 0 and these
+  // dispatches are no-ops.
+  // ----------------------------------------------------------------------
+  {
+    VkComputePipelineCreateInfo computeCreate = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_surfelUpdateCollect.bindComputePipeline(
+        &RI.device, &RI.primary.cmds[0], kHash, "SurfelUpdatePass.cs:collectCellInfo",
+        &computeCreate);
+    m_surfelUpdateCollect.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    std::vector<RIProgram::DescriptorBinding> bnd;
+    bnd.reserve(1);
+    {
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("gPerFrame");
+      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      bnd.push_back(b);
+    }
+    m_surfelUpdateCollect.bindDescriptors(
+        &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
+        bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    CmdDispatch(&RI.primary.cmds[0], (kTotalSurfelLimit + 31u) / 32u, 1u, 1u);
+  }
+  // RAW: accumulate reads cellInfo.surfelCount (collect-written) and reads
+  // surfelCounter (collect-incremented). Accumulate's own writes are synced by
+  // the next barrier — dstAccess=READ is sufficient and avoids an L2 flush of
+  // every other SSBO collect touched (valid/free/recycle/rayResult/refCounter).
+  {
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(cmd, &dep);
+  }
+  {
+    VkComputePipelineCreateInfo computeCreate = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_surfelUpdateAccumulate.bindComputePipeline(
+        &RI.device, &RI.primary.cmds[0], kHash, "SurfelUpdatePass.cs:accumulateCellInfo",
+        &computeCreate);
+    m_surfelUpdateAccumulate.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_COMPUTE);
+    const uint32_t groups = (kCellDimension + 3u) / 4u;
+    CmdDispatch(&RI.primary.cmds[0], groups, groups, groups);
+  }
+  // RAW: scatter reads cellInfo.cellToSurfelBufferOffset (accumulate-written)
+  // and RMWs cellInfo.surfelCount (accumulate zeroed it). Scatter's writes are
+  // synced by the next barrier. Atomic RMWs only need the prior write visible
+  // for the read half — dstAccess=READ suffices.
+  {
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(cmd, &dep);
+  }
+  {
+    VkComputePipelineCreateInfo computeCreate = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_surfelUpdateScatter.bindComputePipeline(
+        &RI.device, &RI.primary.cmds[0], kHash, "SurfelUpdatePass.cs:updateCellToSurfelBuffer",
+        &computeCreate);
+    m_surfelUpdateScatter.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    std::vector<RIProgram::DescriptorBinding> bnd;
+    bnd.reserve(1);
+    {
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("gPerFrame");
+      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      bnd.push_back(b);
+    }
+    m_surfelUpdateScatter.bindDescriptors(
+        &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
+        bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    CmdDispatch(&RI.primary.cmds[0], (kTotalSurfelLimit + 31u) / 32u, 1u, 1u);
+  }
+  {
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                       VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR |
+                       VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(cmd, &dep);
+  }
+
+  // ----------------------------------------------------------------------
+  // World-space light grid build (feeds the surfel ray-trace NEE importance
+  // sampling). Zero the per-cell counts, then bin point/spot lights into the
+  // coarse grid. The light SSBOs were uploaded + barriered to SHADER_READ
+  // earlier this frame, so binLights reads them directly. Placed here (after
+  // the cell scatter, before Stage E) for ordering only — it's independent of
+  // the surfel cell grid.
+  // ----------------------------------------------------------------------
+  {
+    vkCmdFillBuffer(cmd, m_lightGridCountBuffer.vk.buffer, 0, VK_WHOLE_SIZE, 0u);
+    // Fill (transfer) -> binLights atomic RMW on the counts (compute).
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.dstAccessMask =
+        VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(cmd, &dep);
+  }
+  {
+    VkComputePipelineCreateInfo computeCreate = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_lightGridBin.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
+                                       "LightGridBuildPass.cs:binLights",
+                                       &computeCreate);
+    m_lightGridBin.bindBindlessDescriptorSet(&RI.primary.cmds[0], &m_bindlessSet,
+                                             0, VK_PIPELINE_BIND_POINT_COMPUTE);
+    std::vector<RIProgram::DescriptorBinding> bnd;
+    bnd.reserve(1);
+    {
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("gPerFrame");
+      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      bnd.push_back(b);
+    }
+    m_lightGridBin.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
+                                   bnd.data(), bnd.size(),
+                                   VK_PIPELINE_BIND_POINT_COMPUTE);
+    // One thread per light over the capacity (the shader early-outs past the
+    // active point+spot count). 512 lights -> 8 groups; trivial.
+    CmdDispatch(&RI.primary.cmds[0],
+                (kPointSlotLightCapacity + kSpotSlotLightCapacity + 63u) / 64u,
+                1u, 1u);
+  }
+  {
+    // binLights writes -> surfel ray-trace NEE reads (ray tracing); compute kept
+    // in dst for safety.
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    mem.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR |
+                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(cmd, &dep);
+  }
+
+  // One-shot UNDEFINED -> GENERAL transition for both surfel atlases the
+  // first time each swapchain image appears. Subsequent frames skip this —
+  // the atlas stays in GENERAL for life so integrate's EMA-blend reads keep
+  // working and cross-frame sync goes through the engine frame fence.
+  // Must run before Stage E because surfel_rt.rgen's ray-guiding branch
+  // imageLoads gSurfelIrradianceMap; the dst stage mask covers both the
+  // rgen read and the later integrate read/write.
+  if (!m_surfelAtlasesInitialized[RI.swapchainIndex]) {
+    // First touch of this swapchain image's atlases: UNDEFINED -> GENERAL and
+    // *seed their contents*. SurfelIntegratePass accumulates into both via an
+    // EMA read-modify-write (gIrradianceMap / gSurfelDepthMap), so the starting
+    // value must be defined — UNDEFINED discards it, leaving uninitialized /
+    // NaN reads that poison the EMA and the generation pass's Chebyshev weight.
+    // Irradiance (ray-guiding) seeds to 0. The depth atlas stores (E[z], E[z^2])
+    // per octahedral texel; seed E[z^2] high so the generation pass's weight
+    //   variance / (variance + (dist - mean)^2),  variance = E[z^2] - E[z]^2
+    // starts ~1 (no visibility suppression) and tightens only as real
+    // first-bounce depths converge. Clearing to 0 instead would make variance=0
+    // => weight 0 => every surfel contribution zeroed until the atlas fills in
+    // (~hundreds of frames), i.e. a multi-second indirect black-out on enable.
+    VkImageMemoryBarrier2 toClear[2] = {
+        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
+        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}};
+    for (uint32_t i = 0; i < 2; ++i) {
+      toClear[i].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+      toClear[i].srcAccessMask = 0;
+      toClear[i].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+      toClear[i].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      toClear[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      toClear[i].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      toClear[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toClear[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toClear[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    }
+    toClear[0].image = m_surfelIrradianceTexture[RI.swapchainIndex].vk.image;
+    toClear[1].image = m_surfelDepthTexture[RI.swapchainIndex].vk.image;
+    {
+      VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+      dep.imageMemoryBarrierCount = 2;
+      dep.pImageMemoryBarriers = toClear;
+      vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+    }
+
+    VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkClearColorValue irrClear = {}; // 0
+    vkCmdClearColorImage(RI.primary.cmds[0].vk.cmd,
+                         m_surfelIrradianceTexture[RI.swapchainIndex].vk.image,
+                         VK_IMAGE_LAYOUT_GENERAL, &irrClear, 1, &range);
+    VkClearColorValue depthClear = {};
+    depthClear.float32[0] = 0.0f;     // E[z]
+    depthClear.float32[1] = 60000.0f; // E[z^2] seeded high (half-float safe)
+    vkCmdClearColorImage(RI.primary.cmds[0].vk.cmd,
+                         m_surfelDepthTexture[RI.swapchainIndex].vk.image,
+                         VK_IMAGE_LAYOUT_GENERAL, &depthClear, 1, &range);
+
+    // Clear (transfer) -> integrate's storage RW + ray-trace / generation reads
+    // (sampled). Same GENERAL layout, availability/visibility only.
+    VkImageMemoryBarrier2 toShader[2] = {
+        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
+        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}};
+    for (uint32_t i = 0; i < 2; ++i) {
+      toShader[i].srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+      toShader[i].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      toShader[i].dstStageMask =
+          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+          VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+      toShader[i].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
+                                  VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
+                                  VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+      toShader[i].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+      toShader[i].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      toShader[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toShader[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toShader[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    }
+    toShader[0].image = m_surfelIrradianceTexture[RI.swapchainIndex].vk.image;
+    toShader[1].image = m_surfelDepthTexture[RI.swapchainIndex].vk.image;
+    {
+      VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+      dep.imageMemoryBarrierCount = 2;
+      dep.pImageMemoryBarriers = toShader;
+      vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+    }
+    m_surfelAtlasesInitialized[RI.swapchainIndex] = true;
+  }
+
+  // ----------------------------------------------------------------------
+  // Stage E — surfel ray-trace.
+  //
+  // One TraceRay per pending ray slot. The rgen pulls RequestedRay from
+  // the counter, derives a tangent-space hemisphere direction per surfel,
+  // and iteratively bounces (closest-hit updates the payload, miss / max
+  // step / RR / surfel-cache finalize all terminate the path). NEE inside
+  // the closest-hit uses an inline ray query so no recursion is needed
+  // (maxPipelineRayRecursionDepth = 1).
+  //
+  // The reference's expected per-surfel ray count is bounded by
+  // gMaxRayCount = 64; the dispatched width is kRayBudget = 9.6M, the rgen
+  // early-outs past RequestedRay so unused slots cost nothing.
+  // ----------------------------------------------------------------------
+  if (m_tlas.vk.handle != VK_NULL_HANDLE) {
+    VkRayTracingPipelineCreateInfoKHR rtCreate = {
+        VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR};
+    rtCreate.maxPipelineRayRecursionDepth = 1;
+    const hash_t kRtHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_surfelRT.bindRayTracingPipeline(&RI.device, &RI.primary.cmds[0],
+                                      kRtHash, "SurfelRayTrace.rt",
+                                      &rtCreate);
+    m_surfelRT.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
+
+    std::vector<RIProgram::DescriptorBinding> rtBnd;
+    rtBnd.reserve(3);
+    {
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("gPerFrame");
+      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      rtBnd.push_back(b);
+    }
+    pushTlas(rtBnd);
+    // Ray-guiding read of the surfel irradiance map. The atlas was
+    // transitioned to GENERAL once at first appearance (see
+    // m_surfelAtlasesInitialized above) and stays GENERAL across the
+    // frame so the integrate pass's prior-frame store is read-visible
+    // through the engine frame fence.
+    pushSurfelStorageImage(rtBnd, "gIrradianceMap",
+                           m_surfelIrradianceView[RI.swapchainIndex].vk.image);
+    m_surfelRT.bindDescriptors(
+        &RI.device, &RI.primary.cmds[0], RI.frameIndex, rtBnd.data(),
+        rtBnd.size(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
+
+    m_surfelRT.traceRays(&RI.primary.cmds[0], kRtHash, kRayBudget, 1u, 1u);
+  }
+  {
+    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+    mem.srcStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                       VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.memoryBarrierCount = 1;
+    dep.pMemoryBarriers = &mem;
+    vkCmdPipelineBarrier2(cmd, &dep);
   }
 
   VkRenderingInfo renderingInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
   renderingInfo.renderArea = {{0, 0},
                               {RI.swapchain.width, RI.swapchain.height}};
   renderingInfo.layerCount = 1;
-  renderingInfo.colorAttachmentCount = 2;
-  renderingInfo.pColorAttachments = colorAttachments;
+  renderingInfo.colorAttachmentCount = 1;
+  renderingInfo.pColorAttachments = &colorAttachment;
   renderingInfo.pDepthAttachment = &depthAttachment;
   vkCmdBeginRendering(cmd, &renderingInfo);
 
@@ -1901,11 +2574,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   vkCmdSetScissor(cmd, 0, 1, &scissor);
 
   if (writtenDraws > 0) {
-    GBufferMRTPipelineDesc pipelineDesc(RIBootstrap::NormalFormat,
-                                        RIBootstrap::VisibilityFormat,
+    GBufferMRTPipelineDesc pipelineDesc(RIBootstrap::VisibilityFormat,
                                         RIBootstrap::DepthFormat);
     m_gbuffer.bindPipeline(&RI.device, &RI.primary.cmds[0], pipelineDesc.hash,
-                           "hybrid.gbuffer_mrt", &pipelineDesc.createInfo);
+                           "SurfelGBuffer.3d", &pipelineDesc.createInfo);
     m_gbuffer.bindBindlessDescriptorSet(&RI.primary.cmds[0], &m_bindlessSet, 0);
     m_gbuffer.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
                               bindings.data(), bindings.size());
@@ -1917,597 +2589,354 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   vkCmdEndRendering(cmd);
 
-  // Gbuffer outputs -> SHADER_READ_ONLY for the surfel-generation compute
+  // Gbuffer output -> SHADER_READ_ONLY for the surfel-generation compute
   // pass (and any later fragment consumer). Includes depth, which the
   // gbuffer left in DEPTH_STENCIL_ATTACHMENT_OPTIMAL. The surfel result
   // image transitions UNDEFINED -> GENERAL for its first compute write.
   {
-    VkImageMemoryBarrier2 toRead[4] = {
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
+    VkImageMemoryBarrier2 toRead[3] = {
         {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
         {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
         {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}};
-    for (uint32_t i = 0; i < 2; ++i) {
-      toRead[i].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-      toRead[i].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-      toRead[i].dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      toRead[i].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      toRead[i].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-      toRead[i].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      toRead[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    }
-    toRead[0].image = RI.normalTexture[RI.swapchainIndex].vk.image;
-    toRead[1].image = RI.visibilityTexture[RI.swapchainIndex].vk.image;
+    toRead[0].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    toRead[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    toRead[0].dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    toRead[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    toRead[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    toRead[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    toRead[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    toRead[0].image = RI.visibilityTexture[RI.swapchainIndex].vk.image;
 
     // Depth -> SHADER_READ_ONLY for the compute pass.
-    toRead[2].srcStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+    toRead[1].srcStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
                              VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-    toRead[2].srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    toRead[2].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    toRead[2].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    toRead[2].oldLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    toRead[2].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    toRead[2].subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    toRead[2].image = RI.depthTextures[RI.swapchainIndex].vk.image;
+    toRead[1].srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    toRead[1].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    toRead[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+    toRead[1].oldLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    toRead[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    toRead[1].subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+    toRead[1].image = RI.depthTextures[RI.swapchainIndex].vk.image;
 
-    // Surfel-result image: first frame transitions from UNDEFINED; later
-    // frames are fine to redeclare UNDEFINED here too because the engine
-    // frame fence guarantees the previous use has completed before we
-    // overwrite, and we discard prior contents (the shader writes every
-    // touched texel from scratch).
-    toRead[3].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    toRead[3].srcAccessMask = 0;
-    toRead[3].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    toRead[3].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    toRead[3].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    toRead[3].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    toRead[3].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    toRead[3].image = m_surfelResultTexture[RI.swapchainIndex].vk.image;
+    // Surfel-result image: surfel_generation_pass only writes gOutput for
+    // pixels actually covered by a surfel (indirectLighting.w > 0). Valid-hit
+    // pixels with no surfel coverage — and out-of-cell pixels — are left
+    // untouched (the pass was refactored to drop its miss-write, so it no
+    // longer "unconditionally writes every in-bounds pixel"). But the composite
+    // (SurfelGIRenderPass.frag) samples gIndirectLighting for EVERY valid-hit
+    // pixel, so with sparse surfel coverage most of the screen would sample
+    // undefined memory. Clear to (0,0,0,1) each frame so uncovered pixels read
+    // as zero indirect instead of garbage. UNDEFINED oldLayout discards stale
+    // contents; the clear (transfer) is handed off to the compute write below.
+    toRead[2].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+    toRead[2].srcAccessMask = 0;
+    toRead[2].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    toRead[2].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    toRead[2].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    toRead[2].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toRead[2].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    toRead[2].image = m_surfelResultTexture[RI.swapchainIndex].vk.image;
 
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 4;
+    dep.imageMemoryBarrierCount = 3;
     dep.pImageMemoryBarriers = toRead;
     vkCmdPipelineBarrier2(cmd, &dep);
   }
 
-  // One-shot UNDEFINED -> GENERAL transition for both surfel atlases the
-  // first time each swapchain image appears. Subsequent frames skip this —
-  // the atlas stays in GENERAL for life so integrate's EMA-blend reads keep
-  // working and cross-frame sync goes through the engine frame fence.
-  if (!m_surfelAtlasesInitialized[RI.swapchainIndex]) {
-    VkImageMemoryBarrier2 toGeneral[2] = {
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}};
-    for (uint32_t i = 0; i < 2; ++i) {
-      toGeneral[i].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-      toGeneral[i].srcAccessMask = 0;
-      toGeneral[i].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      toGeneral[i].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
-                                   VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
-                                   VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-      toGeneral[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      toGeneral[i].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-      toGeneral[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      toGeneral[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      toGeneral[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    }
-    toGeneral[0].image = m_surfelIrradianceTexture[RI.swapchainIndex].vk.image;
-    toGeneral[1].image = m_surfelDepthTexture[RI.swapchainIndex].vk.image;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 2;
-    dep.pImageMemoryBarriers = toGeneral;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-    m_surfelAtlasesInitialized[RI.swapchainIndex] = true;
-  }
-
-  // surfel_update atomicAdds into cellBuffer[].surfelCount that surfel_prepare
-  // just zeroed. The clear has to be visible to the per-surfel scatter before
-  // it starts incrementing, so gate the next dispatch on prepare's writes.
+  // Clear the surfel-result image to zero indirect (see toRead[2] above), then
+  // make the clear visible to surfel_generation_pass's storage write.
   {
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    VkClearColorValue clearColor = {};
+    clearColor.float32[3] = 1.0f; // (0,0,0,1): zero radiance, opaque alpha
+    VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdClearColorImage(cmd, m_surfelResultTexture[RI.swapchainIndex].vk.image,
+                         VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
+
+    VkImageMemoryBarrier2 afterClear = {
+        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    afterClear.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+    afterClear.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    afterClear.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    afterClear.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                               VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    afterClear.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    afterClear.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    afterClear.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    afterClear.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    afterClear.image = m_surfelResultTexture[RI.swapchainIndex].vk.image;
+    afterClear.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &afterClear;
+    vkCmdPipelineBarrier2(cmd, &dep);
   }
 
+  // ----------------------------------------------------------------------
+  // Stage F — surfel integrate + generation.
+  //
+  // integrate: per valid surfel, MSME-blend the per-frame raytraced
+  //            radiance (from gSurfelRayResultBuffer) into surfel.radiance
+  // generate:  per pixel, walk the visibility-buffer cell's surfel list,
+  //            output the indirect-lighting term into m_surfelResultTexture
+  //            (which visibility_shade.frag samples), and spawn / recycle
+  //            surfels based on coverage thresholds.
+  // ----------------------------------------------------------------------
   {
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kSurfelUpdateHash =
-        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_surfelUpdate.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
-                                       kSurfelUpdateHash,
-                                       "hybrid.surfel_update", &computeCreate);
-    m_surfelUpdate.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &m_bindlessSet, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
+    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_surfelIntegrate.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+                                          kHash, "SurfelIntegratePass.cs",
+                                          &computeCreate);
+    m_surfelIntegrate.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    std::vector<RIProgram::DescriptorBinding> computeBindings;
-    computeBindings.reserve(1);
+    // gSurfelDepthSampler is bindless (set 0). The image views and the
+    // CB are gone — params come from Constants.h. gPerFrame, the
+    // irradiance atlas, and the depth atlas (RW + sampled views of the
+    // same image) push into set 1.
+    std::vector<RIProgram::DescriptorBinding> bnd;
+    bnd.reserve(4);
     {
       RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("perFrame");
+      b.handle = DescriptorBindingID::Create("gPerFrame");
       RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-      computeBindings.push_back(b);
+      bnd.push_back(b);
     }
-
-    m_surfelUpdate.bindDescriptors(
-        &RI.device, &RI.primary.cmds[0], RI.frameIndex, computeBindings.data(),
-        computeBindings.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
-
-    CmdDispatch(&RI.primary.cmds[0], (SURFEL_MAX_CAPACITY + 31u) / 32u, 1u, 1u);
+    pushSurfelStorageImage(bnd, "gIrradianceMap",
+                           m_surfelIrradianceView[RI.swapchainIndex].vk.image);
+    pushSurfelStorageImage(bnd, "gSurfelDepthMap",
+                           m_surfelDepthView[RI.swapchainIndex].vk.image);
+    pushSurfelSampledImage(bnd, "gSurfelDepth",
+                           m_surfelDepthView[RI.swapchainIndex].vk.image);
+    m_surfelIntegrate.bindDescriptors(
+        &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
+        bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
+    CmdDispatch(&RI.primary.cmds[0], (kTotalSurfelLimit + 31u) / 32u, 1u, 1u);
   }
-
-  // m_cellInfoUpdate reads cellBuffer[].surfelCount that m_surfelUpdate just
-  // wrote. Same global compute-shader storage barrier shape as the previous
-  // one between generate and update.
   {
     VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
     mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    // SAMPLED_READ: with USE_SURFEL_DEPTH the generation pass samples the depth
+    // atlas (gSurfelDepth) that integrate just wrote via a storage image; the
+    // sampled read needs the write made visible to it, not just storage reads.
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
+                        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+                        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dep.memoryBarrierCount = 1;
     dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+    vkCmdPipelineBarrier2(cmd, &dep);
   }
-
   {
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kCellInfoUpdateHash =
-        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_cellInfoUpdate.bindComputePipeline(
-        &RI.device, &RI.primary.cmds[0], kCellInfoUpdateHash,
-        "hybrid.cell_info_update", &computeCreate);
-    m_cellInfoUpdate.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &m_bindlessSet, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
-    // One thread per cell across the full non-uniform grid. The shader's
-    // `idx >= TOTAL_CELL_COUNT` early-out culls excess invocations from the
-    // workgroup rounding.
-    CmdDispatch(&RI.primary.cmds[0], (TOTAL_CELL_COUNT + 31u) / 32u, 1u, 1u);
-  }
+    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_surfelGenerate.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+                                         kHash, "SurfelGenerationPass.cs",
+                                         &computeCreate);
+    m_surfelGenerate.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_COMPUTE);
 
-  // m_cellToSurfelUpdate reads cellBuffer[].surfelOffset that m_cellInfoUpdate
-  // just wrote, then atomically increments cellBuffer[].surfelCount back up to
-  // populate cellToSurfel[]. Same compute-shader SSBO hazard pattern as the
-  // previous dispatches.
-  {
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-  }
-
-  // Per-surfel scatter into cellToSurfel[]. aliveSurfelCnt lives on the GPU
-  // so we dispatch the SURFEL_MAX_CAPACITY upper bound and let the shader's
-  // `idx >= surfelCounter.aliveSurfelCnt` early-out cull excess invocations.
-  {
-    VkComputePipelineCreateInfo computeCreate = {
-        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kCellToSurfelUpdateHash =
-        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_cellToSurfelUpdate.bindComputePipeline(
-        &RI.device, &RI.primary.cmds[0], kCellToSurfelUpdateHash,
-        "hybrid.cell_to_surfel_update", &computeCreate);
-    m_cellToSurfelUpdate.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &m_bindlessSet, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
-    CmdDispatch(&RI.primary.cmds[0], (SURFEL_MAX_CAPACITY + 31u) / 32u, 1u, 1u);
-  }
-
-  // m_surfelRaytrace reads cellBuffer[].surfelCount/surfelOffset and the
-  // cellToSurfel[] mapping that m_cellToSurfelUpdate just populated.
-  {
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-  }
-
-  // Surfel atlases (irradiance + depth) are already in GENERAL at this
-  // point — the one-shot UNDEFINED -> GENERAL transition ran earlier this
-  // frame. Raytrace samples them at GENERAL, integrate reads-and-writes them
-  // at GENERAL, and the relocated surfel_generate pass after integrate keeps
-  // them in GENERAL too. No further layout change needed.
-
-  {
-    VkComputePipelineCreateInfo computeCreate = {
-        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kSurfelRaytraceHash =
-        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_surfelRaytrace.bindComputePipeline(
-        &RI.device, &RI.primary.cmds[0], kSurfelRaytraceHash,
-        "hybrid.surfel_raytrace", &computeCreate);
-    m_surfelRaytrace.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &m_bindlessSet, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
-
-    std::vector<RIProgram::DescriptorBinding> raytraceBindings;
-    raytraceBindings.reserve(3);
+    // gPerFrame + the set-1 surfel images (gPackedHitInfo, gSurfelDepth
+    // sampled view) plus the per-pixel indirect-lighting output `gOutput`
+    // at set 2 binding 0.
+    std::vector<RIProgram::DescriptorBinding> bnd;
+    bnd.reserve(4);
     {
       RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("perFrame");
+      b.handle = DescriptorBindingID::Create("gPerFrame");
       RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-      raytraceBindings.push_back(b);
+      bnd.push_back(b);
     }
+    pushSurfelStorageImage(bnd, "gPackedHitInfo",
+                           m_packedHitInfoView[RI.swapchainIndex].vk.image);
+    pushSurfelSampledImage(bnd, "gSurfelDepth",
+                           m_surfelDepthView[RI.swapchainIndex].vk.image);
     {
       RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("topLevelAS");
-      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-      b.descriptor.vk.accelStructure = m_tlas.vk.handle;
-      RIFinalizeDescriptor(&RI.device, &b.descriptor);
-      raytraceBindings.push_back(b);
-    }
-    {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("surfelIrradianceSampler");
-      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-      b.descriptor.vk.image.sampler = m_materialSampler->vk.image.sampler;
+      b.handle = DescriptorBindingID::Create("gOutput");
+      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+      b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
       b.descriptor.vk.image.imageView =
-          m_surfelIrradianceView[RI.swapchainIndex].vk.image;
+          m_surfelResultView[RI.swapchainIndex].vk.image;
       b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       RIFinalizeDescriptor(&RI.device, &b.descriptor);
-      raytraceBindings.push_back(b);
+      bnd.push_back(b);
     }
-
-    m_surfelRaytrace.bindDescriptors(
-        &RI.device, &RI.primary.cmds[0], RI.frameIndex, raytraceBindings.data(),
-        raytraceBindings.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
-
-    // One thread per pending surfel ray. surfelCounter.surfelRayCnt early-outs
-    // the tail; overdispatching to MAX_RAY_COUNT is fine.
-    CmdDispatch(&RI.primary.cmds[0], (MAX_RAY_COUNT + 31u) / 32u, 1u, 1u);
-  }
-
-  // surfel_integrate consumes m_surfelRayBuffer.radiance that the raytrace
-  // dispatch just wrote. Same compute->compute SSBO barrier shape as the
-  // earlier passes; integrate also samples the irradiance atlas, but since
-  // it's the first reader after the raytrace and raytrace doesn't write
-  // either atlas, no image barrier is needed between them.
-  {
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-  }
-
-  // Per-surfel integrate: folds raytraced radiance into MSME, EMA-blends
-  // the octahedral irradiance + depth tiles, shares radiance across cell
-  // neighbours, and writes the per-surfel irradiance gate that
-  // surfel_raytrace.comp's ray-guiding branch reads next frame.
-  {
-    VkComputePipelineCreateInfo computeCreate = {
-        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kSurfelIntegrateHash =
-        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_surfelIntegrate.bindComputePipeline(
-        &RI.device, &RI.primary.cmds[0], kSurfelIntegrateHash,
-        "hybrid.surfel_integrate", &computeCreate);
-    m_surfelIntegrate.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &m_bindlessSet, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
-
-    std::vector<RIProgram::DescriptorBinding> integrateBindings;
-    integrateBindings.reserve(5);
-    {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("perFrame");
-      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-      integrateBindings.push_back(b);
-    }
-    auto pushAtlas = [&](const char *samplerName, const char *imageName,
-                         VkImageView view) {
-      {
-        RIProgram::DescriptorBinding b;
-        b.handle = DescriptorBindingID::Create(samplerName);
-        b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        b.descriptor.vk.image.sampler = m_materialSampler->vk.image.sampler;
-        b.descriptor.vk.image.imageView = view;
-        b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        RIFinalizeDescriptor(&RI.device, &b.descriptor);
-        integrateBindings.push_back(b);
-      }
-      {
-        RIProgram::DescriptorBinding b;
-        b.handle = DescriptorBindingID::Create(imageName);
-        b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
-        b.descriptor.vk.image.imageView = view;
-        b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        RIFinalizeDescriptor(&RI.device, &b.descriptor);
-        integrateBindings.push_back(b);
-      }
-    };
-    pushAtlas("surfelIrradianceSampler", "surfelIrradianceMap",
-              m_surfelIrradianceView[RI.swapchainIndex].vk.image);
-    pushAtlas("surfelDepthSampler", "surfelDepthMap",
-              m_surfelDepthView[RI.swapchainIndex].vk.image);
-
-    m_surfelIntegrate.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                      RI.frameIndex, integrateBindings.data(),
-                                      integrateBindings.size(),
-                                      VK_PIPELINE_BIND_POINT_COMPUTE);
-
-    // One thread per surfel slot; the shader's
-    // `index >= surfelCounter.aliveSurfelCnt` early-out culls the tail.
-    CmdDispatch(&RI.primary.cmds[0], (SURFEL_MAX_CAPACITY + 31u) / 32u, 1u, 1u);
-  }
-
-  // surfel_generate runs last in the surfel chain — it gathers per-pixel
-  // coverage by walking cellBuffer[]/cellToSurfel[] (populated this frame by
-  // surfel_update + cellInfo_update + cellToSurfel_update) and samples each
-  // covering surfel's radiance (just refreshed by surfel_integrate). Running
-  // it earlier would read the cleared cellBuffer and produce zero coverage
-  // everywhere, causing uncontrolled spawning and zero-radiance surfels.
-  // Matches SurfelPlus reference (sample_example.cpp::calculateSurfels).
-  {
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-  }
-
-  {
-    VkComputePipelineCreateInfo computeCreate = {
-        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kSurfelGenerateHash =
-        hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_surfelGenerate.bindComputePipeline(
-        &RI.device, &RI.primary.cmds[0], kSurfelGenerateHash,
-        "hybrid.surfel_generate", &computeCreate);
-    m_surfelGenerate.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &m_bindlessSet, 0, VK_PIPELINE_BIND_POINT_COMPUTE);
-
-    std::vector<RIProgram::DescriptorBinding> computeBindings;
-    computeBindings.reserve(5);
-    {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("perFrame");
-      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-      computeBindings.push_back(b);
-    }
-    auto pushImage = [&](const char *name, VkImageView view,
-                         VkImageLayout layout, VkDescriptorType type,
-                         VkSampler sampler) {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create(name);
-      b.descriptor.vk.type = type;
-      b.descriptor.vk.image.sampler = sampler;
-      b.descriptor.vk.image.imageView = view;
-      b.descriptor.vk.image.imageLayout = layout;
-      // RIFinalizeDescriptor stamps a non-zero cookie. Without it
-      // RI_IsEmptyDescriptor returns true and bindDescriptors silently
-      // skips the binding, leaving the shader's set unbound.
-      RIFinalizeDescriptor(&RI.device, &b.descriptor);
-      computeBindings.push_back(b);
-    };
-    const VkSampler sampler = m_materialSampler->vk.image.sampler;
-    // Integer formats (R32_UINT for visibility + normal) can't be linearly
-    // filtered. Use a NEAREST sampler for those two; depth stays on the
-    // trilinear sampler (D32_SFLOAT supports linear filtering).
-    RIDescriptor_s *nearestSamplerDesc = RI.resolve_filter_descriptor(
-        eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
-        eTextureWrap_ClampToEdge, eTextureFilter_Nearest);
-    const VkSampler nearestSampler = nearestSamplerDesc->vk.image.sampler;
-    pushImage("visibilityBuffer", RI.visibilityView[RI.swapchainIndex].vk.image,
-              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-              VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nearestSampler);
-    pushImage("normalMap", RI.normalView[RI.swapchainIndex].vk.image,
-              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-              VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, nearestSampler);
-    pushImage("depthMap", RI.depthView[RI.swapchainIndex].vk.image,
-              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-              VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, sampler);
-    pushImage("resultImage", m_surfelResultView[RI.swapchainIndex].vk.image,
-              VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-              VK_NULL_HANDLE);
-
     m_surfelGenerate.bindDescriptors(
-        &RI.device, &RI.primary.cmds[0], RI.frameIndex, computeBindings.data(),
-        computeBindings.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
+        &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
+        bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    const uint32_t halfW = RI.swapchain.width / 2u;
-    const uint32_t halfH = RI.swapchain.height / 2u;
-    CmdDispatch(&RI.primary.cmds[0], (halfW + 15u) / 16u, (halfH + 15u) / 16u,
-                1u);
+    const uint32_t fullW = RI.swapchain.width;
+    const uint32_t fullH = RI.swapchain.height;
+    CmdDispatch(&RI.primary.cmds[0], (fullW + 15u) / 16u,
+                (fullH + 15u) / 16u, 1u);
   }
 
   // --------------------------------------------------------------------
-  // Final composite (visibility-buffer shade pass).
+  // SurfelGIRenderPass — graphics fullscreen pass.
   //
-  // Port of AmnesiaTheDarkDescent's visibility_emit_shade_pass.frag.fsl,
-  // adapted to the bindless layout. Runs as a fullscreen triangle that
-  // unpacks (objectID, primID) from the visibility buffer, reconstructs
-  // the triangle data per pixel, samples diffuse textures with analytical
-  // mip gradients, adds point-light direct lighting, gathers surfel GI,
-  // and writes the swapchain image.
+  // Replaces the legacy visibility_shade composite (and the prior compute
+  // version of this same Slang module). Reads gIndirectLighting
+  // (m_surfelResultView, written by SurfelGenerationPass above) plus
+  // gPackedHitInfo / gPackedHitInfoRaster / TLAS / gPerFrame, and emits
+  // its color into the pogo buffer's COLOR_ATTACHMENT side.
   //
-  // Two hazards to sync before issuing the fragment work:
-  //   (a) The surfel compute passes that just ran wrote surfelBuffer /
-  //       cellBuffer / cellToSurfel; the fragment shader reads them.
-  //   (b) The swapchain image needs to be in COLOR_ATTACHMENT_OPTIMAL
-  //       for vkCmdBeginRendering to write to it.
+  // The post-effect chain ping-pongs through pogo from there; a tail
+  // blit lower in this function copies the final pogo "read" half into
+  // the swapchain image, which the particle/decal pass then composites
+  // on top of.
   // --------------------------------------------------------------------
+
+  RI_PogoBuffer *pogo = &RI.pogoBuffer[RI.swapchainIndex];
+
+  // Barrier 1: gIndirectLighting GENERAL→SHADER_READ_ONLY (compute write
+  // is now consumed by a fragment-stage sample) + first-frame pogo init
+  // (UNDEFINED → COLOR_ATTACHMENT_OPTIMAL on the attach half, UNDEFINED →
+  // SHADER_READ_ONLY_OPTIMAL on the other half, matching the steady-state
+  // the toggle helpers expect).
   {
     VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
     mem.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
 
-    VkImageMemoryBarrier2 imageBarriers[2] = {
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}};
+    std::vector<VkImageMemoryBarrier2> imageBarriers;
+    imageBarriers.reserve(3);
 
-    VkImageMemoryBarrier2 &swapToColor = imageBarriers[0];
-    swapToColor.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    swapToColor.srcAccessMask = 0;
-    swapToColor.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    swapToColor.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    swapToColor.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    swapToColor.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    swapToColor.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    swapToColor.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    swapToColor.image = RI.swapchain.vk.images[RI.swapchainIndex];
-    swapToColor.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    {
+      VkImageMemoryBarrier2 b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+      b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+      b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+      b.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+      b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+      b.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+      b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      b.image = m_surfelResultTexture[RI.swapchainIndex].vk.image;
+      b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      imageBarriers.push_back(b);
+    }
 
-    // Surfel-indirect map: surfel_generation_pass wrote it as a storage image
-    // in GENERAL; the visibility-shade fragment shader samples it as a
-    // sampler2D. Move it to SHADER_READ_ONLY_OPTIMAL and gate the fragment
-    // sampled-read on the compute storage-write. The next frame's pre-gen
-    // barrier (HybridRenderer.cpp earlier in Draw) re-acquires it as
-    // UNDEFINED -> GENERAL, which is fine because surfel-generation
-    // overwrites every touched texel.
-    VkImageMemoryBarrier2 &surfelToRead = imageBarriers[1];
-    surfelToRead.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    surfelToRead.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    surfelToRead.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    surfelToRead.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    surfelToRead.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    surfelToRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    surfelToRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    surfelToRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    surfelToRead.image = m_surfelResultTexture[RI.swapchainIndex].vk.image;
-    surfelToRead.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    if (!m_pogoInitialized[RI.swapchainIndex]) {
+      const uint32_t readIdx = (pogo->attachmentIndex + 1u) % 2u;
+      imageBarriers.push_back(VK_RI_PogoAttachmentMemoryBarrier2(
+          pogo->textures[pogo->attachmentIndex].vk.image, /*initial=*/true));
+      imageBarriers.push_back(VK_RI_PogoShaderMemoryBarrier2(
+          pogo->textures[readIdx].vk.image, /*initial=*/true));
+      m_pogoInitialized[RI.swapchainIndex] = true;
+    }
 
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dep.memoryBarrierCount = 1;
     dep.pMemoryBarriers = &mem;
-    dep.imageMemoryBarrierCount = 2;
-    dep.pImageMemoryBarriers = imageBarriers;
+    dep.imageMemoryBarrierCount =
+        static_cast<uint32_t>(imageBarriers.size());
+    dep.pImageMemoryBarriers = imageBarriers.data();
     vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
   }
 
+  // Surfel-GI graphics pass — writes color into the pogo attach side.
   {
     VkRenderingAttachmentInfo colorAttach = {
         VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    colorAttach.imageView = RI.swapchainView[RI.swapchainIndex].vk.image;
+    colorAttach.imageView =
+        pogo->pogoAttachment[pogo->attachmentIndex].vk.image.imageView;
     colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAttach.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
 
     VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-    renderInfo.renderArea = {{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
+    renderInfo.renderArea = {{0, 0},
+                             {RI.swapchain.width, RI.swapchain.height}};
     renderInfo.layerCount = 1;
     renderInfo.colorAttachmentCount = 1;
-    renderInfo.pColorAttachments = &colorAttach;
-    renderInfo.pDepthAttachment = nullptr;
-
+    renderInfo.pColorAttachments    = &colorAttach;
     vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
 
     VkViewport vp = {0.0f,
-                     (float)RI.swapchain.height,
-                     (float)RI.swapchain.width,
-                     -(float)RI.swapchain.height,
+                     0.0f,
+                     static_cast<float>(RI.swapchain.width),
+                     static_cast<float>(RI.swapchain.height),
                      0.0f,
                      1.0f};
-    VkRect2D scissor = {{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
     vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
-    vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &scissor);
+    VkRect2D sc = {{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
+    vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
 
-    VisibilityShadePipelineDesc shadeDesc((RI_Format_e)RI.swapchain.format);
-    m_visibilityShade.bindPipeline(&RI.device, &RI.primary.cmds[0],
-                                   shadeDesc.hash, "hybrid.visibility_shade",
-                                   &shadeDesc.createInfo);
-    m_visibilityShade.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                                &m_bindlessSet, 0);
+    PostEffectPipelineState surfelState{};
+    InitPostEffectPipelineState(surfelState, VK_FORMAT_R8G8B8A8_UNORM,
+                                /*alphaBlend=*/false);
 
-    std::vector<RIProgram::DescriptorBinding> bindings;
-    bindings.reserve(6);
+    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_surfelGIRender.bindPipeline(&RI.device, &RI.primary.cmds[0], kHash,
+                                  "SurfelGIRenderPass",
+                                  &surfelState.createInfo);
+    m_surfelGIRender.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_GRAPHICS);
+
+    std::vector<RIProgram::DescriptorBinding> bnd;
+    bnd.reserve(5);
     {
       RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("perFrame");
+      b.handle = DescriptorBindingID::Create("gPerFrame");
       RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-      bindings.push_back(b);
+      bnd.push_back(b);
     }
-    // Both visibility + normal are R32_UINT — must be sampled with a
-    // NEAREST filter (integer formats can't be linearly filtered).
-    RIDescriptor_s *nearestDesc = RI.resolve_filter_descriptor(
-        eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
-        eTextureWrap_ClampToEdge, eTextureFilter_Nearest);
-    const VkSampler nearestSampler = nearestDesc->vk.image.sampler;
-    const VkSampler linearSampler = m_materialSampler->vk.image.sampler;
-    auto pushSampledImage = [&](const char *name, VkImageView view,
-                                VkSampler sampler, VkImageLayout layout) {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create(name);
-      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-      b.descriptor.vk.image.sampler = sampler;
-      b.descriptor.vk.image.imageView = view;
-      b.descriptor.vk.image.imageLayout = layout;
-      RIFinalizeDescriptor(&RI.device, &b.descriptor);
-      bindings.push_back(b);
-    };
-    pushSampledImage("visibilityBuffer",
-                     RI.visibilityView[RI.swapchainIndex].vk.image,
-                     nearestSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    pushSampledImage("normalBufferTex",
-                     RI.normalView[RI.swapchainIndex].vk.image, nearestSampler,
-                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    pushSampledImage("depthBufferTex", RI.depthView[RI.swapchainIndex].vk.image,
-                     linearSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    // Half-res surfel indirect-lighting map written by surfel_generation_pass.
-    // Linear sampler so the fullscreen composite bilinearly upsamples from
-    // half-res to swapchain resolution (visibility_shade.frag:42-44). The
-    // image is transitioned GENERAL -> SHADER_READ_ONLY_OPTIMAL by the
-    // barrier block above this vkCmdBeginRendering.
-    pushSampledImage("surfelIndirect",
-                     m_surfelResultView[RI.swapchainIndex].vk.image,
-                     linearSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    pushSurfelStorageImage(bnd, "gPackedHitInfo",
+                           m_packedHitInfoView[RI.swapchainIndex].vk.image);
+    pushTlas(bnd);
     {
       RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("topLevelAS");
-      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-      b.descriptor.vk.accelStructure = m_tlas.vk.handle;
+      b.handle = DescriptorBindingID::Create("gIndirectLighting");
+      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+      b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
+      b.descriptor.vk.image.imageView =
+          m_surfelResultView[RI.swapchainIndex].vk.image;
+      b.descriptor.vk.image.imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
       RIFinalizeDescriptor(&RI.device, &b.descriptor);
-      bindings.push_back(b);
+      bnd.push_back(b);
     }
+    {
+      // Rasterized V-buffer fallback — SurfelGBuffer writes
+      // RI.visibilityTexture earlier this frame and the toRead[] barriers
+      // upstream already transitioned it to SHADER_READ_ONLY_OPTIMAL.
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("gPackedHitInfoRaster");
+      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+      b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
+      b.descriptor.vk.image.imageView =
+          RI.visibilityView[RI.swapchainIndex].vk.image;
+      b.descriptor.vk.image.imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      RIFinalizeDescriptor(&RI.device, &b.descriptor);
+      bnd.push_back(b);
+    }
+    m_surfelGIRender.bindDescriptors(
+        &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
+        bnd.size(), VK_PIPELINE_BIND_POINT_GRAPHICS);
 
-    m_visibilityShade.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                      RI.frameIndex, bindings.data(),
-                                      bindings.size());
-
-    vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3u, 1u, 0u, 0u);
-
+    vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3, 1, 0, 0);
     vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
   }
+
+  // Toggle: just-written attach → SHADER_READ_ONLY (now the "read" half)
+  // so downstream post-effects + tail blit can sample it.
+  RI_PogoBufferToggle(&RI.device, pogo, &RI.primary.cmds[0]);
+
+  // The viewport's post-effect composite and the pogo->swapchain tail blit run
+  // in cScene::Render after this Draw returns — Draw just leaves the finished
+  // scene (incl. particles) in the pogo "read" half.
 
   // Shared between the decal and particle passes: the depth image arrives in
   // SHADER_READ_ONLY_OPTIMAL from surfel-generate and needs to flip to
@@ -2539,196 +2968,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     depthFlippedForReadOnly = true;
   };
 
-  // --------------------------------------------------------------------
-  // Decal pass.
-  //
-  // Port of AmnesiaTheDarkDescent's decal.{vert,frag}.fsl. Draws decal
-  // geometry over the visibility-shade composite, before particles. Decals
-  // share the opaque BDA fan-out + bindless material/object pools the way
-  // particles do; the VS reads position/uv0/color0/index via opaque*Handles[]
-  // indexed by gl_InstanceIndex. Hardware blend factors are picked per
-  // pipeline (one pipeline per blend mode, stamped on demand). Depth test
-  // LEQUAL, depth write off, front-face culling, RGB-only color write —
-  // matches the legacy decal pipeline state.
-  // --------------------------------------------------------------------
-  {
-    auto decalsSpan = m_rendererList.GetRenderableItems(eRenderListType_Decal);
-    std::vector<iRenderable *> decals;
-    decals.reserve(decalsSpan.size());
-    for (iRenderable *pObj : decalsSpan) {
-      if (!pObj)
-        continue;
-      cMaterial *pMat = pObj->GetMaterial();
-      if (!pMat)
-        continue;
-      const eMaterialBlendMode mode = pMat->GetBlendMode();
-      if (mode == eMaterialBlendMode_None ||
-          mode >= eMaterialBlendMode_LastEnum)
-        continue;
-      iVertexBuffer *pVB = pObj->GetVertexBuffer();
-      if (!pVB || pVB->GetIndexNum() <= 0)
-        continue;
-      decals.push_back(pObj);
-    }
-
-    if (!decals.empty()) {
-      flipDepthToReadOnly();
-
-      VkRenderingAttachmentInfo colorAttach = {
-          VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-      colorAttach.imageView = RI.swapchainView[RI.swapchainIndex].vk.image;
-      colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-      colorAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-      colorAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-      VkRenderingAttachmentInfo depthAttach = {
-          VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-      depthAttach.imageView = RI.depthView[RI.swapchainIndex].vk.image;
-      depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
-      depthAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-      depthAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-      VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-      renderInfo.renderArea = {{0, 0},
-                               {RI.swapchain.width, RI.swapchain.height}};
-      renderInfo.layerCount = 1;
-      renderInfo.colorAttachmentCount = 1;
-      renderInfo.pColorAttachments = &colorAttach;
-      renderInfo.pDepthAttachment = &depthAttach;
-      vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
-
-      VkViewport vp = {0.0f,
-                       (float)RI.swapchain.height,
-                       (float)RI.swapchain.width,
-                       -(float)RI.swapchain.height,
-                       0.0f,
-                       1.0f};
-      VkRect2D sc = {{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
-      vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
-      vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
-
-      m_decal.bindBindlessDescriptorSet(&RI.primary.cmds[0], &m_bindlessSet, 0);
-
-      std::vector<RIProgram::DescriptorBinding> decalBindings;
-      decalBindings.reserve(1);
-      {
-        RIProgram::DescriptorBinding b;
-        b.handle = DescriptorBindingID::Create("perFrame");
-        RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-        decalBindings.push_back(b);
-      }
-      m_decal.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
-                              decalBindings.data(), decalBindings.size());
-
-      auto remapBlend = [](eMaterialBlendMode m) {
-        switch (m) {
-        case eMaterialBlendMode_Add:
-          return DecalPipelineDesc::BLEND_ADD;
-        case eMaterialBlendMode_Mul:
-          return DecalPipelineDesc::BLEND_MUL;
-        case eMaterialBlendMode_MulX2:
-          return DecalPipelineDesc::BLEND_MULX2;
-        case eMaterialBlendMode_Alpha:
-          return DecalPipelineDesc::BLEND_ALPHA;
-        case eMaterialBlendMode_PremulAlpha:
-          return DecalPipelineDesc::BLEND_PREMUL_ALPHA;
-        default:
-          return DecalPipelineDesc::BLEND_ALPHA;
-        }
-      };
-
-      for (iRenderable *pObj : decals) {
-        iVertexBuffer *pVB = pObj->GetVertexBuffer();
-        cMaterial *pMat = pObj->GetMaterial();
-        const int indexCount = pVB->GetIndexNum();
-
-        uint32_t materialSlot =
-            resolveMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
-        if (materialSlot == UINT32_MAX) {
-          Warning("Material Slot exhausted (decal)");
-          continue;
-        }
-
-        cMatrixf *pMtx = pObj->GetModelMatrix(apFrustum);
-        ObjectGPUData payload{};
-        payload.dissolveAmount = 0.0f;
-        payload.materialID = materialSlot;
-        payload.lightLevel = 1.0f;
-        payload.illuminationAmount = 0.0f;
-        const ml::float4x4 modelF4 =
-            cMath::ToFloatTranspose4x4(pMtx ? *pMtx : cMatrixf::Identity);
-        std::memcpy(payload.modelMat, modelF4.a, sizeof(payload.modelMat));
-        ml::float4x4 invF4 = modelF4;
-        invF4.Invert();
-        std::memcpy(payload.invModelMat, invF4.a, sizeof(payload.invModelMat));
-        const ml::float4x4 uvF4 =
-            cMath::ToFloatTranspose4x4(cMatrixf::Identity);
-        std::memcpy(payload.uvMat, uvF4.a, sizeof(payload.uvMat));
-
-        // Per-decal cookie (pointer + frame counter). Decal VBs don't change
-        // every frame, but the BDA may still differ across frames if the
-        // backing buffer is suballocated, so hash a per-object identity rather
-        // than the payload contents to be safe.
-        hash_t cookie =
-            hash_u64(HASH_INITIAL_VALUE, (uint64_t)(uintptr_t)pObj);
-        cookie = hash_u32(cookie, (uint32_t)RI.frameIndex);
-        auto req =
-            m_diffuseBindless.request(cookie, (uint32_t)RI.frameIndex);
-        if (req.exhausted) {
-          Warning("bindless pool exhausted (decal)");
-          continue;
-        }
-
-        std::memcpy(static_cast<uint8_t *>(m_diffuseObjectBuffer.mappedAddress) +
-                        req.id * sizeof(ObjectGPUData),
-                    &payload, sizeof(payload));
-
-        auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
-        auto bdaOf = [&](eVertexBufferElement type) -> VkDeviceAddress {
-          const auto *element = vbri->GetElement(type);
-          if (!element || !element->buffer)
-            return 0;
-          return element->buffer->GetDeviceHandle(&RI.device);
-        };
-        const VkDeviceAddress posAddr =
-            bdaOf(eVertexBufferElement_Position);
-        const VkDeviceAddress uv0Addr =
-            bdaOf(eVertexBufferElement_Texture0);
-        const VkDeviceAddress colAddr =
-            bdaOf(eVertexBufferElement_Color0);
-        const VkDeviceAddress idxAddr =
-            vbri->GetIndexRIBuffer()
-                ? vbri->GetIndexRIBuffer()->GetDeviceHandle(&RI.device)
-                : 0;
-
-        auto writeSlot = [&](RIBuffer_s &buf, VkDeviceAddress addr) {
-          auto *slot = reinterpret_cast<VkDeviceAddress *>(
-              static_cast<uint8_t *>(buf.mappedAddress) +
-              req.id * sizeof(VkDeviceAddress));
-          *slot = addr;
-        };
-        writeSlot(m_opaquePositionHandles, posAddr);
-        writeSlot(m_opaqueUv0Handles, uv0Addr);
-        writeSlot(m_opaqueColorHandles, colAddr);
-        writeSlot(m_opaqueIndexHandles, idxAddr);
-        writeSlot(m_opaqueNormalHandles, 0);
-        writeSlot(m_opaqueTangentHandles, 0);
-
-        const DecalPipelineDesc::BlendMode mode =
-            remapBlend(pMat->GetBlendMode());
-        DecalPipelineDesc pipelineDesc((RI_Format_e)RI.swapchain.format,
-                                       RIBootstrap::DepthFormat, mode);
-        m_decal.bindPipeline(&RI.device, &RI.primary.cmds[0],
-                             pipelineDesc.hash, "hybrid.decal",
-                             &pipelineDesc.createInfo);
-
-        vkCmdDraw(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u, 0u,
-                  req.id);
-      }
-
-      vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
-    }
-  }
 
   // --------------------------------------------------------------------
   // Particle (translucent) pass.
@@ -2790,9 +3029,26 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
       flipDepthToReadOnly();
 
+      // Render translucent particles INTO the pogo "read" half (which holds the
+      // composited + post-effected scene), not the swapchain — so the pogo (and
+      // anything that samples it, e.g. the menu/inventory screen capture) carries
+      // particles too. Flip that half COLOR_ATTACHMENT for the draw, then back to
+      // SHADER_READ after, so the tail blit below can sample it.
+      const int   pogoReadIdx   = (pogo->attachmentIndex + 1) % 2;
+      VkImage     pogoReadImage = pogo->textures[pogoReadIdx].vk.image;
+      VkImageView pogoReadView  = pogo->pogoAttachment[pogoReadIdx].vk.image.imageView;
+      {
+        VkImageMemoryBarrier2 b =
+            VK_RI_PogoAttachmentMemoryBarrier2(pogoReadImage, /*initial=*/false);
+        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      }
+
       VkRenderingAttachmentInfo colorAttach = {
           VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-      colorAttach.imageView = RI.swapchainView[RI.swapchainIndex].vk.image;
+      colorAttach.imageView = pogoReadView;
       colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
       colorAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
       colorAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -2830,7 +3086,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       particleBindings.reserve(1);
       {
         RIProgram::DescriptorBinding b;
-        b.handle = DescriptorBindingID::Create("perFrame");
+        b.handle = DescriptorBindingID::Create("gPerFrame");
         RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
         particleBindings.push_back(b);
       }
@@ -2879,7 +3135,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         }
 
         cMatrixf *pMtx = pEmitter->GetModelMatrix(apFrustum);
-        ObjectGPUData payload{};
+        UniformObject payload{};
         payload.dissolveAmount = 0.0f;
         payload.materialID = materialSlot;
         payload.lightLevel = 1.0f;
@@ -2908,9 +3164,38 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           continue;
         }
 
-        std::memcpy(static_cast<uint8_t *>(m_diffuseObjectBuffer.mappedAddress) +
-                        req.id * sizeof(ObjectGPUData),
-                    &payload, sizeof(payload));
+        // Particles share m_diffuseBindless with opaque solids. When the LRU
+        // hands this slot to a particle (a fresh assignment, req.found == false)
+        // the handle BDAs below get overwritten with the particle's smaller
+        // vertex/index buffers. A surfel still anchored to the slot's previous
+        // opaque occupant would otherwise pass collectCellInfo's slotStale guard
+        // (its captured generation still matches) and feed its stale opaque
+        // primitiveIndex into fetchBindlessTriangle against the particle mesh —
+        // an unbounded raw-BDA read off the end of the index/vertex buffer ->
+        // GPUVM fault. Bump the slot generation on (re)assignment, exactly like
+        // the opaque miss path, so those surfels self-invalidate. The bump is
+        // staged with every other mirror write at the Draw() tail and applied by
+        // the uploader pre-pass before this same frame's surfel passes run.
+        if (!req.found) {
+          m_bindlessSlotGenerationMirror.write<uint32_t>(req.id,
+                                                         ++m_nextSlotGeneration);
+        }
+
+        {
+          RIResourceBufferTransaction_s trans = {};
+          trans.target = m_diffuseObjectBuffer;
+          trans.size = sizeof(UniformObject);
+          trans.offset = (size_t)req.id * sizeof(UniformObject);
+          trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
+                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                   VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+          trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+          trans.vk.post_stage = trans.vk.current_stage;
+          trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+          RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+          std::memcpy(trans.mapped.data, &payload, sizeof(payload));
+          RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+        }
 
         auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
         auto bdaOf = [&](eVertexBufferElement type) -> VkDeviceAddress {
@@ -2933,25 +3218,22 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // Only the four streams the particle VS reads need to be valid;
         // tangent/normal stay zero so any leftover handles from a prior
         // opaque draw at this slot are deref-safe-but-unused.
-        auto writeSlot = [&](RIBuffer_s &buf, VkDeviceAddress addr) {
-          auto *slot = reinterpret_cast<VkDeviceAddress *>(
-              static_cast<uint8_t *>(buf.mappedAddress) +
-              req.id * sizeof(VkDeviceAddress));
-          *slot = addr;
+        auto writeSlot = [&](BindlessShadowMirror &mir, VkDeviceAddress addr) {
+          mir.write<VkDeviceAddress>(req.id, addr);
         };
-        writeSlot(m_opaquePositionHandles, posAddr);
-        writeSlot(m_opaqueUv0Handles, uv0Addr);
-        writeSlot(m_opaqueColorHandles, colAddr);
-        writeSlot(m_opaqueIndexHandles, idxAddr);
-        writeSlot(m_opaqueNormalHandles, 0);
-        writeSlot(m_opaqueTangentHandles, 0);
+        writeSlot(m_opaquePositionMirror, posAddr);
+        writeSlot(m_opaqueUv0Mirror, uv0Addr);
+        writeSlot(m_opaqueColorMirror, colAddr);
+        writeSlot(m_opaqueIndexMirror, idxAddr);
+        writeSlot(m_opaqueNormalMirror, 0);
+        writeSlot(m_opaqueTangentMirror, 0);
 
         const ParticlePipelineDesc::BlendMode mode =
             remapBlend(pMat->GetBlendMode());
         ParticlePipelineDesc pipelineDesc((RI_Format_e)RI.swapchain.format,
                                           RIBootstrap::DepthFormat, mode);
         m_particle.bindPipeline(&RI.device, &RI.primary.cmds[0],
-                                pipelineDesc.hash, "hybrid.particle",
+                                pipelineDesc.hash, "Particle",
                                 &pipelineDesc.createInfo);
 
         float sceneAlpha = 1.0f;
@@ -2966,7 +3248,108 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       }
 
       vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+
+      // pogo "read" half back to SHADER_READ_ONLY so the tail blit can sample it.
+      {
+        VkImageMemoryBarrier2 b =
+            VK_RI_PogoShaderMemoryBarrier2(pogoReadImage, /*initial=*/false);
+        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      }
     }
+  }
+
+  // Restore depth to DEPTH_ATTACHMENT_OPTIMAL before yielding the command
+  // buffer: RI_VK_FillDepthAttachment hardcodes that layout, and depth ends
+  // here in either SHADER_READ_ONLY_OPTIMAL (surfel-only) or
+  // DEPTH_READ_ONLY_OPTIMAL (flipDepthToReadOnly ran for particle/decal).
+  {
+    const VkImageLayout currentLayout =
+        depthFlippedForReadOnly ? VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL
+                                : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    const VkPipelineStageFlags2 srcStage =
+        depthFlippedForReadOnly
+            ? (VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+               VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT)
+            : (VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
+    const VkAccessFlags2 srcAccess =
+        depthFlippedForReadOnly
+            ? VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT
+            : (VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
+               VK_ACCESS_2_SHADER_READ_BIT);
+
+    VkImageMemoryBarrier2 restoreDepth = {
+        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    restoreDepth.srcStageMask = srcStage;
+    restoreDepth.srcAccessMask = srcAccess;
+    restoreDepth.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+                                VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+    restoreDepth.dstAccessMask =
+        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    restoreDepth.oldLayout = currentLayout;
+    restoreDepth.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+    restoreDepth.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    restoreDepth.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    restoreDepth.image = RI.depthTextures[RI.swapchainIndex].vk.image;
+    restoreDepth.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
+
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &restoreDepth;
+    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+  }
+
+  // Commit every bindless handle / slot-generation write made this frame. The
+  // uploader records into its own transfer cmd buffer, flushed as a fenced
+  // pre-pass the primary submit waits on (RIBootstrap), so this single tail call
+  // lands all copies ahead of every primary read regardless of recording order.
+  flushBindlessMirrors();
+}
+
+void cHybridRenderer::flushBindlessMirrors() {
+  struct Item {
+    RIBuffer_s *buf;
+    BindlessShadowMirror *mir;
+  };
+  const Item items[] = {
+      {&m_opaquePositionHandles, &m_opaquePositionMirror},
+      {&m_opaqueTangentHandles, &m_opaqueTangentMirror},
+      {&m_opaqueNormalHandles, &m_opaqueNormalMirror},
+      {&m_opaqueUv0Handles, &m_opaqueUv0Mirror},
+      {&m_opaqueColorHandles, &m_opaqueColorMirror},
+      {&m_opaqueIndexHandles, &m_opaqueIndexMirror},
+      {&m_bindlessSlotGenerationBuffer, &m_bindlessSlotGenerationMirror},
+      // Boot-seed only: dirty on frame 0 (Free = kTotalSurfelLimit), a no-op
+      // every frame after — the GPU owns the counter once the passes run.
+      {&m_surfelCounterBuffer, &m_surfelCounterMirror},
+  };
+  for (const auto &it : items) {
+    if (!it.mir->hasDirty())
+      continue;
+    const size_t off = it.mir->dirtyMinByte;
+    const size_t sz = it.mir->dirtyMaxByte - off;
+    RIResourceBufferTransaction_s trans = {};
+    trans.target = *it.buf;
+    trans.size = sz;
+    trans.offset = off;
+    // Read as storage buffers by the gbuffer VS (vertex pull), the surfel
+    // VBuffer / ray-trace chit+ahit, and collectCellInfo (compute). The WAR
+    // pre-barrier (current_stage/access) waits on the prior frame's reads before
+    // the staged copy overwrites the slot; this is the m_diffuseObjectBuffer path.
+    trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
+                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                             VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    trans.vk.post_stage = trans.vk.current_stage;
+    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+    std::memcpy(trans.mapped.data, it.mir->shadow.data() + off, sz);
+    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+    it.mir->clearDirty();
   }
 }
 
@@ -2990,6 +3373,16 @@ cHybridRenderer::~cHybridRenderer() {
                      m_pointLightBuffer.vk.allocation);
     m_pointLightBuffer = {};
   }
+  if (m_lightGridCountBuffer.vk.buffer) {
+    vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_lightGridCountBuffer.vk.buffer,
+                     m_lightGridCountBuffer.vk.allocation);
+    m_lightGridCountBuffer = {};
+  }
+  if (m_lightGridListBuffer.vk.buffer) {
+    vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_lightGridListBuffer.vk.buffer,
+                     m_lightGridListBuffer.vk.allocation);
+    m_lightGridListBuffer = {};
+  }
   if (m_spotLightBuffer.vk.buffer) {
     vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_spotLightBuffer.vk.buffer,
                      m_spotLightBuffer.vk.allocation);
@@ -3009,6 +3402,17 @@ cHybridRenderer::~cHybridRenderer() {
     if (m_surfelResultTexture[i].vk.image != VK_NULL_HANDLE) {
       vmaDestroyImage(RI.device.vk.vmaAllocator, m_surfelResultTexture[i].vk.image, m_surfelResultTexture[i].vk.allocation);
       m_surfelResultTexture[i] = {};
+    }
+    if (m_packedHitInfoView[i].vk.image != VK_NULL_HANDLE) {
+      vkDestroyImageView(RI.device.vk.device, m_packedHitInfoView[i].vk.image,
+                         NULL);
+      m_packedHitInfoView[i] = {};
+    }
+    if (m_packedHitInfoTexture[i].vk.image != VK_NULL_HANDLE) {
+      vmaDestroyImage(RI.device.vk.vmaAllocator,
+                      m_packedHitInfoTexture[i].vk.image,
+                      m_packedHitInfoTexture[i].vk.allocation);
+      m_packedHitInfoTexture[i] = {};
     }
     if (m_surfelIrradianceView[i].vk.image != VK_NULL_HANDLE) {
       vkDestroyImageView(RI.device.vk.device, m_surfelIrradianceView[i].vk.image, NULL);

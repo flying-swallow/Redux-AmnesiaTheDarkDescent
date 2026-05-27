@@ -1174,6 +1174,15 @@
     <ClInclude Include="include\graphics\RenderList2.h">
       <Filter>Graphics</Filter>
     </ClInclude>
+    <ClInclude Include="include\graphics\PostEffectHelpers.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIProgramHelpers.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\system\Event.h">
+      <Filter>System</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="sources\system\Container.cpp">
@@ -2116,6 +2125,12 @@
       <Filter>Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\graphics\RIPogoBuffer.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\PostEffectHelpers.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\RIProgramHelpers.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
   </ItemGroup>

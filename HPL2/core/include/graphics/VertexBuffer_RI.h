@@ -6,6 +6,7 @@
 #include <graphics/RITypes.h>
 #include <graphics/GraphicsTypes.h>
 #include <graphics/RIBootstrap.h>
+#include <system/Event.h>
 
 #include <algorithm>
 #include <array>
@@ -137,6 +138,25 @@ public:
   const std::shared_ptr<RIAccelStructure_s> accelStructure() { return m_blas; }
   const std::shared_ptr<RIBuffer_s> &GetIndexRIBuffer() const { return m_indexBuffer; }
 
+  // GI surfel-cleanup hook. The surfel renderer binds an EventHandler (stored in
+  // its bindless-slot cache) to this event; on destruction the VB Signals it so
+  // the renderer can retire this VB's bindless slot(s) and clear surfels anchored
+  // to them before the now-freed vertex buffer-device-address is dereferenced ->
+  // GPUVM fault.
+  Event<> &OnDestroyed() { return m_onDestroyed; }
+
+  // GI surfel-invalidation hook. Signaled whenever this VB's GPU geometry is
+  // rebuilt in a way that can move triangles around — Compile() (incl. the
+  // CreateCopy finalize) and the SubmitToGPU realloc path (first submit,
+  // shadow-data growth, CreateCopy sentinel). The surfel renderer binds a
+  // per-slot handler (stored in its bindless-slot cache) that bumps the slot's
+  // reuse generation, so surfels carrying a cached primitiveIndex from the old
+  // layout self-invalidate in collectCellInfo before the now-stale vertex/index
+  // BDA is dereferenced -> OOB read -> GPUVM fault. Plain UpdateData() re-uploads
+  // (same buffer, same triangle count) do NOT signal, so animated meshes are not
+  // over-invalidated.
+  Event<> &OnGeometryChanged() { return m_onGeometryChanged; }
+
   // Lazily builds (or returns) a BLAS for this VB's position/index buffers. Returns nullptr
   // if RT isn't supported, the VB hasn't been Compile()'d, or there's no index buffer.
   // The build is recorded into `cmd`; the caller must ensure that command buffer is submitted
@@ -167,6 +187,14 @@ protected:
   // (same shared_ptr deleter as element buffers) so it outlives any in-flight build.
   std::shared_ptr<RIBuffer_s> m_blasStorage;
   std::shared_ptr<RIAccelStructure_s> m_blas = {};
+
+  // Signaled in the destructor; the surfel renderer connects a per-slot destroy
+  // handler (owned by its bindless-slot cache) to it.
+  Event<> m_onDestroyed;
+
+  // Signaled on geometry rebuild (Compile / SubmitToGPU realloc). See
+  // OnGeometryChanged() above.
+  Event<> m_onGeometryChanged;
 
   friend struct VertexElement;
 };

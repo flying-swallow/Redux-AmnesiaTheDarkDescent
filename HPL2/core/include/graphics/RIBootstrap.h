@@ -21,12 +21,12 @@ struct HPLTexture;
 //bootstrap implementation
 struct RIBootstrap {
 public:
-  static constexpr RI_Format_e VisibilityFormat = RI_FORMAT_R32_UINT;
+  // Raster G-buffer output — packed TriangleHit (uint4), same layout the RT
+  // V-buffer writes into m_packedHitInfoTexture. Decoded with unpackHit() in
+  // visibility_shade.frag and the surfel passes (see surfel_vbuffer.rgen for
+  // the canonical pack convention).
+  static constexpr RI_Format_e VisibilityFormat = RI_FORMAT_RGBA32_UINT;
   static constexpr RI_Format_e DepthFormat = RI_FORMAT_D32_SFLOAT;
-  // Packed unit-vector normal — see compress_unit_vec / decompress_unit_vec.
-  // Sampled by surfel_generation_pass as `usampler2D` and unpacked back to a
-  // vec3; the surfel shaders' decompress_unit_vec(uint) expects R32_UINT.
-  static constexpr RI_Format_e NormalFormat = RI_FORMAT_R32_UINT;
 
 
   explicit RIBootstrap() {
@@ -44,6 +44,10 @@ public:
   RIRenderer_s renderer;
   RIDevice_s device;
 	RIProgram gui;
+	// Fullscreen passthrough (posteffect_fullscreen.vert + posteffect_blit.frag)
+	// used to blit the renderer's pogo "read" half to the swapchain. Lives here
+	// so cScene can present after applying the viewport's post-effect composite.
+	RIProgram postEffectBlit;
 
   // 1x1 white texture used as the default texture binding when no real
   // texture is available.
@@ -62,9 +66,6 @@ public:
 
   struct RITexture_s visibilityTexture[RI_MAX_SWAPCHAIN_IMAGES];
   struct RITextureView_s visibilityView[RI_MAX_SWAPCHAIN_IMAGES];
-
-  struct RITexture_s normalTexture[RI_MAX_SWAPCHAIN_IMAGES];
-  struct RITextureView_s normalView[RI_MAX_SWAPCHAIN_IMAGES];
 
 	RICommandRingBuffer_s<RI_COMMAND_RING_POOL_COUNT, RI_COMMAND_RING_CMD_PER_POOL> graphicsCmdRing;
 	struct RICommandRingElement_s primary;
