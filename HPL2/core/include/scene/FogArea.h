@@ -23,7 +23,7 @@
 #include "graphics/GraphicsTypes.h"
 #include "graphics/Renderable.h"
 
-#include "graphics/graphics.h"
+#include "graphics/Graphics.h"
 
 namespace hpl {
 	
