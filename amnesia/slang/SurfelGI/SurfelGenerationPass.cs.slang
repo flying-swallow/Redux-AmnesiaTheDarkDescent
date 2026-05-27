@@ -26,22 +26,11 @@ import SurfelGI.SurfelUtils;
 [vk::binding(0, 2)]
 RWTexture2D<float4> gOutput;
 
+// Tile-wide placement election only — the surfel gather is a straight
+// per-pixel loop (see below), so these two words are the pass's entire LDS
+// footprint, keeping occupancy high.
 groupshared uint groupShareMinCoverage;
 groupshared uint groupShareMaxContribution;
-
-// Stage 2 — cooperative cell sweep. The tile processes one distinct grid cell
-// per outer iteration: all 256 threads stream that cell's SurfelBounds list
-// through LDS once, then the threads whose pixel maps to it consume the cached
-// copy. This collapses the ~256x redundant global re-reads of a shared cell
-// list into a single read. kLdsSurfelCap caps the per-chunk residency; longer
-// cell lists (up to kPerCellSurfelLimit) are streamed in successive chunks.
-static const uint kLdsSurfelCap = 256u;
-static const uint kCellSentinel = 0xFFFFFFFFu;
-groupshared uint         gLeaderCell;                  // cell being swept this round (or sentinel)
-groupshared uint         gLeaderOffset;                // its cellToSurfelBufferOffset
-groupshared uint         gLeaderCount;                 // its surfelCount
-groupshared SurfelBounds gLdsBounds[kLdsSurfelCap];    // cached cull records
-groupshared uint         gLdsSurfelIdx[kLdsSurfelCap]; // their surfel indices
 
 [numthreads(16, 16, 1)]
 void csMain(
@@ -77,7 +66,7 @@ void csMain(
     VertexData v        = {};
     float      depth    = 0.f;
     CellInfo   cellInfo = { 0u, 0u };
-    uint       myFlatten = kCellSentinel;
+    uint       myFlatten = 0u;   // set for valid pixels below; only used to fetch cellInfo
 
     if (active)
     {
@@ -118,129 +107,82 @@ void csMain(
     uint   maxContributionSurfelIndex = randomState.next_uint(cellInfo.surfelCount);
     float4 indirectLighting = float4(0.f);
 
-    // Sweep the distinct cells present in the tile, one per outer iteration.
-    bool done = !active;
-    while (true)
+    // Gather the surfels covering this pixel's cell. A straight per-pixel loop
+    // over the cell's surfel list (the reference SurfelGenerationPass layout):
+    // each thread reads the compact SurfelBounds cull record and only pulls the
+    // full Surfel for survivors. No groupshared streaming or leader election —
+    // LDS stays at the two election words above, so occupancy stays high.
+    // Inactive threads (no valid hit / off-grid cell) skip the loop but still
+    // reach the group barrier below.
+    if (active)
     {
-        if (groupIndex == 0)
-            gLeaderCell = kCellSentinel;
-        GroupMemoryBarrierWithGroupSync();
-
-        // Elect one cell present among the not-yet-processed threads (a race;
-        // some not-done thread's cell wins). Every thread in that cell will
-        // match below and finish this round, so the not-done set strictly
-        // shrinks — the loop runs once per distinct cell in the tile.
-        if (!done)
-            gLeaderCell = myFlatten;
-        GroupMemoryBarrierWithGroupSync();
-
-        uint leader = gLeaderCell;
-        if (leader == kCellSentinel)
-            break;                       // uniform across the group: all threads exit together
-
-        if (!done && myFlatten == leader)
+        for (uint i = 0u; i < cellInfo.surfelCount; ++i)
         {
-            gLeaderOffset = cellInfo.cellToSurfelBufferOffset;
-            gLeaderCount  = cellInfo.surfelCount;
-        }
-        GroupMemoryBarrierWithGroupSync();
+            uint         surfelIndex = gCellToSurfelBuffer[cellInfo.cellToSurfelBufferOffset + i];
+            SurfelBounds sb          = gSurfelBoundsBuffer[surfelIndex];
 
-        uint offset = gLeaderOffset;
-        uint count  = gLeaderCount;   // uniform -> chunk loop is barrier-uniform
-
-        for (uint base = 0u; base < count; base += kLdsSurfelCap)
-        {
-            uint chunk = min(kLdsSurfelCap, count - base);
-
-            // Cooperative load: each thread pulls one (index, bounds) pair.
-            for (uint k = groupIndex; k < chunk; k += 256u)
+            float3 bias  = v.posW - sb.position;
+            float  dist2 = dot(bias, bias);
+            if (dist2 < sb.radius * sb.radius)
             {
-                uint sIdx        = gCellToSurfelBuffer[offset + base + k];
-                gLdsSurfelIdx[k] = sIdx;
-                gLdsBounds[k]    = gSurfelBoundsBuffer[sIdx];
-            }
-            GroupMemoryBarrierWithGroupSync();
-
-            // Consume from LDS — only threads whose pixel is in the leader cell.
-            // Iterating k (hence i) ascending keeps the maxContribution
-            // tie-break identical to the original linear loop.
-            if (!done && myFlatten == leader)
-            {
-                for (uint k = 0u; k < chunk; ++k)
+                float dotN = dot(v.normalW, sb.normal);
+                if (dotN > 0)
                 {
-                    uint         i           = base + k;   // cell-list position
-                    uint         surfelIndex = gLdsSurfelIdx[k];
-                    SurfelBounds sb          = gLdsBounds[k];
+                    const SurfelRecycleInfo surfelRecycleInfo = gSurfelRecycleInfoBuffer[surfelIndex];
+                    bool isSleeping = surfelRecycleInfo.status & 0x0001;
+                    bool lastSeen   = surfelRecycleInfo.status & 0x0002;
 
-                    float3 bias  = v.posW - sb.position;
-                    float  dist2 = dot(bias, bias);
-                    if (dist2 < sb.radius * sb.radius)
+                    if (!isSleeping)
                     {
-                        float dotN = dot(v.normalW, sb.normal);
-                        if (dotN > 0)
+                        // Survivor: only now pull the full surfel for the data the
+                        // accumulation needs (radiance / variance / rayCount).
+                        Surfel surfel = gSurfelBuffer[surfelIndex];
+
+                        float dist = sqrt(dist2);
+                        float contribution = 1.f;
+                        contribution *= saturate(dotN);
+                        contribution *= saturate(1 - dist / sb.radius);
+                        contribution  = smoothstep(0, 1, contribution);
+
+                        coverage += contribution;
+
+                        #ifdef USE_SURFEL_DEPTH
                         {
-                            const SurfelRecycleInfo surfelRecycleInfo = gSurfelRecycleInfoBuffer[surfelIndex];
-                            bool isSleeping = surfelRecycleInfo.status & 0x0001;
-                            bool lastSeen   = surfelRecycleInfo.status & 0x0002;
-
-                            if (!isSleeping)
+                            float2 uv = getSurfelDepthUV(surfelIndex, bias / dist, sb.normal);
+                            float2 surfelDepth = gSurfelDepth.SampleLevel(gSurfelDepthSampler, uv, 0u);
+                            float mean    = surfelDepth.x;
+                            float sqrMean = surfelDepth.y;
+                            if (dist > mean)
                             {
-                                // Survivor: only now pull the full surfel for the
-                                // data the accumulation needs (radiance / variance
-                                // / rayCount).
-                                Surfel surfel = gSurfelBuffer[surfelIndex];
-
-                                float dist = sqrt(dist2);
-                                float contribution = 1.f;
-                                contribution *= saturate(dotN);
-                                contribution *= saturate(1 - dist / sb.radius);
-                                contribution  = smoothstep(0, 1, contribution);
-
-                                coverage += contribution;
-
-                                #ifdef USE_SURFEL_DEPTH
-                                {
-                                    float2 uv = getSurfelDepthUV(surfelIndex, bias / dist, sb.normal);
-                                    float2 surfelDepth = gSurfelDepth.SampleLevel(gSurfelDepthSampler, uv, 0u);
-                                    float mean    = surfelDepth.x;
-                                    float sqrMean = surfelDepth.y;
-                                    if (dist > mean)
-                                    {
-                                        float variance = sqrMean - pow(mean, 2);
-                                        contribution *= variance / (variance + pow(dist - mean, 2));
-                                    }
-                                }
-                                #endif
-
-                                indirectLighting += float4(surfel.radiance, 1.f) * contribution
-                                                  * smoothstep(0, kDefaultBlendingDelay, surfelRecycleInfo.frame);
-
-                                float varLen = length(surfel.msmeData.variance);
-                                varianceEx += varLen * contribution;
-                                rayCountEx += surfel.rayCount * contribution;
-
-                                refCount = max(refCount, gSurfelRefCounter[surfelIndex]);
-                                life     = max(life, surfelRecycleInfo.life);
-
-                                if (maxContribution < contribution)
-                                {
-                                    maxContribution = contribution;
-                                    maxContributionSurfelIndex = i;
-                                }
-                                maxVariance = max(maxVariance, varLen);
+                                float variance = sqrMean - pow(mean, 2);
+                                contribution *= variance / (variance + pow(dist - mean, 2));
                             }
-
-                            if (!lastSeen)
-                                gSurfelRecycleInfoBuffer[surfelIndex].status |= 0x0002;
                         }
+                        #endif
+
+                        indirectLighting += float4(surfel.radiance, 1.f) * contribution
+                                          * smoothstep(0, kDefaultBlendingDelay, surfelRecycleInfo.frame);
+
+                        float varLen = length(surfel.msmeData.variance);
+                        varianceEx += varLen * contribution;
+                        rayCountEx += surfel.rayCount * contribution;
+
+                        refCount = max(refCount, gSurfelRefCounter[surfelIndex]);
+                        life     = max(life, surfelRecycleInfo.life);
+
+                        if (maxContribution < contribution)
+                        {
+                            maxContribution = contribution;
+                            maxContributionSurfelIndex = i;
+                        }
+                        maxVariance = max(maxVariance, varLen);
                     }
+
+                    if (!lastSeen)
+                        gSurfelRecycleInfoBuffer[surfelIndex].status |= 0x0002;
                 }
             }
-            GroupMemoryBarrierWithGroupSync();   // before reusing LDS for the next chunk
         }
-
-        if (!done && myFlatten == leader)
-            done = true;
     }
 
     // Per-pixel output + tile-wide election — active threads only (the original

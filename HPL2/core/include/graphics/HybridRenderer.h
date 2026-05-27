@@ -12,6 +12,7 @@
 #include "system/Hasher.h"
 #include "system/Event.h"
 #include <array>
+#include <cstring>
 #include <vector>
 
 #include "Constants.h"
@@ -21,6 +22,57 @@
 namespace hpl {
 
 class Image;
+
+// CPU shadow of a device-local bindless slot buffer (m_opaque*Handles /
+// m_bindlessSlotGenerationBuffer). Those buffers are deviceLocalOnly, so they
+// have no mapped pointer the host can write; instead every per-slot host write
+// lands in this shadow and flushBindlessMirrors() stages the accumulated dirty
+// byte range into the device buffer once per frame (see HybridRenderer.cpp).
+//
+// write<T>() addresses slot i at byte i*sizeof(T), matching
+// detail::CreateBindlessSlotBuffer's slotCount*elemSize layout, and widens the
+// half-open dirty range [dirtyMinByte, dirtyMaxByte) to cover the touched
+// bytes. markAllDirty() forces the whole (zeroed) shadow to be staged on the
+// first frame, seeding a clean device == shadow invariant for every slot.
+struct BindlessShadowMirror {
+  std::vector<uint8_t> shadow;
+  size_t dirtyMinByte = 0;
+  size_t dirtyMaxByte = 0;
+
+  // slotCount * elemSize bytes, zero-filled; dirty range starts empty.
+  void init(size_t slotCount, size_t elemSize) {
+    shadow.assign(slotCount * elemSize, uint8_t(0));
+    clearDirty();
+  }
+
+  // Store `value` at the slot's byte offset and grow the dirty range. An
+  // out-of-range slot is dropped (mirrors GPU robust-access) rather than
+  // overrunning the shadow.
+  template <typename T> void write(uint32_t slot, T value) {
+    const size_t off = (size_t)slot * sizeof(T);
+    if (off + sizeof(T) > shadow.size())
+      return;
+    std::memcpy(shadow.data() + off, &value, sizeof(T));
+    if (off < dirtyMinByte)
+      dirtyMinByte = off;
+    if (off + sizeof(T) > dirtyMaxByte)
+      dirtyMaxByte = off + sizeof(T);
+  }
+
+  void markAllDirty() {
+    dirtyMinByte = 0;
+    dirtyMaxByte = shadow.size();
+  }
+
+  // Empty range encoded as min > max so hasDirty() is false and a subsequent
+  // write() always lowers min / raises max.
+  void clearDirty() {
+    dirtyMinByte = shadow.size();
+    dirtyMaxByte = 0;
+  }
+
+  bool hasDirty() const { return dirtyMaxByte > dirtyMinByte; }
+};
 
 class cHybridRenderer : public iRenderer {
 public:
@@ -103,6 +155,24 @@ private:
   // write-combined mapped buffer.
   struct RIBuffer_s m_bindlessSlotGenerationBuffer;
   uint32_t m_nextSlotGeneration = 0;
+
+  // CPU shadows of the seven device-local bindless slot buffers above (the six
+  // per-stream BDA handle buffers + the slot-generation buffer). All host
+  // per-slot writes go through these mirrors; flushBindlessMirrors() stages
+  // each mirror's dirty byte range into its device buffer once per frame, at
+  // the tail of Draw(), via RI.uploader's fenced pre-pass.
+  BindlessShadowMirror m_opaquePositionMirror;
+  BindlessShadowMirror m_opaqueTangentMirror;
+  BindlessShadowMirror m_opaqueNormalMirror;
+  BindlessShadowMirror m_opaqueUv0Mirror;
+  BindlessShadowMirror m_opaqueColorMirror;
+  BindlessShadowMirror m_opaqueIndexMirror;
+  BindlessShadowMirror m_bindlessSlotGenerationMirror;
+
+  // Stage every dirty mirror into its matching device-local buffer. Called once
+  // at the end of Draw() so all bindless handle / slot-generation writes land
+  // ahead of the primary submit's reads regardless of recording order.
+  void flushBindlessMirrors();
 
   // === SurfelGI resources (set=0 bindings 10..19, 27..28, 31..33) ===
   // Layout mirrors the reference SurfelGI implementation at
