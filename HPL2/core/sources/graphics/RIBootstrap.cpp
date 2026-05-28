@@ -134,6 +134,10 @@ void RIBootstrap::BeginActiveSet() {
 
   RI.swapchainIndex = RISwapchainAcquireNextTexture(&RI.device, &RI.swapchain);
 
+  RI.currentColorFormat = (RI_Format_e)RI.swapchain.format;
+  RI.currentDepthFormat = RIBootstrap::DepthFormat;
+  RI.currentRenderingActive = false;
+
   // cleanup
   RIResetScratchAlloc(&RI.device, &cntx->uboScratchAlloc);
   RIResetScratchAlloc(&RI.device, &cntx->accelScratchAlloc);
