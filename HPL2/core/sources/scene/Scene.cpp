@@ -269,16 +269,6 @@ namespace hpl {
 							renderInfo.colorAttachmentCount = 1;
 							renderInfo.pColorAttachments    = &colorAttach;
 
-							const RI_Format_e prevColorFormat = RI.currentColorFormat;
-							const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
-							const bool prevRenderingActive = RI.currentRenderingActive;
-
-							const RI_Format_e swapchainFormat = static_cast<RI_Format_e>(RI.swapchain.format);
-							RI.currentColorFormat = swapchainFormat;
-							assert(RIFormatToVK(RI.currentColorFormat) == RIFormatToVK(swapchainFormat));
-							RI.currentDepthFormat = RI_FORMAT_UNKNOWN;
-							RI.currentRenderingActive = true;
-
 							vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
 
 							VkViewport vp = { 0.0f, 0.0f, (float)RI.swapchain.width, (float)RI.swapchain.height, 0.0f, 1.0f };
@@ -304,10 +294,6 @@ namespace hpl {
 
 							vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3, 1, 0, 0);
 							vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
-
-							RI.currentColorFormat = prevColorFormat;
-							RI.currentDepthFormat = prevDepthFormat;
-							RI.currentRenderingActive = prevRenderingActive;
 						}
 					}
 
@@ -327,17 +313,9 @@ namespace hpl {
 					renderingInfo.pColorAttachments = &colorAttachment;
 					renderingInfo.pDepthAttachment = &depthStencil;
 
-					const RI_Format_e prevColorFormat = RI.currentColorFormat;
-					const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
-					const bool prevRenderingActive = RI.currentRenderingActive;
-
-					const RI_Format_e swapchainFormat = static_cast<RI_Format_e>(RI.swapchain.format);
-					RI.currentColorFormat = swapchainFormat;
-					assert(RIFormatToVK(RI.currentColorFormat) == RIFormatToVK(swapchainFormat));
-					RI.currentDepthFormat = RIBootstrap::DepthFormat;
-					assert(RIFormatToVK(RI.currentDepthFormat) == RIFormatToVK(RIBootstrap::DepthFormat));
-
-					RI.currentRenderingActive = true;
+					// GuiSet builds its pipelines for RI.swapchain.format / RIBootstrap::DepthFormat
+					// (see GuiSet.cpp). If the attachments here ever change, update GuiSet to match.
+					assert(colorAttachment.imageView == RI.swapchainView[RI.swapchainIndex].vk.image);
 
 					vkCmdBeginRendering( RI.primary.cmds[0].vk.cmd , &renderingInfo );
 
@@ -355,10 +333,6 @@ namespace hpl {
 					}
 
 					vkCmdEndRendering( RI.primary.cmds[0].vk.cmd );
-
-					RI.currentColorFormat = prevColorFormat;
-					RI.currentDepthFormat = prevDepthFormat;
-					RI.currentRenderingActive = prevRenderingActive;
 			}
 		}
 

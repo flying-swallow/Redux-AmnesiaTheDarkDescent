@@ -269,15 +269,6 @@ void cLuxScreenCapture::OnPostRender()
 		render.colorAttachmentCount = 1;
 		render.pColorAttachments    = &attach;
 
-		const RI_Format_e prevColorFormat = RI.currentColorFormat;
-		const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
-		const bool prevRenderingActive = RI.currentRenderingActive;
-
-		RI.currentColorFormat = RI_FORMAT_RGBA8_UNORM;
-		assert(RIFormatToVK(RI.currentColorFormat) == VK_FORMAT_R8G8B8A8_UNORM);
-		RI.currentDepthFormat = RI_FORMAT_UNKNOWN;
-		RI.currentRenderingActive = true;
-
 		vkCmdBeginRendering(cmd, &render);
 
 		VkViewport viewport = { 0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f };
@@ -298,10 +289,6 @@ void cLuxScreenCapture::OnPostRender()
 
 		vkCmdDraw(cmd, 3, 1, 0, 0);
 		vkCmdEndRendering(cmd);
-
-		RI.currentColorFormat = prevColorFormat;
-		RI.currentDepthFormat = prevDepthFormat;
-		RI.currentRenderingActive = prevRenderingActive;
 
 		// m_screenColor → sampleable for the effect passes and the GUI.
 		ImageBarrier(cmd, m_screenColor->handle.vk.image,
@@ -360,15 +347,6 @@ void cLuxScreenCapture::OnPostRender()
 			render.colorAttachmentCount = 1;
 			render.pColorAttachments    = &attach;
 
-			const RI_Format_e prevColorFormat = RI.currentColorFormat;
-			const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
-			const bool prevRenderingActive = RI.currentRenderingActive;
-
-			RI.currentColorFormat = RI_FORMAT_RGBA8_UNORM;
-			assert(RIFormatToVK(RI.currentColorFormat) == VK_FORMAT_R8G8B8A8_UNORM);
-			RI.currentDepthFormat = RI_FORMAT_UNKNOWN;
-			RI.currentRenderingActive = true;
-
 			vkCmdBeginRendering(cmd, &render);
 
 			vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -391,10 +369,6 @@ void cLuxScreenCapture::OnPostRender()
 
 			vkCmdDraw(cmd, 3, 1, 0, 0);
 			vkCmdEndRendering(cmd);
-
-			RI.currentColorFormat = prevColorFormat;
-			RI.currentDepthFormat = prevDepthFormat;
-			RI.currentRenderingActive = prevRenderingActive;
 
 			// dst → sampleable for the next pass / the GUI.
 			ImageBarrier(cmd, dst->handle.vk.image,
@@ -445,15 +419,6 @@ void cLuxScreenCapture::OnPostRender()
 	renderInfo.layerCount = 1;
 	renderInfo.colorAttachmentCount = 1;
 	renderInfo.pColorAttachments = &colorAttach;
-
-	const RI_Format_e prevColorFormat = RI.currentColorFormat;
-	const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
-	const bool prevRenderingActive = RI.currentRenderingActive;
-
-	RI.currentColorFormat = RI_FORMAT_RGBA8_UNORM;
-	assert(RIFormatToVK(RI.currentColorFormat) == VK_FORMAT_R8G8B8A8_UNORM);
-	RI.currentDepthFormat = RI_FORMAT_UNKNOWN;
-	RI.currentRenderingActive = true;
 
 	vkCmdBeginRendering(cmd, &renderInfo);
 
@@ -534,10 +499,6 @@ void cLuxScreenCapture::OnPostRender()
 
 	vkCmdDraw(cmd, 3, 1, 0, 0);
 	vkCmdEndRendering(cmd);
-
-	RI.currentColorFormat = prevColorFormat;
-	RI.currentDepthFormat = prevDepthFormat;
-	RI.currentRenderingActive = prevRenderingActive;
 
 	// m_screenBgColor → SHADER_READ_ONLY so subsequent GUI draws can sample it.
 	ImageBarrier(cmd, m_screenBgColor->handle.vk.image,

@@ -196,15 +196,6 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
         render.colorAttachmentCount = 1;
         render.pColorAttachments    = &attach;
 
-        const RI_Format_e prevColorFormat = RI.currentColorFormat;
-        const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
-        const bool prevRenderingActive = RI.currentRenderingActive;
-
-        RI.currentColorFormat = RI_FORMAT_RGBA8_UNORM;
-        assert(RIFormatToVK(RI.currentColorFormat) == VK_FORMAT_R8G8B8A8_UNORM);
-        RI.currentDepthFormat = RI_FORMAT_UNKNOWN;
-        RI.currentRenderingActive = true;
-
         vkCmdBeginRendering(cmd, &render);
 
         vkCmdSetViewport(cmd, 0, 1, &blurViewport);
@@ -223,10 +214,6 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
 
         vkCmdDraw(cmd, 3, 1, 0, 0);
         vkCmdEndRendering(cmd);
-
-        RI.currentColorFormat = prevColorFormat;
-        RI.currentDepthFormat = prevDepthFormat;
-        RI.currentRenderingActive = prevRenderingActive;
     };
 
     // Iterative blur: first iter samples the pogo input, subsequent
@@ -269,15 +256,6 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
     outRender.colorAttachmentCount = 1;
     outRender.pColorAttachments    = &outAttach;
 
-    const RI_Format_e prevColorFormat = RI.currentColorFormat;
-    const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
-    const bool prevRenderingActive = RI.currentRenderingActive;
-
-    RI.currentColorFormat = RI_FORMAT_RGBA8_UNORM;
-    assert(RIFormatToVK(RI.currentColorFormat) == VK_FORMAT_R8G8B8A8_UNORM);
-    RI.currentDepthFormat = RI_FORMAT_UNKNOWN;
-    RI.currentRenderingActive = true;
-
     vkCmdBeginRendering(cmd, &outRender);
 
     VkViewport viewport = {0.0f,
@@ -318,10 +296,6 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRendering(cmd);
-
-    RI.currentColorFormat = prevColorFormat;
-    RI.currentDepthFormat = prevDepthFormat;
-    RI.currentRenderingActive = prevRenderingActive;
 
     // Restore the rest state: blur[1] back to COLOR_ATTACH for the next
     // call's swap-and-write pass. blur[0] is already in SHADER_READ_ONLY.

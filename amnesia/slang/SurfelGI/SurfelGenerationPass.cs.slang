@@ -46,60 +46,37 @@ void csMain(
     }
     GroupMemoryBarrierWithGroupSync();
 
+ 
     uint2 resolution = uint2(gPerFrame.viewportSize);
+    if (dispatchThreadId.x >= resolution.x || dispatchThreadId.y >= resolution.y)
+        return;
+    
     uint2 pixelPos   = dispatchThreadId.xy;
-
-    // Stage 2: no early return. Threads with no valid hit / off-grid cell are
-    // flagged inactive but stay resident so every thread reaches the group
-    // barriers and helps the cooperative LDS loads. (The original returned
-    // here, which also left the post-loop GroupMemoryBarrier in divergent
-    // control flow — flattening it removes that latent hazard too.)
-    bool   active    = (dispatchThreadId.x < resolution.x && dispatchThreadId.y < resolution.y);
     float3 cameraPos = gScene.camera.getPosition();
     float  fovy      = gPerFrame.cameraFov;
 
     RNG randomState;
     randomState.init(pixelPos, gPerFrame.totalFrames);
 
-    HitInfo hitInfo;
-    hitInfo.packed = uint4(0u, 0u, 0u, 0u);
-    VertexData v        = {};
-    float      depth    = 0.f;
-    CellInfo   cellInfo = { 0u, 0u };
-    uint       myFlatten = 0u;   // set for valid pixels below; only used to fetch cellInfo
+    HitInfo hitInfo = HitInfo(gPackedHitInfo[pixelPos]);
+    if (!hitInfo.isValid())
+        return;
 
-    if (active)
-    {
-        hitInfo.packed = gPackedHitInfo[pixelPos];
-        if (!hitInfo.isValid())
-        {
-            active = false;
-        }
-        else
-        {
-            TriangleHit triangleHit = hitInfo.getTriangleHit();
-            v = gScene.getVertexData(triangleHit);
-            // Linear, scale-correct placement depth. The reference used NDC
-            // z/w here, but under this engine's 0.05–1000 camera far plane that
-            // ratio saturates to ~1 for all geometry past ~1 m, defeating the
-            // distance-based placement throttle below (chance = pow(depth, P)).
-            // Use linear camera distance normalized to the GI grid's half-extent
-            // — the range where surfels actually live — so the bias ramps 0→1
-            // across it and near-camera over-placement is curbed. Auto-scales
-            // with kCellUnit.
-            const float kPlacementDepthRange = max(1e-3f, (float)(kCellDimension / 2u) * kCellUnit);
-            depth = saturate(distance(cameraPos, v.posW) / kPlacementDepthRange);
+    // Resolve the hit to a world-space vertex + cell — mirrors
+    // SurfelEvaluationPass. Without this, cellInfo.surfelCount stays 0, the
+    // gather loop never runs, indirectLighting.w stays 0, and the `if
+    // (indirectLighting.w > 0)` block (the only writer of gOutput) is skipped
+    // for every pixel.
+    TriangleHit triangleHit = hitInfo.getTriangleHit();
+    VertexData  v = gScene.getVertexData(triangleHit);
+    float4 curPosH = mul(gScene.camera.getViewProjNoJitter(), float4(v.posW, 1.f));
+    float  depth   = curPosH.z / curPosH.w;
 
-            int3 cellPos = getCellPos(v.posW, cameraPos, kCellUnit);
-            if (!isCellValid(cellPos))
-                active = false;
-            else
-            {
-                myFlatten = getFlattenCellIndex(cellPos);
-                cellInfo  = gCellInfoBuffer[myFlatten];
-            }
-        }
-    }
+    int3 cellPos = getCellPos(v.posW, cameraPos, kCellUnit);
+    if (!isCellValid(cellPos)) 
+        return;
+
+    CellInfo cellInfo = gCellInfoBuffer[getFlattenCellIndex(cellPos)];
 
     // Per-pixel accumulators (meaningful only for active threads). RNG draw
     // order matches the original: this seed first, then next_uint(255) for the
@@ -122,108 +99,105 @@ void csMain(
     // LDS stays at the two election words above, so occupancy stays high.
     // Inactive threads (no valid hit / off-grid cell) skip the loop but still
     // reach the group barrier below.
-    if (active)
+    for (uint i = 0u; i < cellInfo.surfelCount; ++i)
     {
-        for (uint i = 0u; i < cellInfo.surfelCount; ++i)
+        uint         surfelIndex = gCellToSurfelBuffer[cellInfo.cellToSurfelBufferOffset + i];
+        SurfelBounds sb          = gSurfelBoundsBuffer[surfelIndex];
+
+        float3 bias  = v.posW - sb.position;
+        float  dist2 = dot(bias, bias);
+        if (dist2 < sb.radius * sb.radius)
         {
-            uint         surfelIndex = gCellToSurfelBuffer[cellInfo.cellToSurfelBufferOffset + i];
-            SurfelBounds sb          = gSurfelBoundsBuffer[surfelIndex];
-
-            float3 bias  = v.posW - sb.position;
-            float  dist2 = dot(bias, bias);
-            if (dist2 < sb.radius * sb.radius)
+            float dotN = dot(v.normalW, sb.normal);
+            if (dotN > 0)
             {
-                float dotN = dot(v.normalW, sb.normal);
-                if (dotN > 0)
+                const SurfelRecycleInfo surfelRecycleInfo = gSurfelRecycleInfoBuffer[surfelIndex];
+                bool isSleeping = surfelRecycleInfo.status & 0x0001;
+                bool lastSeen   = surfelRecycleInfo.status & 0x0002;
+
+                if (!isSleeping)
                 {
-                    const SurfelRecycleInfo surfelRecycleInfo = gSurfelRecycleInfoBuffer[surfelIndex];
-                    bool isSleeping = surfelRecycleInfo.status & 0x0001;
-                    bool lastSeen   = surfelRecycleInfo.status & 0x0002;
+                    // Survivor: only now pull the full surfel for the data the
+                    // accumulation needs (radiance / variance / rayCount).
+                    Surfel surfel = gSurfelBuffer[surfelIndex];
 
-                    if (!isSleeping)
+                    float dist = sqrt(dist2);
+                    float contribution = 1.f;
+                    contribution *= saturate(dotN);
+                    contribution *= saturate(1 - dist / sb.radius);
+                    contribution  = smoothstep(0, 1, contribution);
+
+                    coverage += contribution;
+
+                    #ifdef USE_SURFEL_DEPTH
                     {
-                        // Survivor: only now pull the full surfel for the data the
-                        // accumulation needs (radiance / variance / rayCount).
-                        Surfel surfel = gSurfelBuffer[surfelIndex];
-
-                        float dist = sqrt(dist2);
-                        float contribution = 1.f;
-                        contribution *= saturate(dotN);
-                        contribution *= saturate(1 - dist / sb.radius);
-                        contribution  = smoothstep(0, 1, contribution);
-
-                        coverage += contribution;
-
-                        #ifdef USE_SURFEL_DEPTH
+                        float2 uv = getSurfelDepthUV(surfelIndex, bias / dist, sb.normal);
+                        float2 surfelDepth = gSurfelDepth.SampleLevel(gSurfelDepthSampler, uv, 0u);
+                        float mean    = surfelDepth.x;
+                        float sqrMean = surfelDepth.y;
+                        if (dist > mean)
                         {
-                            float2 uv = getSurfelDepthUV(surfelIndex, bias / dist, sb.normal);
-                            float2 surfelDepth = gSurfelDepth.SampleLevel(gSurfelDepthSampler, uv, 0u);
-                            float mean    = surfelDepth.x;
-                            float sqrMean = surfelDepth.y;
-                            if (dist > mean)
-                            {
-                                float variance = sqrMean - pow(mean, 2);
-                                contribution *= variance / (variance + pow(dist - mean, 2));
-                            }
+                            float variance = sqrMean - pow(mean, 2);
+                            contribution *= variance / (variance + pow(dist - mean, 2));
                         }
-                        #endif
-
-                        indirectLighting += float4(surfel.radiance, 1.f) * contribution
-                                          * smoothstep(0, kDefaultBlendingDelay, surfelRecycleInfo.frame);
-
-                        float varLen = length(surfel.msmeData.variance);
-                        varianceEx += varLen * contribution;
-                        rayCountEx += surfel.rayCount * contribution;
-
-                        refCount = max(refCount, gSurfelRefCounter[surfelIndex]);
-                        life     = max(life, surfelRecycleInfo.life);
-
-                        if (maxContribution < contribution)
-                        {
-                            maxContribution = contribution;
-                            maxContributionSurfelIndex = i;
-                        }
-                        maxVariance = max(maxVariance, varLen);
                     }
+                    #endif
 
-                    if (!lastSeen)
-                        gSurfelRecycleInfoBuffer[surfelIndex].status |= 0x0002;
+                    indirectLighting += float4(surfel.radiance, 1.f) * contribution
+                                        * smoothstep(0, kDefaultBlendingDelay, surfelRecycleInfo.frame);
+
+                    float varLen = length(surfel.msmeData.variance);
+                    varianceEx += varLen * contribution;
+                    rayCountEx += surfel.rayCount * contribution;
+
+                    refCount = max(refCount, gSurfelRefCounter[surfelIndex]);
+                    life     = max(life, surfelRecycleInfo.life);
+
+                    if (maxContribution < contribution)
+                    {
+                        maxContribution = contribution;
+                        maxContributionSurfelIndex = i;
+                    }
+                    maxVariance = max(maxVariance, varLen);
                 }
+
+                if (!lastSeen)
+                    gSurfelRecycleInfoBuffer[surfelIndex].status |= 0x0002;
             }
         }
     }
+    
 
     // Per-pixel output + tile-wide election — active threads only (the original
     // reached this only for valid pixels).
-    if (active)
+
+    if (indirectLighting.w > 0)
     {
-        if (indirectLighting.w > 0)
-        {
-            indirectLighting.xyz /= indirectLighting.w;
-            indirectLighting.w    = saturate(indirectLighting.w);
-            varianceEx           /= indirectLighting.w;
-            rayCountEx           /= indirectLighting.w;
+        indirectLighting.xyz /= indirectLighting.w;
+        indirectLighting.w    = saturate(indirectLighting.w);
+        varianceEx           /= indirectLighting.w;
+        rayCountEx           /= indirectLighting.w;
 
-            if      (kDefaultOverlayMode == 0) gOutput[pixelPos] = indirectLighting;
-            else if (kDefaultOverlayMode == 1) gOutput[pixelPos] = float4(stepColor(maxVariance * kDefaultVarianceSensitivity, 0.8f, 0.5f), 1);
-            else if (kDefaultOverlayMode == 2) gOutput[pixelPos] = float4(stepColor(rayCountEx, 48.f, 32.f), 1);
-            else if (kDefaultOverlayMode == 3) gOutput[pixelPos] = float4(lerpColor(refCount / 256.f), 1);
-            else if (kDefaultOverlayMode == 4) gOutput[pixelPos] = float4(step(life, 0u), step(1u, life), 0, 1);
-            else if (kDefaultOverlayMode == 5) gOutput[pixelPos] = float4(lerpColor(smoothstep(kDefaultPlacementThreshold, kDefaultRemovalThreshold, coverage)), 1);
-        }
-
-        uint covData = 0;
-        covData |= ((f32tof16(coverage) & 0x0000FFFF) << 16);
-        covData |= ((randomState.next_uint(255) & 0x000000FF) << 8);
-        covData |= ((groupThreadID.x & 0x0000000F) << 4);
-        covData |= ((groupThreadID.y & 0x0000000F) << 0);
-        InterlockedMin(groupShareMinCoverage, covData);
-
-        uint contribData = 0;
-        contribData |= ((f32tof16(maxContribution) & 0x0000FFFF) << 16);
-        contribData |= ((maxContributionSurfelIndex & 0x0000FFFF) << 0);
-        InterlockedMax(groupShareMaxContribution, contribData);
+        if      (kDefaultOverlayMode == 0) gOutput[pixelPos] = indirectLighting;
+        else if (kDefaultOverlayMode == 1) gOutput[pixelPos] = float4(stepColor(maxVariance * kDefaultVarianceSensitivity, 0.8f, 0.5f), 1);
+        else if (kDefaultOverlayMode == 2) gOutput[pixelPos] = float4(stepColor(rayCountEx, 48.f, 32.f), 1);
+        else if (kDefaultOverlayMode == 3) gOutput[pixelPos] = float4(lerpColor(refCount / 256.f), 1);
+        else if (kDefaultOverlayMode == 4) gOutput[pixelPos] = float4(step(life, 0u), step(1u, life), 0, 1);
+        else if (kDefaultOverlayMode == 5) gOutput[pixelPos] = float4(lerpColor(smoothstep(kDefaultPlacementThreshold, kDefaultRemovalThreshold, coverage)), 1);
     }
+
+    uint covData = 0;
+    covData |= ((f32tof16(coverage) & 0x0000FFFF) << 16);
+    covData |= ((randomState.next_uint(255) & 0x000000FF) << 8);
+    covData |= ((groupThreadID.x & 0x0000000F) << 4);
+    covData |= ((groupThreadID.y & 0x0000000F) << 0);
+    InterlockedMin(groupShareMinCoverage, covData);
+
+    uint contribData = 0;
+    contribData |= ((f32tof16(maxContribution) & 0x0000FFFF) << 16);
+    contribData |= ((maxContributionSurfelIndex & 0x0000FFFF) << 0);
+    InterlockedMax(groupShareMaxContribution, contribData);
+    
     GroupMemoryBarrierWithGroupSync();
 
     uint  electedData     = groupShareMinCoverage;

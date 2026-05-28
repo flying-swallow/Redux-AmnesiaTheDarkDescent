@@ -318,6 +318,16 @@ private:
 	// stamped on demand via the program's PipelineSlot cache.
 	RIProgram m_particle;
 
+	// Non-particle translucent meshes (glass, lamp glass, decals tagged
+	// translucent, etc.). Renders in its own pass after the particle pass into
+	// the same pogo "read" half, depth read-only. One pipeline per
+	// eMaterialBlendMode (Add/Mul/MulX2/Alpha/PremulAlpha) is stamped on demand
+	// via the program's PipelineSlot cache, mirroring m_particle. Refraction
+	// and cube-map reflection materials are filtered out at the call site —
+	// those need a screen-color copy + cube-map binding the renderer doesn't
+	// have yet.
+	RIProgram m_translucentMesh;
+
 	// Surfel-ray irradiance map sampled by surfel_raytrace.comp's ray-guiding
 	// branch and written by surfel_integrate.comp. Lives at VK_IMAGE_LAYOUT_GENERAL
 	// across all surfel passes so the same view can be bound as both

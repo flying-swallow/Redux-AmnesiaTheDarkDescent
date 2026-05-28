@@ -346,6 +346,166 @@ struct ParticlePipelineDesc {
   ParticlePipelineDesc &operator=(const ParticlePipelineDesc &) = delete;
 };
 
+// Pipeline for the non-particle translucent (mesh) pass. Same shape as
+// ParticlePipelineDesc, with two deliberate divergences:
+//   - cullMode is BACK_BIT: meshes have orientation, unlike particle
+//     billboards (which use NONE so either face draws).
+//   - frontFace is COUNTER_CLOCKWISE to match the gbuffer/opaque path
+//     (GBufferMRTPipelineDesc), so mesh winding from the asset import flips
+//     the same way across the opaque + translucent passes.
+// Everything else (vertex input = none, depth read-only ≤, hardware blend
+// per BlendMode) is identical to the particle desc; the same fragment-side
+// pre-bias is applied by Translucent.frag.slang.
+struct TranslucentMeshPipelineDesc {
+  VkPipelineVertexInputStateCreateInfo vertexInputState;
+  VkPipelineInputAssemblyStateCreateInfo inputAssemblyState;
+  VkPipelineRasterizationStateCreateInfo rasterizationState;
+  VkDynamicState dynamicStates[2];
+  VkPipelineDynamicStateCreateInfo dynamicState;
+  VkFormat colorFormats[1];
+  VkPipelineRenderingCreateInfo pipelineRendering;
+  VkPipelineViewportStateCreateInfo viewportState;
+  VkPipelineMultisampleStateCreateInfo multisampleState;
+  VkPipelineDepthStencilStateCreateInfo depthStencilState;
+  VkPipelineColorBlendAttachmentState blendAttachment;
+  VkPipelineColorBlendStateCreateInfo colorBlendState;
+  VkGraphicsPipelineCreateInfo createInfo;
+  hash_t hash;
+
+  // Same enum layout as ParticlePipelineDesc::BlendMode so the
+  // eMaterialBlendMode -> pipeline-variant remap from the particle path is
+  // directly reusable.
+  enum BlendMode : uint32_t {
+    BLEND_ADD = 0,
+    BLEND_MUL = 1,
+    BLEND_MULX2 = 2,
+    BLEND_ALPHA = 3,
+    BLEND_PREMUL_ALPHA = 4,
+    BLEND_LAST_ENUM = 5,
+  };
+
+  TranslucentMeshPipelineDesc(RI_Format_e colorFormat, RI_Format_e depthFormat,
+                              BlendMode mode) {
+    vertexInputState = {
+        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
+    vertexInputState.vertexBindingDescriptionCount = 0;
+    vertexInputState.pVertexBindingDescriptions = nullptr;
+    vertexInputState.vertexAttributeDescriptionCount = 0;
+    vertexInputState.pVertexAttributeDescriptions = nullptr;
+
+    inputAssemblyState = {
+        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
+    inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+    rasterizationState = {
+        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
+    rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizationState.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizationState.lineWidth = 1.0f;
+
+    dynamicStates[0] = VK_DYNAMIC_STATE_VIEWPORT;
+    dynamicStates[1] = VK_DYNAMIC_STATE_SCISSOR;
+    dynamicState = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
+    dynamicState.dynamicStateCount = ARRAY_COUNT(dynamicStates);
+    dynamicState.pDynamicStates = dynamicStates;
+
+    colorFormats[0] = RIFormatToVK(colorFormat);
+    pipelineRendering = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+    pipelineRendering.colorAttachmentCount = 1;
+    pipelineRendering.pColorAttachmentFormats = colorFormats;
+    pipelineRendering.depthAttachmentFormat = RIFormatToVK(depthFormat);
+
+    viewportState = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
+    viewportState.viewportCount = 1;
+    viewportState.scissorCount = 1;
+
+    multisampleState = {
+        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
+    multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+
+    depthStencilState = {
+        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
+    depthStencilState.depthTestEnable = VK_TRUE;
+    depthStencilState.depthWriteEnable = VK_FALSE;
+    depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    depthStencilState.minDepthBounds = 0.0f;
+    depthStencilState.maxDepthBounds = 1.0f;
+
+    blendAttachment = {};
+    blendAttachment.blendEnable = VK_TRUE;
+    blendAttachment.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+    switch (mode) {
+    case BLEND_ADD:
+      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      break;
+    case BLEND_MUL:
+      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+      blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_SRC_COLOR;
+      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+      blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      break;
+    case BLEND_MULX2:
+      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
+      blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_SRC_COLOR;
+      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      break;
+    case BLEND_ALPHA:
+      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+      blendAttachment.dstColorBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.dstAlphaBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      break;
+    case BLEND_PREMUL_ALPHA:
+      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.dstColorBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      blendAttachment.dstAlphaBlendFactor =
+          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      break;
+    default:
+      break;
+    }
+    colorBlendState = {
+        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
+    colorBlendState.attachmentCount = 1;
+    colorBlendState.pAttachments = &blendAttachment;
+
+    createInfo = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
+    createInfo.pNext = &pipelineRendering;
+    createInfo.pVertexInputState = &vertexInputState;
+    createInfo.pInputAssemblyState = &inputAssemblyState;
+    createInfo.pRasterizationState = &rasterizationState;
+    createInfo.pDynamicState = &dynamicState;
+    createInfo.pViewportState = &viewportState;
+    createInfo.pMultisampleState = &multisampleState;
+    createInfo.pDepthStencilState = &depthStencilState;
+    createInfo.pColorBlendState = &colorBlendState;
+
+    // Pipeline cache lives on the program (RIProgram::PipelineSlot), and
+    // m_translucentMesh is a separate program from m_particle — collisions on
+    // (colorFormat, depthFormat, mode) across the two programs are impossible.
+    // Same seed shape as ParticlePipelineDesc is fine.
+    hash = hash_u32(HASH_INITIAL_VALUE, (uint32_t)colorFormat);
+    hash = hash_u32(hash, (uint32_t)depthFormat);
+    hash = hash_u32(hash, (uint32_t)mode);
+  }
+
+  TranslucentMeshPipelineDesc(const TranslucentMeshPipelineDesc &) = delete;
+  TranslucentMeshPipelineDesc &operator=(const TranslucentMeshPipelineDesc &) = delete;
+};
+
 
 } // namespace
 
@@ -594,6 +754,19 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, p_vert, "vsMain"},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, p_frag, "psMain"}};
       m_particle.initialize(&RI.device, stages, externalLayouts);
+    }
+    {
+      // Translucent mesh pass (amnesia/slang/TranslucentPass). Shares
+      // externalLayouts with m_particle so the same bindless set / per-frame
+      // UBO bindings light up.
+      auto t_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
+                                               "Translucent.vert.spv");
+      auto t_frag = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
+                                               "Translucent.frag.spv");
+      std::array<RIProgram::ModuleStage, 2> stages = {
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, t_vert, "vsMain"},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, t_frag, "psMain"}};
+      m_translucentMesh.initialize(&RI.device, stages, externalLayouts);
     }
     // Decal pass: no Slang port yet — legacy GLSL was wiped, dispatch
     // site below skips decals until the port lands.
@@ -2562,16 +2735,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   renderingInfo.pColorAttachments = &colorAttachment;
   renderingInfo.pDepthAttachment = &depthAttachment;
 
-  const RI_Format_e prevColorFormat = RI.currentColorFormat;
-  const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
-  const bool prevRenderingActive = RI.currentRenderingActive;
-
-  RI.currentColorFormat = RIBootstrap::VisibilityFormat;
-  assert(RIFormatToVK(RI.currentColorFormat) == RIFormatToVK(RIBootstrap::VisibilityFormat));
-  RI.currentDepthFormat = RIBootstrap::DepthFormat;
-  assert(RIFormatToVK(RI.currentDepthFormat) == RIFormatToVK(RIBootstrap::DepthFormat));
-  RI.currentRenderingActive = true;
-
   vkCmdBeginRendering(cmd, &renderingInfo);
 
   VkViewport vkViewport = {0,
@@ -2599,10 +2762,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   }
 
   vkCmdEndRendering(cmd);
-
-  RI.currentColorFormat = prevColorFormat;
-  RI.currentDepthFormat = prevDepthFormat;
-  RI.currentRenderingActive = prevRenderingActive;
 
   // Gbuffer output -> SHADER_READ_ONLY for the surfel-generation compute
   // pass (and any later fragment consumer). Includes depth, which the
@@ -2876,15 +3035,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     renderInfo.colorAttachmentCount = 1;
     renderInfo.pColorAttachments    = &colorAttach;
 
-    const RI_Format_e prevColorFormat = RI.currentColorFormat;
-    const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
-    const bool prevRenderingActive = RI.currentRenderingActive;
-
-    RI.currentColorFormat = RI_FORMAT_RGBA8_UNORM;
-    assert(RIFormatToVK(RI.currentColorFormat) == VK_FORMAT_R8G8B8A8_UNORM);
-    RI.currentDepthFormat = RI_FORMAT_UNKNOWN;
-    RI.currentRenderingActive = true;
-
     vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
 
     VkViewport vp = {0.0f,
@@ -2953,10 +3103,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3, 1, 0, 0);
     vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
-
-    RI.currentColorFormat = prevColorFormat;
-    RI.currentDepthFormat = prevDepthFormat;
-    RI.currentRenderingActive = prevRenderingActive;
   }
 
   // Toggle: just-written attach → SHADER_READ_ONLY (now the "read" half)
@@ -2999,27 +3145,32 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
 
   // --------------------------------------------------------------------
-  // Particle (translucent) pass.
+  // Translucent pass — two sub-passes, both into the pogo "read" half.
   //
-  // Port of RendererDeferred's translucency pass restricted to particle
-  // emitters. Other translucent material variants (water, refraction,
-  // reflection) need additional infrastructure (refraction-source copy,
-  // reflection buffers) that the hybrid renderer doesn't have yet, so
-  // they're skipped here.
+  //   1. Particle pass    (this block)            — particle emitters only.
+  //   2. Mesh pass        (block immediately below) — non-particle, non-
+  //                       refraction, non-reflection translucent meshes.
   //
-  // Resources reused from the opaque path:
-  //   - m_diffuseBindless / m_diffuseObjectBuffer (per-emitter OBJECT slot)
-  //   - m_opaque*Handles  (BDA fan-out — particles overload position/uv0/
-  //                        color/index with their own VB device addresses)
+  // Each sub-pass opens its own vkCmdBeginRendering/EndRendering and runs
+  // its own pogo barriers, so the two are independently skippable when one
+  // side has no work. Refraction and world-reflection materials are still
+  // out of scope (the hybrid renderer has no screen-color copy and no
+  // reflection buffer); both are filtered out in the mesh-pass collection.
+  //
+  // Resources reused from the opaque path (both sub-passes):
+  //   - m_diffuseBindless / m_diffuseObjectBuffer (per-renderable OBJECT slot)
+  //   - m_opaque*Handles  (BDA fan-out — particles and mesh translucents
+  //                        overload position/uv0/color/index with their own
+  //                        VB device addresses)
   //   - m_materialBindless / m_opaqueMaterialBuffer (material slot; only
-  //                        the diffuse texture index is read by particle.frag)
+  //                        the diffuse texture index is read by the shaders)
   //
   // Sync setup:
   //   (a) Swapchain stays in COLOR_ATTACHMENT_OPTIMAL from the visibility
   //       composite — load to preserve the composite output.
   //   (b) Depth was last transitioned to SHADER_READ_ONLY for surfel-
-  //       generate; flipDepthToReadOnly() moves it back to
-  //       DEPTH_READ_ONLY_OPTIMAL (shared with the decal pass, idempotent).
+  //       generate; flipDepthToReadOnly() (idempotent) moves it back to
+  //       DEPTH_READ_ONLY_OPTIMAL — shared with the decal pass.
   // --------------------------------------------------------------------
   {
     // Collect particle emitters from the translucent list once so we can
@@ -3097,16 +3248,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       renderInfo.colorAttachmentCount = 1;
       renderInfo.pColorAttachments = &colorAttach;
       renderInfo.pDepthAttachment = &depthAttach;
-
-      const RI_Format_e prevColorFormat = RI.currentColorFormat;
-      const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
-      const bool prevRenderingActive = RI.currentRenderingActive;
-
-      RI.currentColorFormat = particleTargetFormat;
-      assert(RIFormatToVK(RI.currentColorFormat) == VK_FORMAT_R8G8B8A8_UNORM);
-      RI.currentDepthFormat = RIBootstrap::DepthFormat;
-      assert(RIFormatToVK(RI.currentDepthFormat) == RIFormatToVK(RIBootstrap::DepthFormat));
-      RI.currentRenderingActive = true;
 
       vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
 
@@ -3290,9 +3431,275 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
       vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
 
-      RI.currentColorFormat = prevColorFormat;
-      RI.currentDepthFormat = prevDepthFormat;
-      RI.currentRenderingActive = prevRenderingActive;
+      // pogo "read" half back to SHADER_READ_ONLY so the tail blit can sample it.
+      {
+        VkImageMemoryBarrier2 b =
+            VK_RI_PogoShaderMemoryBarrier2(pogoReadImage, /*initial=*/false);
+        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------
+  // Translucent mesh pass (sub-pass 2 — see the comment above the particle
+  // block for the overall plan). Runs after particles so any glow billboards
+  // composite under solid translucent geometry, mirroring the legacy
+  // back-to-front order. SortFunc_Translucent in RenderList.cpp already
+  // ordered the translucent list back-to-front, so iterating in list order
+  // here gives correct Alpha-blend results.
+  //
+  // Refraction (HasRefraction) and world-reflection (HasWorldReflection)
+  // materials are filtered out: refraction needs a screen-color copy bound
+  // as a sampler, reflection needs a separate reflection buffer — neither
+  // is wired into HybridRenderer yet. Water materials inherit both flags so
+  // they're filtered too.
+  // --------------------------------------------------------------------
+  {
+    std::vector<iRenderable *> meshes;
+    for (iRenderable *pObj :
+         m_rendererList.GetRenderableItems(eRenderListType_Translucent)) {
+      if (!pObj)
+        continue;
+      if (pObj->GetRenderType() == eRenderableType_ParticleEmitter)
+        continue;
+      cMaterial *pMat = pObj->GetMaterial();
+      if (!pMat)
+        continue;
+      const eMaterialBlendMode mode = pMat->GetBlendMode();
+      if (mode == eMaterialBlendMode_None ||
+          mode >= eMaterialBlendMode_LastEnum)
+        continue;
+      if (pMat->HasRefraction())
+        continue;
+      if (pMat->HasWorldReflection())
+        continue;
+      iVertexBuffer *pVB = pObj->GetVertexBuffer();
+      if (!pVB || pVB->GetIndexNum() <= 0)
+        continue;
+      meshes.push_back(pObj);
+    }
+
+    if (!meshes.empty()) {
+      // Depth flip is idempotent — safe to call regardless of whether the
+      // particle pass ran above.
+      flipDepthToReadOnly();
+
+      const int   pogoReadIdx   = (pogo->attachmentIndex + 1) % 2;
+      VkImage     pogoReadImage = pogo->textures[pogoReadIdx].vk.image;
+      VkImageView pogoReadView  = pogo->pogoAttachment[pogoReadIdx].vk.image.imageView;
+      const RI_Format_e meshTargetFormat = RI_FORMAT_RGBA8_UNORM;
+
+      // SHADER_READ_ONLY → COLOR_ATTACHMENT_OPTIMAL. If the particle pass
+      // ran above, that block left the pogo half in SHADER_READ_ONLY (for
+      // a tail blit that never got to run); if it didn't, the visibility
+      // composite + post-effect chain also left it in SHADER_READ_ONLY. The
+      // barrier helper handles either source state.
+      {
+        VkImageMemoryBarrier2 b =
+            VK_RI_PogoAttachmentMemoryBarrier2(pogoReadImage, /*initial=*/false);
+        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      }
+
+      VkRenderingAttachmentInfo colorAttach = {
+          VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      colorAttach.imageView = pogoReadView;
+      colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      colorAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+      colorAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+      VkRenderingAttachmentInfo depthAttach = {
+          VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      depthAttach.imageView = RI.depthView[RI.swapchainIndex].vk.image;
+      depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+      depthAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+      depthAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+      VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+      renderInfo.renderArea = {{0, 0},
+                               {RI.swapchain.width, RI.swapchain.height}};
+      renderInfo.layerCount = 1;
+      renderInfo.colorAttachmentCount = 1;
+      renderInfo.pColorAttachments = &colorAttach;
+      renderInfo.pDepthAttachment = &depthAttach;
+
+      vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
+
+      VkViewport vp = {0.0f,
+                       (float)RI.swapchain.height,
+                       (float)RI.swapchain.width,
+                       -(float)RI.swapchain.height,
+                       0.0f,
+                       1.0f};
+      VkRect2D sc = {{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
+      vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
+      vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
+
+      m_translucentMesh.bindBindlessDescriptorSet(&RI.primary.cmds[0],
+                                                  &m_bindlessSet, 0);
+
+      std::vector<RIProgram::DescriptorBinding> meshBindings;
+      meshBindings.reserve(1);
+      {
+        RIProgram::DescriptorBinding b;
+        b.handle = DescriptorBindingID::Create("gPerFrame");
+        RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+        meshBindings.push_back(b);
+      }
+      m_translucentMesh.bindDescriptors(&RI.device, &RI.primary.cmds[0],
+                                        RI.frameIndex, meshBindings.data(),
+                                        meshBindings.size());
+
+      // Map eMaterialBlendMode -> TranslucentMeshPipelineDesc::BlendMode +
+      // shader-side BLEND_MODE_*. Mirrors the same remap used by the
+      // particle pass; eMaterialBlendMode_None is filtered above.
+      auto remapBlend = [](eMaterialBlendMode m) {
+        switch (m) {
+        case eMaterialBlendMode_Add:
+          return TranslucentMeshPipelineDesc::BLEND_ADD;
+        case eMaterialBlendMode_Mul:
+          return TranslucentMeshPipelineDesc::BLEND_MUL;
+        case eMaterialBlendMode_MulX2:
+          return TranslucentMeshPipelineDesc::BLEND_MULX2;
+        case eMaterialBlendMode_Alpha:
+          return TranslucentMeshPipelineDesc::BLEND_ALPHA;
+        case eMaterialBlendMode_PremulAlpha:
+          return TranslucentMeshPipelineDesc::BLEND_PREMUL_ALPHA;
+        default:
+          return TranslucentMeshPipelineDesc::BLEND_ADD;
+        }
+      };
+
+      struct PushBlock {
+        uint32_t blendMode;
+        float sceneAlpha;
+      };
+
+      for (iRenderable *pObj : meshes) {
+        iVertexBuffer *pVB = pObj->GetVertexBuffer();
+        cMaterial *pMat = pObj->GetMaterial();
+        // Filter above already rejected null pVB / pMat and 0-index VBs.
+        const int indexCount = pVB->GetIndexNum();
+
+        uint32_t materialSlot =
+            resolveMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
+        if (materialSlot == UINT32_MAX) {
+          Warning("Material Slot exhausted (translucent mesh)");
+          continue;
+        }
+
+        cMatrixf *pMtx = pObj->GetModelMatrix(apFrustum);
+        UniformObject payload{};
+        payload.dissolveAmount = 0.0f;
+        payload.materialID = materialSlot;
+        payload.lightLevel = 1.0f;
+        payload.illuminationAmount = 0.0f;
+        const ml::float4x4 modelF4 =
+            cMath::ToFloatTranspose4x4(pMtx ? *pMtx : cMatrixf::Identity);
+        std::memcpy(payload.modelMat, modelF4.a, sizeof(payload.modelMat));
+        ml::float4x4 invF4 = modelF4;
+        invF4.Invert();
+        std::memcpy(payload.invModelMat, invF4.a, sizeof(payload.invModelMat));
+        const ml::float4x4 uvF4 =
+            cMath::ToFloatTranspose4x4(cMatrixf::Identity);
+        std::memcpy(payload.uvMat, uvF4.a, sizeof(payload.uvMat));
+
+        // Same per-renderable cookie shape as the particle path: pointer +
+        // frame counter. See the long comment in the particle loop for why
+        // we don't payload-hash here.
+        hash_t cookie = hash_u64(HASH_INITIAL_VALUE,
+                                 (uint64_t)(uintptr_t)pObj);
+        cookie = hash_u32(cookie, (uint32_t)RI.frameIndex);
+        auto req =
+            m_diffuseBindless.request(cookie, (uint32_t)RI.frameIndex);
+        if (req.exhausted) {
+          Warning("bindless pool exhausted (translucent mesh)");
+          continue;
+        }
+
+        // Bump slot generation on (re)assignment for the same surfel
+        // self-invalidate reason documented in the particle path above —
+        // surfels still anchored to this slot's previous opaque occupant
+        // would otherwise dereference stale primitiveIndex against the
+        // wrong VB/IB.
+        if (!req.found) {
+          m_bindlessSlotGenerationMirror.write<uint32_t>(req.id,
+                                                         ++m_nextSlotGeneration);
+        }
+
+        {
+          RIResourceBufferTransaction_s trans = {};
+          trans.target = m_diffuseObjectBuffer;
+          trans.size = sizeof(UniformObject);
+          trans.offset = (size_t)req.id * sizeof(UniformObject);
+          trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
+                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                   VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+          trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+          trans.vk.post_stage = trans.vk.current_stage;
+          trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+          RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+          std::memcpy(trans.mapped.data, &payload, sizeof(payload));
+          RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+        }
+
+        auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
+        auto bdaOf = [&](eVertexBufferElement type) -> VkDeviceAddress {
+          const auto *element = vbri->GetElement(type);
+          if (!element || !element->buffer)
+            return 0;
+          return element->buffer->GetDeviceHandle(&RI.device);
+        };
+        const VkDeviceAddress posAddr =
+            bdaOf(eVertexBufferElement_Position);
+        const VkDeviceAddress uv0Addr =
+            bdaOf(eVertexBufferElement_Texture0);
+        const VkDeviceAddress colAddr =
+            bdaOf(eVertexBufferElement_Color0);
+        const VkDeviceAddress idxAddr =
+            vbri->GetIndexRIBuffer()
+                ? vbri->GetIndexRIBuffer()->GetDeviceHandle(&RI.device)
+                : 0;
+
+        // V1 reads only position/uv0/color/index in the VS. Normal/tangent
+        // stay zero — they'll be populated when refraction / cube-map
+        // reflection come online (see the TODOs in Translucent.frag.slang).
+        auto writeSlot = [&](BindlessShadowMirror &mir, VkDeviceAddress addr) {
+          mir.write<VkDeviceAddress>(req.id, addr);
+        };
+        writeSlot(m_opaquePositionMirror, posAddr);
+        writeSlot(m_opaqueUv0Mirror, uv0Addr);
+        writeSlot(m_opaqueColorMirror, colAddr);
+        writeSlot(m_opaqueIndexMirror, idxAddr);
+        writeSlot(m_opaqueNormalMirror, 0);
+        writeSlot(m_opaqueTangentMirror, 0);
+
+        const TranslucentMeshPipelineDesc::BlendMode mode =
+            remapBlend(pMat->GetBlendMode());
+        TranslucentMeshPipelineDesc pipelineDesc(meshTargetFormat,
+                                                 RIBootstrap::DepthFormat,
+                                                 mode);
+        m_translucentMesh.bindPipeline(&RI.device, &RI.primary.cmds[0],
+                                       pipelineDesc.hash, "TranslucentMesh",
+                                       &pipelineDesc.createInfo);
+
+        float sceneAlpha = 1.0f;
+        PushBlock push = {(uint32_t)mode, sceneAlpha};
+        vkCmdPushConstants(RI.primary.cmds[0].vk.cmd,
+                           m_translucentMesh.getPipelineLayout(),
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push),
+                           &push);
+
+        vkCmdDraw(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u, 0u,
+                  req.id);
+      }
+
+      vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
 
       // pogo "read" half back to SHADER_READ_ONLY so the tail blit can sample it.
       {

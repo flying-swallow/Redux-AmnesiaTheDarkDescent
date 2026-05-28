@@ -82,10 +82,6 @@ public:
 
   struct RIResourceUploader_s uploader = {};
 
-  RI_Format_e currentColorFormat = RI_FORMAT_UNKNOWN;
-  RI_Format_e currentDepthFormat = RI_FORMAT_UNKNOWN;
-  bool currentRenderingActive = false;
-
   void IncrementFrame();
   RIDescriptor_s *resolve_filter_descriptor(eTextureWrap wrapS, eTextureWrap wrapT, eTextureWrap wrapR, eTextureFilter filter);
   FrameContext *GetActiveSet() { return &frameSets[frameIndex % RI_NUMBER_FRAMES_FLIGHT]; }

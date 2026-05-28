@@ -174,7 +174,7 @@ SHARED_CONST uint kSurfelCounterSlotCount      = 6u;
 //   USE_RAY_GUIDING       - reference default OFF; leave off.
 #define USE_SURFEL_RADIANCE    1
 #define USE_IRRADIANCE_SHARING 1
-#define USE_SURFEL_DEPTH       1
+#define USE_SURFEL_DEPTH      1 
 // #define USE_RAY_GUIDING     1
 
 // -----------------------------------------------------------------------------

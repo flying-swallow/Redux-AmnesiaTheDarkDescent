@@ -155,15 +155,6 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         accumRender.colorAttachmentCount = 1;
         accumRender.pColorAttachments = &accumAttach;
 
-        const RI_Format_e prevColorFormat = RI.currentColorFormat;
-        const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
-        const bool prevRenderingActive = RI.currentRenderingActive;
-
-        RI.currentColorFormat = imageTrailFormat;
-        assert(RIFormatToVK(RI.currentColorFormat) == imageTrailVkFormat);
-        RI.currentDepthFormat = RI_FORMAT_UNKNOWN;
-        RI.currentRenderingActive = true;
-
         vkCmdBeginRendering(cmd, &accumRender);
 
         vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -210,10 +201,6 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         vkCmdDraw(cmd, 3, 1, 0, 0);
         vkCmdEndRendering(cmd);
 
-        RI.currentColorFormat = prevColorFormat;
-        RI.currentDepthFormat = prevDepthFormat;
-        RI.currentRenderingActive = prevRenderingActive;
-
         mbClearAccum = false;
 
         // Accum has been written; flip it to SHADER_READ_ONLY so pass 2 can sample.
@@ -242,15 +229,6 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         outRender.colorAttachmentCount = 1;
         outRender.pColorAttachments = &outAttach;
 
-        const RI_Format_e prevColorFormat = RI.currentColorFormat;
-        const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
-        const bool prevRenderingActive = RI.currentRenderingActive;
-
-        RI.currentColorFormat = imageTrailFormat;
-        assert(RIFormatToVK(RI.currentColorFormat) == imageTrailVkFormat);
-        RI.currentDepthFormat = RI_FORMAT_UNKNOWN;
-        RI.currentRenderingActive = true;
-
         vkCmdBeginRendering(cmd, &outRender);
 
         vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -277,10 +255,6 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
 
         vkCmdDraw(cmd, 3, 1, 0, 0);
         vkCmdEndRendering(cmd);
-
-        RI.currentColorFormat = prevColorFormat;
-        RI.currentDepthFormat = prevDepthFormat;
-        RI.currentRenderingActive = prevRenderingActive;
     }
 }
 
