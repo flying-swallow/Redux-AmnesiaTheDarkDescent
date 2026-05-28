@@ -117,138 +117,171 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         mbClearAccum = true;
     }
 
+    const RI_Format_e imageTrailFormat = RI_FORMAT_RGBA8_UNORM;
+    const VkFormat imageTrailVkFormat = RIFormatToVK(imageTrailFormat);
+    assert(imageTrailVkFormat == VK_FORMAT_R8G8B8A8_UNORM);
+
+    VkViewport viewport = { 0.0f, 0.0f, static_cast<float>(ctx.width), static_cast<float>(ctx.height), 0.0f, 1.0f };
+    VkRect2D scissor = { {0, 0}, {ctx.width, ctx.height} };
+    RIDescriptor_s* samplerDesc = RI.resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
+
     // ----- Pass 1: blend new frame into accum (with alpha) -----
     // Layout: SHADER_READ (or UNDEFINED first time) → COLOR_ATTACH
-    EmitAccumBarrier(
-        cmd, m_accum.texture.vk.image,
-        mbClearAccum ? VK_IMAGE_LAYOUT_UNDEFINED
-                     : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        mbClearAccum ? VK_PIPELINE_STAGE_2_NONE
-                     : VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        mbClearAccum ? VkAccessFlags2{} : VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
+    {
+        EmitAccumBarrier(
+            cmd, m_accum.texture.vk.image,
+            mbClearAccum ? VK_IMAGE_LAYOUT_UNDEFINED
+            : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            mbClearAccum ? VK_PIPELINE_STAGE_2_NONE
+            : VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+            mbClearAccum ? VkAccessFlags2{} : VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
             VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT);
 
-    VkRenderingAttachmentInfo accumAttach = {
-        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    accumAttach.imageView   = m_accum.descriptor.vk.image.imageView;
-    accumAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    accumAttach.loadOp = mbClearAccum ? VK_ATTACHMENT_LOAD_OP_CLEAR
-                                      : VK_ATTACHMENT_LOAD_OP_LOAD;
-    accumAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    accumAttach.clearValue.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+        VkRenderingAttachmentInfo accumAttach = {
+            VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+        accumAttach.imageView = m_accum.descriptor.vk.image.imageView;
+        accumAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        accumAttach.loadOp = mbClearAccum ? VK_ATTACHMENT_LOAD_OP_CLEAR
+            : VK_ATTACHMENT_LOAD_OP_LOAD;
+        accumAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        accumAttach.clearValue.color = { {0.0f, 0.0f, 0.0f, 1.0f} };
 
-    VkRenderingInfo accumRender = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-    accumRender.renderArea           = {{0, 0}, {ctx.width, ctx.height}};
-    accumRender.layerCount           = 1;
-    accumRender.colorAttachmentCount = 1;
-    accumRender.pColorAttachments    = &accumAttach;
-    vkCmdBeginRendering(cmd, &accumRender);
+        VkRenderingInfo accumRender = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+        accumRender.renderArea = { {0, 0}, {ctx.width, ctx.height} };
+        accumRender.layerCount = 1;
+        accumRender.colorAttachmentCount = 1;
+        accumRender.pColorAttachments = &accumAttach;
 
-    VkViewport viewport = {0.0f,
-                           0.0f,
-                           static_cast<float>(ctx.width),
-                           static_cast<float>(ctx.height),
-                           0.0f,
-                           1.0f};
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
-    VkRect2D scissor = {{0, 0}, {ctx.width, ctx.height}};
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
+        const RI_Format_e prevColorFormat = RI.currentColorFormat;
+        const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
+        const bool prevRenderingActive = RI.currentRenderingActive;
 
-    PostEffectPipelineState blendState{};
-    InitPostEffectPipelineState(blendState, VK_FORMAT_R8G8B8A8_UNORM,
-                                /*alphaBlend=*/true);
+        RI.currentColorFormat = imageTrailFormat;
+        assert(RIFormatToVK(RI.currentColorFormat) == imageTrailVkFormat);
+        RI.currentDepthFormat = RI_FORMAT_UNKNOWN;
+        RI.currentRenderingActive = true;
 
-    const hash_t blendHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/1u);
-    mpImageTrailType->m_updateProgram.bindPipeline(
-        &RI.device, ctx.cmd, blendHash, "PostEffect_ImageTrail.update",
-        &blendState.createInfo);
+        vkCmdBeginRendering(cmd, &accumRender);
 
-    RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
-        eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
-        eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        PostEffectPipelineState blendState{};
+        InitPostEffectPipelineState(blendState, imageTrailVkFormat,
+            /*alphaBlend=*/true);
+
+        const hash_t blendHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/1u);
+        mpImageTrailType->m_updateProgram.bindPipeline(
+            &RI.device, ctx.cmd, blendHash, "PostEffect_ImageTrail.update",
+            &blendState.createInfo);
+
+
+
+        {
+            RIProgram::DescriptorBinding bindings[2] = {};
+            bindings[0].descriptor = *samplerDesc;
+            bindings[0].handle = DescriptorBindingID::Create("inputSampler");
+            bindings[1].descriptor = *ctx.inputSrv;
+            bindings[1].handle = DescriptorBindingID::Create("sourceInput");
+            mpImageTrailType->m_updateProgram.bindDescriptors(
+                &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
+        }
+
+        ImageTrailPushConstants pc{};
+        if (mbClearAccum) {
+            pc.alpha = 1.0f; // No history yet; entire output = current frame.
+        }
+        else if (ctx.frameTime > 0.0f) {
+            // Match the legacy curve: alpha = exp(-fPow * 0.015).
+            // *30 in the legacy comment is implicit through (1 / frameTime).
+            float fPow = (1.0f / ctx.frameTime) * mParams.mfAmount;
+            pc.alpha = std::exp(-fPow * 0.015f);
+        }
+        else {
+            pc.alpha = mParams.mfAmount;
+        }
+        vkCmdPushConstants(cmd,
+            mpImageTrailType->m_updateProgram.getPipelineLayout(),
+            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdEndRendering(cmd);
+
+        RI.currentColorFormat = prevColorFormat;
+        RI.currentDepthFormat = prevDepthFormat;
+        RI.currentRenderingActive = prevRenderingActive;
+
+        mbClearAccum = false;
+
+        // Accum has been written; flip it to SHADER_READ_ONLY so pass 2 can sample.
+        EmitAccumBarrier(
+            cmd, m_accum.texture.vk.image,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
+            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    }
 
     {
-        RIProgram::DescriptorBinding bindings[2] = {};
-        bindings[0].descriptor = *samplerDesc;
-        bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
-        bindings[1].descriptor = *ctx.inputSrv;
-        bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-        mpImageTrailType->m_updateProgram.bindDescriptors(
-            &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
+        // ----- Pass 2: blit accum into pogo output -----
+        VkRenderingAttachmentInfo outAttach = {
+            VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+        outAttach.imageView = ctx.outputView;
+        outAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        outAttach.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        outAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+        VkRenderingInfo outRender = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+        outRender.renderArea = { {0, 0}, {ctx.width, ctx.height} };
+        outRender.layerCount = 1;
+        outRender.colorAttachmentCount = 1;
+        outRender.pColorAttachments = &outAttach;
+
+        const RI_Format_e prevColorFormat = RI.currentColorFormat;
+        const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
+        const bool prevRenderingActive = RI.currentRenderingActive;
+
+        RI.currentColorFormat = imageTrailFormat;
+        assert(RIFormatToVK(RI.currentColorFormat) == imageTrailVkFormat);
+        RI.currentDepthFormat = RI_FORMAT_UNKNOWN;
+        RI.currentRenderingActive = true;
+
+        vkCmdBeginRendering(cmd, &outRender);
+
+        vkCmdSetViewport(cmd, 0, 1, &viewport);
+        vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+        PostEffectPipelineState blitState{};
+        InitPostEffectPipelineState(blitState, imageTrailVkFormat,
+            /*alphaBlend=*/false);
+
+        const hash_t blitHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/2u);
+        mpImageTrailType->m_blitProgram.bindPipeline(
+            &RI.device, ctx.cmd, blitHash, "PostEffect_ImageTrail.blit",
+            &blitState.createInfo);
+
+        {
+            RIProgram::DescriptorBinding bindings[2] = {};
+            bindings[0].descriptor = *samplerDesc;
+            bindings[0].handle = DescriptorBindingID::Create("inputSampler");
+            bindings[1].descriptor = m_accum.descriptor;
+            bindings[1].handle = DescriptorBindingID::Create("sourceInput");
+            mpImageTrailType->m_blitProgram.bindDescriptors(
+                &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
+        }
+
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        vkCmdEndRendering(cmd);
+
+        RI.currentColorFormat = prevColorFormat;
+        RI.currentDepthFormat = prevDepthFormat;
+        RI.currentRenderingActive = prevRenderingActive;
     }
-
-    ImageTrailPushConstants pc{};
-    if (mbClearAccum) {
-        pc.alpha = 1.0f; // No history yet; entire output = current frame.
-    } else if (ctx.frameTime > 0.0f) {
-        // Match the legacy curve: alpha = exp(-fPow * 0.015).
-        // *30 in the legacy comment is implicit through (1 / frameTime).
-        float fPow = (1.0f / ctx.frameTime) * mParams.mfAmount;
-        pc.alpha   = std::exp(-fPow * 0.015f);
-    } else {
-        pc.alpha = mParams.mfAmount;
-    }
-    vkCmdPushConstants(cmd,
-                       mpImageTrailType->m_updateProgram.getPipelineLayout(),
-                       VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
-
-    vkCmdDraw(cmd, 3, 1, 0, 0);
-    vkCmdEndRendering(cmd);
-
-    mbClearAccum = false;
-
-    // Accum has been written; flip it to SHADER_READ_ONLY so pass 2 can sample.
-    EmitAccumBarrier(
-        cmd, m_accum.texture.vk.image,
-        VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-        VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-
-    // ----- Pass 2: blit accum into pogo output -----
-    VkRenderingAttachmentInfo outAttach = {
-        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    outAttach.imageView   = ctx.outputView;
-    outAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    outAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    outAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
-
-    VkRenderingInfo outRender = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-    outRender.renderArea           = {{0, 0}, {ctx.width, ctx.height}};
-    outRender.layerCount           = 1;
-    outRender.colorAttachmentCount = 1;
-    outRender.pColorAttachments    = &outAttach;
-    vkCmdBeginRendering(cmd, &outRender);
-
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-    PostEffectPipelineState blitState{};
-    InitPostEffectPipelineState(blitState, VK_FORMAT_R8G8B8A8_UNORM,
-                                /*alphaBlend=*/false);
-
-    const hash_t blitHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/2u);
-    mpImageTrailType->m_blitProgram.bindPipeline(
-        &RI.device, ctx.cmd, blitHash, "PostEffect_ImageTrail.blit",
-        &blitState.createInfo);
-
-    {
-        RIProgram::DescriptorBinding bindings[2] = {};
-        bindings[0].descriptor = *samplerDesc;
-        bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
-        bindings[1].descriptor = m_accum.descriptor;
-        bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-        mpImageTrailType->m_blitProgram.bindDescriptors(
-            &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
-    }
-
-    vkCmdDraw(cmd, 3, 1, 0, 0);
-    vkCmdEndRendering(cmd);
 }
 
 } // namespace hpl

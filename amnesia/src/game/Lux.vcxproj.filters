@@ -108,6 +108,7 @@
     <ClCompile Include="LuxPlayerState_Ladder.cpp" />
     <ClCompile Include="LuxPlayerState_Normal.cpp" />
     <ClCompile Include="LuxPlayerState_UseItem.cpp" />
+    <ClCompile Include="LuxScreenCapture.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="LuxAchievementHandler.h" />
@@ -222,6 +223,7 @@
     <ClInclude Include="..\..\slang\Constants.h">
       <Filter>slang</Filter>
     </ClInclude>
+    <ClInclude Include="LuxScreenCapture.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Lux.rc" />

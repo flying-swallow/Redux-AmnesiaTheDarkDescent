@@ -113,6 +113,16 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
     renderInfo.layerCount           = 1;
     renderInfo.colorAttachmentCount = 1;
     renderInfo.pColorAttachments    = &colorAttach;
+
+    const RI_Format_e prevColorFormat = RI.currentColorFormat;
+    const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
+    const bool prevRenderingActive = RI.currentRenderingActive;
+
+    RI.currentColorFormat = RI_FORMAT_RGBA8_UNORM;
+    assert(RIFormatToVK(RI.currentColorFormat) == VK_FORMAT_R8G8B8A8_UNORM);
+    RI.currentDepthFormat = RI_FORMAT_UNKNOWN;
+    RI.currentRenderingActive = true;
+
     vkCmdBeginRendering(cmd, &renderInfo);
 
     VkViewport viewport = {0.0f,
@@ -154,6 +164,10 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRendering(cmd);
+
+    RI.currentColorFormat = prevColorFormat;
+    RI.currentDepthFormat = prevDepthFormat;
+    RI.currentRenderingActive = prevRenderingActive;
 }
 
 } // namespace hpl

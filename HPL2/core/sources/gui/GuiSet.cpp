@@ -775,7 +775,7 @@ namespace hpl {
 
 			VkPipelineRenderingCreateInfo pipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
 			pipelineRenderingCreateInfo.colorAttachmentCount = 1;
-			VkFormat colorFormats[1] = { RIFormatToVK( RI.swapchain.format) };
+			VkFormat colorFormats[1] = { RIFormatToVK(RI.currentColorFormat) };
 			pipelineRenderingCreateInfo.pColorAttachmentFormats = colorFormats;
 			pipelineRenderingCreateInfo.depthAttachmentFormat = RIFormatToVK( RIBootstrap::DepthFormat );
 			pipelineRenderingCreateInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED; 

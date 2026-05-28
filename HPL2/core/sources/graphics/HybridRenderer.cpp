@@ -2561,6 +2561,17 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   renderingInfo.colorAttachmentCount = 1;
   renderingInfo.pColorAttachments = &colorAttachment;
   renderingInfo.pDepthAttachment = &depthAttachment;
+
+  const RI_Format_e prevColorFormat = RI.currentColorFormat;
+  const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
+  const bool prevRenderingActive = RI.currentRenderingActive;
+
+  RI.currentColorFormat = RIBootstrap::VisibilityFormat;
+  assert(RIFormatToVK(RI.currentColorFormat) == RIFormatToVK(RIBootstrap::VisibilityFormat));
+  RI.currentDepthFormat = RIBootstrap::DepthFormat;
+  assert(RIFormatToVK(RI.currentDepthFormat) == RIFormatToVK(RIBootstrap::DepthFormat));
+  RI.currentRenderingActive = true;
+
   vkCmdBeginRendering(cmd, &renderingInfo);
 
   VkViewport vkViewport = {0,
@@ -2588,6 +2599,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   }
 
   vkCmdEndRendering(cmd);
+
+  RI.currentColorFormat = prevColorFormat;
+  RI.currentDepthFormat = prevDepthFormat;
+  RI.currentRenderingActive = prevRenderingActive;
 
   // Gbuffer output -> SHADER_READ_ONLY for the surfel-generation compute
   // pass (and any later fragment consumer). Includes depth, which the
@@ -2860,6 +2875,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     renderInfo.layerCount = 1;
     renderInfo.colorAttachmentCount = 1;
     renderInfo.pColorAttachments    = &colorAttach;
+
+    const RI_Format_e prevColorFormat = RI.currentColorFormat;
+    const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
+    const bool prevRenderingActive = RI.currentRenderingActive;
+
+    RI.currentColorFormat = RI_FORMAT_RGBA8_UNORM;
+    assert(RIFormatToVK(RI.currentColorFormat) == VK_FORMAT_R8G8B8A8_UNORM);
+    RI.currentDepthFormat = RI_FORMAT_UNKNOWN;
+    RI.currentRenderingActive = true;
+
     vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
 
     VkViewport vp = {0.0f,
@@ -2928,6 +2953,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3, 1, 0, 0);
     vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+
+    RI.currentColorFormat = prevColorFormat;
+    RI.currentDepthFormat = prevDepthFormat;
+    RI.currentRenderingActive = prevRenderingActive;
   }
 
   // Toggle: just-written attach → SHADER_READ_ONLY (now the "read" half)
@@ -3037,6 +3066,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       const int   pogoReadIdx   = (pogo->attachmentIndex + 1) % 2;
       VkImage     pogoReadImage = pogo->textures[pogoReadIdx].vk.image;
       VkImageView pogoReadView  = pogo->pogoAttachment[pogoReadIdx].vk.image.imageView;
+      const RI_Format_e particleTargetFormat = RI_FORMAT_RGBA8_UNORM;
       {
         VkImageMemoryBarrier2 b =
             VK_RI_PogoAttachmentMemoryBarrier2(pogoReadImage, /*initial=*/false);
@@ -3067,6 +3097,17 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       renderInfo.colorAttachmentCount = 1;
       renderInfo.pColorAttachments = &colorAttach;
       renderInfo.pDepthAttachment = &depthAttach;
+
+      const RI_Format_e prevColorFormat = RI.currentColorFormat;
+      const RI_Format_e prevDepthFormat = RI.currentDepthFormat;
+      const bool prevRenderingActive = RI.currentRenderingActive;
+
+      RI.currentColorFormat = particleTargetFormat;
+      assert(RIFormatToVK(RI.currentColorFormat) == VK_FORMAT_R8G8B8A8_UNORM);
+      RI.currentDepthFormat = RIBootstrap::DepthFormat;
+      assert(RIFormatToVK(RI.currentDepthFormat) == RIFormatToVK(RIBootstrap::DepthFormat));
+      RI.currentRenderingActive = true;
+
       vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
 
       VkViewport vp = {0.0f,
@@ -3230,7 +3271,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
         const ParticlePipelineDesc::BlendMode mode =
             remapBlend(pMat->GetBlendMode());
-        ParticlePipelineDesc pipelineDesc((RI_Format_e)RI.swapchain.format,
+        ParticlePipelineDesc pipelineDesc(particleTargetFormat,
                                           RIBootstrap::DepthFormat, mode);
         m_particle.bindPipeline(&RI.device, &RI.primary.cmds[0],
                                 pipelineDesc.hash, "Particle",
@@ -3248,6 +3289,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       }
 
       vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+
+      RI.currentColorFormat = prevColorFormat;
+      RI.currentDepthFormat = prevDepthFormat;
+      RI.currentRenderingActive = prevRenderingActive;
 
       // pogo "read" half back to SHADER_READ_ONLY so the tail blit can sample it.
       {
