@@ -26,9 +26,9 @@ import Scene;
 import Bindless.resource;
 import Bindless.interface;
 import PerFrame.resource;
-
-static const float kInvPi  = 0.31830988618379067154f;
-static const float kRayEps = 1.0e-3f;
+import Fog;
+import SurfelGI.SurfelShade;        // DiffuseShading / prepareDiffuseShading / evalAnalyticLight / gatherSurfelIndirect
+import TranslucentPass.WaterCommon; // waterWaveNormalTangent (shared with SurfelVBuffer.rt)
 
 [vk::binding(0, 2)]
 Texture2D<float4> gIndirectLighting;
@@ -47,78 +47,44 @@ Texture2D<float4> gIndirectLighting;
 [vk::binding(1, 2)]
 Texture2D<uint4> gPackedHitInfoRaster;
 
-struct DiffuseShading
-{
-    float3 posW;
-    float3 normalW;
-    float3 albedo;
-    float3 emission;
-    };
-
-// emission = illumination-map texel (DiffuseMaterial slot 5) * per-object glow
-// scalar (UniformObject.illuminationAmount). Without this the surfel composite
-// ignores illumination entirely and glowing textures render dark.
-DiffuseShading prepareDiffuseShading(VertexData v, uint materialID, float illuminationAmount)
-{
-    DiffuseShading sd;
-    sd.posW    = v.posW;
-    sd.normalW = normalize(v.normalW);
-    DiffuseMaterial m = gScene.getDiffuseMaterial(materialID);
-    uint diffuseTex = m.tex[0];
-    if (diffuseTex == kInvalidTextureIndex)
-        sd.albedo = float3(0.5f);
-    else
-        sd.albedo = gTextures2D[NonUniformResourceIndex(diffuseTex)]
-                        .SampleLevel(gMaterialSampler, v.texC, 0.0f).rgb;
-
-    uint illumTex = m.tex[5];
-    if (illumTex == kInvalidTextureIndex || illuminationAmount <= 0.f)
-        sd.emission = float3(0.f);
-    else
-        sd.emission = gTextures2D[NonUniformResourceIndex(illumTex)]
-                          .SampleLevel(gMaterialSampler, v.texC, 0.0f).rgb
-                      * illuminationAmount;
-    return sd;
-}
-
-// NEE over all lights. Single sample per light, BRDF = albedo / π,
-// shadow visibility via gScene.materials.traceShadowRay (alpha-tested
-// non-opaque RayQuery — see the comment on that helper in Scene.slang
-// for why a plain Proceed/CommittedStatus pair silently returns "visible"
-// against this engine's non-opaque BLAS). Falcor's version iterated
-// lights and used `sampleLight(...)` + Falcor's BSDF; the project's
-// `sampleLightByIndex` returns a unified LightSample.
-float3 evalAnalyticLight(DiffuseShading sd)
-{
-    uint lightCount = gScene.getLightCount();
-    if (lightCount == 0) return float3(0.f);
-
-    float3 Lr = float3(0.f);
-    float3 origin = sd.posW + sd.normalW * kRayEps;
-
-    for (uint i = 0; i < lightCount; ++i)
-    {
-        LightSample ls;
-        if (!gScene.sampleLightByIndex(i, sd.posW, ls)) continue;
-
-        float NdotL = dot(sd.normalW, ls.dir);
-        if (NdotL <= 0.f) continue;
-
-        if (!gScene.materials.traceShadowRay(origin, ls.dir, ls.distance)) continue;
-
-        // Base game omits the 1/π Lambert factor (deferred_light_pointlight.frag.fsl
-        // / visibility_shade.frag: albedo·color·atten·ndl); match it so direct
-        // reads at the original brightness. Albedo is applied here (composite).
-        Lr += sd.albedo * ls.Li * NdotL;
-    }
-    return Lr;
-}
-
 struct PSIn
 {
     [vk::location(0)] float2 v_uv;
     float4 posH : SV_Position;
 };
+
+// Schlick-Fresnel — mirrors deferred_common.h.fsl::Fresnel(eDotN, bias, pow).
+float computeFresnel(float afEDotN, float afFresnelBias, float afFresnelPow)
+{
+    float fFacing = 1.0f - afEDotN;
+    return saturate(afFresnelBias + (1.0f - afFresnelBias) * pow(fFacing, afFresnelPow));
+}
+
+// Shade a bounce-V-buffer hit (refraction / reflection) into outgoing
+// radiance: direct NEE + albedo·(surfel indirect) + emission, matching the
+// primary composite's energy convention. `packed` is a gPacked*HitInfo texel;
+// .w bit 0 is the valid flag. On an invalid bounce (TIR / sky / off-TLAS) the
+// caller's fallback is used instead — signalled by `valid`.
+float3 shadeBounceHit(uint4 packed, out bool valid)
+{
+    valid = (packed.w & 1u) != 0u;
+    if (!valid)
+        return float3(0.f);
+
+    HitInfo hi = HitInfo(packed);
+    if (!hi.isValid()) { valid = false; return float3(0.f); }
+
+    TriangleHit th = hi.getTriangleHit();
+    uint matID = gScene.getMaterialID(th.instanceID);
+    VertexData v = gScene.getVertexData(th);
+    float illum = gScene.getObject(th.instanceID).illuminationAmount;
+    DiffuseShading sd = prepareDiffuseShading(v, matID, illum);
+
+    float3 direct   = (kDefaultRenderDirectLighting   != 0u) ? evalAnalyticLight(sd) : float3(0.f);
+    float3 indirect = (kDefaultRenderIndirectLighting != 0u)
+                      ? gatherSurfelIndirect(sd.posW, sd.normalW) : float3(0.f);
+    return direct + sd.albedo * indirect + sd.emission;
+}
 
 [shader("fragment")]
 float4 psMain(PSIn pin) : SV_Target
@@ -144,8 +110,84 @@ float4 psMain(PSIn pin) : SV_Target
     }
 
     TriangleHit triangleHit = hitInfo.getTriangleHit();
-    VertexData v = gScene.getVertexData(triangleHit);
     uint materialID = gScene.getMaterialID(triangleHit.instanceID);
+
+    // Water surface: the primary hit IS the water (isWater material), so shade
+    // the whole surface here in one pass — refraction background + reflection +
+    // wave-animated Fresnel — instead of a separate resolve pass + raster draw.
+    // Both bounces are spawned by SurfelVBuffer.rt's water branch. Checked
+    // before the generic isRefractive swap (water also sets HasRefraction).
+    if (gScene.materials.isWater(materialID))
+    {
+        VertexData   vW    = gScene.getVertexData(triangleHit);
+        WaterMaterial water = gWaterMaterials[materialID];
+
+        // World-space TBN + wave-animated normal (shared with SurfelVBuffer.rt).
+        float3 N = normalize(vW.normalW);
+        float3 T = normalize(vW.tangentW);
+        float3 B = normalize(cross(N, T));
+        float3 nT = waterWaveNormalTangent(water, vW.texC, gPerFrame.afT);
+        float3 waveN = normalize(nT.x * T + nT.y * B + nT.z * N);
+
+        // Fresnel from the world-space eye vector (GI pass is world-space).
+        // eye points camera→surface; orient the wave normal to face the
+        // camera (same as the SurfelVBuffer water bounce) so edotN/fresnel
+        // stay correct even if the mesh normal faces away.
+        float3 eye   = normalize(vW.posW - gScene.camera.getPosition());
+        if (dot(eye, waveN) > 0.f)
+            waveN = -waveN;
+        float  edotN = max(dot(-eye, waveN), 0.f);
+        float  fresnel = computeFresnel(edotN, water.frenselBias, water.frenselPow);
+
+        // Distance fade (reference reflectionFadeStart/End): fade the
+        // reflection out with view depth so far water doesn't over-highlight.
+        if (water.reflectionFadeEnd > 0.f)
+        {
+            float viewZ = -mul(gPerFrame.viewMat, float4(vW.posW, 1.f)).z;
+            float fadeLen = max(water.reflectionFadeEnd - water.reflectionFadeStart, 1.0e-6f);
+            fresnel *= 1.0f - saturate((viewZ - water.reflectionFadeStart) / fadeLen);
+        }
+
+        // Refraction background + reflection — full-shaded bounce hits. On an
+        // invalid bounce fall back to the water surface's own surfel indirect
+        // so the pixel isn't black.
+        float3 surfaceFallback = gatherSurfelIndirect(vW.posW, N);
+        bool   refrValid, reflValid;
+        float3 refrColor = shadeBounceHit(gPackedRefractionHitInfo[pixelPos], refrValid);
+        float3 reflColor = shadeBounceHit(gPackedReflectionHitInfo[pixelPos], reflValid);
+        if (!refrValid) refrColor = surfaceFallback;
+        if (!reflValid) reflColor = surfaceFallback;
+
+        // Refraction (the bottom seen through the water) re-shades dim — the
+        // re-shade omits the box-light ambient fill the primary composite
+        // shows — so lift it toward the base game's lit-framebuffer brightness.
+        // Reflection is a sharp RT trace of the lit scene, brighter/harsher
+        // than the old screen-space reflection map, so damp it with the
+        // reflection-intensity knob instead of lifting it.
+        refrColor *= kWaterBounceExposure;
+        reflColor *= kWaterReflectionIntensity;
+
+        // Water diffuse tint at the surface UV (reference combine:
+        // surfaceColor * refraction + reflection * fresnel).
+        float3 surfaceTint = float3(1.f);
+        uint   diffuseTex  = water.tex[0];
+        if (diffuseTex != kInvalidTextureIndex)
+            surfaceTint = gTextures2D[NonUniformResourceIndex(diffuseTex)]
+                              .SampleLevel(gMaterialSampler, vW.texC, 0.f).rgb;
+
+        float3 waterRgb = surfaceTint * refrColor + reflColor * fresnel;
+        waterRgb = applyFog(waterRgb, vW.posW, gPerFrame.posW);
+        return float4(waterRgb, 1.f);
+    }
+
+    // Glass refraction needs no swap here: SurfelVBuffer.rt re-traces the
+    // refraction ray as a kind-0 bounce that clobbers gPackedHitInfo with the
+    // refracted background, so the primary hit read above IS already that
+    // background at glass pixels. (Water is handled by the isWater branch
+    // above; reflection is cubemap-based in Translucent.frag.) The glass
+    // surface itself is alpha-blended on top in the translucent raster pass.
+
+    VertexData v = gScene.getVertexData(triangleHit);
     float illuminationAmount = gScene.getObject(triangleHit.instanceID).illuminationAmount;
     DiffuseShading sd = prepareDiffuseShading(v, materialID, illuminationAmount);
 
@@ -166,6 +208,11 @@ float4 psMain(PSIn pin) : SV_Target
     // Emissive (illumination-map) surfaces glow regardless of the direct /
     // indirect toggles — added on top so glowing textures aren't dark.
     finalGather += sd.emission;
+
+    // Per-pixel fog: world fog + each fog-area bounding box from gFogAreas.
+    // Replaces the legacy per-object visibility table (which only existed
+    // for translucents) — applies uniformly to the opaque composite here.
+    finalGather = applyFog(finalGather, v.posW, gPerFrame.posW);
 
     return float4(finalGather, 1.f);
 }

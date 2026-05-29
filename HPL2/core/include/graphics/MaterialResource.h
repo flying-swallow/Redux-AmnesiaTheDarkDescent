@@ -7,27 +7,10 @@ namespace hpl {
     class cMaterial;
     namespace material {
 
-        enum TextureConfigFlags {
-            EnableDiffuse = 1 << 0,
-            EnableNormal = 1 << 1,
-            EnableSpecular = 1 << 2,
-            EnableAlpha = 1 << 3,
-            EnableHeight = 1 << 4,
-            EnableIllumination = 1 << 5,
-            EnableCubeMap = 1 << 6,
-            EnableDissolveAlpha = 1 << 7,
-            EnableCubeMapAlpha = 1 << 8,
-
-            IsHeightMapSingleChannel = 1 << 9,
-            IsAlphaSingleChannel = 1 << 10,
-
-            // Solid Diffuse
-            UseDissolveFilter = 1 << 14,
-
-            // Translucent
-            UseRefractionNormals = 1 << 14,
-            UseRefractionEdgeCheck = 1 << 15,
-        };
+        // Material-config flag bits live in amnesia/slang/Constants.h as
+        // `kMaterialFlag*` and are shared with shaders via the SHARED_CONST
+        // macro. Use those names directly (e.g. `kMaterialFlagEnableNormal`)
+        // — they resolve from the enclosing `hpl::` namespace.
 
         struct UniformMaterialBlock {
             union {

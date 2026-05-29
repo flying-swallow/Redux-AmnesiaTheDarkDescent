@@ -69,13 +69,20 @@ void collectCellInfo(uint3 dispatchThreadId: SV_DispatchThreadID)
     // fault. The host bumps the slot's reuse generation on each of those events
     // (destroy / reuse / rebuild); if it no longer matches what this surfel
     // captured at spawn, the anchor is stale, so skip the alive branch and let
-    // the recycle (free-list) else-branch below return the slot. instanceID
-    // always came from a real hit, so indexing gBindlessSlotGeneration is in
-    // bounds.
+    // the recycle (free-list) else-branch below return the slot.
+    //
+    // The instanceID bound check is load-bearing: gSurfelGeometryBuffer is
+    // populated lazily by spawn writers (SurfelGenerationPass / SurfelRayTrace)
+    // and a freshly-popped free slot can carry a previous tenant's packed hit
+    // until the next spawn rewrites it. If that residue decodes to an
+    // instanceID >= kObjectSlotCapacity, gBindlessSlotGeneration[hit.instanceID]
+    // is an unmapped SSBO read -> GPUVM fault before slotStale can be
+    // evaluated. Treat OOB instanceIDs as stale so the slot recycles cleanly.
     HitInfo hi;
     hi.packed = gSurfelGeometryBuffer[surfelIndex];
     TriangleHit hit = hi.getTriangleHit();
     bool slotStale =
+        hit.instanceID >= kObjectSlotCapacity ||
         gSurfelSlotGeneration[surfelIndex] != gBindlessSlotGeneration[hit.instanceID];
 
     if (surfelRadius > 0 && surfelRecycleInfo.life > 0 && !slotStale)
@@ -86,25 +93,22 @@ void collectCellInfo(uint3 dispatchThreadId: SV_DispatchThreadID)
 
         VertexData data = gScene.getVertexData(hit);
 
-        if (kDefaultLockSurfel == 0u)
-        {
-            surfel.position = data.posW;
-            surfel.normal   = data.normalW;
-            surfel.radius   = calcSurfelRadius(
-                distance(cameraPos, surfel.position),
-                fovy,
-                resolution,
-                kSurfelTargetArea * (isSleeping ? 16.f : 1.f),
-                kCellUnit
-            );
-            if (isSleeping)
-                surfel.radius = max(surfel.radius, kCellUnit * 0.5f);
-        }
+        surfel.position = data.posW;
+        surfel.normal   = data.normalW;
+        surfel.radius   = calcSurfelRadius(
+            distance(cameraPos, surfel.position),
+            fovy,
+            resolution,
+            kSurfelTargetArea * (isSleeping ? 16.f : 1.f),
+            kCellUnit
+        );
+        if (isSleeping)
+            surfel.radius = max(surfel.radius, kCellUnit * 0.5f);
 
         // Stage 1: publish the compact cull record the generation pass reads in
-        // place of the full surfel. position/normal/radius are final here in
-        // both normal and lock-surfel modes; normal is pre-normalized so the
-        // per-pixel loop drops its rsqrt. One write per valid surfel per frame.
+        // place of the full surfel. position/normal/radius are final here;
+        // normal is pre-normalized so the per-pixel loop drops its rsqrt. One
+        // write per valid surfel per frame.
         SurfelBounds bounds;
         bounds.position = surfel.position;
         bounds.radius   = surfel.radius;
@@ -122,35 +126,32 @@ void collectCellInfo(uint3 dispatchThreadId: SV_DispatchThreadID)
             }
         }
 
-        if (kDefaultLockSurfel == 0u)
+        uint lower = isSleeping ? (kDefaultMinRayCount / 4u) : (kDefaultMaxRayCount / 4u);
+        uint upper = isSleeping ?  kDefaultMinRayCount       :  kDefaultMaxRayCount;
+
+        uint rayOffset = 0;
+        uint rayRequestCount = clamp(
+            lerp(lower, upper, length(surfel.msmeData.variance) * kDefaultVarianceSensitivity),
+            lower, upper);
+        InterlockedAdd(gSurfelCounter[kSurfelCounterRequestedRay], rayRequestCount, rayOffset);
+
+        if (rayOffset < kRayBudget)
         {
-            uint lower = isSleeping ? (kDefaultMinRayCount / 4u) : (kDefaultMaxRayCount / 4u);
-            uint upper = isSleeping ?  kDefaultMinRayCount       :  kDefaultMaxRayCount;
+            surfel.rayOffset = rayOffset;
+            surfel.rayCount  = rayRequestCount;
 
-            uint rayOffset = 0;
-            uint rayRequestCount = clamp(
-                lerp(lower, upper, length(surfel.msmeData.variance) * kDefaultVarianceSensitivity),
-                lower, upper);
-            InterlockedAdd(gSurfelCounter[kSurfelCounterRequestedRay], rayRequestCount, rayOffset);
-
-            if (rayOffset < kRayBudget)
-            {
-                surfel.rayOffset = rayOffset;
-                surfel.rayCount  = rayRequestCount;
-
-                SurfelRayResult initSurfelRayResult;
-                initSurfelRayResult.surfelIndex = surfelIndex;
-                for (uint rayIndex = 0; rayIndex < rayRequestCount; ++rayIndex)
-                    gSurfelRayResultBuffer[rayOffset + rayIndex] = initSurfelRayResult;
-            }
-
-            surfelRecycleInfo.status = isSleeping ? 0x0001 : 0x0000;
-            gSurfelRecycleInfoBuffer[surfelIndex] = surfelRecycleInfo;
-            gSurfelBuffer[surfelIndex] = surfel;
-            gSurfelRefCounter[surfelIndex] = 0u;
+            SurfelRayResult initSurfelRayResult;
+            initSurfelRayResult.surfelIndex = surfelIndex;
+            for (uint rayIndex = 0; rayIndex < rayRequestCount; ++rayIndex)
+                gSurfelRayResultBuffer[rayOffset + rayIndex] = initSurfelRayResult;
         }
+
+        surfelRecycleInfo.status = isSleeping ? 0x0001 : 0x0000;
+        gSurfelRecycleInfoBuffer[surfelIndex] = surfelRecycleInfo;
+        gSurfelBuffer[surfelIndex] = surfel;
+        gSurfelRefCounter[surfelIndex] = 0u;
     }
-    else if (kDefaultLockSurfel == 0u)
+    else
     {
         uint freeSurfelCount;
         InterlockedAdd(gSurfelCounter[kSurfelCounterFree], 1u, freeSurfelCount);

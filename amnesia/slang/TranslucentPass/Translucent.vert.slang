@@ -3,52 +3,57 @@
 /// SPDX-License-Identifier: GPL-3.0
 //
 // Slang port of AmnesiaTheDarkDescent/HPL2/resource/translucency.vert.fsl,
-// adapted for the bindless / BDA-fanout pipeline cHybridRenderer uses for
-// every non-particle translucent mesh (glass, lamp glass, decals tagged
-// translucent, etc.).
+// adapted to use **traditional Vulkan vertex bindings** instead of the
+// bindless BDA-pull pattern the opaque + particle paths use.
 //
-// Same shape as Particle.vert.slang — translucent meshes share the OBJECT_SLOT
-// bindless pool with solid geometry and the particle pass, so cHybridRenderer
-// writes the mesh vertex buffer's BDA into the same opaque*Handles[] arrays
-// and SV_InstanceID selects the slot.
+// Rationale: only refractive translucents need to live in the surfel TLAS
+// (so SurfelVBuffer.rt can ray-bend through them), and the TLAS path is
+// the only consumer of the per-translucent vertex BDAs in
+// gOpaque*Handles[]. The raster path here is low-traffic — it draws every
+// translucent mesh once per frame and doesn't need the bindless slot
+// machinery just to fetch its own vertex data. Fixed-function vertex
+// fetch via vkCmdBindVertexBuffers + vkCmdBindIndexBuffer is simpler and
+// matches the binding layout declared in `TranslucentMeshPipelineDesc`
+// (HybridRenderer.cpp).
 //
-// Per-vertex stream strides match the opaque mesh layout (and happen to match
-// the particle layout — see Particle.vert.slang for the particle-side
-// rationale):
-//   position : float x 4  (stride 16, only .xyz read)
-//   color    : float x 4  (stride 16, full rgba)
-//   texture0 : float x 3  (stride 12, only .xy read)
-// `[vk::buffer_reference]` is scalar-layout in Slang — same memory model as
-// GLSL `layout(buffer_reference, scalar)` — so float4/float3 match those
-// strides exactly. SurfelGBuffer.3d.slang reads position/uv0 the same way.
-//
-// V1 deliberately does NOT read normal/tangent — the reference's full
-// translucency.frag uses them for refraction sampling and cube-map Fresnel,
-// neither of which is wired in the hybrid renderer yet (no screen-color copy,
-// no reflection buffer). When that lands, mirror Particle.vert.slang's growth
-// and extend the BDA reads here.
+// SV_InstanceID is still consumed: the bindless OBJECT slot remains the
+// source of `UniformObject` (model matrix, uv matrix, materialID, ...),
+// because Translucent.frag.slang reads it for material lookup.
 
 import Bindless.resource;
 import SceneTypes;
 import PerFrame.resource;
 
-// BDA accesses use direct primitive pointer casts (`float4*`, `float3*`,
-// `uint*`). The wrapper-struct-with-runtime-array pattern collapses to
-// `Ptr<PhysicalStorageBuffer, uint>` in slangc 2026+, which silently
-// returns zero. Primitive pointer types translate correctly. Same convention
-// as Particle.vert.slang / BindlessTriangle.slang.
+// Per-vertex inputs — match the bindings declared in
+// TranslucentMeshPipelineDesc:
+//   binding 0 / location 0 : position  (R32G32B32_SFLOAT, stride 16)
+//   binding 1 / location 1 : normal    (R32G32B32_SFLOAT, stride 12)
+//   binding 2 / location 2 : tangent   (R32G32B32A32_SFLOAT, stride 16, w = handedness)
+//   binding 3 / location 3 : color     (R32G32B32A32_SFLOAT, stride 16)
+//   binding 4 / location 4 : texcoord  (R32G32_SFLOAT, stride 12 — engine stream is float3, only .xy read)
+struct TranslucentVSIn
+{
+    float3 a_position : POSITION;
+    float3 a_normal   : NORMAL;
+    float4 a_tangent  : TANGENT;
+    float4 a_color    : COLOR;
+    float2 a_texcoord : TEXCOORD0;
+};
 
 struct TranslucentVSOut
 {
-    float3 viewPos                 : VIEWPOS;   // view-space position (for fog)
+    float3 viewPos                 : VIEWPOS;   // view-space position (for fog + refraction invDist)
     float2 uv                      : TEXCRD;
+    float3 normal                  : NORMAL;    // view-space normal
+    float3 tangent                 : TANGENT;   // view-space tangent
+    float3 bitangent               : BITANGENT; // view-space bitangent
     float4 color                   : COLOR;
     nointerpolation uint objectId  : OBJECTID;
     float4 posH                    : SV_POSITION;
 };
 
 [shader("vertex")]
-TranslucentVSOut vsMain(uint vertexId : SV_VertexID,
+TranslucentVSOut vsMain(TranslucentVSIn vin,
                         uint drawInst : SV_InstanceID,
                         uint baseInst : SV_StartInstanceLocation)
 {
@@ -58,34 +63,28 @@ TranslucentVSOut vsMain(uint vertexId : SV_VertexID,
     // gl_InstanceIndex by summing. Same fix as SurfelGBuffer.3d.slang.
     uint instanceId = drawInst + baseInst;
 
-    uint64_t indexAddr = gOpaqueIndexHandles[instanceId];
-    uint64_t posAddr   = gOpaquePositionHandles[instanceId];
-    uint64_t uv0Addr   = gOpaqueUv0Handles[instanceId];
-    uint64_t colAddr   = gOpaqueColorHandles[instanceId];
-
-    uint idx = (indexAddr != 0ull)
-        ? ((uint*)indexAddr)[vertexId]
-        : vertexId;
-
-    float3 a_position = (posAddr != 0ull)
-        ? ((float4*)posAddr)[idx].xyz
-        : float3(0.0f);
-    float2 a_texcoord = (uv0Addr != 0ull)
-        ? ((float3*)uv0Addr)[idx].xy
-        : float2(0.0f);
-    float4 a_color = (colAddr != 0ull)
-        ? ((float4*)colAddr)[idx]
-        : float4(1.0f);
-
     UniformObject obj     = gSceneObjects[instanceId];
     float4x4 modelView    = mul(gPerFrame.viewMat, obj.modelMat);
     float4x4 modelViewPrj = mul(gPerFrame.projMat, modelView);
 
+    // Normal matrix = (modelView^-1)^T = (invModel * invView)^T
+    //                                  = invView^T * invModel^T
+    // Mirrors the reference's ToNormalMat(invModelMat, invViewMat).
+    float3x3 invModelRot = float3x3(obj.invModelMat);
+    float3x3 invViewRot  = float3x3(gPerFrame.invViewMat);
+    float3x3 normalMat   = mul(transpose(invViewRot), transpose(invModelRot));
+
     TranslucentVSOut vsOut;
-    vsOut.viewPos  = mul(modelView, float4(a_position, 1.0f)).xyz;
-    vsOut.uv       = mul(obj.uvMat, float4(a_texcoord, 0.0f, 1.0f)).xy;
-    vsOut.color    = a_color;
-    vsOut.objectId = instanceId;
-    vsOut.posH     = mul(modelViewPrj, float4(a_position, 1.0f));
+    vsOut.viewPos   = mul(modelView, float4(vin.a_position, 1.0f)).xyz;
+    vsOut.uv        = mul(obj.uvMat, float4(vin.a_texcoord, 0.0f, 1.0f)).xy;
+    vsOut.normal    = normalize(mul(normalMat, vin.a_normal));
+    vsOut.tangent   = normalize(mul(normalMat, vin.a_tangent.xyz));
+    // Bitangent reconstructed as cross(tangent, normal) * handedness — keeps
+    // exported handedness from the engine's tangent.w convention.
+    vsOut.bitangent = normalize(mul(normalMat,
+                                    cross(vin.a_tangent.xyz, vin.a_normal) * vin.a_tangent.w));
+    vsOut.color     = vin.a_color;
+    vsOut.objectId  = instanceId;
+    vsOut.posH      = mul(modelViewPrj, float4(vin.a_position, 1.0f));
     return vsOut;
 }

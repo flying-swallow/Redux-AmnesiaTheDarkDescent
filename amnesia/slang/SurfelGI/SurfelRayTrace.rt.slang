@@ -146,7 +146,7 @@ void traceScatterRay(inout ScatterPayload scatterPayload)
     TraceRay(
         gRtAccel,
         RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
-        0xff,
+        kRayMaskOpaque,
         0, /* hitIdx */
         1, /* rayTypeCount (scatter only — shadow uses inline RayQuery) */
         0, /* missIdx */
@@ -283,7 +283,12 @@ bool finalize(inout ScatterPayload scatterPayload, const VertexData v, const Tri
     if (Lr.w <= 0.f)
     {
         // Reserve a sleeping surfel in this cell when below the spawn cap.
-        if (cellInfo.surfelCount < 8u)
+        // Bail before any atomic counter touches if the committed hit's
+        // instanceID is out of the bindless slot table — capturing
+        // gBindlessSlotGeneration[triangleHit.instanceID] below would feed
+        // collectCellInfo an anchor that GPUVM-faults next frame.
+        if (cellInfo.surfelCount < 8u &&
+            triangleHit.instanceID < kObjectSlotCapacity)
         {
             uint reservedCount;
             InterlockedAdd(gSurfelReservationBuffer[flattenIndex], 1u, reservedCount);
@@ -310,9 +315,10 @@ bool finalize(inout ScatterPayload scatterPayload, const VertexData v, const Tri
                         recycle.status = 1; // sleeping
                         gSurfelRecycleInfoBuffer[newIndex] = recycle;
                         gSurfelGeometryBuffer[newIndex] = triangleHit.pack();
-                        // Capture the anchor slot's current generation so
-                        // collectCellInfo can invalidate this surfel if the slot is
-                        // later reassigned to different geometry.
+                        // Capture the anchor slot's current generation
+                        // (instanceID bounded above) so collectCellInfo can
+                        // invalidate this surfel if the slot is later
+                        // reassigned to different geometry.
                         gSurfelSlotGeneration[newIndex] = gBindlessSlotGeneration[triangleHit.instanceID];
                         gSurfelRefCounter[newIndex] = 1u;
                     }

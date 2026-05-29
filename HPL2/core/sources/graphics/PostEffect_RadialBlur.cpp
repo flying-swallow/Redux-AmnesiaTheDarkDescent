@@ -95,7 +95,7 @@ void cPostEffect_RadialBlur::RenderEffect(const PostEffectRenderCtx &ctx) {
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     PostEffectPipelineState state{};
-    InitPostEffectPipelineState(state, VK_FORMAT_R8G8B8A8_UNORM, false);
+    InitPostEffectPipelineState(state, RIBootstrap::PogoColorFormatVk, false);
 
     const hash_t pipelineHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
     mpRadialBlurType->m_program.bindPipeline(&RI.device, ctx.cmd, pipelineHash,

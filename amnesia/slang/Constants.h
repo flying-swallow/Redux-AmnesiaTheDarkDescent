@@ -68,6 +68,9 @@ SHARED_CONST uint kBindingBindlessSlotGeneration      = 38u;  // per object slot
 SHARED_CONST uint kBindingSurfelSlotGeneration        = 39u;  // per surfel: anchor-slot generation captured at spawn (kTotalSurfelLimit)
 SHARED_CONST uint kBindingLightGridCount              = 40u;  // RWStructuredBuffer<uint> (kLightGridCellCount) — world-space light grid
 SHARED_CONST uint kBindingLightGridList               = 41u;  // RWStructuredBuffer<uint> (kLightGridCellCount * kLightsPerCellMax)
+SHARED_CONST uint kBindingFogAreas                    = 42u;  // RWStructuredBuffer<FogAreaParams> — per-fog-area screen-space iteration
+SHARED_CONST uint kBindingPackedRefractionHitInfo     = 43u;  // RGBA32UI storage image — refracted-bounce V-buffer
+SHARED_CONST uint kBindingPackedReflectionHitInfo     = 44u;  // RGBA32UI storage image — reflected-bounce V-buffer
 
 // -----------------------------------------------------------------------------
 // Bindless pool capacities + sentinel.
@@ -86,19 +89,55 @@ SHARED_CONST uint kMaterialSlotCapacity      = 16384u;
 SHARED_CONST uint kPointSlotLightCapacity    = 256u;
 SHARED_CONST uint kSpotSlotLightCapacity     = 256u;
 SHARED_CONST uint kBoxSlotLightCapacity      = 256u;
+SHARED_CONST uint kFogAreaCapacity           = 32u;
 SHARED_CONST uint kInvalidTextureIndex       = 0xffffffffu;
 
 // -----------------------------------------------------------------------------
+// TLAS instance-mask categories. Each TLAS instance picks one (or more) of
+// these bits; each TraceRay / TraceRayInline passes a cull mask of the
+// categories it wants to hit. instance.mask & ray.cullMask must be non-zero
+// for a hit to be considered. Translucents joined the TLAS in the same
+// commit that added the mesh translucent / refraction-bounce path, and the
+// surfel indirect-lighting path tracer must not bounce off them — sampling
+// a translucent's shared DiffuseMaterial slot (no albedo texture, no solid
+// scalars) feeds NaN into rayResult.radiance, which poisons surfel.radiance
+// via MSME and surfaces as NaN in SurfelGenerationPass gOutput.
+SHARED_CONST uint kRayMaskOpaque             = 0x01u;
+SHARED_CONST uint kRayMaskTranslucent        = 0x02u;
+SHARED_CONST uint kRayMaskAll                = 0xffu;
+
+// -----------------------------------------------------------------------------
 // Material-config flag bits packed into DiffuseMaterial.materialConfig by the
-// host (CreateMaterailConfigFlags). MIRROR of the TextureConfigFlags enum in
-// HPL2/core/include/graphics/MaterialResource.h — keep the two in sync. Shaders
-// gate optional shading (e.g. the GGX specular lobe) on these; e.g.
+// host (CreateMaterailConfigFlags in MaterialResource.cpp). Single source of
+// truth shared with C++ via the SHARED_CONST macro — there is no separate
+// enum on the host side; MaterialResource.cpp consumes these directly.
+// Shaders gate optional shading (e.g. the GGX specular lobe) on these; e.g.
 // `(m.materialConfig & kMaterialFlagEnableSpecular) != 0u`.
 // -----------------------------------------------------------------------------
-SHARED_CONST uint kMaterialFlagEnableNormal   = 1u << 1;
-SHARED_CONST uint kMaterialFlagEnableSpecular = 1u << 2;
-SHARED_CONST uint kMaterialFlagEnableHeight   = 1u << 4;
-SHARED_CONST uint kMaterialFlagEnableCubeMap  = 1u << 6;
+SHARED_CONST uint kMaterialFlagEnableDiffuse            = 1u << 0;
+SHARED_CONST uint kMaterialFlagEnableNormal             = 1u << 1;
+SHARED_CONST uint kMaterialFlagEnableSpecular           = 1u << 2;
+SHARED_CONST uint kMaterialFlagEnableAlpha              = 1u << 3;
+SHARED_CONST uint kMaterialFlagEnableHeight             = 1u << 4;
+SHARED_CONST uint kMaterialFlagEnableIllumination       = 1u << 5;
+SHARED_CONST uint kMaterialFlagEnableCubeMap            = 1u << 6;
+SHARED_CONST uint kMaterialFlagEnableDissolveAlpha      = 1u << 7;
+SHARED_CONST uint kMaterialFlagEnableCubeMapAlpha       = 1u << 8;
+SHARED_CONST uint kMaterialFlagIsHeightMapSingleChannel = 1u << 9;   // parallax samples .r vs .a
+SHARED_CONST uint kMaterialFlagIsAlphaSingleChannel     = 1u << 10;
+// Water surface — drives the SurfelVBuffer.rt wave-animated refraction +
+// reflection bounce and the GIRenderPass refraction swap (water also sets
+// HasRefraction). Not a texture-presence flag; set host-side per MaterialID.
+// Bit 11 is free (12/13 unused, 14/15/16 are the refraction/dissolve bits).
+SHARED_CONST uint kMaterialFlagIsWater                  = 1u << 11;
+// Bit 14 is solid-diffuse UseDissolveFilter aliased with translucent
+// UseRefractionNormals — safe because the two material variants never share
+// a draw call. Keep both names so the host populates either flag against the
+// same bit per material kind.
+SHARED_CONST uint kMaterialFlagUseDissolveFilter        = 1u << 14;
+SHARED_CONST uint kMaterialFlagUseRefractionNormals     = 1u << 14;
+SHARED_CONST uint kMaterialFlagUseRefractionEdgeCheck   = 1u << 15;
+SHARED_CONST uint kMaterialFlagHasRefraction            = 1u << 16;
 
 // -----------------------------------------------------------------------------
 // Surfel-GI capacities + cell-grid sizing.
@@ -221,17 +260,29 @@ SHARED_CONST uint  kDefaultMaxStep              = 6u;
 // Integrate.
 SHARED_CONST float kDefaultShortMeanWindow      = 0.03f;
 
+// determins the strenght of the wave intensity
+SHARED_CONST float kWaterRefractionIntensity = 1.0f;
+SHARED_CONST float kWaterReflectionIntensity = 0.5f;
+
+// Brightness multiplier for the water refraction/reflection bounce radiance.
+// The RT bounces are re-shaded (NEE direct + surfel indirect + emission), which
+// reads dimmer than the base game's fully-lit framebuffer/cubemap sample; this
+// lifts them back toward that brightness. 1.0 = raw re-shade.
+SHARED_CONST float kWaterBounceExposure = 2.0f;
+
+// How much wave turbulence the REFLECTION bounce normal keeps (the refraction
+// bounce always uses the full wave normal). The RT reflection is a sharp mirror
+// trace; blending its normal back toward the flat surface normal calms the
+// ripples so it reads more like a mirror and less turbulent. 0 = perfect
+// mirror, 1 = full wave distortion.
+SHARED_CONST float kWaterReflectionTurbulence = 0.3f;
+
 // Evaluation overlay (SurfelEvaluationPass). 0 = normal indirect lighting.
 // Non-zero values render diagnostic visualizations:
 //   1 = variance, 2 = ray count, 3 = ref count, 4 = life, 5 = coverage.
 // Flip in source and recompile shaders to enable a debug overlay; no
 // runtime UI hook exists yet.
 SHARED_CONST uint  kDefaultOverlayMode          = 0u;
-
-// SurfelUpdate "lock surfel" debug toggle. 0 = normal (surfels reposition
-// + reallocate rays each frame), 1 = freeze placement + ray allocation
-// for snapshot debugging. Flip in source and recompile to use.
-SHARED_CONST uint  kDefaultLockSurfel           = 0u;
 
 // SurfelGIRenderPass per-component toggles. 0 = skip that term, 1 = add
 // it. The host used to drive these via a per-pass CB (SurfelGIRenderCB);

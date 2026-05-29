@@ -25,7 +25,14 @@
 
 namespace hpl {
 
-template <class T> 	class cMatrix {
+// alignas(16): Newton's dgVector/dgMatrix are declared __attribute__((aligned(16)))
+// and its SIMD path uses aligned moves (_mm_store_ps / movaps). HPL hands these
+// matrices straight to the Newton C API (e.g. NewtonCollisionCollide takes
+// &mtx.m[0][0]), which reinterpret-casts the pointer to dgMatrix& and copies it.
+// Clang honors that declared alignment and emits movaps, so an under-aligned
+// cMatrixf faults (SIGSEGV in dgWorld::Collide). Aligning the type to 16 makes
+// HPL honor Newton's contract; sizeof is unchanged (64 bytes for cMatrixf).
+template <class T> 	class alignas(16) cMatrix {
 	public:
 	//The ways to reference the matrix
 	//format is [row][col]

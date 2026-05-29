@@ -8,10 +8,11 @@ A Visual Studio solution ([`Amnesia.sln`](Amnesia.sln)) is also shipped as an al
 
 One script per platform — pick the one matching your host:
 
-| Host                 | Command                       |
-| -------------------- | ----------------------------- |
-| Linux                | `./build-linux.sh`            |
-| Windows (PowerShell) | `.\build-windows.ps1`         |
+| Host                  | Command                       |
+| --------------------- | ----------------------------- |
+| Linux                 | `./build-linux.sh`            |
+| Linux (containerized) | `./build-linux-docker.sh`     |
+| Windows (PowerShell)  | `.\build-windows.ps1`         |
 
 Both default to a release build, init submodules on first run, configure CMake, build, and stage assets via the `deploy` target. Output ends up in `build/bin/`.
 
@@ -59,6 +60,40 @@ Examples:
 ```
 
 The script invokes plain CMake with `-DCMAKE_BUILD_TYPE=<Release|Debug>` and forwards any args after `--` straight to the configure step.
+
+### Containerized build (`build-linux-docker.sh`)
+
+`build-linux-docker.sh` runs `build-linux.sh` inside an Ubuntu 24.04 container so the build doesn't need host-installed dev libraries. The image is defined by [`Dockerfile`](Dockerfile) at the repo root and includes everything the in-tree builds of SDL2, openal-soft, and the HPL2 engine pull in via `#include`.
+
+Works with either Docker or rootless Podman (auto-detected via `command -v podman`; force one with `AMNESIA_DOCKER_RUNTIME=podman|docker`). All args are forwarded to `build-linux.sh` unchanged:
+
+```bash
+./build-linux-docker.sh                                # release
+./build-linux-docker.sh debug --clean
+./build-linux-docker.sh release --game-dir "$HOME/.steam/steam/steamapps/common/Amnesia The Dark Descent" --no-deploy
+```
+
+The project tree is bind-mounted at its **real host path** inside the container, so `build/`, `compile_commands.json`, and the source paths recorded in `CMakeCache.txt` line up between containerized and native runs — you can switch between `./build-linux.sh` and the wrapper without `--clean` (though the first switch is worth wiping `build/` to avoid `.o` files compiled against a different libstdc++).
+
+The `--game-dir` path (or the `AMNESIA_GAME_DIRECTORY` env var) is automatically bind-mounted at the same host path inside the container so the `deploy` target can stage binaries straight into the game folder. Use `--no-deploy` if you don't have the game installed.
+
+#### Exposing host tools to the container
+
+Anything outside the project tree — e.g. a locally-built `slangc` — has to be bind-mounted explicitly via `AMNESIA_DOCKER_MOUNTS` (colon-separated host paths; each is mounted at the same path inside, so cmake args referencing host paths "just work"):
+
+```bash
+AMNESIA_DOCKER_MOUNTS=/home/me/projects/slang \
+    ./build-linux-docker.sh release \
+    -- -DSLANGC_EXECUTABLE=/home/me/projects/slang/build/Release/bin/slangc
+```
+
+#### Rootless Podman: cleaning a `build/` owned by a subuid
+
+Rootless podman maps your host uid → container root. The wrapper relies on this and does **not** pass `--user` in podman mode. If you have a `build/` directory left over from a wrapper version that did pass `--user` (or from any other process running as a different uid), it'll contain files owned by a subuid your host shell can't touch. Wipe it via `podman unshare`:
+
+```bash
+podman unshare rm -rf build/
+```
 
 ## 4. `build-windows.ps1`
 

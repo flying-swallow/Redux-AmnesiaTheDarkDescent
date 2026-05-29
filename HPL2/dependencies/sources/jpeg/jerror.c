@@ -24,6 +24,9 @@
 #endif
 
 #include <stdlib.h> // _exit
+#ifndef _WIN32
+#include <unistd.h> // POSIX _exit
+#endif
 
 /* this is not a core library module, so it doesn't define JPEG_INTERNALS */
 #include "jinclude.h"

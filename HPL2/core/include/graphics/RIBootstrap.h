@@ -28,6 +28,18 @@ public:
   static constexpr RI_Format_e VisibilityFormat = RI_FORMAT_RGBA32_UINT;
   static constexpr RI_Format_e DepthFormat = RI_FORMAT_D32_SFLOAT;
 
+  // HDR format for the pogo ping-pong buffer and every post-effect
+  // intermediate target / pipeline color attachment that feeds it. The
+  // SurfelGI composite + bloom keep linear values >1 here (the swapchain is
+  // 16-bit linear scRGB); all these targets must share one format or Vulkan
+  // raises an attachment-format mismatch — so this is the single source.
+  // `PogoColorFormat` (RI) and `PogoColorFormatVk` (Vulkan) are the same
+  // format in the two type vocabularies the call sites use; keep in lockstep.
+  static constexpr RI_Format_e PogoColorFormat = RI_FORMAT_RGBA16_SFLOAT;
+#if (DEVICE_IMPL_VULKAN)
+  static constexpr VkFormat PogoColorFormatVk = VK_FORMAT_R16G16B16A16_SFLOAT;
+#endif
+
 
   explicit RIBootstrap() {
 

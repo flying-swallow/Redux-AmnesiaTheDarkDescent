@@ -112,14 +112,13 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         m_accum.height != ctx.height) {
         DestroyPostEffectColorTarget(m_accum);
         CreatePostEffectColorTarget(m_accum, ctx.width, ctx.height,
-                                    VK_FORMAT_R8G8B8A8_UNORM, 0u,
+                                    RIBootstrap::PogoColorFormatVk, 0u,
                                     "PostEffect_ImageTrail.accum");
         mbClearAccum = true;
     }
 
-    const RI_Format_e imageTrailFormat = RI_FORMAT_RGBA8_UNORM;
-    const VkFormat imageTrailVkFormat = RIFormatToVK(imageTrailFormat);
-    assert(imageTrailVkFormat == VK_FORMAT_R8G8B8A8_UNORM);
+    const RI_Format_e imageTrailFormat = RIBootstrap::PogoColorFormat;
+    const VkFormat imageTrailVkFormat = RIBootstrap::PogoColorFormatVk;
 
     VkViewport viewport = { 0.0f, 0.0f, static_cast<float>(ctx.width), static_cast<float>(ctx.height), 0.0f, 1.0f };
     VkRect2D scissor = { {0, 0}, {ctx.width, ctx.height} };

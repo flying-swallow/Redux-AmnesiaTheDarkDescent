@@ -91,9 +91,9 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
     // Without a valid LUT there's nothing useful to render — let the
     // composite skip our pogo half by drawing a passthrough blit. The
     // simplest passthrough is to just copy the input straight into the
-    // output via vkCmdBlitImage (the formats match: RGBA8_UNORM on both
-    // sides). This keeps the composite chain consistent even when the
-    // LUT failed to load.
+    // output via vkCmdBlitImage (the formats match: both pogo halves share
+    // RIBootstrap::PogoColorFormat). This keeps the composite chain
+    // consistent even when the LUT failed to load.
     if (!mpColorConvTex || !mpColorConvTex->GetTexture() ||
         !mpColorConvTex->GetTexture()->binding.texture) {
         return;
@@ -127,7 +127,7 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     PostEffectPipelineState state{};
-    InitPostEffectPipelineState(state, VK_FORMAT_R8G8B8A8_UNORM, false);
+    InitPostEffectPipelineState(state, RIBootstrap::PogoColorFormatVk, false);
 
     const hash_t pipelineHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
     mpSpecificType->m_program.bindPipeline(&RI.device, ctx.cmd, pipelineHash,

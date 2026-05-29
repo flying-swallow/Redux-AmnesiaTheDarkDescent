@@ -162,7 +162,7 @@ namespace hpl {
 		backendInit.api = RI_DEVICE_API_VK;
 		backendInit.applicationName = "HPL2";
 #ifndef NDEBUG
-		backendInit.vk.enableValidationLayer = true;
+    backendInit.vk.enableValidationLayer = false;
 #else
 		backendInit.vk.enableValidationLayer = false;
 #endif
@@ -310,7 +310,10 @@ namespace hpl {
 				// format — instId/primId/barycentrics now encode everything the
 				// surfel and lighting passes need, so RIBootstrap::NormalFormat /
 				// normalTexture / normalView no longer exist.
-				RI_PogoBufferInit( &RI.device, &RI.pogoBuffer[i], RI.swapchain.width, RI.swapchain.height, RI_FORMAT_RGBA8_UNORM );
+				// HDR pogo (RIBootstrap::PogoColorFormat) so the GI composite +
+				// post-effect chain keep linear values >1 (the swapchain is
+				// 16-bit linear scRGB); RGBA8_UNORM here clamped to [0,1] + banded.
+				RI_PogoBufferInit( &RI.device, &RI.pogoBuffer[i], RI.swapchain.width, RI.swapchain.height, RIBootstrap::PogoColorFormat );
 			}
 		}
 
