@@ -172,6 +172,9 @@ public RWStructuredBuffer<SpotLight> gSpotLights;
 [vk::binding(kBindingBoxLights, 0)]
 public RWStructuredBuffer<BoxLight> gBoxLights;
 
+[vk::binding(kBindingFogAreas, 0)]
+public RWStructuredBuffer<FogAreaParams> gFogAreas;
+
 // -----------------------------------------------------------------------------
 // Surfel V-buffer + irradiance / depth atlases. Written by SurfelVBuffer,
 // consumed by SurfelGI integrate / evaluation / generation passes.
@@ -198,6 +201,34 @@ public RWStructuredBuffer<BoxLight> gBoxLights;
 // -----------------------------------------------------------------------------
 [vk::binding(kBindingPackedHitInfo, 1)]
 public RWTexture2D<uint4> gPackedHitInfo;
+
+// Per-bounce V-buffers written by SurfelVBuffer.rt.slang. closeHit routes
+// the secondary hit by payload.kind into one of these instead of clobbering
+// gPackedHitInfo, so the primary surface stays intact for surfel placement
+// + GI shading and downstream passes (Translucent.frag, GIRenderPass)
+// can blend the refracted / reflected contribution on top using the
+// source-surface material.
+//
+// Packed layout matches gPackedHitInfo for .xyz; .w high bits carry the
+// **source** instanceID (the glass / mirror that bent the ray) so a
+// consumer can look up its DiffuseMaterial without needing a separate
+// ID texture. Bit 0 of .w doubles as the valid flag (per-frame clear =
+// uint4(0) → invalid → "no bounce here"). Use getBounceSourceInstanceID
+// below to decode.
+[vk::binding(kBindingPackedRefractionHitInfo, 1)]
+public RWTexture2D<uint4> gPackedRefractionHitInfo;
+
+[vk::binding(kBindingPackedReflectionHitInfo, 1)]
+public RWTexture2D<uint4> gPackedReflectionHitInfo;
+
+// Decode helper for the .w slot in the bounce V-buffers. Returns
+// kInvalidInstanceID (0xffffu) when the pixel has no bounce (per-frame
+// clear) or when called on a primary-hit packed value (whose .w is 0).
+public uint getBounceSourceInstanceID(uint4 packed)
+{
+    if ((packed.w & 1u) == 0u) return 0xffffu;
+    return (packed.w >> 1) & 0xffffu;
+}
 
 [vk::binding(kBindingIrradianceMap, 1)]
 public RWTexture2D<float> gIrradianceMap;

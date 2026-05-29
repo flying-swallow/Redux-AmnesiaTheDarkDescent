@@ -46,31 +46,38 @@ void csMain(
     }
     GroupMemoryBarrierWithGroupSync();
 
+    // No early return. Threads off-screen / without a valid V-buffer hit /
+    // off the surfel grid are flagged inactive but stay resident so every
+    // thread in the workgroup reaches the post-loop
+    // GroupMemoryBarrierWithGroupSync below. Early-returning here is HLSL UB
+    // (divergent barrier) and on RADV/AMD hardware reliably hangs the GPU —
+    // exactly the regression that motivated this guard.
     uint2 resolution = uint2(gPerFrame.viewportSize);
-    uint2 pixelPos   = dispatchThreadId.xy;
+    bool  active     = (dispatchThreadId.x < resolution.x &&
+                        dispatchThreadId.y < resolution.y);
 
-    // Stage 2: no early return. Threads with no valid hit / off-grid cell are
-    // flagged inactive but stay resident so every thread reaches the group
-    // barriers and helps the cooperative LDS loads. (The original returned
-    // here, which also left the post-loop GroupMemoryBarrier in divergent
-    // control flow — flattening it removes that latent hazard too.)
-    bool   active    = (dispatchThreadId.x < resolution.x && dispatchThreadId.y < resolution.y);
+    uint2 pixelPos   = dispatchThreadId.xy;
     float3 cameraPos = gScene.camera.getPosition();
     float  fovy      = gPerFrame.cameraFov;
 
     RNG randomState;
     randomState.init(pixelPos, gPerFrame.totalFrames);
 
-    HitInfo hitInfo;
+    // Resolve the hit to a world-space vertex + cell — mirrors
+    // SurfelEvaluationPass. Without this, cellInfo.surfelCount stays 0, the
+    // gather loop never runs, indirectLighting.w stays 0, and the `if
+    // (indirectLighting.w > 0)` block (the only writer of gOutput) is skipped
+    // for every pixel. Stays inside the `active` guard so off-screen threads
+    // don't dereference gPackedHitInfo / gScene with invalid pixel coords.
+    HitInfo  hitInfo;
     hitInfo.packed = uint4(0u, 0u, 0u, 0u);
     VertexData v        = {};
     float      depth    = 0.f;
     CellInfo   cellInfo = { 0u, 0u };
-    uint       myFlatten = 0u;   // set for valid pixels below; only used to fetch cellInfo
 
     if (active)
     {
-        hitInfo.packed = gPackedHitInfo[pixelPos];
+        hitInfo = HitInfo(gPackedHitInfo[pixelPos]);
         if (!hitInfo.isValid())
         {
             active = false;
@@ -92,11 +99,12 @@ void csMain(
 
             int3 cellPos = getCellPos(v.posW, cameraPos, kCellUnit);
             if (!isCellValid(cellPos))
+            {
                 active = false;
+            }
             else
             {
-                myFlatten = getFlattenCellIndex(cellPos);
-                cellInfo  = gCellInfoBuffer[myFlatten];
+                cellInfo = gCellInfoBuffer[getFlattenCellIndex(cellPos)];
             }
         }
     }
@@ -120,8 +128,7 @@ void csMain(
     // each thread reads the compact SurfelBounds cull record and only pulls the
     // full Surfel for survivors. No groupshared streaming or leader election —
     // LDS stays at the two election words above, so occupancy stays high.
-    // Inactive threads (no valid hit / off-grid cell) skip the loop but still
-    // reach the group barrier below.
+    // Inactive threads skip the loop but still reach the group barrier below.
     if (active)
     {
         for (uint i = 0u; i < cellInfo.surfelCount; ++i)
@@ -169,7 +176,7 @@ void csMain(
                         #endif
 
                         indirectLighting += float4(surfel.radiance, 1.f) * contribution
-                                          * smoothstep(0, kDefaultBlendingDelay, surfelRecycleInfo.frame);
+                                            * smoothstep(0, kDefaultBlendingDelay, surfelRecycleInfo.frame);
 
                         float varLen = length(surfel.msmeData.variance);
                         varianceEx += varLen * contribution;
@@ -191,12 +198,11 @@ void csMain(
                 }
             }
         }
-    }
 
-    // Per-pixel output + tile-wide election — active threads only (the original
-    // reached this only for valid pixels).
-    if (active)
-    {
+        // Per-pixel output + tile-wide election — active threads only (the
+        // original reached this only for valid pixels). Inactive threads would
+        // contribute coverage=0 to the InterlockedMin and could win the
+        // election with garbage state, so they must abstain.
         if (indirectLighting.w > 0)
         {
             indirectLighting.xyz /= indirectLighting.w;
@@ -224,6 +230,7 @@ void csMain(
         contribData |= ((maxContributionSurfelIndex & 0x0000FFFF) << 0);
         InterlockedMax(groupShareMaxContribution, contribData);
     }
+
     GroupMemoryBarrierWithGroupSync();
 
     uint  electedData     = groupShareMinCoverage;
@@ -235,7 +242,14 @@ void csMain(
     {
         if (groupThreadID.x == x && groupThreadID.y == y)
         {
-            if (electedCoverage <= kDefaultPlacementThreshold)
+            // Skip the spawn entirely if the cached primary hit's instanceID is
+            // outside the bindless slot table. The spawn is the source of the
+            // anchor that collectCellInfo will dereference next frame against
+            // gBindlessSlotGeneration[hit.instanceID]; an OOB anchor would
+            // GPUVM-fault there. Bailing here keeps the free / valid counters
+            // untouched too.
+            if (electedCoverage <= kDefaultPlacementThreshold &&
+                hitInfo.packed.x < kObjectSlotCapacity)
             {
                 const float chance = pow(depth, kDefaultChancePower);
                 if (randomState.next_float() < chance * kDefaultChanceMultiply)
@@ -267,8 +281,9 @@ void csMain(
                             gSurfelRecycleInfoBuffer[newIndex] = { kMaxLife, 0u, 0u };
                             gSurfelGeometryBuffer[newIndex] = hitInfo.packed;
                             // Capture the anchor slot's current generation (packed.x is the
-                            // instanceID). collectCellInfo invalidates this surfel if the slot
-                            // is later reassigned to different geometry.
+                            // instanceID, already bounded above). collectCellInfo invalidates
+                            // this surfel if the slot is later reassigned to different
+                            // geometry.
                             gSurfelSlotGeneration[newIndex] = gBindlessSlotGeneration[hitInfo.packed.x];
                             gSurfelRefCounter[newIndex] = 0u;
                         }

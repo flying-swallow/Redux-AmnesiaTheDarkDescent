@@ -1,15 +1,18 @@
 #include "graphics/HybridRenderer.h"
 #include "graphics/RITypes.h"
 
+#include "graphics/GBufferMRTPipelineDesc.h"
 #include "graphics/GraphicUtils.h"
 #include "graphics/Graphics.h"
 #include "graphics/Image.h"
 #include "graphics/Material.h"
 #include "graphics/MaterialResource.h"
 #include "graphics/MaterialType.h"
+#include "graphics/ParticlePipelineDesc.h"
 #include "graphics/PostEffectComposite.h"
 #include "graphics/PostEffectHelpers.h"
 #include "graphics/RIBootstrap.h"
+#include "graphics/TranslucentMeshPipelineDesc.h"
 #include "graphics/RIPogoBuffer.h"
 #include "graphics/RIProgramHelpers.h"
 #include "graphics/RIResourceUploader.h"
@@ -22,6 +25,7 @@
 #include "math/Math.h"
 
 #include "resources/Resources.h"
+#include "scene/FogArea.h"
 #include "scene/Light.h"
 #include "scene/LightBox.h"
 #include "scene/LightSpot.h"
@@ -49,7 +53,6 @@ static inline float sRGBToLinear(float c) {
   if (c <= 0.04045f) return c / 12.92f;
   return std::pow((c + 0.055f) / 1.055f, 2.4f);
 }
-
 
 static struct RIBuffer_s CreateBindlessSlotBuffer(RIDevice_s *device,
                                                   uint32_t slotCount,
@@ -85,269 +88,6 @@ static struct RIBuffer_s CreateBindlessSlotBuffer(RIDevice_s *device,
 
 } // namespace detail
 
-namespace {
-
-// Holder for the static portion of the "SurfelGBuffer.3d"
-// VkGraphicsPipelineCreateInfo. Owns every sub-struct so the pointer
-// chain stays valid as long as the holder lives. Non-copyable /
-// non-movable - the pNext / pXxxState pointers would dangle.
-struct GBufferMRTPipelineDesc {
-  VkPipelineVertexInputStateCreateInfo vertexInputState;
-  VkPipelineInputAssemblyStateCreateInfo inputAssemblyState;
-  VkPipelineRasterizationStateCreateInfo rasterizationState;
-  VkDynamicState dynamicStates[2];
-  VkPipelineDynamicStateCreateInfo dynamicState;
-  VkFormat colorFormat;
-  VkPipelineRenderingCreateInfo pipelineRendering;
-  VkPipelineViewportStateCreateInfo viewportState;
-  VkPipelineMultisampleStateCreateInfo multisampleState;
-  VkPipelineDepthStencilStateCreateInfo depthStencilState;
-  VkPipelineColorBlendAttachmentState blendAttachment;
-  VkPipelineColorBlendStateCreateInfo colorBlendState;
-  VkGraphicsPipelineCreateInfo createInfo;
-  hash_t hash;
-
-  GBufferMRTPipelineDesc(RI_Format_e visibilityFormat, RI_Format_e depthFormat) {
-    // VS pulls all per-vertex data via buffer_reference from set 0 SSBOs,
-    // so the pipeline declares zero vertex input bindings and attributes.
-    vertexInputState = {
-        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    vertexInputState.vertexBindingDescriptionCount = 0;
-    vertexInputState.pVertexBindingDescriptions = nullptr;
-    vertexInputState.vertexAttributeDescriptionCount = 0;
-    vertexInputState.pVertexAttributeDescriptions = nullptr;
-
-    inputAssemblyState = {
-        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    rasterizationState = {
-        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-    rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizationState.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterizationState.frontFace = VK_FRONT_FACE_CLOCKWISE;
-    rasterizationState.lineWidth = 1.0f;
-
-    dynamicStates[0] = VK_DYNAMIC_STATE_VIEWPORT;
-    dynamicStates[1] = VK_DYNAMIC_STATE_SCISSOR;
-    dynamicState = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-    dynamicState.dynamicStateCount = ARRAY_COUNT(dynamicStates);
-    dynamicState.pDynamicStates = dynamicStates;
-
-    // Single MRT — packed TriangleHit (uint4). The Slang psMain writes only
-    // SV_TARGET0; downstream consumers (visibility_shade.frag, surfel passes)
-    // decode the uint4 directly.
-    colorFormat = RIFormatToVK(visibilityFormat);
-    pipelineRendering = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    pipelineRendering.colorAttachmentCount = 1;
-    pipelineRendering.pColorAttachmentFormats = &colorFormat;
-    pipelineRendering.depthAttachmentFormat = RIFormatToVK(depthFormat);
-
-    viewportState = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-    viewportState.viewportCount = 1;
-    viewportState.scissorCount = 1;
-
-    multisampleState = {
-        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-    multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    depthStencilState = {
-        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    depthStencilState.depthTestEnable = VK_TRUE;
-    depthStencilState.depthWriteEnable = VK_TRUE;
-    depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-    depthStencilState.minDepthBounds = 0.0f;
-    depthStencilState.maxDepthBounds = 1.0f;
-
-    // uint MRT — blendEnable must be VK_FALSE (uint formats don't carry
-    // VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT). Factors stay identity.
-    blendAttachment = {
-        VK_FALSE,        VK_BLEND_FACTOR_ONE,     VK_BLEND_FACTOR_ZERO,
-        VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE,     VK_BLEND_FACTOR_ZERO,
-        VK_BLEND_OP_ADD,
-        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-            VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
-    colorBlendState = {
-        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    colorBlendState.attachmentCount = 1;
-    colorBlendState.pAttachments = &blendAttachment;
-
-    createInfo = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-    createInfo.pNext = &pipelineRendering;
-    createInfo.pVertexInputState = &vertexInputState;
-    createInfo.pInputAssemblyState = &inputAssemblyState;
-    createInfo.pRasterizationState = &rasterizationState;
-    createInfo.pDynamicState = &dynamicState;
-    createInfo.pViewportState = &viewportState;
-    createInfo.pMultisampleState = &multisampleState;
-    createInfo.pDepthStencilState = &depthStencilState;
-    createInfo.pColorBlendState = &colorBlendState;
-
-    hash = hash_u32(HASH_INITIAL_VALUE, visibilityFormat);
-    hash = hash_u32(hash, depthFormat);
-  }
-
-  GBufferMRTPipelineDesc(const GBufferMRTPipelineDesc &) = delete;
-  GBufferMRTPipelineDesc &operator=(const GBufferMRTPipelineDesc &) = delete;
-};
-
-
-// Pipeline descriptor for the particle (translucent) pass. One instance per
-// blend mode — the hardware blend factors come from the legacy
-// translucencyBlendTable mapping in RendererDeferred. Depth test is on but
-// depth write is off so particles sort against opaque geometry without
-// occluding each other in the wrong order. Cull mode is NONE because
-// particle billboards may face the camera either way; legacy renderer
-// behaves the same. No vertex input bindings — VS pulls via BDA from
-// opaque*Handles[].
-struct ParticlePipelineDesc {
-  VkPipelineVertexInputStateCreateInfo vertexInputState;
-  VkPipelineInputAssemblyStateCreateInfo inputAssemblyState;
-  VkPipelineRasterizationStateCreateInfo rasterizationState;
-  VkDynamicState dynamicStates[2];
-  VkPipelineDynamicStateCreateInfo dynamicState;
-  VkFormat colorFormats[1];
-  VkPipelineRenderingCreateInfo pipelineRendering;
-  VkPipelineViewportStateCreateInfo viewportState;
-  VkPipelineMultisampleStateCreateInfo multisampleState;
-  VkPipelineDepthStencilStateCreateInfo depthStencilState;
-  VkPipelineColorBlendAttachmentState blendAttachment;
-  VkPipelineColorBlendStateCreateInfo colorBlendState;
-  VkGraphicsPipelineCreateInfo createInfo;
-  hash_t hash;
-
-  enum BlendMode : uint32_t {
-    BLEND_ADD = 0,
-    BLEND_MUL = 1,
-    BLEND_MULX2 = 2,
-    BLEND_ALPHA = 3,
-    BLEND_PREMUL_ALPHA = 4,
-    BLEND_LAST_ENUM = 5,
-  };
-
-  ParticlePipelineDesc(RI_Format_e swapchainFormat, RI_Format_e depthFormat,
-                       BlendMode mode) {
-    vertexInputState = {
-        VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-    vertexInputState.vertexBindingDescriptionCount = 0;
-    vertexInputState.pVertexBindingDescriptions = nullptr;
-    vertexInputState.vertexAttributeDescriptionCount = 0;
-    vertexInputState.pVertexAttributeDescriptions = nullptr;
-
-    inputAssemblyState = {
-        VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
-    inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-    rasterizationState = {
-        VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO};
-    rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizationState.cullMode = VK_CULL_MODE_NONE;
-    rasterizationState.frontFace = VK_FRONT_FACE_CLOCKWISE;
-    rasterizationState.lineWidth = 1.0f;
-
-    dynamicStates[0] = VK_DYNAMIC_STATE_VIEWPORT;
-    dynamicStates[1] = VK_DYNAMIC_STATE_SCISSOR;
-    dynamicState = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
-    dynamicState.dynamicStateCount = ARRAY_COUNT(dynamicStates);
-    dynamicState.pDynamicStates = dynamicStates;
-
-    colorFormats[0] = RIFormatToVK(swapchainFormat);
-    pipelineRendering = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    pipelineRendering.colorAttachmentCount = 1;
-    pipelineRendering.pColorAttachmentFormats = colorFormats;
-    pipelineRendering.depthAttachmentFormat = RIFormatToVK(depthFormat);
-
-    viewportState = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
-    viewportState.viewportCount = 1;
-    viewportState.scissorCount = 1;
-
-    multisampleState = {
-        VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
-    multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-    depthStencilState = {
-        VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    depthStencilState.depthTestEnable = VK_TRUE;
-    depthStencilState.depthWriteEnable = VK_FALSE;
-    depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-    depthStencilState.minDepthBounds = 0.0f;
-    depthStencilState.maxDepthBounds = 1.0f;
-
-    // Match the legacy translucencyBlendTable mapping
-    // (RendererDeferred.cpp:3948-3954). The FS applies per-pixel color
-    // transforms that prepare its output for these hardware factors.
-    blendAttachment = {};
-    blendAttachment.blendEnable = VK_TRUE;
-    blendAttachment.colorWriteMask =
-        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-        VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-    blendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
-    blendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
-    switch (mode) {
-    case BLEND_ADD:
-      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      break;
-    case BLEND_MUL:
-      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO;
-      blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_SRC_COLOR;
-      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
-      blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      break;
-    case BLEND_MULX2:
-      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR;
-      blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_SRC_COLOR;
-      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      break;
-    case BLEND_ALPHA:
-      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-      blendAttachment.dstColorBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.dstAlphaBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      break;
-    case BLEND_PREMUL_ALPHA:
-      blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.dstColorBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-      blendAttachment.dstAlphaBlendFactor =
-          VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-      break;
-    default:
-      break;
-    }
-    colorBlendState = {
-        VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    colorBlendState.attachmentCount = 1;
-    colorBlendState.pAttachments = &blendAttachment;
-
-    createInfo = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
-    createInfo.pNext = &pipelineRendering;
-    createInfo.pVertexInputState = &vertexInputState;
-    createInfo.pInputAssemblyState = &inputAssemblyState;
-    createInfo.pRasterizationState = &rasterizationState;
-    createInfo.pDynamicState = &dynamicState;
-    createInfo.pViewportState = &viewportState;
-    createInfo.pMultisampleState = &multisampleState;
-    createInfo.pDepthStencilState = &depthStencilState;
-    createInfo.pColorBlendState = &colorBlendState;
-
-    hash = hash_u32(HASH_INITIAL_VALUE, swapchainFormat);
-    hash = hash_u32(hash, depthFormat);
-    hash = hash_u32(hash, (uint32_t)mode);
-  }
-
-  ParticlePipelineDesc(const ParticlePipelineDesc &) = delete;
-  ParticlePipelineDesc &operator=(const ParticlePipelineDesc &) = delete;
-};
-
-
-} // namespace
 
 cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     : iRenderer("Hybrid", apGraphics, apResources, 0),
@@ -439,6 +179,12 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       bindings.push_back(RIBindlessDescriptorSet::Binding{
           kBindingBoxLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
           kRtSharedStages, 0});
+      bindings.push_back(RIBindlessDescriptorSet::Binding{
+          kBindingFogAreas, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+          kRtSharedStages, 0});
+      bindings.push_back(RIBindlessDescriptorSet::Binding{
+          kBindingWaterMaterial, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+          kRtSharedStages, 0});
 
       // gSurfelDepthSampler stays on set 0 — it's an immutable sampler
       // that never collides with the in-flight frame. All other surfel
@@ -462,9 +208,9 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       // Storage-buffer pool budget: 6 opaque*Handles + 17 surfel/cell bindings
       // (kSurfelCellBindings, incl. kBindingSurfelBounds, the two slot-generation
       // buffers, and the two light-grid buffers) + 2 scene/material + 3 light
-      // SSBOs = 28. Round up to 29 for one slot of slack.
+      // SSBOs + 1 fog-area + 1 water-material = 30. Round up to 32 for slack.
       poolSizes[1] =
-          VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 29};
+          VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 32};
       // Two samplers: gMaterialSampler + gSurfelDepthSampler.
       poolSizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLER, 2};
 
@@ -595,6 +341,22 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, p_frag, "psMain"}};
       m_particle.initialize(&RI.device, stages, externalLayouts);
     }
+    {
+      // Translucent mesh pass (amnesia/slang/TranslucentPass). Shares
+      // externalLayouts with m_particle so the same bindless set / per-frame
+      // UBO bindings light up.
+      auto t_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
+                                               "Translucent.vert.spv");
+      auto t_frag = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
+                                               "Translucent.frag.spv");
+      std::array<RIProgram::ModuleStage, 2> stages = {
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, t_vert, "vsMain"},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, t_frag, "psMain"}};
+      m_translucentMesh.initialize(&RI.device, stages, externalLayouts);
+    }
+    // Water is no longer a raster pass — it's composited in
+    // SurfelGIRenderPass.frag (isWater branch) from the primary hit + the
+    // refraction / reflection bounce V-buffers.
     // Decal pass: no Slang port yet — legacy GLSL was wiped, dispatch
     // site below skips decals until the port lands.
 
@@ -804,6 +566,61 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bci, &aci,
                                     &m_boxLightBuffer.vk.buffer,
                                     &m_boxLightBuffer.vk.allocation, nullptr));
+
+      bci.size = (VkDeviceSize)kFogAreaCapacity * sizeof(FogAreaParams);
+      VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bci, &aci,
+                                    &m_fogAreaBuffer.vk.buffer,
+                                    &m_fogAreaBuffer.vk.allocation, nullptr));
+
+      // Default-value fallback vertex buffers for translucent renderables
+      // missing one or more streams (cBillboard, cBeam — see translucent
+      // loop). Each buffer's stride matches its binding slot in
+      // TranslucentMeshPipelineDesc; filled once below via the resource
+      // uploader. Reads from absent-stream renderables (no NormalMap
+      // material on billboards/beams) don't visually consume these values
+      // in Translucent.frag.slang.
+      bci.usage =
+          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+
+      struct FallbackSpec {
+        RIBuffer_s  *target;
+        uint32_t     componentsWritten;  // per vertex
+        uint32_t     stride;             // binding stride in TranslucentMeshPipelineDesc
+        float        value[4];           // pad unused components with 0
+      };
+      const FallbackSpec specs[] = {
+          {&m_translucentNormalFallback,  3, 12, {0.f, 0.f, 1.f, 0.f}},  // +Z
+          {&m_translucentTangentFallback, 4, 16, {1.f, 0.f, 0.f, 1.f}},  // +X, handedness +1
+          {&m_translucentColorFallback,   4, 16, {1.f, 1.f, 1.f, 1.f}},  // white
+          {&m_translucentUv0Fallback,     3, 12, {0.f, 0.f, 0.f, 0.f}},  // origin
+      };
+      for (const FallbackSpec &s : specs) {
+        bci.size = (VkDeviceSize)kTranslucentFallbackVerts *
+                   (VkDeviceSize)s.stride;
+        VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bci, &aci,
+                                      &s.target->vk.buffer,
+                                      &s.target->vk.allocation, nullptr));
+
+        RIResourceBufferTransaction_s trans = {};
+        trans.target = *s.target;
+        trans.size = (size_t)bci.size;
+        trans.offset = 0;
+        trans.vk.current_stage = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+        trans.vk.current_access = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+        trans.vk.post_stage = trans.vk.current_stage;
+        trans.vk.post_access = trans.vk.current_access;
+        RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+        uint8_t *dst = reinterpret_cast<uint8_t *>(trans.mapped.data);
+        // Zero the whole buffer so any pad bytes between strided entries
+        // are deterministic, then stamp the components per vertex.
+        std::memset(dst, 0, (size_t)bci.size);
+        for (uint32_t v = 0; v < kTranslucentFallbackVerts; ++v) {
+          float *fdst = reinterpret_cast<float *>(dst + (size_t)v * s.stride);
+          for (uint32_t c = 0; c < s.componentsWritten; ++c)
+            fdst[c] = s.value[c];
+        }
+        RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+      }
     }
 
     // Surfel-generation output image — one storage texture per swapchain
@@ -887,6 +704,57 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
       VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
                                       &m_packedHitInfoView[i].vk.image));
+    }
+
+    // Per-bounce V-buffers — same format / dims / usage as m_packedHitInfoTexture
+    // plus TRANSFER_DST so we can vkCmdClearColorImage them to uint4(0) at
+    // the start of each frame's RT pass. SurfelVBuffer.rt.slang's closeHit
+    // writes only the pixels whose primary hit was refractive / reflective;
+    // the rest stay at the cleared "invalid" sentinel.
+    {
+      struct PerBounceTarget {
+        RITexture_s     (&tex)[RI_MAX_SWAPCHAIN_IMAGES];
+        RITextureView_s (&view)[RI_MAX_SWAPCHAIN_IMAGES];
+      };
+      PerBounceTarget targets[2] = {
+          {m_packedRefractionHitInfoTexture, m_packedRefractionHitInfoView},
+          {m_packedReflectionHitInfoTexture, m_packedReflectionHitInfoView},
+      };
+      for (auto &t : targets) {
+        for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
+          uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
+          VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+          imgInfo.imageType = VK_IMAGE_TYPE_2D;
+          imgInfo.format = VK_FORMAT_R32G32B32A32_UINT;
+          imgInfo.extent = {m_surfelResultWidth, m_surfelResultHeight, 1};
+          imgInfo.mipLevels = 1;
+          imgInfo.arrayLayers = 1;
+          imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+          imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+          imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT |
+                          VK_IMAGE_USAGE_SAMPLED_BIT |
+                          VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+          imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+          VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
+                                         queueFamilies, RI_QUEUE_LEN);
+          imgInfo.pQueueFamilyIndices = queueFamilies;
+
+          VmaAllocationCreateInfo alloc = {};
+          alloc.usage = VMA_MEMORY_USAGE_AUTO;
+          VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imgInfo,
+                                       &alloc, &t.tex[i].vk.image,
+                                       &t.tex[i].vk.allocation, NULL));
+
+          VkImageViewCreateInfo viewInfo = {
+              VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+          viewInfo.image = t.tex[i].vk.image;
+          viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+          viewInfo.format = VK_FORMAT_R32G32B32A32_UINT;
+          viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+          VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
+                                          &t.view[i].vk.image));
+        }
+      }
     }
 
     // Surfel-ray irradiance atlas — single-channel R16F, 4096x4096 fits
@@ -975,6 +843,15 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     m_opaqueMaterialBuffer = detail::CreateBindlessSlotBuffer(
         &RI.device, kMaterialSlotCapacity, sizeof(DiffuseMaterial), kStorage,
         /*deviceLocalOnly*/ true);
+    // Parallel WaterMaterial SSBO — shares the m_materialBindless slot
+    // numbering, populated alongside DiffuseMaterial in resolveMaterial when
+    // the cMaterial's MaterialID is Water. Water.frag.slang reads
+    // gWaterMaterials[materialID] for wave / Fresnel / fade scalars and
+    // still falls through to gDiffuseMaterials[materialID] for the cube-map
+    // slot.
+    m_waterMaterialBuffer = detail::CreateBindlessSlotBuffer(
+        &RI.device, kMaterialSlotCapacity, sizeof(WaterMaterial), kStorage,
+        /*deviceLocalOnly*/ true);
 
     // Default linear/wrap sampler for all bindless texture fetches. The
     // engine's filter cache (RIBootstrap::resolve_filter_descriptor) hands
@@ -1047,6 +924,10 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
            kSpotSlotLightCapacity * sizeof(SpotLight)},
           {kBindingBoxLights, &m_boxLightBuffer,
            kBoxSlotLightCapacity * sizeof(BoxLight)},
+          {kBindingFogAreas, &m_fogAreaBuffer,
+           kFogAreaCapacity * sizeof(FogAreaParams)},
+          {kBindingWaterMaterial, &m_waterMaterialBuffer,
+           kMaterialSlotCapacity * sizeof(WaterMaterial)},
       };
 
       RIBindlessDescriptorSet::WriteBinding writes[std::size(ssbos) + 2] = {};
@@ -1181,6 +1062,15 @@ uint32_t cHybridRenderer::resolveMaterial(RIBootstrap::FrameContext *cntx,
     gpu.heightMapBias = desc.m_solid.m_heightMapBias;
     gpu.frenselBias = desc.m_solid.m_frenselBias;
     gpu.frenselPow = desc.m_solid.m_frenselPow;
+  } else if (desc.m_id == MaterialID::Translucent) {
+    // Translucent shares the DiffuseMaterial slot — Fresnel/rim/refraction
+    // scalars feed the cube-map reflection + screen-color refraction paths
+    // in Translucent.frag.slang.
+    gpu.frenselBias     = desc.m_translucent.m_frenselBias;
+    gpu.frenselPow      = desc.m_translucent.m_frenselPow;
+    gpu.refractionScale = desc.m_translucent.m_refractionScale;
+    gpu.rimLightMul     = desc.m_translucent.m_rimLightMul;
+    gpu.rimLightPow     = desc.m_translucent.m_rimLightPow;
   }
 
   hash_t cookie = hash_u64(HASH_INITIAL_VALUE, (uint64_t)(uintptr_t)mat);
@@ -1204,6 +1094,38 @@ uint32_t cHybridRenderer::resolveMaterial(RIBootstrap::FrameContext *cntx,
     trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
     RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
     std::memcpy(trans.mapped.data, &gpu, sizeof(gpu));
+    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+  }
+
+  // Water materials get a parallel WaterMaterial entry at the same slot so
+  // Water.frag.slang's gWaterMaterials[materialID] lookup lands on the
+  // wave / Fresnel / reflection-fade scalars authored for this material.
+  if (desc.m_id == MaterialID::Water) {
+    WaterMaterial water = {};
+    water.type            = MATERIAL_TYPE_WATER;
+    water.materialConfig  = gpu.materialConfig;
+    for (int i = 0; i < 8; ++i) water.tex[i] = gpu.tex[i];
+    water.refractionScale     = desc.m_water.m_refractionScale;
+    water.frenselBias         = desc.m_water.m_frenselBias;
+    water.frenselPow          = desc.m_water.m_frenselPow;
+    water.reflectionFadeStart = desc.m_water.m_reflectionFadeStart;
+    water.reflectionFadeEnd   = desc.m_water.m_reflectionFadeEnd;
+    water.waveSpeed           = desc.m_water.m_waveSpeed;
+    water.waveAmplitude       = desc.m_water.m_waveAmplitude;
+    water.waveFreq            = desc.m_water.m_waveFreq;
+
+    RIResourceBufferTransaction_s trans = {};
+    trans.target = m_waterMaterialBuffer;
+    trans.size = sizeof(WaterMaterial);
+    trans.offset = (size_t)req.id * sizeof(WaterMaterial);
+    trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
+                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                             VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    trans.vk.post_stage = trans.vk.current_stage;
+    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+    std::memcpy(trans.mapped.data, &water, sizeof(water));
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
   }
 
@@ -1277,6 +1199,35 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     retainGeometryBlas(staticContainer->GetRoot());
   }
 
+  // --------------------------------------------------------------------
+  // Per-frame prepare for every translucent renderable (particles + meshes
+  // + billboards + beams). UpdateGraphicsForFrame / UpdateGraphicsForViewport
+  // are the per-renderable hooks that recompute dynamic geometry — billboard
+  // camera-facing rotation, beam endpoint stretch, particle emitter step,
+  // etc. — and mark the VB dirty. SubmitToGPU then allocates vk.buffer on
+  // first call, re-uploads dirty streams, and rebuilds the BLAS; subsequent
+  // calls in the same frame are no-op via the generation check. Running this
+  // once here lets the TLAS-instance-build (refractive translucents), the
+  // particle raster pass, and the translucent mesh raster pass all consume
+  // already-prepared buffers without duplicating the per-renderable update.
+  //
+  // Must run BEFORE any vkCmdBeginRendering so the resource-uploader's
+  // pipeline barriers and BLAS-build cmds don't collide with a dynamic-
+  // rendering scope.
+  for (iRenderable *pObj :
+       m_rendererList.GetRenderableItems(eRenderListType_Translucent)) {
+    if (!pObj)
+      continue;
+    pObj->UpdateGraphicsForFrame(afFrameTime);
+    pObj->UpdateGraphicsForViewport(apFrustum, afFrameTime);
+    iVertexBuffer *pVB = pObj->GetVertexBuffer();
+    if (pVB) {
+      auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
+      vbri->SubmitToGPU(&RI.primary.cmds[0], &RI.device, cntx);
+      vbri->AttachResourceToCntx(cntx);
+    }
+  }
+
   SceneConstants perFrame{};
   std::memcpy(perFrame.viewMat, mainFrustumViewMat.a, sizeof(perFrame.viewMat));
   std::memcpy(perFrame.invViewMat, mainFrustumViewInvMat.a,
@@ -1293,14 +1244,34 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RI.swapchain.width ? 1.0f / (float)RI.swapchain.width : 0.0f;
   perFrame.viewTexel[1] =
       RI.swapchain.height ? 1.0f / (float)RI.swapchain.height : 0.0f;
-  perFrame.afT = afFrameTime;
+  // Accumulated animation time (iRenderer::mfTimeCount, advanced each frame in
+  // iRenderer::Update via cGraphics::Update) — NOT the per-frame delta. The
+  // water wave phase is afT * waveSpeed; feeding the delta froze the waves and
+  // jittered them with frametime variance (stutter-in-place). Matches the
+  // reference's afT = GetTimeCount().
+  perFrame.afT = GetTimeCount();
   perFrame.totalFrames = RI.frameIndex;
   perFrame.cameraFov = apFrustum->GetFOV();
   perFrame.fireflyClampThreshold = 10.0f;
   perFrame.zNear = apFrustum->GetNearPlane();
   perFrame.zFar = apFrustum->GetFarPlane();
-  // Fog params + worldFogColor + invViewRotationMat default to zero — fine for
-  // the first pass; populate when the deferred-fog path needs them.
+  // invViewRotationMat = rotation part of the inverse view matrix (camera
+  // world-space basis, translation zeroed). Translucent.frag rotates the
+  // view-space cube-map reflection vector into world space with it (matching
+  // the base game's a_mtxInvViewRotation). Translation lives at .a[12..14]
+  // (the camera-basis extraction below reads posW from invV[12,13,14]); zero
+  // it so a direction (passed w=1 in the shader) isn't offset by the camera
+  // position.
+  {
+    ml::float4x4 invViewRot = mainFrustumViewInvMat;
+    invViewRot.a[12] = 0.0f;
+    invViewRot.a[13] = 0.0f;
+    invViewRot.a[14] = 0.0f;
+    std::memcpy(perFrame.invViewRotationMat, invViewRot.a,
+                sizeof(perFrame.invViewRotationMat));
+  }
+  // Fog params + worldFogColor default to zero — fine for the first pass;
+  // populate when the deferred-fog path needs them.
 
   // Falcor-style pinhole camera basis. mainFrustumViewInvMat memory is laid
   // out so each 4-float "row" corresponds to one column of the logical
@@ -1555,6 +1526,56 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
   }
 
+  // Fog areas — one FogAreaParams per visible cFogArea, capped at
+  // kFogAreaCapacity. The shader walks gFogAreas[i] per pixel up to
+  // gPerFrame.fogAreaCount; everything past that index is stale data and
+  // gets skipped.
+  size_t num_fog_areas = 0;
+  for (cFogArea *pFogArea : m_rendererList.GetFogAreas()) {
+    if (!pFogArea) continue;
+    if (num_fog_areas >= kFogAreaCapacity) {
+      Warning("Fog-area capacity exhausted; dropping remaining areas");
+      break;
+    }
+    FogAreaParams fa{};
+    const cMatrixf inv =
+        cMath::MatrixInverse(*pFogArea->GetModelMatrixPtr());
+    const ml::float4x4 invF4 = cMath::ToFloatTranspose4x4(inv);
+    std::memcpy(fa.invModelMat, invF4.a, sizeof(fa.invModelMat));
+    const cColor c = pFogArea->GetColor();
+    // Fog colour stays sRGB-authored — same as worldFogColor. The opaque
+    // composite blends linearly so sRGB→linear conversion mirrors the
+    // box-light path.
+    fa.color   = float3{detail::sRGBToLinear(c.r),
+                        detail::sRGBToLinear(c.g),
+                        detail::sRGBToLinear(c.b)};
+    fa.colorA       = c.a;
+    fa.start        = pFogArea->GetStart();
+    fa.end          = pFogArea->GetEnd();
+    fa.falloffExp   = pFogArea->GetFalloffExp();
+    fa.flags        = (pFogArea->GetShowBacksideWhenInside()  ? 1u : 0u)
+                    | (pFogArea->GetShowBacksideWhenOutside() ? 2u : 0u);
+    m_fogAreaScratch[num_fog_areas++] = fa;
+  }
+  perFrame.fogAreaCount = static_cast<uint32_t>(num_fog_areas);
+
+  if (num_fog_areas > 0) {
+    const size_t uploadBytes = num_fog_areas * sizeof(FogAreaParams);
+    RIResourceBufferTransaction_s trans = {};
+    trans.target = m_fogAreaBuffer;
+    trans.size = uploadBytes;
+    trans.offset = 0;
+    trans.vk.current_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    trans.vk.post_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+    std::memcpy(trans.mapped.data, m_fogAreaScratch.data(), uploadBytes);
+    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+  }
+
   for (iRenderable *pObject : solids) {
     cMatrixf *pMtx = pObject->GetModelMatrix(apFrustum);
     iVertexBuffer *pVB = pObject->GetVertexBuffer();
@@ -1738,12 +1759,141 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         }
       }
       inst.instanceCustomIndex = req.id;
-      inst.mask = 0xFF;
+      inst.mask = kRayMaskOpaque;
       inst.instanceShaderBindingTableRecordOffset = 0;
       inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_CULL_DISABLE;
       inst.accelerationStructureReference = blas->vk.deviceAddress;
       tlasInstances.push_back(inst);
     }
+  }
+
+  // ---------- Translucent meshes → TLAS ----------
+  // Translucents enter the TLAS when the SurfelVBuffer.rt closeHit needs to
+  // bounce through them — that's **refractive** materials (ray-bend into
+  // gPackedRefractionHitInfo) AND **reflective** materials (cube-map glass:
+  // mirror-bounce into gPackedReflectionHitInfo). The reflective signal is a
+  // cube-map texture, exactly as the reference keys EnableCubeMap off
+  // GetImage(eMaterialTexture_CubeMap) (MaterialResource.cpp) and as the
+  // shader's isReflective() checks cubeMapTextureIndex. Plain
+  // non-refractive / non-cube-map translucents (additive overlays, dissolve
+  // sprites) are still pruned: adding them put a bindless DiffuseMaterial
+  // slot with no albedo + zero solid scalars into the surfel ray cone, which
+  // fed NaN into rayResult.radiance -> surfel.radiance (MSME) ->
+  // SurfelGenerationPass.gOutput. The kRayMaskTranslucent category mask also
+  // keeps the indirect-lighting path tracer from bouncing off whatever does
+  // enter here. Particle emitters are skipped (procedural VBs, no stable BLAS).
+  //
+  // The bindless object slot allocated here is intentionally distinct from
+  // the slot the translucent mesh pass will allocate later for this same
+  // renderable (different cookie salt) — the two passes write different
+  // UniformObject payloads (rasterised draws need lightLevel,
+  // illuminationAmount, etc.; the TLAS path only needs materialID +
+  // modelMat + BDA handles). The cost is one extra bindless slot per
+  // refractive translucent mesh, well within kObjectSlotCapacity.
+  for (iRenderable *pObj :
+       m_rendererList.GetRenderableItems(eRenderListType_Translucent)) {
+    if (!pObj || pObj->GetRenderType() == eRenderableType_ParticleEmitter)
+      continue;
+    cMaterial *pMat = pObj->GetMaterial();
+    if (!pMat)
+      continue;
+    if (!pMat->HasRefraction())
+      continue;
+    iVertexBuffer *pVB = pObj->GetVertexBuffer();
+    if (!pVB || pVB->GetIndexNum() <= 0)
+      continue;
+
+    // VB upload + BLAS build already happened in the consolidated translucent
+    // prepare loop near the top of Draw(); just pick up the cached BLAS here.
+    auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
+    auto blas = vbri->accelStructure();
+    if (!blas || blas->vk.handle == VK_NULL_HANDLE)
+      continue;
+
+    uint32_t materialSlot =
+        resolveMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
+    if (materialSlot == UINT32_MAX)
+      continue;
+
+    UniformObject payload{};
+    payload.materialID = materialSlot;
+    payload.lightLevel = 1.0f;
+    payload.dissolveAmount = 0.0f;
+    payload.illuminationAmount = 0.0f;
+    cMatrixf *pMtx = pObj->GetModelMatrix(apFrustum);
+    const ml::float4x4 modelF4 =
+        cMath::ToFloatTranspose4x4(pMtx ? *pMtx : cMatrixf::Identity);
+    std::memcpy(payload.modelMat, modelF4.a, sizeof(payload.modelMat));
+    ml::float4x4 invF4 = modelF4;
+    invF4.Invert();
+    std::memcpy(payload.invModelMat, invF4.a, sizeof(payload.invModelMat));
+    const ml::float4x4 uvF4 =
+        cMath::ToFloatTranspose4x4(cMatrixf::Identity);
+    std::memcpy(payload.uvMat, uvF4.a, sizeof(payload.uvMat));
+
+    // Salted cookie keeps this slot disjoint from the translucent mesh
+    // pass's per-frame slot for the same renderable.
+    const hash_t cookie = hash_u32(
+        hash_u64(HASH_INITIAL_VALUE, (uint64_t)(uintptr_t)pObj),
+        0x71A57AA5u);
+    auto req = m_diffuseBindless.request(cookie, (uint32_t)RI.frameIndex);
+    if (req.exhausted)
+      continue;
+
+    if (!req.found) {
+      m_bindlessSlotGenerationMirror.write<uint32_t>(req.id,
+                                                     ++m_nextSlotGeneration);
+    }
+
+    {
+      RIResourceBufferTransaction_s trans = {};
+      trans.target = m_diffuseObjectBuffer;
+      trans.size = sizeof(UniformObject);
+      trans.offset = (size_t)req.id * sizeof(UniformObject);
+      trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
+                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                               VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+      trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+      trans.vk.post_stage = trans.vk.current_stage;
+      trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+      RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+      std::memcpy(trans.mapped.data, &payload, sizeof(payload));
+      RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+    }
+
+    auto bdaOf = [&](eVertexBufferElement type) -> VkDeviceAddress {
+      const auto *element = vbri->GetElement(type);
+      if (!element || !element->buffer)
+        return 0;
+      return element->buffer->GetDeviceHandle(&RI.device);
+    };
+    m_opaquePositionMirror.write<VkDeviceAddress>(
+        req.id, bdaOf(eVertexBufferElement_Position));
+    m_opaqueUv0Mirror.write<VkDeviceAddress>(
+        req.id, bdaOf(eVertexBufferElement_Texture0));
+    m_opaqueColorMirror.write<VkDeviceAddress>(
+        req.id, bdaOf(eVertexBufferElement_Color0));
+    m_opaqueNormalMirror.write<VkDeviceAddress>(
+        req.id, bdaOf(eVertexBufferElement_Normal));
+    m_opaqueTangentMirror.write<VkDeviceAddress>(
+        req.id, bdaOf(eVertexBufferElement_Texture1Tangent));
+    m_opaqueIndexMirror.write<VkDeviceAddress>(
+        req.id, vbri->GetIndexRIBuffer()
+                    ? vbri->GetIndexRIBuffer()->GetDeviceHandle(&RI.device)
+                    : 0);
+
+    VkAccelerationStructureInstanceKHR inst = {};
+    for (int r = 0; r < 3; ++r) {
+      for (int c = 0; c < 4; ++c) {
+        inst.transform.matrix[r][c] = payload.modelMat[c * 4 + r];
+      }
+    }
+    inst.instanceCustomIndex = req.id;
+    inst.mask = kRayMaskTranslucent;
+    inst.instanceShaderBindingTableRecordOffset = 0;
+    inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_CULL_DISABLE;
+    inst.accelerationStructureReference = blas->vk.deviceAddress;
+    tlasInstances.push_back(inst);
   }
 
   // ---------- TLAS build ----------
@@ -2139,21 +2289,77 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // no VK_ERROR_DEVICE_LOST).
   // ----------------------------------------------------------------------
   {
-    VkImageMemoryBarrier2 toGeneral = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    toGeneral.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    toGeneral.srcAccessMask = 0;
-    toGeneral.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-    toGeneral.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    toGeneral.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    toGeneral.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    toGeneral.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toGeneral.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toGeneral.image = m_packedHitInfoTexture[RI.swapchainIndex].vk.image;
-    toGeneral.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    // All three V-buffer images transition UNDEFINED -> GENERAL. The primary
+    // image will be written by the RT pipeline directly; the two bounce
+    // images are first cleared to uint4(0) so refractive/reflective-only
+    // pixels overwrite a known sentinel and everywhere else stays "invalid"
+    // (.w == 0). The clear is a transfer-stage write; the RT closeHit needs
+    // a sync after it before it can store into the same image.
+    VkImageMemoryBarrier2 toGeneral[3] = {};
+    VkImage images[3] = {
+        m_packedHitInfoTexture[RI.swapchainIndex].vk.image,
+        m_packedRefractionHitInfoTexture[RI.swapchainIndex].vk.image,
+        m_packedReflectionHitInfoTexture[RI.swapchainIndex].vk.image,
+    };
+    for (int idx = 0; idx < 3; ++idx) {
+      toGeneral[idx].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+      toGeneral[idx].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+      toGeneral[idx].srcAccessMask = 0;
+      // Primary goes straight to the RT pipeline; bounce images first see a
+      // transfer-stage clear.
+      toGeneral[idx].dstStageMask =
+          (idx == 0) ? VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR
+                     : VK_PIPELINE_STAGE_2_CLEAR_BIT;
+      toGeneral[idx].dstAccessMask =
+          (idx == 0) ? VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
+                     : VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      toGeneral[idx].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      toGeneral[idx].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      toGeneral[idx].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toGeneral[idx].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toGeneral[idx].image = images[idx];
+      toGeneral[idx].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    }
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &toGeneral;
+    dep.imageMemoryBarrierCount = 3;
+    dep.pImageMemoryBarriers = toGeneral;
     vkCmdPipelineBarrier2(cmd, &dep);
+
+    // Clear the two bounce V-buffers to uint4(0). Per-frame so the closeHit-
+    // miss path can stay silent and consumers detect "no bounce here" via
+    // the valid bit in .w (== 0 after the clear).
+    VkClearColorValue clearColor = {};  // value-init -> {{0,0,0,0}}
+    VkImageSubresourceRange clearRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdClearColorImage(cmd,
+                         m_packedRefractionHitInfoTexture[RI.swapchainIndex].vk.image,
+                         VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
+    vkCmdClearColorImage(cmd,
+                         m_packedReflectionHitInfoTexture[RI.swapchainIndex].vk.image,
+                         VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
+
+    // Sync clear-write -> RT-shader-write on the two bounce images.
+    VkImageMemoryBarrier2 clearDone[2] = {};
+    VkImage boundceImages[2] = {
+        m_packedRefractionHitInfoTexture[RI.swapchainIndex].vk.image,
+        m_packedReflectionHitInfoTexture[RI.swapchainIndex].vk.image,
+    };
+    for (int idx = 0; idx < 2; ++idx) {
+      clearDone[idx].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+      clearDone[idx].srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+      clearDone[idx].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+      clearDone[idx].dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+      clearDone[idx].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+      clearDone[idx].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+      clearDone[idx].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      clearDone[idx].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      clearDone[idx].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      clearDone[idx].image = boundceImages[idx];
+      clearDone[idx].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    }
+    VkDependencyInfo dep2 = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep2.imageMemoryBarrierCount = 2;
+    dep2.pImageMemoryBarriers = clearDone;
+    vkCmdPipelineBarrier2(cmd, &dep2);
   }
 
   if (m_tlas.vk.handle != VK_NULL_HANDLE) {
@@ -2184,6 +2390,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
     pushSurfelStorageImage(vbBindings, "gPackedHitInfo",
                            m_packedHitInfoView[RI.swapchainIndex].vk.image);
+    pushSurfelStorageImage(vbBindings, "gPackedRefractionHitInfo",
+                           m_packedRefractionHitInfoView[RI.swapchainIndex].vk.image);
+    pushSurfelStorageImage(vbBindings, "gPackedReflectionHitInfo",
+                           m_packedReflectionHitInfoView[RI.swapchainIndex].vk.image);
     pushTlas(vbBindings);
 
     m_surfelVBuffer.bindDescriptors(
@@ -2561,6 +2771,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   renderingInfo.colorAttachmentCount = 1;
   renderingInfo.pColorAttachments = &colorAttachment;
   renderingInfo.pDepthAttachment = &depthAttachment;
+
   vkCmdBeginRendering(cmd, &renderingInfo);
 
   VkViewport vkViewport = {0,
@@ -2806,7 +3017,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
     mem.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+    // SAMPLED_READ for the gIndirectLighting image sample; STORAGE_READ so the
+    // isWater branch's gatherSurfelIndirect can read the surfel-cache SSBOs
+    // (gSurfelBuffer / gCellInfoBuffer / gCellToSurfelBuffer), written by the
+    // surfel compute passes earlier this frame, from the fragment stage.
+    mem.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
+                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
 
     std::vector<VkImageMemoryBarrier2> imageBarriers;
     imageBarriers.reserve(3);
@@ -2860,6 +3076,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     renderInfo.layerCount = 1;
     renderInfo.colorAttachmentCount = 1;
     renderInfo.pColorAttachments    = &colorAttach;
+
     vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
 
     VkViewport vp = {0.0f,
@@ -2873,7 +3090,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
 
     PostEffectPipelineState surfelState{};
-    InitPostEffectPipelineState(surfelState, VK_FORMAT_R8G8B8A8_UNORM,
+    InitPostEffectPipelineState(surfelState, RIBootstrap::PogoColorFormatVk,
                                 /*alphaBlend=*/false);
 
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
@@ -2894,6 +3111,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
     pushSurfelStorageImage(bnd, "gPackedHitInfo",
                            m_packedHitInfoView[RI.swapchainIndex].vk.image);
+    pushSurfelStorageImage(bnd, "gPackedRefractionHitInfo",
+                           m_packedRefractionHitInfoView[RI.swapchainIndex].vk.image);
+    // The water branch in SurfelGIRenderPass.frag also reads the reflection
+    // bounce V-buffer to shade water reflections inline.
+    pushSurfelStorageImage(bnd, "gPackedReflectionHitInfo",
+                           m_packedReflectionHitInfoView[RI.swapchainIndex].vk.image);
     pushTlas(bnd);
     {
       RIProgram::DescriptorBinding b;
@@ -2929,6 +3152,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3, 1, 0, 0);
     vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
   }
+
 
   // Toggle: just-written attach → SHADER_READ_ONLY (now the "read" half)
   // so downstream post-effects + tail blit can sample it.
@@ -2970,27 +3194,36 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
 
   // --------------------------------------------------------------------
-  // Particle (translucent) pass.
+  // Translucent pass — two sub-passes, both into the pogo "read" half.
   //
-  // Port of RendererDeferred's translucency pass restricted to particle
-  // emitters. Other translucent material variants (water, refraction,
-  // reflection) need additional infrastructure (refraction-source copy,
-  // reflection buffers) that the hybrid renderer doesn't have yet, so
-  // they're skipped here.
+  //   1. Particle pass    (this block)            — particle emitters only.
+  //   2. Mesh pass        (block immediately below) — non-particle, non-
+  //                       refraction, non-reflection translucent meshes.
   //
-  // Resources reused from the opaque path:
-  //   - m_diffuseBindless / m_diffuseObjectBuffer (per-emitter OBJECT slot)
-  //   - m_opaque*Handles  (BDA fan-out — particles overload position/uv0/
-  //                        color/index with their own VB device addresses)
+  // Each sub-pass opens its own vkCmdBeginRendering/EndRendering and runs
+  // its own pogo barriers, so the two are independently skippable when one
+  // side has no work. Refraction and world-reflection materials are still
+  // out of scope (the hybrid renderer has no screen-color copy and no
+  // reflection buffer); both are filtered out in the mesh-pass collection.
+  //
+  // Fog-area visibility for translucents is computed per-pixel inside
+  // Translucent.frag.slang by iterating the gFogAreas SSBO — see the
+  // per-frame fog-area upload above for where that buffer is filled.
+  //
+  // Resources reused from the opaque path (both sub-passes):
+  //   - m_diffuseBindless / m_diffuseObjectBuffer (per-renderable OBJECT slot)
+  //   - m_opaque*Handles  (BDA fan-out — particles and mesh translucents
+  //                        overload position/uv0/color/index with their own
+  //                        VB device addresses)
   //   - m_materialBindless / m_opaqueMaterialBuffer (material slot; only
-  //                        the diffuse texture index is read by particle.frag)
+  //                        the diffuse texture index is read by the shaders)
   //
   // Sync setup:
   //   (a) Swapchain stays in COLOR_ATTACHMENT_OPTIMAL from the visibility
   //       composite — load to preserve the composite output.
   //   (b) Depth was last transitioned to SHADER_READ_ONLY for surfel-
-  //       generate; flipDepthToReadOnly() moves it back to
-  //       DEPTH_READ_ONLY_OPTIMAL (shared with the decal pass, idempotent).
+  //       generate; flipDepthToReadOnly() (idempotent) moves it back to
+  //       DEPTH_READ_ONLY_OPTIMAL — shared with the decal pass.
   // --------------------------------------------------------------------
   {
     // Collect particle emitters from the translucent list once so we can
@@ -3011,22 +3244,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
 
     if (!emitters.empty()) {
-      // Drive the particle vertex buffer's CPU-side refresh + GPU upload.
-      // UpdateGraphicsForViewport recomputes per-vertex positions/colors and
-      // marks the VB dirty; SubmitToGPU re-uploads any dirty streams. Done
-      // before the renderpass begins so the resource-uploader barriers don't
-      // collide with vkCmdBeginRendering.
-      for (iParticleEmitter *pEmitter : emitters) {
-        pEmitter->UpdateGraphicsForFrame(afFrameTime);
-        pEmitter->UpdateGraphicsForViewport(apFrustum, afFrameTime);
-        iVertexBuffer *pVB = pEmitter->GetVertexBuffer();
-        if (pVB) {
-          auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
-          vbri->SubmitToGPU(&RI.primary.cmds[0], &RI.device, cntx);
-          vbri->AttachResourceToCntx(cntx);
-        }
-      }
-
+      // Per-emitter UpdateGraphicsForFrame / UpdateGraphicsForViewport +
+      // SubmitToGPU already happened in the consolidated translucent prepare
+      // loop near the top of Draw(); the particle VBs are uploaded and
+      // attached to the frame context by the time we get here.
       flipDepthToReadOnly();
 
       // Render translucent particles INTO the pogo "read" half (which holds the
@@ -3037,6 +3258,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       const int   pogoReadIdx   = (pogo->attachmentIndex + 1) % 2;
       VkImage     pogoReadImage = pogo->textures[pogoReadIdx].vk.image;
       VkImageView pogoReadView  = pogo->pogoAttachment[pogoReadIdx].vk.image.imageView;
+      const RI_Format_e particleTargetFormat = RIBootstrap::PogoColorFormat;
       {
         VkImageMemoryBarrier2 b =
             VK_RI_PogoAttachmentMemoryBarrier2(pogoReadImage, /*initial=*/false);
@@ -3067,6 +3289,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       renderInfo.colorAttachmentCount = 1;
       renderInfo.pColorAttachments = &colorAttach;
       renderInfo.pDepthAttachment = &depthAttach;
+
       vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
 
       VkViewport vp = {0.0f,
@@ -3230,13 +3453,17 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
         const ParticlePipelineDesc::BlendMode mode =
             remapBlend(pMat->GetBlendMode());
-        ParticlePipelineDesc pipelineDesc((RI_Format_e)RI.swapchain.format,
+        ParticlePipelineDesc pipelineDesc(particleTargetFormat,
                                           RIBootstrap::DepthFormat, mode);
         m_particle.bindPipeline(&RI.device, &RI.primary.cmds[0],
                                 pipelineDesc.hash, "Particle",
                                 &pipelineDesc.createInfo);
 
-        float sceneAlpha = 1.0f;
+        // Fog (world + per-area) is applied per-pixel in Particle.frag.slang
+        // by walking gFogAreas. sceneAlpha is now the unmodified per-object
+        // scalar (1.0 by default) — kept in the push block for parity with the
+        // mesh path and any future per-object alpha gates.
+        const float sceneAlpha = 1.0f;
         PushBlock push = {(uint32_t)mode, sceneAlpha};
         vkCmdPushConstants(RI.primary.cmds[0].vk.cmd,
                            m_particle.getPipelineLayout(),
@@ -3245,6 +3472,384 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
         vkCmdDraw(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u, 0u,
                   req.id);
+      }
+
+      vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+
+      // pogo "read" half back to SHADER_READ_ONLY so the tail blit can sample it.
+      {
+        VkImageMemoryBarrier2 b =
+            VK_RI_PogoShaderMemoryBarrier2(pogoReadImage, /*initial=*/false);
+        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------
+  // Translucent mesh pass (sub-pass 2 — see the comment above the particle
+  // block for the overall plan). Runs after particles so any glow billboards
+  // composite under solid translucent geometry, mirroring the legacy
+  // back-to-front order. SortFunc_Translucent in RenderList.cpp already
+  // ordered the translucent list back-to-front, so iterating in list order
+  // here gives correct Alpha-blend results.
+  //
+  // Refraction is now handled upstream by SurfelVBuffer.rt's primary-ray
+  // bend (closeHit::isRefractive branch) — the GI composite already shows
+  // the refracted background under refractive translucents by the time
+  // this pass runs. Water is not rasterized here at all — it's composited
+  // entirely in SurfelGIRenderPass.frag (isWater branch) and is filtered
+  // out of the mesh collection below.
+  // --------------------------------------------------------------------
+  {
+    std::vector<iRenderable *> meshes;
+    for (iRenderable *pObj :
+         m_rendererList.GetRenderableItems(eRenderListType_Translucent)) {
+      if (!pObj)
+        continue;
+      if (pObj->GetRenderType() == eRenderableType_ParticleEmitter)
+        continue;
+      cMaterial *pMat = pObj->GetMaterial();
+      if (!pMat)
+        continue;
+      const eMaterialBlendMode mode = pMat->GetBlendMode();
+      if (mode == eMaterialBlendMode_None ||
+          mode >= eMaterialBlendMode_LastEnum)
+        continue;
+      // No material-flag filtering here: HasRefraction draws through the
+      // standard blend pipeline (the background already comes pre-refracted
+      // from the RT V-buffer); HasWorldReflection is harmless (the
+      // legacy-only planar reflection buffer is unused).
+      // Water is NOT rasterized — it's composited entirely in
+      // SurfelGIRenderPass.frag (isWater branch) from the primary hit + the
+      // refraction / reflection bounce V-buffers, so skip it here.
+      if (pMat->Descriptor().m_id == MaterialID::Water)
+        continue;
+      iVertexBuffer *pVB = pObj->GetVertexBuffer();
+      if (!pVB || pVB->GetIndexNum() <= 0)
+        continue;
+      meshes.push_back(pObj);
+    }
+
+    if (!meshes.empty()) {
+      // Per-mesh UpdateGraphicsForFrame / UpdateGraphicsForViewport +
+      // SubmitToGPU already happened in the consolidated translucent prepare
+      // loop near the top of Draw(); billboards / beams / glass / water all
+      // have valid vk.buffer + (where applicable) BLAS by the time we get
+      // here. Depth flip is idempotent — safe to call regardless of whether
+      // the particle pass ran above.
+      flipDepthToReadOnly();
+
+      const int   pogoReadIdx   = (pogo->attachmentIndex + 1) % 2;
+      VkImage     pogoReadImage = pogo->textures[pogoReadIdx].vk.image;
+      VkImageView pogoReadView  = pogo->pogoAttachment[pogoReadIdx].vk.image.imageView;
+      const RI_Format_e meshTargetFormat = RIBootstrap::PogoColorFormat;
+
+      // SHADER_READ_ONLY → COLOR_ATTACHMENT_OPTIMAL. If the particle pass
+      // ran above, that block left the pogo half in SHADER_READ_ONLY (for
+      // a tail blit that never got to run); if it didn't, the visibility
+      // composite + post-effect chain also left it in SHADER_READ_ONLY. The
+      // barrier helper handles either source state.
+      {
+        VkImageMemoryBarrier2 b =
+            VK_RI_PogoAttachmentMemoryBarrier2(pogoReadImage, /*initial=*/false);
+        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      }
+
+      VkRenderingAttachmentInfo colorAttach = {
+          VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      colorAttach.imageView = pogoReadView;
+      colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      colorAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+      colorAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+      VkRenderingAttachmentInfo depthAttach = {
+          VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      depthAttach.imageView = RI.depthView[RI.swapchainIndex].vk.image;
+      depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+      depthAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+      depthAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+
+      VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+      renderInfo.renderArea = {{0, 0},
+                               {RI.swapchain.width, RI.swapchain.height}};
+      renderInfo.layerCount = 1;
+      renderInfo.colorAttachmentCount = 1;
+      renderInfo.pColorAttachments = &colorAttach;
+      renderInfo.pDepthAttachment = &depthAttach;
+
+      vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
+
+      VkViewport vp = {0.0f,
+                       (float)RI.swapchain.height,
+                       (float)RI.swapchain.width,
+                       -(float)RI.swapchain.height,
+                       0.0f,
+                       1.0f};
+      VkRect2D sc = {{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
+      vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
+      vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
+
+      m_translucentMesh.bindBindlessDescriptorSet(&RI.primary.cmds[0],
+                                                  &m_bindlessSet, 0);
+
+      std::vector<RIProgram::DescriptorBinding> meshBindings;
+      meshBindings.reserve(1);
+      {
+        RIProgram::DescriptorBinding b;
+        b.handle = DescriptorBindingID::Create("gPerFrame");
+        RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+        meshBindings.push_back(b);
+      }
+      m_translucentMesh.bindDescriptors(&RI.device, &RI.primary.cmds[0],
+                                        RI.frameIndex, meshBindings.data(),
+                                        meshBindings.size());
+
+      // Map eMaterialBlendMode -> TranslucentMeshPipelineDesc::BlendMode +
+      // shader-side BLEND_MODE_*. Mirrors the same remap used by the
+      // particle pass; eMaterialBlendMode_None is filtered above.
+      auto remapBlend = [](eMaterialBlendMode m) {
+        switch (m) {
+        case eMaterialBlendMode_Add:
+          return TranslucentMeshPipelineDesc::BLEND_ADD;
+        case eMaterialBlendMode_Mul:
+          return TranslucentMeshPipelineDesc::BLEND_MUL;
+        case eMaterialBlendMode_MulX2:
+          return TranslucentMeshPipelineDesc::BLEND_MULX2;
+        case eMaterialBlendMode_Alpha:
+          return TranslucentMeshPipelineDesc::BLEND_ALPHA;
+        case eMaterialBlendMode_PremulAlpha:
+          return TranslucentMeshPipelineDesc::BLEND_PREMUL_ALPHA;
+        default:
+          return TranslucentMeshPipelineDesc::BLEND_ADD;
+        }
+      };
+
+      // Mirrors TranslucentPushConstants in Translucent.frag.slang. Options
+      // bitfield carries TRANS_OPT_USE_ILLUMINATION for the optional second
+      // cube-map-only draw — main draw passes options=0.
+      struct PushBlock {
+        uint32_t blendMode;
+        float    sceneAlpha;
+        uint32_t options;
+        uint32_t _pad;
+      };
+      constexpr uint32_t kTransOptUseIllumination = 1u << 0;
+
+      for (iRenderable *pObj : meshes) {
+        iVertexBuffer *pVB = pObj->GetVertexBuffer();
+        cMaterial *pMat = pObj->GetMaterial();
+        // Filter above already rejected null pVB / pMat and 0-index VBs.
+        const int indexCount = pVB->GetIndexNum();
+
+        uint32_t materialSlot =
+            resolveMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
+        if (materialSlot == UINT32_MAX) {
+          Warning("Material Slot exhausted (translucent mesh)");
+          continue;
+        }
+
+        cMatrixf *pMtx = pObj->GetModelMatrix(apFrustum);
+
+        // Affecting-light accumulation mirrors RendererDeferred::
+        // cmdBindMaterialAndObject (RendererDeferred.cpp:3746-3773). Iterate
+        // the visible-light list, take the max-channel intensity scaled by
+        // distance falloff for spot/point and full intensity for box lights,
+        // clamp the running sum at 1.0. Only translucent materials carry the
+        // m_isAffectedByLightLevel flag, so the check sits behind a
+        // MaterialID::Translucent gate (Water/Decal don't have this field on
+        // the descriptor union).
+        float lightLevel = 1.0f;
+        const ShaderMaterialData &desc = pMat->Descriptor();
+        const bool affectedByLights =
+            desc.m_id == MaterialID::Translucent &&
+            desc.m_translucent.m_isAffectedByLightLevel;
+        if (affectedByLights) {
+          const cVector3f vCenterPos =
+              pObj->GetBoundingVolume()->GetWorldCenter();
+          float fLightAmount = 0.0f;
+          for (iLight *pLight : m_rendererList.GetLights()) {
+            if (!pLight->CheckObjectIntersection(pObj))
+              continue;
+            const cColor &c = pLight->GetDiffuseColor();
+            const float maxColor =
+                cMath::Max(cMath::Max(c.r, c.g), c.b);
+            if (pLight->GetLightType() == eLightType_Box) {
+              fLightAmount += maxColor;
+            } else {
+              const float fDist = cMath::Vector3Dist(
+                  pLight->GetWorldPosition(), vCenterPos);
+              fLightAmount +=
+                  maxColor *
+                  cMath::Max(1.0f - (fDist / pLight->GetRadius()), 0.0f);
+            }
+            if (fLightAmount >= 1.0f) {
+              fLightAmount = 1.0f;
+              break;
+            }
+          }
+          lightLevel = fLightAmount;
+        }
+
+        UniformObject payload{};
+        payload.dissolveAmount = pObj->GetCoverageAmount();
+        payload.materialID = materialSlot;
+        payload.lightLevel = lightLevel;
+        payload.illuminationAmount = 0.0f;
+        const ml::float4x4 modelF4 =
+            cMath::ToFloatTranspose4x4(pMtx ? *pMtx : cMatrixf::Identity);
+        std::memcpy(payload.modelMat, modelF4.a, sizeof(payload.modelMat));
+        ml::float4x4 invF4 = modelF4;
+        invF4.Invert();
+        std::memcpy(payload.invModelMat, invF4.a, sizeof(payload.invModelMat));
+        const ml::float4x4 uvF4 =
+            cMath::ToFloatTranspose4x4(pMat->GetUvMatrix());
+        std::memcpy(payload.uvMat, uvF4.a, sizeof(payload.uvMat));
+
+        // Same per-renderable cookie shape as the particle path: pointer +
+        // frame counter. See the long comment in the particle loop for why
+        // we don't payload-hash here.
+        hash_t cookie = hash_u64(HASH_INITIAL_VALUE,
+                                 (uint64_t)(uintptr_t)pObj);
+        cookie = hash_u32(cookie, (uint32_t)RI.frameIndex);
+        auto req =
+            m_diffuseBindless.request(cookie, (uint32_t)RI.frameIndex);
+        if (req.exhausted) {
+          Warning("bindless pool exhausted (translucent mesh)");
+          continue;
+        }
+
+        // Bump slot generation on (re)assignment for the same surfel
+        // self-invalidate reason documented in the particle path above —
+        // surfels still anchored to this slot's previous opaque occupant
+        // would otherwise dereference stale primitiveIndex against the
+        // wrong VB/IB.
+        if (!req.found) {
+          m_bindlessSlotGenerationMirror.write<uint32_t>(req.id,
+                                                         ++m_nextSlotGeneration);
+        }
+
+        {
+          RIResourceBufferTransaction_s trans = {};
+          trans.target = m_diffuseObjectBuffer;
+          trans.size = sizeof(UniformObject);
+          trans.offset = (size_t)req.id * sizeof(UniformObject);
+          trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
+                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                   VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+          trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+          trans.vk.post_stage = trans.vk.current_stage;
+          trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+          RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+          std::memcpy(trans.mapped.data, &payload, sizeof(payload));
+          RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+        }
+
+        auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
+
+        // Per-vertex streams move to fixed-function vertex fetch (the
+        // pipeline now declares them as VkVertexInputBindingDescriptions
+        // — see TranslucentMeshPipelineDesc). Bindless OBJECT-slot
+        // handle arrays (m_opaque*Mirror) stay populated only on the
+        // opaque + TLAS paths, where they're consumed by surfel ray
+        // traces and the opaque/particle vertex pulls.
+        auto bufOf = [&](eVertexBufferElement type) -> VkBuffer {
+          const auto *element = vbri->GetElement(type);
+          if (!element || !element->buffer)
+            return VK_NULL_HANDLE;
+          return element->buffer->vk.buffer;
+        };
+        const VkBuffer posBuf = bufOf(eVertexBufferElement_Position);
+        VkBuffer       nrmBuf = bufOf(eVertexBufferElement_Normal);
+        VkBuffer       tanBuf = bufOf(eVertexBufferElement_Texture1Tangent);
+        VkBuffer       colBuf = bufOf(eVertexBufferElement_Color0);
+        VkBuffer       uvBuf  = bufOf(eVertexBufferElement_Texture0);
+        const auto &idxRI     = vbri->GetIndexRIBuffer();
+        const VkBuffer idxBuf = idxRI ? idxRI->vk.buffer : VK_NULL_HANDLE;
+        if (!posBuf || !idxBuf) {
+          // Position + index are truly required — without geometry there's
+          // nothing to draw. The other streams have default-value fallback
+          // buffers (see m_translucent*Fallback) so cBillboard / cBeam (which
+          // omit tangent) and other lean layouts still render.
+          Warning("translucent mesh missing position / index — skipping");
+          continue;
+        }
+        // Substitute fallback buffers for absent optional streams. Each
+        // fallback was filled at init with a sensible default
+        // (normal = +Z, tangent = +X/handedness, color = white, uv = 0).
+        // Capacity guard: every fallback was sized to
+        // kTranslucentFallbackVerts; warn-and-skip rather than fault if a
+        // pathologically large renderable arrives.
+        const uint32_t vertCount = (uint32_t)pVB->GetVertexNum();
+        const bool needsFallback = (!nrmBuf || !tanBuf || !colBuf || !uvBuf);
+        if (needsFallback && vertCount > kTranslucentFallbackVerts) {
+          Warning("translucent mesh vertex count exceeds fallback "
+                  "capacity — skipping");
+          continue;
+        }
+        if (!nrmBuf) nrmBuf = m_translucentNormalFallback.vk.buffer;
+        if (!tanBuf) tanBuf = m_translucentTangentFallback.vk.buffer;
+        if (!colBuf) colBuf = m_translucentColorFallback.vk.buffer;
+        if (!uvBuf)  uvBuf  = m_translucentUv0Fallback.vk.buffer;
+        const VkBuffer     vertBufs[5]  = {posBuf, nrmBuf, tanBuf, colBuf, uvBuf};
+        const VkDeviceSize vertOffsets[5] = {0, 0, 0, 0, 0};
+
+        const TranslucentMeshPipelineDesc::BlendMode mode =
+            remapBlend(pMat->GetBlendMode());
+        TranslucentMeshPipelineDesc pipelineDesc(meshTargetFormat,
+                                                 RIBootstrap::DepthFormat,
+                                                 mode);
+        m_translucentMesh.bindPipeline(&RI.device, &RI.primary.cmds[0],
+                                       pipelineDesc.hash, "TranslucentMesh",
+                                       &pipelineDesc.createInfo);
+
+        // Fog (world + per-area) is applied per-pixel in Translucent.frag.slang
+        // by walking gFogAreas. sceneAlpha stays 1.0 for the no-extra-alpha
+        // common path.
+        const float sceneAlpha = 1.0f;
+        PushBlock push = {(uint32_t)mode, sceneAlpha, 0u, 0u};
+        vkCmdPushConstants(RI.primary.cmds[0].vk.cmd,
+                           m_translucentMesh.getPipelineLayout(),
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push),
+                           &push);
+
+        vkCmdBindVertexBuffers(RI.primary.cmds[0].vk.cmd, 0, 5,
+                               vertBufs, vertOffsets);
+        vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, idxBuf, 0,
+                             VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u,
+                         0u, 0, req.id);
+
+        // Second draw for the cube-map Fresnel + rim contribution.
+        // Reference gates this on `cubeMap && !isRefraction`
+        // (RendererDeferred.cpp:4660); under the RT ray-bend model
+        // isRefraction surfaces already get their refracted background
+        // from the GI composite, so the cube-map second draw stays gated
+        // only on whether the material carries a cube map.
+        if (pMat->GetImage(eMaterialTexture_CubeMap)) {
+          TranslucentMeshPipelineDesc addDesc(
+              meshTargetFormat, RIBootstrap::DepthFormat,
+              TranslucentMeshPipelineDesc::BLEND_ADD);
+          m_translucentMesh.bindPipeline(&RI.device, &RI.primary.cmds[0],
+                                         addDesc.hash, "TranslucentMeshIllum",
+                                         &addDesc.createInfo);
+          PushBlock pushIllum = {
+              (uint32_t)TranslucentMeshPipelineDesc::BLEND_ADD, sceneAlpha,
+              kTransOptUseIllumination, 0u};
+          vkCmdPushConstants(RI.primary.cmds[0].vk.cmd,
+                             m_translucentMesh.getPipelineLayout(),
+                             VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+                             sizeof(pushIllum), &pushIllum);
+          // Vertex / index buffers stay bound from the main draw above —
+          // same renderable, just a second pipeline + push-constant set.
+          vkCmdDrawIndexed(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount,
+                           1u, 0u, 0, req.id);
+        }
       }
 
       vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
@@ -3393,6 +3998,26 @@ cHybridRenderer::~cHybridRenderer() {
                      m_boxLightBuffer.vk.allocation);
     m_boxLightBuffer = {};
   }
+  if (m_fogAreaBuffer.vk.buffer) {
+    vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_fogAreaBuffer.vk.buffer,
+                     m_fogAreaBuffer.vk.allocation);
+    m_fogAreaBuffer = {};
+  }
+  {
+    RIBuffer_s *fallbacks[] = {
+        &m_translucentNormalFallback,
+        &m_translucentTangentFallback,
+        &m_translucentColorFallback,
+        &m_translucentUv0Fallback,
+    };
+    for (RIBuffer_s *b : fallbacks) {
+      if (b->vk.buffer) {
+        vmaDestroyBuffer(RI.device.vk.vmaAllocator, b->vk.buffer,
+                         b->vk.allocation);
+        *b = {};
+      }
+    }
+  }
   for (uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; ++i) {
     if (m_surfelResultView[i].vk.image != VK_NULL_HANDLE) {
       vkDestroyImageView(RI.device.vk.device, m_surfelResultView[i].vk.image,
@@ -3413,6 +4038,28 @@ cHybridRenderer::~cHybridRenderer() {
                       m_packedHitInfoTexture[i].vk.image,
                       m_packedHitInfoTexture[i].vk.allocation);
       m_packedHitInfoTexture[i] = {};
+    }
+    if (m_packedRefractionHitInfoView[i].vk.image != VK_NULL_HANDLE) {
+      vkDestroyImageView(RI.device.vk.device,
+                         m_packedRefractionHitInfoView[i].vk.image, NULL);
+      m_packedRefractionHitInfoView[i] = {};
+    }
+    if (m_packedRefractionHitInfoTexture[i].vk.image != VK_NULL_HANDLE) {
+      vmaDestroyImage(RI.device.vk.vmaAllocator,
+                      m_packedRefractionHitInfoTexture[i].vk.image,
+                      m_packedRefractionHitInfoTexture[i].vk.allocation);
+      m_packedRefractionHitInfoTexture[i] = {};
+    }
+    if (m_packedReflectionHitInfoView[i].vk.image != VK_NULL_HANDLE) {
+      vkDestroyImageView(RI.device.vk.device,
+                         m_packedReflectionHitInfoView[i].vk.image, NULL);
+      m_packedReflectionHitInfoView[i] = {};
+    }
+    if (m_packedReflectionHitInfoTexture[i].vk.image != VK_NULL_HANDLE) {
+      vmaDestroyImage(RI.device.vk.vmaAllocator,
+                      m_packedReflectionHitInfoTexture[i].vk.image,
+                      m_packedReflectionHitInfoTexture[i].vk.allocation);
+      m_packedReflectionHitInfoTexture[i] = {};
     }
     if (m_surfelIrradianceView[i].vk.image != VK_NULL_HANDLE) {
       vkDestroyImageView(RI.device.vk.device, m_surfelIrradianceView[i].vk.image, NULL);

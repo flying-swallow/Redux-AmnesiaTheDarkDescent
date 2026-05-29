@@ -268,6 +268,7 @@ namespace hpl {
 							renderInfo.layerCount = 1;
 							renderInfo.colorAttachmentCount = 1;
 							renderInfo.pColorAttachments    = &colorAttach;
+
 							vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
 
 							VkViewport vp = { 0.0f, 0.0f, (float)RI.swapchain.width, (float)RI.swapchain.height, 0.0f, 1.0f };
@@ -311,6 +312,11 @@ namespace hpl {
 					renderingInfo.colorAttachmentCount = 1;
 					renderingInfo.pColorAttachments = &colorAttachment;
 					renderingInfo.pDepthAttachment = &depthStencil;
+
+					// GuiSet builds its pipelines for RI.swapchain.format / RIBootstrap::DepthFormat
+					// (see GuiSet.cpp). If the attachments here ever change, update GuiSet to match.
+					assert(colorAttachment.imageView == RI.swapchainView[RI.swapchainIndex].vk.image);
+
 					vkCmdBeginRendering( RI.primary.cmds[0].vk.cmd , &renderingInfo );
 
 					if(alFlags & tSceneRenderFlag_World)

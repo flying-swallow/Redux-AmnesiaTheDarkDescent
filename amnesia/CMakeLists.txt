@@ -147,6 +147,8 @@ SHADERS
     ./slang/InventoryPost/inventory_post.frag.slang
     ./slang/ParticlePass/Particle.vert.slang
     ./slang/ParticlePass/Particle.frag.slang
+    ./slang/TranslucentPass/Translucent.vert.slang
+    ./slang/TranslucentPass/Translucent.frag.slang
     ./slang/SurfelGBuffer/SurfelGBuffer.3d.slang
     ./slang/SurfelGI/SurfelPreparePass.cs.slang
     ./slang/SurfelGI/SurfelUpdatePass.cs.slang

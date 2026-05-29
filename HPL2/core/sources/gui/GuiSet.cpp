@@ -775,7 +775,12 @@ namespace hpl {
 
 			VkPipelineRenderingCreateInfo pipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
 			pipelineRenderingCreateInfo.colorAttachmentCount = 1;
-			VkFormat colorFormats[1] = { RIFormatToVK( RI.swapchain.format) };
+			// Invariant: GUI sets are only ever rendered into the swapchain
+			// (Scene.cpp Render3DGui/RenderScreenGui, LuxHelpFuncs DrawSetToScreen).
+			// Both the pipeline cache hash above and the attachment format here key
+			// on RI.swapchain.format; if you ever render a GUI into a non-swapchain
+			// target, this needs to take the actual attachment's format instead.
+			VkFormat colorFormats[1] = { RIFormatToVK((RI_Format_e)RI.swapchain.format) };
 			pipelineRenderingCreateInfo.pColorAttachmentFormats = colorFormats;
 			pipelineRenderingCreateInfo.depthAttachmentFormat = RIFormatToVK( RIBootstrap::DepthFormat );
 			pipelineRenderingCreateInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED; 

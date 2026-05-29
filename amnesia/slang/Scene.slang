@@ -158,6 +158,27 @@ public struct SceneMaterials
         return m.cubeMapTextureIndex != kInvalidTextureIndex;
     }
 
+    // True when the material was flagged HasRefraction host-side
+    // (MaterialResource.cpp:CreateMaterailConfigFlags). Drives the
+    // SurfelVBuffer.rt closeHit ray-bend for refractive translucents so the
+    // V-buffer stores the refracted background instead of the glass itself.
+    public bool isRefractive(uint materialID)
+    {
+        DiffuseMaterial m = gDiffuseMaterials[materialID];
+        return (m.materialConfig & kMaterialFlagHasRefraction) != 0u;
+    }
+
+    // True for MaterialID::Water (flagged host-side). Drives the
+    // SurfelVBuffer.rt wave-animated water branch, which spawns both a
+    // refraction and a reflection bounce. Water also sets HasRefraction so
+    // isRefractive() is true and the GIRenderPass swaps to the refracted
+    // background under the surface.
+    public bool isWater(uint materialID)
+    {
+        DiffuseMaterial m = gDiffuseMaterials[materialID];
+        return (m.materialConfig & kMaterialFlagIsWater) != 0u;
+    }
+
     // Inline non-opaque shadow query. The BLAS is built with
     // VK_GEOMETRY_OPAQUE_BIT cleared (VertexBuffer_RI.cpp:589 sets
     // geom.flags = 0), so the driver reports every triangle hit as a
@@ -200,6 +221,71 @@ public struct SceneMaterials
             }
         }
         return q.CommittedStatus() == COMMITTED_NOTHING;
+    }
+
+    // Inline ray-traced reflection lookup. Walks the TLAS in `dir` starting
+    // at `origin` (already biased off the surface by the caller), commits
+    // the first non-opaque alpha-passing hit, and returns the hit's diffuse
+    // albedo as the reflection contribution. Misses return float3(0) and
+    // set `hit` = false so the caller can fall back to a cube-map sample.
+    //
+    // This is the Phase 4 starting cut for ray-traced reflections — it
+    // gives correct mirrored geometry (right object in the right pixel),
+    // but the reflection colour is just the hit material's albedo rather
+    // than fully GI-shaded. Promote to a full evaluation when the visual
+    // gap shows; the surfel-irradiance atlas (gIrradianceMap on set 1) is
+    // the next step but its weighting / cell-hash lookup pulls in the
+    // SurfelEvaluation chain.
+    public float3 traceReflection(float3 origin, float3 dir, float tMax,
+                                  out bool hit)
+    {
+        RayDesc ray;
+        ray.Origin    = origin;
+        ray.Direction = dir;
+        ray.TMin      = 0.f;
+        ray.TMax      = tMax;
+
+        RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES
+               | RAY_FLAG_CULL_BACK_FACING_TRIANGLES> q;
+        q.TraceRayInline(gRtAccel, 0, kRayMaskOpaque, ray);
+
+        while (q.Proceed())
+        {
+            if (q.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+            {
+                TriangleHit candidate;
+                candidate.instanceID     = q.CandidateInstanceID();
+                candidate.primitiveIndex = q.CandidatePrimitiveIndex();
+                candidate.barycentrics   = q.CandidateTriangleBarycentrics();
+
+                uint matID  = gScene.getMaterialID(candidate.instanceID);
+                VertexData v = gScene.getVertexData(candidate);
+                if (!alphaTest(v, matID, 0.f))
+                    q.CommitNonOpaqueTriangleHit();
+            }
+        }
+
+        if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
+        {
+            hit = false;
+            return float3(0.f);
+        }
+
+        hit = true;
+
+        TriangleHit triangleHit;
+        triangleHit.instanceID     = q.CommittedInstanceID();
+        triangleHit.primitiveIndex = q.CommittedPrimitiveIndex();
+        triangleHit.barycentrics   = q.CommittedTriangleBarycentrics();
+
+        VertexData v        = gScene.getVertexData(triangleHit);
+        uint materialID     = gScene.getMaterialID(triangleHit.instanceID);
+        DiffuseMaterial m   = gDiffuseMaterials[materialID];
+        uint diffuseTex     = m.tex[0];
+        if (diffuseTex == kInvalidTextureIndex)
+            return float3(0.5f);  // fallback grey
+        return gTextures2D[NonUniformResourceIndex(diffuseTex)]
+                  .SampleLevel(gMaterialSampler, v.texC, 0.f).rgb;
     }
 };
 

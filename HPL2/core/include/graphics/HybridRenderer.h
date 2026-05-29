@@ -142,6 +142,35 @@ private:
   struct RIBuffer_s m_boxLightBuffer = {};
   std::array<BoxLight, kBoxSlotLightCapacity> m_boxLightScratch;
 
+  // Per-frame fog-area SSBO. One entry per cFogArea visible this frame; the
+  // shader-side iteration (Fog.slang) walks it from every pixel via
+  // gFogAreas[i]. Capped at kFogAreaCapacity so overruns drop quietly.
+  struct RIBuffer_s m_fogAreaBuffer = {};
+  std::array<FogAreaParams, kFogAreaCapacity> m_fogAreaScratch;
+
+  // Default-value fallback vertex buffers for translucent renderables whose
+  // vertex layout omits one or more streams (cBillboard / cBeam ship
+  // position + normal + color + uv with no tangent; other renderables may
+  // skip more). Each fallback matches the binding stride declared in
+  // TranslucentMeshPipelineDesc; bound at the matching binding slot when
+  // the renderable's real stream is absent. Position stays required
+  // (without geometry there's nothing to draw).
+  //
+  // Defaults:
+  //   normal  : float3(0, 0, 1)        — +Z
+  //   tangent : float4(1, 0, 0, 1)     — +X, positive handedness
+  //   color   : float4(1, 1, 1, 1)     — white
+  //   uv      : float3(0, 0, 0)        — origin (stride matches engine layout;
+  //                                      shader reads only .xy via R32G32)
+  //
+  // Sized for the largest single translucent draw we expect; over-budget
+  // draws warn-and-skip in the translucent loop.
+  static constexpr uint32_t kTranslucentFallbackVerts = 16384u;
+  struct RIBuffer_s m_translucentNormalFallback  = {};
+  struct RIBuffer_s m_translucentTangentFallback = {};
+  struct RIBuffer_s m_translucentColorFallback   = {};
+  struct RIBuffer_s m_translucentUv0Fallback     = {};
+
   struct RIBuffer_s m_opaquePositionHandles;
   struct RIBuffer_s m_opaqueTangentHandles;
   struct RIBuffer_s m_opaqueNormalHandles;
@@ -226,6 +255,7 @@ private:
   // Bindless material wiring.
   LRUCache m_materialBindless;
   struct RIBuffer_s m_opaqueMaterialBuffer;
+  struct RIBuffer_s m_waterMaterialBuffer = {};
   struct RIDescriptor_s *m_materialSampler = nullptr;
 
   RIBindlessDescriptorSet m_bindlessSet;
@@ -253,6 +283,17 @@ private:
   // UNDEFINED → GENERAL → SHADER_READ_ONLY, like the gbuffer outputs.
   struct RITexture_s     m_packedHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
   struct RITextureView_s m_packedHitInfoView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+
+  // Per-bounce V-buffers written by SurfelVBuffer.rt.slang's closeHit when
+  // the primary surface is refractive / reflective. Same format + dims as
+  // m_packedHitInfoTexture; cleared to uint4(0) host-side each frame so
+  // consumers detect "no bounce here" via the valid bit in .w. .w high
+  // bits also stamp the source instanceID (the glass / mirror that bent
+  // the ray) so consumers can look up its DiffuseMaterial for blending.
+  struct RITexture_s     m_packedRefractionHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+  struct RITextureView_s m_packedRefractionHitInfoView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+  struct RITexture_s     m_packedReflectionHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+  struct RITextureView_s m_packedReflectionHitInfoView[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
   // prepare gbuffer
 	RIProgram m_gbuffer;
@@ -317,6 +358,16 @@ private:
 	// Hardware blend state varies per blend mode — one pipeline per mode is
 	// stamped on demand via the program's PipelineSlot cache.
 	RIProgram m_particle;
+
+	// Non-particle translucent meshes (glass, lamp glass, decals tagged
+	// translucent, etc.). Renders in its own pass after the particle pass into
+	// the same pogo "read" half, depth read-only. One pipeline per
+	// eMaterialBlendMode (Add/Mul/MulX2/Alpha/PremulAlpha) is stamped on demand
+	// via the program's PipelineSlot cache, mirroring m_particle. Refraction
+	// and cube-map reflection materials are filtered out at the call site —
+	// those need a screen-color copy + cube-map binding the renderer doesn't
+	// have yet.
+	RIProgram m_translucentMesh;
 
 	// Surfel-ray irradiance map sampled by surfel_raytrace.comp's ray-guiding
 	// branch and written by surfel_integrate.comp. Lives at VK_IMAGE_LAYOUT_GENERAL

@@ -244,6 +244,11 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   renderingInfo.pColorAttachments = &colorAttachment;
   renderingInfo.pDepthAttachment = &depthStencil;
   renderingInfo.pStencilAttachment = NULL;
+
+  // GuiSet builds its pipelines for RI.swapchain.format / RIBootstrap::DepthFormat
+  // (see GuiSet.cpp). If the attachments here ever change, update GuiSet to match.
+  assert(colorAttachment.imageView == RI.swapchainView[RI.swapchainIndex].vk.image);
+
   vkCmdBeginRendering(cmd, &renderingInfo);
 
   ///////////////////////////

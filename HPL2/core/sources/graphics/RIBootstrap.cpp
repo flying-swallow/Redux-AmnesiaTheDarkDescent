@@ -8,11 +8,7 @@ namespace hpl {
 
 RIBootstrap RI = RIBootstrap{};
 
-void RIBootstrap::IncrementFrame() {
-  frameIndex++;
-}
-
-
+void RIBootstrap::IncrementFrame() { frameIndex++; }
 
 void RIBootstrap::Dispose() {
   WaitRIQueueIdle(&device, &device.queues[RI_QUEUE_GRAPHICS]);
@@ -137,8 +133,8 @@ void RIBootstrap::BeginActiveSet() {
   // cleanup
   RIResetScratchAlloc(&RI.device, &cntx->uboScratchAlloc);
   RIResetScratchAlloc(&RI.device, &cntx->accelScratchAlloc);
-  //cntx->colorAttachment = RI.colorAttachment[RI.swapchainIndex];
-  //RIFinalizeDescriptor(&RI.device, &cntx->colorAttachment);
+  // cntx->colorAttachment = RI.colorAttachment[RI.swapchainIndex];
+  // RIFinalizeDescriptor(&RI.device, &cntx->colorAttachment);
   cntx->textureLink.clear();
   cntx->bufferLink.clear();
   // accelLink defers BLAS-handle release by frames-in-flight, mirroring
@@ -163,7 +159,9 @@ void RIBootstrap::BeginActiveSet() {
     imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imageBarriers[0].image = RI.swapchain.vk.images[RI.swapchainIndex]; // cntx->colorAttachment.texture->vk.image;
+    imageBarriers[0].image =
+        RI.swapchain.vk.images
+            [RI.swapchainIndex]; // cntx->colorAttachment.texture->vk.image;
     imageBarriers[0].subresourceRange = VkImageSubresourceRange{
         VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
         VK_REMAINING_ARRAY_LAYERS,
@@ -192,7 +190,7 @@ void RIBootstrap::BeginActiveSet() {
 }
 
 void RIBootstrap::UpdateFrameUBO(RIDescriptor_s *descriptor, void *data,
-                                size_t size) {
+                                 size_t size) {
   auto *activeSet = GetActiveSet();
   const hash_t hash =
       hash_data_hsieh(HASH_INITIAL_VALUE + frameIndex, data, size);
@@ -211,9 +209,9 @@ void RIBootstrap::UpdateFrameUBO(RIDescriptor_s *descriptor, void *data,
 }
 
 RIDescriptor_s *RIBootstrap::resolve_filter_descriptor(eTextureWrap wrapS,
-                                                      eTextureWrap wrapT,
-                                                      eTextureWrap wrapR,
-                                                      eTextureFilter filter) {
+                                                       eTextureWrap wrapT,
+                                                       eTextureWrap wrapR,
+                                                       eTextureFilter filter) {
 #if (DEVICE_IMPL_VULKAN)
   {
     VkSamplerCreateInfo info = {VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};

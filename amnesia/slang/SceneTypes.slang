@@ -84,6 +84,26 @@ SLANG_PUBLIC struct BoxLight {
     SLANG_PUBLIC float3  worldToLightZ;
 };
 
+// Per-fog-area params for the screen-space fog iteration. One entry per
+// active cFogArea each frame, capped at kFogAreaCapacity. The shader walks
+// the SSBO per-pixel, intersects the eye→surface ray with each box, and
+// accumulates a visibility scalar + fog colour contribution.
+//
+// `invModelMat` is the inverse of cFogArea::GetModelMatrix — it sends a
+// world-space point into the area's unit-box local space ([-0.5, 0.5]^3).
+// `flags`: bit 0 = ShowBacksideWhenInside, bit 1 = ShowBacksideWhenOutside.
+// `color.rgb` is the linear fog colour; `colorA` is the legacy
+// GetColor().a (fog alpha — 1.0 means fully opaque fog at full distance).
+SLANG_PUBLIC struct FogAreaParams {
+    SLANG_PUBLIC float4x4 invModelMat;     // 64 B
+    SLANG_PUBLIC float3   color;           // 12 B (linear)
+    SLANG_PUBLIC float    colorA;          //  4 B
+    SLANG_PUBLIC float    start;           //  4
+    SLANG_PUBLIC float    end;             //  4
+    SLANG_PUBLIC float    falloffExp;      //  4
+    SLANG_PUBLIC uint     flags;           //  4
+};
+
 // Texture-slot indices into the bindless `textures_2d[]` array (set=0,
 // binding=0). One uint32 per slot — see per_frame.resource.glsl for the
 // `DiffuseMaterial_*Texture_ID` accessors that index this array.
@@ -95,10 +115,17 @@ SLANG_PUBLIC struct DiffuseMaterial {
     SLANG_PUBLIC uint  materialConfig;
     SLANG_PUBLIC uint  cubeMapTextureIndex;          // kInvalidTextureIndex when absent
     SLANG_PUBLIC uint  tex[8];
-    SLANG_PUBLIC float heightMapScale;
-    SLANG_PUBLIC float heightMapBias;
-    SLANG_PUBLIC float frenselBias;
-    SLANG_PUBLIC float frenselPow;
+    SLANG_PUBLIC float heightMapScale;               // SolidDiffuse-only
+    SLANG_PUBLIC float heightMapBias;                // SolidDiffuse-only
+    SLANG_PUBLIC float frenselBias;                  // SolidDiffuse + Translucent
+    SLANG_PUBLIC float frenselPow;                   // SolidDiffuse + Translucent
+    // Translucent-only scalars (zero for solid-diffuse). Reusing this struct
+    // for the translucent mesh path lets resolveMaterial keep one bindless
+    // pool — the Translucent shader reads the same gDiffuseMaterials[] entry
+    // it would have under a dedicated TranslucentMaterial table.
+    SLANG_PUBLIC float refractionScale;
+    SLANG_PUBLIC float rimLightMul;
+    SLANG_PUBLIC float rimLightPow;
 };
 
 // GPU twin of MaterialTranslucent (Material.h). All bool flags
@@ -228,6 +255,7 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC uint  translucentMaterialCount;   // active entries in gTranslucentMaterials[]
     SLANG_PUBLIC uint  waterMaterialCount;         // active entries in gWaterMaterials[]
     SLANG_PUBLIC uint  decalMaterialCount;         // active entries in gDecalMaterials[]
+    SLANG_PUBLIC uint  fogAreaCount;               // active entries in gFogAreas[]
 
     SLANG_PUBLIC float3 posW;
     SLANG_PUBLIC float jitterX;

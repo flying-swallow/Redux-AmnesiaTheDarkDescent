@@ -268,6 +268,7 @@ void cLuxScreenCapture::OnPostRender()
 		render.layerCount           = 1;
 		render.colorAttachmentCount = 1;
 		render.pColorAttachments    = &attach;
+
 		vkCmdBeginRendering(cmd, &render);
 
 		VkViewport viewport = { 0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f };
@@ -345,6 +346,7 @@ void cLuxScreenCapture::OnPostRender()
 			render.layerCount           = 1;
 			render.colorAttachmentCount = 1;
 			render.pColorAttachments    = &attach;
+
 			vkCmdBeginRendering(cmd, &render);
 
 			vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -417,6 +419,7 @@ void cLuxScreenCapture::OnPostRender()
 	renderInfo.layerCount = 1;
 	renderInfo.colorAttachmentCount = 1;
 	renderInfo.pColorAttachments = &colorAttach;
+
 	vkCmdBeginRendering(cmd, &renderInfo);
 
 	VkViewport viewport = {};

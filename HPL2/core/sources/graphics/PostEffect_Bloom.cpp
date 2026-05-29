@@ -114,10 +114,10 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
         DestroyPostEffectColorTarget(m_blur[0]);
         DestroyPostEffectColorTarget(m_blur[1]);
         CreatePostEffectColorTarget(m_blur[0], blurW, blurH,
-                                    VK_FORMAT_R8G8B8A8_UNORM, 0u,
+                                    RIBootstrap::PogoColorFormatVk, 0u,
                                     "PostEffect_Bloom.blur0");
         CreatePostEffectColorTarget(m_blur[1], blurW, blurH,
-                                    VK_FORMAT_R8G8B8A8_UNORM, 0u,
+                                    RIBootstrap::PogoColorFormatVk, 0u,
                                     "PostEffect_Bloom.blur1");
         // First-time transitions out of UNDEFINED — set the "rest state":
         // blur[0] = SHADER_READ_ONLY (will flip to ATTACH on first H blur),
@@ -142,7 +142,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
         eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 
     PostEffectPipelineState blurState{};
-    InitPostEffectPipelineState(blurState, VK_FORMAT_R8G8B8A8_UNORM, false);
+    InitPostEffectPipelineState(blurState, RIBootstrap::PogoColorFormatVk, false);
     const hash_t kBlurHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
 
     VkViewport blurViewport = {0.0f,
@@ -195,6 +195,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
         render.layerCount           = 1;
         render.colorAttachmentCount = 1;
         render.pColorAttachments    = &attach;
+
         vkCmdBeginRendering(cmd, &render);
 
         vkCmdSetViewport(cmd, 0, 1, &blurViewport);
@@ -254,6 +255,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
     outRender.layerCount           = 1;
     outRender.colorAttachmentCount = 1;
     outRender.pColorAttachments    = &outAttach;
+
     vkCmdBeginRendering(cmd, &outRender);
 
     VkViewport viewport = {0.0f,
@@ -267,7 +269,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     PostEffectPipelineState addState{};
-    InitPostEffectPipelineState(addState, VK_FORMAT_R8G8B8A8_UNORM, false);
+    InitPostEffectPipelineState(addState, RIBootstrap::PogoColorFormatVk, false);
     const hash_t kAddHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/1u);
     mpBloomType->m_addProgram.bindPipeline(&RI.device, ctx.cmd, kAddHash,
                                            "PostEffect_Bloom.add",

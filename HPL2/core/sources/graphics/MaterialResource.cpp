@@ -1,6 +1,11 @@
 #include "graphics/MaterialResource.h"
 #include "graphics/Material.h"
 
+// Single source of truth for kMaterialFlag* — these used to be mirrored
+// here as the `TextureConfigFlags` enum but now come from the shared
+// shader/host header.
+#include "Constants.h"
+
 namespace hpl::material {
 
     UniformMaterialBlock UniformMaterialBlock::CreateFromMaterial(cMaterial& material) {
@@ -53,25 +58,32 @@ namespace hpl::material {
         // IsAlphaSingleChannel stays 0 since the alpha texture is sometimes
         // packed into RGBA and that path is less exercised.
         uint32_t flags =
-            (material.GetImage(eMaterialTexture_Diffuse) ? EnableDiffuse : 0) |
-            (material.GetImage(eMaterialTexture_NMap) ? EnableNormal : 0) |
-            (material.GetImage(eMaterialTexture_Specular) ? EnableSpecular : 0) |
-            (material.GetImage(eMaterialTexture_Alpha) ? EnableAlpha : 0) |
-            (material.GetImage(eMaterialTexture_Height) ? (EnableHeight | IsHeightMapSingleChannel) : 0) |
-            (material.GetImage(eMaterialTexture_Illumination) ? EnableIllumination : 0) |
-            (material.GetImage(eMaterialTexture_CubeMap) ? EnableCubeMap : 0) |
-            (material.GetImage(eMaterialTexture_DissolveAlpha) ? EnableDissolveAlpha : 0) |
-            (material.GetImage(eMaterialTexture_CubeMapAlpha) ? EnableCubeMapAlpha : 0);
+            (material.GetImage(eMaterialTexture_Diffuse) ? kMaterialFlagEnableDiffuse : 0) |
+            (material.GetImage(eMaterialTexture_NMap) ? kMaterialFlagEnableNormal : 0) |
+            (material.GetImage(eMaterialTexture_Specular) ? kMaterialFlagEnableSpecular : 0) |
+            (material.GetImage(eMaterialTexture_Alpha) ? kMaterialFlagEnableAlpha : 0) |
+            (material.GetImage(eMaterialTexture_Height) ? (kMaterialFlagEnableHeight | kMaterialFlagIsHeightMapSingleChannel) : 0) |
+            (material.GetImage(eMaterialTexture_Illumination) ? kMaterialFlagEnableIllumination : 0) |
+            (material.GetImage(eMaterialTexture_CubeMap) ? kMaterialFlagEnableCubeMap : 0) |
+            (material.GetImage(eMaterialTexture_DissolveAlpha) ? kMaterialFlagEnableDissolveAlpha : 0) |
+            (material.GetImage(eMaterialTexture_CubeMapAlpha) ? kMaterialFlagEnableCubeMapAlpha : 0);
 
         const ShaderMaterialData& descriptor = material.Descriptor();
         switch (descriptor.m_id) {
             case MaterialID::SolidDiffuse:
-                flags |= (descriptor.m_solid.m_alphaDissolveFilter ? UseDissolveFilter : 0);
+                flags |= (descriptor.m_solid.m_alphaDissolveFilter ? kMaterialFlagUseDissolveFilter : 0);
                 break;
             case MaterialID::Translucent:
-                flags |= (descriptor.m_translucent.m_refractionNormals ? UseRefractionNormals : 0) |
+                flags |= (descriptor.m_translucent.m_refractionNormals ? kMaterialFlagUseRefractionNormals : 0) |
                          (descriptor.m_translucent.m_hasRefraction &&
-                          descriptor.m_translucent.m_refractionEdgeCheck ? UseRefractionEdgeCheck : 0);
+                          descriptor.m_translucent.m_refractionEdgeCheck ? kMaterialFlagUseRefractionEdgeCheck : 0) |
+                         (descriptor.m_translucent.m_hasRefraction ? kMaterialFlagHasRefraction : 0);
+                break;
+            case MaterialID::Water:
+                // Water always refracts + reflects via the SurfelVBuffer.rt
+                // wave-animated bounce. IsWater drives that branch; HasRefraction
+                // makes the GIRenderPass swap show the refracted background.
+                flags |= kMaterialFlagIsWater | kMaterialFlagHasRefraction;
                 break;
             default:
                 break;
