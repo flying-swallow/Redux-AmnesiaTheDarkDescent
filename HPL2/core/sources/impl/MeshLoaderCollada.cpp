@@ -600,7 +600,14 @@ namespace hpl {
 			pSubMesh->Compile();
 
 			//Compile the vertex buffer
-			pVtxBuffer->Compile(0);//eVertexCompileFlag_CreateTangents);
+			// CreateTangents: derive per-vertex tangent (float4 incl. handedness
+			// .w) from position + normal + UV0 via cMath::CreateTriTangentVectors.
+			// Without this flag the tangent stream is empty, opaqueTangentHandles
+			// returns BDA=0 for the instance, and bindless_triangle / SurfelShade
+			// fall back to a synthesized, non-UV-aligned tangent — which collapses
+			// to zero on +/-X-facing walls and produces wrong-direction / warped
+			// parallax. Matches MeshLoaderMSH. Normal mapping needs the same data.
+			pVtxBuffer->Compile(eVertexCompileFlag_CreateTangents);
 		}
 
 		/////////////////////////////////////

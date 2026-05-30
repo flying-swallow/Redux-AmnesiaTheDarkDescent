@@ -54,6 +54,7 @@
 #include "graphics/MaterialType_Decal.h"
 
 #include "graphics/PostEffect_Bloom.h"
+#include "graphics/PostEffect_ToneMap.h"
 #include "graphics/PostEffect_ColorConvTex.h"
 #include "graphics/PostEffect_ImageTrail.h"
 #include "graphics/PostEffect_RadialBlur.h"
@@ -561,6 +562,7 @@ namespace hpl {
 			//Add all the post effects
 			Log(" Adding engine post effects\n");
 			AddPostEffectType(hplNew( cPostEffectType_Bloom, (this, apResources)) );
+			AddPostEffectType(hplNew( cPostEffectType_ToneMap, (this, apResources)) );
 			AddPostEffectType(hplNew( cPostEffectType_ColorConvTex, (this, apResources)) );
 			AddPostEffectType(hplNew( cPostEffectType_ImageTrail, (this, apResources)) );
 			AddPostEffectType(hplNew( cPostEffectType_RadialBlur, (this, apResources)) );

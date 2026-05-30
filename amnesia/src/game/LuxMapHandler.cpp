@@ -172,6 +172,13 @@ cLuxMapHandler::cLuxMapHandler() : iLuxUpdateable("LuxMapHandler")
 	mpPostEffect_Bloom = pGraphics->CreatePostEffect(&bloomParams);
 	pPostEffectComp->AddPostEffect(mpPostEffect_Bloom, 100);
 
+	//Tonemap — ACES filmic, runs after bloom (HDR) and before the LDR effects
+	//(ImageTrail/RadialBlur/Sepia), mapping linear HDR -> linear [0,1].
+	cPostEffectParams_ToneMap tonemapParams;
+	tonemapParams.mfExposure = 1.0f;
+	mpPostEffect_ToneMap = pGraphics->CreatePostEffect(&tonemapParams);
+	pPostEffectComp->AddPostEffect(mpPostEffect_ToneMap, 50);
+
 	//Image trail
 	cPostEffectParams_ImageTrail imageTrailParams;
 	mpPostEffect_ImageTrail = pGraphics->CreatePostEffect(&imageTrailParams);

@@ -277,6 +277,13 @@ private:
   uint32_t m_surfelResultWidth = 0;
   uint32_t m_surfelResultHeight = 0;
 
+  // Screen-space perceptual albedo buffer (RGBA8 UNORM). The albedo resolve pass
+  // fills it from the visibility buffer; the decal pass blends decals into it
+  // (native blend modes, perceptual space); SurfelGIRenderPass samples it for
+  // sd.albedo so decals are lit. One per swapchain image.
+  struct RITexture_s     m_albedoTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+  struct RITextureView_s m_albedoView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+
   // Stage B packed visibility — RGBA32UI storage image written by the
   // surfel_vbuffer RT pipeline, sampled by the Stage D / F surfel update
   // and generation passes. One per swapchain image; per-frame layout is
@@ -350,6 +357,11 @@ private:
   // fullscreen pass once it's wired in fully.
   RIProgram m_surfelGIRender;
 
+  // Fullscreen pass that reconstructs perceptual albedo from the resolved
+  // visibility buffer into m_albedoTexture; decals are then rasterized into that
+  // buffer (native blend modes) before SurfelGIRenderPass lights it.
+  RIProgram m_albedoResolve;
+
 	// Particle (translucent) pass — port of legacy RendererDeferred's
 	// translucency_particle.{vert,frag}.fsl. Reuses the opaque object/material
 	// bindless pools (one OBJECT slot + one MATERIAL slot per emitter per
@@ -368,6 +380,15 @@ private:
 	// those need a screen-color copy + cube-map binding the renderer doesn't
 	// have yet.
 	RIProgram m_translucentMesh;
+
+	// Decal overlay pass. Thin clipped meshes (blood / scorch / impact marks,
+	// posters) drawn after the translucent mesh pass into the same pogo "read"
+	// half, depth read-only. Reuses the translucent 5-stream fixed-function
+	// vertex layout, the m_diffuseBindless / m_diffuseObjectBuffer object pool,
+	// and resolveMaterial (DiffuseMaterial slot — only tex[0] diffuse is used).
+	// One pipeline per eMaterialBlendMode is stamped via the program's
+	// PipelineSlot cache. Port of decal.frag.fsl / decal.vert.fsl.
+	RIProgram m_decal;
 
 	// Surfel-ray irradiance map sampled by surfel_raytrace.comp's ray-guiding
 	// branch and written by surfel_integrate.comp. Lives at VK_IMAGE_LAYOUT_GENERAL

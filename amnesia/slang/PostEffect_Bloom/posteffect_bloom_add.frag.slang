@@ -38,6 +38,13 @@ float4 psMain(PSIn pin) : SV_Target
 {
     float4 color     = sourceInput.Sample(inputSampler, pin.v_uv);
     float4 blurColor = blurInput.Sample(inputSampler, pin.v_uv);
-    blurColor *= blurColor * dot(blurColor.xyz, pc.rgbToIntensity);
-    return color + blurColor;
+    // Bright-pass weight, clamped to [0,1]. The original HPL2 formula was
+    // blurColor^2 * dot(blurColor, rgbToIntensity) — bounded only because that
+    // renderer bloomed in LDR ([0,1], so blur^3 <= blur). Here bloom runs in the
+    // HDR linear pogo *before* the tonemap, so blurColor can be >> 1 and the
+    // cubic term explodes (a bright white particle adds ~L^3 per channel, blowing
+    // out the frame and bleeding into the darks). saturate() bounds the added
+    // bloom to at most the blurred bright-pass itself, which ACES then rolls off.
+    float intensity = saturate(dot(blurColor.xyz, pc.rgbToIntensity));
+    return float4(color.xyz + blurColor.xyz * intensity, color.a);
 }

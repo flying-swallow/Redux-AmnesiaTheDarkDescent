@@ -394,6 +394,9 @@ namespace hpl {
 			// Diffuse and Illumination are authored as perceptual color in sRGB;
 			// every other slot (normals, packed specular, height, alpha, dissolve,
 			// cubemap alpha) carries linear data and must keep a UNORM view.
+			// Decals included: they blend into the LINEAR albedo buffer before
+			// lighting, so their diffuse must be sRGB-decoded to linear like any
+			// other albedo.
 			const bool bSRGB = (pUsedTexture->mType == eMaterialTexture_Diffuse)
 							|| (pUsedTexture->mType == eMaterialTexture_Illumination);
 

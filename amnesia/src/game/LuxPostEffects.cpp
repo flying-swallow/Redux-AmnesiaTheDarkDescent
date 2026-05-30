@@ -21,18 +21,12 @@
 
 #include "LuxMapHandler.h"
 
-//////////////////////////////////////////////////////////////////////////
-// VARIABLES
-//////////////////////////////////////////////////////////////////////////
-
-//-----------------------------------------------------------------------
-
-#define kVar_afAlpha			0
-#define kVar_afT				1
-#define kVar_avScreenSize		2
-#define kVar_afAmpT				3
-#define kVar_afWaveAlpha		4
-#define kVar_afZoomAlpha		5
+#include "graphics/HPLTexture.h"
+#include "graphics/PostEffectHelpers.h"
+#include "graphics/RIBootstrap.h"
+#include "graphics/RIProgramHelpers.h"
+#include "resources/Resources.h"
+#include "resources/TextureManager.h"
 
 //-----------------------------------------------------------------------
 
@@ -45,20 +39,11 @@
 cLuxPostEffect_Insanity::cLuxPostEffect_Insanity(cGraphics *apGraphics, cResources *apResources) : iLuxPostEffect(apGraphics, apResources)
 {
 	//////////////////////////////
-	// Create program
-	cParserVarContainer vars;
-	vars.Add("UseUv");
-	mpProgram = mpGraphics->CreateGpuProgramFromShaders("LuxInsanity","deferred_base_vtx.glsl", "posteffect_insanity_frag.glsl", &vars);
-	if(mpProgram)
-	{
-		mpProgram->GetVariableAsId("afAlpha",kVar_afAlpha);
-		mpProgram->GetVariableAsId("afT",kVar_afT);
-		mpProgram->GetVariableAsId("avScreenSize",kVar_avScreenSize);
-		mpProgram->GetVariableAsId("afAmpT",kVar_afAmpT);
-		mpProgram->GetVariableAsId("afWaveAlpha",kVar_afWaveAlpha);
-		mpProgram->GetVariableAsId("afZoomAlpha",kVar_afZoomAlpha);
-	}
-
+	// Create program — Slang port of dds_insanity_posteffect.frag.fsl, sharing the
+	// fullscreen-triangle vertex shader with the other post-effects.
+	hpl::LoadSlangGraphics(&RI.device, m_program, apResources,
+	                       "posteffect_fullscreen.vert.spv",
+	                       "posteffect_insanity.frag.spv");
 
 	//////////////////////////////
 	// Textures
@@ -100,15 +85,97 @@ void cLuxPostEffect_Insanity::Update(float afTimeStep)
 //-----------------------------------------------------------------------
 
 
+namespace {
+struct InsanityPushConstants
+{
+	float time;
+	float amplitude;
+	float waveAlpha;
+	float zoomAlpha;
+};
+} // namespace
+
 void cLuxPostEffect_Insanity::RenderEffect(const hpl::PostEffectRenderCtx &ctx)
 {
-	// Vulkan-bindless port — the cLuxPostEffect_Insanity shader has not
-	// yet been ported to Slang. Until that lands, the effect is a no-op
-	// (composite will toggle the pogo buffer after this call without us
-	// having written anything, so the buffer halves swap roles but the
-	// "just-written" half still carries the prior effect's output —
-	// which is what a passthrough would do).
-	(void)ctx;
+	using namespace hpl;
+	VkCommandBuffer cmd = ctx.cmd->vk.cmd;
+
+	// Animated amp-map pair: ampMap0->1->2->0 as mfAnimCount sweeps [0,3), blended
+	// by its fractional part (matches the legacy afAmpT animation).
+	const int count = (int)mvAmpMaps.size();
+	const int i0 = count > 0 ? ((int)mfAnimCount) % count : 0;
+	const int i1 = count > 0 ? (i0 + 1) % count : 0;
+	float amplitude = mfAnimCount - (float)((int)mfAnimCount); // frac; mfAnimCount >= 0
+
+	// Resolve texture bindings. If any insanity asset is missing, substitute the
+	// scene texture and zero the distortion so this pass stays a valid passthrough:
+	// it MUST write its pogo half every frame, or the composite's post-effect toggle
+	// desyncs and presents a stale, pre-tonemap buffer (the brightness bug).
+	bool valid = (count >= 2);
+	auto resolve = [&](Image *img) -> RIDescriptor_s {
+		if (img && img->GetTexture() && img->GetTexture()->binding.texture)
+			return img->GetTexture()->binding;
+		valid = false;
+		return *ctx.inputSrv;
+	};
+	RIDescriptor_s amp0Desc = (count > 0) ? resolve(mvAmpMaps[i0]) : *ctx.inputSrv;
+	RIDescriptor_s amp1Desc = (count > 0) ? resolve(mvAmpMaps[i1]) : *ctx.inputSrv;
+	RIDescriptor_s zoomDesc = resolve(mpZoomMap);
+	if (count <= 0) valid = false;
+
+	VkRenderingAttachmentInfo colorAttach = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+	colorAttach.imageView   = ctx.outputView;
+	colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+	colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+
+	VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+	renderInfo.renderArea           = {{0, 0}, {ctx.width, ctx.height}};
+	renderInfo.layerCount           = 1;
+	renderInfo.colorAttachmentCount = 1;
+	renderInfo.pColorAttachments    = &colorAttach;
+
+	vkCmdBeginRendering(cmd, &renderInfo);
+
+	VkViewport viewport = {0.0f, 0.0f, (float)ctx.width, (float)ctx.height, 0.0f, 1.0f};
+	vkCmdSetViewport(cmd, 0, 1, &viewport);
+	VkRect2D scissor = {{0, 0}, {ctx.width, ctx.height}};
+	vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+	PostEffectPipelineState state{};
+	InitPostEffectPipelineState(state, RIBootstrap::PogoColorFormatVk, false);
+
+	const hash_t pipelineHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+	m_program.bindPipeline(&RI.device, ctx.cmd, pipelineHash, "PostEffect_Insanity",
+	                       &state.createInfo);
+
+	RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+	    eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
+	    eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
+
+	RIProgram::DescriptorBinding bindings[5] = {};
+	bindings[0].descriptor = *samplerDesc;
+	bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
+	bindings[1].descriptor = *ctx.inputSrv;
+	bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
+	bindings[2].descriptor = amp0Desc;
+	bindings[2].handle     = DescriptorBindingID::Create("ampMap0");
+	bindings[3].descriptor = amp1Desc;
+	bindings[3].handle     = DescriptorBindingID::Create("ampMap1");
+	bindings[4].descriptor = zoomDesc;
+	bindings[4].handle     = DescriptorBindingID::Create("zoomMap");
+	m_program.bindDescriptors(&RI.device, ctx.cmd, ctx.frameIndex, bindings, 5);
+
+	InsanityPushConstants pc{};
+	pc.time      = mfT;
+	pc.amplitude = amplitude;
+	pc.waveAlpha = valid ? mfWaveAlpha : 0.0f;
+	pc.zoomAlpha = valid ? mfZoomAlpha : 0.0f;
+	vkCmdPushConstants(cmd, m_program.getPipelineLayout(),
+	                   VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+
+	vkCmdDraw(cmd, 3, 1, 0, 0);
+	vkCmdEndRendering(cmd);
 }
 
 

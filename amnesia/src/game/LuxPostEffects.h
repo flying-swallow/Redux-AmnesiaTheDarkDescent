@@ -24,6 +24,7 @@
 
 #include "LuxBase.h"
 #include "graphics/Image.h"
+#include "graphics/RIProgram.h"
 
 //----------------------------------------
 
@@ -58,7 +59,7 @@ public:
 private:
 	void RenderEffect(const hpl::PostEffectRenderCtx &ctx) override;
 
-	iGpuProgram *mpProgram;
+	hpl::RIProgram m_program;
 	// Vulkan-bindless port: textures load through cTextureManager::Create2DImage
 	// (HPLTexture-backed) instead of the legacy iTexture* GL path that crashed
 	// in cSDLTexture::CopyTextureDataToGL with no GL context.

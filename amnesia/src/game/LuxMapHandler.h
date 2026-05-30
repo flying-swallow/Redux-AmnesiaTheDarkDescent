@@ -168,6 +168,7 @@ private:
 	bool mbShowCommentary;
 
 	iPostEffect *mpPostEffect_Bloom;
+	iPostEffect *mpPostEffect_ToneMap;
 	iPostEffect *mpPostEffect_ImageTrail;
 	iPostEffect *mpPostEffect_Sepia;
 	iPostEffect *mpPostEffect_RadialBlur;

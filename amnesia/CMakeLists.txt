@@ -149,6 +149,8 @@ SHADERS
     ./slang/ParticlePass/Particle.frag.slang
     ./slang/TranslucentPass/Translucent.vert.slang
     ./slang/TranslucentPass/Translucent.frag.slang
+    ./slang/DecalPass/Decal.vert.slang
+    ./slang/DecalPass/Decal.frag.slang
     ./slang/SurfelGBuffer/SurfelGBuffer.3d.slang
     ./slang/SurfelGI/SurfelPreparePass.cs.slang
     ./slang/SurfelGI/SurfelUpdatePass.cs.slang
@@ -158,14 +160,17 @@ SHADERS
     ./slang/SurfelGI/SurfelRayTrace.rt.slang
     ./slang/SurfelGI/LightGridBuildPass.cs.slang
     ./slang/SurfelGIRenderPass/SurfelGIRenderPass.frag.slang
+    ./slang/AlbedoResolve/albedo_resolve.frag.slang
     ./slang/SurfelVBuffer/SurfelVBuffer.rt.slang
     ./slang/PostEffect/posteffect_fullscreen.vert.slang
     ./slang/PostEffect/posteffect_blit.frag.slang
+    ./slang/PostEffect_ToneMap/posteffect_tonemap.frag.slang
     ./slang/PostEffect_Bloom/posteffect_bloom_blur.frag.slang
     ./slang/PostEffect_Bloom/posteffect_bloom_add.frag.slang
     ./slang/PostEffect_ColorConvTex/posteffect_color_conv.frag.slang
     ./slang/PostEffect_ImageTrail/posteffect_image_trail.frag.slang
     ./slang/PostEffect_RadialBlur/posteffect_radial_blur.frag.slang
+    ./slang/PostEffect_Insanity/posteffect_insanity.frag.slang
 INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/slang
 OUTPUT_FOLDER

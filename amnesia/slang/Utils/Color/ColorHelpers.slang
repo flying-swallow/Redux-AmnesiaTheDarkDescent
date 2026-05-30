@@ -158,6 +158,28 @@ inline float3 sRGBToLinear(float3 srgb)
 }
 
 /**
+ * Returns a linear-space version of an input Adobe RGB (1998) channel value.
+ * Adobe RGB (1998) uses a pure gamma of 2.19921875 (= 563/256) with no linear
+ * toe segment — distinct from sRGB's piecewise curve (sRGBToLinear).
+ * @param adobe Adobe RGB (1998) input channel value
+ */
+inline float adobeRGBToLinear(float adobe)
+{
+    return pow(adobe, 2.19921875f);
+}
+
+/**
+ * Returns a linear-space version of an input Adobe RGB (1998) color. Only the
+ * transfer function is applied; Adobe RGB's wider primaries are not gamut-mapped
+ * to Rec.709.
+ * @param adobe Adobe RGB (1998) input color
+ */
+inline float3 adobeRGBToLinear(float3 adobe)
+{
+    return float3(adobeRGBToLinear(adobe.x), adobeRGBToLinear(adobe.y), adobeRGBToLinear(adobe.z));
+}
+
+/**
  * Returns a sRGB version of an input linear RGB channel value in the ITU-R BT.709 color space
  * @param LinearColor linear input channel value
  */

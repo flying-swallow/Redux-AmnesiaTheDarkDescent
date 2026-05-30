@@ -69,19 +69,25 @@ MOUNT_ARGS=(
 # args for `--game-dir <path>` (the arg form build-linux.sh accepts), falling
 # back to the AMNESIA_GAME_DIRECTORY env var that build-linux.sh defaults to.
 # Args are not consumed — build-linux.sh re-parses them inside the container.
+#
+# When --no-deploy is passed, nothing gets written to the game dir, so don't
+# bother resolving/mounting it (and don't require it to exist on the host).
 GAME_DIR=""
+NO_DEPLOY=0
 _prev=""
 for _a in "$@"; do
     if [[ "$_prev" == "--game-dir" ]]; then
         GAME_DIR="$_a"
-        break
     fi
+    [[ "$_a" == "--no-deploy" ]] && NO_DEPLOY=1
     _prev="$_a"
 done
 GAME_DIR="${GAME_DIR:-${AMNESIA_GAME_DIRECTORY:-}}"
 
 ENV_ARGS=(-e HOME=/tmp)
-if [[ -n "$GAME_DIR" ]]; then
+if [[ "$NO_DEPLOY" == "1" ]]; then
+    echo "==> --no-deploy: skipping game dir mount."
+elif [[ -n "$GAME_DIR" ]]; then
     if [[ -d "$GAME_DIR" ]]; then
         # Resolve symlinks before mounting. Steam libraries often live behind
         # a symlink (external drives, Flatpak Steam, etc.); podman binds the

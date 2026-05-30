@@ -47,6 +47,12 @@ Texture2D<float4> gIndirectLighting;
 [vk::binding(1, 2)]
 Texture2D<uint4> gPackedHitInfoRaster;
 
+// Screen-space LINEAR albedo (RGBA16F): the albedo resolve pass writes the base
+// surface albedo and the decal pass blends decals into it, so reading it here
+// makes decals part of the lit surface. Already linear — no decode needed.
+[vk::binding(2, 2)]
+Texture2D<float4> gAlbedo;
+
 struct PSIn
 {
     [vk::location(0)] float2 v_uv;
@@ -190,6 +196,11 @@ float4 psMain(PSIn pin) : SV_Target
     VertexData v = gScene.getVertexData(triangleHit);
     float illuminationAmount = gScene.getObject(triangleHit.instanceID).illuminationAmount;
     DiffuseShading sd = prepareDiffuseShading(v, materialID, illuminationAmount);
+
+    // Albedo comes from the screen-space buffer (base albedo + decals blended in
+    // before lighting), already linear. Emission stays from the material. This is
+    // what makes decals get lit like the surface.
+    sd.albedo = gAlbedo[pixelPos].rgb;
 
     bool wantDirect   = kDefaultRenderDirectLighting   != 0u;
     bool wantIndirect = kDefaultRenderIndirectLighting != 0u;
