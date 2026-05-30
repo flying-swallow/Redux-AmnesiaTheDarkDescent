@@ -12,26 +12,77 @@
 
 #if ( DEVICE_IMPL_VULKAN )
 
-static uint32_t __priority_BT709_G22_16BIT(const VkSurfaceFormatKHR* surface)  {
-    return ((surface->format == VK_FORMAT_R16G16B16A16_SFLOAT) << 0) | 
-           ((surface->colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) << 1);
-};
-
-static uint32_t __priority_BT709_G22_8BIT(const VkSurfaceFormatKHR* surface) {
-    // https://registry.khronos.org/vulkan/specs/1.3-extensions/man/html/vkGetPhysicalDeviceSurfaceFormatsKHR.html
-    // There is always a corresponding UNORM, SRGB just need to consider UNORM
-    return ((surface->format == VK_FORMAT_R8G8B8A8_UNORM || surface->format == VK_FORMAT_B8G8R8A8_UNORM) << 0) | 
-  				 ((surface->colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) << 1);
-}
-
-static uint32_t __priority_BT709_G22_10BIT(const VkSurfaceFormatKHR* surface){
-    return ((surface->format == VK_FORMAT_A2B10G10R10_UNORM_PACK32) << 0) | 
-           ((surface->colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) << 1);
-}
-
-static uint32_t __priority_BT2020_G2084_10BIT( const VkSurfaceFormatKHR *surface )
+static uint32_t __priority_BT709_G22_8BIT(const VkSurfaceFormatKHR* surface)
 {
-	return ( ( surface->format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 ) << 0 ) | ( ( surface->colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT ) << 1 );
+	if (!surface)
+		return 0;
+
+	if (surface->colorSpace != VK_COLOR_SPACE_SRGB_NONLINEAR_KHR)
+		return 0;
+
+	// Prefer UNORM swapchains for the engine's current SDR output path.
+	// SRGB formats are kept as a fallback, but should not beat UNORM.
+	switch (surface->format) {
+	case VK_FORMAT_B8G8R8A8_UNORM:
+		return 1000;
+
+	case VK_FORMAT_R8G8B8A8_UNORM:
+		return 900;
+
+	case VK_FORMAT_B8G8R8A8_SRGB:
+		return 500;
+
+	case VK_FORMAT_R8G8B8A8_SRGB:
+		return 400;
+
+	default:
+		return 0;
+	}
+}
+
+static uint32_t __priority_BT709_G10_16BIT(const VkSurfaceFormatKHR* surface)
+{
+	if (!surface)
+		return 0;
+
+	// Ideal path: linear 16-bit float swapchain.
+	if (surface->format == VK_FORMAT_R16G16B16A16_SFLOAT &&
+		surface->colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) {
+		return 3000;
+	}
+
+	// Fallback path: normal 8-bit SDR.
+	// This prevents Linux/Wayland/X11 from accidentally picking the first
+	// advertised format when no 16-bit linear format is available.
+	return __priority_BT709_G22_8BIT(surface);
+}
+
+static uint32_t __priority_BT709_G22_10BIT(const VkSurfaceFormatKHR* surface)
+{
+	if (!surface)
+		return 0;
+
+	if (surface->format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
+		surface->colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+		return 2000;
+	}
+
+	// Fallback to regular 8-bit SDR if 10-bit SDR is unavailable.
+	return __priority_BT709_G22_8BIT(surface);
+}
+
+static uint32_t __priority_BT2020_G2084_10BIT(const VkSurfaceFormatKHR* surface)
+{
+	if (!surface)
+		return 0;
+
+	if (surface->format == VK_FORMAT_A2B10G10R10_UNORM_PACK32 &&
+		surface->colorSpace == VK_COLOR_SPACE_HDR10_ST2084_EXT) {
+		return 3000;
+	}
+
+	// Prefer 10-bit SDR over 8-bit SDR if HDR10 is unavailable.
+	return __priority_BT709_G22_10BIT(surface);
 }
 
 #endif
@@ -115,7 +166,7 @@ int InitRISwapchain( struct RIDevice_s *dev, struct RISwapchainDesc_s *init, RIS
 		uint32_t ( *priorityHandler )( const VkSurfaceFormatKHR *surface ) = __priority_BT709_G22_8BIT;
 		switch( init->format ) {
 			case RI_SWAPCHAIN_BT709_G10_16BIT:
-				priorityHandler = __priority_BT709_G22_16BIT;
+				priorityHandler = __priority_BT709_G10_16BIT;
 				break;
 			case RI_SWAPCHAIN_BT709_G22_8BIT:
 				priorityHandler = __priority_BT709_G22_8BIT;
@@ -127,10 +178,16 @@ int InitRISwapchain( struct RIDevice_s *dev, struct RISwapchainDesc_s *init, RIS
 				priorityHandler = __priority_BT2020_G2084_10BIT;
 				break;
 		}
-		for( size_t i = 1; i < numSurfaceFormats; i++ ) {
-			assert( priorityHandler );
-			if( priorityHandler( surfaceFormats + i ) > priorityHandler( selectedSurf ) ) {
+		assert(priorityHandler);
+
+		uint32_t selectedPriority = priorityHandler(selectedSurf);
+
+		for (size_t i = 1; i < numSurfaceFormats; i++) {
+			uint32_t candidatePriority = priorityHandler(surfaceFormats + i);
+
+			if (candidatePriority > selectedPriority) {
 				selectedSurf = surfaceFormats + i;
+				selectedPriority = candidatePriority;
 			}
 		}
 	}
