@@ -36,77 +36,6 @@ static uint32_t __priority_BT2020_G2084_10BIT( const VkSurfaceFormatKHR *surface
 
 #endif
 
-static const char* VkFormatName(VkFormat fmt)
-{
-	switch (fmt) {
-	case VK_FORMAT_UNDEFINED: return "VK_FORMAT_UNDEFINED";
-
-	case VK_FORMAT_B8G8R8A8_UNORM: return "VK_FORMAT_B8G8R8A8_UNORM";
-	case VK_FORMAT_R8G8B8A8_UNORM: return "VK_FORMAT_R8G8B8A8_UNORM";
-	case VK_FORMAT_B8G8R8A8_SRGB: return "VK_FORMAT_B8G8R8A8_SRGB";
-	case VK_FORMAT_R8G8B8A8_SRGB: return "VK_FORMAT_R8G8B8A8_SRGB";
-
-	case VK_FORMAT_A2B10G10R10_UNORM_PACK32: return "VK_FORMAT_A2B10G10R10_UNORM_PACK32";
-	case VK_FORMAT_A2R10G10B10_UNORM_PACK32: return "VK_FORMAT_A2R10G10B10_UNORM_PACK32";
-
-	case VK_FORMAT_R16G16B16A16_UNORM: return "VK_FORMAT_R16G16B16A16_UNORM";
-	case VK_FORMAT_R16G16B16A16_SFLOAT: return "VK_FORMAT_R16G16B16A16_SFLOAT";
-
-	default: return "UNKNOWN_VK_FORMAT";
-	}
-}
-
-static const char* VkColorSpaceName(VkColorSpaceKHR cs)
-{
-	switch (cs) {
-	case VK_COLOR_SPACE_SRGB_NONLINEAR_KHR:
-		return "VK_COLOR_SPACE_SRGB_NONLINEAR_KHR";
-
-#ifdef VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT
-	case VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT:
-		return "VK_COLOR_SPACE_DISPLAY_P3_NONLINEAR_EXT";
-#endif
-
-#ifdef VK_COLOR_SPACE_DISPLAY_P3_LINEAR_EXT
-	case VK_COLOR_SPACE_DISPLAY_P3_LINEAR_EXT:
-		return "VK_COLOR_SPACE_DISPLAY_P3_LINEAR_EXT";
-#endif
-
-#ifdef VK_COLOR_SPACE_DCI_P3_NONLINEAR_EXT
-	case VK_COLOR_SPACE_DCI_P3_NONLINEAR_EXT:
-		return "VK_COLOR_SPACE_DCI_P3_NONLINEAR_EXT";
-#endif
-
-#ifdef VK_COLOR_SPACE_BT709_LINEAR_EXT
-	case VK_COLOR_SPACE_BT709_LINEAR_EXT:
-		return "VK_COLOR_SPACE_BT709_LINEAR_EXT";
-#endif
-
-#ifdef VK_COLOR_SPACE_BT709_NONLINEAR_EXT
-	case VK_COLOR_SPACE_BT709_NONLINEAR_EXT:
-		return "VK_COLOR_SPACE_BT709_NONLINEAR_EXT";
-#endif
-
-#ifdef VK_COLOR_SPACE_BT2020_LINEAR_EXT
-	case VK_COLOR_SPACE_BT2020_LINEAR_EXT:
-		return "VK_COLOR_SPACE_BT2020_LINEAR_EXT";
-#endif
-
-#ifdef VK_COLOR_SPACE_HDR10_ST2084_EXT
-	case VK_COLOR_SPACE_HDR10_ST2084_EXT:
-		return "VK_COLOR_SPACE_HDR10_ST2084_EXT";
-#endif
-
-#ifdef VK_COLOR_SPACE_HDR10_HLG_EXT
-	case VK_COLOR_SPACE_HDR10_HLG_EXT:
-		return "VK_COLOR_SPACE_HDR10_HLG_EXT";
-#endif
-
-	default:
-		return "UNKNOWN_VK_COLOR_SPACE";
-	}
-}
-
 int InitRISwapchain( struct RIDevice_s *dev, struct RISwapchainDesc_s *init, RISwapchain_s<> *swapchain )
 {
 	assert( init->windowHandle );
@@ -176,90 +105,34 @@ int InitRISwapchain( struct RIDevice_s *dev, struct RISwapchainDesc_s *init, RIS
 	}
 	
 	uint32_t numSurfaceFormats = 0;
-
-	result = vkGetPhysicalDeviceSurfaceFormatsKHR(
-		dev->physicalAdapter.vk.physicalDevice,
-		swapchain->vk.surface,
-		&numSurfaceFormats,
-		NULL
-	);
+	result = vkGetPhysicalDeviceSurfaceFormatsKHR( dev->physicalAdapter.vk.physicalDevice, swapchain->vk.surface, &numSurfaceFormats, NULL );
 	VK_WrapResult(result);
-
-	hpl::Log("Swapchain: physical device reports %u surface formats", (unsigned)numSurfaceFormats);
-
-	VkSurfaceFormatKHR* surfaceFormats =
-		(VkSurfaceFormatKHR*)malloc(sizeof(VkSurfaceFormatKHR) * numSurfaceFormats);
-
-	result = vkGetPhysicalDeviceSurfaceFormatsKHR(
-		dev->physicalAdapter.vk.physicalDevice,
-		swapchain->vk.surface,
-		&numSurfaceFormats,
-		surfaceFormats
-	);
+	VkSurfaceFormatKHR *surfaceFormats = (VkSurfaceFormatKHR*)malloc( sizeof( VkSurfaceFormatKHR ) * numSurfaceFormats );
+	result = vkGetPhysicalDeviceSurfaceFormatsKHR( dev->physicalAdapter.vk.physicalDevice, swapchain->vk.surface, &numSurfaceFormats, surfaceFormats );
 	VK_WrapResult(result);
-
-	VkSurfaceFormatKHR* selectedSurf = surfaceFormats;
-
+	VkSurfaceFormatKHR *selectedSurf = surfaceFormats ;
 	{
-		uint32_t(*priorityHandler)(const VkSurfaceFormatKHR * surface) =
-			__priority_BT709_G22_8BIT;
-
-		switch (init->format) {
-		case RI_SWAPCHAIN_BT709_G10_16BIT:
-			priorityHandler = __priority_BT709_G22_16BIT;
-			break;
-
-		case RI_SWAPCHAIN_BT709_G22_8BIT:
-			priorityHandler = __priority_BT709_G22_8BIT;
-			break;
-
-		case RI_SWAPCHAIN_BT709_G22_10BIT:
-			priorityHandler = __priority_BT709_G22_10BIT;
-			break;
-
-		case RI_SWAPCHAIN_BT2020_G2084_10BIT:
-			priorityHandler = __priority_BT2020_G2084_10BIT;
-			break;
+		uint32_t ( *priorityHandler )( const VkSurfaceFormatKHR *surface ) = __priority_BT709_G22_8BIT;
+		switch( init->format ) {
+			case RI_SWAPCHAIN_BT709_G10_16BIT:
+				priorityHandler = __priority_BT709_G22_16BIT;
+				break;
+			case RI_SWAPCHAIN_BT709_G22_8BIT:
+				priorityHandler = __priority_BT709_G22_8BIT;
+				break;
+			case RI_SWAPCHAIN_BT709_G22_10BIT:
+				priorityHandler = __priority_BT709_G22_10BIT;
+				break;
+			case RI_SWAPCHAIN_BT2020_G2084_10BIT:
+				priorityHandler = __priority_BT2020_G2084_10BIT;
+				break;
 		}
-
-		assert(priorityHandler);
-
-		hpl::Log("Swapchain: available surface formats:");
-
-		for (uint32_t i = 0; i < numSurfaceFormats; i++) {
-			uint32_t priority = priorityHandler(surfaceFormats + i);
-
-			hpl::Log(
-				"  [%u] format=%s (%d), colorSpace=%s (%d), priority=%u%s",
-				(unsigned)i,
-				VkFormatName(surfaceFormats[i].format),
-				(int)surfaceFormats[i].format,
-				VkColorSpaceName(surfaceFormats[i].colorSpace),
-				(int)surfaceFormats[i].colorSpace,
-				(unsigned)priority,
-				(surfaceFormats + i == selectedSurf) ? " initial" : ""
-			);
-
-			if (priorityHandler(surfaceFormats + i) > priorityHandler(selectedSurf)) {
-				hpl::Log(
-					"    -> New best: [%u] priority %u > %u",
-					(unsigned)i,
-					(unsigned)priority,
-					(unsigned)priorityHandler(selectedSurf)
-				);
-
+		for( size_t i = 1; i < numSurfaceFormats; i++ ) {
+			assert( priorityHandler );
+			if( priorityHandler( surfaceFormats + i ) > priorityHandler( selectedSurf ) ) {
 				selectedSurf = surfaceFormats + i;
 			}
 		}
-
-		hpl::Log(
-			"Swapchain: selected surface format: format=%s (%d), colorSpace=%s (%d), priority=%u",
-			VkFormatName(selectedSurf->format),
-			(int)selectedSurf->format,
-			VkColorSpaceName(selectedSurf->colorSpace),
-			(int)selectedSurf->colorSpace,
-			(unsigned)priorityHandler(selectedSurf)
-		);
 	}
 
 	uint32_t presentModeCount = 0;
