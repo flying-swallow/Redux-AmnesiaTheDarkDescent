@@ -162,7 +162,9 @@
     <ClInclude Include="..\..\extern\volk\volk.h" />
     <ClInclude Include="include\graphics\AnimatedImage.h" />
     <ClInclude Include="include\graphics\BindlessPool.h" />
+    <ClInclude Include="include\graphics\DecalPipelineDesc.h" />
     <ClInclude Include="include\graphics\DrawPacket.h" />
+    <ClInclude Include="include\graphics\GBufferMRTPipelineDesc.h" />
     <ClInclude Include="include\graphics\GraphicUtils.h" />
     <ClInclude Include="include\graphics\HPLGraphicsConfig.h" />
     <ClInclude Include="include\graphics\HPLTexture.h" />
@@ -173,6 +175,7 @@
     <ClInclude Include="include\graphics\MaterialResource.h" />
     <ClInclude Include="include\graphics\ObjectPool.h" />
     <ClInclude Include="include\graphics\PostEffectHelpers.h" />
+    <ClInclude Include="include\graphics\PostEffect_ToneMap.h" />
     <ClInclude Include="include\graphics\RenderList2.h" />
     <ClInclude Include="include\graphics\RIBootstrap.h" />
     <ClInclude Include="include\graphics\RIConversion.h" />
@@ -192,6 +195,7 @@
     <ClInclude Include="include\graphics\RIVK.h" />
     <ClInclude Include="include\graphics\spirv.h" />
     <ClInclude Include="include\graphics\spirv_reflect.h" />
+    <ClInclude Include="include\graphics\TranslucentMeshPipelineDesc.h" />
     <ClInclude Include="include\graphics\VertexBuffer_RI.h" />
     <ClInclude Include="include\impl\GamepadSDL2.h" />
     <ClInclude Include="include\impl\MeshLoaderFBX.h" />
@@ -532,6 +536,8 @@
   <ItemGroup>
     <ClCompile Include="..\..\extern\volk\volk.c" />
     <ClCompile Include="sources\graphics\BindlessPool.cpp" />
+    <ClCompile Include="sources\graphics\DecalPipelineDesc.cpp" />
+    <ClCompile Include="sources\graphics\GBufferMRTPipelineDesc.cpp" />
     <ClCompile Include="sources\graphics\GraphicUtils.cpp" />
     <ClCompile Include="sources\graphics\HPLTexture.cpp" />
     <ClCompile Include="sources\graphics\HybridRenderer.cpp" />
@@ -539,7 +545,9 @@
     <ClCompile Include="sources\graphics\ImageResourceWrapper.cpp" />
     <ClCompile Include="sources\graphics\IndexPool.cpp" />
     <ClCompile Include="sources\graphics\MaterialResource.cpp" />
+    <ClCompile Include="sources\graphics\ParticlePipelineDesc.cpp" />
     <ClCompile Include="sources\graphics\PostEffectHelpers.cpp" />
+    <ClCompile Include="sources\graphics\PostEffect_ToneMap.cpp" />
     <ClCompile Include="sources\graphics\RenderList2.cpp" />
     <ClCompile Include="sources\graphics\RIAccelStructure.cpp" />
     <ClCompile Include="sources\graphics\RIBootstrap.cpp" />
@@ -555,6 +563,7 @@
     <ClCompile Include="sources\graphics\RISwapchain.cpp" />
     <ClCompile Include="sources\graphics\RIVK.cpp" />
     <ClCompile Include="sources\graphics\spirv_reflect.c" />
+    <ClCompile Include="sources\graphics\TranslucentMeshPipelineDesc.cpp" />
     <ClCompile Include="sources\impl\GamepadSDL2.cpp" />
     <ClCompile Include="sources\impl\MeshLoaderFBX.cpp" />
     <ClCompile Include="sources\gui\GuiPopUpUIKeyboard.cpp" />

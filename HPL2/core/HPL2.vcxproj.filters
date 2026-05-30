@@ -1183,6 +1183,18 @@
     <ClInclude Include="include\system\Event.h">
       <Filter>System</Filter>
     </ClInclude>
+    <ClInclude Include="include\graphics\GBufferMRTPipelineDesc.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\TranslucentMeshPipelineDesc.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\DecalPipelineDesc.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\PostEffect_ToneMap.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="sources\system\Container.cpp">
@@ -2131,6 +2143,21 @@
       <Filter>Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\graphics\RIProgramHelpers.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\GBufferMRTPipelineDesc.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\ParticlePipelineDesc.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\TranslucentMeshPipelineDesc.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\PostEffect_ToneMap.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\DecalPipelineDesc.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
   </ItemGroup>
