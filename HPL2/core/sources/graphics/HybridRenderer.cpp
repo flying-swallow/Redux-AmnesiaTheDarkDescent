@@ -151,7 +151,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           kBindingSurfelBounds,
           kBindingBindlessSlotGeneration, kBindingSurfelSlotGeneration,
           kBindingLightGridCount,         kBindingLightGridList,
-          kBindingDecalGridCount,         kBindingDecalGridList,
+          kBindingObjectDecalIndices,
       };
       const VkShaderStageFlags kSurfelStageFlags =
           VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
@@ -334,7 +334,6 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     // LightGridBuildPass — single compute entry (binLights) that bins point/spot
     // lights into the coarse world-space light grid each frame.
     loadSlangCompute(m_lightGridBin, "LightGridBuildPass.cs.spv", "binLights");
-    loadSlangCompute(m_decalGridBin, "DecalGridBuildPass.cs.spv", "binDecals");
     loadSlangCompute(m_surfelIntegrate,  "SurfelIntegratePass.cs.spv",   "csMain");
     loadSlangCompute(m_surfelGenerate,   "SurfelGenerationPass.cs.spv",  "csMain");
     // SurfelGIRender — now a graphics pass writing into the pogo buffer's
@@ -497,15 +496,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     m_lightGridListBuffer = detail::CreateBindlessSlotBuffer(
         &RI.device, kLightGridCellCount * kLightsPerCellMax, sizeof(uint32_t),
         kStorage, /*deviceLocalOnly*/ true);
-    // Decal grid (its own cell layout, independent of the light grid). GPU-only:
-    // zeroed each frame via vkCmdFillBuffer and (re)filled by DecalGridBuildPass
-    // before the albedo resolve.
-    m_decalGridCountBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, kDecalGridCellCount, sizeof(uint32_t), kStorage,
-        /*deviceLocalOnly*/ true);
-    m_decalGridListBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, kDecalGridCellCount * kDecalsPerCellMax, sizeof(uint32_t),
-        kStorage, /*deviceLocalOnly*/ true);
+    // (Per-object decal index pool m_objectDecalIndexBuffer is created with the
+    // other host-uploaded SSBOs below, alongside m_decalBuffer.)
 
     // Seed the surfel free-list. gSurfelCounter[Free] is a stack pointer and
     // gSurfelFreeIndexBuffer holds the available slot indices; at boot every
@@ -620,6 +612,11 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bci, &aci,
                                     &m_decalBuffer.vk.buffer,
                                     &m_decalBuffer.vk.allocation, nullptr));
+
+      bci.size = (VkDeviceSize)kMaxObjectDecalIndices * sizeof(uint32_t);
+      VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bci, &aci,
+                                    &m_objectDecalIndexBuffer.vk.buffer,
+                                    &m_objectDecalIndexBuffer.vk.allocation, nullptr));
 
       // Default-value fallback vertex buffers for translucent renderables
       // missing one or more streams (cBillboard, cBeam — see translucent
@@ -962,10 +959,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
            kObjectSlotCapacity * sizeof(uint32_t)},
           {kBindingSurfelSlotGeneration, &m_surfelSlotGenerationBuffer,
            kTotalSurfelLimit * sizeof(uint32_t)},
-          {kBindingDecalGridCount, &m_decalGridCountBuffer,
-           kDecalGridCellCount * sizeof(uint32_t)},
-          {kBindingDecalGridList, &m_decalGridListBuffer,
-           (size_t)kDecalGridCellCount * kDecalsPerCellMax * sizeof(uint32_t)},
+          {kBindingObjectDecalIndices, &m_objectDecalIndexBuffer,
+           (size_t)kMaxObjectDecalIndices * sizeof(uint32_t)},
           {kBindingLightGridCount, &m_lightGridCountBuffer,
            kLightGridCellCount * sizeof(uint32_t)},
           {kBindingLightGridList, &m_lightGridListBuffer,
@@ -1446,14 +1441,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // already carries brightness — and the grid binning derives the bin reach from
     // the radiance floor (maxChannel(color)·intensity / kLightRadianceFloor).
     const float authored = pLight->GetRadius();
-    pl.intensity = authored * authored * kPointLightIntensityScale;
+    pl.intensity = authored  * kPointLightIntensityScale;
     // Precompute the light-grid bin reach here so LightGridBuildPass (one thread
     // per cell, looping all lights) doesn't recompute it per (cell,light). reach²
     // = maxChannel(color)·intensity / floor − sourceRadius²; ≤0 ⇒ too dim to bin.
     {
       const float maxC = std::max(pl.color[0], std::max(pl.color[1], pl.color[2]));
       const float reachSq =
-          maxC * pl.intensity / kLightRadianceFloor - kPointLightSourceRadiusSq;
+          ((maxC * pl.intensity) / kLightRadianceFloor) - kPointLightSourceRadiusSq;
       pl.radius = reachSq > 0.f ? std::sqrt(reachSq) : 0.f;
     }
     pl.goboTextureIndex = resolveCubeTextureSlot(
@@ -1540,7 +1535,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // here, color carries brightness — and the grid binning derives the bin reach from
     // the radiance floor (maxChannel(color)·intensity / kLightRadianceFloor).
     const float authored = pLight->GetRadius();
-    sl.intensity = authored * authored * kPointLightIntensityScale;
+    sl.intensity = authored  * kPointLightIntensityScale;
     // Precompute the light-grid bin reach (same as point lights) so the per-cell
     // gather in LightGridBuildPass just reads it. The spot cone ⊂ the radius
     // sphere, so the radial reach is a conservative bound.
@@ -1696,24 +1691,22 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
   }
 
-  // Clustered OOB decals — one GpuDecal per visible cDecal (no geometry). The
-  // projection pass reads gDecals[] and projects each onto the V-buffer surface,
-  // filtered by receiverMask. Capped at kMaxDecals.
+  // Clustered OOB decals — one GpuDecal per cDecal, uploaded in stable world
+  // order (cWorld::GetDecals) so the per-object association in gObjectDecalIndices
+  // (built by cWorld::Compile) indexes gDecals[] directly. ALL decals upload each
+  // frame (the static set, ≤kMaxDecals) — not the visible subset — so those
+  // indices stay valid; per-frame upload also keeps materialID fresh. One slot per
+  // world decal, never skipped, to preserve the stable index ↔ gDecals[] mapping.
   size_t num_decals = 0;
-  for (iRenderable *pObject :
-       m_rendererList.GetRenderableItems(eRenderListType_Decal)) {
-    if (!pObject || pObject->GetRenderType() != eRenderableType_Decal)
-      continue;
-    cDecal *pDecal = static_cast<cDecal *>(pObject);
-    cMaterial *pMat = pDecal->GetMaterial();
-    if (!pMat)
-      continue;
+  for (cDecal *pDecal : apWorld->GetDecals()) {
     if (num_decals >= kMaxDecals) {
       Warning("Decal capacity exhausted; dropping remaining decals");
       break;
     }
+    cMaterial *pMat = pDecal ? pDecal->GetMaterial() : nullptr;
 
-    uint32_t materialSlot = resolveMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
+    uint32_t materialSlot =
+        pMat ? resolveMaterial(cntx, pMat, (uint32_t)RI.frameIndex) : 0u;
     if (materialSlot == UINT32_MAX) {
       Warning("Decal material slot exhausted");
       materialSlot = 0;
@@ -1737,7 +1730,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     d.color = float4{c.r, c.g, c.b, c.a};
     d.materialID = materialSlot;
     d.receiverMask = (uint32_t)pDecal->GetReceiverMask();
-    d.blendMode = (uint32_t)pMat->GetBlendMode();
+    d.blendMode = pMat ? (uint32_t)pMat->GetBlendMode() : 0u;
     const cVector2l sd = pDecal->GetSubDiv();
     d.subDivX = (uint32_t)sd.x;
     d.subDivY = (uint32_t)sd.y;
@@ -1762,6 +1755,28 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
   }
 
+  // Per-object decal-index pool (cWorld::Compile static association → frag
+  // gObjectDecalIndices). Static per world; uploaded each frame for simplicity.
+  {
+    const std::vector<uint32_t> &pool = apWorld->GetDecalObjectIndices();
+    const size_t poolCount =
+        std::min(pool.size(), (size_t)kMaxObjectDecalIndices);
+    if (poolCount > 0) {
+      const size_t uploadBytes = poolCount * sizeof(uint32_t);
+      RIResourceBufferTransaction_s trans = {};
+      trans.target = m_objectDecalIndexBuffer;
+      trans.size = uploadBytes;
+      trans.offset = 0;
+      trans.vk.current_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+      trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+      trans.vk.post_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+      trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+      RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+      std::memcpy(trans.mapped.data, pool.data(), uploadBytes);
+      RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+    }
+  }
+
   for (iRenderable *pObject : solids) {
     cMatrixf *pMtx = pObject->GetModelMatrix(apFrustum);
     iVertexBuffer *pVB = pObject->GetVertexBuffer();
@@ -1784,12 +1799,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     payload.materialID = materialSlot;
     payload.lightLevel = 1.0f;
     payload.illuminationAmount = pObject->GetIlluminationAmount();
-    // Decal receiver category (replaces edit-time IsAffectedByDecal). Static
-    // geometry covers StaticObject + Primitive (combined at load, not separable
-    // at runtime); dynamic renderables are entities.
-    payload.decalReceiver = pObject->IsStatic()
-        ? (uint32_t)(eDecalReceiver_Static | eDecalReceiver_Primitive)
-        : (uint32_t)eDecalReceiver_Entity;
+    // Precomputed static decal list (cWorld::Compile): (offset<<8)|count into
+    // gObjectDecalIndices. Dynamic objects keep the default (0,0) → no decals,
+    // so a movable object can't receive a decal it merely passes through.
+    {
+      const uint32_t off = (uint32_t)pObject->GetDecalListOffset();
+      const uint32_t cnt = (uint32_t)pObject->GetDecalListCount();
+      payload.decalList = (off << 8) | (cnt & 0xFFu);
+    }
     const ml::float4x4 modelF4 =
         cMath::ToFloatTranspose4x4(pMtx ? *pMtx : cMatrixf::Identity);
     std::memcpy(payload.modelMat, modelF4.a, sizeof(payload.modelMat));
@@ -2775,59 +2792,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                 (kLightGridCellCount + 63u) / 64u, 1u, 1u);
   }
 
-  // ----------------------------------------------------------------------
-  // Decal grid build (feeds the albedo-resolve decal lookup). Same shape as the
-  // light grid: zero the per-cell counts, bin decals (gDecals[] was uploaded
-  // earlier this frame), then make the result visible to the fragment stage.
-  // ----------------------------------------------------------------------
-  {
-    vkCmdFillBuffer(cmd, m_decalGridCountBuffer.vk.buffer, 0, VK_WHOLE_SIZE, 0u);
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.dstAccessMask =
-        VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(cmd, &dep);
-  }
-  {
-    VkComputePipelineCreateInfo computeCreate = {
-        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_decalGridBin.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
-                                       "DecalGridBuildPass.cs:binDecals",
-                                       &computeCreate);
-    m_decalGridBin.bindBindlessDescriptorSet(&RI.primary.cmds[0], &m_bindlessSet,
-                                             0, VK_PIPELINE_BIND_POINT_COMPUTE);
-    std::vector<RIProgram::DescriptorBinding> bnd;
-    bnd.reserve(1);
-    {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("gPerFrame");
-      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-      bnd.push_back(b);
-    }
-    m_decalGridBin.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
-                                   bnd.data(), bnd.size(),
-                                   VK_PIPELINE_BIND_POINT_COMPUTE);
-    // One thread per decal over capacity (shader early-outs past decalCount).
-    CmdDispatch(&RI.primary.cmds[0], (kMaxDecals + 63u) / 64u, 1u, 1u);
-  }
-  {
-    // binDecals writes -> albedo-resolve reads (fragment) later this frame.
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(cmd, &dep);
-  }
+  // (Decal grid build removed — decals now use a precomputed per-object index
+  // list, uploaded with the scene objects above; no compute pass / grid buffers.)
   {
     // binLights writes are read by two consumers later this frame: the surfel
     // ray-trace NEE (ray tracing) and the SurfelGIRenderPass direct-lighting
@@ -4243,6 +4209,11 @@ cHybridRenderer::~cHybridRenderer() {
     vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_decalBuffer.vk.buffer,
                      m_decalBuffer.vk.allocation);
     m_decalBuffer = {};
+  }
+  if (m_objectDecalIndexBuffer.vk.buffer) {
+    vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_objectDecalIndexBuffer.vk.buffer,
+                     m_objectDecalIndexBuffer.vk.allocation);
+    m_objectDecalIndexBuffer = {};
   }
   {
     RIBuffer_s *fallbacks[] = {

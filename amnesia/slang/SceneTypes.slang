@@ -173,12 +173,13 @@ SLANG_PUBLIC struct UniformObject {
     SLANG_PUBLIC float4x4  modelMat;
     SLANG_PUBLIC float4x4  invModelMat;
     SLANG_PUBLIC float4x4  uvMat;
-    // Receiver-category bits (eDecalReceiver: Static=1, Primitive=2, Entity=4)
-    // for decal projection: a decal applies only when
-    // (decal.receiverMask & object.decalReceiver) != 0. Set host-side from
-    // iRenderable::IsStatic() (static geometry -> Static|Primitive, dynamic
-    // entities -> Entity). See cDecal / Decal.h.
-    SLANG_PUBLIC uint  decalReceiver;
+    // Precomputed per-object decal list, packed (offset << 8) | count, indexing
+    // gObjectDecalIndices[] (stable gDecals[] indices). Built once at load by
+    // World::Compile from the static decal↔object intersection (the editor
+    // baked decals as static meshes clipped to specific geometry). count==0 for
+    // dynamic/movable objects, so they never receive decals. compositeDecals
+    // iterates only this list — no spatial grid, no receiver-category bits.
+    SLANG_PUBLIC uint  decalList;
 };
 
 // Clustered OOB decal. No geometry: invModelMat maps a world position into the
@@ -195,7 +196,8 @@ SLANG_PUBLIC struct GpuDecal {
     SLANG_PUBLIC uint     subDivX;
     SLANG_PUBLIC uint     subDivY;
     SLANG_PUBLIC uint     _pad;
-    // World-space bounding sphere of the box, for DecalGridBuildPass binning.
+    // World-space bounding sphere of the box (vestigial — was decal-grid binning;
+    // decals now use the precomputed per-object list). Kept for layout stability.
     SLANG_PUBLIC float3   center;
     SLANG_PUBLIC float    radius;
 };

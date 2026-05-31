@@ -125,6 +125,14 @@ namespace hpl {
 		void SetRenderableUserData(void* apData) { mpRenderableUserData = apData; }
 		void* GetRenderableUserData() { return mpRenderableUserData; }
 
+		// Precomputed static decal association (cWorld::Compile): [offset,count)
+		// into cWorld::GetDecalObjectIndices(). count==0 means no decals (all
+		// dynamic objects, and statics no decal was clipped to). Uploaded into
+		// UniformObject.decalList; read by the decal-composite in the GI pass.
+		inline void SetDecalList(int alOffset, int alCount){ mlDecalListOffset = alOffset; mlDecalListCount = alCount; }
+		inline int GetDecalListOffset() const { return mlDecalListOffset; }
+		inline int GetDecalListCount() const { return mlDecalListCount; }
+
 	protected:
 		cMatrixf m_mtxInvModel;
 		cMatrixf m_mtxPrevious;
@@ -160,6 +168,9 @@ namespace hpl {
 		iRenderableContainerNode *mpRenderContainerNode;
 
 		void* mpRenderableUserData;
+
+		int mlDecalListOffset = 0;
+		int mlDecalListCount = 0;
 	};
 };
 #endif // HPL_RENDERABLE_H

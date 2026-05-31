@@ -104,11 +104,6 @@ float3 evalAnalyticLight(DiffuseShading sd)
         for (uint k = 0u; k < n; ++k)
             Lr += shadeAnalyticLight(sd, gLightGridList[flat * kLightsPerCellMax + k], origin);
     }
-    else
-    {
-        for (uint i = 0u; i < lightCount; ++i)
-            Lr += shadeAnalyticLight(sd, i, origin);
-    }
 
     // Box lights are a volumetric ambient fill, not a directional NEE light, so
     // they are handled here directly rather than through sampleLightByIndex (which

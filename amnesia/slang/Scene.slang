@@ -217,7 +217,7 @@ public struct SceneMaterials
         RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
                | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES
                | RAY_FLAG_CULL_BACK_FACING_TRIANGLES> q;
-        q.TraceRayInline(gRtAccel, 0, 0xff, ray);
+        q.TraceRayInline(gRtAccel, 0, kRayMaskOpaque, ray);
 
         while (q.Proceed())
         {

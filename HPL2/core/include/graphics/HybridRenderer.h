@@ -249,8 +249,9 @@ private:
   // NEE reads): per-cell light count + packed per-cell unified-light-index list.
   struct RIBuffer_s m_lightGridCountBuffer;
   struct RIBuffer_s m_lightGridListBuffer;
-  struct RIBuffer_s m_decalGridCountBuffer;
-  struct RIBuffer_s m_decalGridListBuffer;
+  // Flat per-object decal-index pool (cWorld::Compile association), uploaded into
+  // gObjectDecalIndices; replaces the old spatial decal grid.
+  struct RIBuffer_s m_objectDecalIndexBuffer = {};
 
   // Per-surfel copy of its anchor slot's generation, captured at spawn and
   // compared against m_bindlessSlotGenerationBuffer in collectCellInfo.
@@ -333,7 +334,6 @@ private:
   RIProgram m_surfelUpdateAccumulate;
   RIProgram m_surfelUpdateScatter;
   RIProgram m_lightGridBin;
-  RIProgram m_decalGridBin;
 
   // Per-object-slot "geometry rebuilt" flag (sized kObjectSlotCapacity). A VB's
   // onGeometryChanged handler (owned by m_diffuseBindless's per-slot state) sets

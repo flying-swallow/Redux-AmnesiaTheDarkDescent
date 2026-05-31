@@ -162,11 +162,10 @@ public RWStructuredBuffer<DecalMaterial> gDecalMaterials;
 [vk::binding(kBindingDecals, 0)]
 public RWStructuredBuffer<GpuDecal> gDecals;
 
-[vk::binding(kBindingDecalGridCount, 0)]
-public RWStructuredBuffer<uint> gDecalGridCount;
-
-[vk::binding(kBindingDecalGridList, 0)]
-public RWStructuredBuffer<uint> gDecalGridList;
+// Flat per-object decal-index pool. UniformObject.decalList packs (offset<<8)|count;
+// compositeDecals reads gObjectDecalIndices[offset + k] → a stable gDecals[] index.
+[vk::binding(kBindingObjectDecalIndices, 0)]
+public RWStructuredBuffer<uint> gObjectDecalIndices;
 
 // -----------------------------------------------------------------------------
 // Per-frame light SSBOs. Counts come from SceneConstants on set 1 (the

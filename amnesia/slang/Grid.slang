@@ -51,3 +51,31 @@ bool sphereIntersectsGridCell(float3 center, float radius, int3 cellPos,
     float3 d = close - center;
     return dot(d, d) < radius * radius;
 }
+
+// Sphere-vs-cone angular cull (Bart Wronski, "Cull that cone", 2017). Returns
+// false only when the cell's bounding sphere is wholly outside the cone's
+// angular wedge or wholly behind the apex — i.e. the spot cannot light the cell.
+// The radial range is bounded separately by sphereIntersectsGridCell, so this
+// adds only the angle/back-plane cull. apex = spot position, axis = unit forward,
+// cosHalfAngle = cosOuterAngle = cos(FOV/2). Uses the cell BOUNDING SPHERE (which
+// encloses the cell AABB) so it is conservative — never rejects a cell the cone
+// reaches.
+bool coneIntersectsGridCell(float3 apex, float3 axis, float cosHalfAngle,
+                            int3 cellPos, float3 cameraPosW, uint gridDim, float gridUnit)
+{
+    if (!gridCellValid(cellPos, gridDim))
+        return false;
+
+    float3 cellCenter = cellPos * gridUnit + cameraPosW;
+    float  cellR      = gridUnit * 0.8660254f;      // sqrt(3)/2 * side = bounding-sphere radius
+
+    float  sinHalf    = sqrt(saturate(1.0f - cosHalfAngle * cosHalfAngle));
+    float3 v          = cellCenter - apex;
+    float  vDotA      = dot(v, axis);                            // axial distance
+    float  perp       = sqrt(max(dot(v, v) - vDotA * vDotA, 0.0f)); // perp dist to axis
+    float  distToSurf = cosHalfAngle * perp - vDotA * sinHalf;   // signed dist to cone surface
+
+    bool   angleCull  = distToSurf > cellR;         // wholly outside the angular wedge
+    bool   backCull   = vDotA < -cellR;             // wholly behind the apex
+    return !(angleCull || backCull);
+}

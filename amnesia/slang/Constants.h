@@ -73,8 +73,8 @@ SHARED_CONST uint kBindingPackedRefractionHitInfo     = 43u;  // RGBA32UI storag
 SHARED_CONST uint kBindingPackedReflectionHitInfo     = 44u;  // RGBA32UI storage image — reflected-bounce V-buffer
 SHARED_CONST uint kBindingAttenuationLut              = 45u;  // default light falloff LUT (core_falloff_linear), immutable on set 0
 SHARED_CONST uint kBindingDecals                      = 46u;  // RWStructuredBuffer<GpuDecal> (kMaxDecals) — clustered OOB decals
-SHARED_CONST uint kBindingDecalGridCount              = 47u;  // RWStructuredBuffer<uint> (kDecalGridCellCount) — decal grid (own cell layout)
-SHARED_CONST uint kBindingDecalGridList               = 48u;  // RWStructuredBuffer<uint> (kDecalGridCellCount * kDecalsPerCellMax)
+SHARED_CONST uint kBindingObjectDecalIndices          = 47u;  // RWStructuredBuffer<uint> — flat per-object decal-index lists (UniformObject.decalList = offset<<8|count); replaces the decal grid
+// (binding 48 free — former kBindingDecalGridList)
 
 // -----------------------------------------------------------------------------
 // Bindless pool capacities + sentinel.
@@ -181,19 +181,15 @@ SHARED_CONST uint2 kSurfelDepthTextureUnit = uint2(7, 7);
 // sampling. Covers the same extent as the surfel grid (kCellDimension·kCellUnit)
 // but at a coarse resolution so per-cell light lists stay short. Built each
 // frame by LightGridBuildPass; read by SurfelRayTrace.rt evalAnalyticLight.
-SHARED_CONST uint  kLightGridDim       = 64u;
+SHARED_CONST uint  kLightGridDim       = 128u;
 SHARED_CONST float kLightGridUnit      = (float(kCellDimension) * kCellUnit) / float(kLightGridDim);
 SHARED_CONST uint  kLightGridCellCount = kLightGridDim * kLightGridDim * kLightGridDim;  // 32768
-SHARED_CONST uint  kLightsPerCellMax   = 30u;                                           // per-cell light-list cap (list buffer = kLightGridCellCount·this·4B); lights past it are dropped by atomic order
+SHARED_CONST uint  kLightsPerCellMax   = 128u;                                           // per-cell light-list cap (list buffer = kLightGridCellCount·this·4B); lights past it are dropped by atomic order
 
-// Decal grid — a coarse, camera-centered world grid independent of the light
-// grid. Same Grid.slang helpers (parameterized by gridDim / gridUnit), but its
-// own dimension/unit/cell-count so the two grids can diverge in resolution.
-// Built by DecalGridBuildPass; read by SurfelGIRenderPass compositeDecals.
-SHARED_CONST uint  kDecalGridDim       = 100u;                                            // independent of kLightGridDim
-SHARED_CONST float kDecalGridUnit      = (float(kCellDimension) * kCellUnit) / float(kDecalGridDim);
-SHARED_CONST uint  kDecalGridCellCount = kDecalGridDim * kDecalGridDim * kDecalGridDim;   // 32768 at dim 32
-SHARED_CONST uint  kDecalsPerCellMax   = 8u;                                             // per-cell decal cap
+// Decals use a precomputed per-object decal list (UniformObject.decalList →
+// gObjectDecalIndices), not a spatial grid — see SceneTypes.UniformObject and
+// World::Compile. kMaxObjectDecalIndices caps the flat association pool.
+SHARED_CONST uint  kMaxObjectDecalIndices = 1u << 20;   // 1M (offset is 24-bit; cap well under that)
 
 // -----------------------------------------------------------------------------
 // gSurfelCounter slot indices. The counter is a flat
@@ -276,14 +272,14 @@ SHARED_CONST uint  kDefaultMaxStep              = 6u;
 SHARED_CONST float kDefaultShortMeanWindow      = 0.03f;
 
 // determins the strenght of the wave intensity
-SHARED_CONST float kWaterRefractionIntensity = 1.0f;
-SHARED_CONST float kWaterReflectionIntensity = 0.5f;
+SHARED_CONST float kWaterRefractionIntensity = 0.6f;
 
 // Brightness multiplier for the water refraction/reflection bounce radiance.
 // The RT bounces are re-shaded (NEE direct + surfel indirect + emission), which
 // reads dimmer than the base game's fully-lit framebuffer/cubemap sample; this
 // lifts them back toward that brightness. 1.0 = raw re-shade.
-SHARED_CONST float kWaterBounceExposure = 2.0f;
+SHARED_CONST float kWaterReflectionExposure = 0.4f;
+SHARED_CONST float kWaterRefractionExposure = 0.6f; //0.5f;
 
 // How much wave turbulence the REFLECTION bounce normal keeps (the refraction
 // bounce always uses the full wave normal). The RT reflection is a sharp mirror
@@ -322,9 +318,9 @@ SHARED_CONST float  kBoxLightIntensityAdjustment = 1.0;
 // also governs indirect/GI spread — the surfel NEE only samples lights binned into a
 // surfel's cell, so lowering the floor widens and brightens GI (and crowds the
 // per-cell light cap); it is not purely a grid-cost knob.
-SHARED_CONST float kPointLightIntensityScale   = 0.2f;    // radiance/bloom brightness knob (× authoredRadius²)
+SHARED_CONST float kPointLightIntensityScale   = 1.0f;    // radiance/bloom brightness knob (× authoredRadius²)
 SHARED_CONST float kLightRadianceFloor         = 0.005f;    // min per-channel radiance (linear) worth binning; reach² = maxC(color)·intensity/floor − sourceRadiusSq
-SHARED_CONST float kPointLightSourceRadiusSq   = 0.01f;   // soft source radius² (0.5m) — near-field softening + on-source peak cap
+SHARED_CONST float kPointLightSourceRadiusSq   = 0.2f;   // soft source radius² (0.5m) — near-field softening + on-source peak cap
 
 
 HOST_NAMESPACE_END

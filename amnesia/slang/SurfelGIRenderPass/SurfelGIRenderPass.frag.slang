@@ -68,12 +68,12 @@ float3 applyDecalBlend(uint mode, float3 dst, float4 src)
     }
 }
 
-// Project one decal (by index): box-clip, receiver-filter, sample, blend.
-float3 projectDecal(uint di, float3 albedo, float3 posW, uint receiver)
+// Project one decal (by index): box-clip, sample, blend. No receiver filter —
+// the per-object decal list (compositeDecals) is already the exact static
+// association, so a listed decal is one this object was clipped to in the editor.
+float3 projectDecal(uint di, float3 albedo, float3 posW)
 {
     GpuDecal d = gDecals[di];
-    if ((d.receiverMask & receiver) == 0u)
-        return albedo;
 
     float3 lp = mul(d.invModelMat, float4(posW, 1.0f)).xyz;   // world -> box-local
     if (any(abs(lp) > 0.5f))
@@ -98,21 +98,16 @@ float3 projectDecal(uint di, float3 albedo, float3 posW, uint receiver)
     return applyDecalBlend(d.blendMode, albedo, s);
 }
 
-// Composite every decal binned into this surface point's grid cell.
-float3 compositeDecals(float3 albedo, float3 posW, uint receiver)
+// Composite the decals precomputed for this object (the static set it was
+// clipped to in the editor). `decalList` packs (offset << 8) | count into the
+// shared gObjectDecalIndices pool. Movable objects have count 0, so they never
+// receive decals.
+float3 compositeDecals(float3 albedo, float3 posW, uint decalList)
 {
-    if (gPerFrame.decalCount == 0u)
-        return albedo;
-
-    int3 cell = gridCellPos(posW, gPerFrame.posW, kDecalGridUnit);
-    if (!gridCellValid(cell, kDecalGridDim))
-        return albedo;
-
-    uint flat = gridFlattenCellIndex(cell, kDecalGridDim);
-    uint count = min(gDecalGridCount[flat], kDecalsPerCellMax);
+    uint count  = decalList & 0xFFu;
+    uint offset = decalList >> 8;
     for (uint k = 0u; k < count; ++k)
-        albedo = projectDecal(gDecalGridList[flat * kDecalsPerCellMax + k],
-                              albedo, posW, receiver);
+        albedo = projectDecal(gObjectDecalIndices[offset + k], albedo, posW);
     return albedo;
 }
 
@@ -233,8 +228,8 @@ float4 psMain(PSIn pin) : SV_Target
         // Reflection is a sharp RT trace of the lit scene, brighter/harsher
         // than the old screen-space reflection map, so damp it with the
         // reflection-intensity knob instead of lifting it.
-        refrColor *= kWaterBounceExposure;
-        reflColor *= kWaterReflectionIntensity;
+        refrColor *= kWaterRefractionExposure;
+        reflColor *= kWaterReflectionExposure;
 
         // Water diffuse tint at the surface UV (reference combine:
         // surfaceColor * refraction + reflection * fresnel).
@@ -263,8 +258,8 @@ float4 psMain(PSIn pin) : SV_Target
     // Composite clustered OOB decals straight onto the base albedo, before
     // lighting, so they get lit like the surface (replaces the old albedo_resolve
     // buffer + decal raster pass).
-    uint decalReceiver = gScene.getObject(triangleHit.instanceID).decalReceiver;
-    sd.albedo = compositeDecals(sd.albedo, v.posW, decalReceiver);
+    uint decalList = gScene.getObject(triangleHit.instanceID).decalList;
+    sd.albedo = compositeDecals(sd.albedo, v.posW, decalList);
 
     bool wantDirect   = kDefaultRenderDirectLighting   != 0u;
     bool wantIndirect = kDefaultRenderIndirectLighting != 0u;

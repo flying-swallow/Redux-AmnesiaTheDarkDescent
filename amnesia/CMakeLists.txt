@@ -159,7 +159,6 @@ SHADERS
     ./slang/SurfelGI/SurfelEvaluationPass.cs.slang
     ./slang/SurfelGI/SurfelRayTrace.rt.slang
     ./slang/SurfelGI/LightGridBuildPass.cs.slang
-    ./slang/DecalGrid/DecalGridBuildPass.cs.slang
     ./slang/SurfelGIRenderPass/SurfelGIRenderPass.frag.slang
     ./slang/SurfelVBuffer/SurfelVBuffer.rt.slang
     ./slang/PostEffect/posteffect_fullscreen.vert.slang
