@@ -32,6 +32,8 @@ namespace hpl {
 
 	class cGraphics;
 	class cResources;
+	class cDecal;
+	class cMaterial;
 	class cSound;
 	class cPhysics;
 	class cScene;
@@ -240,6 +242,13 @@ namespace hpl {
 		
 		cMeshEntity* CreateMeshEntity(const tString &asName,cMesh *apMesh, bool abStatic=false);
 		void DestroyMeshEntity(cMeshEntity* apMesh);
+
+		///// DECAL METHODS //////////////////////////
+		// Creates an oriented-box decal (no geometry). The world owns it and the
+		// material; both are freed in DestroyAllEntities. Caller sets the box
+		// transform via SetWorldMatrix/SetPosition.
+		cDecal* CreateDecal(const tString& asName, const tString& asMaterial,
+							const cColor& aColor, const cVector2l& avSubDiv);
 		cMeshEntity* GetDynamicMeshEntity(const tString& asName);
 		
 		cMeshEntityIterator GetDynamicMeshEntityIterator();
@@ -408,6 +417,7 @@ namespace hpl {
 		tLightList mlstLights;
 		tMeshEntityList mlstDynamicMeshEntities;
 		tMeshEntityList mlstStaticMeshEntities;
+		std::vector<cDecal*> mvDecals;
 		tBillboardList mlstBillboards;
 		tBeamList mlstBeams;
 		tParticleSystemList mlstParticleSystems;

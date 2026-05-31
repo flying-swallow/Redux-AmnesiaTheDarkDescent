@@ -57,6 +57,7 @@
 #include "scene/LightSpot.h"
 #include "scene/LightBox.h"
 #include "scene/MeshEntity.h"
+#include "scene/Decal.h"
 #include "scene/SoundEntity.h"
 #include "scene/ParticleEmitter.h"
 #include "scene/ParticleSystem.h"
@@ -191,8 +192,16 @@ namespace hpl {
 	void cWorld::DestroyAllEntities(tWorldDestroyAllFlag aFlags)
 	{
 		if( (aFlags & eWorldDestroyAllFlag_SkipStaticEntities)==0)
+		{
 			STLDeleteAll(mlstStaticMeshEntities);
-		
+
+			// Decals are static. Release each decal's material (the world created
+			// it via the material manager) then delete the decals themselves.
+			for(size_t i=0; i<mvDecals.size(); ++i)
+				mpResources->GetMaterialManager()->Destroy(mvDecals[i]->GetMaterial());
+			STLDeleteAll(mvDecals);
+		}
+
 		STLDeleteAll(mlstDynamicMeshEntities);
 		STLDeleteAll(mlstLights);
 		STLDeleteAll(mlstBillboards);
@@ -466,6 +475,27 @@ namespace hpl {
 		pMeshEntity->SetWorld(this);
 
 		return pMeshEntity;
+	}
+
+	//-----------------------------------------------------------------------
+
+	cDecal* cWorld::CreateDecal(const tString& asName, const tString& asMaterial,
+								const cColor& aColor, const cVector2l& avSubDiv)
+	{
+		cMaterial* pMaterial = mpResources->GetMaterialManager()->CreateMaterial(asMaterial);
+		if(pMaterial == NULL)
+			return NULL;
+
+		cDecal* pDecal = hplNew( cDecal, (asName, mpGraphics, pMaterial, aColor, avSubDiv) );
+		pDecal->SetStatic(true);
+
+		mvDecals.push_back(pDecal);
+
+		// Decals are static -> goes into the static renderable container, collected
+		// into eRenderListType_Decal each frame by its decal material.
+		AddRenderableToContainer(pDecal);
+
+		return pDecal;
 	}
 
 	//-----------------------------------------------------------------------

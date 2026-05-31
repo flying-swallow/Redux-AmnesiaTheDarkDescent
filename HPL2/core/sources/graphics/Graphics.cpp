@@ -163,9 +163,9 @@ namespace hpl {
 		backendInit.api = RI_DEVICE_API_VK;
 		backendInit.applicationName = "HPL2";
 #ifndef NDEBUG
-    backendInit.vk.enableValidationLayer = false;
+    	backendInit.vk.enableValidationLayer = false; // Validation layers are disabled by default due to the significant CPU overhead they can cause, especially on AMD drivers. Enable this if you need to debug Vulkan API usage issues, but be aware of the potential performance impact.
 #else
-		backendInit.vk.enableValidationLayer = false;
+		backendInit.vk.enableValidationLayer = true;
 #endif
 
 		if(InitRIRenderer(&backendInit, &RI.renderer) != RI_SUCCESS) {

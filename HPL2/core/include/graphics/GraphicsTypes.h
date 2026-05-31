@@ -677,6 +677,7 @@ namespace hpl {
 		eRenderableType_Rope,
 		eRenderableType_FogArea,
 		eRenderableType_Dummy,
+		eRenderableType_Decal,
 		eRenderableType_LastEnum
 	};
 

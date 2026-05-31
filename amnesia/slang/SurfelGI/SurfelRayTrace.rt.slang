@@ -22,6 +22,7 @@ import Bindless.interface;
 import PerFrame.resource;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
+import Grid;                    // gridCellPos / gridFlattenCellIndex / gridCellValid (light grid lookup)
 import Random;
 
 // Ray-step / max-step come from `Constants.h` (kDefaultRayStep / kDefaultMaxStep),
@@ -171,10 +172,10 @@ float3 evalAnalyticLight(DiffuseShading sd, inout RNG rng)
     // dropped the last light).
     uint  lightIdx;
     float invPdf;
-    int3  lcell = getLightCellPos(sd.posW, gScene.camera.getPosition());
-    if (isLightCellValid(lcell))
+    int3  lcell = gridCellPos(sd.posW, gScene.camera.getPosition(), kLightGridUnit);
+    if (gridCellValid(lcell, kLightGridDim))
     {
-        uint flat = getLightFlattenCellIndex(lcell);
+        uint flat = gridFlattenCellIndex(lcell, kLightGridDim);
         uint L    = min(gLightGridCount[flat], kLightsPerCellMax);
         if (L > 0u)
         {
@@ -194,12 +195,12 @@ float3 evalAnalyticLight(DiffuseShading sd, inout RNG rng)
         invPdf   = float(lightCount);
     }
 
-    // Type-aware sample. Point lights use their full sampler (incl. gobo cube).
-    // Spot lights use a GI-only SPHERICAL sampler (radial falloff, no cone /
-    // gobo) so they contribute to indirect across their whole radius — the
-    // cone-restricted SpotLight.sample() (used for direct in
-    // SurfelGIRenderPass.frag) lights almost no surfels. Box lights aren't
-    // NEE-sampled (and aren't binned into the grid).
+    // Type-aware sample (gScene.sampleLightByIndex branches by light type).
+    // Point lights use their full sampler (incl. gobo cube); spot lights use the
+    // same cone-restricted SpotLight.sample() as the direct path — this matches the
+    // reference Falcor SurfelGI, where a spot's analytic GI contribution is
+    // cone-shaped too (so spots only light surfels inside their cone). Box lights
+    // aren't NEE-sampled (and aren't binned into the grid).
     LightSample ls;
     if (!gScene.sampleLightByIndex(lightIdx, sd.posW, ls)) return float3(0.f);
 
@@ -214,7 +215,6 @@ float3 evalAnalyticLight(DiffuseShading sd, inout RNG rng)
     // (which lives in SurfelGIRenderPass.frag). π cancels the 1/π so indirect
     // matches the base-game no-1/π convention; raise above π to over-cheat.
     float3 Lr = sd.albedo * kInvPi * ls.Li * NdotL * invPdf * kIndirectLightScale;
-
     return Lr;
 }
 

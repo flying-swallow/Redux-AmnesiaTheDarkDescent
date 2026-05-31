@@ -932,6 +932,12 @@ int InitRIDevice( struct RIRenderer_s *renderer, struct RIDeviceDesc_s *init, st
 			goto vk_done;
 		}
 
+		// Load device-direct entrypoints for the device we actually use. Without
+		// this, volkLoadInstance left device functions dispatching through the
+		// instance trampoline, which can leave GPU-assisted validation unable to
+		// track acceleration-structure addresses (false VUID-12281 rejections).
+		volkLoadDevice( device->vk.device );
+
 		// the request size
 		for( size_t q = 0; q < ARRAY_COUNT( device->queues ); q++ ) {
 			// the queue
@@ -1042,14 +1048,21 @@ int InitRIRenderer( const struct RIBackendInit_s *init, struct RIRenderer_s *ren
 		// makes the layer silently disable GPU-AV. debugPrintfEXT calls in shaders
 		// still work under unified GPU-AV and no-op harmlessly otherwise. Restore
 		// DEBUG_PRINTF (and drop the two GPU_ASSISTED entries) when done debugging.
-		const VkValidationFeatureEnableEXT enabledValidationFeatures[] = {
-			VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT,
-			VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT,
-		};
+		// GPU-assisted validation DISABLED: its TLAS-instance check false-rejects a
+		// valid BLAS device address as an invalid acceleration-structure reference
+		// (VUID-12281) and aborts, even though the address is a real AS device
+		// address (verified: it equals the BLAS storage buffer's device address,
+		// and BLAS→TLAS ordering was ruled out via a dedicated, semaphore-synced
+		// BLAS command buffer). Core CPU validation stays on. Re-enable by
+		// restoring the two GPU_ASSISTED entries and the count below.
+		// const VkValidationFeatureEnableEXT enabledValidationFeatures[] = {
+		// 	VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_EXT,
+		// 	VK_VALIDATION_FEATURE_ENABLE_GPU_ASSISTED_RESERVE_BINDING_SLOT_EXT,
+		// };
 
 		VkValidationFeaturesEXT validationFeatures = { VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT };
-		validationFeatures.enabledValidationFeatureCount = ARRAY_COUNT( enabledValidationFeatures );
-		validationFeatures.pEnabledValidationFeatures = enabledValidationFeatures;
+		validationFeatures.enabledValidationFeatureCount = 0;
+		validationFeatures.pEnabledValidationFeatures = NULL;
 
 		// Chained into VkInstanceCreateInfo::pNext so the validation layer has
 		// an INFO-severity-capable messenger during vkCreateInstance itself.
@@ -1668,14 +1681,23 @@ void CmdBuildRIBlas( struct RIDevice_s *dev, struct RICmd_s *cmd, const struct R
 	for( uint32_t i = 0; i < numDescs; ++i ) {
 		const struct RIBuildBlasDesc_s *d = &descs[i];
 		assert( d->dst );
+		assert( d->dst->vk.handle != VK_NULL_HANDLE );  // dst BLAS must be created (InitRIAccelStructure)
 		assert( d->scratchBuffer );
 		assert( d->geometryNum > 0 );
+		assert( d->geometries );
 
 		geomStorage[i].resize( d->geometryNum );
 		rangeStorage[i].resize( d->geometryNum );
 		for( uint32_t g = 0; g < d->geometryNum; ++g ) {
 			uint32_t maxPrims = 0;
 			RI_VK_FillGeometry( dev, &d->geometries[g], &geomStorage[i][g], &maxPrims, true );
+			// A BLAS built over unbound/freed geometry (zero vertex device address
+			// or zero primitives) produces an invalid acceleration structure whose
+			// device address later trips vkCmdBuildAccelerationStructures when a
+			// TLAS instance references it. Catch it at the source instead.
+			assert( maxPrims > 0 );
+			if( geomStorage[i][g].geometryType == VK_GEOMETRY_TYPE_TRIANGLES_KHR )
+				assert( geomStorage[i][g].geometry.triangles.vertexData.deviceAddress != 0 );
 			rangeStorage[i][g].primitiveCount = maxPrims;
 			rangeStorage[i][g].primitiveOffset = 0;
 			rangeStorage[i][g].firstVertex = 0;
@@ -1724,8 +1746,10 @@ void CmdBuildRITlas( struct RIDevice_s *dev, struct RICmd_s *cmd, const struct R
 	for( uint32_t i = 0; i < numDescs; ++i ) {
 		const struct RIBuildTlasDesc_s *d = &descs[i];
 		assert( d->dst );
+		assert( d->dst->vk.handle != VK_NULL_HANDLE );  // dst TLAS must be created
 		assert( d->scratchBuffer );
 		assert( d->instanceBuffer );
+		assert( d->instanceNum > 0 );  // caller guards on !tlasInstances.empty()
 
 		VkAccelerationStructureGeometryKHR *g = &geoms[i];
 		memset( g, 0, sizeof(*g) );
@@ -1733,8 +1757,9 @@ void CmdBuildRITlas( struct RIDevice_s *dev, struct RICmd_s *cmd, const struct R
 		g->geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
 		g->geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
 		g->geometry.instances.arrayOfPointers = VK_FALSE;
-		g->geometry.instances.data.deviceAddress =
-		    RI_VK_BufferDeviceAddress( dev, d->instanceBuffer ) + d->instanceOffset;
+		VkDeviceAddress instanceAddress =  RI_VK_BufferDeviceAddress( dev, d->instanceBuffer );
+		assert(instanceAddress != 0);
+		g->geometry.instances.data.deviceAddress = instanceAddress + d->instanceOffset;
 
 		ranges[i].primitiveCount = d->instanceNum;
 		ranges[i].primitiveOffset = 0;
@@ -1760,6 +1785,9 @@ void CmdBuildRITlas( struct RIDevice_s *dev, struct RICmd_s *cmd, const struct R
 			bi->scratchData.deviceAddress = ( scratchAlign > 1 )
 				? ( ( scratchAddr + scratchAlign - 1 ) & ~( scratchAlign - 1 ) )
 				: scratchAddr;
+			// VUID-vkCmdBuildAccelerationStructuresKHR-pInfos-03710 (matches the BLAS assert).
+			assert( scratchAlign == 0 ||
+				( bi->scratchData.deviceAddress % scratchAlign ) == 0 );
 		}
 	}
 

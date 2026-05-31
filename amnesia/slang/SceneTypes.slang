@@ -20,48 +20,43 @@ HOST_NAMESPACE_BEGIN
 
 
 // -----------------------------------------------------------------------------
-// Scalar-layout point light. `type` discriminator at offset 0; remaining
-// fields match the legacy host upload (HybridRenderer.cpp's point-light loop).
-// `attenuationTextureIndex` points into textures_2d[] at the light's 1D-as-2D
-// falloff LUT keyed on (d/r)²; kInvalidTextureIndex triggers the analytic
-// saturate(1-(d/r)²) fallback in sampleAttenuation (light_falloff.glsl).
-// `intensity` mirrors the base-game `lightColor.w` specular flag/multiplier
-// (cColor.a) — used only on the specular term, not on diffuse.
-// `goboTextureIndex` points into textures_cube[] (set 0, binding 1); when
-// set, sample the cube in light-local space using the worldToLight* rows.
-// worldToLight{X,Y,Z} are the rows of the light's world rotation (R), which
-// reconstruct R^T via `float3x3(worldToLightX, worldToLightY, worldToLightZ)`.
+// Scalar-layout point light. `type` discriminator at offset 0 (ILight contract).
+// `intensity` is the light's luminous power (CPU-derived in HybridRenderer's
+// point-light loop as authoredRadius²·kPointLightIntensityScale; color already
+// carries brightness, so no luminance term). The radiance falloff
+// (interface.slang) is a plain WINDOWLESS inverse-square, so intensity only sets
+// brightness there; the reach cutoff (reach² = intensity / kPointLightCutoff)
+// lives solely in LightGridBuildPass binning. `color` is the linear diffuse
+// colour. `goboTextureIndex` points into
+// textures_cube[] (set 0, binding 1); when set, sample the cube in light-local
+// space using the worldToLight* rows — the rows of the light's world rotation (R),
+// which reconstruct R^T via `float3x3(worldToLightX, worldToLightY, worldToLightZ)`.
 // -----------------------------------------------------------------------------
 SLANG_PUBLIC struct PointLight {
     SLANG_PUBLIC uint  type;                         // LIGHT_TYPE_POINT
-    SLANG_PUBLIC uint  attenuationTextureIndex;
     SLANG_PUBLIC uint  goboTextureIndex;
-    SLANG_PUBLIC float intensity;
     SLANG_PUBLIC float3  position;
-    SLANG_PUBLIC float radius;
+    SLANG_PUBLIC float intensity;                    // luminous power (CPU-derived)
     SLANG_PUBLIC float3  color;
     SLANG_PUBLIC float3  worldToLightX;
     SLANG_PUBLIC float3  worldToLightY;
     SLANG_PUBLIC float3  worldToLightZ;
 };
 
-// Scalar-layout spot light. Adds cone forward + pre-baked cos(angle/2),
-// optional gobo + cone-falloff LUT slots, shadow bit, and the light's
-// view-projection matrix (gobo / future shadow-map UVs). attenuationTextureIndex
-// is the legacy radial LUT (d/r)²; coneFalloffTextureIndex is the legacy
-// 1D cone-falloff LUT keyed on (1-cosTheta)/(1-cosOuterAngle). Both LUT slots
-// follow the kInvalidTextureIndex → analytic fallback convention.
+// Scalar-layout spot light. `intensity` = luminous power (same convention as
+// PointLight; reach² = intensity / kPointLightCutoff derived in-shader). The shader
+// uses the windowed inverse-square radial falloff plus an angular cone term. Carries
+// the cone forward + pre-baked cos(angle/2), an optional projected gobo, a
+// shadow bit, and the light's view-projection matrix (gobo / future shadow-map
+// UVs).
 SLANG_PUBLIC struct SpotLight {
     SLANG_PUBLIC uint  type;                         // LIGHT_TYPE_SPOT
-    SLANG_PUBLIC uint  attenuationTextureIndex;
     SLANG_PUBLIC uint  goboTextureIndex;
-    SLANG_PUBLIC uint  coneFalloffTextureIndex;
     SLANG_PUBLIC float3  position;
-    SLANG_PUBLIC float radius;
+    SLANG_PUBLIC float intensity;                    // luminous power (CPU-derived)
     SLANG_PUBLIC float3  direction;                    // world-space outward forward
     SLANG_PUBLIC float cosOuterAngle;                // cos(GetFOV() * 0.5)
     SLANG_PUBLIC float3  color;
-    SLANG_PUBLIC float intensity;
     SLANG_PUBLIC uint  shadowEnabled;                // 0 or 1
     SLANG_PUBLIC float4x4  viewProjection;               // light-space ViewProj for gobo UVs
 };
@@ -174,6 +169,31 @@ SLANG_PUBLIC struct UniformObject {
     SLANG_PUBLIC float4x4  modelMat;
     SLANG_PUBLIC float4x4  invModelMat;
     SLANG_PUBLIC float4x4  uvMat;
+    // Receiver-category bits (eDecalReceiver: Static=1, Primitive=2, Entity=4)
+    // for decal projection: a decal applies only when
+    // (decal.receiverMask & object.decalReceiver) != 0. Set host-side from
+    // iRenderable::IsStatic() (static geometry -> Static|Primitive, dynamic
+    // entities -> Entity). See cDecal / Decal.h.
+    SLANG_PUBLIC uint  decalReceiver;
+};
+
+// Clustered OOB decal. No geometry: invModelMat maps a world position into the
+// decal's unit-cube box [-0.5,0.5]^3; the projection pass clips to the box and
+// samples the decal texture (DiffuseMaterial slot `materialID`). receiverMask is
+// the eDecalReceiver filter; blendMode is eMaterialBlendMode. Packed each frame
+// from cDecal into gDecals[] (binding kBindingDecals).
+SLANG_PUBLIC struct GpuDecal {
+    SLANG_PUBLIC float4x4 invModelMat;
+    SLANG_PUBLIC float4   color;
+    SLANG_PUBLIC uint     materialID;
+    SLANG_PUBLIC uint     receiverMask;
+    SLANG_PUBLIC uint     blendMode;
+    SLANG_PUBLIC uint     subDivX;
+    SLANG_PUBLIC uint     subDivY;
+    SLANG_PUBLIC uint     _pad;
+    // World-space bounding sphere of the box, for DecalGridBuildPass binning.
+    SLANG_PUBLIC float3   center;
+    SLANG_PUBLIC float    radius;
 };
 
 // -----------------------------------------------------------------------------
@@ -256,6 +276,7 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC uint  waterMaterialCount;         // active entries in gWaterMaterials[]
     SLANG_PUBLIC uint  decalMaterialCount;         // active entries in gDecalMaterials[]
     SLANG_PUBLIC uint  fogAreaCount;               // active entries in gFogAreas[]
+    SLANG_PUBLIC uint  decalCount;                 // active entries in gDecals[]
 
     SLANG_PUBLIC float3 posW;
     SLANG_PUBLIC float jitterX;

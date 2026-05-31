@@ -71,6 +71,10 @@ SHARED_CONST uint kBindingLightGridList               = 41u;  // RWStructuredBuf
 SHARED_CONST uint kBindingFogAreas                    = 42u;  // RWStructuredBuffer<FogAreaParams> — per-fog-area screen-space iteration
 SHARED_CONST uint kBindingPackedRefractionHitInfo     = 43u;  // RGBA32UI storage image — refracted-bounce V-buffer
 SHARED_CONST uint kBindingPackedReflectionHitInfo     = 44u;  // RGBA32UI storage image — reflected-bounce V-buffer
+SHARED_CONST uint kBindingAttenuationLut              = 45u;  // default light falloff LUT (core_falloff_linear), immutable on set 0
+SHARED_CONST uint kBindingDecals                      = 46u;  // RWStructuredBuffer<GpuDecal> (kMaxDecals) — clustered OOB decals
+SHARED_CONST uint kBindingDecalGridCount              = 47u;  // RWStructuredBuffer<uint> (kDecalGridCellCount) — decal grid (own cell layout)
+SHARED_CONST uint kBindingDecalGridList               = 48u;  // RWStructuredBuffer<uint> (kDecalGridCellCount * kDecalsPerCellMax)
 
 // -----------------------------------------------------------------------------
 // Bindless pool capacities + sentinel.
@@ -90,6 +94,7 @@ SHARED_CONST uint kPointSlotLightCapacity    = 256u;
 SHARED_CONST uint kSpotSlotLightCapacity     = 256u;
 SHARED_CONST uint kBoxSlotLightCapacity      = 256u;
 SHARED_CONST uint kFogAreaCapacity           = 32u;
+SHARED_CONST uint kMaxDecals                  = 4096u;  // gDecals[] capacity (clustered OOB decals)
 SHARED_CONST uint kInvalidTextureIndex       = 0xffffffffu;
 
 // -----------------------------------------------------------------------------
@@ -181,6 +186,15 @@ SHARED_CONST float kLightGridUnit      = (float(kCellDimension) * kCellUnit) / f
 SHARED_CONST uint  kLightGridCellCount = kLightGridDim * kLightGridDim * kLightGridDim;  // 32768
 SHARED_CONST uint  kLightsPerCellMax   = 32u;                                            // per-cell cap
 
+// Decal grid — a coarse, camera-centered world grid independent of the light
+// grid. Same Grid.slang helpers (parameterized by gridDim / gridUnit), but its
+// own dimension/unit/cell-count so the two grids can diverge in resolution.
+// Built by DecalGridBuildPass; read by SurfelGIRenderPass compositeDecals.
+SHARED_CONST uint  kDecalGridDim       = 32u;                                            // independent of kLightGridDim
+SHARED_CONST float kDecalGridUnit      = (float(kCellDimension) * kCellUnit) / float(kDecalGridDim);
+SHARED_CONST uint  kDecalGridCellCount = kDecalGridDim * kDecalGridDim * kDecalGridDim;   // 32768 at dim 32
+SHARED_CONST uint  kDecalsPerCellMax   = 8u;                                             // per-cell decal cap
+
 // -----------------------------------------------------------------------------
 // gSurfelCounter slot indices. The counter is a flat
 // RWStructuredBuffer<uint> sized to kSurfelCounterSlotCount. Slots 0..5
@@ -227,7 +241,8 @@ SHARED_CONST uint  kMaxSurfelForStep            = 10u;
 // its 1/π Lambert, so π (≈3.14) cancels it → indirect uses the same no-1/π
 // convention as the (base-matched) direct in SurfelGIRenderPass.frag; raise
 // above π to over-cheat the GI fill.
-SHARED_CONST float kIndirectLightScale          = 40.0f;
+SHARED_CONST float kIndirectLightScale          = 1.0f;
+
 
 // Box lights are volumetric ambient fills that contribute to GI only (never
 // direct). SurfelIntegratePass adds a box's color to surfels inside its AABB,
@@ -291,6 +306,23 @@ SHARED_CONST uint  kDefaultOverlayMode          = 0u;
 // to A/B direct vs. indirect.
 SHARED_CONST uint  kDefaultRenderDirectLighting    = 1u;
 SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
+
+SHARED_CONST float  kBoxLightIntensityAdjustment = 1.0;
+
+// PBR point/spot-light falloff. The host stores intensity = authoredRadius² · scale.
+// The shader emits radiance = color · intensity · 1/(d² + sourceRadius²) — a plain
+// softened inverse-square that goes HDR (>1) near the source so lights cross the
+// bloom white point. At d = authoredRadius the radiance lands at ≈ color · scale and
+// rises above it closer in. kPointLightCutoff sizes the light-grid bin sphere as
+// sqrt(intensity / cutoff) = authoredRadius · sqrt(scale/cutoff) — set cutoff ≈ scale
+// to keep the binned reach ≈ the authored radius. NOTE: this bin reach also governs
+// indirect/GI spread — the surfel NEE only samples lights binned into a surfel's
+// cell, so lowering cutoff widens and brightens GI (and crowds the per-cell light
+// cap); it is not purely a grid-cost knob.
+SHARED_CONST float kPointLightIntensityScale   = 1.0f;    // radiance/bloom brightness knob (× authoredRadius²)
+SHARED_CONST float kPointLightCutoff           = 0.5f;    // bin + GI reach = sqrt(intensity/cutoff); ≈ scale ⇒ reach ≈ authored radius
+SHARED_CONST float kPointLightSourceRadiusSq   = 0.25f;   // soft source radius² (0.5m) — near-field softening + on-source peak cap
+
 
 HOST_NAMESPACE_END
 

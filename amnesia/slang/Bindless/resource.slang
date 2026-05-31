@@ -159,6 +159,15 @@ public RWStructuredBuffer<WaterMaterial> gWaterMaterials;
 [vk::binding(kBindingDecalMaterial, 0)]
 public RWStructuredBuffer<DecalMaterial> gDecalMaterials;
 
+[vk::binding(kBindingDecals, 0)]
+public RWStructuredBuffer<GpuDecal> gDecals;
+
+[vk::binding(kBindingDecalGridCount, 0)]
+public RWStructuredBuffer<uint> gDecalGridCount;
+
+[vk::binding(kBindingDecalGridList, 0)]
+public RWStructuredBuffer<uint> gDecalGridList;
+
 // -----------------------------------------------------------------------------
 // Per-frame light SSBOs. Counts come from SceneConstants on set 1 (the
 // per-frame UBO). Iterate up to that count, not the array length.
@@ -241,6 +250,13 @@ public Texture2D<float2> gSurfelDepth;
 
 [vk::binding(kBindingSurfelDepthSampler, 0)]
 public SamplerState gSurfelDepthSampler;
+
+// Default light falloff LUT (core_falloff_linear), bound once on set 0 — it never
+// changes, so it lives here as an immutable global rather than being resolved
+// per-light through the bindless texture pool. Sample with gSurfelDepthSampler
+// (clamp). Keyed on r²=(d/r)² for radial, (1-cosθ)/(1-cosOuter) for the spot cone.
+[vk::binding(kBindingAttenuationLut, 0)]
+public Texture2D<float4> gAttenuationLut;
 
 // Surfel-GI scatter RT acceleration structure. Pushed on set 1
 // per-dispatch (the TLAS is rebuilt every frame).

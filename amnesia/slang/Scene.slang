@@ -82,6 +82,21 @@ public IMaterial getMaterial(uint ID)
     return gDecalMaterials[ID];
 }
 
+// Box-light AABB falloff: 1 inside the box, smoothstep-faded to 0 at the faces
+// (worldToLight* rotate the world offset into the box's local axes). Shared by
+// the direct fill (SurfelShade.evalAnalyticLight) and the indirect surfel fill
+// (SurfelIntegratePass) so the two can't drift.
+public float boxLightFalloff(BoxLight box, float3 posW)
+{
+    float3 d = posW - box.center;
+    float3 local = float3(dot(d, box.worldToLightX),
+                          dot(d, box.worldToLightY),
+                          dot(d, box.worldToLightZ));
+    float3 q = abs(local) / max(box.halfSize, float3(1e-4f)); // 0 center, 1 face
+    float  m = max(q.x, max(q.y, q.z));
+    return 1.0f - smoothstep(kBoxFalloffBegin, 1.0f, m);
+}
+
 public struct SceneCamera
 {
     public float3 getPosition()

@@ -35,6 +35,7 @@
 #include "scene/Scene.h"
 #include "scene/World.h"
 #include "scene/MeshEntity.h"
+#include "scene/Decal.h"
 #include "scene/SubMeshEntity.h"
 #include "scene/LightPoint.h"
 #include "scene/LightSpot.h"
@@ -1985,7 +1986,6 @@ namespace hpl {
 	{
 		////////////////////////////////
 		//Load Main Properties
-		cMeshEntity *pMeshEntity = NULL;
 
 		///Properties
 		tString sName = apElement->GetAttributeString("Name");
@@ -2014,51 +2014,33 @@ namespace hpl {
 		}
 		
 		////////////////////////////////
-		//Load Vertex data
-		cXmlElement* pDecalMeshElem = apElement->GetFirstElement("DecalMesh");
-		cMesh* pMesh = cEngineFileLoading::LoadDecalMeshHelper(pDecalMeshElem, mpGraphics, mpResources, sName, sMaterial, decalColor);
-		if(pMesh==NULL)	return;
-		
-		//////////////////////
-		//RENDER_DEBUG:
-		/*cMeshEntity* pDebugMeshEntity = mpCurrentWorld->CreateMeshEntity(sName, pMesh);
-		return;*/
+		// Oriented-box decal. The baked <DecalMesh> is no longer used: the decal
+		// volume is rebuilt from the editor's WorldPos/Rotation/Scale (Scale =
+		// full box size; box centered on WorldPos). The world owns the cDecal and
+		// its material; the renderer packs these into a GPU array + grid and
+		// projects them in screen space (no geometry is rasterized here).
+		cVector3f vPosition = apElement->GetAttributeVector3f("WorldPos", 0);
+		cVector3f vScale    = apElement->GetAttributeVector3f("Scale", 1);
+		cVector3f vRotation = apElement->GetAttributeVector3f("Rotation", 0);
+		cVector2f vSubDivF  = apElement->GetAttributeVector2f("SubDiv", cVector2f(1,1));
+		cVector2l vSubDiv((int)vSubDivF.x, (int)vSubDivF.y);
 
-		//////////////////////////
-		// Create mesh entity
-		pMeshEntity = hplNew( cMeshEntity, (sName,pMesh,
-											mpResources->GetMaterialManager(),
-											mpResources->GetMeshManager(), 
-											mpResources->GetAnimationManager()) );
-		
-		//////////////////////////////////
-		// General Final Stuff
-		if(pMeshEntity)
-		{
-			//Add the mesh entity.
-			alstMeshEntities.push_back(pMeshEntity);
+		// Receiver filter (was edit-time IsAffectedByDecal clipping). The
+		// projection shader tests the hit object's category against this mask.
+		int lReceiverMask = 0;
+		if(apElement->GetAttributeBool("OnStatic", true))    lReceiverMask |= eDecalReceiver_Static;
+		if(apElement->GetAttributeBool("OnPrimitive", true)) lReceiverMask |= eDecalReceiver_Primitive;
+		if(apElement->GetAttributeBool("OnEntity", true))    lReceiverMask |= eDecalReceiver_Entity;
 
-			//Id
-			pMeshEntity->SetUniqueID(lID);
-            
-			// Add all sub meshes to a new vector
-			for(int i=0; i<pMeshEntity->GetSubMeshEntityNum(); ++i)
-			{
-				cSubMeshEntity *pSubEnt = pMeshEntity->GetSubMeshEntity(i);
+		cDecal* pDecal = mpCurrentWorld->CreateDecal(sName, sMaterial, decalColor, vSubDiv);
+		if(pDecal == NULL)
+			return;
 
-				cHplMapStaticUserData *pUserData = hplNew(cHplMapStaticUserData, ());
-				pUserData->mvScale = 1;
-				pUserData->mbCollides = false;
-				pUserData->mbVisible = true;
-				pUserData->mbCharCollider = false;
-
-				pSubEnt->SetUserData(pUserData);
-				mlstTempStaticUserData.push_back(pUserData);
-
-				apDecalContainer->Add(pSubEnt);
-			}
-		}
-
+		pDecal->SetReceiverMask(lReceiverMask);
+		pDecal->SetUniqueID(lID);
+		pDecal->SetWorldMatrix(cMath::MatrixMul(cMath::MatrixRotate(vRotation, eEulerRotationOrder_XYZ),
+												cMath::MatrixScale(vScale)));
+		pDecal->SetPosition(vPosition);
 	}
 	
 	//-----------------------------------------------------------------------

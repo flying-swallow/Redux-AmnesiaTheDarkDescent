@@ -148,6 +148,11 @@ private:
   struct RIBuffer_s m_fogAreaBuffer = {};
   std::array<FogAreaParams, kFogAreaCapacity> m_fogAreaScratch;
 
+  // Clustered OOB decals (cDecal). Packed each frame from eRenderListType_Decal
+  // into gDecals[]; the projection pass reads them. Capped at kMaxDecals.
+  struct RIBuffer_s m_decalBuffer = {};
+  std::array<GpuDecal, kMaxDecals> m_decalScratch;
+
   // Default-value fallback vertex buffers for translucent renderables whose
   // vertex layout omits one or more streams (cBillboard / cBeam ship
   // position + normal + color + uv with no tangent; other renderables may
@@ -244,6 +249,8 @@ private:
   // NEE reads): per-cell light count + packed per-cell unified-light-index list.
   struct RIBuffer_s m_lightGridCountBuffer;
   struct RIBuffer_s m_lightGridListBuffer;
+  struct RIBuffer_s m_decalGridCountBuffer;
+  struct RIBuffer_s m_decalGridListBuffer;
 
   // Per-surfel copy of its anchor slot's generation, captured at spawn and
   // compared against m_bindlessSlotGenerationBuffer in collectCellInfo.
@@ -257,6 +264,10 @@ private:
   struct RIBuffer_s m_opaqueMaterialBuffer;
   struct RIBuffer_s m_waterMaterialBuffer = {};
   struct RIDescriptor_s *m_materialSampler = nullptr;
+
+  // Default light falloff LUT (core_falloff_linear), bound once to set 0 as the
+  // immutable gAttenuationLut. Held resident for the renderer's lifetime.
+  Image *m_attenuationLut = nullptr;
 
   RIBindlessDescriptorSet m_bindlessSet;
   LRUCache m_textureBindless;
@@ -277,12 +288,6 @@ private:
   uint32_t m_surfelResultWidth = 0;
   uint32_t m_surfelResultHeight = 0;
 
-  // Screen-space perceptual albedo buffer (RGBA8 UNORM). The albedo resolve pass
-  // fills it from the visibility buffer; the decal pass blends decals into it
-  // (native blend modes, perceptual space); SurfelGIRenderPass samples it for
-  // sd.albedo so decals are lit. One per swapchain image.
-  struct RITexture_s     m_albedoTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-  struct RITextureView_s m_albedoView[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
   // Stage B packed visibility — RGBA32UI storage image written by the
   // surfel_vbuffer RT pipeline, sampled by the Stage D / F surfel update
@@ -328,6 +333,7 @@ private:
   RIProgram m_surfelUpdateAccumulate;
   RIProgram m_surfelUpdateScatter;
   RIProgram m_lightGridBin;
+  RIProgram m_decalGridBin;
 
   // Per-object-slot "geometry rebuilt" flag (sized kObjectSlotCapacity). A VB's
   // onGeometryChanged handler (owned by m_diffuseBindless's per-slot state) sets
@@ -357,10 +363,6 @@ private:
   // fullscreen pass once it's wired in fully.
   RIProgram m_surfelGIRender;
 
-  // Fullscreen pass that reconstructs perceptual albedo from the resolved
-  // visibility buffer into m_albedoTexture; decals are then rasterized into that
-  // buffer (native blend modes) before SurfelGIRenderPass lights it.
-  RIProgram m_albedoResolve;
 
 	// Particle (translucent) pass — port of legacy RendererDeferred's
 	// translucency_particle.{vert,frag}.fsl. Reuses the opaque object/material

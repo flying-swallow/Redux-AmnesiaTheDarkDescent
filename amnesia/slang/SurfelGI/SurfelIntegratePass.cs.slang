@@ -204,25 +204,19 @@ void csMain(uint3 dispatchThreadId: SV_DispatchThreadID)
 
     float3 mean = MSME(surfelRadiance, surfel.msmeData, kDefaultShortMeanWindow);
 
-    // Box lights are volumetric ambient fills: they contribute to GI only
-    // (never direct — the direct loop in SurfelGIRenderPass.frag skips them).
-    // Add each box's color to surfels inside its (rotated) AABB, faded toward
-    // the faces, so it bounces through the surfel cache. Added after MSME so the
-    // deterministic fill isn't run through the temporal estimator.
+    // Box lights also get a direct volumetric fill in evalAnalyticLight; this is
+    // the GI *bounce* on top — add each box's color to surfels inside its (rotated)
+    // AABB, faded toward the faces, so it propagates through the surfel cache.
+    // Added after MSME so the deterministic fill isn't run through the temporal
+    // estimator. (Same boxLightFalloff used by the direct path so they can't drift;
+    // kBoxLightIndirectScale is the bounce strength — lower it if box areas read
+    // too hot now that direct + indirect stack.)
     float3 boxFill = float3(0.f);
     uint boxCount = gScene.getBoxLightCount();
     for (uint b = 0; b < boxCount; ++b)
     {
         BoxLight box = gScene.getBoxLight(b);
-        float3 d = surfel.position - box.center;
-        // world -> light-local (axis-aligned boxes: identity rotation).
-        float3 local = float3(dot(d, box.worldToLightX),
-                              dot(d, box.worldToLightY),
-                              dot(d, box.worldToLightZ));
-        float3 q = abs(local) / max(box.halfSize, float3(1e-4f)); // 0 center, 1 face
-        float m = max(q.x, max(q.y, q.z));
-        float falloff = 1.f - smoothstep(kBoxFalloffBegin, 1.f, m); // 1 inside, 0 at face
-        boxFill += box.color * falloff;
+        boxFill += box.color * boxLightFalloff(box, surfel.position);
     }
 
     surfel.radiance = mean + boxFill * kBoxLightIndirectScale;

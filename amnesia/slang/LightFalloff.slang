@@ -10,22 +10,25 @@
 //   cone   : 1D LUT keyed on (1 - cosTheta) / (1 - cosOuterAngle); v = 0.5.
 // Analytic fallbacks fire when the slot is kInvalidTextureIndex.
 
-import SceneTypes;            // kInvalidTextureIndex sentinel
-import Bindless.resource;     // gTextures2D, gMaterialSampler
+import SceneTypes;            // (shared constants)
+import Bindless.resource;     // gAttenuationLut, gSurfelDepthSampler
 
-public float sampleAttenuation(uint attenSlot, float r2)
+// The default falloff LUT (core_falloff_linear) is bound once on set 0 as
+// gAttenuationLut — it's identical for every light and never changes, so there's
+// no per-light slot lookup and no analytic fallback. Sampled with gSurfelDepthSampler
+// (ClampToEdge) over the full [0,1] lookup so the curve reaches the LUT end (~0) at
+// the light radius, matching the base game's clamped nearestSampler.
+public float sampleAttenuation(float r2)
 {
-    if (attenSlot == kInvalidTextureIndex)
-        return saturate(1.0 - r2);
-    return gTextures2D[NonUniformResourceIndex(attenSlot)]
-        .SampleLevel(gMaterialSampler, float2(clamp(r2, 0.0, 0.99), 0.5), 0.0).r;
+    return gAttenuationLut.SampleLevel(gSurfelDepthSampler, float2(saturate(r2), 0.5), 0.0).r;
 }
 
-public float sampleSpotCone(uint coneSlot, float cosTheta, float cosOuterAngle)
+// Light reach (reach² = intensity / kPointLightCutoff) is inlined at its only
+// caller, LightGridBuildPass.cs (the falloff in interface.slang is windowless,
+// so the cutoff governs the grid bin only).
+
+public float sampleSpotCone(float cosTheta, float cosOuterAngle)
 {
-    if (coneSlot == kInvalidTextureIndex)
-        return smoothstep(cosOuterAngle, 1.0, cosTheta);
     float u = (1.0 - cosTheta) / max(1.0 - cosOuterAngle, 1e-6);
-    return gTextures2D[NonUniformResourceIndex(coneSlot)]
-        .SampleLevel(gMaterialSampler, float2(clamp(u, 0.0, 0.99), 0.5), 0.0).r;
+    return gAttenuationLut.SampleLevel(gSurfelDepthSampler, float2(saturate(u), 0.5), 0.0).r;
 }

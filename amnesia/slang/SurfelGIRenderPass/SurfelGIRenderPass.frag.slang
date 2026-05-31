@@ -28,6 +28,7 @@ import Bindless.interface;
 import PerFrame.resource;
 import Fog;
 import SurfelGI.SurfelShade;        // DiffuseShading / prepareDiffuseShading / evalAnalyticLight / gatherSurfelIndirect
+import Grid;                         // gridCellPos / gridFlattenCellIndex / gridCellValid (decal grid lookup)
 import TranslucentPass.WaterCommon; // waterWaveNormalTangent (shared with SurfelVBuffer.rt)
 
 [vk::binding(0, 2)]
@@ -47,11 +48,73 @@ Texture2D<float4> gIndirectLighting;
 [vk::binding(1, 2)]
 Texture2D<uint4> gPackedHitInfoRaster;
 
-// Screen-space LINEAR albedo (RGBA16F): the albedo resolve pass writes the base
-// surface albedo and the decal pass blends decals into it, so reading it here
-// makes decals part of the lit surface. Already linear — no decode needed.
-[vk::binding(2, 2)]
-Texture2D<float4> gAlbedo;
+// --- Decal projection (folded in from the old albedo_resolve pass) ----------
+// Clustered OOB decals are composited directly onto the base albedo here, before
+// lighting, so they get lit like the surface — no separate albedo buffer/pass.
+
+// Blend one decal texel onto the (linear) albedo, replicating the legacy hardware
+// blend factors (src = decal texel*tint, dst = albedo). Mode is eMaterialBlendMode
+// (1=Add, 2=Mul, 3=MulX2, 4=Alpha, 5=PremulAlpha).
+float3 applyDecalBlend(uint mode, float3 dst, float4 src)
+{
+    switch (mode)
+    {
+    case 1u: return dst + src.rgb;                  // Add
+    case 2u: return dst * src.rgb;                  // Mul
+    case 3u: return 2.0f * dst * src.rgb;           // MulX2
+    case 4u: return lerp(dst, src.rgb, src.a);      // Alpha
+    case 5u: return src.rgb + dst * (1.0f - src.a); // PremulAlpha
+    default: return dst;                            // None
+    }
+}
+
+// Project one decal (by index): box-clip, receiver-filter, sample, blend.
+float3 projectDecal(uint di, float3 albedo, float3 posW, uint receiver)
+{
+    GpuDecal d = gDecals[di];
+    if ((d.receiverMask & receiver) == 0u)
+        return albedo;
+
+    float3 lp = mul(d.invModelMat, float4(posW, 1.0f)).xyz;   // world -> box-local
+    if (any(abs(lp) > 0.5f))
+        return albedo;
+
+    // Project along local Y. V is flipped (0.5 - lp.z) to match the editor's baked
+    // decal UVs (DecalCreator.cpp: v = 1 - (dot(rel,forward)/sizeZ + 0.5)); without
+    // the flip every decal renders vertically mirrored.
+    float2 uv = float2(lp.x + 0.5f, 0.5f - lp.z);
+
+    DiffuseMaterial dm = gDiffuseMaterials[d.materialID];
+    uint dtex = dm.tex[0];
+    if (dtex == kInvalidTextureIndex)
+        return albedo;
+
+    float4 s = gTextures2D[NonUniformResourceIndex(dtex)]
+                   .SampleLevel(gMaterialSampler, uv, 0.0f);
+    s *= d.color;
+    if (s.a < 0.01f)                                          // legacy ALPHA_REJECT
+        return albedo;
+
+    return applyDecalBlend(d.blendMode, albedo, s);
+}
+
+// Composite every decal binned into this surface point's grid cell.
+float3 compositeDecals(float3 albedo, float3 posW, uint receiver)
+{
+    if (gPerFrame.decalCount == 0u)
+        return albedo;
+
+    int3 cell = gridCellPos(posW, gPerFrame.posW, kDecalGridUnit);
+    if (!gridCellValid(cell, kDecalGridDim))
+        return albedo;
+
+    uint flat = gridFlattenCellIndex(cell, kDecalGridDim);
+    uint count = min(gDecalGridCount[flat], kDecalsPerCellMax);
+    for (uint k = 0u; k < count; ++k)
+        albedo = projectDecal(gDecalGridList[flat * kDecalsPerCellMax + k],
+                              albedo, posW, receiver);
+    return albedo;
+}
 
 struct PSIn
 {
@@ -197,10 +260,11 @@ float4 psMain(PSIn pin) : SV_Target
     float illuminationAmount = gScene.getObject(triangleHit.instanceID).illuminationAmount;
     DiffuseShading sd = prepareDiffuseShading(v, materialID, illuminationAmount);
 
-    // Albedo comes from the screen-space buffer (base albedo + decals blended in
-    // before lighting), already linear. Emission stays from the material. This is
-    // what makes decals get lit like the surface.
-    sd.albedo = gAlbedo[pixelPos].rgb;
+    // Composite clustered OOB decals straight onto the base albedo, before
+    // lighting, so they get lit like the surface (replaces the old albedo_resolve
+    // buffer + decal raster pass).
+    uint decalReceiver = gScene.getObject(triangleHit.instanceID).decalReceiver;
+    sd.albedo = compositeDecals(sd.albedo, v.posW, decalReceiver);
 
     bool wantDirect   = kDefaultRenderDirectLighting   != 0u;
     bool wantIndirect = kDefaultRenderIndirectLighting != 0u;

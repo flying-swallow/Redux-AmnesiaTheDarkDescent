@@ -21,7 +21,7 @@
 import Bindless.resource;
 import SceneTypes;
 import PerFrame.resource;
-import SurfelGI.SurfelUtils;
+import Grid;                    // gridCellPos / gridFlattenCellIndex / sphereIntersectsGridCell
 
 [numthreads(64, 1, 1)]
 void binLights(uint3 dispatchThreadId: SV_DispatchThreadID)
@@ -35,30 +35,34 @@ void binLights(uint3 dispatchThreadId: SV_DispatchThreadID)
         return;
 
     // Unified virtual index (matches Scene.sampleLightByIndex) + bounding sphere.
+    // Both light types bin by the same intensity-derived reach (the spot's
+    // angular cone ⊂ its radius-sphere, so the sphere bound is conservative).
     float3 center;
-    float  radius;
+    float  intensity;
     if (i < nPoint)
     {
         PointLight pl = gPointLights[i];
-        center = pl.position;
-        radius = pl.radius;
+        center = pl.position;  intensity = pl.intensity;
     }
     else
     {
-        // Spot cone ⊂ radius-sphere → sphere bound is conservative.
         SpotLight sl = gSpotLights[i - nPoint];
-        center = sl.position;
-        radius = sl.radius;
+        center = sl.position;  intensity = sl.intensity;
     }
+
+    // Bin reach. The point/spot falloff (interface.slang) is a plain
+    // inverse-square with NO window, so the reach cutoff lives only here.
+    // reach² = intensity / cutoff (inlined from the former LightFalloff.lightReachSq).
+    float radius = sqrt(intensity / kPointLightCutoff);
     if (radius <= 0.f)
         return;
 
     float3 camPos = gPerFrame.posW;
 
     // Cell-space AABB of the light's sphere (camera-relative). round() matches
-    // getLightCellPos so the box brackets every cell the sphere can touch.
-    int3 lo = getLightCellPos(center - radius.xxx, camPos);
-    int3 hi = getLightCellPos(center + radius.xxx, camPos);
+    // gridCellPos so the box brackets every cell the sphere can touch.
+    int3 lo = gridCellPos(center - radius.xxx, camPos, kLightGridUnit);
+    int3 hi = gridCellPos(center + radius.xxx, camPos, kLightGridUnit);
 
     int half = int(kLightGridDim / 2u);
     lo = clamp(lo, int3(-half + 1), int3(half - 1));
@@ -69,10 +73,10 @@ void binLights(uint3 dispatchThreadId: SV_DispatchThreadID)
     for (int x = lo.x; x <= hi.x; ++x)
     {
         int3 cell = int3(x, y, z);
-        if (!sphereIntersectsLightCell(center, radius, cell, camPos))
+        if (!sphereIntersectsGridCell(center, radius, cell, camPos, kLightGridDim, kLightGridUnit))
             continue;
 
-        uint flat = getLightFlattenCellIndex(cell);
+        uint flat = gridFlattenCellIndex(cell, kLightGridDim);
         uint slot;
         InterlockedAdd(gLightGridCount[flat], 1u, slot);
         if (slot < kLightsPerCellMax)
