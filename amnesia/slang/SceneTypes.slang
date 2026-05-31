@@ -25,8 +25,9 @@ HOST_NAMESPACE_BEGIN
 // point-light loop as authoredRadius²·kPointLightIntensityScale; color already
 // carries brightness, so no luminance term). The radiance falloff
 // (interface.slang) is a plain WINDOWLESS inverse-square, so intensity only sets
-// brightness there; the reach cutoff (reach² = intensity / kPointLightCutoff)
-// lives solely in LightGridBuildPass binning. `color` is the linear diffuse
+// brightness there; the reach cutoff (reach² = maxChannel(color)·intensity /
+// kLightRadianceFloor − kPointLightSourceRadiusSq) lives solely in
+// LightGridBuildPass binning. `color` is the linear diffuse
 // colour. `goboTextureIndex` points into
 // textures_cube[] (set 0, binding 1); when set, sample the cube in light-local
 // space using the worldToLight* rows — the rows of the light's world rotation (R),
@@ -41,11 +42,13 @@ SLANG_PUBLIC struct PointLight {
     SLANG_PUBLIC float3  worldToLightX;
     SLANG_PUBLIC float3  worldToLightY;
     SLANG_PUBLIC float3  worldToLightZ;
+    SLANG_PUBLIC float radius;                       // CPU-precomputed light-grid bin reach (world units); 0 ⇒ skip
 };
 
 // Scalar-layout spot light. `intensity` = luminous power (same convention as
-// PointLight; reach² = intensity / kPointLightCutoff derived in-shader). The shader
-// uses the windowed inverse-square radial falloff plus an angular cone term. Carries
+// PointLight; bin reach derived from the radiance floor in-shader — see PointLight
+// above). The shader uses the windowless inverse-square radial falloff plus an
+// angular cone term. Carries
 // the cone forward + pre-baked cos(angle/2), an optional projected gobo, a
 // shadow bit, and the light's view-projection matrix (gobo / future shadow-map
 // UVs).
@@ -59,6 +62,7 @@ SLANG_PUBLIC struct SpotLight {
     SLANG_PUBLIC float3  color;
     SLANG_PUBLIC uint  shadowEnabled;                // 0 or 1
     SLANG_PUBLIC float4x4  viewProjection;               // light-space ViewProj for gobo UVs
+    SLANG_PUBLIC float radius;                       // CPU-precomputed light-grid bin reach (world units); 0 ⇒ skip
 };
 
 // Scalar-layout box (volumetric) light. World-space AABB centered on the

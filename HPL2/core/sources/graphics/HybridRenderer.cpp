@@ -1443,10 +1443,19 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     pl.color[2] = detail::sRGBToLinear(c.b);
     // Store the light's intensity = authoredRadius² · scale. It multiplies the
     // radiance (color · intensity · inverse-square) — no luminance here, color
-    // already carries brightness — and the grid binning derives the bin reach as
-    // sqrt(intensity / kPointLightCutoff).
+    // already carries brightness — and the grid binning derives the bin reach from
+    // the radiance floor (maxChannel(color)·intensity / kLightRadianceFloor).
     const float authored = pLight->GetRadius();
     pl.intensity = authored * authored * kPointLightIntensityScale;
+    // Precompute the light-grid bin reach here so LightGridBuildPass (one thread
+    // per cell, looping all lights) doesn't recompute it per (cell,light). reach²
+    // = maxChannel(color)·intensity / floor − sourceRadius²; ≤0 ⇒ too dim to bin.
+    {
+      const float maxC = std::max(pl.color[0], std::max(pl.color[1], pl.color[2]));
+      const float reachSq =
+          maxC * pl.intensity / kLightRadianceFloor - kPointLightSourceRadiusSq;
+      pl.radius = reachSq > 0.f ? std::sqrt(reachSq) : 0.f;
+    }
     pl.goboTextureIndex = resolveCubeTextureSlot(
         cntx, pLight->GetGoboImage(), (uint32_t)RI.frameIndex);
     const cMatrixf &world = pLight->GetWorldMatrix();
@@ -1528,10 +1537,19 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     sl.color[2] = detail::sRGBToLinear(c.b);
     // Store the light's intensity = authoredRadius² · scale (same as point lights):
     // it multiplies the radiance (color · intensity · inverse-square) — no luminance
-    // here, color carries brightness — and the grid binning derives the bin reach as
-    // sqrt(intensity / kPointLightCutoff).
+    // here, color carries brightness — and the grid binning derives the bin reach from
+    // the radiance floor (maxChannel(color)·intensity / kLightRadianceFloor).
     const float authored = pLight->GetRadius();
     sl.intensity = authored * authored * kPointLightIntensityScale;
+    // Precompute the light-grid bin reach (same as point lights) so the per-cell
+    // gather in LightGridBuildPass just reads it. The spot cone ⊂ the radius
+    // sphere, so the radial reach is a conservative bound.
+    {
+      const float maxC = std::max(sl.color[0], std::max(sl.color[1], sl.color[2]));
+      const float reachSq =
+          maxC * sl.intensity / kLightRadianceFloor - kPointLightSourceRadiusSq;
+      sl.radius = reachSq > 0.f ? std::sqrt(reachSq) : 0.f;
+    }
     sl.goboTextureIndex = resolveTextureSlot(cntx, pLight->GetGoboImage(),
                                              (uint32_t)RI.frameIndex);
     sl.shadowEnabled = pLight->GetCastShadows() ? 1u : 0u;
@@ -1567,6 +1585,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   for (iLight *pLight : lights) {
     if (pLight->GetLightType() != eLightType_Box)
       continue;
+    continue;
     if (num_box_lights >= kBoxSlotLightCapacity) {
       Warning("Box-light slot capacity exhausted; dropping remaining lights");
       break;
@@ -2723,26 +2742,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   // ----------------------------------------------------------------------
   // World-space light grid build (feeds the surfel ray-trace NEE importance
-  // sampling). Zero the per-cell counts, then bin point/spot lights into the
-  // coarse grid. The light SSBOs were uploaded + barriered to SHADER_READ
-  // earlier this frame, so binLights reads them directly. Placed here (after
-  // the cell scatter, before Stage E) for ordering only — it's independent of
-  // the surfel cell grid.
+  // sampling + the SurfelGIRenderPass direct cull). Per-cell gather: one thread
+  // per grid cell walks the light list and writes that cell's count + list. The
+  // light SSBOs were uploaded + barriered to SHADER_READ earlier this frame, so
+  // binLights reads them directly. No per-cell count clear is needed — every
+  // cell's count is written unconditionally by its thread. Placed here (after
+  // the cell scatter, before Stage E) for ordering only — independent of the
+  // surfel cell grid.
   // ----------------------------------------------------------------------
-  {
-    vkCmdFillBuffer(cmd, m_lightGridCountBuffer.vk.buffer, 0, VK_WHOLE_SIZE, 0u);
-    // Fill (transfer) -> binLights atomic RMW on the counts (compute).
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.dstAccessMask =
-        VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(cmd, &dep);
-  }
   {
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
@@ -2763,11 +2770,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_lightGridBin.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
                                    bnd.data(), bnd.size(),
                                    VK_PIPELINE_BIND_POINT_COMPUTE);
-    // One thread per light over the capacity (the shader early-outs past the
-    // active point+spot count). 512 lights -> 8 groups; trivial.
+    // One thread per grid cell (the shader early-outs past kLightGridCellCount).
     CmdDispatch(&RI.primary.cmds[0],
-                (kPointSlotLightCapacity + kSpotSlotLightCapacity + 63u) / 64u,
-                1u, 1u);
+                (kLightGridCellCount + 63u) / 64u, 1u, 1u);
   }
 
   // ----------------------------------------------------------------------

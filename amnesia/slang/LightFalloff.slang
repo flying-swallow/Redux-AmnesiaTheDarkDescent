@@ -23,9 +23,10 @@ public float sampleAttenuation(float r2)
     return gAttenuationLut.SampleLevel(gSurfelDepthSampler, float2(saturate(r2), 0.5), 0.0).r;
 }
 
-// Light reach (reach² = intensity / kPointLightCutoff) is inlined at its only
-// caller, LightGridBuildPass.cs (the falloff in interface.slang is windowless,
-// so the cutoff governs the grid bin only).
+// Light reach (reach² = maxChannel(color)·intensity / kLightRadianceFloor −
+// kPointLightSourceRadiusSq) is computed at its only caller, LightGridBuildPass.cs
+// (the falloff in interface.slang is windowless, so the radiance floor governs the
+// grid bin only).
 
 public float sampleSpotCone(float cosTheta, float cosOuterAngle)
 {

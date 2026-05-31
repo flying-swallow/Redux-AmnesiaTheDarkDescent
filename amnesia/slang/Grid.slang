@@ -18,6 +18,16 @@ uint gridFlattenCellIndex(int3 cellPos, uint gridDim)
     return (u.z * gridDim * gridDim) + (u.y * gridDim) + u.x;
 }
 
+// Inverse of gridFlattenCellIndex — map a flat cell index back to its signed
+// cell position (camera-relative). Used by the per-cell light-grid gather.
+int3 gridUnflattenCellIndex(uint flat, uint gridDim)
+{
+    uint3 u = uint3(flat % gridDim,
+                    (flat / gridDim) % gridDim,
+                    flat / (gridDim * gridDim));
+    return int3(u) - int(gridDim / 2);
+}
+
 bool gridCellValid(int3 cellPos, uint gridDim)
 {
     return abs(cellPos.x) < int(gridDim / 2)
@@ -36,5 +46,8 @@ bool sphereIntersectsGridCell(float3 center, float radius, int3 cellPos,
     float3 maxPosW = cellPos * gridUnit + half3 + cameraPosW;
     float3 close   = min(max(center, minPosW), maxPosW);
 
-    return distance(close, center) < radius;
+    // Squared compare — sphere/box overlap never needs the actual distance, and
+    // this runs per cell in the grid builds, so avoid the sqrt that distance() emits.
+    float3 d = close - center;
+    return dot(d, d) < radius * radius;
 }

@@ -163,9 +163,9 @@ namespace hpl {
 		backendInit.api = RI_DEVICE_API_VK;
 		backendInit.applicationName = "HPL2";
 #ifndef NDEBUG
-    	backendInit.vk.enableValidationLayer = false; // Validation layers are disabled by default due to the significant CPU overhead they can cause, especially on AMD drivers. Enable this if you need to debug Vulkan API usage issues, but be aware of the potential performance impact.
+    	backendInit.vk.enableValidationLayer = false; 
 #else
-		backendInit.vk.enableValidationLayer = true;
+		backendInit.vk.enableValidationLayer = false;
 #endif
 
 		if(InitRIRenderer(&backendInit, &RI.renderer) != RI_SUCCESS) {
@@ -212,7 +212,7 @@ namespace hpl {
 		swapchainInit.queue = &RI.device.queues[RI_QUEUE_GRAPHICS];
 		swapchainInit.width = alWidth;
 		swapchainInit.height = alHeight;
-		swapchainInit.format = RI_SWAPCHAIN_BT709_G10_16BIT;
+		swapchainInit.format = RI_SWAPCHAIN_BT709_G22_8BIT;
 		InitRISwapchain(&RI.device, &swapchainInit, &RI.swapchain);
 
 		{
