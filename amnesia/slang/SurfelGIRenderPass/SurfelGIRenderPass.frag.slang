@@ -92,6 +92,16 @@ float3 shadeBounceHit(uint4 packed, out bool valid)
     return direct + sd.albedo * indirect + sd.emission;
 }
 
+float3 linearToSRGB(float3 c)
+{
+    c = max(c, 0.0f);
+
+    float3 low  = c * 12.92f;
+    float3 high = 1.055f * pow(c, 1.0f / 2.4f) - 0.055f;
+
+    return lerp(high, low, c <= 0.0031308f);
+}
+
 [shader("fragment")]
 float4 psMain(PSIn pin) : SV_Target
 {
@@ -183,7 +193,9 @@ float4 psMain(PSIn pin) : SV_Target
 
         float3 waterRgb = surfaceTint * refrColor + reflColor * fresnel;
         waterRgb = applyFog(waterRgb, vW.posW, gPerFrame.posW);
-        return float4(waterRgb, 1.f);
+        float3 displayLinear = saturate(waterRgb);
+		float3 displaySRGB = linearToSRGB(displayLinear);
+		return float4(displaySRGB, 1.f);
     }
 
     // Glass refraction needs no swap here: SurfelVBuffer.rt re-traces the
@@ -225,5 +237,7 @@ float4 psMain(PSIn pin) : SV_Target
     // for translucents) — applies uniformly to the opaque composite here.
     finalGather = applyFog(finalGather, v.posW, gPerFrame.posW);
 
-    return float4(finalGather, 1.f);
+    float3 displayLinear = saturate(finalGather);
+	float3 displaySRGB = linearToSRGB(displayLinear);
+	return float4(displaySRGB, 1.f);
 }
