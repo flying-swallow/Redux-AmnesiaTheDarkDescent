@@ -1441,11 +1441,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // Precompute the light-grid bin reach here so LightGridBuildPass (one thread
     // per cell, looping all lights) doesn't recompute it per (cell,light). reach²
     // = maxChannel(color)·intensity / floor − sourceRadius²; ≤0 ⇒ too dim to bin.
+    // The reach uses the UNSCALED authored intensity (kPointLightIntensityScale
+    // omitted): the scale is a visual brightness knob and must NOT re-cull lights
+    // — folding it into the reach made dimming shrink the bin range and pop lights
+    // out. Binning stays tied to the artist's authored radius; brightness only
+    // scales the shader radiance above.
     {
       const float maxC = std::max(pl.color[0], std::max(pl.color[1], pl.color[2]));
-      const float reachSq =
-          ((maxC * pl.intensity) / kLightRadianceFloor) - kPointLightSourceRadiusSq;
-      pl.radius = reachSq > 0.f ? std::sqrt(reachSq) : 0.f;
+      const float reachSq = ((maxC * authored) / kLightRadianceFloor) - kPointLightSourceRadiusSq;
+      const float calculatedReach = reachSq > 0.f ? std::sqrt(reachSq) : 0.f;
+      pl.radius = calculatedReach;
     }
     pl.goboTextureIndex = resolveCubeTextureSlot(
         cntx, pLight->GetGoboImage(), (uint32_t)RI.frameIndex);
@@ -1534,11 +1539,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     sl.intensity = authored  * kPointLightIntensityScale;
     // Precompute the light-grid bin reach (same as point lights) so the per-cell
     // gather in LightGridBuildPass just reads it. The spot cone ⊂ the radius
-    // sphere, so the radial reach is a conservative bound.
+    // sphere, so the radial reach is a conservative bound. Uses the UNSCALED
+    // authored intensity (kPointLightIntensityScale omitted) so the brightness
+    // knob doesn't re-cull lights — see the point-light note above.
     {
       const float maxC = std::max(sl.color[0], std::max(sl.color[1], sl.color[2]));
       const float reachSq =
-          maxC * sl.intensity / kLightRadianceFloor - kPointLightSourceRadiusSq;
+          ((maxC * authored)/ kLightRadianceFloor) - kPointLightSourceRadiusSq;
       sl.radius = reachSq > 0.f ? std::sqrt(reachSq) : 0.f;
     }
     sl.goboTextureIndex = resolveTextureSlot(cntx, pLight->GetGoboImage(),

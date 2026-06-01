@@ -235,7 +235,7 @@ SHARED_CONST uint  kMaxSurfelForStep            = 10u;
 // its 1/π Lambert, so π (≈3.14) cancels it → indirect uses the same no-1/π
 // convention as the (base-matched) direct in SurfelGIRenderPass.frag; raise
 // above π to over-cheat the GI fill.
-SHARED_CONST float kIndirectLightScale          = 10.0f;
+SHARED_CONST float kIndirectLightScale          = 1.0f;
 
 
 // Surfel generation.
@@ -306,9 +306,9 @@ SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
 // also governs indirect/GI spread — the surfel NEE only samples lights binned into a
 // surfel's cell, so lowering the floor widens and brightens GI (and crowds the
 // per-cell light cap); it is not purely a grid-cost knob.
-SHARED_CONST float kPointLightIntensityScale   = 1.0f;    // radiance/bloom brightness knob (× authoredRadius²)
-SHARED_CONST float kLightRadianceFloor         = 0.005f;    // min per-channel radiance (linear) worth binning; reach² = maxC(color)·intensity/floor − sourceRadiusSq
-SHARED_CONST float kPointLightSourceRadiusSq   = 0.0f;   // soft source radius² (0.5m) — near-field softening + on-source peak cap
+SHARED_CONST float kPointLightIntensityScale   = 0.4f;    // VISUAL radiance/bloom brightness knob only — does NOT affect binning/cull reach (the host computes reach from the unscaled authored radius); tune freely without re-culling lights
+SHARED_CONST float kLightRadianceFloor         = 0.005f;    // min per-channel radiance (linear) worth binning; reach² = maxC(color)·authoredRadius/floor − sourceRadiusSq (scale-independent)
+SHARED_CONST float kPointLightSourceRadiusSq   = 0.25f;  // soft source radius² (0.5m) — near-field softening + on-source peak cap (caps on-lamp radiance at color·intensity/this instead of 1/d²→∞; raise to soften lamp hotspots further)
 
 
 HOST_NAMESPACE_END
