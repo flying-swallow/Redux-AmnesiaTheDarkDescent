@@ -11,12 +11,11 @@
 //              incoming radiance with the cosθ factor baked in, the
 //              composite weight is just albedo / π · π = albedo)
 //
-// Converted from the original compute pass to a fragment pass: the per-
-// pixel write is now an SV_Target return so the surfel-GI result lands
-// in the post-effect pogo buffer (color attachment) instead of a storage
-// image. This keeps the entire post-write chain uniformly graphics, so
-// the RI_PogoBuffer barrier helpers (which are authored for
-// COLOR_ATTACHMENT_OUTPUT ↔ FRAGMENT_SHADER transitions) apply directly.
+// Runs as a compute pass: one thread per pixel writes the surfel-GI result
+// into the post-effect pogo buffer bound as a storage image (gOutput). The
+// renderer transitions the pogo attach to GENERAL around the dispatch and back
+// to COLOR_ATTACHMENT_OPTIMAL afterwards, so the downstream pogo toggle and the
+// translucent/particle raster passes are unaffected.
 
 #include "../HostDefinitions.h"
 #include "../Constants.h"
@@ -48,6 +47,11 @@ Texture2D<float4> gIndirectLighting;
 [vk::binding(1, 2)]
 Texture2D<uint4> gPackedHitInfoRaster;
 
+// Output: the post-effect pogo HDR target, bound as a storage image. The
+// renderer puts it in GENERAL for the dispatch and back to COLOR afterwards.
+[vk::binding(2, 2)]
+RWTexture2D<float4> gOutput;
+
 // --- Decal projection (folded in from the old albedo_resolve pass) ----------
 // Clustered OOB decals are composited directly onto the base albedo here, before
 // lighting, so they get lit like the surface — no separate albedo buffer/pass.
@@ -68,10 +72,16 @@ float3 applyDecalBlend(uint mode, float3 dst, float4 src)
     }
 }
 
-// Project one decal (by index): box-clip, sample, blend. No receiver filter —
-// the per-object decal list (compositeDecals) is already the exact static
-// association, so a listed decal is one this object was clipped to in the editor.
-float3 projectDecal(uint di, float3 albedo, float3 posW)
+// Reject surfaces that are near-perpendicular to the decal's projection axis
+// (the bleed artifact: a decal box catching side walls / edges). Two-sided and
+// derived from the box's own axes, so it's independent of the projection-axis
+// sign/convention. |cos| below this (~angle > ~75deg from the axis) is culled.
+static const float kDecalFacingCos = 0.25f;
+
+// Project one decal (by index): box-clip, facing-cull, atlas-UV, sample, blend.
+// The per-object decal list (compositeDecals) is the editor's static association,
+// so a listed decal is one this object was clipped to.
+float3 projectDecal(uint di, float3 albedo, float3 posW, float3 normalW)
 {
     GpuDecal d = gDecals[di];
 
@@ -79,10 +89,29 @@ float3 projectDecal(uint di, float3 albedo, float3 posW)
     if (any(abs(lp) > 0.5f))
         return albedo;
 
-    // Project along local Y. V is flipped (0.5 - lp.z) to match the editor's baked
-    // decal UVs (DecalCreator.cpp: v = 1 - (dot(rel,forward)/sizeZ + 0.5)); without
-    // the flip every decal renders vertically mirrored.
-    float2 uv = float2(lp.x + 0.5f, 0.5f - lp.z);
+    // Facing cull in box-local space: transform the surface normal by the same
+    // invModelMat used for the position clip (sign-consistent with the box), and
+    // require a real component along the projection axis (local Y). Reject only
+    // near-perpendicular surfaces — keeps both facings, so it can't hide a
+    // correctly-placed decal from an axis-sign mismatch.
+    float3 nLocal = mul((float3x3)d.invModelMat, normalW);
+    float  nLen   = length(nLocal);
+    if (nLen < 1.0e-6f || abs(nLocal.y) <= kDecalFacingCos * nLen)
+        return albedo;
+
+    // Project along local Y; remap into the selected atlas cell, matching the
+    // editor's baked UVs (DecalCreator.cpp:346-359). subDivIndex is the 0-based
+    // cell used directly; clamp to [0,1] as the editor does so stale/degenerate
+    // cell values (e.g. CurrentSubDiv=3 with a 1x1 grid) sample the edge instead
+    // of off-texture.
+    //   u = clamp((cellCol + (localX+0.5)) / subDivX, 0, 1)
+    //   v = 1 - clamp((cellRow + (localZ+0.5)) / subDivY, 0, 1)   (V flipped)
+    uint  sx = max(d.subDivX, 1u);
+    uint  sy = max(d.subDivY, 1u);
+    float fU = float(d.subDivIndex % sx);
+    float fV = float(d.subDivIndex / sx);
+    float2 uv = float2(saturate((fU + (lp.x + 0.5f)) / float(sx)),
+                       1.0f - saturate((fV + (lp.z + 0.5f)) / float(sy)));
 
     DiffuseMaterial dm = gDiffuseMaterials[d.materialID];
     uint dtex = dm.tex[0];
@@ -98,24 +127,17 @@ float3 projectDecal(uint di, float3 albedo, float3 posW)
     return applyDecalBlend(d.blendMode, albedo, s);
 }
 
-// Composite the decals precomputed for this object (the static set it was
-// clipped to in the editor). `decalList` packs (offset << 8) | count into the
-// shared gObjectDecalIndices pool. Movable objects have count 0, so they never
-// receive decals.
-float3 compositeDecals(float3 albedo, float3 posW, uint decalList)
+// Composite the decals precomputed for this object (the static association the
+// editor clipped it to). `decalList` packs (offset << 8) | count into the shared
+// gObjectDecalIndices pool. `normalW` is the hit surface normal (facing cull).
+float3 compositeDecals(float3 albedo, float3 posW, float3 normalW, uint decalList)
 {
     uint count  = decalList & 0xFFu;
     uint offset = decalList >> 8;
     for (uint k = 0u; k < count; ++k)
-        albedo = projectDecal(gObjectDecalIndices[offset + k], albedo, posW);
+        albedo = projectDecal(gObjectDecalIndices[offset + k], albedo, posW, normalW);
     return albedo;
 }
-
-struct PSIn
-{
-    [vk::location(0)] float2 v_uv;
-    float4 posH : SV_Position;
-};
 
 // Schlick-Fresnel — mirrors deferred_common.h.fsl::Fresnel(eDotN, bias, pow).
 float computeFresnel(float afEDotN, float afFresnelBias, float afFresnelPow)
@@ -150,10 +172,16 @@ float3 shadeBounceHit(uint4 packed, out bool valid)
     return direct + sd.albedo * indirect + sd.emission;
 }
 
-[shader("fragment")]
-float4 psMain(PSIn pin) : SV_Target
+[shader("compute")]
+[numthreads(16, 16, 1)]
+void csMain(uint3 tid : SV_DispatchThreadID)
 {
-    uint2 pixelPos = uint2(pin.posH.xy);
+    uint2 pixelPos = tid.xy;
+    uint  outW, outH;
+    gOutput.GetDimensions(outW, outH);
+    if (pixelPos.x >= outW || pixelPos.y >= outH)
+        return;   // edge threads of the rounded-up dispatch
+
     HitInfo hitInfo = HitInfo(gPackedHitInfo[pixelPos]);
 
     if (!hitInfo.isValid())
@@ -169,7 +197,8 @@ float4 psMain(PSIn pin) : SV_Target
             // When env map gets wired into the bindless set, this is
             // where the lookup goes:
             //   `float3 envColor = gEnvMap.SampleLevel(..., ray, 0).rgb;`
-            return float4(0.f, 0.f, 0.f, 1.f);
+            gOutput[pixelPos] = float4(0.f, 0.f, 0.f, 1.f);
+            return;
         }
     }
 
@@ -241,7 +270,8 @@ float4 psMain(PSIn pin) : SV_Target
 
         float3 waterRgb = surfaceTint * refrColor + reflColor * fresnel;
         waterRgb = applyFog(waterRgb, vW.posW, gPerFrame.posW);
-        return float4(waterRgb, 1.f);
+        gOutput[pixelPos] = float4(waterRgb, 1.f);
+        return;
     }
 
     // Glass refraction needs no swap here: SurfelVBuffer.rt re-traces the
@@ -259,7 +289,7 @@ float4 psMain(PSIn pin) : SV_Target
     // lighting, so they get lit like the surface (replaces the old albedo_resolve
     // buffer + decal raster pass).
     uint decalList = gScene.getObject(triangleHit.instanceID).decalList;
-    sd.albedo = compositeDecals(sd.albedo, v.posW, decalList);
+    sd.albedo = compositeDecals(sd.albedo, v.posW, sd.normalW, decalList);
 
     bool wantDirect   = kDefaultRenderDirectLighting   != 0u;
     bool wantIndirect = kDefaultRenderIndirectLighting != 0u;
@@ -284,5 +314,5 @@ float4 psMain(PSIn pin) : SV_Target
     // for translucents) — applies uniformly to the opaque composite here.
     finalGather = applyFog(finalGather, v.posW, gPerFrame.posW);
 
-    return float4(finalGather, 1.f);
+    gOutput[pixelPos] = float4(finalGather, 1.f);
 }

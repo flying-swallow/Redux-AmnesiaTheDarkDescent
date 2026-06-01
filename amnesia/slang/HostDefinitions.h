@@ -152,7 +152,6 @@ typedef float float4x4[16];
 // -----------------------------------------------------------------------------
 #define LIGHT_TYPE_POINT        0u
 #define LIGHT_TYPE_SPOT         1u
-#define LIGHT_TYPE_BOX          2u
 
 #define MATERIAL_TYPE_DIFFUSE       0u
 #define MATERIAL_TYPE_TRANSLUCENT   1u

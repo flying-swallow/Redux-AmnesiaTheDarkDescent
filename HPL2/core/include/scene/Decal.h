@@ -81,6 +81,11 @@ namespace hpl {
 		const cColor& GetDecalColor() const { return mColor; }
 		const cVector2l& GetSubDiv() const { return mvSubDiv; }
 
+		// Selected atlas cell within the SubDiv grid (editor CurrentSubDiv,
+		// 0-based). The projection pass remaps UVs into this cell.
+		void SetCurrentSubDiv(int alX){ mlCurrentSubDiv = alX; }
+		int GetCurrentSubDiv() const { return mlCurrentSubDiv; }
+
 		// Receiver-category mask (eDecalReceiver bits) — which object categories
 		// this decal is allowed to project onto.
 		void SetReceiverMask(int alMask){ mlReceiverMask = alMask; }
@@ -91,6 +96,7 @@ namespace hpl {
 		cMaterial* mpMaterial;
 		cColor mColor;
 		cVector2l mvSubDiv;
+		int mlCurrentSubDiv = 0;
 		int mlReceiverMask;
 
 		cMatrixf m_mtxModelOutput;

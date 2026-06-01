@@ -139,8 +139,6 @@ private:
   std::array<PointLight, kPointSlotLightCapacity> m_pointLightScratch;
   struct RIBuffer_s m_spotLightBuffer = {};
   std::array<SpotLight, kSpotSlotLightCapacity> m_spotLightScratch;
-  struct RIBuffer_s m_boxLightBuffer = {};
-  std::array<BoxLight, kBoxSlotLightCapacity> m_boxLightScratch;
 
   // Per-frame fog-area SSBO. One entry per cFogArea visible this frame; the
   // shader-side iteration (Fog.slang) walks it from every pixel via

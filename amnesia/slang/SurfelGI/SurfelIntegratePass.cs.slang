@@ -204,22 +204,7 @@ void csMain(uint3 dispatchThreadId: SV_DispatchThreadID)
 
     float3 mean = MSME(surfelRadiance, surfel.msmeData, kDefaultShortMeanWindow);
 
-    // Box lights also get a direct volumetric fill in evalAnalyticLight; this is
-    // the GI *bounce* on top — add each box's color to surfels inside its (rotated)
-    // AABB, faded toward the faces, so it propagates through the surfel cache.
-    // Added after MSME so the deterministic fill isn't run through the temporal
-    // estimator. (Same boxLightFalloff used by the direct path so they can't drift;
-    // kBoxLightIndirectScale is the bounce strength — lower it if box areas read
-    // too hot now that direct + indirect stack.)
-    float3 boxFill = float3(0.f);
-    uint boxCount = gScene.getBoxLightCount();
-    for (uint b = 0; b < boxCount; ++b)
-    {
-        BoxLight box = gScene.getBoxLight(b);
-        boxFill += box.color * boxLightFalloff(box, surfel.position);
-    }
-
-    surfel.radiance = mean + boxFill * kBoxLightIndirectScale;
+    surfel.radiance = mean;
 
     gSurfelBuffer[surfelIndex] = surfel;
 }

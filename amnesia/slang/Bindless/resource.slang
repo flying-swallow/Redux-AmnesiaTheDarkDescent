@@ -177,9 +177,6 @@ public RWStructuredBuffer<PointLight> gPointLights;
 [vk::binding(kBindingSpotLights, 0)]
 public RWStructuredBuffer<SpotLight> gSpotLights;
 
-[vk::binding(kBindingBoxLights, 0)]
-public RWStructuredBuffer<BoxLight> gBoxLights;
-
 [vk::binding(kBindingFogAreas, 0)]
 public RWStructuredBuffer<FogAreaParams> gFogAreas;
 

@@ -40,23 +40,19 @@ public struct Ray
     public float  tMax;
 };
 
-// Flat-index → ILight resolver. Slices the virtual index across the three
-// typed light SSBOs (point, spot, box) in the same order documented by
+// Flat-index → ILight resolver. Slices the virtual index across the two
+// typed light SSBOs (point, spot) in the same order documented by
 // amnesia/glsl/surfel_light_nee.glsl. The interface return goes through
 // Slang's existential boxing — fine for the cold paths (UI, debug);
 // performance-critical NEE should call sampleLightByIndex below, which
-// branches directly to the typed PointLight/SpotLight/BoxLight.sample().
+// branches directly to the typed PointLight/SpotLight.sample().
 public ILight getLight(uint ID)
 {
     uint nPoint = gPerFrame.pointLightCount;
     if (ID < nPoint) return gPointLights[ID];
     ID -= nPoint;
 
-    uint nSpot = gPerFrame.spotLightCount;
-    if (ID < nSpot) return gSpotLights[ID];
-    ID -= nSpot;
-
-    return gBoxLights[ID];
+    return gSpotLights[ID];
 }
 
 // Flat-index → IMaterial resolver. Slices the virtual index across the four
@@ -80,21 +76,6 @@ public IMaterial getMaterial(uint ID)
     ID -= nWater;
 
     return gDecalMaterials[ID];
-}
-
-// Box-light AABB falloff: 1 inside the box, smoothstep-faded to 0 at the faces
-// (worldToLight* rotate the world offset into the box's local axes). Shared by
-// the direct fill (SurfelShade.evalAnalyticLight) and the indirect surfel fill
-// (SurfelIntegratePass) so the two can't drift.
-public float boxLightFalloff(BoxLight box, float3 posW)
-{
-    float3 d = posW - box.center;
-    float3 local = float3(dot(d, box.worldToLightX),
-                          dot(d, box.worldToLightY),
-                          dot(d, box.worldToLightZ));
-    float3 q = abs(local) / max(box.halfSize, float3(1e-4f)); // 0 center, 1 face
-    float  m = max(q.x, max(q.y, q.z));
-    return 1.0f - smoothstep(kBoxFalloffBegin, 1.0f, m);
 }
 
 public struct SceneCamera
@@ -358,21 +339,12 @@ public struct Scene
     public uint getLightCount()
     {
         return gPerFrame.pointLightCount
-             + gPerFrame.spotLightCount
-             + gPerFrame.boxLightCount;
+             + gPerFrame.spotLightCount;
     }
 
-    // Box lights are volumetric ambient fills consumed only by the surfel GI
-    // (SurfelIntegratePass), never the direct loop. Expose them via gScene so
-    // passes that don't bind gPerFrame/gBoxLights directly can iterate them.
-    public uint getBoxLightCount() { return gPerFrame.boxLightCount; }
-    public BoxLight getBoxLight(uint i) { return gBoxLights[i]; }
-
     // Performance path for surfel NEE: branches directly on the slice
-    // index and calls the typed PointLight/SpotLight/BoxLight.sample()
-    // without going through an interface existential. Box lights NEE-
-    // return false (matches surfel_light_nee.glsl — boxes are volumetric
-    // tints, not directional lights).
+    // index and calls the typed PointLight/SpotLight.sample() without going
+    // through an interface existential.
     public bool sampleLightByIndex(uint virtualIndex, float3 shadingPosW, out LightSample ls)
     {
         ls.Li       = float3(0.0f);
@@ -392,14 +364,27 @@ public struct Scene
         {
             return gSpotLights[virtualIndex].sample(shadingPosW, ls);
         }
-        virtualIndex -= nSpot;
-
-        uint nBox = gPerFrame.boxLightCount;
-        if (virtualIndex < nBox)
-        {
-            return false;
-        }
         return false;
+    }
+
+    // Shade one analytic light at a surface point: sample it, NdotL-cull,
+    // shadow-ray test, return albedo·Li·NdotL (no 1/π — base-game direct
+    // convention). Shared by the direct composite (SurfelShade.evalAnalyticLight)
+    // and the surfel NEE pass (SurfelRayTrace), which scales the result by its
+    // 1/π·invPdf·indirect factors. `origin` is the (epsilon-offset) shadow-ray
+    // origin the caller already computes.
+    public float3 shadeAnalyticLight(float3 posW, float3 normalW, float3 albedo,
+                                     uint lightIndex, float3 origin)
+    {
+        LightSample ls;
+        if (!sampleLightByIndex(lightIndex, posW, ls)) return float3(0.f);
+
+        float NdotL = dot(normalW, ls.dir);
+        if (NdotL <= 0.f) return float3(0.f);
+
+        if (!materials.traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
+
+        return albedo * ls.Li * NdotL;
     }
 
     // --- Mesh / hit data ------------------------------------------------------

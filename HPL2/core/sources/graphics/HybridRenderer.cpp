@@ -187,9 +187,6 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           kBindingSpotLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
           kRtSharedStages, 0});
       bindings.push_back(RIBindlessDescriptorSet::Binding{
-          kBindingBoxLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-          kRtSharedStages, 0});
-      bindings.push_back(RIBindlessDescriptorSet::Binding{
           kBindingFogAreas, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
           kRtSharedStages, 0});
       bindings.push_back(RIBindlessDescriptorSet::Binding{
@@ -342,17 +339,12 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     loadSlangCompute(m_lightGridBin, "LightGridBuildPass.cs.spv", "binLights");
     loadSlangCompute(m_surfelIntegrate,  "SurfelIntegratePass.cs.spv",   "csMain");
     loadSlangCompute(m_surfelGenerate,   "SurfelGenerationPass.cs.spv",  "csMain");
-    // SurfelGIRender — now a graphics pass writing into the pogo buffer's
-    // color attachment (was a compute pass writing into the swapchain as
-    // a storage image). The post-effect chain ping-pongs through pogo
-    // and a tail blit copies the final pogo half into the swapchain;
-    // keeping the surfel composite as a fragment pass means the same
-    // COLOR_ATTACHMENT ↔ FRAGMENT_SHADER barrier helpers in RIPogoBuffer
-    // cover the entire chain.
-    LoadSlangGraphics(&RI.device, m_surfelGIRender, apResources,
-                      "posteffect_fullscreen.vert.spv",
-                      "SurfelGIRenderPass.frag.spv", "vsMain", "psMain",
-                      externalLayouts);
+    // SurfelGIRender — compute pass: one thread per pixel writes the composite
+    // into the pogo attach bound as a storage image (gOutput). The renderer
+    // transitions the pogo attach GENERAL around the dispatch and back to
+    // COLOR_ATTACHMENT_OPTIMAL afterwards so the downstream pogo toggle + raster
+    // passes are unaffected.
+    loadSlangCompute(m_surfelGIRender, "SurfelGIRenderPass.cs.spv", "csMain");
     // (Albedo resolve pass removed — SurfelGIRenderPass now computes albedo +
     // composites decals inline.)
     // The pogo "read" half -> swapchain tail blit now lives in cScene (after the
@@ -603,11 +595,6 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bci, &aci,
                                     &m_spotLightBuffer.vk.buffer,
                                     &m_spotLightBuffer.vk.allocation, nullptr));
-
-      bci.size = (VkDeviceSize)kBoxSlotLightCapacity * sizeof(BoxLight);
-      VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bci, &aci,
-                                    &m_boxLightBuffer.vk.buffer,
-                                    &m_boxLightBuffer.vk.allocation, nullptr));
 
       bci.size = (VkDeviceSize)kFogAreaCapacity * sizeof(FogAreaParams);
       VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bci, &aci,
@@ -979,8 +966,6 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
            kPointSlotLightCapacity * sizeof(PointLight)},
           {kBindingSpotLights, &m_spotLightBuffer,
            kSpotSlotLightCapacity * sizeof(SpotLight)},
-          {kBindingBoxLights, &m_boxLightBuffer,
-           kBoxSlotLightCapacity * sizeof(BoxLight)},
           {kBindingFogAreas, &m_fogAreaBuffer,
            kFogAreaCapacity * sizeof(FogAreaParams)},
           {kBindingDecals, &m_decalBuffer,
@@ -1585,72 +1570,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
   }
 
-  // Box lights. Add-blend only (eLightBoxBlendFunc_Replace is silently
-  // treated as Add for now — visibility_shade.frag has no Replace path).
-  size_t num_box_lights = 0;
-  for (iLight *pLight : lights) {
-    if (pLight->GetLightType() != eLightType_Box)
-      continue;
-    continue;
-    if (num_box_lights >= kBoxSlotLightCapacity) {
-      Warning("Box-light slot capacity exhausted; dropping remaining lights");
-      break;
-    }
-    cLightBox *pBox = static_cast<cLightBox *>(pLight);
-    BoxLight bl{};
-    bl.type = LIGHT_TYPE_BOX;
-    bl.blendFunc = (pBox->GetBlendFunc() == eLightBoxBlendFunc_Replace) ? 0u : 1u;
-    // Matches RendererDeferred's box-light proxy: AABB at the light's world position, 
-    // now correctly supporting entity rotation using a world-to-local rotation matrix.
-    const cVector3f center = pLight->GetWorldPosition();
-    bl.center[0] = center.x;
-    bl.center[1] = center.y;
-    bl.center[2] = center.z;
-    const cVector3f half = pBox->GetSize() * 0.5f;
-    bl.halfSize[0] = half.x;
-    bl.halfSize[1] = half.y;
-    bl.halfSize[2] = half.z;
-    // Legacy `deferred_light_box.frag.fsl` discards alpha entirely, so
-    // GetDiffuseColor().a is intentionally not uploaded — artist-authored
-    // brightness lives in the rgb channels. Box lights are an additive
-    // volume tint (no Lambert BRDF), so they only get sRGB→linear with no
-    // π compensation — that's only for the point/spot direct path.
-    const cColor c = pLight->GetDiffuseColor();
-    bl.color[0] = detail::sRGBToLinear(c.r) * kBoxLightIntensityAdjustment;
-    bl.color[1] = detail::sRGBToLinear(c.g) * kBoxLightIntensityAdjustment;
-    bl.color[2] = detail::sRGBToLinear(c.b) * kBoxLightIntensityAdjustment;
-
-    const cMatrixf &world = pLight->GetWorldMatrix();
-    bl.worldToLightX[0] = world.m[0][0];
-    bl.worldToLightX[1] = world.m[0][1];
-    bl.worldToLightX[2] = world.m[0][2];
-    bl.worldToLightY[0] = world.m[1][0];
-    bl.worldToLightY[1] = world.m[1][1];
-    bl.worldToLightY[2] = world.m[1][2];
-    bl.worldToLightZ[0] = world.m[2][0];
-    bl.worldToLightZ[1] = world.m[2][1];
-    bl.worldToLightZ[2] = world.m[2][2];
-
-    m_boxLightScratch[num_box_lights++] = bl;
-  }
-  perFrame.boxLightCount = static_cast<uint32_t>(num_box_lights);
-
-  if (num_box_lights > 0) {
-    const size_t uploadBytes = num_box_lights * sizeof(BoxLight);
-    RIResourceBufferTransaction_s trans = {};
-    trans.target = m_boxLightBuffer;
-    trans.size = uploadBytes;
-    trans.offset = 0;
-    trans.vk.current_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    trans.vk.post_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
-    std::memcpy(trans.mapped.data, m_boxLightScratch.data(), uploadBytes);
-    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
-  }
+  // Box lights are not represented in this renderer (cLightBox stays an engine
+  // entity for map loading / the legacy deferred backend, but contributes no
+  // hybrid GPU lighting).
 
   // Fog areas — one FogAreaParams per visible cFogArea, capped at
   // kFogAreaCapacity. The shader walks gFogAreas[i] per pixel up to
@@ -1730,13 +1652,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     invF4.Invert();
     std::memcpy(d.invModelMat, invF4.a, sizeof(d.invModelMat));
 
-    // Bounding sphere for DecalGridBuildPass: center = box origin; radius = half
-    // the box diagonal (rotation-invariant) = 0.5*length(scale), scale = basis
-    // column lengths of the world matrix.
-    const cVector3f wc = wm.GetTranslation();
-    d.center = float3{wc.x, wc.y, wc.z};
-    d.radius = 0.5f * sqrtf(wm.GetRight().SqrLength() + wm.GetUp().SqrLength() +
-                            wm.GetForward().SqrLength());
+    // World-space projection axis = the decal box's local +Y in world space
+    // (the editor projects along this; DecalCreator's per-triangle backface cull
+    // uses it). The box maps the unit cube via wm, so its up basis column is the
+    // axis; normalize out the box scale.
+    cVector3f up = wm.GetUp();
+    const float upLen = up.Length();
+    up = upLen > 1e-6f ? up / upLen : cVector3f(0, 1, 0);
+    d.projAxisWS = float3{up.x, up.y, up.z};
     const cColor c = pDecal->GetDecalColor();
     d.color = float4{c.r, c.g, c.b, c.a};
     d.materialID = materialSlot;
@@ -1745,6 +1668,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     const cVector2l sd = pDecal->GetSubDiv();
     d.subDivX = (uint32_t)sd.x;
     d.subDivY = (uint32_t)sd.y;
+    d.subDivIndex = (uint32_t)pDecal->GetCurrentSubDiv();
     m_decalScratch[num_decals++] = d;
   }
   perFrame.decalCount = static_cast<uint32_t>(num_decals);
@@ -3214,20 +3138,19 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   RI_PogoBuffer *pogo = &RI.pogoBuffer[RI.swapchainIndex];
 
-  // Barrier 1: gIndirectLighting GENERAL→SHADER_READ_ONLY (compute write
-  // is now consumed by a fragment-stage sample) + first-frame pogo init
-  // (UNDEFINED → COLOR_ATTACHMENT_OPTIMAL on the attach half, UNDEFINED →
-  // SHADER_READ_ONLY_OPTIMAL on the other half, matching the steady-state
-  // the toggle helpers expect).
+  // Barrier: make the surfel cache + gIndirectLighting visible to the COMPUTE
+  // SurfelGI composite, and put the pogo attach into GENERAL for the storage
+  // write. (The RT V-buffer pass (2956) and the raster visibility buffer (3016)
+  // were already barriered to the COMPUTE stage upstream.)
   {
     VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
     mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
     // SAMPLED_READ for the gIndirectLighting image sample; STORAGE_READ so the
     // isWater branch's gatherSurfelIndirect can read the surfel-cache SSBOs
     // (gSurfelBuffer / gCellInfoBuffer / gCellToSurfelBuffer), written by the
-    // surfel compute passes earlier this frame, from the fragment stage.
+    // surfel compute passes earlier this frame.
     mem.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
                         VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
 
@@ -3235,10 +3158,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     imageBarriers.reserve(3);
 
     {
+      // gIndirectLighting GENERAL -> SHADER_READ_ONLY, now consumed by compute.
       VkImageMemoryBarrier2 b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
       b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
       b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-      b.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+      b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
       b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
       b.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
       b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -3249,10 +3173,30 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       imageBarriers.push_back(b);
     }
 
+    {
+      // Pogo attach -> GENERAL for the compute storage write. Discard prior
+      // contents (UNDEFINED): the dispatch writes every pixel, matching the old
+      // fragment pass's LOAD_OP_DONT_CARE. This also covers the first-frame
+      // init for the attach half.
+      VkImageMemoryBarrier2 b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+      b.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+      b.srcAccessMask = VK_ACCESS_2_NONE;
+      b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+      b.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+      b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+      b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      b.image = pogo->textures[pogo->attachmentIndex].vk.image;
+      b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      imageBarriers.push_back(b);
+    }
+
     if (!m_pogoInitialized[RI.swapchainIndex]) {
+      // First frame: bring the OTHER (read) half to SHADER_READ_ONLY so the
+      // post-effect chain / next-frame toggle find it in a defined layout. The
+      // attach half is handled by the UNDEFINED->GENERAL barrier above.
       const uint32_t readIdx = (pogo->attachmentIndex + 1u) % 2u;
-      imageBarriers.push_back(VK_RI_PogoAttachmentMemoryBarrier2(
-          pogo->textures[pogo->attachmentIndex].vk.image, /*initial=*/true));
       imageBarriers.push_back(VK_RI_PogoShaderMemoryBarrier2(
           pogo->textures[readIdx].vk.image, /*initial=*/true));
       m_pogoInitialized[RI.swapchainIndex] = true;
@@ -3297,49 +3241,20 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   };
 
 
-  // Surfel-GI graphics pass — writes color into the pogo attach side.
+  // Surfel-GI compute pass — one thread per pixel writes the composite into the
+  // pogo attach bound as gOutput (storage image, GENERAL).
   {
-    VkRenderingAttachmentInfo colorAttach = {
-        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    colorAttach.imageView =
-        pogo->pogoAttachment[pogo->attachmentIndex].vk.image.imageView;
-    colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
-
-    VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-    renderInfo.renderArea = {{0, 0},
-                             {RI.swapchain.width, RI.swapchain.height}};
-    renderInfo.layerCount = 1;
-    renderInfo.colorAttachmentCount = 1;
-    renderInfo.pColorAttachments    = &colorAttach;
-
-    vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
-
-    VkViewport vp = {0.0f,
-                     0.0f,
-                     static_cast<float>(RI.swapchain.width),
-                     static_cast<float>(RI.swapchain.height),
-                     0.0f,
-                     1.0f};
-    vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
-    VkRect2D sc = {{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
-    vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
-
-    PostEffectPipelineState surfelState{};
-    InitPostEffectPipelineState(surfelState, RIBootstrap::PogoColorFormatVk,
-                                /*alphaBlend=*/false);
-
+    VkComputePipelineCreateInfo surfelCreate = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_surfelGIRender.bindPipeline(&RI.device, &RI.primary.cmds[0], kHash,
-                                  "SurfelGIRenderPass",
-                                  &surfelState.createInfo);
+    m_surfelGIRender.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
+                                         "SurfelGIRenderPass.cs", &surfelCreate);
     m_surfelGIRender.bindBindlessDescriptorSet(
         &RI.primary.cmds[0], &m_bindlessSet, 0,
-        VK_PIPELINE_BIND_POINT_GRAPHICS);
+        VK_PIPELINE_BIND_POINT_COMPUTE);
 
     std::vector<RIProgram::DescriptorBinding> bnd;
-    bnd.reserve(5);
+    bnd.reserve(8);
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
@@ -3350,8 +3265,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                            m_packedHitInfoView[RI.swapchainIndex].vk.image);
     pushSurfelStorageImage(bnd, "gPackedRefractionHitInfo",
                            m_packedRefractionHitInfoView[RI.swapchainIndex].vk.image);
-    // The water branch in SurfelGIRenderPass.frag also reads the reflection
-    // bounce V-buffer to shade water reflections inline.
+    // The water branch also reads the reflection bounce V-buffer to shade water
+    // reflections inline.
     pushSurfelStorageImage(bnd, "gPackedReflectionHitInfo",
                            m_packedReflectionHitInfoView[RI.swapchainIndex].vk.image);
     pushTlas(bnd);
@@ -3370,7 +3285,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     {
       // Rasterized V-buffer fallback — SurfelGBuffer writes
       // RI.visibilityTexture earlier this frame and the toRead[] barriers
-      // upstream already transitioned it to SHADER_READ_ONLY_OPTIMAL.
+      // upstream already transitioned it to SHADER_READ_ONLY_OPTIMAL (visible to
+      // COMPUTE).
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPackedHitInfoRaster");
       b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -3382,12 +3298,38 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RIFinalizeDescriptor(&RI.device, &b.descriptor);
       bnd.push_back(b);
     }
+    // gOutput — the pogo attach view bound as a storage image (GENERAL).
+    pushSurfelStorageImage(
+        bnd, "gOutput",
+        pogo->pogoAttachment[pogo->attachmentIndex].vk.image.imageView);
+
     m_surfelGIRender.bindDescriptors(
         &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
-        bnd.size(), VK_PIPELINE_BIND_POINT_GRAPHICS);
+        bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3, 1, 0, 0);
-    vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+    CmdDispatch(&RI.primary.cmds[0], (RI.swapchain.width + 15u) / 16u,
+                (RI.swapchain.height + 15u) / 16u, 1u);
+  }
+
+  // Pogo attach: GENERAL (compute write) -> COLOR_ATTACHMENT_OPTIMAL so the
+  // unchanged RI_PogoBufferToggle below + the downstream raster passes find the
+  // layout they expect.
+  {
+    VkImageMemoryBarrier2 b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    b.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    b.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    b.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    b.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = pogo->textures[pogo->attachmentIndex].vk.image;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &b;
+    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
   }
 
 
@@ -3401,6 +3343,214 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   // (depthFlippedForReadOnly + flipDepthToReadOnly are defined above, before the
   // decal pre-pass, and shared with the particle / translucent passes below.)
+
+
+  // --------------------------------------------------------------------
+  // Decal mesh pass — flat decal-quad static meshes (Type="Decal" materials:
+  // pool_wine/dirt_floor/moist_wall/cobweb, etc.) routed to eRenderListType_Decal.
+  // A thin overlay on the lit opaque scene: depth-tested ≤ against the gbuffer
+  // depth, no depth write (DecalPipelineDesc), hardware-blended per the material's
+  // blend mode. Runs before the translucent particle/mesh passes so decals sit
+  // under translucents. Their VBs were uploaded in the decal prepare loop earlier
+  // in Draw(); they're never TLAS instances. Mirrors the translucent mesh pass
+  // minus the light-level calc, cube-map second draw, and push constant (Decal.frag
+  // emits raw diffuse*color and lets the blender do the rest).
+  // --------------------------------------------------------------------
+  {
+    std::vector<iRenderable *> decals;
+    for (iRenderable *pObj :
+         m_rendererList.GetRenderableItems(eRenderListType_Decal)) {
+      if (!pObj)
+        continue;
+      cMaterial *pMat = pObj->GetMaterial();
+      if (!pMat)
+        continue;
+      const eMaterialBlendMode mode = pMat->GetBlendMode();
+      if (mode == eMaterialBlendMode_None || mode >= eMaterialBlendMode_LastEnum)
+        continue;
+      iVertexBuffer *pVB = pObj->GetVertexBuffer();
+      if (!pVB || pVB->GetIndexNum() <= 0)
+        continue;
+      decals.push_back(pObj);
+    }
+
+    if (!decals.empty()) {
+      flipDepthToReadOnly();
+
+      const int   pogoReadIdx   = (pogo->attachmentIndex + 1) % 2;
+      VkImage     pogoReadImage = pogo->textures[pogoReadIdx].vk.image;
+      VkImageView pogoReadView  = pogo->pogoAttachment[pogoReadIdx].vk.image.imageView;
+
+      {
+        VkImageMemoryBarrier2 b =
+            VK_RI_PogoAttachmentMemoryBarrier2(pogoReadImage, /*initial=*/false);
+        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      }
+
+      VkRenderingAttachmentInfo colorAttach = {
+          VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      colorAttach.imageView   = pogoReadView;
+      colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_LOAD;
+      colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+
+      VkRenderingAttachmentInfo depthAttach = {
+          VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      depthAttach.imageView   = RI.depthView[RI.swapchainIndex].vk.image;
+      depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+      depthAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_LOAD;
+      depthAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+
+      VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+      renderInfo.renderArea           = {{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
+      renderInfo.layerCount           = 1;
+      renderInfo.colorAttachmentCount = 1;
+      renderInfo.pColorAttachments    = &colorAttach;
+      renderInfo.pDepthAttachment     = &depthAttach;
+
+      vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
+
+      VkViewport vp = {0.0f, (float)RI.swapchain.height, (float)RI.swapchain.width,
+                       -(float)RI.swapchain.height, 0.0f, 1.0f};
+      VkRect2D sc = {{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
+      vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
+      vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
+
+      m_decal.bindBindlessDescriptorSet(&RI.primary.cmds[0], &m_bindlessSet, 0);
+      {
+        RIProgram::DescriptorBinding b;
+        b.handle = DescriptorBindingID::Create("gPerFrame");
+        RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+        m_decal.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
+                                &b, 1);
+      }
+
+      auto remapDecalBlend = [](eMaterialBlendMode m) {
+        switch (m) {
+        case eMaterialBlendMode_Add:        return DecalPipelineDesc::BLEND_ADD;
+        case eMaterialBlendMode_Mul:        return DecalPipelineDesc::BLEND_MUL;
+        case eMaterialBlendMode_MulX2:      return DecalPipelineDesc::BLEND_MULX2;
+        case eMaterialBlendMode_Alpha:      return DecalPipelineDesc::BLEND_ALPHA;
+        case eMaterialBlendMode_PremulAlpha:return DecalPipelineDesc::BLEND_PREMUL_ALPHA;
+        default:                            return DecalPipelineDesc::BLEND_ALPHA;
+        }
+      };
+
+      for (iRenderable *pObj : decals) {
+        iVertexBuffer *pVB = pObj->GetVertexBuffer();
+        cMaterial *pMat = pObj->GetMaterial();
+        const int indexCount = pVB->GetIndexNum();
+
+        uint32_t materialSlot =
+            resolveMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
+        if (materialSlot == UINT32_MAX) {
+          Warning("Material Slot exhausted (decal)");
+          continue;
+        }
+
+        cMatrixf *pMtx = pObj->GetModelMatrix(apFrustum);
+
+        UniformObject payload{};
+        payload.dissolveAmount = pObj->GetCoverageAmount();
+        payload.materialID = materialSlot;
+        payload.lightLevel = 1.0f;            // decals are unlit overlays
+        payload.illuminationAmount = 0.0f;
+        const ml::float4x4 modelF4 =
+            cMath::ToFloatTranspose4x4(pMtx ? *pMtx : cMatrixf::Identity);
+        std::memcpy(payload.modelMat, modelF4.a, sizeof(payload.modelMat));
+        ml::float4x4 invF4 = modelF4;
+        invF4.Invert();
+        std::memcpy(payload.invModelMat, invF4.a, sizeof(payload.invModelMat));
+        const ml::float4x4 uvF4 =
+            cMath::ToFloatTranspose4x4(pMat->GetUvMatrix());
+        std::memcpy(payload.uvMat, uvF4.a, sizeof(payload.uvMat));
+
+        hash_t cookie = hash_u64(HASH_INITIAL_VALUE, (uint64_t)(uintptr_t)pObj);
+        cookie = hash_u32(cookie, (uint32_t)RI.frameIndex);
+        auto req = m_diffuseBindless.request(cookie, (uint32_t)RI.frameIndex);
+        if (req.exhausted) {
+          Warning("bindless pool exhausted (decal)");
+          continue;
+        }
+        if (!req.found) {
+          m_bindlessSlotGenerationMirror.write<uint32_t>(req.id,
+                                                         ++m_nextSlotGeneration);
+        }
+
+        {
+          RIResourceBufferTransaction_s trans = {};
+          trans.target = m_diffuseObjectBuffer;
+          trans.size = sizeof(UniformObject);
+          trans.offset = (size_t)req.id * sizeof(UniformObject);
+          trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
+                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                   VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+          trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+          trans.vk.post_stage = trans.vk.current_stage;
+          trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+          RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+          std::memcpy(trans.mapped.data, &payload, sizeof(payload));
+          RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+        }
+
+        auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
+        auto bufOf = [&](eVertexBufferElement type) -> VkBuffer {
+          const auto *element = vbri->GetElement(type);
+          if (!element || !element->buffer)
+            return VK_NULL_HANDLE;
+          return element->buffer->vk.buffer;
+        };
+        const VkBuffer posBuf = bufOf(eVertexBufferElement_Position);
+        VkBuffer       nrmBuf = bufOf(eVertexBufferElement_Normal);
+        VkBuffer       tanBuf = bufOf(eVertexBufferElement_Texture1Tangent);
+        VkBuffer       colBuf = bufOf(eVertexBufferElement_Color0);
+        VkBuffer       uvBuf  = bufOf(eVertexBufferElement_Texture0);
+        const auto &idxRI     = vbri->GetIndexRIBuffer();
+        const VkBuffer idxBuf = idxRI ? idxRI->vk.buffer : VK_NULL_HANDLE;
+        if (!posBuf || !idxBuf) {
+          Warning("decal mesh missing position / index — skipping");
+          continue;
+        }
+        const uint32_t vertCount = (uint32_t)pVB->GetVertexNum();
+        const bool needsFallback = (!nrmBuf || !tanBuf || !colBuf || !uvBuf);
+        if (needsFallback && vertCount > kTranslucentFallbackVerts) {
+          Warning("decal mesh vertex count exceeds fallback capacity — skipping");
+          continue;
+        }
+        if (!nrmBuf) nrmBuf = m_translucentNormalFallback.vk.buffer;
+        if (!tanBuf) tanBuf = m_translucentTangentFallback.vk.buffer;
+        if (!colBuf) colBuf = m_translucentColorFallback.vk.buffer;
+        if (!uvBuf)  uvBuf  = m_translucentUv0Fallback.vk.buffer;
+        const VkBuffer     vertBufs[5]    = {posBuf, nrmBuf, tanBuf, colBuf, uvBuf};
+        const VkDeviceSize vertOffsets[5] = {0, 0, 0, 0, 0};
+
+        DecalPipelineDesc pipelineDesc(RIBootstrap::PogoColorFormat,
+                                       RIBootstrap::DepthFormat,
+                                       remapDecalBlend(pMat->GetBlendMode()));
+        m_decal.bindPipeline(&RI.device, &RI.primary.cmds[0], pipelineDesc.hash,
+                             "Decal", &pipelineDesc.createInfo);
+
+        vkCmdBindVertexBuffers(RI.primary.cmds[0].vk.cmd, 0, 5, vertBufs, vertOffsets);
+        vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, idxBuf, 0, VK_INDEX_TYPE_UINT32);
+        vkCmdDrawIndexed(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u, 0u, 0,
+                         req.id);
+      }
+
+      vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+
+      {
+        VkImageMemoryBarrier2 b =
+            VK_RI_PogoShaderMemoryBarrier2(pogoReadImage, /*initial=*/false);
+        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      }
+    }
+  }
 
 
   // --------------------------------------------------------------------
@@ -3888,12 +4038,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           for (iLight *pLight : m_rendererList.GetLights()) {
             if (!pLight->CheckObjectIntersection(pObj))
               continue;
+            // Box lights contribute no hybrid GPU lighting, so they don't count
+            // toward the dynamic-object light-amount heuristic.
+            if (pLight->GetLightType() == eLightType_Box)
+              continue;
             const cColor &c = pLight->GetDiffuseColor();
             const float maxColor =
                 cMath::Max(cMath::Max(c.r, c.g), c.b);
-            if (pLight->GetLightType() == eLightType_Box) {
-              fLightAmount += maxColor;
-            } else {
+            {
               const float fDist = cMath::Vector3Dist(
                   pLight->GetWorldPosition(), vCenterPos);
               fLightAmount +=
@@ -4205,11 +4357,6 @@ cHybridRenderer::~cHybridRenderer() {
     vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_spotLightBuffer.vk.buffer,
                      m_spotLightBuffer.vk.allocation);
     m_spotLightBuffer = {};
-  }
-  if (m_boxLightBuffer.vk.buffer) {
-    vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_boxLightBuffer.vk.buffer,
-                     m_boxLightBuffer.vk.allocation);
-    m_boxLightBuffer = {};
   }
   if (m_fogAreaBuffer.vk.buffer) {
     vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_fogAreaBuffer.vk.buffer,

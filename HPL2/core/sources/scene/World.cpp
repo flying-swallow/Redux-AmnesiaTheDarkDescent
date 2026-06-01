@@ -408,43 +408,61 @@ namespace hpl {
 				mvDecals[i] = lvOrder[i].second;
 		}
 
+		// Associate each renderable with the decals whose oriented-box volume
+		// overlaps its BV and whose receiverMask includes this container's
+		// category — static container = Static receivers, dynamic container =
+		// Entity/Primitive receivers (matches the editor's OnStatic/OnEntity/
+		// OnPrimitive clipping; e.g. a bloodstain with OnEntity reaches a table).
+		// NOTE: the OOB decal box is world-fixed at this position, so a decal on an
+		// object that later MOVES won't follow it (the old baked mesh did) — fine
+		// for static-placed set-dressing.
 		mvDecalObjectIndices.clear();
-		if(mvDecals.empty() == false && mpRenderableContainer[eWorldContainerType_Static])
+		if(mvDecals.empty() == false)
 		{
-			std::vector<iRenderableContainerNode*> lstStack;
-			lstStack.push_back(mpRenderableContainer[eWorldContainerType_Static]->GetRoot());
-			while(lstStack.empty() == false)
+			auto associateContainer = [&](iRenderableContainer* apContainer, int alCategoryBits)
 			{
-				iRenderableContainerNode* pNode = lstStack.back();
-				lstStack.pop_back();
-				if(pNode == NULL) continue;
-
-				for(iRenderableContainerNode* pChild : pNode->GetChildNodes())
-					lstStack.push_back(pChild);
-
-				for(iRenderable* pObj : pNode->GetObjects())
+				if(apContainer == NULL) return;
+				std::vector<iRenderableContainerNode*> lstStack;
+				lstStack.push_back(apContainer->GetRoot());
+				while(lstStack.empty() == false)
 				{
-					cBoundingVolume* pObjBV = pObj->GetBoundingVolume();
-					if(pObjBV == NULL) continue;
+					iRenderableContainerNode* pNode = lstStack.back();
+					lstStack.pop_back();
+					if(pNode == NULL) continue;
 
-					const int lOffset = (int)mvDecalObjectIndices.size();
-					int lCount = 0;
-					for(size_t i=0; i<mvDecals.size(); ++i)
+					for(iRenderableContainerNode* pChild : pNode->GetChildNodes())
+						lstStack.push_back(pChild);
+
+					for(iRenderable* pObj : pNode->GetObjects())
 					{
-						cBoundingVolume* pDecalBV = mvDecals[i]->GetBoundingVolume();
-						if(pDecalBV == NULL) continue;
-						if(cMath::CheckBVIntersection(*pObjBV, *pDecalBV) == false) continue;
-						if(lCount >= 255)   // 8-bit count in UniformObject.decalList
+						cBoundingVolume* pObjBV = pObj->GetBoundingVolume();
+						if(pObjBV == NULL) continue;
+
+						const int lOffset = (int)mvDecalObjectIndices.size();
+						int lCount = 0;
+						for(size_t i=0; i<mvDecals.size(); ++i)
 						{
-							Warning("cWorld::Compile: static object exceeded 255 overlapping decals; clipping\n");
-							break;
+							if((mvDecals[i]->GetReceiverMask() & alCategoryBits) == 0) continue;
+							cBoundingVolume* pDecalBV = mvDecals[i]->GetBoundingVolume();
+							if(pDecalBV == NULL) continue;
+							if(cMath::CheckBVIntersection(*pObjBV, *pDecalBV) == false) continue;
+							if(lCount >= 255)   // 8-bit count in UniformObject.decalList
+							{
+								Warning("cWorld::Compile: object exceeded 255 overlapping decals; clipping\n");
+								break;
+							}
+							mvDecalObjectIndices.push_back((uint32_t)i);
+							++lCount;
 						}
-						mvDecalObjectIndices.push_back((uint32_t)i);
-						++lCount;
+						pObj->SetDecalList(lOffset, lCount);
 					}
-					pObj->SetDecalList(lOffset, lCount);
 				}
-			}
+			};
+
+			associateContainer(mpRenderableContainer[eWorldContainerType_Static],
+							   eDecalReceiver_Static);
+			associateContainer(mpRenderableContainer[eWorldContainerType_Dynamic],
+							   eDecalReceiver_Entity | eDecalReceiver_Primitive);
 		}
 
 		if(mpPhysicsWorld && abCalcPhysicsWorldSize)

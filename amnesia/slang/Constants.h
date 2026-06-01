@@ -56,7 +56,6 @@ SHARED_CONST uint kBindingDecalMaterial              = 26u;
 SHARED_CONST uint kBindingSurfelRefCounter          = 27u;
 SHARED_CONST uint kBindingSurfelReservation          = 28u;
 SHARED_CONST uint kBindingSpotLights                 = 29u;
-SHARED_CONST uint kBindingBoxLights                  = 30u;
 SHARED_CONST uint kBindingPackedHitInfo             = 31u;  // RGBA32UI storage image
 SHARED_CONST uint kBindingIrradianceMap              = 32u;  // R32F storage image
 SHARED_CONST uint kBindingSurfelDepthMap            = 33u;  // RG32F storage image
@@ -92,7 +91,6 @@ SHARED_CONST uint kTextureSlotCapacity       = 16384u;
 SHARED_CONST uint kMaterialSlotCapacity      = 16384u;
 SHARED_CONST uint kPointSlotLightCapacity    = 256u;
 SHARED_CONST uint kSpotSlotLightCapacity     = 256u;
-SHARED_CONST uint kBoxSlotLightCapacity      = 256u;
 SHARED_CONST uint kFogAreaCapacity           = 32u;
 SHARED_CONST uint kMaxDecals                  = 4096u;  // gDecals[] capacity (clustered OOB decals)
 SHARED_CONST uint kInvalidTextureIndex       = 0xffffffffu;
@@ -240,14 +238,6 @@ SHARED_CONST uint  kMaxSurfelForStep            = 10u;
 SHARED_CONST float kIndirectLightScale          = 10.0f;
 
 
-// Box lights are volumetric ambient fills that contribute to GI only (never
-// direct). SurfelIntegratePass adds a box's color to surfels inside its AABB,
-// faded toward the faces. kBoxLightIndirectScale is the overall strength (cheat
-// knob, like kIndirectLightScale); kBoxFalloffBegin is the normalized distance
-// (0 at center, 1 at the face) where the edge fade starts.
-SHARED_CONST float kBoxLightIndirectScale       = 4.0f;
-SHARED_CONST float kBoxFalloffBegin             = 0.6f;
-
 // Surfel generation.
 SHARED_CONST float kDefaultChanceMultiply       = 0.3f;
 SHARED_CONST uint  kDefaultChancePower          = 1u;
@@ -303,8 +293,6 @@ SHARED_CONST uint  kDefaultOverlayMode          = 0u;
 SHARED_CONST uint  kDefaultRenderDirectLighting    = 1u;
 SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
 
-SHARED_CONST float  kBoxLightIntensityAdjustment = 1.0;
-
 // PBR point/spot-light falloff. The host stores intensity = authoredRadius² · scale.
 // The shader emits radiance = color · intensity · 1/(d² + sourceRadius²) — a plain
 // softened inverse-square that goes HDR (>1) near the source so lights cross the
@@ -318,9 +306,9 @@ SHARED_CONST float  kBoxLightIntensityAdjustment = 1.0;
 // also governs indirect/GI spread — the surfel NEE only samples lights binned into a
 // surfel's cell, so lowering the floor widens and brightens GI (and crowds the
 // per-cell light cap); it is not purely a grid-cost knob.
-SHARED_CONST float kPointLightIntensityScale   = 1.2f;    // radiance/bloom brightness knob (× authoredRadius²)
+SHARED_CONST float kPointLightIntensityScale   = 1.0f;    // radiance/bloom brightness knob (× authoredRadius²)
 SHARED_CONST float kLightRadianceFloor         = 0.005f;    // min per-channel radiance (linear) worth binning; reach² = maxC(color)·intensity/floor − sourceRadiusSq
-SHARED_CONST float kPointLightSourceRadiusSq   = 0.2f;   // soft source radius² (0.5m) — near-field softening + on-source peak cap
+SHARED_CONST float kPointLightSourceRadiusSq   = 0.0f;   // soft source radius² (0.5m) — near-field softening + on-source peak cap
 
 
 HOST_NAMESPACE_END

@@ -114,20 +114,6 @@ public extension SpotLight : ILight
     }
 };
 
-public extension BoxLight : ILight
-{
-    public uint getType()     { return type; }
-    public float3 getColor()    { return color; }
-    public float3 getPosition() { return center; }
-
-    // Box lights aren't iterated by the GLSL forward composite, so the NEE
-    // path stays consistent by skipping them entirely.
-    public bool sample(float3 shadingPosW, out LightSample ls)
-    {
-        ls.Li = float3(0.0); ls.pdf = 1.0; ls.dir = float3(0,1,0); ls.distance = 0.0;
-        return false;
-    }
-};
 
 // -----------------------------------------------------------------------------
 // IMaterial — common shape for the bindless material SSBO entries.

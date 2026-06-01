@@ -2024,6 +2024,9 @@ namespace hpl {
 		cVector3f vRotation = apElement->GetAttributeVector3f("Rotation", 0);
 		cVector2f vSubDivF  = apElement->GetAttributeVector2f("SubDiv", cVector2f(1,1));
 		cVector2l vSubDiv((int)vSubDivF.x, (int)vSubDivF.y);
+		// Selected atlas cell (editor's randomized/authored CurrentSubDiv). The
+		// baked mesh carried this in its UVs; the OOB projection re-derives it.
+		int lCurrentSubDiv = apElement->GetAttributeInt("CurrentSubDiv", 0);
 
 		// Receiver filter (was edit-time IsAffectedByDecal clipping). The
 		// projection shader tests the hit object's category against this mask.
@@ -2036,6 +2039,7 @@ namespace hpl {
 		if(pDecal == NULL)
 			return;
 
+		pDecal->SetCurrentSubDiv(lCurrentSubDiv);
 		pDecal->SetReceiverMask(lReceiverMask);
 		pDecal->SetUniqueID(lID);
 		pDecal->SetWorldMatrix(cMath::MatrixMul(cMath::MatrixRotate(vRotation, eEulerRotationOrder_XYZ),

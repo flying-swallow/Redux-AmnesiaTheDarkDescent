@@ -56,31 +56,9 @@ DiffuseShading prepareDiffuseShading(VertexData v, uint materialID, float illumi
     return sd;
 }
 
-// NEE over all lights. Single sample per light, BRDF = albedo / π,
-// shadow visibility via gScene.materials.traceShadowRay (alpha-tested
-// non-opaque RayQuery — see the comment on that helper in Scene.slang
-// for why a plain Proceed/CommittedStatus pair silently returns "visible"
-// against this engine's non-opaque BLAS).
-// One unified-index point/spot light: sample, NdotL-cull, ray-traced shadow,
-// accumulate. `origin` is the plane-offset shadow-ray origin. Returns the
-// radiance contribution (zero if out of range, back-facing, or occluded).
-//
-// Base game omits the 1/π Lambert factor (deferred_light_pointlight.frag.fsl /
-// visibility_shade.frag: albedo·color·atten·ndl); match it so direct reads at
-// the original brightness. Albedo is applied here (composite).
-float3 shadeAnalyticLight(DiffuseShading sd, uint lightIndex, float3 origin)
-{
-    LightSample ls;
-    if (!gScene.sampleLightByIndex(lightIndex, sd.posW, ls)) return float3(0.f);
-
-    float NdotL = dot(sd.normalW, ls.dir);
-    if (NdotL <= 0.f) return float3(0.f);
-
-    if (!gScene.materials.traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
-
-    return sd.albedo * ls.Li * NdotL;
-}
-
+// The per-light shade (sample → NdotL-cull → ray-traced shadow → albedo·Li·NdotL,
+// no 1/π to match the base game) now lives in Scene.slang as
+// gScene.shadeAnalyticLight, shared with the surfel NEE pass.
 float3 evalAnalyticLight(DiffuseShading sd)
 {
     uint lightCount = gScene.getLightCount();   // unified point+spot count
@@ -102,20 +80,10 @@ float3 evalAnalyticLight(DiffuseShading sd)
         uint flat = gridFlattenCellIndex(cell, kLightGridDim);
         uint n    = min(gLightGridCount[flat], kLightsPerCellMax);
         for (uint k = 0u; k < n; ++k)
-            Lr += shadeAnalyticLight(sd, gLightGridList[flat * kLightsPerCellMax + k], origin);
+            Lr += gScene.shadeAnalyticLight(sd.posW, sd.normalW, sd.albedo,
+                                            gLightGridList[flat * kLightsPerCellMax + k], origin);
     }
 
-    // Box lights are a volumetric ambient fill, not a directional NEE light, so
-    // they are handled here directly rather than through sampleLightByIndex (which
-    // returns false for box indices). Matches the original deferred_light_box:
-    // surface albedo * box color, additive, with the AABB falloff and no NdotL /
-    // no shadow. Box light also bounces via the surfel cache (SurfelIntegratePass).
-    uint boxCount = gScene.getBoxLightCount();
-    for (uint b = 0; b < boxCount; ++b)
-    {
-        BoxLight box = gScene.getBoxLight(b);
-        Lr += sd.albedo * box.color * boxLightFalloff(box, sd.posW);
-    }
     return Lr;
 }
 

@@ -65,24 +65,6 @@ SLANG_PUBLIC struct SpotLight {
     SLANG_PUBLIC float radius;                       // CPU-precomputed light-grid bin reach (world units); 0 ⇒ skip
 };
 
-// Scalar-layout box (volumetric) light. World-space AABB centered on the
-// light's world position, matching RendererDeferred.cpp's box-light proxy
-// (Scale × Translate, no rotation). Pixel is "inside" when
-// abs(worldPos - center) <= halfSize component-wise.
-// Color is the legacy `cColor.rgb`; alpha is intentionally not stored because
-// the legacy box shader discards it (deferred_light_box.frag.fsl). Add-blend
-// only for now (eLightBoxBlendFunc_Replace is treated as Add on the C++ side).
-SLANG_PUBLIC struct BoxLight {
-    SLANG_PUBLIC uint  type;                         // LIGHT_TYPE_BOX
-    SLANG_PUBLIC uint  blendFunc;                    // 0 = Replace, 1 = Add
-    SLANG_PUBLIC float3  center;                       // world-space box center
-    SLANG_PUBLIC float3  halfSize;                     // world-space AABB half-extents
-    SLANG_PUBLIC float3  color;
-    SLANG_PUBLIC float3  worldToLightX;
-    SLANG_PUBLIC float3  worldToLightY;
-    SLANG_PUBLIC float3  worldToLightZ;
-};
-
 // Per-fog-area params for the screen-space fog iteration. One entry per
 // active cFogArea each frame, capped at kFogAreaCapacity. The shader walks
 // the SSBO per-pixel, intersects the eye→surface ray with each box, and
@@ -193,13 +175,13 @@ SLANG_PUBLIC struct GpuDecal {
     SLANG_PUBLIC uint     materialID;
     SLANG_PUBLIC uint     receiverMask;
     SLANG_PUBLIC uint     blendMode;
-    SLANG_PUBLIC uint     subDivX;
+    SLANG_PUBLIC uint     subDivX;        // texture-atlas grid (editor SubDiv)
     SLANG_PUBLIC uint     subDivY;
-    SLANG_PUBLIC uint     _pad;
-    // World-space bounding sphere of the box (vestigial — was decal-grid binning;
-    // decals now use the precomputed per-object list). Kept for layout stability.
-    SLANG_PUBLIC float3   center;
-    SLANG_PUBLIC float    radius;
+    SLANG_PUBLIC uint     subDivIndex;    // selected atlas cell (editor CurrentSubDiv)
+    // World-space projection axis (decal local +Y). projectDecal rejects surfaces
+    // facing away from it (matches DecalCreator's per-triangle backface cull).
+    SLANG_PUBLIC float3   projAxisWS;
+    SLANG_PUBLIC float    _pad;
 };
 
 // -----------------------------------------------------------------------------
@@ -276,7 +258,6 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC float zNear;                      // view-space, positive
     SLANG_PUBLIC float zFar;                       // view-space, positive
     SLANG_PUBLIC uint  spotLightCount;             // active entries in gSpotLights[]
-    SLANG_PUBLIC uint  boxLightCount;              // active entries in gBoxLights[]
     SLANG_PUBLIC uint  diffuseMaterialCount;       // active entries in gDiffuseMaterials[]
     SLANG_PUBLIC uint  translucentMaterialCount;   // active entries in gTranslucentMaterials[]
     SLANG_PUBLIC uint  waterMaterialCount;         // active entries in gWaterMaterials[]
