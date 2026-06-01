@@ -91,6 +91,12 @@ static struct RIBuffer_s CreateBindlessSlotBuffer(RIDevice_s *device,
 
 } // namespace detail
 
+// A renderable needs a BLAS only if it can become a TLAS instance — i.e. it's a
+// mesh. Particles/billboards/beams/ropes/decals are never ray-traced (the TLAS
+// gather skips them), so their per-frame BLAS build is dead work.
+static bool renderableNeedsBlas(iRenderable *apObject) {
+  return apObject && apObject->GetRenderType() == eRenderableType_SubMesh;
+}
 
 cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     : iRenderer("Hybrid", apGraphics, apResources, 0),
@@ -1296,7 +1302,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     iVertexBuffer *pVB = pObj->GetVertexBuffer();
     if (pVB) {
       auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
-      vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
+      // Particles/billboards/beams/ropes are translucent but never TLAS
+      // instances — upload their streams for the raster pass, skip the BLAS.
+      vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx,
+                        renderableNeedsBlas(pObj));
       vbri->AttachResourceToCntx(cntx);
     }
   }
@@ -1317,7 +1326,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     iVertexBuffer *pVB = pObj->GetVertexBuffer();
     if (pVB) {
       auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
-      vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
+      // Decals are never TLAS instances — upload streams, skip the BLAS.
+      vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx,
+                        /*abBuildBlas=*/false);
       vbri->AttachResourceToCntx(cntx);
     }
   }

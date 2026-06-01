@@ -456,7 +456,8 @@ bool VertexBuffer_RI::Compile(tVertexCompileFlag aFlags) {
 }
 
 void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
-                                    RIBootstrap::FrameContext *cntx) {
+                                    RIBootstrap::FrameContext *cntx,
+                                    bool abBuildBlas) {
   assert(cmd);
   assert(device);
   assert(cntx);
@@ -571,6 +572,17 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
   // invalidated either way.
   if (reallocated)
     m_onGeometryChanged.Signal();
+
+  // Streams are uploaded; for renderables that are never TLAS instances
+  // (particles/billboards/beams/ropes/decals) skip the dead BLAS build. Finalise
+  // the same bookkeeping the BLAS tail does so the next submit re-uploads only on
+  // a real change. m_blas stays null, so AttachResourceToCntx skips it.
+  if (!abBuildBlas) {
+    m_updateFlags = 0;
+    m_updateIndices = false;
+    m_lastSubmitted = m_generation;
+    return;
+  }
 
   // Validate inputs BEFORE tearing down the cached BLAS. If we exit here we
   // want the previously-built BLAS to remain valid so the object stays in the

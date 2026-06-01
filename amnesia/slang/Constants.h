@@ -237,7 +237,7 @@ SHARED_CONST uint  kMaxSurfelForStep            = 10u;
 // its 1/π Lambert, so π (≈3.14) cancels it → indirect uses the same no-1/π
 // convention as the (base-matched) direct in SurfelGIRenderPass.frag; raise
 // above π to over-cheat the GI fill.
-SHARED_CONST float kIndirectLightScale          = 1.0f;
+SHARED_CONST float kIndirectLightScale          = 10.0f;
 
 
 // Box lights are volumetric ambient fills that contribute to GI only (never
@@ -278,8 +278,8 @@ SHARED_CONST float kWaterRefractionIntensity = 0.6f;
 // The RT bounces are re-shaded (NEE direct + surfel indirect + emission), which
 // reads dimmer than the base game's fully-lit framebuffer/cubemap sample; this
 // lifts them back toward that brightness. 1.0 = raw re-shade.
-SHARED_CONST float kWaterReflectionExposure = 0.4f;
-SHARED_CONST float kWaterRefractionExposure = 0.6f; //0.5f;
+SHARED_CONST float kWaterReflectionExposure = 1.0f;
+SHARED_CONST float kWaterRefractionExposure = 2.0f; //0.5f;
 
 // How much wave turbulence the REFLECTION bounce normal keeps (the refraction
 // bounce always uses the full wave normal). The RT reflection is a sharp mirror
@@ -318,7 +318,7 @@ SHARED_CONST float  kBoxLightIntensityAdjustment = 1.0;
 // also governs indirect/GI spread — the surfel NEE only samples lights binned into a
 // surfel's cell, so lowering the floor widens and brightens GI (and crowds the
 // per-cell light cap); it is not purely a grid-cost knob.
-SHARED_CONST float kPointLightIntensityScale   = 1.0f;    // radiance/bloom brightness knob (× authoredRadius²)
+SHARED_CONST float kPointLightIntensityScale   = 1.2f;    // radiance/bloom brightness knob (× authoredRadius²)
 SHARED_CONST float kLightRadianceFloor         = 0.005f;    // min per-channel radiance (linear) worth binning; reach² = maxC(color)·intensity/floor − sourceRadiusSq
 SHARED_CONST float kPointLightSourceRadiusSq   = 0.2f;   // soft source radius² (0.5m) — near-field softening + on-source peak cap
 
