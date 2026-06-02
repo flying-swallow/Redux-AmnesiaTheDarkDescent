@@ -301,10 +301,6 @@ private:
   // consumers detect "no bounce here" via the valid bit in .w. .w high
   // bits also stamp the source instanceID (the glass / mirror that bent
   // the ray) so consumers can look up its DiffuseMaterial for blending.
-  struct RITexture_s     m_packedRefractionHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-  struct RITextureView_s m_packedRefractionHitInfoView[RI_MAX_SWAPCHAIN_IMAGES] = {};
-  struct RITexture_s     m_packedReflectionHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-  struct RITextureView_s m_packedReflectionHitInfoView[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
   // prepare gbuffer
 	RIProgram m_gbuffer;
@@ -389,6 +385,7 @@ private:
 	// One pipeline per eMaterialBlendMode is stamped via the program's
 	// PipelineSlot cache. Port of decal.frag.fsl / decal.vert.fsl.
 	RIProgram m_decal;
+	RIProgram m_water;
 
 	// Surfel-ray irradiance map sampled by surfel_raytrace.comp's ray-guiding
 	// branch and written by surfel_integrate.comp. Lives at VK_IMAGE_LAYOUT_GENERAL

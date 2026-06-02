@@ -149,6 +149,8 @@ SHADERS
     ./slang/ParticlePass/Particle.frag.slang
     ./slang/TranslucentPass/Translucent.vert.slang
     ./slang/TranslucentPass/Translucent.frag.slang
+    ./slang/WaterPass/Water.vert.slang
+    ./slang/WaterPass/Water.frag.slang
     ./slang/DecalPass/Decal.vert.slang
     ./slang/DecalPass/Decal.frag.slang
     ./slang/SurfelGBuffer/SurfelGBuffer.3d.slang

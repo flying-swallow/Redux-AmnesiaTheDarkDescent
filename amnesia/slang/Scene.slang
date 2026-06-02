@@ -283,6 +283,44 @@ public struct SceneMaterials
         return gTextures2D[NonUniformResourceIndex(diffuseTex)]
                   .SampleLevel(gMaterialSampler, v.texC, 0.f).rgb;
     }
+
+    // Like traceReflection but returns the committed TriangleHit (not just its
+    // albedo) so the caller can fully lit-shade it — used by the raster water
+    // pass for sharp lit reflections. Returns false (outHit zeroed) on miss.
+    public bool traceReflectionHit(float3 origin, float3 dir, float tMax, out TriangleHit outHit)
+    {
+        outHit.instanceID = 0u; outHit.primitiveIndex = 0u; outHit.barycentrics = float2(0.f);
+
+        RayDesc ray;
+        ray.Origin = origin; ray.Direction = dir; ray.TMin = 0.f; ray.TMax = tMax;
+
+        RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES
+               | RAY_FLAG_CULL_BACK_FACING_TRIANGLES> q;
+        q.TraceRayInline(gRtAccel, 0, kRayMaskOpaque, ray);
+
+        while (q.Proceed())
+        {
+            if (q.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+            {
+                TriangleHit c;
+                c.instanceID     = q.CandidateInstanceID();
+                c.primitiveIndex = q.CandidatePrimitiveIndex();
+                c.barycentrics   = q.CandidateTriangleBarycentrics();
+                uint matID  = gScene.getMaterialID(c.instanceID);
+                VertexData v = gScene.getVertexData(c);
+                if (!alphaTest(v, matID, 0.f))
+                    q.CommitNonOpaqueTriangleHit();
+            }
+        }
+
+        if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
+            return false;
+
+        outHit.instanceID     = q.CommittedInstanceID();
+        outHit.primitiveIndex = q.CommittedPrimitiveIndex();
+        outHit.barycentrics   = q.CommittedTriangleBarycentrics();
+        return true;
+    }
 };
 
 public struct Scene

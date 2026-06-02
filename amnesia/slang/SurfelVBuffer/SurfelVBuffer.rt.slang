@@ -1,12 +1,12 @@
 // Primary-ray V-buffer RT shader. Traces one primary ray per swapchain
 // pixel through `gRtAccel`, packs (instanceID, primitiveIndex,
 // barycentrics) into `gPackedHitInfo` for the surfel passes to consume.
-// Refractive glass re-traces its refraction ray as a kind-0 bounce that
-// clobbers gPackedHitInfo with the refracted background (the GI pass then
-// shades that background; the glass surface is rasterised on top in
-// Translucent.frag). Water spawns dedicated refraction + reflection bounces
-// into the two bounce V-buffers below. Plain reflection is cubemap-based
-// (no ray-traced reflective bounce).
+// Refractive glass AND water re-trace their refraction ray as a kind-0 bounce
+// that clobbers gPackedHitInfo with the refracted background (the GI pass then
+// shades that background; the glass/water surface is rasterised on top —
+// Translucent.frag for glass, the water raster pass for water). There are no
+// separate refraction/reflection bounce buffers; water reflection is done in the
+// raster water pass.
 //
 // Ported from Falcor's SurfelVBuffer.rt.slang to the project Scene + bindless
 // surface. The Falcor anyhit helpers (`getGeometryInstanceID()`,
@@ -28,19 +28,11 @@ import TranslucentPass.WaterCommon;   // waterWaveNormalTangent (shared with Wat
 
 // Resolution comes from DispatchRaysDimensions() — no per-pass CB.
 //
-// Three V-buffer textures (all bindless set 1):
-//   gPackedHitInfo           — primary surface hit (every covered pixel);
-//                              also the refracted background for glass (the
-//                              kind-0 refraction reroute clobbers it)
-//   gPackedRefractionHitInfo — water refraction bounce
-//   gPackedReflectionHitInfo — water reflection bounce
-// The two bounce textures are cleared to uint4(0) each frame (host side);
-// the bounce-miss path therefore writes nothing — consumers detect "no
-// bounce here" via .w == 0. .w high bits carry the source instanceID
-// (the glass / mirror that bent the ray) so consumers can look up the
-// source DiffuseMaterial for tint / Fresnel blending without a separate
-// ID texture; bit 0 = valid flag. See getBounceSourceInstanceID in
-// Bindless/resource.slang.
+// One V-buffer texture (bindless set 1):
+//   gPackedHitInfo — primary surface hit (every covered pixel); also the
+//                    refracted background for glass AND water (the kind-0
+//                    refraction reroute clobbers it). Water reflection is drawn
+//                    by the raster water pass; there are no bounce buffers.
 //
 // The Falcor port wrote a separate per-pixel depth buffer; the engine
 // reconstructs depth from gPackedHitInfo + the camera projection so the
@@ -100,21 +92,11 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
     triangleHit.primitiveIndex = PrimitiveIndex();
     triangleHit.barycentrics   = attribs.barycentrics;
 
-    // Route the write by payload.kind. Primary keeps gPackedHitInfo as the
-    // surface — bounces no longer clobber it, so surfel placement and the
-    // GI pass always see the actual visible surface. Bounce textures pack
-    // the source instanceID into .w bit 1+ with bit 0 = valid.
-    uint4 packed = triangleHit.pack();
-    if (payload.kind == 0u)
-    {
-        gPackedHitInfo[pixelPos] = packed;
-    }
-    else
-    {
-        packed.w = (payload.sourceInstanceID << 1) | 1u;
-        if (payload.kind == 1u) gPackedRefractionHitInfo[pixelPos] = packed;
-        else                    gPackedReflectionHitInfo[pixelPos] = packed;
-    }
+    // All hits write the primary V-buffer. Water/glass refraction re-traces as a
+    // kind-0 bounce (length 1) that clobbers gPackedHitInfo with the refracted
+    // background — there are no separate bounce buffers anymore (reflection moved
+    // to the raster water pass).
+    gPackedHitInfo[pixelPos] = triangleHit.pack();
 
     // Only the primary ray spawns a follow-up bounce. Secondary bounces
     // just keep the closest hit recorded above.
@@ -123,13 +105,13 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
 
     uint materialID = gScene.getMaterialID(triangleHit.instanceID);
 
-    // Water surface: spawns BOTH a refraction and a reflection bounce, each
-    // bent by the wave-animated normal (shared with Water.frag via
-    // waterWaveNormalTangent). Checked before the generic glass branches —
-    // water also sets HasRefraction so isRefractive() is true, but it must
-    // use this wave-normal path, not the flat-normal glass one. The two
-    // recursive TraceRays are sibling depth-2 bounces (no nesting), within
-    // maxPipelineRayRecursionDepth = 2.
+    // Water surface: re-trace the refraction ray as a kind-0 bounce (length 1)
+    // that clobbers gPackedHitInfo with the underwater background — exactly the
+    // glass path below, but bent by the wave-animated normal. The GI composite
+    // then shades that background through the normal opaque path; the water
+    // surface (tint + reflection) is drawn in the raster water pass. No reflection
+    // bounce / bounce buffers anymore. Checked before the generic glass branch
+    // (water also sets HasRefraction) so it uses the wave normal, not the flat one.
     if (gScene.materials.isWater(materialID))
     {
         VertexData v = gScene.getVertexData(triangleHit);
@@ -144,80 +126,44 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
 
         float3 incident = normalize(payload.direction);
 
-        // Camera rays hit water from outside → always ENTERING. Orient the
-        // wave normal against the ray so a mesh/wave normal facing away from
-        // the view doesn't flip eta > 1 and spuriously total-internal-reflect
-        // (which left gPackedRefractionHitInfo empty → opaque, no visible
-        // bottom). Shared by both bounces below.
+        // Camera rays hit water from outside → always ENTERING. Orient the wave
+        // normal against the ray so a normal facing away doesn't flip eta > 1 and
+        // spuriously total-internal-reflect (which would leave no visible bottom).
         if (dot(incident, waveN) > 0.0f)
             waveN = -waveN;
 
-        // --- Refraction bounce (kind 1) -> gPackedRefractionHitInfo ---
+        float refractScale = max(water.refractionScale, 0.0f);
+        // eta = n_air / n_water < 1 (entering); refract() is non-zero for eta < 1.
+        float  eta          = 1.0f / (1.0f + refractScale);
+        float3 refractedDir = refract(incident, waveN, eta * kWaterRefractionIntensity);
+        // On TIR (refract() -> 0) leave the primary as the water surface hit
+        // (shaded as flat water-colour albedo) — same fallback as glass.
+        if (dot(refractedDir, refractedDir) >= 1.0e-6f)
         {
-            float refractScale = max(water.refractionScale, 0.0f);
-            // eta = n_air / n_water < 1 (entering); refract() is always
-            // non-zero for eta < 1, so no TIR on the primary water ray.
-            float  eta          = 1.0f / (1.0f + refractScale);
-            float3 refractedDir = refract(incident, waveN, eta * kWaterRefractionIntensity);
-            // Skip on total internal reflection (refract() -> 0); the
-            // refraction V-buffer pixel stays cleared (invalid).
-            if (dot(refractedDir, refractedDir) >= 1.0e-6f)
-            {
-                refractedDir = normalize(refractedDir);
-                Payload rp = payload;
-                rp.origin           = v.posW + refractedDir * 1.0e-4f;
-                rp.direction        = refractedDir;
-                rp.length           = 1u;
-                rp.kind             = 1u;
-                rp.sourceInstanceID = triangleHit.instanceID;
-
-                RayDesc rd;
-                rd.Origin    = rp.origin;
-                rd.Direction = rp.direction;
-                rd.TMin      = 0.0f;
-                rd.TMax      = 1.0e30f;
-                TraceRay(
-                    gRtAccel,
-                    RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
-                    kRayMaskOpaque, 0, 1, 0, rd, rp);
-            }
-        }
-
-        // --- Reflection bounce (kind 2) -> gPackedReflectionHitInfo ---
-        {
-            // Calmer, more mirror-like reflection: blend the wave-perturbed
-            // normal back toward the flat surface normal so the reflection is
-            // less turbulent than the refraction. kWaterReflectionTurbulence:
-            // 0 = perfect mirror, 1 = full wave distortion. Orient the flat
-            // normal against the ray to match the (already-flipped) waveN.
-            float3 flatN = (dot(incident, N) > 0.0f) ? -N : N;
-            float3 reflN = normalize(lerp(flatN, waveN, kWaterReflectionTurbulence));
-            float3 reflectedDir = normalize(reflect(incident, reflN));
-            Payload rp = payload;
-            rp.origin           = v.posW + waveN * 1.0e-4f;
-            rp.direction        = reflectedDir;
-            rp.length           = 1u;
-            rp.kind             = 2u;
-            rp.sourceInstanceID = triangleHit.instanceID;
+            refractedDir = normalize(refractedDir);
+            payload.origin           = v.posW + refractedDir * 1.0e-4f;
+            payload.direction        = refractedDir;
+            payload.length++;                 // 0 -> 1 (don't recurse again)
+            payload.kind             = 0u;    // clobber gPackedHitInfo
+            payload.sourceInstanceID = triangleHit.instanceID;
 
             RayDesc rd;
-            rd.Origin    = rp.origin;
-            rd.Direction = rp.direction;
+            rd.Origin    = payload.origin;
+            rd.Direction = payload.direction;
             rd.TMin      = 0.0f;
             rd.TMax      = 1.0e30f;
             TraceRay(
                 gRtAccel,
                 RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
-                kRayMaskOpaque, 0, 1, 0, rd, rp);
+                kRayMaskOpaque, 0, 1, 0, rd, payload);
         }
         return;
     }
 
-    // Refraction priority over reflection: refractive translucents (glass,
-    // refractive decals) ray-bend; the secondary closeHit writes the
-    // refracted background to gPackedRefractionHitInfo. The translucent
-    // surface itself is rasterised in Translucent.frag.slang and can sample
-    // the refraction V-buffer to draw what's behind the glass.
+    // Refractive translucents (glass, refractive decals) ray-bend: re-trace the
+    // refraction ray as a kind-0 bounce that clobbers gPackedHitInfo with the
+    // refracted background (the GI pass shades it). The glass surface itself is
+    // rasterised on top in Translucent.frag.slang.
     if (gScene.materials.isRefractive(materialID))
     {
         VertexData v          = gScene.getVertexData(triangleHit);

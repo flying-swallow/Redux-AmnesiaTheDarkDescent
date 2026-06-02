@@ -388,6 +388,20 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, d_frag, "psMain"}};
       m_decal.initialize(&RI.device, stages, externalLayouts);
     }
+    {
+      // Water pass (amnesia/slang/WaterPass). Reuses the translucent 5-stream
+      // layout (TranslucentMeshPipelineDesc) + bindless/UBO layouts; draws the
+      // water surface (tint + inline-RT lit reflection) over the refracted
+      // background in two blend passes.
+      auto w_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
+                                               "Water.vert.spv");
+      auto w_frag = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
+                                               "Water.frag.spv");
+      std::array<RIProgram::ModuleStage, 2> stages = {
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, w_vert, "vsMain"},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, w_frag, "psMain"}};
+      m_water.initialize(&RI.device, stages, externalLayouts);
+    }
     // Water is no longer a raster pass — it's composited in
     // SurfelGIRenderPass.frag (isWater branch) from the primary hit + the
     // refraction / reflection bounce V-buffers.
@@ -748,56 +762,9 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                       &m_packedHitInfoView[i].vk.image));
     }
 
-    // Per-bounce V-buffers — same format / dims / usage as m_packedHitInfoTexture
-    // plus TRANSFER_DST so we can vkCmdClearColorImage them to uint4(0) at
-    // the start of each frame's RT pass. SurfelVBuffer.rt.slang's closeHit
-    // writes only the pixels whose primary hit was refractive / reflective;
-    // the rest stay at the cleared "invalid" sentinel.
-    {
-      struct PerBounceTarget {
-        RITexture_s     (&tex)[RI_MAX_SWAPCHAIN_IMAGES];
-        RITextureView_s (&view)[RI_MAX_SWAPCHAIN_IMAGES];
-      };
-      PerBounceTarget targets[2] = {
-          {m_packedRefractionHitInfoTexture, m_packedRefractionHitInfoView},
-          {m_packedReflectionHitInfoTexture, m_packedReflectionHitInfoView},
-      };
-      for (auto &t : targets) {
-        for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
-          uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-          VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-          imgInfo.imageType = VK_IMAGE_TYPE_2D;
-          imgInfo.format = VK_FORMAT_R32G32B32A32_UINT;
-          imgInfo.extent = {m_surfelResultWidth, m_surfelResultHeight, 1};
-          imgInfo.mipLevels = 1;
-          imgInfo.arrayLayers = 1;
-          imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-          imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-          imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT |
-                          VK_IMAGE_USAGE_SAMPLED_BIT |
-                          VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-          imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-          VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
-                                         queueFamilies, RI_QUEUE_LEN);
-          imgInfo.pQueueFamilyIndices = queueFamilies;
-
-          VmaAllocationCreateInfo alloc = {};
-          alloc.usage = VMA_MEMORY_USAGE_AUTO;
-          VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imgInfo,
-                                       &alloc, &t.tex[i].vk.image,
-                                       &t.tex[i].vk.allocation, NULL));
-
-          VkImageViewCreateInfo viewInfo = {
-              VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-          viewInfo.image = t.tex[i].vk.image;
-          viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-          viewInfo.format = VK_FORMAT_R32G32B32A32_UINT;
-          viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-          VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
-                                          &t.view[i].vk.image));
-        }
-      }
-    }
+    // (Per-bounce refraction/reflection V-buffers removed: water refraction now
+    // clobbers the primary gPackedHitInfo like glass; water reflection is drawn
+    // in the raster water pass.)
 
     // Surfel-ray irradiance atlas — single-channel R16F, 4096x4096 fits
     // kTotalSurfelLimit surfels at 6x6 cells each (the shader computes
@@ -1915,6 +1882,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       inst.mask = kRayMaskOpaque;
       inst.instanceShaderBindingTableRecordOffset = 0;
       inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_CULL_DISABLE;
+      // Solid meshes (no alpha-cutout texture) never alpha-reject a ray, so mark
+      // them FORCE_OPAQUE: the driver auto-commits the first hit and skips the
+      // RayQuery Proceed()/alphaTest loop entirely — a universal speedup for
+      // shadow / primary V-buffer / surfel rays. Alpha-cutout meshes (foliage,
+      // grates — they carry an alpha texture) stay non-opaque so their
+      // see-through shadows / hits are preserved.
+      if (!pMat->GetImage(eMaterialTexture_Alpha))
+        inst.flags |= RI_ACCEL_INSTANCE_FORCE_OPAQUE;
       assert(blas->vk.deviceAddress != 0);
       inst.accelerationStructureReference = blas->vk.deviceAddress;
       tlasInstances.push_back(inst);
@@ -2434,77 +2409,24 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // no VK_ERROR_DEVICE_LOST).
   // ----------------------------------------------------------------------
   {
-    // All three V-buffer images transition UNDEFINED -> GENERAL. The primary
-    // image will be written by the RT pipeline directly; the two bounce
-    // images are first cleared to uint4(0) so refractive/reflective-only
-    // pixels overwrite a known sentinel and everywhere else stays "invalid"
-    // (.w == 0). The clear is a transfer-stage write; the RT closeHit needs
-    // a sync after it before it can store into the same image.
-    VkImageMemoryBarrier2 toGeneral[3] = {};
-    VkImage images[3] = {
-        m_packedHitInfoTexture[RI.swapchainIndex].vk.image,
-        m_packedRefractionHitInfoTexture[RI.swapchainIndex].vk.image,
-        m_packedReflectionHitInfoTexture[RI.swapchainIndex].vk.image,
-    };
-    for (int idx = 0; idx < 3; ++idx) {
-      toGeneral[idx].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-      toGeneral[idx].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-      toGeneral[idx].srcAccessMask = 0;
-      // Primary goes straight to the RT pipeline; bounce images first see a
-      // transfer-stage clear.
-      toGeneral[idx].dstStageMask =
-          (idx == 0) ? VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR
-                     : VK_PIPELINE_STAGE_2_CLEAR_BIT;
-      toGeneral[idx].dstAccessMask =
-          (idx == 0) ? VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT
-                     : VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      toGeneral[idx].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      toGeneral[idx].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-      toGeneral[idx].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      toGeneral[idx].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      toGeneral[idx].image = images[idx];
-      toGeneral[idx].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    }
+    // Primary V-buffer: UNDEFINED -> GENERAL for the RT pipeline to store into.
+    // (No bounce buffers to clear anymore — water/glass refraction clobbers this
+    // primary image, water reflection is in the raster water pass.)
+    VkImageMemoryBarrier2 toGeneral = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+    toGeneral.srcStageMask  = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+    toGeneral.srcAccessMask = 0;
+    toGeneral.dstStageMask  = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    toGeneral.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+    toGeneral.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    toGeneral.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    toGeneral.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toGeneral.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    toGeneral.image = m_packedHitInfoTexture[RI.swapchainIndex].vk.image;
+    toGeneral.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 3;
-    dep.pImageMemoryBarriers = toGeneral;
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &toGeneral;
     vkCmdPipelineBarrier2(cmd, &dep);
-
-    // Clear the two bounce V-buffers to uint4(0). Per-frame so the closeHit-
-    // miss path can stay silent and consumers detect "no bounce here" via
-    // the valid bit in .w (== 0 after the clear).
-    VkClearColorValue clearColor = {};  // value-init -> {{0,0,0,0}}
-    VkImageSubresourceRange clearRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdClearColorImage(cmd,
-                         m_packedRefractionHitInfoTexture[RI.swapchainIndex].vk.image,
-                         VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
-    vkCmdClearColorImage(cmd,
-                         m_packedReflectionHitInfoTexture[RI.swapchainIndex].vk.image,
-                         VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &clearRange);
-
-    // Sync clear-write -> RT-shader-write on the two bounce images.
-    VkImageMemoryBarrier2 clearDone[2] = {};
-    VkImage boundceImages[2] = {
-        m_packedRefractionHitInfoTexture[RI.swapchainIndex].vk.image,
-        m_packedReflectionHitInfoTexture[RI.swapchainIndex].vk.image,
-    };
-    for (int idx = 0; idx < 2; ++idx) {
-      clearDone[idx].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-      clearDone[idx].srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-      clearDone[idx].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      clearDone[idx].dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-      clearDone[idx].dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-      clearDone[idx].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-      clearDone[idx].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-      clearDone[idx].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      clearDone[idx].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      clearDone[idx].image = boundceImages[idx];
-      clearDone[idx].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    }
-    VkDependencyInfo dep2 = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep2.imageMemoryBarrierCount = 2;
-    dep2.pImageMemoryBarriers = clearDone;
-    vkCmdPipelineBarrier2(cmd, &dep2);
   }
 
   if (m_tlas.vk.handle != VK_NULL_HANDLE) {
@@ -2535,10 +2457,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
     pushSurfelStorageImage(vbBindings, "gPackedHitInfo",
                            m_packedHitInfoView[RI.swapchainIndex].vk.image);
-    pushSurfelStorageImage(vbBindings, "gPackedRefractionHitInfo",
-                           m_packedRefractionHitInfoView[RI.swapchainIndex].vk.image);
-    pushSurfelStorageImage(vbBindings, "gPackedReflectionHitInfo",
-                           m_packedReflectionHitInfoView[RI.swapchainIndex].vk.image);
     pushTlas(vbBindings);
 
     m_surfelVBuffer.bindDescriptors(
@@ -3270,12 +3188,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
     pushSurfelStorageImage(bnd, "gPackedHitInfo",
                            m_packedHitInfoView[RI.swapchainIndex].vk.image);
-    pushSurfelStorageImage(bnd, "gPackedRefractionHitInfo",
-                           m_packedRefractionHitInfoView[RI.swapchainIndex].vk.image);
-    // The water branch also reads the reflection bounce V-buffer to shade water
-    // reflections inline.
-    pushSurfelStorageImage(bnd, "gPackedReflectionHitInfo",
-                           m_packedReflectionHitInfoView[RI.swapchainIndex].vk.image);
     pushTlas(bnd);
     {
       RIProgram::DescriptorBinding b;
@@ -3544,6 +3456,216 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, idxBuf, 0, VK_INDEX_TYPE_UINT32);
         vkCmdDrawIndexed(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u, 0u, 0,
                          req.id);
+      }
+
+      vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+
+      {
+        VkImageMemoryBarrier2 b =
+            VK_RI_PogoShaderMemoryBarrier2(pogoReadImage, /*initial=*/false);
+        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      }
+    }
+  }
+
+
+  // --------------------------------------------------------------------
+  // Water pass — raster the water surface over the refracted background that the
+  // GI composite already shaded (SurfelVBuffer.rt's water refraction clobbered
+  // the primary hit). Two draws per mesh: MUL (tint + refraction exposure) then
+  // ADD (inline-RT lit reflection × Fresnel). Reuses the translucent 5-stream
+  // layout + TranslucentMeshPipelineDesc state (depth ≤, no write); the m_water
+  // program supplies the shaders (Water.vert/frag). Pogo-read-half barriers as the
+  // other translucent sub-passes.
+  // --------------------------------------------------------------------
+  {
+    std::vector<iRenderable *> waters;
+    for (iRenderable *pObj :
+         m_rendererList.GetRenderableItems(eRenderListType_Translucent)) {
+      if (!pObj)
+        continue;
+      cMaterial *pMat = pObj->GetMaterial();
+      if (!pMat || pMat->Descriptor().m_id != MaterialID::Water)
+        continue;
+      iVertexBuffer *pVB = pObj->GetVertexBuffer();
+      if (!pVB || pVB->GetIndexNum() <= 0)
+        continue;
+      waters.push_back(pObj);
+    }
+
+    if (!waters.empty()) {
+      flipDepthToReadOnly();
+
+      const int   pogoReadIdx   = (pogo->attachmentIndex + 1) % 2;
+      VkImage     pogoReadImage = pogo->textures[pogoReadIdx].vk.image;
+      VkImageView pogoReadView  = pogo->pogoAttachment[pogoReadIdx].vk.image.imageView;
+
+      {
+        VkImageMemoryBarrier2 b =
+            VK_RI_PogoAttachmentMemoryBarrier2(pogoReadImage, /*initial=*/false);
+        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+        dep.imageMemoryBarrierCount = 1;
+        dep.pImageMemoryBarriers    = &b;
+        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      }
+
+      VkRenderingAttachmentInfo colorAttach = {
+          VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      colorAttach.imageView   = pogoReadView;
+      colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_LOAD;
+      colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+
+      VkRenderingAttachmentInfo depthAttach = {
+          VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      depthAttach.imageView   = RI.depthView[RI.swapchainIndex].vk.image;
+      depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
+      depthAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_LOAD;
+      depthAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+
+      VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+      renderInfo.renderArea           = {{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
+      renderInfo.layerCount           = 1;
+      renderInfo.colorAttachmentCount = 1;
+      renderInfo.pColorAttachments    = &colorAttach;
+      renderInfo.pDepthAttachment     = &depthAttach;
+
+      vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
+
+      VkViewport vp = {0.0f, (float)RI.swapchain.height, (float)RI.swapchain.width,
+                       -(float)RI.swapchain.height, 0.0f, 1.0f};
+      VkRect2D sc = {{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
+      vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
+      vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
+
+      m_water.bindBindlessDescriptorSet(&RI.primary.cmds[0], &m_bindlessSet, 0);
+      {
+        // set 1: gPerFrame + gRtAccel (binding 36). The water frag does inline
+        // RayQuery reflection (traceReflectionHit), so the TLAS must be bound —
+        // the raster pipeline doesn't get it for free like the compute/RT passes.
+        std::vector<RIProgram::DescriptorBinding> wbnd;
+        {
+          RIProgram::DescriptorBinding b;
+          b.handle = DescriptorBindingID::Create("gPerFrame");
+          RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+          wbnd.push_back(b);
+        }
+        pushTlas(wbnd);
+        m_water.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
+                                wbnd.data(), (uint32_t)wbnd.size());
+      }
+
+      struct WaterPush { uint32_t pass; uint32_t p0, p1, p2; };
+
+      for (iRenderable *pObj : waters) {
+        iVertexBuffer *pVB = pObj->GetVertexBuffer();
+        cMaterial *pMat = pObj->GetMaterial();
+        const int indexCount = pVB->GetIndexNum();
+
+        uint32_t materialSlot =
+            resolveMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
+        if (materialSlot == UINT32_MAX) {
+          Warning("Material Slot exhausted (water)");
+          continue;
+        }
+
+        cMatrixf *pMtx = pObj->GetModelMatrix(apFrustum);
+        UniformObject payload{};
+        payload.dissolveAmount = pObj->GetCoverageAmount();
+        payload.materialID = materialSlot;
+        payload.lightLevel = 1.0f;
+        payload.illuminationAmount = 0.0f;
+        const ml::float4x4 modelF4 =
+            cMath::ToFloatTranspose4x4(pMtx ? *pMtx : cMatrixf::Identity);
+        std::memcpy(payload.modelMat, modelF4.a, sizeof(payload.modelMat));
+        ml::float4x4 invF4 = modelF4;
+        invF4.Invert();
+        std::memcpy(payload.invModelMat, invF4.a, sizeof(payload.invModelMat));
+        const ml::float4x4 uvF4 =
+            cMath::ToFloatTranspose4x4(pMat->GetUvMatrix());
+        std::memcpy(payload.uvMat, uvF4.a, sizeof(payload.uvMat));
+
+        hash_t cookie = hash_u64(HASH_INITIAL_VALUE, (uint64_t)(uintptr_t)pObj);
+        cookie = hash_u32(cookie, (uint32_t)RI.frameIndex);
+        auto req = m_diffuseBindless.request(cookie, (uint32_t)RI.frameIndex);
+        if (req.exhausted) {
+          Warning("bindless pool exhausted (water)");
+          continue;
+        }
+        if (!req.found) {
+          m_bindlessSlotGenerationMirror.write<uint32_t>(req.id,
+                                                         ++m_nextSlotGeneration);
+        }
+        {
+          RIResourceBufferTransaction_s trans = {};
+          trans.target = m_diffuseObjectBuffer;
+          trans.size = sizeof(UniformObject);
+          trans.offset = (size_t)req.id * sizeof(UniformObject);
+          trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
+                                   VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                                   VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+          trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+          trans.vk.post_stage = trans.vk.current_stage;
+          trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+          RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+          std::memcpy(trans.mapped.data, &payload, sizeof(payload));
+          RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+        }
+
+        auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
+        auto bufOf = [&](eVertexBufferElement type) -> VkBuffer {
+          const auto *element = vbri->GetElement(type);
+          if (!element || !element->buffer)
+            return VK_NULL_HANDLE;
+          return element->buffer->vk.buffer;
+        };
+        const VkBuffer posBuf = bufOf(eVertexBufferElement_Position);
+        VkBuffer       nrmBuf = bufOf(eVertexBufferElement_Normal);
+        VkBuffer       tanBuf = bufOf(eVertexBufferElement_Texture1Tangent);
+        VkBuffer       colBuf = bufOf(eVertexBufferElement_Color0);
+        VkBuffer       uvBuf  = bufOf(eVertexBufferElement_Texture0);
+        const auto &idxRI     = vbri->GetIndexRIBuffer();
+        const VkBuffer idxBuf = idxRI ? idxRI->vk.buffer : VK_NULL_HANDLE;
+        if (!posBuf || !idxBuf) {
+          Warning("water mesh missing position / index — skipping");
+          continue;
+        }
+        const uint32_t vertCount = (uint32_t)pVB->GetVertexNum();
+        const bool needsFallback = (!nrmBuf || !tanBuf || !colBuf || !uvBuf);
+        if (needsFallback && vertCount > kTranslucentFallbackVerts) {
+          Warning("water mesh vertex count exceeds fallback capacity — skipping");
+          continue;
+        }
+        if (!nrmBuf) nrmBuf = m_translucentNormalFallback.vk.buffer;
+        if (!tanBuf) tanBuf = m_translucentTangentFallback.vk.buffer;
+        if (!colBuf) colBuf = m_translucentColorFallback.vk.buffer;
+        if (!uvBuf)  uvBuf  = m_translucentUv0Fallback.vk.buffer;
+        const VkBuffer     vertBufs[5]    = {posBuf, nrmBuf, tanBuf, colBuf, uvBuf};
+        const VkDeviceSize vertOffsets[5] = {0, 0, 0, 0, 0};
+        vkCmdBindVertexBuffers(RI.primary.cmds[0].vk.cmd, 0, 5, vertBufs, vertOffsets);
+        vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, idxBuf, 0, VK_INDEX_TYPE_UINT32);
+
+        // Two draws into the pogo: tint (MUL) then lit reflection (ADD). Salt the
+        // pipeline hash so it doesn't collide with the translucent program's cache
+        // (same TranslucentMeshPipelineDesc state, different program/shaders).
+        const TranslucentMeshPipelineDesc::BlendMode modes[2] = {
+            TranslucentMeshPipelineDesc::BLEND_MUL,
+            TranslucentMeshPipelineDesc::BLEND_ADD};
+        for (uint32_t pass = 0; pass < 2u; ++pass) {
+          TranslucentMeshPipelineDesc pd(RIBootstrap::PogoColorFormat,
+                                         RIBootstrap::DepthFormat, modes[pass]);
+          const hash_t waterHash = hash_u32(pd.hash, 0x57415445u /*'WATE'*/);
+          m_water.bindPipeline(&RI.device, &RI.primary.cmds[0], waterHash, "Water",
+                               &pd.createInfo);
+          WaterPush push = {pass, 0u, 0u, 0u};
+          vkCmdPushConstants(RI.primary.cmds[0].vk.cmd, m_water.getPipelineLayout(),
+                             VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+          vkCmdDrawIndexed(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u, 0u,
+                           0, req.id);
+        }
       }
 
       vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
@@ -4415,28 +4537,6 @@ cHybridRenderer::~cHybridRenderer() {
                       m_packedHitInfoTexture[i].vk.image,
                       m_packedHitInfoTexture[i].vk.allocation);
       m_packedHitInfoTexture[i] = {};
-    }
-    if (m_packedRefractionHitInfoView[i].vk.image != VK_NULL_HANDLE) {
-      vkDestroyImageView(RI.device.vk.device,
-                         m_packedRefractionHitInfoView[i].vk.image, NULL);
-      m_packedRefractionHitInfoView[i] = {};
-    }
-    if (m_packedRefractionHitInfoTexture[i].vk.image != VK_NULL_HANDLE) {
-      vmaDestroyImage(RI.device.vk.vmaAllocator,
-                      m_packedRefractionHitInfoTexture[i].vk.image,
-                      m_packedRefractionHitInfoTexture[i].vk.allocation);
-      m_packedRefractionHitInfoTexture[i] = {};
-    }
-    if (m_packedReflectionHitInfoView[i].vk.image != VK_NULL_HANDLE) {
-      vkDestroyImageView(RI.device.vk.device,
-                         m_packedReflectionHitInfoView[i].vk.image, NULL);
-      m_packedReflectionHitInfoView[i] = {};
-    }
-    if (m_packedReflectionHitInfoTexture[i].vk.image != VK_NULL_HANDLE) {
-      vmaDestroyImage(RI.device.vk.vmaAllocator,
-                      m_packedReflectionHitInfoTexture[i].vk.image,
-                      m_packedReflectionHitInfoTexture[i].vk.allocation);
-      m_packedReflectionHitInfoTexture[i] = {};
     }
     if (m_surfelIrradianceView[i].vk.image != VK_NULL_HANDLE) {
       vkDestroyImageView(RI.device.vk.device, m_surfelIrradianceView[i].vk.image, NULL);
