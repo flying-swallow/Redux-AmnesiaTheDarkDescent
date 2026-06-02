@@ -1,5 +1,6 @@
 #include "graphics/DecalPipelineDesc.h"
 
+#include "graphics/GraphicsTypes.h" // eVertexElementFlag_*
 #include "graphics/RIVK.h"     // RIFormatToVK
 #include "system/Hasher.h"     // hash_u32 / HASH_INITIAL_VALUE
 #include "system/Types.h"      // ARRAY_COUNT
@@ -7,16 +8,19 @@
 namespace hpl {
 
 DecalPipelineDesc::DecalPipelineDesc(RI_Format_e colorFormat,
-                                     RI_Format_e depthFormat, BlendMode mode) {
+                                     RI_Format_e depthFormat, BlendMode mode,
+                                     uint32_t vertexPresentMask) {
   // Strides match VertexBuffer_RI (and TranslucentMeshPipelineDesc):
   // position/tangent/color stored as float4 (16 B), normal as float3 (12 B),
   // texcoord as float3 with only .xy consumed (stride 12 B, R32G32 reads the
-  // first two floats).
-  vertexBindings[0] = {0, 16, VK_VERTEX_INPUT_RATE_VERTEX}; // position
-  vertexBindings[1] = {1, 12, VK_VERTEX_INPUT_RATE_VERTEX}; // normal (unused)
-  vertexBindings[2] = {2, 16, VK_VERTEX_INPUT_RATE_VERTEX}; // tangent (unused)
-  vertexBindings[3] = {3, 16, VK_VERTEX_INPUT_RATE_VERTEX}; // color
-  vertexBindings[4] = {4, 12, VK_VERTEX_INPUT_RATE_VERTEX}; // texcoord
+  // first two floats). An optional stream the renderable omits (absent from
+  // vertexPresentMask) gets its stride zeroed so the bound single-vertex
+  // fallback feeds the same default to every vertex.
+  vertexBindings[0] = {0, 16, VK_VERTEX_INPUT_RATE_VERTEX}; // position (always present)
+  vertexBindings[1] = {1, (vertexPresentMask & eVertexElementFlag_Normal)   ? 12u : 0u, VK_VERTEX_INPUT_RATE_VERTEX}; // normal (unused)
+  vertexBindings[2] = {2, (vertexPresentMask & eVertexElementFlag_Texture1) ? 16u : 0u, VK_VERTEX_INPUT_RATE_VERTEX}; // tangent (unused)
+  vertexBindings[3] = {3, (vertexPresentMask & eVertexElementFlag_Color0)   ? 16u : 0u, VK_VERTEX_INPUT_RATE_VERTEX}; // color
+  vertexBindings[4] = {4, (vertexPresentMask & eVertexElementFlag_Texture0) ? 12u : 0u, VK_VERTEX_INPUT_RATE_VERTEX}; // texcoord
   vertexAttributes[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT,    0}; // POSITION
   vertexAttributes[1] = {1, 1, VK_FORMAT_R32G32B32_SFLOAT,    0}; // NORMAL
   vertexAttributes[2] = {2, 2, VK_FORMAT_R32G32B32A32_SFLOAT, 0}; // TANGENT
@@ -141,6 +145,8 @@ DecalPipelineDesc::DecalPipelineDesc(RI_Format_e colorFormat,
   hash = hash_u32(HASH_INITIAL_VALUE, (uint32_t)colorFormat);
   hash = hash_u32(hash, (uint32_t)depthFormat);
   hash = hash_u32(hash, (uint32_t)mode);
+  // Distinct vertex-binding strides per presence combination must not alias.
+  hash = hash_u32(hash, vertexPresentMask);
 }
 
 } // namespace hpl

@@ -475,6 +475,48 @@ namespace hpl {
 				RI.nulVertexBuffer.mappedAddress = allocationInfo.pMappedData;
 			}
 
+			// Default-value fallback vertex streams (see RIBootstrap). Each is a
+			// single vertex, host-mapped and filled once here; bound for
+			// renderables that omit an optional stream, where the pipeline zeroes
+			// that binding's stride so this one element feeds every vertex.
+			{
+				struct FallbackSpec {
+					struct RIBuffer_s *target;
+					uint32_t size;       // single-vertex byte size (the binding stride)
+					float    value[4];
+				};
+				const FallbackSpec specs[] = {
+					{ &RI.fallbackNormalVertex,  sizeof(float) * 3, { 0.f, 0.f, 1.f, 0.f } }, // +Z
+					{ &RI.fallbackTangentVertex, sizeof(float) * 4, { 1.f, 0.f, 0.f, 1.f } }, // +X, handedness +1
+					{ &RI.fallbackColorVertex,   sizeof(float) * 4, { 1.f, 1.f, 1.f, 1.f } }, // white
+					{ &RI.fallbackUv0Vertex,     sizeof(float) * 3, { 0.f, 0.f, 0.f, 0.f } }, // origin
+				};
+				for ( const FallbackSpec &s : specs ) {
+					uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
+					VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+					bufferInfo.size = s.size;
+					bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+					VK_ConfigureBufferQueueFamilies(&bufferInfo, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
+
+					VmaAllocationCreateInfo allocInfo = {};
+					allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+					allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
+					                  VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+					VmaAllocationInfo allocationInfo = {};
+					if (!VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferInfo, &allocInfo,
+					                                   &s.target->vk.buffer, &s.target->vk.allocation,
+					                                   &allocationInfo))) {
+						FatalError("Failed to create fallback vertex buffer!\n");
+						return false;
+					}
+					if (allocationInfo.pMappedData) {
+						std::memcpy(allocationInfo.pMappedData, s.value, s.size);
+						vmaFlushAllocation(RI.device.vk.vmaAllocator, s.target->vk.allocation, 0, VK_WHOLE_SIZE);
+					}
+					s.target->mappedAddress = allocationInfo.pMappedData;
+				}
+			}
+
 			EndRICmd( &RI.device, &initElem.cmds[0] );
 
 			VkCommandBufferSubmitInfo cmdSubmitInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };

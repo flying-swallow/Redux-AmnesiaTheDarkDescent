@@ -21,6 +21,7 @@
 #define HPL_RESOURCEBASE_H
 
 #include <time.h>
+#include <cstdint>
 #include "system/SystemTypes.h"
 #include "system/LowLevelSystem.h"
 
@@ -53,6 +54,11 @@ namespace hpl {
 		const tString& GetName(){return msName;}
 		unsigned long GetHandle(){return mlHandle;}
 		void SetHandle(unsigned long alHandle){mlHandle=alHandle;}
+
+		// Stable per-instance cookie (random, assigned in the constructor). Used
+		// as a cache key in place of the resource pointer, which is unsafe across
+		// free + realloc (a reused address would alias the old entry).
+		uint64_t GetUniqueCookie() const { return mUniqueCookie; }
 		
 		void SetFullPath(const tWString& asPath);
 		const tWString& GetFullPath(){return msFullPath;}
@@ -81,6 +87,7 @@ namespace hpl {
 		
 		unsigned int mlUserCount;
         unsigned long mlHandle;
+		uint64_t mUniqueCookie;
 		bool mbLogDestruction;
 	
 	private:

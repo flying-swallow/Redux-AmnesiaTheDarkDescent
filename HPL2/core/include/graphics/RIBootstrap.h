@@ -70,6 +70,18 @@ public:
   // a real stream — the vertex fetcher reads zeros for those attributes.
   struct RIBuffer_s nulVertexBuffer;
 
+  // Default-value fallback vertex streams bound when a renderable omits an
+  // optional stream in the fixed-function raster passes (translucent / water /
+  // decal): normal = +Z, tangent = +X with +handedness, color = white, uv = 0.
+  // Each holds a single vertex — the pipeline zeroes the binding stride for an
+  // absent stream (see TranslucentMeshPipelineDesc / DecalPipelineDesc), so the
+  // one element feeds every vertex. Filled once at init (see Graphics.cpp);
+  // consumed by detail::BindVertexStreams in HybridRenderer.cpp.
+  struct RIBuffer_s fallbackNormalVertex;
+  struct RIBuffer_s fallbackTangentVertex;
+  struct RIBuffer_s fallbackColorVertex;
+  struct RIBuffer_s fallbackUv0Vertex;
+
   RISwapchain_s<RI_MAX_SWAPCHAIN_IMAGES> swapchain;
 	struct RITextureView_s swapchainView[RI_MAX_SWAPCHAIN_IMAGES];
 	struct RITexture_s depthTextures[RI_MAX_SWAPCHAIN_IMAGES];

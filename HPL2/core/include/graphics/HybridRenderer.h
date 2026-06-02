@@ -2,6 +2,7 @@
 #define HPL_RENDERER_HYBRID_H
 
 #include "graphics/BindlessPool.h"
+#include "graphics/HybridGlobalManagedSet.h"
 #include "graphics/HPLGraphicsConfig.h"
 #include "graphics/Material.h"
 #include "graphics/RenderList2.h"
@@ -22,57 +23,7 @@
 namespace hpl {
 
 class Image;
-
-// CPU shadow of a device-local bindless slot buffer (m_opaque*Handles /
-// m_bindlessSlotGenerationBuffer). Those buffers are deviceLocalOnly, so they
-// have no mapped pointer the host can write; instead every per-slot host write
-// lands in this shadow and flushBindlessMirrors() stages the accumulated dirty
-// byte range into the device buffer once per frame (see HybridRenderer.cpp).
-//
-// write<T>() addresses slot i at byte i*sizeof(T), matching
-// detail::CreateBindlessSlotBuffer's slotCount*elemSize layout, and widens the
-// half-open dirty range [dirtyMinByte, dirtyMaxByte) to cover the touched
-// bytes. markAllDirty() forces the whole (zeroed) shadow to be staged on the
-// first frame, seeding a clean device == shadow invariant for every slot.
-struct BindlessShadowMirror {
-  std::vector<uint8_t> shadow;
-  size_t dirtyMinByte = 0;
-  size_t dirtyMaxByte = 0;
-
-  // slotCount * elemSize bytes, zero-filled; dirty range starts empty.
-  void init(size_t slotCount, size_t elemSize) {
-    shadow.assign(slotCount * elemSize, uint8_t(0));
-    clearDirty();
-  }
-
-  // Store `value` at the slot's byte offset and grow the dirty range. An
-  // out-of-range slot is dropped (mirrors GPU robust-access) rather than
-  // overrunning the shadow.
-  template <typename T> void write(uint32_t slot, T value) {
-    const size_t off = (size_t)slot * sizeof(T);
-    if (off + sizeof(T) > shadow.size())
-      return;
-    std::memcpy(shadow.data() + off, &value, sizeof(T));
-    if (off < dirtyMinByte)
-      dirtyMinByte = off;
-    if (off + sizeof(T) > dirtyMaxByte)
-      dirtyMaxByte = off + sizeof(T);
-  }
-
-  void markAllDirty() {
-    dirtyMinByte = 0;
-    dirtyMaxByte = shadow.size();
-  }
-
-  // Empty range encoded as min > max so hasDirty() is false and a subsequent
-  // write() always lowers min / raises max.
-  void clearDirty() {
-    dirtyMinByte = shadow.size();
-    dirtyMaxByte = 0;
-  }
-
-  bool hasDirty() const { return dirtyMaxByte > dirtyMinByte; }
-};
+class iVertexBuffer;
 
 class cHybridRenderer : public iRenderer {
 public:
@@ -96,183 +47,24 @@ public:
   cRenderList2* GetRenderList() { return &m_rendererList; };
 
 private:
-  // Resolve `mat` to its slot in m_opaqueMaterialBuffer. Allocates a slot on
-  // first sight, resolves and uploads texture indices when the material's
-  // generation differs from the cached one. Returns UINT32_MAX when the
-  // material pool is exhausted.
-  uint32_t resolveMaterial(RIBootstrap::FrameContext *cntx,cMaterial *mat, uint32_t frameIndex);
-
-  // Map an Image* to its bindless slot in textures_2d[]. Used by
-  // resolveMaterial() and the light upload loops (spot falloff / gobo,
-  // point/spot attenuation maps). Returns kInvalidTextureIndex when the
-  // image is null or the bindless pool is exhausted.
-  uint32_t resolveTextureSlot(RIBootstrap::FrameContext *cntx, Image *img, uint32_t frameIndex);
-
-  // Same as resolveTextureSlot() but writes into the textures_cube[] bindless
-  // array at kBindingTexturesCube. The 2D and cube pools cannot share slot
-  // ids because they index different descriptor arrays. Currently fed only
-  // by per-frame point-light gobo cube uploads.
-  uint32_t resolveCubeTextureSlot(RIBootstrap::FrameContext *cntx, Image *img, uint32_t frameIndex);
+  // Owns set 0 — the global bindless descriptor set and every buffer bound to
+  // it. The resolve* / flushMirrors operations and all set-0 buffers live here;
+  // Draw() pushes per-frame data into m_global (public members).
+  HybridGlobalManagedSet m_global;
 
   cRenderList2 m_rendererList;
 
-  // Per-object-slot hooks into the owning vertex buffer. onDestroy retires the
-  // slot for surfel cleanup when the geometry is freed; onGeometryChanged marks
-  // the slot dirty when the geometry is rebuilt (Compile / SubmitToGPU realloc)
-  // so the slot's reuse generation gets bumped. Both are reset (disconnected)
-  // when the cache evicts the slot. See the solids loop in Draw().
-  struct SlotHooks {
-    EventHandler<> onDestroy;
-    EventHandler<> onGeometryChanged;
-  };
+  // The object-slot cache now lives in m_global (HybridGlobalManagedSet::
+  // m_objectSlots); submitObject() owns slot allocation + the slot-generation
+  // bump (on new occupant / index-count change / VB destroy), so the renderer no
+  // longer holds the cache, the per-slot hooks, or a geometry-dirty array.
 
-  // Object-slot cache. Slot state is a SlotHooks bound to the owning vertex
-  // buffer's destroy / geometry-changed events.
-  LRUCacheState<SlotHooks> m_diffuseBindless;
-
-  struct RIBuffer_s m_diffuseObjectBuffer;
-
-  // Per-frame light SSBOs. Device-local; refilled each frame through
-  // RI.uploader (see Draw()). The m_*Scratch arrays are CPU staging,
-  // reserved once at init so the per-frame fill doesn't reallocate.
-  struct RIBuffer_s m_pointLightBuffer = {};
-  std::array<PointLight, kPointSlotLightCapacity> m_pointLightScratch;
-  struct RIBuffer_s m_spotLightBuffer = {};
-  std::array<SpotLight, kSpotSlotLightCapacity> m_spotLightScratch;
-
-  // Per-frame fog-area SSBO. One entry per cFogArea visible this frame; the
-  // shader-side iteration (Fog.slang) walks it from every pixel via
-  // gFogAreas[i]. Capped at kFogAreaCapacity so overruns drop quietly.
-  struct RIBuffer_s m_fogAreaBuffer = {};
-  std::array<FogAreaParams, kFogAreaCapacity> m_fogAreaScratch;
-
-  // Clustered OOB decals (cDecal). Packed each frame from eRenderListType_Decal
-  // into gDecals[]; the projection pass reads them. Capped at kMaxDecals.
-  struct RIBuffer_s m_decalBuffer = {};
-  std::array<GpuDecal, kMaxDecals> m_decalScratch;
-
-  // Default-value fallback vertex buffers for translucent renderables whose
-  // vertex layout omits one or more streams (cBillboard / cBeam ship
-  // position + normal + color + uv with no tangent; other renderables may
-  // skip more). Each fallback matches the binding stride declared in
-  // TranslucentMeshPipelineDesc; bound at the matching binding slot when
-  // the renderable's real stream is absent. Position stays required
-  // (without geometry there's nothing to draw).
-  //
-  // Defaults:
-  //   normal  : float3(0, 0, 1)        — +Z
-  //   tangent : float4(1, 0, 0, 1)     — +X, positive handedness
-  //   color   : float4(1, 1, 1, 1)     — white
-  //   uv      : float3(0, 0, 0)        — origin (stride matches engine layout;
-  //                                      shader reads only .xy via R32G32)
-  //
-  // Sized for the largest single translucent draw we expect; over-budget
-  // draws warn-and-skip in the translucent loop.
-  static constexpr uint32_t kTranslucentFallbackVerts = 16384u;
-  struct RIBuffer_s m_translucentNormalFallback  = {};
-  struct RIBuffer_s m_translucentTangentFallback = {};
-  struct RIBuffer_s m_translucentColorFallback   = {};
-  struct RIBuffer_s m_translucentUv0Fallback     = {};
-
-  struct RIBuffer_s m_opaquePositionHandles;
-  struct RIBuffer_s m_opaqueTangentHandles;
-  struct RIBuffer_s m_opaqueNormalHandles;
-  struct RIBuffer_s m_opaqueUv0Handles;
-  struct RIBuffer_s m_opaqueColorHandles;
-  struct RIBuffer_s m_opaqueIndexHandles;
-
-  // Per-object-slot reuse generation (sized kObjectSlotCapacity). Bumped to a
-  // fresh monotonic value each time m_diffuseBindless (re)assigns a slot to a
-  // different object; surfels capture it at spawn so a reused slot
-  // self-invalidates the stale anchor in collectCellInfo. m_nextSlotGeneration
-  // is the host-side source of new values so we never read back the
-  // write-combined mapped buffer.
-  struct RIBuffer_s m_bindlessSlotGenerationBuffer;
-  uint32_t m_nextSlotGeneration = 0;
-
-  // CPU shadows of the seven device-local bindless slot buffers above (the six
-  // per-stream BDA handle buffers + the slot-generation buffer). All host
-  // per-slot writes go through these mirrors; flushBindlessMirrors() stages
-  // each mirror's dirty byte range into its device buffer once per frame, at
-  // the tail of Draw(), via RI.uploader's fenced pre-pass.
-  BindlessShadowMirror m_opaquePositionMirror;
-  BindlessShadowMirror m_opaqueTangentMirror;
-  BindlessShadowMirror m_opaqueNormalMirror;
-  BindlessShadowMirror m_opaqueUv0Mirror;
-  BindlessShadowMirror m_opaqueColorMirror;
-  BindlessShadowMirror m_opaqueIndexMirror;
-  BindlessShadowMirror m_bindlessSlotGenerationMirror;
-
-  // Boot-seed-only shadow for the now device-local m_surfelCounterBuffer. The
-  // host writes it exactly once (Free = kTotalSurfelLimit, rest 0); markAllDirty
-  // stages that seed on the first frame's flushBindlessMirrors(), ahead of the
-  // surfel passes. The GPU owns the counter every frame after, so this mirror is
-  // never written or re-dirtied — unlike the per-frame handle mirrors above.
-  BindlessShadowMirror m_surfelCounterMirror;
-
-  // Stage every dirty mirror into its matching device-local buffer. Called once
-  // at the end of Draw() so all bindless handle / slot-generation writes land
-  // ahead of the primary submit's reads regardless of recording order.
-  void flushBindlessMirrors();
-
-  // === SurfelGI resources (set=0 bindings 10..19, 27..28, 31..33) ===
-  // Layout mirrors the reference SurfelGI implementation at
-  //   /mnt/c/Users/m_pol/Documents/projects/SurfelGI/RenderPasses/Surfel/
-  // Sizes come from forward_shared.h: kTotalSurfelLimit = 150K surfels,
-  // kRayBudget = 9.6M ray slots, kCellCount = 250^3 = 15.625M cells.
-  //
-  // The counter is a flat uint[kSurfelCounterSlotCount] buffer indexed by
-  // SURFEL_COUNTER_* macros (Valid/Dirty/Free/Cell/RequestedRay/MissBounce).
-  // gSurfelGeometryBuffer caches the uint4 TriangleHit from primary-ray
-  // visibility, so surfels can be refreshed each frame from the cached hit
-  // without re-tracing. The cellInfo + cellToSurfel pair encodes a sparse
-  // surfel-per-cell index list scattered into a 125-cell neighborhood.
-  struct RIBuffer_s m_surfelCounterBuffer;
-  struct RIBuffer_s m_surfelBuffer;
-  struct RIBuffer_s m_surfelGeometryBuffer;
-  struct RIBuffer_s m_surfelValidBuffer;
-  struct RIBuffer_s m_surfelDirtyIndexBuffer;
-  struct RIBuffer_s m_surfelFreeBuffer;
-  struct RIBuffer_s m_surfelRecycleBuffer;
-  struct RIBuffer_s m_surfelRayResultBuffer;
-  struct RIBuffer_s m_cellInfoBuffer;
-  struct RIBuffer_s m_cellToSurfelBuffer;
-  struct RIBuffer_s m_surfelRefCounterBuffer;
-  struct RIBuffer_s m_surfelReservationBuffer;
-  // Compact per-surfel cull record (SurfelBounds) read by the generation
-  // pass's hot loop in place of the full m_surfelBuffer gather.
-  struct RIBuffer_s m_surfelBoundsBuffer;
-
-  // Coarse world-space light grid (LightGridBuildPass writes, SurfelRayTrace
-  // NEE reads): per-cell light count + packed per-cell unified-light-index list.
-  struct RIBuffer_s m_lightGridCountBuffer;
-  struct RIBuffer_s m_lightGridListBuffer;
-  // Flat per-object decal-index pool (cWorld::Compile association), uploaded into
-  // gObjectDecalIndices; replaces the old spatial decal grid.
-  struct RIBuffer_s m_objectDecalIndexBuffer = {};
-
-  // Per-surfel copy of its anchor slot's generation, captured at spawn and
-  // compared against m_bindlessSlotGenerationBuffer in collectCellInfo.
-  struct RIBuffer_s m_surfelSlotGenerationBuffer;
+  // Default-value fallback vertex streams for renderables that omit an optional
+  // stream now live globally in RIBootstrap (RI.fallback*Vertex), created once
+  // at init; detail::BindVertexStreams binds them in the raster passes.
 
   RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> m_indirectSegment;
   struct RIBuffer_s m_indirectDrawBuffer;
-
-  // Bindless material wiring.
-  LRUCache m_materialBindless;
-  struct RIBuffer_s m_opaqueMaterialBuffer;
-  struct RIBuffer_s m_waterMaterialBuffer = {};
-  struct RIDescriptor_s *m_materialSampler = nullptr;
-
-  // Default light falloff LUT (core_falloff_linear), bound once to set 0 as the
-  // immutable gAttenuationLut. Held resident for the renderer's lifetime.
-  Image *m_attenuationLut = nullptr;
-
-  RIBindlessDescriptorSet m_bindlessSet;
-  LRUCache m_textureBindless;
-  // Separate LRU for cube textures. Slot ids index textures_cube[] (set 0,
-  // binding 1) and must not be confused with textures_2d[] ids.
-  LRUCache m_textureCubeBindless;
 
   RIBuffer_s m_tlasStorage = {};
   struct RIAccelStructure_s m_tlas = {};
@@ -284,8 +76,6 @@ private:
   // surfel_generation_pass.comp (set=3, binding=1). One per swapchain image.
   struct RITexture_s     m_surfelResultTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
   struct RITextureView_s m_surfelResultView[RI_MAX_SWAPCHAIN_IMAGES] = {};
-  uint32_t m_surfelResultWidth = 0;
-  uint32_t m_surfelResultHeight = 0;
 
 
   // Stage B packed visibility — RGBA32UI storage image written by the
@@ -328,14 +118,6 @@ private:
   RIProgram m_surfelUpdateAccumulate;
   RIProgram m_surfelUpdateScatter;
   RIProgram m_lightGridBin;
-
-  // Per-object-slot "geometry rebuilt" flag (sized kObjectSlotCapacity). A VB's
-  // onGeometryChanged handler (owned by m_diffuseBindless's per-slot state) sets
-  // its slot's byte when the VB recompiles or reallocs; the solids loop in Draw
-  // consumes it and bumps the slot's reuse generation so anchored surfels with a
-  // stale primitiveIndex self-invalidate before the OOB deref. Single-threaded
-  // game (handler fires synchronously inside Compile/SubmitToGPU), so no lock.
-  std::vector<uint8_t> m_slotGeomDirty;
 
   // Stage E: path-tracer RT pipeline. One ray per pending SurfelRayResult
   // slot; the rgen drives an iterative trace loop (no recursive TraceRay),
@@ -380,7 +162,7 @@ private:
 	// Decal overlay pass. Thin clipped meshes (blood / scorch / impact marks,
 	// posters) drawn after the translucent mesh pass into the same pogo "read"
 	// half, depth read-only. Reuses the translucent 5-stream fixed-function
-	// vertex layout, the m_diffuseBindless / m_diffuseObjectBuffer object pool,
+	// vertex layout, the m_diffuseBindless / m_objectBuffer object pool,
 	// and resolveMaterial (DiffuseMaterial slot — only tex[0] diffuse is used).
 	// One pipeline per eMaterialBlendMode is stamped via the program's
 	// PipelineSlot cache. Port of decal.frag.fsl / decal.vert.fsl.
