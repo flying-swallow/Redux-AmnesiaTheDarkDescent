@@ -64,14 +64,19 @@ void RI_PogoBufferInit( struct RIDevice_s *device, struct RI_PogoBuffer *pogo, u
 	info.pQueueFamilyIndices = queueFamilies;
 	VK_ConfigureImageQueueFamilies( &info, device->queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
 	info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+	// STORAGE_BIT lets the SurfelGI composite (a compute pass) write the pogo
+	// attach via an RWTexture2D; still color-attachment + sampled for the raster
+	// passes and post-effect chain.
+	info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+	             VK_IMAGE_USAGE_STORAGE_BIT;
 	info.format = RIFormatToVK( format );
 
 	for( size_t p = 0; p < 2; p++ ) {
 		VK_WrapResult( vmaCreateImage( device->vk.vmaAllocator, &info, &mem_reqs, &pogo->textures[p].vk.image, &pogo->textures[p].vk.allocation, NULL ) );
 
 		VkImageViewUsageCreateInfo usageInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO };
-		usageInfo.usage = ( VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT );
+		usageInfo.usage = ( VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+		                    VK_IMAGE_USAGE_STORAGE_BIT );
 
 		VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 		createInfo.pNext = &usageInfo;

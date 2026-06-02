@@ -456,7 +456,8 @@ bool VertexBuffer_RI::Compile(tVertexCompileFlag aFlags) {
 }
 
 void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
-                                    RIBootstrap::FrameContext *cntx) {
+                                    RIBootstrap::FrameContext *cntx,
+                                    bool abBuildBlas) {
   assert(cmd);
   assert(device);
   assert(cntx);
@@ -572,6 +573,17 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
   if (reallocated)
     m_onGeometryChanged.Signal();
 
+  // Streams are uploaded; for renderables that are never TLAS instances
+  // (particles/billboards/beams/ropes/decals) skip the dead BLAS build. Finalise
+  // the same bookkeeping the BLAS tail does so the next submit re-uploads only on
+  // a real change. m_blas stays null, so AttachResourceToCntx skips it.
+  if (!abBuildBlas) {
+    m_updateFlags = 0;
+    m_updateIndices = false;
+    m_lastSubmitted = m_generation;
+    return;
+  }
+
   // Validate inputs BEFORE tearing down the cached BLAS. If we exit here we
   // want the previously-built BLAS to remain valid so the object stays in the
   // TLAS — destroying it first would silently drop the object from ray-traced
@@ -634,6 +646,19 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
     *m_blasStorage = RIBuffer_s::VK_createFromVMA(device, &bci, &aci);
   }
 
+  // VK_createFromVMA swallows the VkResult — a failed/marginal allocation leaves
+  // vk.buffer null. Building the BLAS on a null storage buffer produces an AS
+  // with an invalid device address (the 0xffff8001... value the TLAS rejects),
+  // so bail here instead, keeping any previously-built BLAS for this object.
+  assert(m_blasStorage->vk.buffer != VK_NULL_HANDLE &&
+         "BLAS storage allocation failed");
+  if (m_blasStorage->vk.buffer == VK_NULL_HANDLE) {
+    Error("BLAS storage allocation failed (size=%llu) for VB[%p]; skipping build",
+          (unsigned long long)storageSize, static_cast<void *>(this));
+    m_blasStorage.reset();
+    return;
+  }
+
   char dbgName[128];
   std::snprintf(dbgName, sizeof(dbgName), "VB[%p]:BlasStorage",
                 static_cast<void *>(this));
@@ -645,10 +670,20 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
 
   m_blas = std::shared_ptr<RIAccelStructure_s>(
       new RIAccelStructure_s(),
-      [](RIAccelStructure_s *a) { a->dispose(&RI.device); delete a; });
+      [](RIAccelStructure_s *a) {
+        a->dispose(&RI.device);
+        delete a;
+      });
   if (InitRIAccelStructure(device, &asDesc, m_blas.get()) != RI_SUCCESS) {
     Error("failed to construct acceel structure");
   }
+  // Distinct name for the AS itself (was reusing the storage buffer's name).
+  std::snprintf(dbgName, sizeof(dbgName), "VB[%p]:Blas", static_cast<void *>(this));
+  m_blas->setDebugObjectName(device, dbgName);
+  // The AS device address comes straight from vkGetAccelerationStructureDeviceAddress
+  // here; if it's zero/garbage every TLAS instance referencing it is invalid.
+  assert(m_blas->vk.handle != VK_NULL_HANDLE);
+  assert(m_blas->vk.deviceAddress != 0);
 
   struct RIBufferScratchAllocReq_s scratchReq = RIAllocBufferFromScratchAlloc(
       device, &cntx->accelScratchAlloc, buildScratchSize);
@@ -682,8 +717,8 @@ void VertexBuffer_RI::AttachResourceToCntx(RIBootstrap::FrameContext *cntx) {
     cntx->bufferLink.push_back(m_indexBuffer);
   }
   if(m_blas) {
-    cntx->bufferLink.push_back(m_blasStorage);
     cntx->accelLink.push_back(m_blas);
+    cntx->bufferLink.push_back(m_blasStorage);
   }
 }
 

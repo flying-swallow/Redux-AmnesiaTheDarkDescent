@@ -18,6 +18,7 @@ import Bindless.interface;
 import PerFrame.resource;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
+import Grid;                    // gridCellPos / gridFlattenCellIndex / gridCellValid (light grid cull)
 
 static const float kShadeRayEps = 1.0e-3f;
 
@@ -55,34 +56,34 @@ DiffuseShading prepareDiffuseShading(VertexData v, uint materialID, float illumi
     return sd;
 }
 
-// NEE over all lights. Single sample per light, BRDF = albedo / π,
-// shadow visibility via gScene.materials.traceShadowRay (alpha-tested
-// non-opaque RayQuery — see the comment on that helper in Scene.slang
-// for why a plain Proceed/CommittedStatus pair silently returns "visible"
-// against this engine's non-opaque BLAS).
+// The per-light shade (sample → NdotL-cull → ray-traced shadow → albedo·Li·NdotL,
+// no 1/π to match the base game) now lives in Scene.slang as
+// gScene.shadeAnalyticLight, shared with the surfel NEE pass.
 float3 evalAnalyticLight(DiffuseShading sd)
 {
-    uint lightCount = gScene.getLightCount();
-    if (lightCount == 0) return float3(0.f);
+    uint lightCount = gScene.getLightCount();   // unified point+spot count
 
     float3 Lr = float3(0.f);
     float3 origin = sd.posW + sd.normalW * kShadeRayEps;
 
-    for (uint i = 0; i < lightCount; ++i)
+    // Walk only the point/spot lights binned to this point's cell in the coarse
+    // world light grid (built each frame by LightGridBuildPass). Conservative
+    // binning means every light whose reach-sphere touches the cell is present,
+    // so the deterministic sum is exact apart from the kLightsPerCellMax cap
+    // (the RT NEE path already lives with the same cap). This cuts the per-pixel
+    // ray-traced shadow count from O(all scene lights) to O(lights overlapping
+    // the cell). Geometry beyond the grid extent (out-of-grid cell) falls back
+    // to the full light array so it isn't left unlit.
+    int3 cell = gridCellPos(sd.posW, gScene.camera.getPosition(), kLightGridUnit);
+    if (lightCount > 0u && gridCellValid(cell, kLightGridDim))
     {
-        LightSample ls;
-        if (!gScene.sampleLightByIndex(i, sd.posW, ls)) continue;
-
-        float NdotL = dot(sd.normalW, ls.dir);
-        if (NdotL <= 0.f) continue;
-
-        if (!gScene.materials.traceShadowRay(origin, ls.dir, ls.distance)) continue;
-
-        // Base game omits the 1/π Lambert factor (deferred_light_pointlight.frag.fsl
-        // / visibility_shade.frag: albedo·color·atten·ndl); match it so direct
-        // reads at the original brightness. Albedo is applied here (composite).
-        Lr += sd.albedo * ls.Li * NdotL;
+        uint flat = gridFlattenCellIndex(cell, kLightGridDim);
+        uint n    = min(gLightGridCount[flat], kLightsPerCellMax);
+        for (uint k = 0u; k < n; ++k)
+            Lr += gScene.shadeAnalyticLight(sd.posW, sd.normalW, sd.albedo,
+                                            gLightGridList[flat * kLightsPerCellMax + k], origin);
     }
+
     return Lr;
 }
 

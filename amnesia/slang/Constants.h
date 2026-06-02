@@ -56,7 +56,6 @@ SHARED_CONST uint kBindingDecalMaterial              = 26u;
 SHARED_CONST uint kBindingSurfelRefCounter          = 27u;
 SHARED_CONST uint kBindingSurfelReservation          = 28u;
 SHARED_CONST uint kBindingSpotLights                 = 29u;
-SHARED_CONST uint kBindingBoxLights                  = 30u;
 SHARED_CONST uint kBindingPackedHitInfo             = 31u;  // RGBA32UI storage image
 SHARED_CONST uint kBindingIrradianceMap              = 32u;  // R32F storage image
 SHARED_CONST uint kBindingSurfelDepthMap            = 33u;  // RG32F storage image
@@ -71,6 +70,10 @@ SHARED_CONST uint kBindingLightGridList               = 41u;  // RWStructuredBuf
 SHARED_CONST uint kBindingFogAreas                    = 42u;  // RWStructuredBuffer<FogAreaParams> — per-fog-area screen-space iteration
 SHARED_CONST uint kBindingPackedRefractionHitInfo     = 43u;  // RGBA32UI storage image — refracted-bounce V-buffer
 SHARED_CONST uint kBindingPackedReflectionHitInfo     = 44u;  // RGBA32UI storage image — reflected-bounce V-buffer
+SHARED_CONST uint kBindingAttenuationLut              = 45u;  // default light falloff LUT (core_falloff_linear), immutable on set 0
+SHARED_CONST uint kBindingDecals                      = 46u;  // RWStructuredBuffer<GpuDecal> (kMaxDecals) — clustered OOB decals
+SHARED_CONST uint kBindingObjectDecalIndices          = 47u;  // RWStructuredBuffer<uint> — flat per-object decal-index lists (UniformObject.decalList = offset<<8|count); replaces the decal grid
+// (binding 48 free — former kBindingDecalGridList)
 
 // -----------------------------------------------------------------------------
 // Bindless pool capacities + sentinel.
@@ -88,8 +91,8 @@ SHARED_CONST uint kTextureSlotCapacity       = 16384u;
 SHARED_CONST uint kMaterialSlotCapacity      = 16384u;
 SHARED_CONST uint kPointSlotLightCapacity    = 256u;
 SHARED_CONST uint kSpotSlotLightCapacity     = 256u;
-SHARED_CONST uint kBoxSlotLightCapacity      = 256u;
 SHARED_CONST uint kFogAreaCapacity           = 32u;
+SHARED_CONST uint kMaxDecals                  = 4096u;  // gDecals[] capacity (clustered OOB decals)
 SHARED_CONST uint kInvalidTextureIndex       = 0xffffffffu;
 
 // -----------------------------------------------------------------------------
@@ -176,10 +179,15 @@ SHARED_CONST uint2 kSurfelDepthTextureUnit = uint2(7, 7);
 // sampling. Covers the same extent as the surfel grid (kCellDimension·kCellUnit)
 // but at a coarse resolution so per-cell light lists stay short. Built each
 // frame by LightGridBuildPass; read by SurfelRayTrace.rt evalAnalyticLight.
-SHARED_CONST uint  kLightGridDim       = 32u;
+SHARED_CONST uint  kLightGridDim       = 128u;
 SHARED_CONST float kLightGridUnit      = (float(kCellDimension) * kCellUnit) / float(kLightGridDim);
 SHARED_CONST uint  kLightGridCellCount = kLightGridDim * kLightGridDim * kLightGridDim;  // 32768
-SHARED_CONST uint  kLightsPerCellMax   = 32u;                                            // per-cell cap
+SHARED_CONST uint  kLightsPerCellMax   = 128u;                                           // per-cell light-list cap (list buffer = kLightGridCellCount·this·4B); lights past it are dropped by atomic order
+
+// Decals use a precomputed per-object decal list (UniformObject.decalList →
+// gObjectDecalIndices), not a spatial grid — see SceneTypes.UniformObject and
+// World::Compile. kMaxObjectDecalIndices caps the flat association pool.
+SHARED_CONST uint  kMaxObjectDecalIndices = 1u << 20;   // 1M (offset is 24-bit; cap well under that)
 
 // -----------------------------------------------------------------------------
 // gSurfelCounter slot indices. The counter is a flat
@@ -227,15 +235,8 @@ SHARED_CONST uint  kMaxSurfelForStep            = 10u;
 // its 1/π Lambert, so π (≈3.14) cancels it → indirect uses the same no-1/π
 // convention as the (base-matched) direct in SurfelGIRenderPass.frag; raise
 // above π to over-cheat the GI fill.
-SHARED_CONST float kIndirectLightScale          = 40.0f;
+SHARED_CONST float kIndirectLightScale          = 1.0f;
 
-// Box lights are volumetric ambient fills that contribute to GI only (never
-// direct). SurfelIntegratePass adds a box's color to surfels inside its AABB,
-// faded toward the faces. kBoxLightIndirectScale is the overall strength (cheat
-// knob, like kIndirectLightScale); kBoxFalloffBegin is the normalized distance
-// (0 at center, 1 at the face) where the edge fade starts.
-SHARED_CONST float kBoxLightIndirectScale       = 4.0f;
-SHARED_CONST float kBoxFalloffBegin             = 0.6f;
 
 // Surfel generation.
 SHARED_CONST float kDefaultChanceMultiply       = 0.3f;
@@ -261,14 +262,14 @@ SHARED_CONST uint  kDefaultMaxStep              = 6u;
 SHARED_CONST float kDefaultShortMeanWindow      = 0.03f;
 
 // determins the strenght of the wave intensity
-SHARED_CONST float kWaterRefractionIntensity = 1.0f;
-SHARED_CONST float kWaterReflectionIntensity = 0.5f;
+SHARED_CONST float kWaterRefractionIntensity = 0.6f;
 
 // Brightness multiplier for the water refraction/reflection bounce radiance.
 // The RT bounces are re-shaded (NEE direct + surfel indirect + emission), which
 // reads dimmer than the base game's fully-lit framebuffer/cubemap sample; this
 // lifts them back toward that brightness. 1.0 = raw re-shade.
-SHARED_CONST float kWaterBounceExposure = 2.0f;
+SHARED_CONST float kWaterReflectionExposure = 1.0f;
+SHARED_CONST float kWaterRefractionExposure = 2.0f; //0.5f;
 
 // How much wave turbulence the REFLECTION bounce normal keeps (the refraction
 // bounce always uses the full wave normal). The RT reflection is a sharp mirror
@@ -291,6 +292,24 @@ SHARED_CONST uint  kDefaultOverlayMode          = 0u;
 // to A/B direct vs. indirect.
 SHARED_CONST uint  kDefaultRenderDirectLighting    = 1u;
 SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
+
+// PBR point/spot-light falloff. The host stores intensity = authoredRadius² · scale.
+// The shader emits radiance = color · intensity · 1/(d² + sourceRadius²) — a plain
+// softened inverse-square that goes HDR (>1) near the source so lights cross the
+// bloom white point. At d = authoredRadius the radiance lands at ≈ color · scale and
+// rises above it closer in.
+//
+// LightGridBuildPass bins each light out to the distance where its brightest
+// channel's radiance dims to kLightRadianceFloor:
+//   reach² = maxChannel(color) · intensity / kLightRadianceFloor − sourceRadius²
+// reach² ≤ 0 (peak below the floor) drops the light entirely. NOTE: this bin reach
+// also governs indirect/GI spread — the surfel NEE only samples lights binned into a
+// surfel's cell, so lowering the floor widens and brightens GI (and crowds the
+// per-cell light cap); it is not purely a grid-cost knob.
+SHARED_CONST float kPointLightIntensityScale   = 0.4f;    // VISUAL radiance/bloom brightness knob only — does NOT affect binning/cull reach (the host computes reach from the unscaled authored radius); tune freely without re-culling lights
+SHARED_CONST float kLightRadianceFloor         = 0.005f;    // min per-channel radiance (linear) worth binning; reach² = maxC(color)·authoredRadius/floor − sourceRadiusSq (scale-independent)
+SHARED_CONST float kPointLightSourceRadiusSq   = 0.25f;  // soft source radius² (0.5m) — near-field softening + on-source peak cap (caps on-lamp radiance at color·intensity/this instead of 1/d²→∞; raise to soften lamp hotspots further)
+
 
 HOST_NAMESPACE_END
 

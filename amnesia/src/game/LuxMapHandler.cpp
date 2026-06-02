@@ -172,12 +172,16 @@ cLuxMapHandler::cLuxMapHandler() : iLuxUpdateable("LuxMapHandler")
 	mpPostEffect_Bloom = pGraphics->CreatePostEffect(&bloomParams);
 	pPostEffectComp->AddPostEffect(mpPostEffect_Bloom, 100);
 
-	//Tonemap — ACES filmic, runs after bloom (HDR) and before the LDR effects
-	//(ImageTrail/RadialBlur/Sepia), mapping linear HDR -> linear [0,1].
+	//Tonemap — ACES filmic + sRGB encode. Runs LAST (lowest priority): the
+	//multimap orders highest-priority first, so 0 places it after every other
+	//effect. Maps linear HDR -> ACES -> sRGB-encoded display, matching the GUI
+	//which writes display-encoded values to the same UNORM swapchain. It carries
+	//the mandatory output encode, so it must always run — no config toggle.
 	cPostEffectParams_ToneMap tonemapParams;
 	tonemapParams.mfExposure = 1.0f;
+	tonemapParams.mfShadowLift = 1.0f;
 	mpPostEffect_ToneMap = pGraphics->CreatePostEffect(&tonemapParams);
-	pPostEffectComp->AddPostEffect(mpPostEffect_ToneMap, 50);
+	pPostEffectComp->AddPostEffect(mpPostEffect_ToneMap, 0);
 
 	//Image trail
 	cPostEffectParams_ImageTrail imageTrailParams;

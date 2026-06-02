@@ -536,6 +536,7 @@ struct RIAccelStructure_s {
   RIAccelStructure_s() { memset(this, 0, sizeof(*this)); }
 
   void dispose(struct RIDevice_s *device);
+  void setDebugObjectName(struct RIDevice_s *device, const char *name);
 
   enum RIAccelStructureType_e type;
   uint32_t flags; // RIAccelStructureBuildBits_e snapshot

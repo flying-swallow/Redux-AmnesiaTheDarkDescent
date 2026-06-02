@@ -32,6 +32,8 @@ namespace hpl {
 
 	class cGraphics;
 	class cResources;
+	class cDecal;
+	class cMaterial;
 	class cSound;
 	class cPhysics;
 	class cScene;
@@ -240,6 +242,20 @@ namespace hpl {
 		
 		cMeshEntity* CreateMeshEntity(const tString &asName,cMesh *apMesh, bool abStatic=false);
 		void DestroyMeshEntity(cMeshEntity* apMesh);
+
+		///// DECAL METHODS //////////////////////////
+		// Creates an oriented-box decal (no geometry). The world owns it and the
+		// material; both are freed in DestroyAllEntities. Caller sets the box
+		// transform via SetWorldMatrix/SetPosition.
+		cDecal* CreateDecal(const tString& asName, const tString& asMaterial,
+							const cColor& aColor, const cVector2l& avSubDiv);
+
+		// All decals, in stable order (== gDecals[] upload order + the index space
+		// of GetDecalObjectIndices()).
+		const std::vector<cDecal*>& GetDecals() const { return mvDecals; }
+		// Flat pool of stable decal indices; each renderable's [offset,count)
+		// (iRenderable::GetDecalList*) addresses a run here. Built by Compile().
+		const std::vector<uint32_t>& GetDecalObjectIndices() const { return mvDecalObjectIndices; }
 		cMeshEntity* GetDynamicMeshEntity(const tString& asName);
 		
 		cMeshEntityIterator GetDynamicMeshEntityIterator();
@@ -408,6 +424,8 @@ namespace hpl {
 		tLightList mlstLights;
 		tMeshEntityList mlstDynamicMeshEntities;
 		tMeshEntityList mlstStaticMeshEntities;
+		std::vector<cDecal*> mvDecals;
+		std::vector<uint32_t> mvDecalObjectIndices;   // flat per-object decal-index pool (Compile())
 		tBillboardList mlstBillboards;
 		tBeamList mlstBeams;
 		tParticleSystemList mlstParticleSystems;

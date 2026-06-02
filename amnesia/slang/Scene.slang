@@ -40,23 +40,19 @@ public struct Ray
     public float  tMax;
 };
 
-// Flat-index → ILight resolver. Slices the virtual index across the three
-// typed light SSBOs (point, spot, box) in the same order documented by
+// Flat-index → ILight resolver. Slices the virtual index across the two
+// typed light SSBOs (point, spot) in the same order documented by
 // amnesia/glsl/surfel_light_nee.glsl. The interface return goes through
 // Slang's existential boxing — fine for the cold paths (UI, debug);
 // performance-critical NEE should call sampleLightByIndex below, which
-// branches directly to the typed PointLight/SpotLight/BoxLight.sample().
+// branches directly to the typed PointLight/SpotLight.sample().
 public ILight getLight(uint ID)
 {
     uint nPoint = gPerFrame.pointLightCount;
     if (ID < nPoint) return gPointLights[ID];
     ID -= nPoint;
 
-    uint nSpot = gPerFrame.spotLightCount;
-    if (ID < nSpot) return gSpotLights[ID];
-    ID -= nSpot;
-
-    return gBoxLights[ID];
+    return gSpotLights[ID];
 }
 
 // Flat-index → IMaterial resolver. Slices the virtual index across the four
@@ -202,7 +198,7 @@ public struct SceneMaterials
         RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
                | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES
                | RAY_FLAG_CULL_BACK_FACING_TRIANGLES> q;
-        q.TraceRayInline(gRtAccel, 0, 0xff, ray);
+        q.TraceRayInline(gRtAccel, 0, kRayMaskOpaque, ray);
 
         while (q.Proceed())
         {
@@ -287,6 +283,44 @@ public struct SceneMaterials
         return gTextures2D[NonUniformResourceIndex(diffuseTex)]
                   .SampleLevel(gMaterialSampler, v.texC, 0.f).rgb;
     }
+
+    // Like traceReflection but returns the committed TriangleHit (not just its
+    // albedo) so the caller can fully lit-shade it — used by the raster water
+    // pass for sharp lit reflections. Returns false (outHit zeroed) on miss.
+    public bool traceReflectionHit(float3 origin, float3 dir, float tMax, out TriangleHit outHit)
+    {
+        outHit.instanceID = 0u; outHit.primitiveIndex = 0u; outHit.barycentrics = float2(0.f);
+
+        RayDesc ray;
+        ray.Origin = origin; ray.Direction = dir; ray.TMin = 0.f; ray.TMax = tMax;
+
+        RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES
+               | RAY_FLAG_CULL_BACK_FACING_TRIANGLES> q;
+        q.TraceRayInline(gRtAccel, 0, kRayMaskOpaque, ray);
+
+        while (q.Proceed())
+        {
+            if (q.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+            {
+                TriangleHit c;
+                c.instanceID     = q.CandidateInstanceID();
+                c.primitiveIndex = q.CandidatePrimitiveIndex();
+                c.barycentrics   = q.CandidateTriangleBarycentrics();
+                uint matID  = gScene.getMaterialID(c.instanceID);
+                VertexData v = gScene.getVertexData(c);
+                if (!alphaTest(v, matID, 0.f))
+                    q.CommitNonOpaqueTriangleHit();
+            }
+        }
+
+        if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
+            return false;
+
+        outHit.instanceID     = q.CommittedInstanceID();
+        outHit.primitiveIndex = q.CommittedPrimitiveIndex();
+        outHit.barycentrics   = q.CommittedTriangleBarycentrics();
+        return true;
+    }
 };
 
 public struct Scene
@@ -343,21 +377,12 @@ public struct Scene
     public uint getLightCount()
     {
         return gPerFrame.pointLightCount
-             + gPerFrame.spotLightCount
-             + gPerFrame.boxLightCount;
+             + gPerFrame.spotLightCount;
     }
 
-    // Box lights are volumetric ambient fills consumed only by the surfel GI
-    // (SurfelIntegratePass), never the direct loop. Expose them via gScene so
-    // passes that don't bind gPerFrame/gBoxLights directly can iterate them.
-    public uint getBoxLightCount() { return gPerFrame.boxLightCount; }
-    public BoxLight getBoxLight(uint i) { return gBoxLights[i]; }
-
     // Performance path for surfel NEE: branches directly on the slice
-    // index and calls the typed PointLight/SpotLight/BoxLight.sample()
-    // without going through an interface existential. Box lights NEE-
-    // return false (matches surfel_light_nee.glsl — boxes are volumetric
-    // tints, not directional lights).
+    // index and calls the typed PointLight/SpotLight.sample() without going
+    // through an interface existential.
     public bool sampleLightByIndex(uint virtualIndex, float3 shadingPosW, out LightSample ls)
     {
         ls.Li       = float3(0.0f);
@@ -377,14 +402,27 @@ public struct Scene
         {
             return gSpotLights[virtualIndex].sample(shadingPosW, ls);
         }
-        virtualIndex -= nSpot;
-
-        uint nBox = gPerFrame.boxLightCount;
-        if (virtualIndex < nBox)
-        {
-            return false;
-        }
         return false;
+    }
+
+    // Shade one analytic light at a surface point: sample it, NdotL-cull,
+    // shadow-ray test, return albedo·Li·NdotL (no 1/π — base-game direct
+    // convention). Shared by the direct composite (SurfelShade.evalAnalyticLight)
+    // and the surfel NEE pass (SurfelRayTrace), which scales the result by its
+    // 1/π·invPdf·indirect factors. `origin` is the (epsilon-offset) shadow-ray
+    // origin the caller already computes.
+    public float3 shadeAnalyticLight(float3 posW, float3 normalW, float3 albedo,
+                                     uint lightIndex, float3 origin)
+    {
+        LightSample ls;
+        if (!sampleLightByIndex(lightIndex, posW, ls)) return float3(0.f);
+
+        float NdotL = dot(normalW, ls.dir);
+        if (NdotL <= 0.f) return float3(0.f);
+
+        if (!materials.traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
+
+        return albedo * ls.Li * NdotL;
     }
 
     // --- Mesh / hit data ------------------------------------------------------

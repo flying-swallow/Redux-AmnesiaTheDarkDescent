@@ -40,18 +40,18 @@ public extension PointLight : ILight
     public float3 getColor()    { return color; }
     public float3 getPosition() { return position; }
 
-    // Matches the forward composite at visibility_shade.frag:275-323 — radial
-    // LUT via sampleAttenuation, gobo cube in light-local space, `intensity`
-    // is the legacy specular-only flag (NOT a diffuse multiplier).
+    // Radiance = color · intensity · softened inverse-square. The attenuation is a
+    // plain inverse-square (no reach window) so radiance goes HDR (>1) near the
+    // source and blooms; the reach cutoff lives only in the grid binning, not here.
     public bool sample(float3 shadingPosW, out LightSample ls)
     {
         ls.Li = float3(0.0); ls.pdf = 1.0; ls.dir = float3(0,0,1); ls.distance = 0.0;
         float3 toLight = position - shadingPosW;
         float  dist    = length(toLight);
-        if (dist <= 0.0 || dist > radius) return false;
-        float3 L     = toLight / dist;
-        float  r2    = (dist * dist) / (radius * radius);
-        float  atten = sampleAttenuation(attenuationTextureIndex, r2);
+        if (dist <= 0.0) return false;
+        float3 L      = toLight / dist;
+        float  d2     = dist * dist;
+        float  atten  = 1.0 / (d2 + kPointLightSourceRadiusSq);            // softened inverse-square (HDR near source)
 
         float3 gobo = float3(1.0);
         if (goboTextureIndex != kInvalidTextureIndex)
@@ -62,7 +62,7 @@ public extension PointLight : ILight
                 .SampleLevel(gMaterialSampler, lightLocalDir, 0.0).rgb;
         }
 
-        ls.Li       = color * gobo * atten;
+        ls.Li       = color * intensity * gobo * atten;
         ls.dir      = L;
         ls.distance = dist;
         return true;
@@ -75,18 +75,19 @@ public extension SpotLight : ILight
     public float3 getColor()    { return color; }
     public float3 getPosition() { return position; }
 
-    // Matches visibility_shade.frag:339-411 — radial LUT, cone LUT or
-    // smoothstep fallback, gobo via viewProjection replaces the cone factor
-    // when bound. `intensity` is specular-only (omitted from the diffuse Li).
+    // Radiance = color · intensity · softened inverse-square (same radial term as
+    // PointLight — plain inverse-square, HDR near source, no reach window; the
+    // cutoff is grid-only), times an angular cone term (cone LUT/smoothstep, or a
+    // projected gobo via viewProjection when bound).
     public bool sample(float3 shadingPosW, out LightSample ls)
     {
         ls.Li = float3(0.0); ls.pdf = 1.0; ls.dir = float3(0,0,1); ls.distance = 0.0;
         float3 toLight = position - shadingPosW;
         float  dist    = length(toLight);
-        if (dist <= 0.0 || dist > radius) return false;
-        float3 L     = toLight / dist;
-        float  r2    = (dist * dist) / (radius * radius);
-        float  atten = sampleAttenuation(attenuationTextureIndex, r2);
+        if (dist <= 0.0) return false;
+        float3 L      = toLight / dist;
+        float  d2     = dist * dist;
+        float  atten  = 1.0 / (d2 + kPointLightSourceRadiusSq);            // softened inverse-square (HDR near source)
 
         float3 gobo = float3(1.0);
         float  cone = 1.0;
@@ -103,30 +104,16 @@ public extension SpotLight : ILight
         {
             float cosTheta = dot(-L, direction);
             if (cosTheta < cosOuterAngle) return false;
-            cone = sampleSpotCone(coneFalloffTextureIndex, cosTheta, cosOuterAngle);
+            cone = sampleSpotCone(cosTheta, cosOuterAngle);
         }
 
-        ls.Li       = color * atten * gobo * cone;
+        ls.Li       = color * intensity * gobo * cone * atten;
         ls.dir      = L;
         ls.distance = dist;
         return true;
     }
 };
 
-public extension BoxLight : ILight
-{
-    public uint getType()     { return type; }
-    public float3 getColor()    { return color; }
-    public float3 getPosition() { return center; }
-
-    // Box lights aren't iterated by the GLSL forward composite, so the NEE
-    // path stays consistent by skipping them entirely.
-    public bool sample(float3 shadingPosW, out LightSample ls)
-    {
-        ls.Li = float3(0.0); ls.pdf = 1.0; ls.dir = float3(0,1,0); ls.distance = 0.0;
-        return false;
-    }
-};
 
 // -----------------------------------------------------------------------------
 // IMaterial — common shape for the bindless material SSBO entries.

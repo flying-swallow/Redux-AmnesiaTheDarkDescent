@@ -81,6 +81,11 @@ public:
 
 	RICommandRingBuffer_s<RI_COMMAND_RING_POOL_COUNT, RI_COMMAND_RING_CMD_PER_POOL> graphicsCmdRing;
 	struct RICommandRingElement_s primary;
+	// Dedicated command buffer for BLAS builds, submitted (signalling its own
+	// semaphore) ahead of `primary` so the primary's TLAS build is guaranteed to
+	// see fully-built BLAS without an inline accel-build barrier. Second element
+	// from graphicsCmdRing (its own cmd/fence/semaphore, shares primary's pool).
+	struct RICommandRingElement_s blasSubmit;
 
   struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> guiVertexAlloc;
   RIBuffer_s guiVertexBuffer; 

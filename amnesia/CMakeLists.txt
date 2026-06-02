@@ -149,6 +149,8 @@ SHADERS
     ./slang/ParticlePass/Particle.frag.slang
     ./slang/TranslucentPass/Translucent.vert.slang
     ./slang/TranslucentPass/Translucent.frag.slang
+    ./slang/WaterPass/Water.vert.slang
+    ./slang/WaterPass/Water.frag.slang
     ./slang/DecalPass/Decal.vert.slang
     ./slang/DecalPass/Decal.frag.slang
     ./slang/SurfelGBuffer/SurfelGBuffer.3d.slang
@@ -159,8 +161,7 @@ SHADERS
     ./slang/SurfelGI/SurfelEvaluationPass.cs.slang
     ./slang/SurfelGI/SurfelRayTrace.rt.slang
     ./slang/SurfelGI/LightGridBuildPass.cs.slang
-    ./slang/SurfelGIRenderPass/SurfelGIRenderPass.frag.slang
-    ./slang/AlbedoResolve/albedo_resolve.frag.slang
+    ./slang/SurfelGIRenderPass/SurfelGIRenderPass.cs.slang
     ./slang/SurfelVBuffer/SurfelVBuffer.rt.slang
     ./slang/PostEffect/posteffect_fullscreen.vert.slang
     ./slang/PostEffect/posteffect_blit.frag.slang

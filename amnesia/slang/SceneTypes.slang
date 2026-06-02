@@ -20,68 +20,49 @@ HOST_NAMESPACE_BEGIN
 
 
 // -----------------------------------------------------------------------------
-// Scalar-layout point light. `type` discriminator at offset 0; remaining
-// fields match the legacy host upload (HybridRenderer.cpp's point-light loop).
-// `attenuationTextureIndex` points into textures_2d[] at the light's 1D-as-2D
-// falloff LUT keyed on (d/r)²; kInvalidTextureIndex triggers the analytic
-// saturate(1-(d/r)²) fallback in sampleAttenuation (light_falloff.glsl).
-// `intensity` mirrors the base-game `lightColor.w` specular flag/multiplier
-// (cColor.a) — used only on the specular term, not on diffuse.
-// `goboTextureIndex` points into textures_cube[] (set 0, binding 1); when
-// set, sample the cube in light-local space using the worldToLight* rows.
-// worldToLight{X,Y,Z} are the rows of the light's world rotation (R), which
-// reconstruct R^T via `float3x3(worldToLightX, worldToLightY, worldToLightZ)`.
+// Scalar-layout point light. `type` discriminator at offset 0 (ILight contract).
+// `intensity` is the light's luminous power (CPU-derived in HybridRenderer's
+// point-light loop as authoredRadius²·kPointLightIntensityScale; color already
+// carries brightness, so no luminance term). The radiance falloff
+// (interface.slang) is a plain WINDOWLESS inverse-square, so intensity only sets
+// brightness there; the reach cutoff (reach² = maxChannel(color)·intensity /
+// kLightRadianceFloor − kPointLightSourceRadiusSq) lives solely in
+// LightGridBuildPass binning. `color` is the linear diffuse
+// colour. `goboTextureIndex` points into
+// textures_cube[] (set 0, binding 1); when set, sample the cube in light-local
+// space using the worldToLight* rows — the rows of the light's world rotation (R),
+// which reconstruct R^T via `float3x3(worldToLightX, worldToLightY, worldToLightZ)`.
 // -----------------------------------------------------------------------------
 SLANG_PUBLIC struct PointLight {
     SLANG_PUBLIC uint  type;                         // LIGHT_TYPE_POINT
-    SLANG_PUBLIC uint  attenuationTextureIndex;
     SLANG_PUBLIC uint  goboTextureIndex;
-    SLANG_PUBLIC float intensity;
     SLANG_PUBLIC float3  position;
-    SLANG_PUBLIC float radius;
+    SLANG_PUBLIC float intensity;                    // luminous power (CPU-derived)
     SLANG_PUBLIC float3  color;
     SLANG_PUBLIC float3  worldToLightX;
     SLANG_PUBLIC float3  worldToLightY;
     SLANG_PUBLIC float3  worldToLightZ;
+    SLANG_PUBLIC float radius;                       // CPU-precomputed light-grid bin reach (world units); 0 ⇒ skip
 };
 
-// Scalar-layout spot light. Adds cone forward + pre-baked cos(angle/2),
-// optional gobo + cone-falloff LUT slots, shadow bit, and the light's
-// view-projection matrix (gobo / future shadow-map UVs). attenuationTextureIndex
-// is the legacy radial LUT (d/r)²; coneFalloffTextureIndex is the legacy
-// 1D cone-falloff LUT keyed on (1-cosTheta)/(1-cosOuterAngle). Both LUT slots
-// follow the kInvalidTextureIndex → analytic fallback convention.
+// Scalar-layout spot light. `intensity` = luminous power (same convention as
+// PointLight; bin reach derived from the radiance floor in-shader — see PointLight
+// above). The shader uses the windowless inverse-square radial falloff plus an
+// angular cone term. Carries
+// the cone forward + pre-baked cos(angle/2), an optional projected gobo, a
+// shadow bit, and the light's view-projection matrix (gobo / future shadow-map
+// UVs).
 SLANG_PUBLIC struct SpotLight {
     SLANG_PUBLIC uint  type;                         // LIGHT_TYPE_SPOT
-    SLANG_PUBLIC uint  attenuationTextureIndex;
     SLANG_PUBLIC uint  goboTextureIndex;
-    SLANG_PUBLIC uint  coneFalloffTextureIndex;
     SLANG_PUBLIC float3  position;
-    SLANG_PUBLIC float radius;
+    SLANG_PUBLIC float intensity;                    // luminous power (CPU-derived)
     SLANG_PUBLIC float3  direction;                    // world-space outward forward
     SLANG_PUBLIC float cosOuterAngle;                // cos(GetFOV() * 0.5)
     SLANG_PUBLIC float3  color;
-    SLANG_PUBLIC float intensity;
     SLANG_PUBLIC uint  shadowEnabled;                // 0 or 1
     SLANG_PUBLIC float4x4  viewProjection;               // light-space ViewProj for gobo UVs
-};
-
-// Scalar-layout box (volumetric) light. World-space AABB centered on the
-// light's world position, matching RendererDeferred.cpp's box-light proxy
-// (Scale × Translate, no rotation). Pixel is "inside" when
-// abs(worldPos - center) <= halfSize component-wise.
-// Color is the legacy `cColor.rgb`; alpha is intentionally not stored because
-// the legacy box shader discards it (deferred_light_box.frag.fsl). Add-blend
-// only for now (eLightBoxBlendFunc_Replace is treated as Add on the C++ side).
-SLANG_PUBLIC struct BoxLight {
-    SLANG_PUBLIC uint  type;                         // LIGHT_TYPE_BOX
-    SLANG_PUBLIC uint  blendFunc;                    // 0 = Replace, 1 = Add
-    SLANG_PUBLIC float3  center;                       // world-space box center
-    SLANG_PUBLIC float3  halfSize;                     // world-space AABB half-extents
-    SLANG_PUBLIC float3  color;
-    SLANG_PUBLIC float3  worldToLightX;
-    SLANG_PUBLIC float3  worldToLightY;
-    SLANG_PUBLIC float3  worldToLightZ;
+    SLANG_PUBLIC float radius;                       // CPU-precomputed light-grid bin reach (world units); 0 ⇒ skip
 };
 
 // Per-fog-area params for the screen-space fog iteration. One entry per
@@ -174,6 +155,33 @@ SLANG_PUBLIC struct UniformObject {
     SLANG_PUBLIC float4x4  modelMat;
     SLANG_PUBLIC float4x4  invModelMat;
     SLANG_PUBLIC float4x4  uvMat;
+    // Precomputed per-object decal list, packed (offset << 8) | count, indexing
+    // gObjectDecalIndices[] (stable gDecals[] indices). Built once at load by
+    // World::Compile from the static decal↔object intersection (the editor
+    // baked decals as static meshes clipped to specific geometry). count==0 for
+    // dynamic/movable objects, so they never receive decals. compositeDecals
+    // iterates only this list — no spatial grid, no receiver-category bits.
+    SLANG_PUBLIC uint  decalList;
+};
+
+// Clustered OOB decal. No geometry: invModelMat maps a world position into the
+// decal's unit-cube box [-0.5,0.5]^3; the projection pass clips to the box and
+// samples the decal texture (DiffuseMaterial slot `materialID`). receiverMask is
+// the eDecalReceiver filter; blendMode is eMaterialBlendMode. Packed each frame
+// from cDecal into gDecals[] (binding kBindingDecals).
+SLANG_PUBLIC struct GpuDecal {
+    SLANG_PUBLIC float4x4 invModelMat;
+    SLANG_PUBLIC float4   color;
+    SLANG_PUBLIC uint     materialID;
+    SLANG_PUBLIC uint     receiverMask;
+    SLANG_PUBLIC uint     blendMode;
+    SLANG_PUBLIC uint     subDivX;        // texture-atlas grid (editor SubDiv)
+    SLANG_PUBLIC uint     subDivY;
+    SLANG_PUBLIC uint     subDivIndex;    // selected atlas cell (editor CurrentSubDiv)
+    // World-space projection axis (decal local +Y). projectDecal rejects surfaces
+    // facing away from it (matches DecalCreator's per-triangle backface cull).
+    SLANG_PUBLIC float3   projAxisWS;
+    SLANG_PUBLIC float    _pad;
 };
 
 // -----------------------------------------------------------------------------
@@ -250,12 +258,12 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC float zNear;                      // view-space, positive
     SLANG_PUBLIC float zFar;                       // view-space, positive
     SLANG_PUBLIC uint  spotLightCount;             // active entries in gSpotLights[]
-    SLANG_PUBLIC uint  boxLightCount;              // active entries in gBoxLights[]
     SLANG_PUBLIC uint  diffuseMaterialCount;       // active entries in gDiffuseMaterials[]
     SLANG_PUBLIC uint  translucentMaterialCount;   // active entries in gTranslucentMaterials[]
     SLANG_PUBLIC uint  waterMaterialCount;         // active entries in gWaterMaterials[]
     SLANG_PUBLIC uint  decalMaterialCount;         // active entries in gDecalMaterials[]
     SLANG_PUBLIC uint  fogAreaCount;               // active entries in gFogAreas[]
+    SLANG_PUBLIC uint  decalCount;                 // active entries in gDecals[]
 
     SLANG_PUBLIC float3 posW;
     SLANG_PUBLIC float jitterX;

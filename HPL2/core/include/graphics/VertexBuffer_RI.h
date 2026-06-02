@@ -108,8 +108,12 @@ public:
   };
 
   void AttachResourceToCntx(RIBootstrap::FrameContext *cntx);
+  // Uploads the vertex/index streams and (when abBuildBlas) rebuilds the BLAS.
+  // Pass abBuildBlas=false for renderables that are never TLAS instances
+  // (particles/billboards/beams/ropes/decals) to skip the dead BLAS work while
+  // still uploading streams for the raster pass.
   void SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
-                   RIBootstrap::FrameContext *cntx);
+                   RIBootstrap::FrameContext *cntx, bool abBuildBlas = true);
 
   virtual iVertexBuffer *CreateCopy(eVertexBufferType aType,
                                     eVertexBufferUsageType aUsageType,
@@ -175,7 +179,7 @@ protected:
   std::shared_ptr<RIBuffer_s> m_indexBuffer;
   std::vector<uint32_t> m_indices = {};
 
-  uint32_t m_generation = 0; 
+  uint32_t m_generation = 0;
   uint32_t m_lastSubmitted = 0;
 
   size_t m_indexBufferActiveCopy = 0;

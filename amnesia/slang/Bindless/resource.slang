@@ -159,6 +159,14 @@ public RWStructuredBuffer<WaterMaterial> gWaterMaterials;
 [vk::binding(kBindingDecalMaterial, 0)]
 public RWStructuredBuffer<DecalMaterial> gDecalMaterials;
 
+[vk::binding(kBindingDecals, 0)]
+public RWStructuredBuffer<GpuDecal> gDecals;
+
+// Flat per-object decal-index pool. UniformObject.decalList packs (offset<<8)|count;
+// compositeDecals reads gObjectDecalIndices[offset + k] → a stable gDecals[] index.
+[vk::binding(kBindingObjectDecalIndices, 0)]
+public RWStructuredBuffer<uint> gObjectDecalIndices;
+
 // -----------------------------------------------------------------------------
 // Per-frame light SSBOs. Counts come from SceneConstants on set 1 (the
 // per-frame UBO). Iterate up to that count, not the array length.
@@ -168,9 +176,6 @@ public RWStructuredBuffer<PointLight> gPointLights;
 
 [vk::binding(kBindingSpotLights, 0)]
 public RWStructuredBuffer<SpotLight> gSpotLights;
-
-[vk::binding(kBindingBoxLights, 0)]
-public RWStructuredBuffer<BoxLight> gBoxLights;
 
 [vk::binding(kBindingFogAreas, 0)]
 public RWStructuredBuffer<FogAreaParams> gFogAreas;
@@ -202,33 +207,9 @@ public RWStructuredBuffer<FogAreaParams> gFogAreas;
 [vk::binding(kBindingPackedHitInfo, 1)]
 public RWTexture2D<uint4> gPackedHitInfo;
 
-// Per-bounce V-buffers written by SurfelVBuffer.rt.slang. closeHit routes
-// the secondary hit by payload.kind into one of these instead of clobbering
-// gPackedHitInfo, so the primary surface stays intact for surfel placement
-// + GI shading and downstream passes (Translucent.frag, GIRenderPass)
-// can blend the refracted / reflected contribution on top using the
-// source-surface material.
-//
-// Packed layout matches gPackedHitInfo for .xyz; .w high bits carry the
-// **source** instanceID (the glass / mirror that bent the ray) so a
-// consumer can look up its DiffuseMaterial without needing a separate
-// ID texture. Bit 0 of .w doubles as the valid flag (per-frame clear =
-// uint4(0) → invalid → "no bounce here"). Use getBounceSourceInstanceID
-// below to decode.
-[vk::binding(kBindingPackedRefractionHitInfo, 1)]
-public RWTexture2D<uint4> gPackedRefractionHitInfo;
-
-[vk::binding(kBindingPackedReflectionHitInfo, 1)]
-public RWTexture2D<uint4> gPackedReflectionHitInfo;
-
-// Decode helper for the .w slot in the bounce V-buffers. Returns
-// kInvalidInstanceID (0xffffu) when the pixel has no bounce (per-frame
-// clear) or when called on a primary-hit packed value (whose .w is 0).
-public uint getBounceSourceInstanceID(uint4 packed)
-{
-    if ((packed.w & 1u) == 0u) return 0xffffu;
-    return (packed.w >> 1) & 0xffffu;
-}
+// (Per-bounce refraction/reflection V-buffers removed: water refraction now
+// clobbers gPackedHitInfo like glass, and water reflection moved to the raster
+// water pass.)
 
 [vk::binding(kBindingIrradianceMap, 1)]
 public RWTexture2D<float> gIrradianceMap;
@@ -241,6 +222,13 @@ public Texture2D<float2> gSurfelDepth;
 
 [vk::binding(kBindingSurfelDepthSampler, 0)]
 public SamplerState gSurfelDepthSampler;
+
+// Default light falloff LUT (core_falloff_linear), bound once on set 0 — it never
+// changes, so it lives here as an immutable global rather than being resolved
+// per-light through the bindless texture pool. Sample with gSurfelDepthSampler
+// (clamp). Keyed on r²=(d/r)² for radial, (1-cosθ)/(1-cosOuter) for the spot cone.
+[vk::binding(kBindingAttenuationLut, 0)]
+public Texture2D<float4> gAttenuationLut;
 
 // Surfel-GI scatter RT acceleration structure. Pushed on set 1
 // per-dispatch (the TLAS is rebuilt every frame).

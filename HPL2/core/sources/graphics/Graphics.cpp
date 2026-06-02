@@ -163,7 +163,7 @@ namespace hpl {
 		backendInit.api = RI_DEVICE_API_VK;
 		backendInit.applicationName = "HPL2";
 #ifndef NDEBUG
-    backendInit.vk.enableValidationLayer = false;
+    	backendInit.vk.enableValidationLayer = false; 
 #else
 		backendInit.vk.enableValidationLayer = false;
 #endif
@@ -212,7 +212,7 @@ namespace hpl {
 		swapchainInit.queue = &RI.device.queues[RI_QUEUE_GRAPHICS];
 		swapchainInit.width = alWidth;
 		swapchainInit.height = alHeight;
-		swapchainInit.format = RI_SWAPCHAIN_BT709_G10_16BIT;
+		swapchainInit.format = RI_SWAPCHAIN_BT709_G22_8BIT;
 		InitRISwapchain(&RI.device, &swapchainInit, &RI.swapchain);
 
 		{

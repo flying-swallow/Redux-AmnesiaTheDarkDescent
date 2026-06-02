@@ -57,6 +57,7 @@
 #include "scene/LightSpot.h"
 #include "scene/LightBox.h"
 #include "scene/MeshEntity.h"
+#include "scene/Decal.h"
 #include "scene/SoundEntity.h"
 #include "scene/ParticleEmitter.h"
 #include "scene/ParticleSystem.h"
@@ -90,7 +91,36 @@
 #include "haptic/Haptic.h"
 #include "haptic/LowLevelHaptic.h"
 
+#include <algorithm>
+#include <cstdint>
+#include <utility>
+
 namespace hpl {
+
+	namespace {
+
+		//-----------------------------------------------------------------------
+		// Morton (Z-order) helpers for decal locality. Spread the low 10 bits of
+		// each axis so a 30-bit interleaved code keeps spatially-near points near
+		// in linear order. See cWorld::Compile for why decals are sorted this way.
+		//-----------------------------------------------------------------------
+
+		inline uint32_t Part1By2(uint32_t v)
+		{
+			v &= 0x000003ffu;                       // keep 10 bits
+			v = (v ^ (v << 16)) & 0xff0000ffu;
+			v = (v ^ (v <<  8)) & 0x0300f00fu;
+			v = (v ^ (v <<  4)) & 0x030c30c3u;
+			v = (v ^ (v <<  2)) & 0x09249249u;
+			return v;
+		}
+
+		inline uint32_t MortonCode3D(uint32_t x, uint32_t y, uint32_t z)
+		{
+			return (Part1By2(z) << 2) | (Part1By2(y) << 1) | Part1By2(x);
+		}
+
+	} // namespace
 
 	//////////////////////////////////////////////////////////////////////////
 	// CONSTRUCTORS
@@ -191,8 +221,16 @@ namespace hpl {
 	void cWorld::DestroyAllEntities(tWorldDestroyAllFlag aFlags)
 	{
 		if( (aFlags & eWorldDestroyAllFlag_SkipStaticEntities)==0)
+		{
 			STLDeleteAll(mlstStaticMeshEntities);
-		
+
+			// Decals are static. Release each decal's material (the world created
+			// it via the material manager) then delete the decals themselves.
+			for(size_t i=0; i<mvDecals.size(); ++i)
+				mpResources->GetMaterialManager()->Destroy(mvDecals[i]->GetMaterial());
+			STLDeleteAll(mvDecals);
+		}
+
 		STLDeleteAll(mlstDynamicMeshEntities);
 		STLDeleteAll(mlstLights);
 		STLDeleteAll(mlstBillboards);
@@ -306,6 +344,126 @@ namespace hpl {
 	{
 		for(int i=0; i<2; ++i)
 			if(mpRenderableContainer[i]) mpRenderableContainer[i]->Compile();
+
+		// Precompute the static decal<->object association. The editor baked decals
+		// as static meshes clipped to specific geometry; reproduce that by tagging
+		// each static renderable with the decals whose oriented-box volume overlaps
+		// its bounding volume. Dynamic/movable objects (e.g. a chair) are never in
+		// the static container, so they get no decals — fixing decals projecting
+		// onto objects that merely pass through the decal volume. The per-object
+		// run [offset,count) indexes mvDecalObjectIndices (== gDecals[] order).
+		// BV-level here; the per-pixel oriented-box test in the GI pass refines it.
+
+		// Reorder decals along a Morton (Z-order) curve so decals that are close in
+		// world space are close in mvDecals (== GetDecals() == gDecals[] upload)
+		// order. The per-pixel GI pass fetches gDecals[di] for every decal a hit
+		// object was clipped to; spatially-coherent ordering makes those fetches —
+		// and neighbouring pixels' fetches at object boundaries — land on adjacent
+		// cache lines. Done here, before the association below indexes this order,
+		// so no remap is needed. Static set only: decals are fixed after Compile,
+		// and other systems reference decals by pointer, not index, so reordering
+		// the vector is safe.
+		if(mvDecals.size() > 1)
+		{
+			cVector3f vBoundsMin(0.0f), vBoundsMax(0.0f);
+			bool bFirst = true;
+			for(cDecal* pDecal : mvDecals)
+			{
+				cBoundingVolume* pBV = pDecal ? pDecal->GetBoundingVolume() : NULL;
+				if(pBV == NULL) continue;
+				const cVector3f vC = pBV->GetWorldCenter();
+				if(bFirst) { vBoundsMin = vBoundsMax = vC; bFirst = false; continue; }
+				vBoundsMin.x = std::min(vBoundsMin.x, vC.x);
+				vBoundsMin.y = std::min(vBoundsMin.y, vC.y);
+				vBoundsMin.z = std::min(vBoundsMin.z, vC.z);
+				vBoundsMax.x = std::max(vBoundsMax.x, vC.x);
+				vBoundsMax.y = std::max(vBoundsMax.y, vC.y);
+				vBoundsMax.z = std::max(vBoundsMax.z, vC.z);
+			}
+
+			const cVector3f vExtent = vBoundsMax - vBoundsMin;
+			auto quant = [](float v, float lo, float ext) -> uint32_t {
+				if(ext <= 0.0f) return 0u;          // degenerate axis -> single bucket
+				float t = (v - lo) / ext;            // -> [0,1]
+				t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+				return (uint32_t)(t * 1023.0f + 0.5f);
+			};
+
+			// Precompute (code, decal) once so the sort doesn't re-fetch the BV.
+			std::vector<std::pair<uint32_t, cDecal*>> lvOrder;
+			lvOrder.reserve(mvDecals.size());
+			for(cDecal* pDecal : mvDecals)
+			{
+				cBoundingVolume* pBV = pDecal ? pDecal->GetBoundingVolume() : NULL;
+				const cVector3f vC = pBV ? pBV->GetWorldCenter() : cVector3f(0.0f);
+				const uint32_t lCode = MortonCode3D(quant(vC.x, vBoundsMin.x, vExtent.x),
+													quant(vC.y, vBoundsMin.y, vExtent.y),
+													quant(vC.z, vBoundsMin.z, vExtent.z));
+				lvOrder.emplace_back(lCode, pDecal);
+			}
+			std::stable_sort(lvOrder.begin(), lvOrder.end(),
+				[](const std::pair<uint32_t, cDecal*>& a, const std::pair<uint32_t, cDecal*>& b)
+				{ return a.first < b.first; });
+			for(size_t i=0; i<lvOrder.size(); ++i)
+				mvDecals[i] = lvOrder[i].second;
+		}
+
+		// Associate each renderable with the decals whose oriented-box volume
+		// overlaps its BV and whose receiverMask includes this container's
+		// category — static container = Static receivers, dynamic container =
+		// Entity/Primitive receivers (matches the editor's OnStatic/OnEntity/
+		// OnPrimitive clipping; e.g. a bloodstain with OnEntity reaches a table).
+		// NOTE: the OOB decal box is world-fixed at this position, so a decal on an
+		// object that later MOVES won't follow it (the old baked mesh did) — fine
+		// for static-placed set-dressing.
+		mvDecalObjectIndices.clear();
+		if(mvDecals.empty() == false)
+		{
+			auto associateContainer = [&](iRenderableContainer* apContainer, int alCategoryBits)
+			{
+				if(apContainer == NULL) return;
+				std::vector<iRenderableContainerNode*> lstStack;
+				lstStack.push_back(apContainer->GetRoot());
+				while(lstStack.empty() == false)
+				{
+					iRenderableContainerNode* pNode = lstStack.back();
+					lstStack.pop_back();
+					if(pNode == NULL) continue;
+
+					for(iRenderableContainerNode* pChild : pNode->GetChildNodes())
+						lstStack.push_back(pChild);
+
+					for(iRenderable* pObj : pNode->GetObjects())
+					{
+						cBoundingVolume* pObjBV = pObj->GetBoundingVolume();
+						if(pObjBV == NULL) continue;
+
+						const int lOffset = (int)mvDecalObjectIndices.size();
+						int lCount = 0;
+						for(size_t i=0; i<mvDecals.size(); ++i)
+						{
+							if((mvDecals[i]->GetReceiverMask() & alCategoryBits) == 0) continue;
+							cBoundingVolume* pDecalBV = mvDecals[i]->GetBoundingVolume();
+							if(pDecalBV == NULL) continue;
+							if(cMath::CheckBVIntersection(*pObjBV, *pDecalBV) == false) continue;
+							if(lCount >= 255)   // 8-bit count in UniformObject.decalList
+							{
+								Warning("cWorld::Compile: object exceeded 255 overlapping decals; clipping\n");
+								break;
+							}
+							mvDecalObjectIndices.push_back((uint32_t)i);
+							++lCount;
+						}
+						pObj->SetDecalList(lOffset, lCount);
+					}
+				}
+			};
+
+			associateContainer(mpRenderableContainer[eWorldContainerType_Static],
+							   eDecalReceiver_Static);
+			associateContainer(mpRenderableContainer[eWorldContainerType_Dynamic],
+							   eDecalReceiver_Entity | eDecalReceiver_Primitive);
+		}
 
 		if(mpPhysicsWorld && abCalcPhysicsWorldSize)
 		{
@@ -466,6 +624,27 @@ namespace hpl {
 		pMeshEntity->SetWorld(this);
 
 		return pMeshEntity;
+	}
+
+	//-----------------------------------------------------------------------
+
+	cDecal* cWorld::CreateDecal(const tString& asName, const tString& asMaterial,
+								const cColor& aColor, const cVector2l& avSubDiv)
+	{
+		cMaterial* pMaterial = mpResources->GetMaterialManager()->CreateMaterial(asMaterial);
+		if(pMaterial == NULL)
+			return NULL;
+
+		cDecal* pDecal = hplNew( cDecal, (asName, mpGraphics, pMaterial, aColor, avSubDiv) );
+		pDecal->SetStatic(true);
+
+		mvDecals.push_back(pDecal);
+
+		// Decals are static -> goes into the static renderable container, collected
+		// into eRenderListType_Decal each frame by its decal material.
+		AddRenderableToContainer(pDecal);
+
+		return pDecal;
 	}
 
 	//-----------------------------------------------------------------------

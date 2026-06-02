@@ -22,6 +22,7 @@ import Bindless.interface;
 import PerFrame.resource;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
+import Grid;                    // gridCellPos / gridFlattenCellIndex / gridCellValid (light grid lookup)
 import Random;
 
 // Ray-step / max-step come from `Constants.h` (kDefaultRayStep / kDefaultMaxStep),
@@ -171,10 +172,10 @@ float3 evalAnalyticLight(DiffuseShading sd, inout RNG rng)
     // dropped the last light).
     uint  lightIdx;
     float invPdf;
-    int3  lcell = getLightCellPos(sd.posW, gScene.camera.getPosition());
-    if (isLightCellValid(lcell))
+    int3  lcell = gridCellPos(sd.posW, gScene.camera.getPosition(), kLightGridUnit);
+    if (gridCellValid(lcell, kLightGridDim))
     {
-        uint flat = getLightFlattenCellIndex(lcell);
+        uint flat = gridFlattenCellIndex(lcell, kLightGridDim);
         uint L    = min(gLightGridCount[flat], kLightsPerCellMax);
         if (L > 0u)
         {
@@ -184,38 +185,29 @@ float3 evalAnalyticLight(DiffuseShading sd, inout RNG rng)
         }
         else
         {
-            lightIdx = rng.next_uint(lightCount);
-            invPdf   = float(lightCount);
+            return float3(0, 0, 0);
         }
     }
     else
     {
-        lightIdx = rng.next_uint(lightCount);
-        invPdf   = float(lightCount);
+        return float3(0, 0, 0);
     }
 
-    // Type-aware sample. Point lights use their full sampler (incl. gobo cube).
-    // Spot lights use a GI-only SPHERICAL sampler (radial falloff, no cone /
-    // gobo) so they contribute to indirect across their whole radius — the
-    // cone-restricted SpotLight.sample() (used for direct in
-    // SurfelGIRenderPass.frag) lights almost no surfels. Box lights aren't
-    // NEE-sampled (and aren't binned into the grid).
-    LightSample ls;
-    if (!gScene.sampleLightByIndex(lightIdx, sd.posW, ls)) return float3(0.f);
-
-    float NdotL = dot(sd.normalW, ls.dir);
-    if (NdotL <= 0.0f) return float3(0.f);
-
-    float3 origin = sd.posW + sd.normalW * kRayEps;
-    if (!gScene.materials.traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
+    // Type-aware shade shared with the direct path (gScene.shadeAnalyticLight:
+    // sample → NdotL-cull → shadow ray → albedo·Li·NdotL). Point lights use their
+    // full sampler (incl. gobo cube); spot lights use the same cone-restricted
+    // SpotLight.sample() as the direct path — matching the reference Falcor
+    // SurfelGI, where a spot's analytic GI contribution is cone-shaped too. Box
+    // lights aren't NEE-sampled (and aren't binned into the grid).
+    float3 origin   = sd.posW + sd.normalW * kRayEps;
+    float3 perLight = gScene.shadeAnalyticLight(sd.posW, sd.normalW, sd.albedo,
+                                                lightIdx, origin);
 
     // Lambert diffuse BRDF = albedo/π. kIndirectLightScale is a non-physical
     // boost that cheats the GI/indirect term brighter without touching direct
-    // (which lives in SurfelGIRenderPass.frag). π cancels the 1/π so indirect
-    // matches the base-game no-1/π convention; raise above π to over-cheat.
-    float3 Lr = sd.albedo * kInvPi * ls.Li * NdotL * invPdf * kIndirectLightScale;
-
-    return Lr;
+    // (which lives in SurfelGIRenderPass). π cancels the 1/π so indirect matches
+    // the base-game no-1/π convention; raise above π to over-cheat.
+    return perLight * invPdf * kIndirectLightScale;
 }
 
 // Try to terminate the path early by sampling the surfel cache instead of
