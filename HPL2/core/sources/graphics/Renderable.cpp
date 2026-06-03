@@ -22,6 +22,7 @@
 #include "math/Math.h"
 #include "math/Frustum.h"
 #include "system/LowLevelSystem.h"
+#include "system/Hasher.h"
 
 namespace hpl {
 
@@ -33,6 +34,8 @@ namespace hpl {
 	
 	iRenderable::iRenderable(const tString &asName) : iEntity3D(asName)
 	{
+		mUniqueCookie = hash_random();
+
 		mlLastMatrixCount = -1;
 
 		mbStatic = false;

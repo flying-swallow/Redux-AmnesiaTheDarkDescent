@@ -51,6 +51,11 @@ namespace hpl {
 		iRenderable(const tString &asName);
 		virtual ~iRenderable() {}
 
+		// Stable per-instance cookie (random, assigned in the constructor). Used
+		// as a renderer cache key in place of the renderable pointer, which is
+		// unsafe across free + realloc (a reused address would alias the old slot).
+		uint64_t GetUniqueCookie() const { return mUniqueCookie; }
+
 		virtual cMaterial *GetMaterial()=0;
 		virtual iVertexBuffer* GetVertexBuffer()=0;
 
@@ -134,6 +139,8 @@ namespace hpl {
 		inline int GetDecalListCount() const { return mlDecalListCount; }
 
 	protected:
+		uint64_t mUniqueCookie;
+
 		cMatrixf m_mtxInvModel;
 		cMatrixf m_mtxPrevious;
 		cMatrixf *mpModelMatrix;

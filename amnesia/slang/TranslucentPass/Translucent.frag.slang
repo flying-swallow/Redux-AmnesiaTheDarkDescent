@@ -17,7 +17,7 @@
 // deviation is refraction. The legacy bend-behind distortion (screen-color
 // copy + per-fragment UV offset) is moved upstream: the RT V-buffer
 // (SurfelVBuffer.rt.slang::closeHit) bends the primary ray through refractive
-// materials and SurfelGIRenderPass.frag.slang shades the resulting hit, so by
+// materials and MainCompositePass.cs.slang shades the resulting hit, so by
 // the time this shader runs the GI composite already shows the refracted
 // background at every refractive pixel. The translucent surface just
 // alpha-blends on top — no screen-color sample, no refraction block here.
@@ -25,10 +25,11 @@
 
 
 #include "Constants.h"
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 import PerFrame.resource;
 import Fog;
+import Scene;
 
 #define BLEND_MODE_ADD          0u
 #define BLEND_MODE_MUL          1u
@@ -75,8 +76,8 @@ float computeFresnel(float afEDotN, float afFresnelBias, float afFresnelPow)
 [shader("fragment")]
 float4 psMain(TranslucentVSOut psIn) : SV_TARGET
 {
-    UniformObject   obj = gSceneObjects[psIn.objectId];
-    DiffuseMaterial mat = gDiffuseMaterials[obj.materialID];
+    UniformObject       obj = gSceneObjects[psIn.objectId];
+    TranslucentMaterial mat = gScene.getTranslucentMaterial(obj.materialID);
 
     // Reference mask: when the second cube-map-only draw runs, the diffuse /
     // illumination / etc. sample paths are switched off so only the

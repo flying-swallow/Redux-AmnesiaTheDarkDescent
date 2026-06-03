@@ -1,7 +1,7 @@
 // Raster G-buffer pass — Slang port of amnesia/glsl/gbuffer.{vert,frag}.
 //
 // vsMain pulls position / uv from per-instance VkDeviceAddress arrays
-// (gOpaque*Handles in Bindless.resource), keyed by SV_VertexID +
+// (gOpaque*Handles in bindless), keyed by SV_VertexID +
 // SV_InstanceID. The pipeline is declared with zero VkVertexInputBindings;
 // indexing is done in-shader via the optional per-instance index buffer,
 // matching the GLSL twin.
@@ -14,7 +14,7 @@
 
 import Scene;
 import SceneTypes;
-import Bindless.resource;
+import bindless;
 
 // Per-stream BDA reads use direct primitive pointer casts (`float4*`,
 // `float3*`, `uint*`). The wrapper-struct-with-runtime-array pattern that

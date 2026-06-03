@@ -12,7 +12,7 @@
 #include "HostDefinitions.h"
 
 import SceneTypes;
-import Bindless.resource;
+import bindless;
 
 // BDA accesses use direct primitive pointer casts (`float4*`, `float3*`,
 // `uint*`). The wrapper-struct-with-runtime-array pattern from earlier

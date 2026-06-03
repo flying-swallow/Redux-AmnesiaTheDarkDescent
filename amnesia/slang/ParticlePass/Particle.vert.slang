@@ -19,7 +19,7 @@
 // step 12 / 8 bytes per vertex instead of 16 / 12 and read garbage offsets
 // (manifests as billboards anchored to the camera instead of the world).
 
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 import PerFrame.resource;
 

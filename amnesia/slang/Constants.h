@@ -48,7 +48,7 @@ SHARED_CONST uint kBindingSurfelRayResult           = 17u;  // SurfelRayResult (
 SHARED_CONST uint kBindingCellInfo                   = 18u;  // CellInfo (kCellCount)
 SHARED_CONST uint kBindingCellToSurfel              = 19u;
 SHARED_CONST uint kBindingSceneObjects               = 20u;  // UniformObject[]
-SHARED_CONST uint kBindingOpaqueMaterial             = 21u;  // DiffuseMaterial[]
+SHARED_CONST uint kBindingDiffuseMaterial             = 21u;  // DiffuseMaterial[]
 SHARED_CONST uint kBindingPointLights                = 22u;
 SHARED_CONST uint kBindingTranslucentMaterial        = 24u;
 SHARED_CONST uint kBindingWaterMaterial              = 25u;
@@ -88,7 +88,17 @@ SHARED_CONST uint kBindingObjectDecalIndices          = 47u;  // RWStructuredBuf
 // -----------------------------------------------------------------------------
 SHARED_CONST uint kObjectSlotCapacity        = 32768u;  // 16384 * 2
 SHARED_CONST uint kTextureSlotCapacity       = 16384u;
-SHARED_CONST uint kMaterialSlotCapacity      = 16384u;
+// Material ids form one continuous, range-partitioned space across three typed
+// buffers. Each range's accessor de-biases the id by the range base:
+//   solid+decal : [0, kSolidMaterialCapacity)                  -> gDiffuseMaterials[id]
+//   translucent : [kTranslucentMaterialBase, kWaterMaterialBase) -> gTranslucentMaterials[id - base]
+//   water       : [kWaterMaterialBase, +kWaterMaterialCapacity)   -> gWaterMaterials[id - base]
+// isTranslucent / isWater are the range bounds checks; see Scene.slang.
+SHARED_CONST uint kSolidMaterialCapacity     = 2048u;   // solid + decal slots (range base 0)
+SHARED_CONST uint kTranslucentMaterialCapacity = 256u;  // dedicated translucent/glass table
+SHARED_CONST uint kWaterMaterialCapacity     = 64u;     // dedicated compact water table (scenes use <=64)
+SHARED_CONST uint kTranslucentMaterialBase   = kSolidMaterialCapacity;
+SHARED_CONST uint kWaterMaterialBase         = kSolidMaterialCapacity + kTranslucentMaterialCapacity;
 SHARED_CONST uint kPointSlotLightCapacity    = 256u;
 SHARED_CONST uint kSpotSlotLightCapacity     = 256u;
 SHARED_CONST uint kFogAreaCapacity           = 32u;
@@ -233,7 +243,7 @@ SHARED_CONST uint  kMaxSurfelForStep            = 10u;
 // Non-physical boost on the light radiance the surfel NEE integrates — cheats
 // the indirect/GI term brighter without touching direct. The surfel NEE keeps
 // its 1/π Lambert, so π (≈3.14) cancels it → indirect uses the same no-1/π
-// convention as the (base-matched) direct in SurfelGIRenderPass.frag; raise
+// convention as the (base-matched) direct in MainCompositePass; raise
 // above π to over-cheat the GI fill.
 SHARED_CONST float kIndirectLightScale          = 1.0f;
 
@@ -285,7 +295,7 @@ SHARED_CONST float kWaterReflectionTurbulence = 0.3f;
 // runtime UI hook exists yet.
 SHARED_CONST uint  kDefaultOverlayMode          = 0u;
 
-// SurfelGIRenderPass per-component toggles. 0 = skip that term, 1 = add
+// MainCompositePass per-component toggles. 0 = skip that term, 1 = add
 // it. The host used to drive these via a per-pass CB (SurfelGIRenderCB);
 // they were always set to 1 there, so they live here as static defaults
 // alongside the rest of the SurfelGI knobs. Flip in source + recompile

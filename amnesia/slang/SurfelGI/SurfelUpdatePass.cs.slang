@@ -7,15 +7,15 @@
 //                                buffer at the computed offsets.
 //
 // Ported from SurfelGI/SurfelUpdatePass.cs.slang. Buffers come from the
-// engine bindless set (set 0) via Bindless.resource; camera + per-frame
+// engine bindless set (set 0) via bindless; camera + per-frame
 // state come from Scene (gScene.*).
 
 #include "../Constants.h"
 
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 import PerFrame.resource;
-import Bindless.interface;
+import HitInfo;
 import Scene;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;

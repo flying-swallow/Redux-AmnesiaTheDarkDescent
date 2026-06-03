@@ -8,10 +8,10 @@
 
 #include "../Constants.h"
 
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 import PerFrame.resource;
-import Bindless.interface;
+import HitInfo;
 import Scene;
 import Random;
 import HashUtils;

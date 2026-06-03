@@ -7,15 +7,15 @@
 //
 // Ported from Falcor's SurfelGI/SurfelEvaluationPass.cs.slang. Buffers
 // + the packed-hit texture + surfel depth atlas come from
-// `Bindless.resource`; the per-pass output texture is pass-private (set 2).
+// `bindless`; the per-pass output texture is pass-private (set 2).
 
 #include "../HostDefinitions.h"
 #include "../Constants.h"
 
 import SceneTypes;
 import Scene;
-import Bindless.resource;
-import Bindless.interface;
+import bindless;
+import HitInfo;
 import PerFrame.resource;
 import Random;
 import HashUtils;

@@ -20,7 +20,7 @@
 // slot id (firstInstance), which indexes gSceneObjects for the UniformObject
 // (model / uv matrix, materialID). Same fix as Translucent.vert.slang.
 
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 import PerFrame.resource;
 import Utils.Color.ColorHelpers;   // adobeRGBToLinear

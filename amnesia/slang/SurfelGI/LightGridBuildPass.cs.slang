@@ -1,5 +1,5 @@
 // LightGridBuildPass — builds the coarse, camera-centered world-space light
-// grid used by the surfel ray-trace NEE and the SurfelGIRenderPass direct cull.
+// grid used by the surfel ray-trace NEE and the MainCompositePass direct cull.
 //
 //   binLights : ONE THREAD PER CELL. Each cell walks the unified light list
 //               (point [0,nPoint), spot [nPoint, nPoint+nSpot) — same index space
@@ -26,7 +26,7 @@
 
 #include "../Constants.h"
 
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 import PerFrame.resource;
 import Grid;                    // gridUnflattenCellIndex / sphereIntersectsGridCell

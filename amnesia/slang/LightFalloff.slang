@@ -11,7 +11,7 @@
 // Analytic fallbacks fire when the slot is kInvalidTextureIndex.
 
 import SceneTypes;            // (shared constants)
-import Bindless.resource;     // gAttenuationLut, gSurfelDepthSampler
+import bindless;     // gAttenuationLut, gSurfelDepthSampler
 
 // The default falloff LUT (core_falloff_linear) is bound once on set 0 as
 // gAttenuationLut — it's identical for every light and never changes, so there's

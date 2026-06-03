@@ -23,7 +23,7 @@
 // lobe stochastically and returns L plus the throughput weight f*N.L/pdf.
 
 import SceneTypes;          // DiffuseMaterial + kMaterialFlag* / kInvalidTextureIndex
-import Bindless.resource;   // gTextures2D, gMaterialSampler
+import bindless;   // gTextures2D, gMaterialSampler
 import Random;              // RNG
 
 static const float kBrdfPi   = 3.14159265358979323846f;

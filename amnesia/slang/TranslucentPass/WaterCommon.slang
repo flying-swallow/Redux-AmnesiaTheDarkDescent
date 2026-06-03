@@ -10,7 +10,7 @@
 // TBN frame.
 
 #include "Constants.h"
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 
 // `afT` is the engine animation-time accumulator (gPerFrame.afT = GetTimeCount).

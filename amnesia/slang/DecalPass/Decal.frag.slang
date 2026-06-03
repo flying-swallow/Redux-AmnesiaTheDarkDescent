@@ -17,8 +17,9 @@
 // needed (decals carry no light-level / fog, so the translucent shader's
 // pre-bias would reduce to identity here anyway).
 
-import Bindless.resource;
+import bindless;
 import SceneTypes;
+import Scene;
 
 #define DECAL_ALPHA_REJECT 0.01f
 
@@ -34,7 +35,7 @@ struct DecalVSOut
 float4 psMain(DecalVSOut psIn) : SV_TARGET
 {
     UniformObject   obj = gSceneObjects[psIn.objectId];
-    DiffuseMaterial mat = gDiffuseMaterials[obj.materialID];
+    DiffuseMaterial mat = gScene.getDiffuseMaterial(obj.materialID);
 
     float4 diffuseColor = float4(0.0f, 0.0f, 0.0f, 1.0f);
     uint   diffuseTex   = mat.tex[0];
