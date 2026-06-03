@@ -309,6 +309,10 @@ SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
 // cap = smoother but laggier on changing lighting.
 SHARED_CONST float kDirectTemporalAlpha            = 0.05f;
 SHARED_CONST float kDirectMaxAccum                 = 16.0f;
+// Adaptive RIS sample burst: pixels whose history count is below kDirectMaxAccum
+// take this many RIS samples (shadow rays) per frame so they reach the cap in
+// ~kDirectMaxAccum/kDirectRaysYoung frames; converged pixels stay at 1 ray.
+SHARED_CONST uint  kDirectRaysYoung                = 4u;
 // Disocclusion rejection for the direct pass: reproject the surface key (view
 // depth + normal) and reject history (restart accumulation) when the reprojected
 // surface differs — kills camera-motion smear at silhouettes.

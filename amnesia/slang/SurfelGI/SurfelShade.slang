@@ -120,7 +120,13 @@ float3 evalAnalyticLightSoft(DiffuseShading sd, inout RNG rng)
 // Estimator = shade(selected)·V · (Σ wₖ / w_selected); unbiased, so the temporal
 // accumulation converges to the full multi-light shadowed sum at ~1 ray/frame.
 // Cells with ≤2 lights skip the reservoir (no sampling noise) and shade all.
-float3 evalAnalyticLightStochastic(DiffuseShading sd, inout RNG rng)
+//
+// numSamples > 1 averages that many independent RIS estimators (one shadow ray
+// each) from a single weight scan — the caller (DirectLightingPass) bursts
+// kDirectRaysYoung samples on young/disoccluded history so it converges in a
+// fraction of the frames, then drops back to 1.
+float3 evalAnalyticLightStochastic(DiffuseShading sd, inout RNG rng,
+                                   uint numSamples = 1u)
 {
     uint lightCount = gScene.getLightCount();
     float3 origin = sd.posW + sd.normalW * kShadeRayEps;
@@ -133,23 +139,34 @@ float3 evalAnalyticLightStochastic(DiffuseShading sd, inout RNG rng)
     uint n    = min(gLightGridCount[flat], kLightsPerCellMax);
     if (n == 0u) return float3(0.f);
 
+    numSamples = clamp(numSamples, 1u, kDirectRaysYoung);
+
     // Few lights → shade them all; the reservoir's variance isn't worth it.
+    // Extra samples just average more jittered disk rays per light, converging
+    // the penumbra at the same batched rate as the reservoir path.
     if (n <= 2u)
     {
         float3 Lr = float3(0.f);
-        for (uint k = 0u; k < n; ++k)
-            Lr += gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW, sd.albedo,
-                                                gLightGridList[flat * kLightsPerCellMax + k],
-                                                origin, rng);
-        return Lr;
+        for (uint s = 0u; s < numSamples; ++s)
+            for (uint k = 0u; k < n; ++k)
+                Lr += gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW, sd.albedo,
+                                                    gLightGridList[flat * kLightsPerCellMax + k],
+                                                    origin, rng);
+        return Lr / float(numSamples);
     }
 
-    // Weighted reservoir over the cell's lights, weight = unshadowed luminance.
+    // numSamples parallel weighted reservoirs over one scan of the cell's
+    // lights, weight = unshadowed luminance. Each reservoir draws its own
+    // keep-decision per candidate, so the selections are independent.
     const float3 kLum = float3(0.2126f, 0.7152f, 0.0722f);
     float wsum = 0.f;
-    float selW = 0.f;
-    uint  selLight = 0u;
-    bool  haveSel = false;
+    float selW[kDirectRaysYoung];
+    uint  selLight[kDirectRaysYoung];
+    bool  haveSel[kDirectRaysYoung];
+    for (uint s = 0u; s < numSamples; ++s)
+    {
+        selW[s] = 0.f; selLight[s] = 0u; haveSel[s] = false;
+    }
     for (uint k = 0u; k < n; ++k)
     {
         uint li = gLightGridList[flat * kLightsPerCellMax + k];
@@ -157,17 +174,27 @@ float3 evalAnalyticLightStochastic(DiffuseShading sd, inout RNG rng)
                        kLum);
         if (wk <= 0.f) continue;
         wsum += wk;
-        if (rng.next_float() * wsum <= wk)   // keep with prob wk / wsum
+        for (uint s = 0u; s < numSamples; ++s)
         {
-            selLight = li; selW = wk; haveSel = true;
+            if (rng.next_float() * wsum <= wk)   // keep with prob wk / wsum
+            {
+                selLight[s] = li; selW[s] = wk; haveSel[s] = true;
+            }
         }
     }
-    if (!haveSel || wsum <= 0.f) return float3(0.f);
+    if (wsum <= 0.f) return float3(0.f);
 
-    // One soft shadow ray for the chosen light; reweight by the RIS factor.
-    float3 shaded = gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW, sd.albedo,
-                                                  selLight, origin, rng);
-    return shaded * (wsum / selW);
+    // One soft shadow ray per reservoir; reweight each by its RIS factor and
+    // average the independent estimators.
+    float3 Lr = float3(0.f);
+    for (uint s = 0u; s < numSamples; ++s)
+    {
+        if (!haveSel[s]) continue;
+        float3 shaded = gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW, sd.albedo,
+                                                      selLight[s], origin, rng);
+        Lr += shaded * (wsum / selW[s]);
+    }
+    return Lr / float(numSamples);
 }
 
 // World-space surfel-cache indirect gather. Mirrors the per-pixel gather in
