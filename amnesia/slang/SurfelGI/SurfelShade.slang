@@ -1,7 +1,7 @@
 #pragma once
 // Shared surfel-GI surface shading helpers.
 //
-// Extracted from SurfelGIRenderPass.frag.slang so both the final composite
+// Extracted from MainCompositePass.cs.slang so both the final composite
 // pass and the reflection-resolve pass shade a resolved TriangleHit the same
 // way: albedo + emission prep, NEE-over-all-lights direct lighting, and a
 // world-space surfel-cache indirect gather. Keeping one copy avoids the two
@@ -13,8 +13,8 @@
 
 import SceneTypes;
 import Scene;
-import Bindless.resource;
-import Bindless.interface;
+import bindless;
+import ILight;
 import PerFrame.resource;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;

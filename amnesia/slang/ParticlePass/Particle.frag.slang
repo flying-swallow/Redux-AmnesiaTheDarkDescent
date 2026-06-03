@@ -9,9 +9,10 @@
 // the legacy shader did so the output going into the blender is in the
 // right space (e.g. mul/mulx2 pre-bias before SRC*DST blend).
 
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 import PerFrame.resource;
+import Scene;
 
 #define BLEND_MODE_ADD          0u
 #define BLEND_MODE_MUL          1u
@@ -44,8 +45,11 @@ struct ParticleVSOut
 [shader("fragment")]
 float4 psMain(ParticleVSOut psIn) : SV_TARGET
 {
-    UniformObject   obj = gSceneObjects[psIn.objectId];
-    DiffuseMaterial mat = gDiffuseMaterials[obj.materialID];
+    UniformObject       obj = gSceneObjects[psIn.objectId];
+    // Particle materials are all Type="translucent", so submitMaterial() places
+    // them in the translucent table (id >= kTranslucentMaterialBase), not the
+    // diffuse table. Read them the same way Translucent.frag.slang does.
+    TranslucentMaterial mat = gScene.getTranslucentMaterial(obj.materialID);
 
     float4 diffuseColor = float4(0.0f, 0.0f, 0.0f, 1.0f);
     uint diffuseTex = mat.tex[0];

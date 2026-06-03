@@ -30,7 +30,7 @@ public:
   cHybridRenderer(cGraphics *apGraphics, cResources *apResources);
   ~cHybridRenderer();
 
-  // kObjectSlotCapacity / kTextureSlotCapacity / kMaterialSlotCapacity and
+  // kObjectSlotCapacity / kTextureSlotCapacity / kSolidMaterialCapacity and
   // kTotalSurfelLimit / kRayBudget come from amnesia/glsl/forward_shared.h.
 
   virtual void Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
@@ -133,11 +133,11 @@ private:
   RIProgram m_surfelIntegrate;
   RIProgram m_surfelGenerate;
 
-  // Final composite (Slang SurfelGIRenderPass.cs.slang). Reads
+  // Final composite (Slang MainCompositePass.cs.slang). Reads
   // gPackedHitInfo + gIndirectLighting (the integrate pass's output) and
   // writes gOutput = swapchain. Replaces the legacy visibility_shade
   // fullscreen pass once it's wired in fully.
-  RIProgram m_surfelGIRender;
+  RIProgram m_mainComposite;
 
 
 	// Particle (translucent) pass — port of legacy RendererDeferred's

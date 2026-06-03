@@ -27,17 +27,12 @@ class cResources;
 class VertexBuffer_RI;
 
 // CPU shadow of a device-local bindless slot buffer (m_opaque*Handles /
-// m_bindlessSlotGenerationBuffer). Those buffers are deviceLocalOnly, so they
-// have no mapped pointer the host can write; instead every per-slot host write
-// lands in this shadow and flushMirrors() stages the accumulated dirty
-// byte range into the device buffer once per frame (see
-// HybridGlobalManagedSet.cpp).
-//
-// write<T>() addresses slot i at byte i*sizeof(T), matching
-// detail::CreateBindlessSlotBuffer's slotCount*elemSize layout, and widens the
-// half-open dirty range [dirtyMinByte, dirtyMaxByte) to cover the touched
-// bytes. markAllDirty() forces the whole (zeroed) shadow to be staged on the
-// first frame, seeding a clean device == shadow invariant for every slot.
+// m_bindlessSlotGenerationBuffer). Those buffers have no mapped pointer, so
+// per-slot host writes land here and flushMirrors() stages the dirty byte range
+// into the device buffer once per frame. write<T>() addresses slot i at
+// i*sizeof(T) (matching CreateBindlessSlotBuffer's layout) and widens the dirty
+// range; markAllDirty() stages the whole shadow on the first frame to seed the
+// device == shadow invariant.
 struct BindlessShadowMirror {
   std::vector<uint8_t> shadow;
   size_t dirtyMinByte = 0;
@@ -163,12 +158,23 @@ public:
   // Destroy all owned buffers and the descriptor set.
   void destroy(RIDevice_s *device);
 
-  // Resolve + upload `mat`'s DiffuseMaterial (and parallel WaterMaterial) entry
-  // to its slot in m_opaqueMaterialBuffer. Allocates a slot on first sight,
-  // resolves and uploads texture indices when the material's generation differs
-  // from the cached one. Returns UINT32_MAX when the material pool is exhausted.
-  uint32_t submitMaterial(RIBootstrap::FrameContext *cntx, cMaterial *mat,
-                          uint32_t frameIndex);
+  // Result of submitMaterial: the object's material id in the continuous
+  // range-partitioned space, stored in UniformObject.materialID. Solids land in
+  // [0, kSolidMaterialCapacity); water lands in
+  // [kSolidMaterialCapacity, kSolidMaterialCapacity + kWaterMaterialCapacity).
+  // materialId is UINT32_MAX when the material pool is exhausted.
+  struct MaterialSubmitResult {
+    uint32_t materialId = 0;
+  };
+
+  // Resolve + upload `mat`'s GPU material entry. Solid/translucent/decal
+  // materials go to m_diffuseMaterialBuffer (DiffuseMaterial); water materials go
+  // to their own compact m_waterMaterialBuffer (WaterMaterial) and return an id
+  // offset into the water range. Allocates a slot on first sight, resolves and
+  // uploads texture indices when the material's generation differs from the
+  // cached one. materialId is UINT32_MAX when the material pool is exhausted.
+  MaterialSubmitResult submitMaterial(RIBootstrap::FrameContext *cntx,
+                                      cMaterial *mat, uint32_t frameIndex);
 
   // Map an Image* to its bindless slot in textures_2d[]. Used by
   // submitMaterial() and the light upload loops (spot falloff / gobo,
@@ -299,9 +305,15 @@ public:
   // compared against m_bindlessSlotGenerationBuffer in collectCellInfo.
   struct RIBuffer_s m_surfelSlotGenerationBuffer;
 
-  // Bindless material wiring.
-  LRUCache m_materialBindless;
-  struct RIBuffer_s m_opaqueMaterialBuffer;
+  // Bindless material wiring. The material-id space is range-partitioned across
+  // three typed pools/buffers: solid+decal (m_diffuseMaterialBindless / DiffuseMaterial),
+  // translucent (m_translucentMaterialBindless / TranslucentMaterial), and water
+  // (m_waterMaterialBindless / WaterMaterial). See Constants.h for the ranges.
+  LRUCache m_diffuseMaterialBindless;
+  LRUCache m_translucentMaterialBindless;
+  LRUCache m_waterMaterialBindless;
+  struct RIBuffer_s m_diffuseMaterialBuffer;
+  struct RIBuffer_s m_translucentMaterialBuffer = {};
   struct RIBuffer_s m_waterMaterialBuffer = {};
   struct RIDescriptor_s *m_materialSampler = nullptr;
 

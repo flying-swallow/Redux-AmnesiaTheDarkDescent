@@ -17,8 +17,7 @@
 
 import SceneTypes;
 import Scene;
-import Bindless.resource;
-import Bindless.interface;
+import bindless;
 import PerFrame.resource;
 import SurfelGI.SurfelShade;        // DiffuseShading / prepareDiffuseShading / evalAnalyticLight / gatherSurfelIndirect
 import TranslucentPass.WaterCommon; // waterWaveNormalTangent
@@ -67,7 +66,7 @@ float3 shadeReflectionHit(TriangleHit th)
 float4 psMain(WaterVSOut psIn) : SV_TARGET
 {
     UniformObject obj   = gSceneObjects[psIn.objectId];
-    WaterMaterial water = gWaterMaterials[obj.materialID];
+    WaterMaterial water = gScene.getWaterMaterial(obj.materialID);
 
     if (pc.pass == 0u)
     {

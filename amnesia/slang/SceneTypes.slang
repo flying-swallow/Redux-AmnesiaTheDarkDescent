@@ -98,15 +98,8 @@ SLANG_PUBLIC struct DiffuseMaterial {
     SLANG_PUBLIC uint  tex[8];
     SLANG_PUBLIC float heightMapScale;               // SolidDiffuse-only
     SLANG_PUBLIC float heightMapBias;                // SolidDiffuse-only
-    SLANG_PUBLIC float frenselBias;                  // SolidDiffuse + Translucent
-    SLANG_PUBLIC float frenselPow;                   // SolidDiffuse + Translucent
-    // Translucent-only scalars (zero for solid-diffuse). Reusing this struct
-    // for the translucent mesh path lets resolveMaterial keep one bindless
-    // pool — the Translucent shader reads the same gDiffuseMaterials[] entry
-    // it would have under a dedicated TranslucentMaterial table.
-    SLANG_PUBLIC float refractionScale;
-    SLANG_PUBLIC float rimLightMul;
-    SLANG_PUBLIC float rimLightPow;
+    SLANG_PUBLIC float frenselBias;                  // SolidDiffuse
+    SLANG_PUBLIC float frenselPow;                   // SolidDiffuse
 };
 
 // GPU twin of MaterialTranslucent (Material.h). All bool flags
@@ -115,6 +108,7 @@ SLANG_PUBLIC struct DiffuseMaterial {
 SLANG_PUBLIC struct TranslucentMaterial {
     SLANG_PUBLIC uint  type;                         // MATERIAL_TYPE_TRANSLUCENT
     SLANG_PUBLIC uint  materialConfig;
+    SLANG_PUBLIC uint  cubeMapTextureIndex;          // reflection cubemap; kInvalidTextureIndex when absent
     SLANG_PUBLIC uint  tex[8];
     SLANG_PUBLIC float refractionScale;
     SLANG_PUBLIC float frenselBias;
@@ -258,10 +252,6 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC float zNear;                      // view-space, positive
     SLANG_PUBLIC float zFar;                       // view-space, positive
     SLANG_PUBLIC uint  spotLightCount;             // active entries in gSpotLights[]
-    SLANG_PUBLIC uint  diffuseMaterialCount;       // active entries in gDiffuseMaterials[]
-    SLANG_PUBLIC uint  translucentMaterialCount;   // active entries in gTranslucentMaterials[]
-    SLANG_PUBLIC uint  waterMaterialCount;         // active entries in gWaterMaterials[]
-    SLANG_PUBLIC uint  decalMaterialCount;         // active entries in gDecalMaterials[]
     SLANG_PUBLIC uint  fogAreaCount;               // active entries in gFogAreas[]
     SLANG_PUBLIC uint  decalCount;                 // active entries in gDecals[]
 

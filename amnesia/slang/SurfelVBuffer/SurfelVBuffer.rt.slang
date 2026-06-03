@@ -20,8 +20,8 @@
 
 import SceneTypes;
 import Scene;
-import Bindless.resource;
-import Bindless.interface;
+import bindless;
+import HitInfo;
 import PerFrame.resource;
 import Brdf;
 import TranslucentPass.WaterCommon;   // waterWaveNormalTangent (shared with Water.frag)
@@ -115,7 +115,7 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
     if (gScene.materials.isWater(materialID))
     {
         VertexData v = gScene.getVertexData(triangleHit);
-        WaterMaterial water = gWaterMaterials[materialID];
+        WaterMaterial water = gScene.getWaterMaterial(materialID);
 
         // World-space TBN from the hit, then the wave-perturbed normal.
         float3 N = normalize(v.normalW);
@@ -170,11 +170,11 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
         float3 incidentRayDir = normalize(payload.direction);
         float3 normalW        = normalize(v.normalW);
 
-        // IOR sourced from DiffuseMaterial.refractionScale — the legacy
+        // IOR sourced from TranslucentMaterial.refractionScale — the legacy
         // shader used this as a screen-space distortion magnitude; reusing
         // it here as a relative IOR offset keeps materials authoring the
         // same scalar for both renderers. eta = n1/n2 (ratio entering).
-        DiffuseMaterial mat = gScene.getDiffuseMaterial(materialID);
+        TranslucentMaterial mat = gScene.getTranslucentMaterial(materialID);
         float refractScale  = max(mat.refractionScale, 0.0f);
 
         // Distinguish entry vs exit by sign of dot(incident, normal). On

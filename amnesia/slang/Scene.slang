@@ -19,14 +19,14 @@
 //   * gScene.rtAccel — TLAS binding not added yet.
 //   * gScene.envMap.eval — env map binding not declared yet.
 //   * Per-light gobo + LUT attenuation: PointLight.sample / SpotLight.sample
-//     in Bindless.interface.slang do analytic fallback only today; the
+//     in ILight.slang do analytic fallback only today; the
 //     unified dispatcher inherits that.
 
 #include "HostDefinitions.h"
 
 import SceneTypes;
-import Bindless.resource;
-import Bindless.interface;
+import bindless;
+__exported import ILight;
 import PerFrame.resource;
 import BindlessTriangle;
 
@@ -53,29 +53,6 @@ public ILight getLight(uint ID)
     ID -= nPoint;
 
     return gSpotLights[ID];
-}
-
-// Flat-index → IMaterial resolver. Slices the virtual index across the four
-// typed material SSBOs in the order Diffuse, Translucent, Water, Decal.
-// Counts come from SceneConstants and are populated host-side at upload
-// time. Same existential-boxing tradeoff as getLight — cold-path callers
-// use this; perf paths use the typed gScene.getDiffuseMaterial /
-// getTranslucentMaterial / ... accessors which avoid the boxing.
-public IMaterial getMaterial(uint ID)
-{
-    uint nDiffuse = gPerFrame.diffuseMaterialCount;
-    if (ID < nDiffuse) return gDiffuseMaterials[ID];
-    ID -= nDiffuse;
-
-    uint nTranslucent = gPerFrame.translucentMaterialCount;
-    if (ID < nTranslucent) return gTranslucentMaterials[ID];
-    ID -= nTranslucent;
-
-    uint nWater = gPerFrame.waterMaterialCount;
-    if (ID < nWater) return gWaterMaterials[ID];
-    ID -= nWater;
-
-    return gDecalMaterials[ID];
 }
 
 public struct SceneCamera
@@ -135,6 +112,7 @@ public struct SceneMaterials
     // ALPHA_REJECT default).
     public bool alphaTest(VertexData v, uint materialID, float lod)
     {
+        if (materialID >= kSolidMaterialCapacity) return false;  // water range: no diffuse entry
         DiffuseMaterial m = gDiffuseMaterials[materialID];
         uint alphaIdx = m.tex[2];
         if (alphaIdx == kInvalidTextureIndex) return false;
@@ -150,29 +128,41 @@ public struct SceneMaterials
     // "has cubemap" check (DiffuseMaterial::cubeMapTextureIndex valid).
     public bool isReflective(uint materialID)
     {
+        if (materialID >= kSolidMaterialCapacity) return false;  // water range: no diffuse entry
         DiffuseMaterial m = gDiffuseMaterials[materialID];
         return m.cubeMapTextureIndex != kInvalidTextureIndex;
     }
 
+    // True when materialID falls in the translucent partition
+    // [kTranslucentMaterialBase, kWaterMaterialBase) — indexes gTranslucentMaterials.
+    public bool isTranslucent(uint materialID)
+    {
+        return materialID >= kTranslucentMaterialBase
+            && materialID <  kWaterMaterialBase;
+    }
+
     // True when the material was flagged HasRefraction host-side
-    // (MaterialResource.cpp:CreateMaterailConfigFlags). Drives the
-    // SurfelVBuffer.rt closeHit ray-bend for refractive translucents so the
-    // V-buffer stores the refracted background instead of the glass itself.
+    // (MaterialResource.cpp:CreateMaterailConfigFlags). Only translucent (glass)
+    // materials carry the flag; reads it from the translucent table. Drives the
+    // SurfelVBuffer.rt closeHit ray-bend so the V-buffer stores the refracted
+    // background instead of the glass itself. (Water refraction is handled by
+    // the earlier isWater branch.)
     public bool isRefractive(uint materialID)
     {
-        DiffuseMaterial m = gDiffuseMaterials[materialID];
+        if (!isTranslucent(materialID)) return false;
+        TranslucentMaterial m = gTranslucentMaterials[materialID - kTranslucentMaterialBase];
         return (m.materialConfig & kMaterialFlagHasRefraction) != 0u;
     }
 
-    // True for MaterialID::Water (flagged host-side). Drives the
-    // SurfelVBuffer.rt wave-animated water branch, which spawns both a
-    // refraction and a reflection bounce. Water also sets HasRefraction so
-    // isRefractive() is true and the GIRenderPass swaps to the refracted
-    // background under the surface.
+    // True when materialID falls in the water partition of the continuous
+    // material-id space (ids >= kWaterMaterialBase index gWaterMaterials).
+    // Drives the SurfelVBuffer.rt wave-animated water branch, which re-traces
+    // the refraction ray as a kind-0 bounce so the GI composite shades the
+    // refracted underwater background. Checked before the generic glass
+    // (isRefractive) branch.
     public bool isWater(uint materialID)
     {
-        DiffuseMaterial m = gDiffuseMaterials[materialID];
-        return (m.materialConfig & kMaterialFlagIsWater) != 0u;
+        return materialID >= kWaterMaterialBase;
     }
 
     // Inline non-opaque shadow query. The BLAS is built with
@@ -334,19 +324,33 @@ public struct Scene
         return gSceneObjects[slot];
     }
 
-    public DiffuseMaterial getDiffuseMaterial(uint slot)
+    // Material accessors over the continuous, range-partitioned material-id
+    // space (see Constants.h). These are the single place that maps a
+    // partitioned materialID to a buffer entry — entry shaders must go through
+    // them rather than indexing gDiffuseMaterials / gWaterMaterials directly, so
+    // a repartition only touches Scene.slang + Constants.h.
+
+    // Solid + decal materials occupy [0, kSolidMaterialCapacity), so the
+    // partitioned id is the slot directly. Valid only for solid-range ids.
+    public DiffuseMaterial getDiffuseMaterial(uint materialID)
     {
-        return gDiffuseMaterials[slot];
+        return gDiffuseMaterials[materialID];
     }
 
-    public TranslucentMaterial getTranslucentMaterial(uint slot)
+    // Translucent materials occupy [kTranslucentMaterialBase, kWaterMaterialBase);
+    // de-bias into the translucent table. Valid only for translucent-range ids
+    // (isTranslucent(materialID) == true).
+    public TranslucentMaterial getTranslucentMaterial(uint materialID)
     {
-        return gTranslucentMaterials[slot];
+        return gTranslucentMaterials[materialID - kTranslucentMaterialBase];
     }
 
-    public WaterMaterial getWaterMaterial(uint slot)
+    // Water materials occupy [kWaterMaterialBase, +kWaterMaterialCapacity);
+    // de-bias the partitioned id into the compact water table. Valid only for
+    // water-range ids (isWater(materialID) == true).
+    public WaterMaterial getWaterMaterial(uint materialID)
     {
-        return gWaterMaterials[slot];
+        return gWaterMaterials[materialID - kWaterMaterialBase];
     }
 
     public DecalMaterial getDecalMaterial(uint slot)
@@ -363,14 +367,6 @@ public struct Scene
     public float4x4 getWorldMatrix(uint objectSlot)
     {
         return gSceneObjects[objectSlot].modelMat;
-    }
-
-    public uint getMaterialCount()
-    {
-        return gPerFrame.diffuseMaterialCount
-             + gPerFrame.translucentMaterialCount
-             + gPerFrame.waterMaterialCount
-             + gPerFrame.decalMaterialCount;
     }
 
     // --- Lights ---------------------------------------------------------------

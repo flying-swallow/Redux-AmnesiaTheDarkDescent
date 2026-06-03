@@ -6,7 +6,7 @@
 // from Constants.h (single source of truth shared with C++ and GLSL).
 //
 // Usage:
-//   import Bindless.resource;
+//   import bindless;
 //   ...
 //   PointLight p = gPointLights[i];
 //
@@ -14,7 +14,7 @@
 // (SPV_EXT_descriptor_indexing + VK_EXT_descriptor_indexing); slangc emits
 // the capability automatically when the array type is bound by `[]`.
 
-#include "../Constants.h"
+#include "Constants.h"
 import SceneTypes;
 
 import SurfelGI.SurfelTypes;
@@ -147,7 +147,7 @@ public RWStructuredBuffer<uint> gLightGridList;
 [vk::binding(kBindingSceneObjects, 0)]
 public RWStructuredBuffer<UniformObject> gSceneObjects;
 
-[vk::binding(kBindingOpaqueMaterial, 0)]
+[vk::binding(kBindingDiffuseMaterial, 0)]
 public RWStructuredBuffer<DiffuseMaterial> gDiffuseMaterials;
 
 [vk::binding(kBindingTranslucentMaterial, 0)]

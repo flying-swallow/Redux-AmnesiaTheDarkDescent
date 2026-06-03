@@ -1,12 +1,12 @@
 #pragma once
 
-// Slang-side interfaces over the host/device-shared GPU structs declared in
-// SceneTypes.slang. Conformances are added via `extension` so the shared
+// Slang-side ILight interface over the host/device-shared light structs declared
+// in SceneTypes.slang. Conformances are added via `extension` so the shared
 // header stays a pure data-layout file (consumed by both C++ and shader).
 //
-// Each Light/Material struct stores its type discriminator in `type` at
-// offset 0 — the contract documented in SceneTypes.slang. The interface
-// methods below assume that invariant; do not reorder fields.
+// Each light struct stores its type discriminator in `type` at offset 0 — the
+// contract documented in SceneTypes.slang. The interface methods assume that
+// invariant; do not reorder fields.
 //
 // Usage example:
 //   void shadeAny<L : ILight>(L light, float3 worldPos) {
@@ -14,10 +14,10 @@
 //       if (light.sample(worldPos, ls)) { ... }
 //   }
 
-#include "../HostDefinitions.h"
-import SceneTypes;            // kInvalidTextureIndex sentinel (light struct fields too)
-import Bindless.resource;     // gTextures2D, gTexturesCube, gMaterialSampler
-import LightFalloff;          // sampleAttenuation, sampleSpotCone
+#include "HostDefinitions.h"
+import SceneTypes;            // light struct fields + kInvalidTextureIndex sentinel
+import bindless;             // gTextures2D, gTexturesCube, gMaterialSampler
+import LightFalloff;         // sampleAttenuation, sampleSpotCone
 
 // -----------------------------------------------------------------------------
 // ILight — common shape for the point/spot/box bindless light SSBO entries.
@@ -111,88 +111,5 @@ public extension SpotLight : ILight
         ls.dir      = L;
         ls.distance = dist;
         return true;
-    }
-};
-
-
-// -----------------------------------------------------------------------------
-// IMaterial — common shape for the bindless material SSBO entries.
-// `getType()` returns the MATERIAL_TYPE_* discriminator (reads `type` at
-// offset 0). `getTexture(i)` indexes into the material's 2D-texture slot
-// table; `getConfig()` returns the packed flag/blend-mode bitfield (see
-// Material.h).
-// -----------------------------------------------------------------------------
-public interface IMaterial
-{
-    public uint getType();
-    public uint getTexture(uint i);
-    public uint getConfig();
-};
-
-public extension DiffuseMaterial : IMaterial
-{
-    public uint getType()          { return type; }
-    public uint getTexture(uint i) { return tex[i]; }
-    public uint getConfig()        { return materialConfig; }
-};
-
-public extension TranslucentMaterial : IMaterial
-{
-    public uint getType()          { return type; }
-    public uint getTexture(uint i) { return tex[i]; }
-    public uint getConfig()        { return materialConfig; }
-};
-
-public extension WaterMaterial : IMaterial
-{
-    public uint getType()          { return type; }
-    public uint getTexture(uint i) { return tex[i]; }
-    public uint getConfig()        { return materialConfig; }
-};
-
-public extension DecalMaterial : IMaterial
-{
-    public uint getType()          { return type; }
-    public uint getTexture(uint i) { return tex[i]; }
-    public uint getConfig()        { return materialConfig; }
-};
-
-// -----------------------------------------------------------------------------
-// HitInfo / TriangleHit (un)packing — matches the Falcor source-compat surface
-// used by the surfel passes: `HitInfo h = HitInfo(packedUVec4)`,
-// `h.isValid()`, `h.getTriangleHit()`, and `TriangleHit::pack()` for writes.
-// Layout is documented in SceneTypes.slang above HitInfo.
-// -----------------------------------------------------------------------------
-public extension HitInfo
-{
-    public bool isValid()
-    {
-        return any(packed != uint4(0u, 0u, 0u, 0u));
-    }
-
-    public TriangleHit getTriangleHit()
-    {
-        TriangleHit h;
-        h.instanceID     = packed.x;
-        h.primitiveIndex = packed.y;
-        h.barycentrics   = float2(
-            f16tof32(packed.z & 0xFFFFu),
-            f16tof32((packed.z >> 16) & 0xFFFFu));
-        return h;
-    }
-};
-
-public extension TriangleHit
-{
-    public uint4 pack()
-    {
-        uint4 r;
-        r.x = instanceID;
-        r.y = primitiveIndex;
-        r.z = (f32tof16(barycentrics.x) & 0xFFFFu)
-            | ((f32tof16(barycentrics.y) & 0xFFFFu) << 16);
-        r.w = 1u;  // non-zero w so HitInfo::isValid() returns true even when
-                   // instance id, prim index, and barys all hash to zero.
-        return r;
     }
 };

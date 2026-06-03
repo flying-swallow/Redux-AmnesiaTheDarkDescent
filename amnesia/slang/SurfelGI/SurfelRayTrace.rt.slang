@@ -17,8 +17,9 @@
 
 import SceneTypes;
 import Scene;
-import Bindless.resource;
-import Bindless.interface;
+import bindless;
+import HitInfo;
+import ILight;
 import PerFrame.resource;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
@@ -205,7 +206,7 @@ float3 evalAnalyticLight(DiffuseShading sd, inout RNG rng)
 
     // Lambert diffuse BRDF = albedo/π. kIndirectLightScale is a non-physical
     // boost that cheats the GI/indirect term brighter without touching direct
-    // (which lives in SurfelGIRenderPass). π cancels the 1/π so indirect matches
+    // (which lives in MainCompositePass). π cancels the 1/π so indirect matches
     // the base-game no-1/π convention; raise above π to over-cheat.
     return perLight * invPdf * kIndirectLightScale;
 }

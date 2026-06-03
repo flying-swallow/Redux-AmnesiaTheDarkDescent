@@ -22,8 +22,8 @@
 
 import SceneTypes;
 import Scene;
-import Bindless.resource;
-import Bindless.interface;
+import bindless;
+import HitInfo;
 import PerFrame.resource;
 import Fog;
 import SurfelGI.SurfelShade;        // DiffuseShading / prepareDiffuseShading / evalAnalyticLight / gatherSurfelIndirect
@@ -112,7 +112,7 @@ float3 projectDecal(uint di, float3 albedo, float3 posW, float3 normalW)
     float2 uv = float2(saturate((fU + (lp.x + 0.5f)) / float(sx)),
                        1.0f - saturate((fV + (lp.z + 0.5f)) / float(sy)));
 
-    DiffuseMaterial dm = gDiffuseMaterials[d.materialID];
+    DiffuseMaterial dm = gScene.getDiffuseMaterial(d.materialID);
     uint dtex = dm.tex[0];
     if (dtex == kInvalidTextureIndex)
         return albedo;

@@ -49,9 +49,8 @@ namespace hpl {
 
 namespace detail {
 
-// sRGB → linear transfer (IEC 61966-2-1). Inverse of the encode the SRGB
-// swapchain applies on write, ussed to bring artist-authored cColor.rgb light
-// values into the linear-space lighting math the shaders now run in.
+// sRGB → linear transfer (IEC 61966-2-1). Inverse of the swapchain's write
+// encode; brings artist-authored cColor.rgb into the shaders' linear lighting.
 static inline float sRGBToLinear(float c) {
   if (c <= 0.04045f) return c / 12.92f;
   return std::pow((c + 0.055f) / 1.055f, 2.4f);
@@ -134,10 +133,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     const VkDescriptorSetLayout externalLayouts[] = {
         m_global.m_bindlessSet.vk.m_bindlessSetLayout};
     {
-      // Slang gbuffer pass: one .spv with two named entry points
-      // (vsMain / psMain). slangc was invoked with
-      // -fvk-use-entrypoint-name so the names survive into SPIR-V and the
-      // RIProgram loader can request them through pName.
+      // Gbuffer pass: one .spv, two entry points (vsMain / psMain).
       auto gbuffer_bin = RIProgram::loadShaderStage(
           apResources->GetFileSearcher(), "SurfelGBuffer.3d.spv");
       std::array<RIProgram::ModuleStage, 2> stages = {
@@ -148,18 +144,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       m_gbuffer.initialize(&RI.device, stages, externalLayouts);
     }
 
-    // SurfelGI compute / RT programs are introduced in stages B–F of the
-    // port. The old surfel_prepare / surfel_update / surfel_raytrace /
-    // surfel_integrate / surfel_generation_pass programs are gone because
-    // their on-disk .comp sources no longer compile against the new shared
-    // structs in forward_shared.h; replacements live alongside the new
-    // VBuffer (Stage B), update (Stage D), ray-trace (Stage E), and
-    // integrate / generation passes (Stage F).
-    // SurfelVBuffer — single Slang .spv with four [shader(...)]-attributed
-    // entry points (rayGen / miss / closeHit / anyHit). slangc was invoked
-    // with -fvk-use-entrypoint-name so the names survive into SPIR-V; share
-    // one blob across all four ModuleStage entries, same pattern as
-    // m_surfelUpdate*.
+    // SurfelVBuffer — one .spv, four entry points (rayGen / miss / closeHit /
+    // anyHit) sharing a single blob.
     {
       auto vb_bin = RIProgram::loadShaderStage(
           apResources->GetFileSearcher(), "SurfelVBuffer.rt.spv");
@@ -176,9 +162,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::PROGRAM_STAGE_COMPUTE, bin}};
       prog.initialize(&RI.device, stages, externalLayouts);
     };
-    // Slang-compiled compute. Same load path, but the entry-point name in
-    // the SPV is the Slang function name (slangc is invoked with
-    // -fvk-use-entrypoint-name), so we pass it through to ModuleStage.
+    // Compute load that passes the Slang entry-point name through to ModuleStage.
     auto loadSlangCompute = [&](RIProgram &prog, const char *name,
                                 const char *entryPoint) {
       auto bin = RIProgram::loadShaderStage(apResources->GetFileSearcher(), name);
@@ -186,18 +170,10 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::PROGRAM_STAGE_COMPUTE, bin, entryPoint}};
       prog.initialize(&RI.device, stages, externalLayouts);
     };
-    // SurfelPreparePass: the only buffer it touches is gSurfelCounter
-    // (kBindingSurfelCounter on the bindless set 0), so the dispatch
-    // site is unchanged — only the loaded SPV + entry point differ.
     loadSlangCompute(m_surfelPrepare, "SurfelPreparePass.cs.spv", "csMain");
-    // Cell-clearing + ref-counter-clearing are now folded into the
-    // SurfelPreparePass + SurfelUpdatePass Slang side; the dedicated
-    // GLSL clear passes were removed in the GLSL wipe.
-    // SurfelUpdatePass — single .spv with three [numthreads]-marked entry
-    // points (collectCellInfo / accumulateCellInfo / updateCellToSurfelBuffer).
-    // Load the blob once and reuse the std::span<char> across three
-    // initializations; the vector must stay in scope through all three
-    // `initialize()` calls because ModuleStage holds a non-owning view.
+    // SurfelUpdatePass — one .spv, three entry points (collectCellInfo /
+    // accumulateCellInfo / updateCellToSurfelBuffer). The blob vector must
+    // outlive all three initialize() calls — ModuleStage holds a non-owning view.
     {
       auto upd_bin = RIProgram::loadShaderStage(
           apResources->GetFileSearcher(), "SurfelUpdatePass.cs.spv");
@@ -210,11 +186,9 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       initFromBlob(m_surfelUpdateAccumulate, "accumulateCellInfo");
       initFromBlob(m_surfelUpdateScatter,    "updateCellToSurfelBuffer");
     }
-    // SurfelRayTrace — single Slang .spv with four [shader(...)] entry points
-    // (rayGen / scatterMiss / scatterCloseHit / scatterAnyHit). Shadow rays
-    // use inline RayQuery in the same shader so no second miss / anyhit
-    // group is needed — keeps the SBT inside RIProgram's single-ray-type
-    // hit-group layout.
+    // SurfelRayTrace — one .spv, four entry points (rayGen / scatterMiss /
+    // scatterCloseHit / scatterAnyHit). Shadow rays use inline RayQuery, so no
+    // second hit group is needed (SBT stays single-ray-type).
     {
       auto rt_bin = RIProgram::loadShaderStage(
           apResources->GetFileSearcher(), "SurfelRayTrace.rt.spv");
@@ -230,19 +204,13 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     loadSlangCompute(m_lightGridBin, "LightGridBuildPass.cs.spv", "binLights");
     loadSlangCompute(m_surfelIntegrate,  "SurfelIntegratePass.cs.spv",   "csMain");
     loadSlangCompute(m_surfelGenerate,   "SurfelGenerationPass.cs.spv",  "csMain");
-    // SurfelGIRender — compute pass: one thread per pixel writes the composite
-    // into the pogo attach bound as a storage image (gOutput). The renderer
-    // transitions the pogo attach GENERAL around the dispatch and back to
-    // COLOR_ATTACHMENT_OPTIMAL afterwards so the downstream pogo toggle + raster
-    // passes are unaffected.
-    loadSlangCompute(m_surfelGIRender, "SurfelGIRenderPass.cs.spv", "csMain");
-    // (Albedo resolve pass removed — SurfelGIRenderPass now computes albedo +
-    // composites decals inline.)
-    // The pogo "read" half -> swapchain tail blit now lives in cScene (after the
-    // viewport's post-effect composite), using RI.postEffectBlit.
+    // MainComposite — compute pass: one thread per pixel writes the composite
+    // (albedo + inline decals + lighting) into the pogo attach bound as gOutput.
+    // The renderer transitions the attach to GENERAL around the dispatch and back
+    // to COLOR_ATTACHMENT_OPTIMAL afterwards.
+    loadSlangCompute(m_mainComposite, "MainCompositePass.cs.spv", "csMain");
     {
-      // Slang-compiled (amnesia/slang/ParticlePass) — entry-point names go in
-      // the SPV as-is because slangc is invoked with -fvk-use-entrypoint-name.
+      // Particle pass (amnesia/slang/ParticlePass).
       auto p_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
                                                "Particle.vert.spv");
       auto p_frag = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
@@ -266,10 +234,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       m_translucentMesh.initialize(&RI.device, stages, externalLayouts);
     }
     {
-      // Decal pass (amnesia/slang/DecalPass). Shares externalLayouts with
-      // m_translucentMesh so the same bindless set / per-frame UBO bindings
-      // light up; reuses the translucent 5-stream vertex layout. Port of
-      // decal.vert.fsl / decal.frag.fsl.
+      // Decal pass (amnesia/slang/DecalPass). Reuses the translucent 5-stream
+      // vertex layout + bindless/UBO layouts.
       auto d_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
                                                "Decal.vert.spv");
       auto d_frag = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
@@ -293,10 +259,6 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, w_frag, "psMain"}};
       m_water.initialize(&RI.device, stages, externalLayouts);
     }
-    // Water is no longer a raster pass — it's composited in
-    // SurfelGIRenderPass.frag (isWater branch) from the primary hit + the
-    // refraction / reflection bounce V-buffers.
-
 
     RISegmentAllocDesc_s indirectDesc = {};
     indirectDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
@@ -307,17 +269,10 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
         &RI.device, indirectDesc.maxElements, sizeof(VkDrawIndirectCommand),
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
-    // (Default-value fallback vertex streams + the point/spot/fog/decal/object-
-    // decal SSBOs that used to be created here now live in RIBootstrap
-    // (RI.fallback*Vertex) and HybridGlobalManagedSet::initialize().)
-
-    // Surfel-generation output image — one storage texture per swapchain
-    // image. RGBA16F so HDR radiance survives; SAMPLED so a future
-    // composite pass can read it back. View aspect color, full mip 0.
-    // Sized at FULL swapchain resolution: surfel_generation_pass dispatches
-    // at imageRes = viewportSize and writes every pixel, so every texel of
-    // this image is initialised each frame. visibility_shade.frag samples
-    // uv01 across the full [0,1] range and reads valid radiance.
+    // Surfel-generation output image — one RGBA16F (HDR) storage texture per
+    // swapchain image, full swapchain resolution. The generation pass dispatches
+    // at viewportSize and writes every pixel, so the whole image is fresh each
+    // frame.
     for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
       uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
       VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -356,12 +311,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                       &m_surfelResultView[i].vk.image));
     }
 
-    // (Screen-space albedo buffer removed — SurfelGIRenderPass computes albedo
-    // inline; no resolve target / sampled buffer needed.)
-
-    // Stage B packed visibility — RGBA32UI storage image written by the
-    // surfel_vbuffer RT pipeline and sampled by Stage D / F passes. Same
-    // swapchain-sized footprint as m_surfelResultTexture.
+    // Packed visibility — RGBA32UI storage image written by the SurfelVBuffer RT
+    // pipeline, sampled by the update / generation passes. Swapchain-sized.
     for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
       uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
       VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -552,20 +503,15 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   }
 
   // --------------------------------------------------------------------
-  // Per-frame prepare for every translucent renderable (particles + meshes
-  // + billboards + beams). UpdateGraphicsForFrame / UpdateGraphicsForViewport
-  // are the per-renderable hooks that recompute dynamic geometry — billboard
-  // camera-facing rotation, beam endpoint stretch, particle emitter step,
-  // etc. — and mark the VB dirty. SubmitToGPU then allocates vk.buffer on
-  // first call, re-uploads dirty streams, and rebuilds the BLAS; subsequent
-  // calls in the same frame are no-op via the generation check. Running this
-  // once here lets the TLAS-instance-build (refractive translucents), the
-  // particle raster pass, and the translucent mesh raster pass all consume
-  // already-prepared buffers without duplicating the per-renderable update.
+  // Per-frame prepare for every translucent renderable (particles + meshes +
+  // billboards + beams). UpdateGraphicsForFrame/ForViewport recompute dynamic
+  // geometry (billboard facing, beam stretch, emitter step) and mark the VB
+  // dirty; SubmitToGPU then allocates/uploads dirty streams and rebuilds the
+  // BLAS (no-op on repeat via the generation check). Done once here so the TLAS
+  // build, particle pass, and mesh pass all consume already-prepared buffers.
   //
-  // Must run BEFORE any vkCmdBeginRendering so the resource-uploader's
-  // pipeline barriers and BLAS-build cmds don't collide with a dynamic-
-  // rendering scope.
+  // Must run BEFORE any vkCmdBeginRendering so the uploader's barriers and
+  // BLAS-build cmds don't collide with a dynamic-rendering scope.
   for (iRenderable *pObj :
        m_rendererList.GetRenderableItems(eRenderListType_Translucent)) {
     if (!pObj)
@@ -583,14 +529,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
   }
 
-  // Same prepare step for decals (eRenderListType_Decal is a separate list
-  // from Translucent — cRenderList::AddObject routes IsDecal() materials only
-  // into mvDecalObjects). Their UpdateGraphicsForFrame/ForViewport already ran
-  // in AddObject, but SubmitToGPU (which allocates vk.buffer and uploads the
-  // position/uv/color streams) is renderer-side and must run here, before any
-  // vkCmdBeginRendering, so the decal raster pass below finds valid buffers.
-  // Without this the decal pass skips every decal on the missing-position
-  // guard and nothing draws.
+  // Same prepare for decals (a separate list from Translucent). Their
+  // Update*ForFrame already ran in AddObject, but SubmitToGPU (allocates
+  // vk.buffer + uploads streams) is renderer-side and must run here, before any
+  // vkCmdBeginRendering — else the decal pass hits the missing-position guard
+  // and draws nothing.
   for (iRenderable *pObj :
        m_rendererList.GetRenderableItems(eRenderListType_Decal)) {
     if (!pObj)
@@ -651,12 +594,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Fog params + worldFogColor default to zero — fine for the first pass;
   // populate when the deferred-fog path needs them.
 
-  // Falcor-style pinhole camera basis. mainFrustumViewInvMat memory is laid
-  // out so each 4-float "row" corresponds to one column of the logical
-  // (column-vector math) view-inverse — that is, the camera's world-space
-  // basis vectors (right, up, back, origin). Slang's -matrix-layout-column-
-  // major flag flips the interpretation back to column-vector math GPU-side,
-  // so the offsets line up with what the shader expects.
+  // Pinhole camera basis from the view-inverse rows (camera world-space
+  // right/up/back/origin). The -matrix-layout-column-major slangc flag makes
+  // these offsets line up with the shader's column-vector math.
   {
     const float *invV = mainFrustumViewInvMat.a;
     const hpl::float3 rightW{invV[0], invV[1], invV[2]};
@@ -933,11 +873,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
     cMaterial *pMat = pDecal ? pDecal->GetMaterial() : nullptr;
 
-    uint32_t materialSlot =
-        pMat ? m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex) : 0u;
-    if (materialSlot == UINT32_MAX) {
+    uint32_t materialId =
+        pMat ? m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex).materialId
+             : 0u;
+    if (materialId == UINT32_MAX) {
       Warning("Decal material slot exhausted");
-      materialSlot = 0;
+      materialId = 0;
     }
 
     GpuDecal d{};
@@ -957,7 +898,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     d.projAxisWS = float3{up.x, up.y, up.z};
     const cColor c = pDecal->GetDecalColor();
     d.color = float4{c.r, c.g, c.b, c.a};
-    d.materialID = materialSlot;
+    d.materialID = materialId;
     d.receiverMask = (uint32_t)pDecal->GetReceiverMask();
     d.blendMode = pMat ? (uint32_t)pMat->GetBlendMode() : 0u;
     const cVector2l sd = pDecal->GetSubDiv();
@@ -1015,18 +956,19 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       continue;
 
     
-    uint32_t materialSlot = 0;
+    uint32_t materialId = 0;
     if (pMat) {
-      materialSlot = m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
-      if (materialSlot == UINT32_MAX) {
+      materialId =
+          m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex).materialId;
+      if (materialId == UINT32_MAX) {
         Warning("Material Slot exhausted");
-        materialSlot = 0;
+        materialId = 0;
       }
     }
 
     ObjectSubmitDesc d;          // opaque solids: identity uv, lightLevel 1
     d.modelMatrix = pMtx;
-    d.materialId = materialSlot;
+    d.materialId = materialId;
     d.dissolveAmount = pObject->GetCoverageAmount();
     d.illuminationAmount = pObject->GetIlluminationAmount();
     // Precomputed static decal list (cWorld::Compile): (offset<<8)|count into
@@ -1119,9 +1061,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // bounce through them — that's **refractive** materials (ray-bend into
   // gPackedRefractionHitInfo) AND **reflective** materials (cube-map glass:
   // mirror-bounce into gPackedReflectionHitInfo). The reflective signal is a
-  // cube-map texture, exactly as the reference keys EnableCubeMap off
-  // GetImage(eMaterialTexture_CubeMap) (MaterialResource.cpp) and as the
-  // shader's isReflective() checks cubeMapTextureIndex. Plain
+  // cube-map texture (matching the shader's isReflective() check on
+  // cubeMapTextureIndex). Plain
   // non-refractive / non-cube-map translucents (additive overlays, dissolve
   // sprites) are still pruned: adding them put a bindless DiffuseMaterial
   // slot with no albedo + zero solid scalars into the surfel ray cone, which
@@ -1157,15 +1098,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     if (!blas || blas->vk.handle == VK_NULL_HANDLE)
       continue;
 
-    uint32_t materialSlot =
-        m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
-    if (materialSlot == UINT32_MAX)
+    auto mat = m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
+    if (mat.materialId == UINT32_MAX)
       continue;
 
     cMatrixf *pMtx = pObj->GetModelMatrix(apFrustum);
     ObjectSubmitDesc d;          // identity uv; dissolve/illum 0, lightLevel 1
     d.modelMatrix = pMtx;
-    d.materialId = materialSlot;
+    d.materialId = mat.materialId; // water ids fall in the water range of materialID
 
     // Salted cookie keeps this slot disjoint from the translucent mesh pass's
     // slot for the same renderable (a refractive mesh occupies both). Stable per
@@ -1337,9 +1277,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
       tlasToShader.srcAccessMask =
           VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-      // Also visible to the Stage B SurfelGI VBuffer RT pipeline (rgen +
-      // chit + ahit + miss) — kept in one barrier with the fragment-shader
-      // ray-query consumer in visibility_shade.frag.
+      // Consumed by both the RT pipelines and fragment-stage ray queries —
+      // one barrier covers both.
       tlasToShader.dstStageMask =
           VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
           VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
@@ -1355,7 +1294,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // m_packedHitInfoView / m_surfelIrradianceView / m_surfelDepthView and the
   // freshly built TLAS now live on set 1 and are pushed per-dispatch via
   // RIProgram::bindDescriptors below (see the m_surfelVBuffer / m_surfelRT
-  // / m_surfelIntegrate / m_surfelGenerate / m_surfelGIRender call sites).
+  // / m_surfelIntegrate / m_surfelGenerate / m_mainComposite call sites).
   // Set 1 is allocated from a frame-rotated pool, so each frame's writes
   // land on an idle descriptor set.
 
@@ -1411,10 +1350,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     RIFinalizeDescriptor(&RI.device, &b.descriptor);
     v.push_back(b);
   };
-
-  // sceneObjectsBuf / opaqueMaterialBuf now live in the bindless set (set=0
-  // bindings 20..21), wired up by bindBindlessDescriptorSet() below — no
-  // per-draw pushBinding needed.
 
   {
     RIProgram::DescriptorBinding b;
@@ -1476,31 +1411,15 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   VkRenderingAttachmentInfo depthAttachment = {
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-  // MRT now owns the per-frame depth clear (Scene no longer pre-clears).
+  // MRT owns the per-frame depth clear.
   RI_VK_FillDepthAttachment(&depthAttachment, &RI.depthView[RI.swapchainIndex],
                             /*attachAndClear=*/true);
 
-  // SurfelGI compute passes are temporarily skipped during the
-  // /home/m_pol/.claude/plans/can-we-discard-most-crispy-hennessy.md port.
-  // The frame still produces a working image because
-  // m_surfelResultTexture is cleared to zero below before the composite
-  // samples it — visibility_shade reads vec3(0) for indirect and falls
-  // back to direct + specular lighting only. Stages B–F will reintroduce
-  // the prepare / VBuffer / update / raytrace / integrate / generation
-  // dispatches around this scaffold.
-
   // ----------------------------------------------------------------------
-  // Stage D — surfel prepare + cell/ref-counter clear.
-  //
-  // Runs first each frame: promote the previous frame's ValidSurfel count
-  // to DirtySurfel, zero the per-frame counters, and clear the cellInfo /
-  // surfelReservation / surfelRefCounter buffers so the update pass can
-  // accumulate from scratch.
-  //
-  // Stage E (raytrace) and Stage F (integrate / generation) aren't here
-  // yet, so the surfel pool stays empty across frames — these dispatches
-  // currently no-op (DirtySurfel = 0) but they must run to keep the
-  // counter state consistent.
+  // Surfel prepare + cell/ref-counter clear. Runs first each frame: promote
+  // the previous frame's ValidSurfel count to DirtySurfel, zero the per-frame
+  // counters, and clear the cellInfo / surfelReservation / surfelRefCounter
+  // buffers so the update pass accumulates from scratch.
   // ----------------------------------------------------------------------
   {
     VkComputePipelineCreateInfo computeCreate = {
@@ -1516,19 +1435,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   }
 
   // Ping-pong the surfel-index buffers: copy this frame's previously-valid
-  // indices into the dirty buffer so surfel_update_collect.comp can walk
-  // them. SurfelGI's reference declares gSurfelValidIndexBuffer (RW) and
-  // gSurfelDirtyIndexBuffer (R/O) as separate Slang bindings; Falcor's host
-  // either aliases or ping-pongs them across frames. We do a straight copy
-  // each frame — simplest, and the cost is negligible (≤600 KB).
+  // indices into the dirty buffer so update_collect can walk them. A straight
+  // copy each frame — negligible cost (≤600 KB).
   //
-  // Source data was last written by the previous frame's update_collect /
-  // generation_pass / rchit::finalize. The engine frame fence already
-  // ordered that work against this frame's command buffer, so we don't
-  // need a transition barrier before the copy. The post-copy barrier
-  // (combined with the prepare-pass writes above) covers both the copy's
-  // TRANSFER_WRITE and prepare's SHADER_WRITE against update_collect's
-  // SHADER_READ.
+  // The source was last written by the previous frame, already ordered by the
+  // frame fence, so no pre-copy barrier is needed. The post-copy barrier
+  // (with the prepare-pass writes above) covers the copy's TRANSFER_WRITE and
+  // prepare's SHADER_WRITE against update_collect's SHADER_READ.
   {
     VkBufferCopy region = {};
     region.srcOffset = 0;
@@ -1603,12 +1516,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   if (m_tlas.vk.handle != VK_NULL_HANDLE) {
     VkRayTracingPipelineCreateInfoKHR rtCreate = {
         VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR};
-    // closesthit in SurfelVBuffer.rt.slang fires one mirror-reflection
-    // TraceRay before recording the second hit (Falcor's one-bounce
-    // V-buffer trick), so the pipeline needs depth=2: raygen→chit is
-    // depth 1, the recursive TraceRay from inside chit lands at depth 2.
-    // depth=1 silently leaves hit pixels unwritten and produced "holes"
-    // in gPackedHitInfo against the UNDEFINED initial image contents.
+    // closeHit fires one recursive TraceRay before recording the second hit,
+    // so the pipeline needs depth=2 (raygen→chit = depth 1, the recursive
+    // TraceRay lands at depth 2). depth=1 silently leaves hit pixels unwritten
+    // — "holes" in gPackedHitInfo against the UNDEFINED initial contents.
     rtCreate.maxPipelineRayRecursionDepth = 2;
     const hash_t kVBufferHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
     m_surfelVBuffer.bindRayTracingPipeline(&RI.device, &RI.primary.cmds[0],
@@ -1790,7 +1701,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   // ----------------------------------------------------------------------
   // World-space light grid build (feeds the surfel ray-trace NEE importance
-  // sampling + the SurfelGIRenderPass direct cull). Per-cell gather: one thread
+  // sampling + the MainCompositePass direct cull). Per-cell gather: one thread
   // per grid cell walks the light list and writes that cell's count + list. The
   // light SSBOs were uploaded + barriered to SHADER_READ earlier this frame, so
   // binLights reads them directly. No per-cell count clear is needed — every
@@ -1823,11 +1734,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                 (kLightGridCellCount + 63u) / 64u, 1u, 1u);
   }
 
-  // (Decal grid build removed — decals now use a precomputed per-object index
-  // list, uploaded with the scene objects above; no compute pass / grid buffers.)
   {
     // binLights writes are read by two consumers later this frame: the surfel
-    // ray-trace NEE (ray tracing) and the SurfelGIRenderPass direct-lighting
+    // ray-trace NEE (ray tracing) and the MainCompositePass direct-lighting
     // cull (fragment — SurfelShade.evalAnalyticLight walks the per-cell light
     // list). Both stages must be in dst or the fragment reads see an empty grid
     // and drop every point/spot light. Compute kept in dst for safety.
@@ -2062,7 +1971,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // pixels with no surfel coverage — and out-of-cell pixels — are left
     // untouched (the pass was refactored to drop its miss-write, so it no
     // longer "unconditionally writes every in-bounds pixel"). But the composite
-    // (SurfelGIRenderPass.frag) samples gIndirectLighting for EVERY valid-hit
+    // (MainCompositePass) samples gIndirectLighting for EVERY valid-hit
     // pixel, so with sparse surfel coverage most of the screen would sample
     // undefined memory. Clear to (0,0,0,1) each frame so uncovered pixels read
     // as zero indirect instead of garbage. UNDEFINED oldLayout discards stale
@@ -2111,14 +2020,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   }
 
   // ----------------------------------------------------------------------
-  // Stage F — surfel integrate + generation.
-  //
-  // integrate: per valid surfel, MSME-blend the per-frame raytraced
-  //            radiance (from gSurfelRayResultBuffer) into surfel.radiance
-  // generate:  per pixel, walk the visibility-buffer cell's surfel list,
-  //            output the indirect-lighting term into m_surfelResultTexture
-  //            (which visibility_shade.frag samples), and spawn / recycle
-  //            surfels based on coverage thresholds.
+  // Surfel integrate + generation.
+  //   integrate: per valid surfel, MSME-blend the per-frame raytraced radiance
+  //              (gSurfelRayResultBuffer) into surfel.radiance.
+  //   generate:  per pixel, walk the visibility cell's surfel list, write the
+  //              indirect term into m_surfelResultTexture (sampled by the
+  //              composite), and spawn / recycle surfels by coverage.
   // ----------------------------------------------------------------------
   {
     VkComputePipelineCreateInfo computeCreate = {
@@ -2218,18 +2125,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   }
 
   // --------------------------------------------------------------------
-  // SurfelGIRenderPass — graphics fullscreen pass.
-  //
-  // Replaces the legacy visibility_shade composite (and the prior compute
-  // version of this same Slang module). Reads gIndirectLighting
-  // (m_surfelResultView, written by SurfelGenerationPass above) plus
-  // gPackedHitInfo / gPackedHitInfoRaster / TLAS / gPerFrame, and emits
-  // its color into the pogo buffer's COLOR_ATTACHMENT side.
-  //
-  // The post-effect chain ping-pongs through pogo from there; a tail
-  // blit lower in this function copies the final pogo "read" half into
-  // the swapchain image, which the particle/decal pass then composites
-  // on top of.
+  // MainCompositePass — compute pass. Reads gIndirectLighting
+  // (m_surfelResultView, from SurfelGenerationPass above) + gPackedHitInfo /
+  // gPackedHitInfoRaster / TLAS / gPerFrame, and writes the composited color
+  // into the pogo buffer. The post-effect chain ping-pongs through pogo from
+  // there; a tail blit lower in this function copies the final pogo "read" half
+  // into the swapchain, which the particle/decal pass composites on top of.
   // --------------------------------------------------------------------
 
   RI_PogoBuffer *pogo = &RI.pogoBuffer[RI.swapchainIndex];
@@ -2343,9 +2244,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo surfelCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_surfelGIRender.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
-                                         "SurfelGIRenderPass.cs", &surfelCreate);
-    m_surfelGIRender.bindBindlessDescriptorSet(
+    m_mainComposite.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
+                                         "MainCompositePass.cs", &surfelCreate);
+    m_mainComposite.bindBindlessDescriptorSet(
         &RI.primary.cmds[0], &m_global.m_bindlessSet, 0,
         VK_PIPELINE_BIND_POINT_COMPUTE);
 
@@ -2393,7 +2294,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         bnd, "gOutput",
         pogo->pogoAttachment[pogo->attachmentIndex].vk.image.imageView);
 
-    m_surfelGIRender.bindDescriptors(
+    m_mainComposite.bindDescriptors(
         &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
         bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
 
@@ -2534,9 +2435,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         cMaterial *pMat = pObj->GetMaterial();
         const int indexCount = pVB->GetIndexNum();
 
-        uint32_t materialSlot =
-            m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
-        if (materialSlot == UINT32_MAX) {
+        uint32_t materialId =
+            m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex).materialId;
+        if (materialId == UINT32_MAX) {
           Warning("Material Slot exhausted (decal)");
           continue;
         }
@@ -2544,7 +2445,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         ObjectSubmitDesc d;          // decals are unlit overlays (lightLevel 1)
         d.modelMatrix = pObj->GetModelMatrix(apFrustum);
         d.uvMatrix = pMat->GetUvMatrix();
-        d.materialId = materialSlot;
+        d.materialId = materialId;
         d.dissolveAmount = pObj->GetCoverageAmount();
 
         const uint32_t slot = m_global.submitObject(
@@ -2677,9 +2578,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         cMaterial *pMat = pObj->GetMaterial();
         const int indexCount = pVB->GetIndexNum();
 
-        uint32_t materialSlot =
-            m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
-        if (materialSlot == UINT32_MAX) {
+        auto mat = m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
+        if (mat.materialId == UINT32_MAX) {
           Warning("Material Slot exhausted (water)");
           continue;
         }
@@ -2687,7 +2587,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         ObjectSubmitDesc d;
         d.modelMatrix = pObj->GetModelMatrix(apFrustum);
         d.uvMatrix = pMat->GetUvMatrix();
-        d.materialId = materialSlot;
+        d.materialId = mat.materialId; // water ids fall in the water range of materialID
         d.dissolveAmount = pObj->GetCoverageAmount();
 
         const uint32_t slot = m_global.submitObject(
@@ -2738,36 +2638,21 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
 
   // --------------------------------------------------------------------
-  // Translucent pass — two sub-passes, both into the pogo "read" half.
+  // Translucent pass — two sub-passes, both into the pogo "read" half:
+  //   1. Particle pass (this block) — particle emitters only.
+  //   2. Mesh pass (below)          — non-particle translucent meshes.
+  // Each opens its own begin/endRendering + pogo barriers, so either is
+  // skippable when empty.
   //
-  //   1. Particle pass    (this block)            — particle emitters only.
-  //   2. Mesh pass        (block immediately below) — non-particle, non-
-  //                       refraction, non-reflection translucent meshes.
+  // Resources reused from the opaque path:
+  //   - m_global.m_objectSlots / m_objectBuffer (per-renderable OBJECT slot)
+  //   - m_opaque*Handles (BDA fan-out: particles/meshes overload
+  //                       position/uv0/color/index with their own VB addresses)
+  //   - m_global.m_diffuseMaterialBindless / m_diffuseMaterialBuffer (material slot)
   //
-  // Each sub-pass opens its own vkCmdBeginRendering/EndRendering and runs
-  // its own pogo barriers, so the two are independently skippable when one
-  // side has no work. Refraction and world-reflection materials are still
-  // out of scope (the hybrid renderer has no screen-color copy and no
-  // reflection buffer); both are filtered out in the mesh-pass collection.
-  //
-  // Fog-area visibility for translucents is computed per-pixel inside
-  // Translucent.frag.slang by iterating the gFogAreas SSBO — see the
-  // per-frame fog-area upload above for where that buffer is filled.
-  //
-  // Resources reused from the opaque path (both sub-passes):
-  //   - m_global.m_objectSlots / m_global.m_objectBuffer (per-renderable OBJECT slot)
-  //   - m_opaque*Handles  (BDA fan-out — particles and mesh translucents
-  //                        overload position/uv0/color/index with their own
-  //                        VB device addresses)
-  //   - m_global.m_materialBindless / m_global.m_opaqueMaterialBuffer (material slot; only
-  //                        the diffuse texture index is read by the shaders)
-  //
-  // Sync setup:
-  //   (a) Swapchain stays in COLOR_ATTACHMENT_OPTIMAL from the visibility
-  //       composite — load to preserve the composite output.
-  //   (b) Depth was last transitioned to SHADER_READ_ONLY for surfel-
-  //       generate; flipDepthToReadOnly() (idempotent) moves it back to
-  //       DEPTH_READ_ONLY_OPTIMAL — shared with the decal pass.
+  // Sync: (a) swapchain stays COLOR_ATTACHMENT_OPTIMAL from the composite
+  //           (load to preserve it); (b) flipDepthToReadOnly() moves depth back
+  //           to DEPTH_READ_ONLY_OPTIMAL (shared with the decal pass).
   // --------------------------------------------------------------------
   {
     // Collect particle emitters from the translucent list once so we can
@@ -2896,16 +2781,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         if (indexCount <= 0)                      // 0 == emitter requested skip
           continue;
 
-        uint32_t materialSlot =
-            m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
-        if (materialSlot == UINT32_MAX) {
+        uint32_t materialId =
+            m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex).materialId;
+        if (materialId == UINT32_MAX) {
           Warning("Material Slot exhausted (particle)");
           continue;
         }
 
         ObjectSubmitDesc d;          // particle: identity uv, no dissolve/illum
         d.modelMatrix = pEmitter->GetModelMatrix(apFrustum);
-        d.materialId = materialSlot;
+        d.materialId = materialId;
 
         // Particles share the object-slot pool with opaque solids. submitObject
         // bumps the slot generation when this slot is (re)assigned to the emitter
@@ -2969,12 +2854,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // ordered the translucent list back-to-front, so iterating in list order
   // here gives correct Alpha-blend results.
   //
-  // Refraction is now handled upstream by SurfelVBuffer.rt's primary-ray
-  // bend (closeHit::isRefractive branch) — the GI composite already shows
-  // the refracted background under refractive translucents by the time
-  // this pass runs. Water is not rasterized here at all — it's composited
-  // entirely in SurfelGIRenderPass.frag (isWater branch) and is filtered
-  // out of the mesh collection below.
+  // Refraction is handled upstream by SurfelVBuffer.rt's primary-ray bend
+  // (closeHit::isRefractive branch) — the GI composite already shows the
+  // refracted background under refractive translucents by the time this pass
+  // runs. Water is filtered out of the mesh collection below; it has its own
+  // raster pass (m_water) over that refracted background.
   // --------------------------------------------------------------------
   {
     std::vector<iRenderable *> meshes;
@@ -2996,7 +2880,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // from the RT V-buffer); HasWorldReflection is harmless (the
       // legacy-only planar reflection buffer is unused).
       // Water is NOT rasterized — it's composited entirely in
-      // SurfelGIRenderPass.frag (isWater branch) from the primary hit + the
+      // MainCompositePass (isWater branch) from the primary hit + the
       // refraction / reflection bounce V-buffers, so skip it here.
       if (pMat->Descriptor().m_id == MaterialID::Water)
         continue;
@@ -3120,9 +3004,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // Filter above already rejected null pVB / pMat and 0-index VBs.
         const int indexCount = pVB->GetIndexNum();
 
-        uint32_t materialSlot =
-            m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
-        if (materialSlot == UINT32_MAX) {
+        uint32_t materialId =
+            m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex).materialId;
+        if (materialId == UINT32_MAX) {
           Warning("Material Slot exhausted (translucent mesh)");
           continue;
         }
@@ -3174,7 +3058,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         ObjectSubmitDesc d;
         d.modelMatrix = pMtx;
         d.uvMatrix = pMat->GetUvMatrix();
-        d.materialId = materialSlot;
+        d.materialId = materialId;
         d.dissolveAmount = pObj->GetCoverageAmount();
         d.lightLevel = lightLevel;
 
