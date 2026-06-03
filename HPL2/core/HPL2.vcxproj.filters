@@ -1195,6 +1195,9 @@
     <ClInclude Include="include\graphics\PostEffect_ToneMap.h">
       <Filter>Graphics</Filter>
     </ClInclude>
+    <ClInclude Include="include\scene\Decal.h">
+      <Filter>Scene</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="sources\system\Container.cpp">
@@ -2159,6 +2162,9 @@
     </ClCompile>
     <ClCompile Include="sources\graphics\DecalPipelineDesc.cpp">
       <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\scene\Decal.cpp">
+      <Filter>Scene</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

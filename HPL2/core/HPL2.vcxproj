@@ -207,6 +207,7 @@
     <ClInclude Include="include\input\ActionGamepadHat.h" />
     <ClInclude Include="include\input\Gamepad.h" />
     <ClInclude Include="include\resources\SpvResourceLoader.h" />
+    <ClInclude Include="include\scene\Decal.h" />
     <ClInclude Include="include\system\BinTree.h" />
     <ClInclude Include="include\system\Container.h" />
     <ClInclude Include="include\system\Event.h" />
@@ -574,6 +575,7 @@
     <ClCompile Include="sources\input\ActionGamepadButton.cpp" />
     <ClCompile Include="sources\input\ActionGamepadHat.cpp" />
     <ClCompile Include="sources\input\Gamepad.cpp" />
+    <ClCompile Include="sources\scene\Decal.cpp" />
     <ClCompile Include="sources\system\Container.cpp" />
     <ClCompile Include="sources\system\LogicTimer.cpp" />
     <ClCompile Include="sources\system\MemoryManager.cpp" />
