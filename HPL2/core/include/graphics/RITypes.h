@@ -26,6 +26,10 @@
 #undef CreateEvent
 #endif
 
+#ifdef CreateWindow
+#undef CreateWindow
+#endif
+
 #include <cstdio>
 #include <stdint.h>
 #undef DestroyAll

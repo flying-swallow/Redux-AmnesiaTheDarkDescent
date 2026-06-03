@@ -2025,7 +2025,7 @@ bool cEditorWindowMaterialEditor::WindowSpecificInputCallback(iEditorInput* apIn
 		// Flat
 		else
 		{
-			mpMatWorld->SetSkyBox(NULL, true);
+			mpMatWorld->SetSkyBox(static_cast<Image*>(nullptr), true);
 			mpMatWorld->SetSkyBoxColor(mpInpBGColor->GetValue());
 		}
 	}

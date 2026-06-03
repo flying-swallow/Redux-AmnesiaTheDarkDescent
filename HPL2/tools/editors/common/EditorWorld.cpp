@@ -163,7 +163,7 @@ bool iEditorWorld::AddObject(iEntityWrapper* apObject)
 	if(apObject==NULL)
 		return false;
 
-	mmapEntities.insert(pair<unsigned int, iEntityWrapper*>(apObject->GetID(), apObject));
+	mmapEntities.insert(std::pair<unsigned int, iEntityWrapper*>(apObject->GetID(), apObject));
 
 	// Call on add stuff.
 	apObject->OnAddToWorld();
@@ -1179,7 +1179,7 @@ void iEditorWorld::UpdateSkybox()
 	}
 	else
 	{
-		mpWorld->SetSkyBox(NULL,true);
+		mpWorld->SetSkyBox(static_cast<Image*>(nullptr),true);
 		mpWorld->SetSkyBoxColor(mBGDefaultColor);
 	}
 }
