@@ -890,6 +890,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           ((maxC * authored)/ kLightRadianceFloor) - kPointLightSourceRadiusSq;
       sl.radius = reachSq > 0.f ? std::sqrt(reachSq) : 0.f;
     }
+    // Physical source radius drives the soft-shadow penumbra in the direct pass
+    // (same as point lights above). Authored per-light via cLight::SetSourceRadius;
+    // when a light authors none (0), fall back to a fraction of its authored reach
+    // so it's softly shadowed by default. An explicit author value always wins.
+    {
+      const float authoredSourceRadius = pLight->GetSourceRadius();
+      sl.sourceRadius = authoredSourceRadius > 0.f
+                            ? authoredSourceRadius
+                            : authored * kPointLightDefaultSourceRadiusFrac;
+    }
     sl.goboTextureIndex = m_global.resolveTextureSlot(cntx, pLight->GetGoboImage(),
                                              (uint32_t)RI.frameIndex);
     sl.shadowEnabled = pLight->GetCastShadows() ? 1u : 0u;

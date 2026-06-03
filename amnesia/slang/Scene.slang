@@ -443,12 +443,12 @@ public struct Scene
         return albedo * ls.Li * NdotL;
     }
 
-    // Soft-shadow variant: for point lights with a non-zero sourceRadius, aim the
-    // shadow ray at a jittered point on the light disk (radius = sourceRadius,
-    // facing the shading point) so one noisy sample per frame, accumulated
-    // temporally, resolves to a penumbra. Energy (Li·NdotL) still uses the light
-    // centre — only occlusion is softened. sourceRadius == 0 (or spot lights)
-    // falls back to the hard centre ray, matching shadeAnalyticLight.
+    // Soft-shadow variant: for point or spot lights with a non-zero sourceRadius,
+    // aim the shadow ray at a jittered point on the light disk (radius =
+    // sourceRadius, facing the shading point) so one noisy sample per frame,
+    // accumulated temporally, resolves to a penumbra. Energy (Li·NdotL) still uses
+    // the light centre — only occlusion is softened. sourceRadius == 0 falls back
+    // to the hard centre ray, matching shadeAnalyticLight.
     public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW, float3 albedo,
                                          uint lightIndex, float3 origin, inout RNG rng)
     {
@@ -460,11 +460,27 @@ public struct Scene
 
         float3 sDir = ls.dir;
         float  sMax = ls.distance;
+        // Pick the source radius + light centre from whichever array this virtual
+        // index lands in: [0, nPoint) are point lights, [nPoint, nPoint+nSpot) spots.
+        float  r    = 0.f;
+        float3 lpos = float3(0.f);
         uint nPoint = gPerFrame.pointLightCount;
-        if (lightIndex < nPoint && gPointLights[lightIndex].sourceRadius > 0.f)
+        if (lightIndex < nPoint)
         {
-            float  r    = gPointLights[lightIndex].sourceRadius;
-            float3 lpos = gPointLights[lightIndex].position;
+            r    = gPointLights[lightIndex].sourceRadius;
+            lpos = gPointLights[lightIndex].position;
+        }
+        else
+        {
+            uint si = lightIndex - nPoint;
+            if (si < gPerFrame.spotLightCount)
+            {
+                r    = gSpotLights[si].sourceRadius;
+                lpos = gSpotLights[si].position;
+            }
+        }
+        if (r > 0.f)
+        {
             // Tangent basis perpendicular to the light direction.
             float3 t = normalize(abs(ls.dir.y) < 0.99f
                                  ? cross(float3(0.f, 1.f, 0.f), ls.dir)

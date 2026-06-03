@@ -64,6 +64,7 @@ SLANG_PUBLIC struct SpotLight {
     SLANG_PUBLIC uint  shadowEnabled;                // 0 or 1
     SLANG_PUBLIC float4x4  viewProjection;               // light-space ViewProj for gobo UVs
     SLANG_PUBLIC float radius;                       // CPU-precomputed light-grid bin reach (world units); 0 ⇒ skip
+    SLANG_PUBLIC float sourceRadius;                 // physical source radius (world units); 0 ⇒ hard shadow. Penumbra.
 };
 
 // Per-fog-area params for the screen-space fog iteration. One entry per
@@ -239,6 +240,7 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC float4x4  invProjMat;                 // for WorldPosFromDepth
     SLANG_PUBLIC float4x4  prevViewMat;                // last frame's view/proj (no jitter); motion vectors
     SLANG_PUBLIC float4x4  prevProjMat;
+    SLANG_PUBLIC float4x4  jitterProjMat;              // projMat + per-frame TAA sub-pixel jitter; getViewProj()
 
     SLANG_PUBLIC float worldFogStart;
     SLANG_PUBLIC float worldFogLength;
