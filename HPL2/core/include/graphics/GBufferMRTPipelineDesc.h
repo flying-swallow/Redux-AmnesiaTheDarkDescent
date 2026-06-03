@@ -21,17 +21,18 @@ struct GBufferMRTPipelineDesc {
   VkPipelineRasterizationStateCreateInfo rasterizationState;
   VkDynamicState dynamicStates[2];
   VkPipelineDynamicStateCreateInfo dynamicState;
-  VkFormat colorFormat;
+  VkFormat colorFormats[2];  // [0] packed visibility (uint4), [1] velocity (RG16F)
   VkPipelineRenderingCreateInfo pipelineRendering;
   VkPipelineViewportStateCreateInfo viewportState;
   VkPipelineMultisampleStateCreateInfo multisampleState;
   VkPipelineDepthStencilStateCreateInfo depthStencilState;
-  VkPipelineColorBlendAttachmentState blendAttachment;
+  VkPipelineColorBlendAttachmentState blendAttachments[2];
   VkPipelineColorBlendStateCreateInfo colorBlendState;
   VkGraphicsPipelineCreateInfo createInfo;
   hash_t hash;
 
-  GBufferMRTPipelineDesc(RI_Format_e visibilityFormat, RI_Format_e depthFormat);
+  GBufferMRTPipelineDesc(RI_Format_e visibilityFormat, RI_Format_e velocityFormat,
+                         RI_Format_e depthFormat);
 
   GBufferMRTPipelineDesc(const GBufferMRTPipelineDesc &) = delete;
   GBufferMRTPipelineDesc &operator=(const GBufferMRTPipelineDesc &) = delete;

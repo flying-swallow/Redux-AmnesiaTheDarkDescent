@@ -43,6 +43,7 @@ SLANG_PUBLIC struct PointLight {
     SLANG_PUBLIC float3  worldToLightY;
     SLANG_PUBLIC float3  worldToLightZ;
     SLANG_PUBLIC float radius;                       // CPU-precomputed light-grid bin reach (world units); 0 ⇒ skip
+    SLANG_PUBLIC float sourceRadius;                 // physical source radius (world units); 0 ⇒ hard shadow. Penumbra.
 };
 
 // Scalar-layout spot light. `intensity` = luminous power (same convention as
@@ -148,6 +149,7 @@ SLANG_PUBLIC struct UniformObject {
     SLANG_PUBLIC float illuminationAmount;
     SLANG_PUBLIC float4x4  modelMat;
     SLANG_PUBLIC float4x4  invModelMat;
+    SLANG_PUBLIC float4x4  prevModelMat;   // last frame's modelMat (== modelMat for statics); motion vectors
     SLANG_PUBLIC float4x4  uvMat;
     // Precomputed per-object decal list, packed (offset << 8) | count, indexing
     // gObjectDecalIndices[] (stable gDecals[] indices). Built once at load by
@@ -235,6 +237,8 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC float4x4  invViewMat;
     SLANG_PUBLIC float4x4  projMat;
     SLANG_PUBLIC float4x4  invProjMat;                 // for WorldPosFromDepth
+    SLANG_PUBLIC float4x4  prevViewMat;                // last frame's view/proj (no jitter); motion vectors
+    SLANG_PUBLIC float4x4  prevProjMat;
 
     SLANG_PUBLIC float worldFogStart;
     SLANG_PUBLIC float worldFogLength;

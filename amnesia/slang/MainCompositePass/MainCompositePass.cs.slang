@@ -32,6 +32,11 @@ import Grid;                         // gridCellPos / gridFlattenCellIndex / gri
 [vk::binding(0, 2)]
 Texture2D<float4> gIndirectLighting;
 
+// Temporally-accumulated direct lighting (soft shadows), produced by
+// DirectLightingPass. Albedo baked in — added straight into the gather.
+[vk::binding(3, 2)]
+Texture2D<float4> gDirectLighting;
+
 // Rasterized V-buffer fallback. Same packed layout as `gPackedHitInfo`
 // (see SurfelGBuffer.3d.slang's psMain), but produced by the raster
 // GBuffer pass instead of the RT V-buffer. We fall back to it when the
@@ -189,10 +194,12 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     bool wantDirect   = kDefaultRenderDirectLighting   != 0u;
     bool wantIndirect = kDefaultRenderIndirectLighting != 0u;
 
-    float3 direct   = wantDirect   ? evalAnalyticLight(sd) : float3(0.f);
+    // Direct lighting is now a temporally-accumulated texture (soft shadows),
+    // produced by DirectLightingPass; just read it. Indirect from the surfel cache.
+    float3 direct   = wantDirect   ? gDirectLighting[pixelPos].xyz : float3(0.f);
     float3 indirect = wantIndirect ? gIndirectLighting[pixelPos].xyz : float3(0.f);
 
-    // direct already carries albedo (evalAnalyticLight applies it once, matching
+    // direct already carries albedo (the direct pass applies it once, matching
     // the base game's albedo·color·atten·NdotL). indirect is incoming irradiance
     // from the cosine-sampled surfel cache (f = albedo/π, pdf = cosθ/π → reduces
     // to albedo), so it takes exactly one albedo to become outgoing radiance.

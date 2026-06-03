@@ -51,6 +51,11 @@ struct BindlessShadowMirror {
     const size_t off = (size_t)slot * sizeof(T);
     if (off + sizeof(T) > shadow.size())
       return;
+    // Unchanged value: the device buffer already holds it (shadow mirrors
+    // device), so don't widen the dirty range — keeps flushMirrors() from
+    // re-uploading BDAs / slot generations that didn't move this frame.
+    if (std::memcmp(shadow.data() + off, &value, sizeof(T)) == 0)
+      return;
     std::memcpy(shadow.data() + off, &value, sizeof(T));
     if (off < dirtyMinByte)
       dirtyMinByte = off;
@@ -222,6 +227,14 @@ public:
   struct ObjectSlotState {
     EventHandler<> onDestroy;     // VB-destroy → bump this slot's generation
     uint32_t       indexCount = 0; // last-seen index count; change → bump generation
+    // Last frame's GPU modelMat (row-major float4x4), staged into
+    // UniformObject.prevModelMat for motion vectors. hasPrev is false until the
+    // first data submit and is treated as reset when a new object takes the slot.
+    float          prevModelMat[16] = {};
+    // Last UniformObject staged into m_objectBuffer[slot]. submitObject compares
+    // the freshly-built payload against this and skips the upload when identical
+    // (static objects: matrices + material never change frame-to-frame).
+    UniformObject  lastPayload = {};
   };
   // Stable object-slot cache. frameInFlight = 0: a slot is reusable the frame
   // after its last use (the object-data path is synchronized), and is only

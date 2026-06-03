@@ -31,7 +31,18 @@ struct VSOut
     float2 texC                          : TEXCOORD0;
     nointerpolation uint instanceID      : INSTANCE_ID;
     nointerpolation uint materialID      : MATERIAL_ID;
+    // No-jitter clip positions this frame and last frame, for motion vectors.
+    // Interpolated (perspective-correct), divided by w in the FS.
+    float4 curClip                       : CUR_CLIP;
+    float4 prevClip                      : PREV_CLIP;
 }
+
+// Two render targets: packed TriangleHit + screen-space velocity (curUV-prevUV).
+struct GBufferOut
+{
+    uint4  hit      : SV_TARGET0;
+    float2 velocity : SV_TARGET1;
+};
 
 [shader("vertex")]
 VSOut vsMain(uint vertexID    : SV_VertexID,
@@ -66,8 +77,11 @@ VSOut vsMain(uint vertexID    : SV_VertexID,
 
     UniformObject obj = gScene.getObject(instanceID);
 
-    float4 worldP = mul(obj.modelMat, float4(aPos, 1.0f));
+    float4 worldP     = mul(obj.modelMat,     float4(aPos, 1.0f));
+    float4 prevWorldP = mul(obj.prevModelMat, float4(aPos, 1.0f));
     o.posH       = mul(gScene.camera.getViewProj(), worldP);
+    o.curClip    = mul(gScene.camera.getViewProjNoJitter(), worldP);
+    o.prevClip   = mul(gScene.camera.getPrevViewProj(), prevWorldP);
     o.texC       = mul(obj.uvMat, float4(aUv, 0.0f, 1.0f)).xy;
     o.instanceID = instanceID;
     o.materialID = gScene.getMaterialID(instanceID);
@@ -75,30 +89,34 @@ VSOut vsMain(uint vertexID    : SV_VertexID,
 }
 
 [shader("pixel")]
-uint4 psMain(VSOut vsOut,
-             uint   primitiveID : SV_PrimitiveID,
-             float3 barys       : SV_Barycentrics) : SV_TARGET0
+GBufferOut psMain(VSOut vsOut,
+                 uint   primitiveID : SV_PrimitiveID,
+                 float3 barys       : SV_Barycentrics)
 {
-    // Diffuse alpha gate — same reject the GLSL gbuffer.frag applied before
-    // writing visibility.
+    // Diffuse alpha gate — same reject the gbuffer applied before writing
+    // visibility. Discarded pixels write neither target.
     VertexData v = {};
     v.texC = vsOut.texC;
     if (gScene.materials.alphaTest(v, vsOut.materialID, 0.0f))
         discard;
 
-    // Project's packed TriangleHit layout — must match surfel_vbuffer.rgen so
-    // unpackHit() in the surfel passes (and the visibility_shade composite)
-    // can decode raster-produced and RT-produced hits identically:
-    //   .x = instanceID
-    //   .y = primitiveIndex
-    //   .z = packHalf2x16(b1, b2)     ;  b0 reconstructed at decode
-    //   .w = 0                         ;  miss-sentinel = 0xFFFFFFFF (RT only)
+    GBufferOut o;
+
+    // Packed TriangleHit — must match SurfelVBuffer.rt's pack() so the surfel
+    // passes and the composite decode raster + RT hits identically:
+    //   .x = instanceID  .y = primitiveIndex  .z = packHalf2x16(b1,b2)  .w = 0
     uint b1 = f32tof16(barys.y);
     uint b2 = f32tof16(barys.z);
-    uint4 packed;
-    packed.x = vsOut.instanceID;
-    packed.y = primitiveID;
-    packed.z = b1 | (b2 << 16);
-    packed.w = 0u;
-    return packed;
+    o.hit.x = vsOut.instanceID;
+    o.hit.y = primitiveID;
+    o.hit.z = b1 | (b2 << 16);
+    o.hit.w = 0u;
+
+    // Screen-space velocity = curUV - prevUV (resolve samples history at
+    // uv - velocity). NDC→UV uses the engine's y-down convention
+    // (uv = ndc * (0.5,-0.5) + 0.5, see computeNonNormalizedRayDirPinhole).
+    float2 curUV  = (vsOut.curClip.xy  / vsOut.curClip.w)  * float2(0.5f, -0.5f) + 0.5f;
+    float2 prevUV = (vsOut.prevClip.xy / vsOut.prevClip.w) * float2(0.5f, -0.5f) + 0.5f;
+    o.velocity = curUV - prevUV;
+    return o;
 }

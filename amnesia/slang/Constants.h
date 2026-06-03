@@ -302,6 +302,28 @@ SHARED_CONST uint  kDefaultOverlayMode          = 0u;
 // to A/B direct vs. indirect.
 SHARED_CONST uint  kDefaultRenderDirectLighting    = 1u;
 SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
+// Direct-lighting temporal accumulation. The pass keeps a running mean weighted
+// by history length: alpha = max(1/count, kDirectTemporalAlpha), count capped at
+// kDirectMaxAccum. The 1/count term gives exact, fast early convergence (1, ½,
+// ⅓ …); the floor keeps it adaptive once the cap is reached. Lower floor / higher
+// cap = smoother but laggier on changing lighting.
+SHARED_CONST float kDirectTemporalAlpha            = 0.05f;
+SHARED_CONST float kDirectMaxAccum                 = 16.0f;
+// Disocclusion rejection for the direct pass: reproject the surface key (view
+// depth + normal) and reject history (restart accumulation) when the reprojected
+// surface differs — kills camera-motion smear at silhouettes.
+SHARED_CONST float kReprojZRelTol                  = 0.05f;   // ≤5% view-depth difference accepted
+SHARED_CONST float kReprojNormalCos                = 0.9f;    // ≈25° normal tolerance
+// Disocclusion seed: a fresh pixel borrows already-converged direct from
+// same-surface neighbors in the previous accumulation, searching a
+// (2R+1)² window (no shadow rays). Larger = more reuse, more taps.
+SHARED_CONST int   kDisoccSearchRadius             = 3;       // 7×7 spatial reuse window
+// Guard band / overscan: the whole frame renders at (1 + 2·kGuardBandFraction)
+// the display size with a correspondingly wider FOV, and the present blit crops
+// the center back to the display. Gives temporal reprojection valid history just
+// off the visible edge so camera pans don't show edge artifacts. Fill cost scales
+// ~(1+2f)². Crop inset per side (UV) = f/(1+2f).
+SHARED_CONST float kGuardBandFraction              = 0.06f;   // ≈6% per side
 
 // PBR point/spot-light falloff. The host stores intensity = authoredRadius² · scale.
 // The shader emits radiance = color · intensity · 1/(d² + sourceRadius²) — a plain
@@ -319,6 +341,11 @@ SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
 SHARED_CONST float kPointLightIntensityScale   = 0.4f;    // VISUAL radiance/bloom brightness knob only — does NOT affect binning/cull reach (the host computes reach from the unscaled authored radius); tune freely without re-culling lights
 SHARED_CONST float kLightRadianceFloor         = 0.005f;    // min per-channel radiance (linear) worth binning; reach² = maxC(color)·authoredRadius/floor − sourceRadiusSq (scale-independent)
 SHARED_CONST float kPointLightSourceRadiusSq   = 0.25f;  // soft source radius² (0.5m) — near-field softening + on-source peak cap (caps on-lamp radiance at color·intensity/this instead of 1/d²→∞; raise to soften lamp hotspots further)
+// Default soft-shadow source radius when a light authors none (GetSourceRadius()==0):
+// a fraction of the authored reach radius, so the penumbra scales with the lamp and
+// lights are soft by default instead of hard. Host-only fallback in the point-light
+// upload; an explicitly authored sourceRadius always wins.
+SHARED_CONST float kPointLightDefaultSourceRadiusFrac = 0.05f;  // 5% of authored radius (e.g. 5m reach ⇒ 0.25m penumbra disk)
 
 
 HOST_NAMESPACE_END

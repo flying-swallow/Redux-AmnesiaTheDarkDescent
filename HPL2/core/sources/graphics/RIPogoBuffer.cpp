@@ -66,9 +66,11 @@ void RI_PogoBufferInit( struct RIDevice_s *device, struct RI_PogoBuffer *pogo, u
 	info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	// STORAGE_BIT lets the SurfelGI composite (a compute pass) write the pogo
 	// attach via an RWTexture2D; still color-attachment + sampled for the raster
-	// passes and post-effect chain.
+	// passes and post-effect chain. TRANSFER_SRC/DST back the guard-band crop
+	// blit (overscan render-pogo center → authored pogo) at the end of Draw.
 	info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-	             VK_IMAGE_USAGE_STORAGE_BIT;
+	             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+	             VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 	info.format = RIFormatToVK( format );
 
 	for( size_t p = 0; p < 2; p++ ) {

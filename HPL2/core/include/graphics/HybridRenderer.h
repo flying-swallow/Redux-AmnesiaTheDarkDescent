@@ -22,6 +22,15 @@
 
 namespace hpl {
 
+// Guard-band overscan extent: the display dimension `d` grown by
+// kGuardBandFraction on each side (rounded). Single source of truth for every
+// intermediate render target / viewport / dispatch that renders the overscan
+// frame (the swapchain images themselves stay display-size; the present blit
+// crops). See kGuardBandFraction in Constants.h.
+inline uint32_t overscanExtent(uint32_t d) {
+  return (uint32_t)((float)d * (1.0f + 2.0f * kGuardBandFraction) + 0.5f);
+}
+
 class Image;
 class iVertexBuffer;
 
@@ -85,6 +94,31 @@ private:
   struct RITexture_s     m_packedHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
   struct RITextureView_s m_packedHitInfoView[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
+  // Screen-space velocity (motion vectors), RG16F. Written as the gbuffer's 2nd
+  // color target; sampled by temporal passes. One per swapchain image.
+  struct RITexture_s     m_velocityTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+  struct RITextureView_s m_velocityView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+
+  // Direct-lighting accumulation history (RGBA16F ping-pong, kept in GENERAL).
+  // [m_directLightingIndex] is this frame's write target; [^1] is the history
+  // the direct pass reprojects. NOT swapchain-indexed (history spans frames).
+  // m_directLightingInit: one-time UNDEFINED→GENERAL + clear on first use.
+  struct RITexture_s     m_directLightingTexture[2] = {};
+  struct RITextureView_s m_directLightingView[2] = {};
+  // Parallel surface-key ping-pong (viewZ, normal.xyz) for disocclusion
+  // rejection; shares m_directLightingIndex with the colour history above.
+  struct RITexture_s     m_directKeyTexture[2] = {};
+  struct RITextureView_s m_directKeyView[2] = {};
+  uint32_t               m_directLightingIndex = 0;
+  bool                   m_directLightingInit = false;
+
+  // Previous-frame camera matrices for motion vectors (raw float4x4 storage;
+  // staged into SceneConstants.prevViewMat/prevProjMat each frame, then updated
+  // to this frame's). m_hasPrevCamera seeds prev = current on the first frame.
+  float m_prevViewMat[16] = {};
+  float m_prevProjMat[16] = {};
+  bool  m_hasPrevCamera = false;
+
   // Per-bounce V-buffers written by SurfelVBuffer.rt.slang's closeHit when
   // the primary surface is refractive / reflective. Same format + dims as
   // m_packedHitInfoTexture; cleared to uint4(0) host-side each frame so
@@ -134,10 +168,13 @@ private:
   RIProgram m_surfelGenerate;
 
   // Final composite (Slang MainCompositePass.cs.slang). Reads
-  // gPackedHitInfo + gIndirectLighting (the integrate pass's output) and
-  // writes gOutput = swapchain. Replaces the legacy visibility_shade
-  // fullscreen pass once it's wired in fully.
+  // gPackedHitInfo + gIndirectLighting + gDirectLighting and writes gOutput.
   RIProgram m_mainComposite;
+
+  // Direct-lighting pass (DirectLightingPass.cs.slang): soft-shadowed analytic
+  // direct lighting, temporally accumulated via the velocity texture. Writes the
+  // ping-pong direct texture the composite then samples.
+  RIProgram m_directLighting;
 
 
 	// Particle (translucent) pass — port of legacy RendererDeferred's

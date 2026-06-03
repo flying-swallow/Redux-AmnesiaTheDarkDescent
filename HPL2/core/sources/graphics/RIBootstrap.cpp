@@ -21,6 +21,7 @@ void RIBootstrap::Dispose() {
 
   for (uint32_t i = 0; i < swapchain.imageCount; i++) {
     RI_PogoBufferDestroy(&device, &pogoBuffer[i]);
+    RI_PogoBufferDestroy(&device, &renderPogo[i]);
     FreeRITextureView(&device, &depthView[i]);
     FreeRITexture(&device, &depthTextures[i]);
     FreeRITextureView(&device, &depthView[i]);

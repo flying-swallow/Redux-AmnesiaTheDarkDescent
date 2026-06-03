@@ -215,6 +215,12 @@ namespace hpl {
 		swapchainInit.format = RI_SWAPCHAIN_BT709_G22_8BIT;
 		InitRISwapchain(&RI.device, &swapchainInit, &RI.swapchain);
 
+		// Guard-band overscan render resolution (single source of truth). The
+		// gbuffer / GI / composite / forward targets size to this; the present
+		// crops the center to the authored swapchain size.
+		RI.renderWidth  = overscanExtent(RI.swapchain.width);
+		RI.renderHeight = overscanExtent(RI.swapchain.height);
+
 		{
 			uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
 			assert( RI.swapchain.imageCount > 0 );
@@ -249,8 +255,10 @@ namespace hpl {
 					VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
 					info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
 					info.imageType = VK_IMAGE_TYPE_2D;
-					info.extent.width = RI.swapchain.width;
-					info.extent.height = RI.swapchain.height;
+					// Overscan: gbuffer depth backs the GI + forward passes, all of which
+					// render the guard-band frame.
+					info.extent.width = RI.renderWidth;
+					info.extent.height = RI.renderHeight;
 					info.extent.depth = 1;
 					info.mipLevels = 1;
 					info.arrayLayers = 1;
@@ -282,8 +290,9 @@ namespace hpl {
 					VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
 					info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
 					info.imageType = VK_IMAGE_TYPE_2D;
-					info.extent.width = RI.swapchain.width;
-					info.extent.height = RI.swapchain.height;
+					// Overscan to match the depth target + the guard-band frame.
+					info.extent.width = RI.renderWidth;
+					info.extent.height = RI.renderHeight;
 					info.extent.depth = 1;
 					info.mipLevels = 1;
 					info.arrayLayers = 1;
@@ -314,7 +323,12 @@ namespace hpl {
 				// HDR pogo (RIBootstrap::PogoColorFormat) so the GI composite +
 				// post-effect chain keep linear values >1 (the swapchain is
 				// 16-bit linear scRGB); RGBA8_UNORM here clamped to [0,1] + banded.
+				// Pogo + post-effect chain run at the AUTHORED size; the overscan
+				// render-pogo (backbuffer) is cropped into the pogo before this chain.
 				RI_PogoBufferInit( &RI.device, &RI.pogoBuffer[i], RI.swapchain.width, RI.swapchain.height, RIBootstrap::PogoColorFormat );
+				// Overscan render-pogo: the gbuffer/GI/composite/forward passes render
+				// here (guard-band frame); cropped 1:1 center → pogoBuffer afterwards.
+				RI_PogoBufferInit( &RI.device, &RI.renderPogo[i], RI.renderWidth, RI.renderHeight, RIBootstrap::PogoColorFormat );
 			}
 		}
 

@@ -19,6 +19,7 @@ import PerFrame.resource;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
 import Grid;                    // gridCellPos / gridFlattenCellIndex / gridCellValid (light grid cull)
+import Random;                  // RNG for soft-shadow disk sampling
 
 static const float kShadeRayEps = 1.0e-3f;
 
@@ -85,6 +86,88 @@ float3 evalAnalyticLight(DiffuseShading sd)
     }
 
     return Lr;
+}
+
+// Soft-shadow variant of evalAnalyticLight for the dedicated direct-lighting
+// pass: identical light-grid walk, but each light is shaded through
+// shadeAnalyticLightSoft (one jittered light-disk shadow sample per frame). The
+// noise is removed by the pass's temporal accumulation. `rng` should be seeded
+// per pixel + frame by the caller.
+float3 evalAnalyticLightSoft(DiffuseShading sd, inout RNG rng)
+{
+    uint lightCount = gScene.getLightCount();
+
+    float3 Lr = float3(0.f);
+    float3 origin = sd.posW + sd.normalW * kShadeRayEps;
+
+    int3 cell = gridCellPos(sd.posW, gScene.camera.getPosition(), kLightGridUnit);
+    if (lightCount > 0u && gridCellValid(cell, kLightGridDim))
+    {
+        uint flat = gridFlattenCellIndex(cell, kLightGridDim);
+        uint n    = min(gLightGridCount[flat], kLightsPerCellMax);
+        for (uint k = 0u; k < n; ++k)
+            Lr += gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW, sd.albedo,
+                                                gLightGridList[flat * kLightsPerCellMax + k],
+                                                origin, rng);
+    }
+
+    return Lr;
+}
+
+// Stochastic (RIS) direct lighting for the temporal direct pass: instead of one
+// shadow ray PER light, resampled-importance-select ONE light from the cell
+// weighted by its unshadowed luminance, then trace a single (soft) shadow ray.
+// Estimator = shade(selected)·V · (Σ wₖ / w_selected); unbiased, so the temporal
+// accumulation converges to the full multi-light shadowed sum at ~1 ray/frame.
+// Cells with ≤2 lights skip the reservoir (no sampling noise) and shade all.
+float3 evalAnalyticLightStochastic(DiffuseShading sd, inout RNG rng)
+{
+    uint lightCount = gScene.getLightCount();
+    float3 origin = sd.posW + sd.normalW * kShadeRayEps;
+
+    int3 cell = gridCellPos(sd.posW, gScene.camera.getPosition(), kLightGridUnit);
+    if (lightCount == 0u || !gridCellValid(cell, kLightGridDim))
+        return float3(0.f);
+
+    uint flat = gridFlattenCellIndex(cell, kLightGridDim);
+    uint n    = min(gLightGridCount[flat], kLightsPerCellMax);
+    if (n == 0u) return float3(0.f);
+
+    // Few lights → shade them all; the reservoir's variance isn't worth it.
+    if (n <= 2u)
+    {
+        float3 Lr = float3(0.f);
+        for (uint k = 0u; k < n; ++k)
+            Lr += gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW, sd.albedo,
+                                                gLightGridList[flat * kLightsPerCellMax + k],
+                                                origin, rng);
+        return Lr;
+    }
+
+    // Weighted reservoir over the cell's lights, weight = unshadowed luminance.
+    const float3 kLum = float3(0.2126f, 0.7152f, 0.0722f);
+    float wsum = 0.f;
+    float selW = 0.f;
+    uint  selLight = 0u;
+    bool  haveSel = false;
+    for (uint k = 0u; k < n; ++k)
+    {
+        uint li = gLightGridList[flat * kLightsPerCellMax + k];
+        float wk = dot(gScene.unshadowedAnalyticLight(sd.posW, sd.normalW, sd.albedo, li),
+                       kLum);
+        if (wk <= 0.f) continue;
+        wsum += wk;
+        if (rng.next_float() * wsum <= wk)   // keep with prob wk / wsum
+        {
+            selLight = li; selW = wk; haveSel = true;
+        }
+    }
+    if (!haveSel || wsum <= 0.f) return float3(0.f);
+
+    // One soft shadow ray for the chosen light; reweight by the RIS factor.
+    float3 shaded = gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW, sd.albedo,
+                                                  selLight, origin, rng);
+    return shaded * (wsum / selW);
 }
 
 // World-space surfel-cache indirect gather. Mirrors the per-pixel gather in

@@ -767,22 +767,41 @@ uint32_t HybridGlobalManagedSet::submitObject(uint64_t objectCookie,
     ml::float4x4 invF4 = modelF4;
     invF4.Invert();
     std::memcpy(payload.invModelMat, invF4.a, sizeof(payload.invModelMat));
+    // prevModelMat: last frame's matrix for this slot. On first sight or when a
+    // new object took the slot (!found), use the current matrix so the object's
+    // first frame reads zero velocity instead of a teleport. Then remember this
+    // frame's matrix for next time.
+    if (req.found)
+      std::memcpy(payload.prevModelMat, req.state->prevModelMat,
+                  sizeof(payload.prevModelMat));
+    else
+      std::memcpy(payload.prevModelMat, modelF4.a, sizeof(payload.prevModelMat));
+    std::memcpy(req.state->prevModelMat, modelF4.a, sizeof(req.state->prevModelMat));
     const ml::float4x4 uvF4 = cMath::ToFloatTranspose4x4(desc.uvMatrix);
     std::memcpy(payload.uvMat, uvF4.a, sizeof(payload.uvMat));
 
-    RIResourceBufferTransaction_s trans = {};
-    trans.target = m_objectBuffer;
-    trans.size = sizeof(UniformObject);
-    trans.offset = (size_t)slot * sizeof(UniformObject);
-    trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                             VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    trans.vk.post_stage = trans.vk.current_stage;
-    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
-    std::memcpy(trans.mapped.data, &payload, sizeof(payload));
-    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+    // Permissive upload: a new occupant (!found, so lastPayload still belongs to
+    // the prior object — guard with req.found) or any field change re-stages; an
+    // unchanged static object skips the uploader entirely. m_objectBuffer is a
+    // single persistent device buffer, so the slot keeps last frame's value when
+    // skipped.
+    const bool payloadChanged = !req.found || std::memcmp(&payload, &req.state->lastPayload, sizeof(payload)) != 0;
+    if (payloadChanged) {
+      RIResourceBufferTransaction_s trans = {};
+      trans.target = m_objectBuffer;
+      trans.size = sizeof(UniformObject);
+      trans.offset = (size_t)slot * sizeof(UniformObject);
+      trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
+                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
+                               VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+      trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+      trans.vk.post_stage = trans.vk.current_stage;
+      trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+      RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+      std::memcpy(trans.mapped.data, &payload, sizeof(payload));
+      RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+      req.state->lastPayload = payload;
+    }
   }
 
   // kSubmitVertex / kSubmitIndex: fan the VB's per-stream device addresses into
