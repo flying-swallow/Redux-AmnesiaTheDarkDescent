@@ -168,6 +168,7 @@
     <ClInclude Include="include\graphics\GraphicUtils.h" />
     <ClInclude Include="include\graphics\HPLGraphicsConfig.h" />
     <ClInclude Include="include\graphics\HPLTexture.h" />
+    <ClInclude Include="include\graphics\HybridGlobalManagedSet.h" />
     <ClInclude Include="include\graphics\HybridRenderer.h" />
     <ClInclude Include="include\graphics\Image.h" />
     <ClInclude Include="include\graphics\ImageResourceWrapper.h" />
@@ -541,6 +542,7 @@
     <ClCompile Include="sources\graphics\GBufferMRTPipelineDesc.cpp" />
     <ClCompile Include="sources\graphics\GraphicUtils.cpp" />
     <ClCompile Include="sources\graphics\HPLTexture.cpp" />
+    <ClCompile Include="sources\graphics\HybridGlobalManagedSet.cpp" />
     <ClCompile Include="sources\graphics\HybridRenderer.cpp" />
     <ClCompile Include="sources\graphics\Image.cpp" />
     <ClCompile Include="sources\graphics\ImageResourceWrapper.cpp" />
@@ -577,6 +579,7 @@
     <ClCompile Include="sources\input\Gamepad.cpp" />
     <ClCompile Include="sources\scene\Decal.cpp" />
     <ClCompile Include="sources\system\Container.cpp" />
+    <ClCompile Include="sources\system\Hasher.cpp" />
     <ClCompile Include="sources\system\LogicTimer.cpp" />
     <ClCompile Include="sources\system\MemoryManager.cpp" />
     <ClCompile Include="sources\system\Mutex.cpp" />
