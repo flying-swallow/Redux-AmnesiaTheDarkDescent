@@ -27,6 +27,8 @@ public:
   // the canonical pack convention).
   static constexpr RI_Format_e VisibilityFormat = RI_FORMAT_RGBA32_UINT;
   static constexpr RI_Format_e DepthFormat = RI_FORMAT_D32_SFLOAT;
+  // Screen-space motion vectors (gbuffer 2nd MRT), RG16F.
+  static constexpr RI_Format_e VelocityFormat = RI_FORMAT_RG16_SFLOAT;
 
   // HDR format for the pogo ping-pong buffer and every post-effect
   // intermediate target / pipeline color attachment that feeds it. The
@@ -87,6 +89,20 @@ public:
 	struct RITexture_s depthTextures[RI_MAX_SWAPCHAIN_IMAGES];
 	struct RITextureView_s depthView[RI_MAX_SWAPCHAIN_IMAGES];
 	struct RI_PogoBuffer pogoBuffer[RI_MAX_SWAPCHAIN_IMAGES];
+
+  // Overscan render resolution (guard band): the gbuffer / GI / composite /
+  // forward passes render at this size; the present crops the center back to the
+  // (authored) swapchain size. = overscanExtent(swapchain.{width,height}). Single
+  // source of truth — depthTextures + visibilityTexture + backBuffer + every
+  // renderer viewport/dispatch use these, not swapchain.{width,height}.
+  uint32_t renderWidth = 0;
+  uint32_t renderHeight = 0;
+
+  // Overscan HDR "backbuffer" — a full pogo (same ping-pong the composite +
+  // forward passes need: refraction reads the read-half, renders the write-half).
+  // The renderer uses this in place of pogoBuffer; its final image is cropped
+  // (1:1 center blit) into the authored-size pogoBuffer before the post-effects.
+  struct RI_PogoBuffer renderPogo[RI_MAX_SWAPCHAIN_IMAGES];
 
   struct RITexture_s visibilityTexture[RI_MAX_SWAPCHAIN_IMAGES];
   struct RITextureView_s visibilityView[RI_MAX_SWAPCHAIN_IMAGES];

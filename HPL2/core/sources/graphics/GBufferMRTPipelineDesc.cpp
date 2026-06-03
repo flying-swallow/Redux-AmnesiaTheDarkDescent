@@ -7,6 +7,7 @@
 namespace hpl {
 
 GBufferMRTPipelineDesc::GBufferMRTPipelineDesc(RI_Format_e visibilityFormat,
+                                               RI_Format_e velocityFormat,
                                                RI_Format_e depthFormat) {
   // VS pulls all per-vertex data via buffer_reference from set 0 SSBOs,
   // so the pipeline declares zero vertex input bindings and attributes.
@@ -34,13 +35,12 @@ GBufferMRTPipelineDesc::GBufferMRTPipelineDesc(RI_Format_e visibilityFormat,
   dynamicState.dynamicStateCount = ARRAY_COUNT(dynamicStates);
   dynamicState.pDynamicStates = dynamicStates;
 
-  // Single MRT — packed TriangleHit (uint4). The Slang psMain writes only
-  // SV_TARGET0; downstream consumers (visibility_shade.frag, surfel passes)
-  // decode the uint4 directly.
-  colorFormat = RIFormatToVK(visibilityFormat);
+  // Two MRTs — SV_TARGET0 packed TriangleHit (uint4), SV_TARGET1 velocity (RG16F).
+  colorFormats[0] = RIFormatToVK(visibilityFormat);
+  colorFormats[1] = RIFormatToVK(velocityFormat);
   pipelineRendering = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-  pipelineRendering.colorAttachmentCount = 1;
-  pipelineRendering.pColorAttachmentFormats = &colorFormat;
+  pipelineRendering.colorAttachmentCount = 2;
+  pipelineRendering.pColorAttachmentFormats = colorFormats;
   pipelineRendering.depthAttachmentFormat = RIFormatToVK(depthFormat);
 
   viewportState = {VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
@@ -59,18 +59,20 @@ GBufferMRTPipelineDesc::GBufferMRTPipelineDesc(RI_Format_e visibilityFormat,
   depthStencilState.minDepthBounds = 0.0f;
   depthStencilState.maxDepthBounds = 1.0f;
 
-  // uint MRT — blendEnable must be VK_FALSE (uint formats don't carry
-  // VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BLEND_BIT). Factors stay identity.
-  blendAttachment = {
+  // Both targets write raw (blendEnable VK_FALSE) — the uint visibility target
+  // can't blend, and velocity wants the exact value. Factors stay identity.
+  const VkPipelineColorBlendAttachmentState noBlend = {
       VK_FALSE,        VK_BLEND_FACTOR_ONE,     VK_BLEND_FACTOR_ZERO,
       VK_BLEND_OP_ADD, VK_BLEND_FACTOR_ONE,     VK_BLEND_FACTOR_ZERO,
       VK_BLEND_OP_ADD,
       VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
           VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
+  blendAttachments[0] = noBlend;
+  blendAttachments[1] = noBlend;
   colorBlendState = {
       VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-  colorBlendState.attachmentCount = 1;
-  colorBlendState.pAttachments = &blendAttachment;
+  colorBlendState.attachmentCount = 2;
+  colorBlendState.pAttachments = blendAttachments;
 
   createInfo = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
   createInfo.pNext = &pipelineRendering;
@@ -84,6 +86,7 @@ GBufferMRTPipelineDesc::GBufferMRTPipelineDesc(RI_Format_e visibilityFormat,
   createInfo.pColorBlendState = &colorBlendState;
 
   hash = hash_u32(HASH_INITIAL_VALUE, visibilityFormat);
+  hash = hash_u32(hash, velocityFormat);
   hash = hash_u32(hash, depthFormat);
 }
 

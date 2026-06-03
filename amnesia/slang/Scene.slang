@@ -29,6 +29,21 @@ import bindless;
 __exported import ILight;
 import PerFrame.resource;
 import BindlessTriangle;
+import Random;
+
+// Concentric (low-distortion) unit-disk map of two [0,1) samples — used for
+// soft-shadow light-disk sampling. Returns a point in the unit disk.
+float2 concentricDiskSample(float2 u)
+{
+    float2 o = 2.0f * u - 1.0f;
+    if (o.x == 0.0f && o.y == 0.0f) return float2(0.0f);
+    float r, theta;
+    const float kPiOver4 = 0.78539816f;
+    const float kPiOver2 = 1.57079633f;
+    if (abs(o.x) > abs(o.y)) { r = o.x; theta = kPiOver4 * (o.y / o.x); }
+    else                     { r = o.y; theta = kPiOver2 - kPiOver4 * (o.x / o.y); }
+    return r * float2(cos(theta), sin(theta));
+}
 
 // Falcor-compatible Ray struct (used by computeRayPinhole). Local to this
 // module to avoid pulling in a Falcor `Scene` dependency.
@@ -73,6 +88,13 @@ public struct SceneCamera
     public float4x4 getViewProjNoJitter()
     {
         return mul(gPerFrame.projMat, gPerFrame.viewMat);
+    }
+
+    // Last frame's no-jitter view-proj — paired with getViewProjNoJitter() and
+    // UniformObject.prevModelMat to build motion vectors in the gbuffer.
+    public float4x4 getPrevViewProj()
+    {
+        return mul(gPerFrame.prevProjMat, gPerFrame.prevViewMat);
     }
 
     // Non-normalized primary ray direction for a pinhole camera, matching
@@ -418,6 +440,59 @@ public struct Scene
 
         if (!materials.traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
 
+        return albedo * ls.Li * NdotL;
+    }
+
+    // Soft-shadow variant: for point lights with a non-zero sourceRadius, aim the
+    // shadow ray at a jittered point on the light disk (radius = sourceRadius,
+    // facing the shading point) so one noisy sample per frame, accumulated
+    // temporally, resolves to a penumbra. Energy (Li·NdotL) still uses the light
+    // centre — only occlusion is softened. sourceRadius == 0 (or spot lights)
+    // falls back to the hard centre ray, matching shadeAnalyticLight.
+    public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW, float3 albedo,
+                                         uint lightIndex, float3 origin, inout RNG rng)
+    {
+        LightSample ls;
+        if (!sampleLightByIndex(lightIndex, posW, ls)) return float3(0.f);
+
+        float NdotL = dot(normalW, ls.dir);
+        if (NdotL <= 0.f) return float3(0.f);
+
+        float3 sDir = ls.dir;
+        float  sMax = ls.distance;
+        uint nPoint = gPerFrame.pointLightCount;
+        if (lightIndex < nPoint && gPointLights[lightIndex].sourceRadius > 0.f)
+        {
+            float  r    = gPointLights[lightIndex].sourceRadius;
+            float3 lpos = gPointLights[lightIndex].position;
+            // Tangent basis perpendicular to the light direction.
+            float3 t = normalize(abs(ls.dir.y) < 0.99f
+                                 ? cross(float3(0.f, 1.f, 0.f), ls.dir)
+                                 : cross(float3(1.f, 0.f, 0.f), ls.dir));
+            float3 b = cross(ls.dir, t);
+            float2 d = concentricDiskSample(rng.next_float2()) * r;
+            float3 target = lpos + d.x * t + d.y * b;
+            float3 toT = target - origin;
+            sMax = length(toT);
+            sDir = toT / max(sMax, 1.0e-6f);
+        }
+
+        if (!materials.traceShadowRay(origin, sDir, sMax)) return float3(0.f);
+
+        return albedo * ls.Li * NdotL;
+    }
+
+    // Unshadowed analytic contribution of one light: albedo·Li·NdotL with no
+    // shadow ray (0 if back-facing / sample fails). Used as the RIS target weight
+    // for stochastic light selection in the direct pass (pick a light ∝ this,
+    // then trace one shadow ray for it).
+    public float3 unshadowedAnalyticLight(float3 posW, float3 normalW,
+                                          float3 albedo, uint lightIndex)
+    {
+        LightSample ls;
+        if (!sampleLightByIndex(lightIndex, posW, ls)) return float3(0.f);
+        float NdotL = dot(normalW, ls.dir);
+        if (NdotL <= 0.f) return float3(0.f);
         return albedo * ls.Li * NdotL;
     }
 
