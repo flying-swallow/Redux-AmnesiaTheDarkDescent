@@ -146,7 +146,6 @@ SLANG_PUBLIC struct DecalMaterial {
 SLANG_PUBLIC struct UniformObject {
     SLANG_PUBLIC float dissolveAmount;
     SLANG_PUBLIC uint  materialID;
-    SLANG_PUBLIC float lightLevel;
     SLANG_PUBLIC float illuminationAmount;
     SLANG_PUBLIC float4x4  modelMat;
     SLANG_PUBLIC float4x4  invModelMat;
@@ -240,7 +239,6 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC float4x4  invProjMat;                 // for WorldPosFromDepth
     SLANG_PUBLIC float4x4  prevViewMat;                // last frame's view/proj (no jitter); motion vectors
     SLANG_PUBLIC float4x4  prevProjMat;
-    SLANG_PUBLIC float4x4  jitterProjMat;              // projMat + per-frame TAA sub-pixel jitter; getViewProj()
 
     SLANG_PUBLIC float worldFogStart;
     SLANG_PUBLIC float worldFogLength;

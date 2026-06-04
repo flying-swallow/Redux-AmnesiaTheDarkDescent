@@ -33,7 +33,8 @@ import Grid;                         // gridCellPos / gridFlattenCellIndex / gri
 Texture2D<float4> gIndirectLighting;
 
 // Temporally-accumulated direct lighting (soft shadows), produced by
-// DirectLightingPass. Albedo baked in — added straight into the gather.
+// DirectLightingPass. Demodulated irradiance — the gather applies the
+// (decal-composited) albedo.
 [vk::binding(3, 2)]
 Texture2D<float4> gDirectLighting;
 
@@ -199,13 +200,14 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     float3 direct   = wantDirect   ? gDirectLighting[pixelPos].xyz : float3(0.f);
     float3 indirect = wantIndirect ? gIndirectLighting[pixelPos].xyz : float3(0.f);
 
-    // direct already carries albedo (the direct pass applies it once, matching
-    // the base game's albedo·color·atten·NdotL). indirect is incoming irradiance
-    // from the cosine-sampled surfel cache (f = albedo/π, pdf = cosθ/π → reduces
-    // to albedo), so it takes exactly one albedo to become outgoing radiance.
-    // Applying albedo to (direct + indirect) double-counted it on direct, which
-    // dimmed all direct lighting (spotlight cones especially) vs the base game.
-    float3 finalGather = direct + sd.albedo * indirect;
+    // Both terms are demodulated irradiance: direct is Σ Li·NdotL·vis from the
+    // direct pass (albedo factored out so the accumulation can't smear it),
+    // indirect is incoming irradiance from the cosine-sampled surfel cache
+    // (f = albedo/π, pdf = cosθ/π → reduces to albedo). Each takes exactly one
+    // albedo to become outgoing radiance — applied here, AFTER compositeDecals,
+    // so projected decals modulate direct and indirect alike (matching the old
+    // inline evalAnalyticLight path and the base game's albedo·color·atten·NdotL).
+    float3 finalGather = sd.albedo * (direct + indirect);
 
     // Emissive (illumination-map) surfaces glow regardless of the direct /
     // indirect toggles — added on top so glowing textures aren't dark.

@@ -587,10 +587,11 @@ HybridGlobalManagedSet::submitMaterial(RIBootstrap::FrameContext *cntx,
   gpu.cubeMapTextureIndex = resolveCubeTextureSlot(
       cntx, mat->GetImage(eMaterialTexture_CubeMap), frameIndex);
   // Material config bits — single source of truth in MaterialResource. The
-  // composite reads bit 9 (IsHeightMapSingleChannel) to pick .r vs .a when
-  // sampling the heightmap; without it the field sat at zero and parallax
-  // always read .a (1.0 for single-channel heightmaps), running the full POM
-  // loop every fragment and warping vertical walls at grazing angles.
+  // shared Scene.slang alphaTest reads bit 10 (IsAlphaSingleChannel) to pick
+  // .r vs .a; without it grayscale alpha maps like chandelier_simple_alpha.tga
+  // (R8_UNORM) alpha-tested against the constant fill in .a. Bit 9
+  // (IsHeightMapSingleChannel) is the same probe for heightmaps, reserved for
+  // the parallax path (unimplemented in this renderer so far).
   gpu.materialConfig = material::UniformMaterialBlock::CreateMaterailConfigFlags(*mat);
   // Scalars: only the solid path is mapped today. Other variants leave
   // these zero (the forward-diffuse fragment shader doesn't read them on
@@ -758,7 +759,6 @@ uint32_t HybridGlobalManagedSet::submitObject(uint64_t objectCookie,
     UniformObject payload{};
     payload.dissolveAmount = desc.dissolveAmount;
     payload.materialID = desc.materialId;
-    payload.lightLevel = desc.lightLevel;
     payload.illuminationAmount = desc.illuminationAmount;
     payload.decalList = desc.decalList;
     const ml::float4x4 modelF4 = cMath::ToFloatTranspose4x4(

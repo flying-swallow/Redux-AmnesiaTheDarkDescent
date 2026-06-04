@@ -840,5 +840,11 @@ const struct RIFormatProps_s *GetRIFormatProps( uint32_t format ) {
   return riFormats + format;
 }
 
+uint32_t RIFormatChannelCount( uint32_t format ) {
+  const struct RIFormatProps_s *props = GetRIFormatProps( format );
+  return ( props->redBits ? 1 : 0 ) + ( props->greenBits ? 1 : 0 ) +
+         ( props->blueBits ? 1 : 0 ) + ( props->alphaBits ? 1 : 0 );
+}
+
 
 

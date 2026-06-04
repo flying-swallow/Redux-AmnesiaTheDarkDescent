@@ -71,7 +71,9 @@ void miss(inout Payload payload)
 [shader("anyhit")]
 void anyHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attribs)
 {
-    // Alpha test against the diffuse material's alpha slot.
+    // Alpha test against the diffuse material's alpha slot — the same gate
+    // the raster gbuffer runs, so a cutout mask decides hit-vs-through
+    // consistently in both paths.
     TriangleHit hit;
     hit.instanceID     = InstanceID();
     hit.primitiveIndex = PrimitiveIndex();

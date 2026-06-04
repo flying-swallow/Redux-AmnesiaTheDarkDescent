@@ -23,6 +23,7 @@
 //     unified dispatcher inherits that.
 
 #include "HostDefinitions.h"
+#include "Constants.h"          // kLightGrid* / kLightsPerCellMax / kPointLightIntensityScale (lightLevelAt)
 
 import SceneTypes;
 import bindless;
@@ -30,6 +31,8 @@ __exported import ILight;
 import PerFrame.resource;
 import BindlessTriangle;
 import Random;
+import Grid;                    // gridCellPos / gridFlattenCellIndex / gridCellValid (lightLevelAt)
+import Utils.Color.ColorHelpers; // linearToSRGB (lightLevelAt's authored-space max channel)
 
 // Concentric (low-distortion) unit-disk map of two [0,1) samples — used for
 // soft-shadow light-disk sampling. Returns a point in the unit disk.
@@ -131,7 +134,9 @@ public struct SceneMaterials
     // Alpha-test for the diffuse opaque path: read tex[2] (alpha slot —
     // see SceneTypes.slang DiffuseMaterial comment), sample at lod with
     // gMaterialSampler, reject when a < 0.5 (matches the GLSL
-    // ALPHA_REJECT default).
+    // ALPHA_REJECT default). Dedicated grayscale alpha maps (e.g.
+    // chandelier_simple_alpha.tga, loaded as R8_UNORM) carry the mask in
+    // .r — kMaterialFlagIsAlphaSingleChannel picks the channel.
     public bool alphaTest(VertexData v, uint materialID, float lod)
     {
         if (materialID >= kSolidMaterialCapacity) return false;  // water range: no diffuse entry
@@ -139,8 +144,9 @@ public struct SceneMaterials
         uint alphaIdx = m.tex[2];
         if (alphaIdx == kInvalidTextureIndex) return false;
 
-        float a = gTextures2D[NonUniformResourceIndex(alphaIdx)]
-                      .SampleLevel(gMaterialSampler, v.texC, lod).a;
+        float4 s = gTextures2D[NonUniformResourceIndex(alphaIdx)]
+                       .SampleLevel(gMaterialSampler, v.texC, lod);
+        float a = (m.materialConfig & kMaterialFlagIsAlphaSingleChannel) != 0u ? s.r : s.a;
         return a < 0.5f;
     }
 
@@ -424,12 +430,14 @@ public struct Scene
     }
 
     // Shade one analytic light at a surface point: sample it, NdotL-cull,
-    // shadow-ray test, return albedo·Li·NdotL (no 1/π — base-game direct
-    // convention). Shared by the direct composite (SurfelShade.evalAnalyticLight)
-    // and the surfel NEE pass (SurfelRayTrace), which scales the result by its
-    // 1/π·invPdf·indirect factors. `origin` is the (epsilon-offset) shadow-ray
-    // origin the caller already computes.
-    public float3 shadeAnalyticLight(float3 posW, float3 normalW, float3 albedo,
+    // shadow-ray test, return pure Li·NdotL (no 1/π — base-game direct
+    // convention; no albedo — demodulated, the caller applies albedo where
+    // outgoing radiance is needed). Shared by the direct composite
+    // (SurfelShade.evalAnalyticLight) and the surfel NEE pass (SurfelRayTrace),
+    // which scales the result by its albedo·1/π·invPdf·indirect factors.
+    // `origin` is the (epsilon-offset) shadow-ray origin the caller already
+    // computes.
+    public float3 shadeAnalyticLight(float3 posW, float3 normalW,
                                      uint lightIndex, float3 origin)
     {
         LightSample ls;
@@ -440,7 +448,7 @@ public struct Scene
 
         if (!materials.traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
 
-        return albedo * ls.Li * NdotL;
+        return ls.Li * NdotL;
     }
 
     // Soft-shadow variant: for point or spot lights with a non-zero sourceRadius,
@@ -448,8 +456,9 @@ public struct Scene
     // sourceRadius, facing the shading point) so one noisy sample per frame,
     // accumulated temporally, resolves to a penumbra. Energy (Li·NdotL) still uses
     // the light centre — only occlusion is softened. sourceRadius == 0 falls back
-    // to the hard centre ray, matching shadeAnalyticLight.
-    public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW, float3 albedo,
+    // to the hard centre ray, matching shadeAnalyticLight. Demodulated like
+    // shadeAnalyticLight: pure Li·NdotL, no albedo.
+    public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW,
                                          uint lightIndex, float3 origin, inout RNG rng)
     {
         LightSample ls;
@@ -495,21 +504,82 @@ public struct Scene
 
         if (!materials.traceShadowRay(origin, sDir, sMax)) return float3(0.f);
 
-        return albedo * ls.Li * NdotL;
+        return ls.Li * NdotL;
     }
 
-    // Unshadowed analytic contribution of one light: albedo·Li·NdotL with no
+    // Unshadowed analytic contribution of one light: pure Li·NdotL with no
     // shadow ray (0 if back-facing / sample fails). Used as the RIS target weight
     // for stochastic light selection in the direct pass (pick a light ∝ this,
     // then trace one shadow ray for it).
     public float3 unshadowedAnalyticLight(float3 posW, float3 normalW,
-                                          float3 albedo, uint lightIndex)
+                                          uint lightIndex)
     {
         LightSample ls;
         if (!sampleLightByIndex(lightIndex, posW, ls)) return float3(0.f);
         float NdotL = dot(normalW, ls.dir);
         if (NdotL <= 0.f) return float3(0.f);
-        return albedo * ls.Li * NdotL;
+        return ls.Li * NdotL;
+    }
+
+    // Scalar "surrounding light" heuristic for AffectedByLightLevel
+    // translucents — base-game afLightLevel semantics (the legacy CPU loop in
+    // MaterialType_BasicTranslucent::SetupObjectSpecificData): sum
+    // maxChannel(authored color) · saturate(1 − d/authoredRadius) over the
+    // lights binned to the grid cell at posW, saturated at 1. Normal-free and
+    // shadow-free: billboards have no normal and the legacy heuristic never
+    // had occlusion (or a spot-cone term — spots fall off radially like
+    // points, matching the original).
+    //   * The authored engine radius is recovered from intensity
+    //     (= authoredRadius · kPointLightIntensityScale at upload — see the
+    //     light scratch fill in HybridRenderer.cpp). The struct's `radius`
+    //     field is the grid-bin reach, a different quantity.
+    //   * GPU light colors are linear (sRGB-decoded at upload) while the
+    //     legacy heuristic read the authored sRGB values, so the max channel
+    //     is re-encoded to match the CPU translucent-mesh path's dimming
+    //     curve.
+    //   * Out-of-grid points return 1.0 (don't darken) — distant geometry
+    //     beyond the camera-centered grid shouldn't fade to black.
+    public float lightLevelAt(float3 posW)
+    {
+        int3 cell = gridCellPos(posW, camera.getPosition(), kLightGridUnit);
+        if (getLightCount() == 0u || !gridCellValid(cell, kLightGridDim))
+            return 1.0f;
+
+        uint flat = gridFlattenCellIndex(cell, kLightGridDim);
+        uint n    = min(gLightGridCount[flat], kLightsPerCellMax);
+        uint nPoint = gPerFrame.pointLightCount;
+
+        float sum = 0.0f;
+        for (uint k = 0u; k < n; ++k)
+        {
+            uint li = gLightGridList[flat * kLightsPerCellMax + k];
+            float3 lpos;
+            float3 lcolor;
+            float  lintensity;
+            if (li < nPoint)
+            {
+                lpos       = gPointLights[li].position;
+                lcolor     = gPointLights[li].color;
+                lintensity = gPointLights[li].intensity;
+            }
+            else
+            {
+                uint si = li - nPoint;
+                if (si >= gPerFrame.spotLightCount) continue;
+                lpos       = gSpotLights[si].position;
+                lcolor     = gSpotLights[si].color;
+                lintensity = gSpotLights[si].intensity;
+            }
+
+            float authoredRadius = lintensity / kPointLightIntensityScale;
+            if (authoredRadius <= 0.0f) continue;
+
+            float maxC = linearToSRGB(max(lcolor.x, max(lcolor.y, lcolor.z)));
+            float dist = length(posW - lpos);
+            sum += maxC * saturate(1.0f - dist / authoredRadius);
+            if (sum >= 1.0f) return 1.0f;
+        }
+        return sum;
     }
 
     // --- Mesh / hit data ------------------------------------------------------

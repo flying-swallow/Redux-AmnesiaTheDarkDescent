@@ -1,9 +1,11 @@
 /// Copyright 2023 Michael Pollind
 /// SPDX-License-Identifier: GPL-3.0
 //
-// Final output pass. Runs LAST in the post-effect chain (lowest priority): takes
-// the linear-HDR pogo, applies `exposure`, ACES filmic tonemaps (ACEScg→sRGB),
-// then sRGB-encodes into the pogo. The tail blit copies this straight to the
+// Output-encode pass. Runs after every HDR-domain effect in the chain: takes
+// the linear-HDR pogo, applies `exposure`, then sRGB-encodes into the pogo,
+// clamped to a normalized [0,1] — display-space effects that run after it
+// (the image trail's persistent fp16 EMA accumulator) rely on the output
+// being bounded and finite. The tail blit copies this straight to the
 // UNORM swapchain, which performs NO hardware OETF — so the encode MUST happen
 // here. This brings the scene in line with the GUI, which is authored to write
 // display-encoded values directly to the same UNORM swapchain.
@@ -75,5 +77,5 @@ struct PSIn
 float4 psMain(PSIn pin) : SV_Target
 {
     float3 hdr = sourceInput.Sample(inputSampler, pin.v_uv).rgb * pc.exposure;
-    return float4(linearToSRGB(hdr), 1.0f);   // display-encoded sRGB
+    return float4(saturate(linearToSRGB(hdr)), 1.0f);   // display-encoded sRGB [0,1]
 }

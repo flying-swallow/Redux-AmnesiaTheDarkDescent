@@ -67,9 +67,14 @@ struct TranslucentVSOut
 };
 
 // Schlick-Fresnel — mirrors deferred_common.h.fsl::Fresnel(eDotN, bias, pow).
+// The base is clamped to a tiny positive epsilon: eDotN of two normalize()d
+// vectors can exceed 1.0 by a ULP at dead-on view angles, and pow() of a
+// negative base is NaN (exp2(y·log2(x))) — with MUL blending that poisons the
+// framebuffer pixel permanently (saturate doesn't help: FClamp(NaN) is
+// undefined in Vulkan). Hit by amnesia_bottle.mat (FrenselPow=0.5).
 float computeFresnel(float afEDotN, float afFresnelBias, float afFresnelPow)
 {
-    float fFacing = 1.0f - afEDotN;
+    float fFacing = max(1.0f - afEDotN, 1.0e-6f);
     return saturate(afFresnelBias + (1.0f - afFresnelBias) * pow(fFacing, afFresnelPow));
 }
 
@@ -109,12 +114,23 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
     FogResult fog = computeFog(surfacePosW, gPerFrame.posW);
     float finalAlpha = pc.sceneAlpha * fog.visibility;
 
+    // AffectedByLightLevel materials dim with the surrounding analytic light
+    // (base-game afLightLevel behavior — see gScene.lightLevelAt). Per-pixel,
+    // gated on the raw material config (not the illumination-draw-masked
+    // textureConfig) so the cube-map second draw dims its reflection too,
+    // matching the legacy shader's afLightLevel use on the reflection terms.
+    float lightLevel = 1.0f;
+    if ((mat.materialConfig & kMaterialFlagAffectedByLightLevel) != 0u)
+    {
+        lightLevel = gScene.lightLevelAt(surfacePosW);
+    }
+
     float4 finalColor = diffuseColor;
     switch (pc.blendMode)
     {
         case BLEND_MODE_ADD:
         {
-            finalColor.xyz *= finalAlpha * obj.lightLevel;
+            finalColor.xyz *= finalAlpha * lightLevel;
             break;
         }
         case BLEND_MODE_MUL:
@@ -124,21 +140,21 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
         }
         case BLEND_MODE_MULX2:
         {
-            float blendMulAlpha = obj.lightLevel * finalAlpha;
+            float blendMulAlpha = lightLevel * finalAlpha;
             finalColor.xyz = finalColor.xyz * blendMulAlpha
                            + float3(0.5f) * (1.0f - blendMulAlpha);
             break;
         }
         case BLEND_MODE_ALPHA:
         {
-            finalColor.xyz *= obj.lightLevel;
+            finalColor.xyz *= lightLevel;
             finalColor.a   *= finalAlpha;
             break;
         }
         case BLEND_MODE_PREMUL_ALPHA:
         {
             finalColor      *= finalAlpha;
-            finalColor.xyz  *= obj.lightLevel;
+            finalColor.xyz  *= lightLevel;
             break;
         }
     }
@@ -208,15 +224,16 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
         }
 
         finalColor.xyz += reflectionColor.xyz
-                        * fresnel * finalAlpha * obj.lightLevel;
+                        * fresnel * finalAlpha * lightLevel;
 
-        // Rim reflection term — view-space normal vs -Z.
+        // Rim reflection term — view-space normal vs -Z. Base clamped positive
+        // for the same ULP reason as computeFresnel (abs(dot) can exceed 1).
         if (mat.rimLightMul > 0.0f)
         {
             float fRim = dot(screenNormal, float3(0.0f, 0.0f, -1.0f));
-            fRim = pow(1.0f - abs(fRim), mat.rimLightPow) * mat.rimLightMul;
+            fRim = pow(max(1.0f - abs(fRim), 1.0e-6f), mat.rimLightPow) * mat.rimLightMul;
             finalColor.xyz += reflectionColor.xyz
-                            * fRim * finalAlpha * obj.lightLevel;
+                            * fRim * finalAlpha * lightLevel;
         }
     }
 

@@ -5,11 +5,9 @@
 // evaluating lights inline.
 //
 // Per pixel: reconstruct the surface from the V-buffer (RT hit, raster
-// fallback), evaluate evalAnalyticLightStochastic (RIS: select one light per
-// sample, one soft shadow ray each — kDirectRaysYoung samples while the history
-// is young, 1 once converged), reproject the previous accumulated direct by the
-// motion vector, reject it on surface mismatch, and fold the batch into the
-// history-length running mean.
+// fallback), evaluate evalAnalyticLightSoft (one jittered shadow ray per light),
+// reproject the previous accumulated direct by the motion vector, neighborhood-
+// clamp it against this frame's 3x3 (in-tile) to limit ghosting, and EMA-blend.
 
 #include "../HostDefinitions.h"
 #include "../Constants.h"
@@ -40,8 +38,12 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     if (pixelPos.x >= outW || pixelPos.y >= outH)
         return;   // edge threads of the rounded-up dispatch
 
-    // This-frame soft-shadowed direct (albedo baked in, matching the old inline
-    // path). Miss → zero.
+    // This-frame soft-shadowed direct, demodulated: pure irradiance
+    // (Σ Li·NdotL·vis, no albedo). The composite applies the albedo —
+    // including projected decals (compositeDecals) — once, to direct +
+    // indirect together. Keeping albedo out of the accumulation also stops
+    // the bilinear history fetch from bleeding albedo across texture edges.
+    // Miss → zero.
     HitInfo hitInfo = HitInfo(gPackedHitInfo[pixelPos]);
     if (!hitInfo.isValid())
         hitInfo = HitInfo(gPackedHitInfoRaster.Load(int3(pixelPos, 0)));
@@ -86,19 +88,25 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     RNG rng;
     rng.init(pixelPos, gPerFrame.totalFrames);
 
-    // Temporal accumulation as a history-length running mean (alpha =
-    // numSamples/count, floored). Young history (count below the cap —
-    // including rejected/invalid history, h.a = 0) bursts kDirectRaysYoung RIS
-    // samples per frame so it reaches the cap in a fraction of the frames;
-    // converged pixels drop back to a single ray, bit-identical to the
-    // non-adaptive steady state.
-    float4 h = valid ? gDirectHistory.SampleLevel(gMaterialSampler, histUV, 0.0f)
-                     : float4(0.f);
-    uint numSamples = (h.a < kDirectMaxAccum) ? kDirectRaysYoung : 1u;
-    float3 curDirect = evalAnalyticLightStochastic(sd, rng, numSamples);
-    float count = min(h.a + float(numSamples), kDirectMaxAccum);
-    float alpha = max(float(numSamples) / count, kDirectTemporalAlpha);
-    float3 result = lerp(h.rgb, curDirect, alpha);
+    // Temporal accumulation as a history-length running mean (alpha = 1/count,
+    // floored).
+    float3 result;
+    float  count;
+    if (valid)
+    {
+        // One cheap importance-sampled (RIS) shadow ray refines the running mean.
+        float3 curDirect = evalAnalyticLightStochastic(sd, rng);
+        float4 h = gDirectHistory.SampleLevel(gMaterialSampler, histUV, 0.0f);
+        count = min(h.a + 1.0f, kDirectMaxAccum);
+        float alpha = max(1.0f / count, kDirectTemporalAlpha);
+        result = lerp(h.rgb, curDirect, alpha);
+    }
+    else
+    {
+        // Truly novel (no matching neighbor, e.g. a hard cut) → one RIS sample.
+        result = evalAnalyticLightStochastic(sd, rng);
+        count  = 1.0f;
+    }
 
     gDirectLighting[pixelPos] = float4(result, count);
     gDirectKeyOut[pixelPos]   = float4(curZ, curN);

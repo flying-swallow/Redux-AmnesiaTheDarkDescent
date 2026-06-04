@@ -246,6 +246,7 @@ bool HPLTexture::LoadBitmap(
   if (options.sRGB) {
     destFormat = to_srgb_format(destFormat);
   }
+  format = destFormat; // remembered so material setup can probe channel count
   VkImageCreateInfo info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   const struct RIFormatProps_s *formatProps = GetRIFormatProps(destFormat);
   if (formatProps->blockWidth > 1) {

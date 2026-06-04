@@ -9,6 +9,8 @@
 // the legacy shader did so the output going into the blender is in the
 // right space (e.g. mul/mulx2 pre-bias before SRC*DST blend).
 
+#include "../Constants.h"   // kMaterialFlagAffectedByLightLevel
+
 import bindless;
 import SceneTypes;
 import PerFrame.resource;
@@ -71,12 +73,23 @@ float4 psMain(ParticleVSOut psIn) : SV_TARGET
                       + (1.0f - fogAmount)) * pc.sceneAlpha;
     }
 
+    // AffectedByLightLevel materials dim with the surrounding analytic light
+    // (base-game afLightLevel behavior — see gScene.lightLevelAt). Per-pixel:
+    // the world position is reconstructed from the interpolated view-space
+    // position, so large billboards get an exact gradient across the quad.
+    float lightLevel = 1.0f;
+    if ((mat.materialConfig & kMaterialFlagAffectedByLightLevel) != 0u)
+    {
+        float3 surfacePosW = mul(gPerFrame.invViewMat, float4(psIn.viewPos, 1.0f)).xyz;
+        lightLevel = gScene.lightLevelAt(surfacePosW);
+    }
+
     float4 finalColor = diffuseColor;
     switch (pc.blendMode)
     {
         case BLEND_MODE_ADD:
         {
-            finalColor.xyz *= finalAlpha * obj.lightLevel;
+            finalColor.xyz *= finalAlpha * lightLevel;
             break;
         }
         case BLEND_MODE_MUL:
@@ -86,21 +99,21 @@ float4 psMain(ParticleVSOut psIn) : SV_TARGET
         }
         case BLEND_MODE_MULX2:
         {
-            float blendMulAlpha = obj.lightLevel * finalAlpha;
+            float blendMulAlpha = lightLevel * finalAlpha;
             finalColor.xyz = finalColor.xyz * blendMulAlpha
                            + float3(0.5f) * (1.0f - blendMulAlpha);
             break;
         }
         case BLEND_MODE_ALPHA:
         {
-            finalColor.xyz *= obj.lightLevel;
+            finalColor.xyz *= lightLevel;
             finalColor.a   *= finalAlpha;
             break;
         }
         case BLEND_MODE_PREMUL_ALPHA:
         {
             finalColor      *= finalAlpha;
-            finalColor.xyz  *= obj.lightLevel;
+            finalColor.xyz  *= lightLevel;
             break;
         }
     }

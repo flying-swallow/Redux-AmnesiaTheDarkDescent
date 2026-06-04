@@ -1090,7 +1090,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       }
     }
 
-    ObjectSubmitDesc d;          // opaque solids: identity uv, lightLevel 1
+    ObjectSubmitDesc d;          // opaque solids: identity uv
     d.modelMatrix = pMtx;
     d.materialId = materialId;
     d.dissolveAmount = pObject->GetCoverageAmount();
@@ -1165,7 +1165,17 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       inst.instanceCustomIndex = slot;
       inst.mask = kRayMaskOpaque;
       inst.instanceShaderBindingTableRecordOffset = 0;
-      inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_CULL_DISABLE;
+      // FLIP_FACING, not CULL_DISABLE: this engine's content + raster chain is
+      // clockwise-front (GBufferMRTPipelineDesc frontFace=CLOCKWISE + the
+      // negative-height viewport), while VK RT defines front-facing as
+      // counter-clockwise from the ray origin. Flipping the per-instance
+      // facing makes the shaders' RAY_FLAG_CULL_BACK_FACING_TRIANGLES cull the
+      // same side raster culls. The previous blanket CULL_DISABLE neutralized
+      // backface culling entirely, so "double-sided by sandwiching" assets
+      // (e.g. banner_long01: two exactly-coplanar quads with opposed winding)
+      // hit BOTH sheets at identical t — the closest-hit tie broke per-pixel
+      // and painted concentric z-fighting rings into the V-buffer.
+      inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_FLIP_FACING;
       // Solid meshes (no alpha-cutout texture) never alpha-reject a ray, so mark
       // them FORCE_OPAQUE: the driver auto-commits the first hit and skips the
       // RayQuery Proceed()/alphaTest loop entirely — a universal speedup for
@@ -1198,7 +1208,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // The bindless object slot allocated here is intentionally distinct from
   // the slot the translucent mesh pass will allocate later for this same
   // renderable (different cookie salt) — the two passes write different
-  // UniformObject payloads (rasterised draws need lightLevel,
+  // UniformObject payloads (rasterised draws need uvMat, dissolveAmount,
   // illuminationAmount, etc.; the TLAS path only needs materialID +
   // modelMat + BDA handles). The cost is one extra bindless slot per
   // refractive translucent mesh, well within kObjectSlotCapacity.
@@ -1227,7 +1237,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       continue;
 
     cMatrixf *pMtx = pObj->GetModelMatrix(apFrustum);
-    ObjectSubmitDesc d;          // identity uv; dissolve/illum 0, lightLevel 1
+    ObjectSubmitDesc d;          // identity uv; dissolve/illum 0
     d.modelMatrix = pMtx;
     d.materialId = mat.materialId; // water ids fall in the water range of materialID
 
@@ -1255,7 +1265,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     inst.instanceCustomIndex = slot;
     inst.mask = kRayMaskTranslucent;
     inst.instanceShaderBindingTableRecordOffset = 0;
-    inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_CULL_DISABLE;
+    // FLIP_FACING to match the raster clockwise-front convention — see the
+    // solids loop above for the full rationale (coplanar sandwich z-fighting).
+    inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_FLIP_FACING;
     assert(blas->vk.deviceAddress != 0);
     inst.accelerationStructureReference = blas->vk.deviceAddress;
     tlasInstances.push_back(inst);
@@ -2750,7 +2762,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           continue;
         }
 
-        ObjectSubmitDesc d;          // decals are unlit overlays (lightLevel 1)
+        ObjectSubmitDesc d;          // decals are unlit overlays
         d.modelMatrix = pObj->GetModelMatrix(apFrustum);
         d.uvMatrix = pMat->GetUvMatrix();
         d.materialId = materialId;
@@ -3321,54 +3333,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
         cMatrixf *pMtx = pObj->GetModelMatrix(apFrustum);
 
-        // Affecting-light accumulation mirrors RendererDeferred::
-        // cmdBindMaterialAndObject (RendererDeferred.cpp:3746-3773). Iterate
-        // the visible-light list, take the max-channel intensity scaled by
-        // distance falloff for spot/point and full intensity for box lights,
-        // clamp the running sum at 1.0. Only translucent materials carry the
-        // m_isAffectedByLightLevel flag, so the check sits behind a
-        // MaterialID::Translucent gate (Water/Decal don't have this field on
-        // the descriptor union).
-        float lightLevel = 1.0f;
-        const ShaderMaterialData &desc = pMat->Descriptor();
-        const bool affectedByLights =
-            desc.m_id == MaterialID::Translucent &&
-            desc.m_translucent.m_isAffectedByLightLevel;
-        if (affectedByLights) {
-          const cVector3f vCenterPos =
-              pObj->GetBoundingVolume()->GetWorldCenter();
-          float fLightAmount = 0.0f;
-          for (iLight *pLight : m_rendererList.GetLights()) {
-            if (!pLight->CheckObjectIntersection(pObj))
-              continue;
-            // Box lights contribute no hybrid GPU lighting, so they don't count
-            // toward the dynamic-object light-amount heuristic.
-            if (pLight->GetLightType() == eLightType_Box)
-              continue;
-            const cColor &c = pLight->GetDiffuseColor();
-            const float maxColor =
-                cMath::Max(cMath::Max(c.r, c.g), c.b);
-            {
-              const float fDist = cMath::Vector3Dist(
-                  pLight->GetWorldPosition(), vCenterPos);
-              fLightAmount +=
-                  maxColor *
-                  cMath::Max(1.0f - (fDist / pLight->GetRadius()), 0.0f);
-            }
-            if (fLightAmount >= 1.0f) {
-              fLightAmount = 1.0f;
-              break;
-            }
-          }
-          lightLevel = fLightAmount;
-        }
+        // AffectedByLightLevel dimming is evaluated per-vertex on the GPU
+        // (Translucent.vert.slang → gScene.lightLevelAt, gated on
+        // kMaterialFlagAffectedByLightLevel in the material config) — the
+        // legacy per-object CPU light loop that used to live here is gone.
 
         ObjectSubmitDesc d;
         d.modelMatrix = pMtx;
         d.uvMatrix = pMat->GetUvMatrix();
         d.materialId = materialId;
         d.dissolveAmount = pObj->GetCoverageAmount();
-        d.lightLevel = lightLevel;
 
         // Stable slot keyed on the renderable's unique cookie. submitObject
         // bumps the slot generation on (re)assignment so a surfel anchored to a

@@ -129,7 +129,6 @@ struct ObjectSubmitDesc {
   cMatrixf        uvMatrix    = cMatrixf::Identity;
   uint32_t        materialId  = 0;
   float           dissolveAmount     = 0.0f;
-  float           lightLevel         = 1.0f;
   float           illuminationAmount = 0.0f;
   uint32_t        decalList   = 0;
 };

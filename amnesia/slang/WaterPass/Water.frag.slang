@@ -41,15 +41,17 @@ struct WaterVSOut
     float4 posH                    : SV_POSITION;
 };
 
-// Schlick-Fresnel — mirrors deferred_common.h.fsl::Fresnel(eDotN, bias, pow).
+// Schlick-Fresnel — mirrors deferred_common.h.fsl::Fresnel(eDotN, bias, pw).
+// Base clamped positive: eDotN can exceed 1.0 by a ULP (normalize rounding)
+// and pow(negative, fractional) is NaN — see Translucent.frag.slang.
 float computeFresnel(float edotN, float bias, float pw)
 {
-    float facing = 1.0f - edotN;
+    float facing = max(1.0f - edotN, 1.0e-6f);
     return saturate(bias + (1.0f - bias) * pow(facing, pw));
 }
 
-// Fully (lit-)shade a reflection-ray hit: direct NEE + albedo·surfel-indirect +
-// emission — the same energy convention as the primary composite.
+// Fully (lit-)shade a reflection-ray hit: albedo·(direct NEE + surfel-indirect)
+// + emission — the same energy convention as the primary composite.
 float3 shadeReflectionHit(TriangleHit th)
 {
     uint matID  = gScene.getMaterialID(th.instanceID);
@@ -59,7 +61,9 @@ float3 shadeReflectionHit(TriangleHit th)
     float3 direct   = (kDefaultRenderDirectLighting   != 0u) ? evalAnalyticLight(sd) : float3(0.f);
     float3 indirect = (kDefaultRenderIndirectLighting != 0u)
                       ? gatherSurfelIndirect(sd.posW, sd.normalW) : float3(0.f);
-    return direct + sd.albedo * indirect + sd.emission;
+    // Both terms are demodulated irradiance — one albedo turns them into
+    // outgoing radiance, matching the primary composite's convention.
+    return sd.albedo * (direct + indirect) + sd.emission;
 }
 
 [shader("fragment")]
