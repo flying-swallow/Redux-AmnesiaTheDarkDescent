@@ -156,6 +156,17 @@ SHARED_CONST uint kMaterialFlagHasRefraction            = 1u << 16;
 // (gScene.lightLevelAt) instead of rendering it full-bright.
 SHARED_CONST uint kMaterialFlagAffectedByLightLevel     = 1u << 17;
 
+// Perceptual blend-weight exponent for the particle/translucent passes.
+// The legacy renderer blended display-space (gamma) values; this renderer
+// blends linear HDR, and sRGB-encode-after-lerp reads brighter than the
+// base game's lerp-after-encode. Source-side math is computed in display
+// space and decoded once at output (exact for products/lerps); the
+// blend-with-dst sum gets the power distributed over its weights instead:
+// ALPHA goes premultiplied with src·αᵏ and dst·(1−α)ᵏ. 2.2 = pure
+// power-law distribution of the sRGB decode; lower biases brighter
+// (toward the plain-linear look). Tune against the base game.
+SHARED_CONST float kPerceptualBlendExp = 2.2f;
+
 // -----------------------------------------------------------------------------
 // Surfel-GI capacities + cell-grid sizing.
 //   kTotalSurfelLimit:    surfel buffer head count.

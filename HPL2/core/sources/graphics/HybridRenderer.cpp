@@ -2780,12 +2780,18 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         if (!detail::BindVertexStreams(&RI.primary.cmds[0], pVB, "decal", &vtxMask))
           continue;
 
+        const DecalPipelineDesc::BlendMode mode =
+            remapDecalBlend(pMat->GetBlendMode());
         DecalPipelineDesc pipelineDesc(RIBootstrap::PogoColorFormat,
-                                       RIBootstrap::DepthFormat,
-                                       remapDecalBlend(pMat->GetBlendMode()),
-                                       vtxMask);
+                                       RIBootstrap::DepthFormat, mode, vtxMask);
         m_decal.bindPipeline(&RI.device, &RI.primary.cmds[0], pipelineDesc.hash,
                              "Decal", &pipelineDesc.createInfo);
+
+        // Decal.frag's per-blend-mode output conversion (display-space source
+        // → linear) needs the mode — mirrors the particle pass push block.
+        const uint32_t push = (uint32_t)mode;
+        vkCmdPushConstants(RI.primary.cmds[0].vk.cmd, m_decal.getPipelineLayout(),
+                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
 
         vkCmdDrawIndexed(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u, 0u, 0,
                          slot);

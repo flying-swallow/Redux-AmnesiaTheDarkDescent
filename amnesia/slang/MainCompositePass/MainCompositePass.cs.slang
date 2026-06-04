@@ -28,6 +28,7 @@ import PerFrame.resource;
 import Fog;
 import SurfelGI.SurfelShade;        // DiffuseShading / prepareDiffuseShading / evalAnalyticLight / gatherSurfelIndirect
 import Grid;                         // gridCellPos / gridFlattenCellIndex / gridCellValid (decal grid lookup)
+import Utils.Color.ColorHelpers;     // linearToSRGB / sRGBToLinear (legacy display-space decal blend)
 
 [vk::binding(0, 2)]
 Texture2D<float4> gIndirectLighting;
@@ -61,9 +62,11 @@ RWTexture2D<float4> gOutput;
 // Clustered OOB decals are composited directly onto the base albedo here, before
 // lighting, so they get lit like the surface — no separate albedo buffer/pass.
 
-// Blend one decal texel onto the (linear) albedo, replicating the legacy hardware
+// Blend one decal texel onto the albedo, replicating the legacy hardware
 // blend factors (src = decal texel*tint, dst = albedo). Mode is eMaterialBlendMode
-// (1=Add, 2=Mul, 3=MulX2, 4=Alpha, 5=PremulAlpha).
+// (1=Add, 2=Mul, 3=MulX2, 4=Alpha, 5=PremulAlpha). Operands are DISPLAY-space
+// values (projectDecal encodes both sides and decodes the result), so the math
+// is bit-for-bit the legacy gbuffer blend.
 float3 applyDecalBlend(uint mode, float3 dst, float4 src)
 {
     switch (mode)
@@ -125,11 +128,19 @@ float3 projectDecal(uint di, float3 albedo, float3 posW, float3 normalW)
 
     float4 s = gTextures2D[NonUniformResourceIndex(dtex)]
                    .SampleLevel(gMaterialSampler, uv, 0.0f);
-    s *= d.color;
-    if (s.a < 0.01f)                                          // legacy ALPHA_REJECT
+    // Legacy display-space blend, computed EXACTLY (software blend with dst in
+    // hand — unlike the raster passes no powered-weight approximation is
+    // needed): re-encode the sRGB-decoded texel and the linear albedo back to
+    // the authored display space, blend like the legacy gbuffer did, decode
+    // the result. d.color is the raw authored tint. This is "the albedo the
+    // legacy gbuffer would have held", in linear — fixes e.g. MULX2's 0.5-gray
+    // neutral and the residual pink-blood tint of the old linear-blend
+    // compromise.
+    float4 srcD = float4(linearToSRGB(s.rgb), s.a) * d.color;
+    if (srcD.a < 0.01f)                                       // legacy ALPHA_REJECT
         return albedo;
 
-    return applyDecalBlend(d.blendMode, albedo, s);
+    return sRGBToLinear(applyDecalBlend(d.blendMode, linearToSRGB(albedo), srcD));
 }
 
 // Composite the decals precomputed for this object (the static association the

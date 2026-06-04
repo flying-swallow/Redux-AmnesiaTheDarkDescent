@@ -105,10 +105,13 @@ DecalPipelineDesc::DecalPipelineDesc(RI_Format_e colorFormat,
     blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
     break;
   case BLEND_ALPHA:
-    blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    // Premultiplied: the shader outputs rgb·pow(α,kPerceptualBlendExp) and
+    // a = 1−pow(1−α,k) so the powered weights approximate the legacy
+    // display-space lerp in the linear HDR target (see Decal.frag.slang).
+    blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
     blendAttachment.dstColorBlendFactor =
         VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-    blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     blendAttachment.dstAlphaBlendFactor =
         VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     break;
