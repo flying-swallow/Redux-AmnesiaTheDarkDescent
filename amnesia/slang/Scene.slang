@@ -137,16 +137,66 @@ public struct SceneMaterials
     // ALPHA_REJECT default). Dedicated grayscale alpha maps (e.g.
     // chandelier_simple_alpha.tga, loaded as R8_UNORM) carry the mask in
     // .r — kMaterialFlagIsAlphaSingleChannel picks the channel.
-    public bool alphaTest(VertexData v, uint materialID, float lod)
+    // Alpha test + CoverageAmount dissolve — ONE gate for every ray/raster
+    // context (gbuffer FS, V-buffer anyhit, surfel scatter anyhit, shadow /
+    // reflection RayQuery loops), so a fading object's primary visibility,
+    // shadows, and direct lighting all dissolve consistently instead of a
+    // half-dissolved mesh casting a full-strength ghost shadow.
+    //
+    // Dissolve math mirrors the legacy solid_z.frag.fsl (noise reshape per
+    // material variant, threshold at the z-pass ALPHA_REJECT 0.5) with one
+    // deviation: the noise is sampled in UV space (v.texC, wrap) instead of
+    // legacy screen space — RayQuery callers have no pixel coordinate, and a
+    // UV-anchored pattern sticks to the object instead of crawling with the
+    // camera. `dissolveAmount` is UniformObject.dissolveAmount
+    // (GetCoverageAmount); pass 1.0 semantics come from the object, not a
+    // default, so every caller fetches it. NOTE: rays only reach this for
+    // non-FORCE_OPAQUE instances — cHybridRenderer drops that flag while
+    // coverage < 1 or the material carries dissolve variants.
+    public bool alphaTest(VertexData v, uint materialID, float lod, float dissolveAmount)
     {
         if (materialID >= kSolidMaterialCapacity) return false;  // water range: no diffuse entry
         DiffuseMaterial m = gDiffuseMaterials[materialID];
-        uint alphaIdx = m.tex[2];
-        if (alphaIdx == kInvalidTextureIndex) return false;
 
-        float4 s = gTextures2D[NonUniformResourceIndex(alphaIdx)]
-                       .SampleLevel(gMaterialSampler, v.texC, lod);
-        float a = (m.materialConfig & kMaterialFlagIsAlphaSingleChannel) != 0u ? s.r : s.a;
+        float a = 1.0f;     // plain solids dissolve from full alpha
+        uint alphaIdx = m.tex[2];
+        if (alphaIdx != kInvalidTextureIndex)
+        {
+            float4 s = gTextures2D[NonUniformResourceIndex(alphaIdx)]
+                           .SampleLevel(gMaterialSampler, v.texC, lod);
+            a = (m.materialConfig & kMaterialFlagIsAlphaSingleChannel) != 0u ? s.r : s.a;
+        }
+        else if (dissolveAmount >= 1.0f &&
+                 (m.materialConfig & (kMaterialFlagEnableDissolveAlpha
+                                    | kMaterialFlagUseDissolveFilter)) == 0u)
+        {
+            return false;   // plain solid at full coverage — cheap keep
+        }
+
+        bool hasDissolveAlpha  = (m.materialConfig & kMaterialFlagEnableDissolveAlpha) != 0u;
+        bool hasDissolveFilter = (m.materialConfig & kMaterialFlagUseDissolveFilter)  != 0u;
+        if (dissolveAmount < 1.0f || hasDissolveAlpha || hasDissolveFilter)
+        {
+            float d = gDissolveMap.SampleLevel(gMaterialSampler, v.texC, 0.f).x;
+            if (hasDissolveAlpha)
+            {
+                // Combine the global noise with the material's DissolveAlpha
+                // map (tex[6]): noise squeezed to [0.75,1], map subtracts up
+                // to 0.25 — matches the legacy HasDissolveAlpha branch.
+                d = d * 0.25f + 0.75f;
+                uint dat = m.tex[6];
+                float da = 1.0f;
+                if (dat != kInvalidTextureIndex)
+                    da = gTextures2D[NonUniformResourceIndex(dat)]
+                             .SampleLevel(gMaterialSampler, v.texC, lod).r;
+                d -= (0.25f - da * 0.25f);
+            }
+            else
+            {
+                d = d * 0.5f + 0.5f;
+            }
+            a = d - (1.0f - dissolveAmount * a) * 0.5f;
+        }
         return a < 0.5f;
     }
 
@@ -230,7 +280,8 @@ public struct SceneMaterials
                 uint materialID = gScene.getMaterialID(hit.instanceID);
                 VertexData v    = gScene.getVertexData(hit);
 
-                if (!alphaTest(v, materialID, 0.f))
+                if (!alphaTest(v, materialID, 0.f,
+                               gSceneObjects[hit.instanceID].dissolveAmount))
                     q.CommitNonOpaqueTriangleHit();
             }
         }
@@ -274,7 +325,8 @@ public struct SceneMaterials
 
                 uint matID  = gScene.getMaterialID(candidate.instanceID);
                 VertexData v = gScene.getVertexData(candidate);
-                if (!alphaTest(v, matID, 0.f))
+                if (!alphaTest(v, matID, 0.f,
+                               gSceneObjects[candidate.instanceID].dissolveAmount))
                     q.CommitNonOpaqueTriangleHit();
             }
         }
@@ -326,7 +378,8 @@ public struct SceneMaterials
                 c.barycentrics   = q.CandidateTriangleBarycentrics();
                 uint matID  = gScene.getMaterialID(c.instanceID);
                 VertexData v = gScene.getVertexData(c);
-                if (!alphaTest(v, matID, 0.f))
+                if (!alphaTest(v, matID, 0.f,
+                               gSceneObjects[c.instanceID].dissolveAmount))
                     q.CommitNonOpaqueTriangleHit();
             }
         }

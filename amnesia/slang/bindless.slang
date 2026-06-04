@@ -230,6 +230,12 @@ public SamplerState gSurfelDepthSampler;
 [vk::binding(kBindingAttenuationLut, 0)]
 public Texture2D<float4> gAttenuationLut;
 
+// core_dissolve.tga — the legacy 128×128 dissolve noise (solid_z.frag.fsl).
+// Immutable, written once at init; sampled UV-space (wrap) by the shared
+// SceneMaterials.alphaTest for the CoverageAmount dissolve fade.
+[vk::binding(kBindingDissolveMap, 0)]
+public Texture2D<float4> gDissolveMap;
+
 // Surfel-GI scatter RT acceleration structure. Pushed on set 1
 // per-dispatch (the TLAS is rebuilt every frame).
 [vk::binding(kBindingTlas, 1)]

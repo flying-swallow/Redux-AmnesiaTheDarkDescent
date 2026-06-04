@@ -93,11 +93,14 @@ GBufferOut psMain(VSOut vsOut,
                  uint   primitiveID : SV_PrimitiveID,
                  float3 barys       : SV_Barycentrics)
 {
-    // Diffuse alpha gate — same reject the gbuffer applied before writing
-    // visibility. Discarded pixels write neither target.
+    // Diffuse alpha gate + CoverageAmount dissolve — same reject the legacy
+    // z-prepass applied before any pixel could survive (alpha cutout plus the
+    // noise dissolve fade, solid_z.frag.fsl). Discarded pixels write neither
+    // target.
     VertexData v = {};
     v.texC = vsOut.texC;
-    if (gScene.materials.alphaTest(v, vsOut.materialID, 0.0f))
+    if (gScene.materials.alphaTest(v, vsOut.materialID, 0.0f,
+                                   gSceneObjects[vsOut.instanceID].dissolveAmount))
         discard;
 
     GBufferOut o;

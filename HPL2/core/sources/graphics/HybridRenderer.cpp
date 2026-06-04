@@ -1182,7 +1182,22 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // shadow / primary V-buffer / surfel rays. Alpha-cutout meshes (foliage,
       // grates — they carry an alpha texture) stay non-opaque so their
       // see-through shadows / hits are preserved.
-      if (!pMat->GetImage(eMaterialTexture_Alpha))
+      //
+      // FORCE_OPAQUE also skips the anyhit/RayQuery alphaTest (which now
+      // carries the CoverageAmount dissolve for visibility, shadows, and GI
+      // alike), so anything that must dissolve-test a ray has to stay
+      // non-opaque: an in-progress fade, and materials whose dissolve
+      // variants run even at full coverage (DissolveAlpha map /
+      // AlphaDissolveFilter — dithered alpha edges). The instance list is
+      // rebuilt every frame, so a finished fade returns to the opaque fast
+      // path next frame.
+      const ShaderMaterialData &solidDesc = pMat->Descriptor();
+      const bool dissolveFlags =
+          pMat->GetImage(eMaterialTexture_DissolveAlpha) ||
+          (solidDesc.m_id == MaterialID::SolidDiffuse &&
+           solidDesc.m_solid.m_alphaDissolveFilter);
+      if (!pMat->GetImage(eMaterialTexture_Alpha) &&
+          pObject->GetCoverageAmount() >= 1.0f && !dissolveFlags)
         inst.flags |= RI_ACCEL_INSTANCE_FORCE_OPAQUE;
       assert(blas->vk.deviceAddress != 0);
       inst.accelerationStructureReference = blas->vk.deviceAddress;

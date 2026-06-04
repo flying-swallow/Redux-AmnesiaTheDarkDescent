@@ -73,7 +73,7 @@ SHARED_CONST uint kBindingPackedReflectionHitInfo     = 44u;  // RGBA32UI storag
 SHARED_CONST uint kBindingAttenuationLut              = 45u;  // default light falloff LUT (core_falloff_linear), immutable on set 0
 SHARED_CONST uint kBindingDecals                      = 46u;  // RWStructuredBuffer<GpuDecal> (kMaxDecals) — clustered OOB decals
 SHARED_CONST uint kBindingObjectDecalIndices          = 47u;  // RWStructuredBuffer<uint> — flat per-object decal-index lists (UniformObject.decalList = offset<<8|count); replaces the decal grid
-// (binding 48 free — former kBindingDecalGridList)
+SHARED_CONST uint kBindingDissolveMap                 = 48u;  // immutable core_dissolve noise (128px), UV-sampled by the shared alphaTest dissolve fade
 
 // -----------------------------------------------------------------------------
 // Bindless pool capacities + sentinel.

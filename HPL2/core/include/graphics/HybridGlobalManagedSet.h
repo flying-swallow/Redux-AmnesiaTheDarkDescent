@@ -333,6 +333,10 @@ public:
   // immutable gAttenuationLut. Held resident for the renderer's lifetime.
   Image *m_attenuationLut = nullptr;
 
+  // Legacy dissolve noise (core_dissolve.tga), bound once to set 0 as the
+  // immutable gDissolveMap — the CoverageAmount fade's screen-space dither.
+  Image *m_dissolveMap = nullptr;
+
   LRUCache m_textureBindless;
   // Separate LRU for cube textures. Slot ids index textures_cube[] (set 0,
   // binding 1) and must not be confused with textures_2d[] ids.

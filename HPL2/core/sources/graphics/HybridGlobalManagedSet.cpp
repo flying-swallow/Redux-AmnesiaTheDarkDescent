@@ -141,11 +141,23 @@ void HybridGlobalManagedSet::initialize(RIDevice_s *device,
             VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
         0});
 
+    // core_dissolve noise — one immutable sampled image on set 0, written once
+    // at init. UV-sampled by the shared SceneMaterials.alphaTest in every
+    // alpha-testing context (gbuffer FS, V-buffer / surfel anyhit, shadow and
+    // reflection RayQuery loops) — the legacy solid_z dissolve fade.
+    bindings.push_back(RIBindlessDescriptorSet::Binding{
+        kBindingDissolveMap, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+        VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
+            VK_SHADER_STAGE_RAYGEN_BIT_KHR |
+            VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
+            VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
+        0});
+
     VkDescriptorPoolSize poolSizes[3] = {};
     // Sampled-image budget covers textures_2d[] + textures_cube[] + the
-    // single global attenuation LUT.
+    // global attenuation LUT + the dissolve noise map.
     poolSizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                                        kTextureSlotCapacity * 2 + 1};
+                                        kTextureSlotCapacity * 2 + 2};
     // Storage-buffer pool budget: 6 opaque*Handles + 17 surfel/cell bindings
     // (kSurfelCellBindings, incl. kBindingSurfelBounds, the two slot-generation
     // buffers, and the two light-grid buffers) + 2 scene/material + 3 light
@@ -453,7 +465,7 @@ void HybridGlobalManagedSet::initialize(RIDevice_s *device,
          kTranslucentMaterialCapacity * sizeof(TranslucentMaterial)},
     };
 
-    RIBindlessDescriptorSet::WriteBinding writes[std::size(ssbos) + 3] = {};
+    RIBindlessDescriptorSet::WriteBinding writes[std::size(ssbos) + 4] = {};
     size_t count = 0;
     for (uint32_t i = 0; i < std::size(ssbos); ++i) {
       writes[count].binding = ssbos[i].binding;
@@ -499,6 +511,24 @@ void HybridGlobalManagedSet::initialize(RIDevice_s *device,
       count++;
     } else {
       Warning("Failed to load core_falloff_linear; light attenuation LUT unbound\n");
+    }
+    // gDissolveMap — the legacy 128×128 dissolve noise (solid_z.frag.fsl),
+    // bound once here like the attenuation LUT. UV-sampled by the shared
+    // SceneMaterials.alphaTest for the CoverageAmount fade.
+    m_dissolveMap =
+        resources->GetTextureManager()->Create2DImage("core_dissolve.tga", false);
+    if (auto disTex = m_dissolveMap ? m_dissolveMap->GetTexture() : nullptr) {
+      writes[count].binding = kBindingDissolveMap;
+      writes[count].arrayElement = 0;
+      writes[count].descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+      writes[count].descriptor.vk.image.sampler = VK_NULL_HANDLE;
+      writes[count].descriptor.vk.image.imageView =
+          disTex->binding.vk.image.imageView;
+      writes[count].descriptor.vk.image.imageLayout =
+          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      count++;
+    } else {
+      Warning("Failed to load core_dissolve.tga; dissolve fade unbound\n");
     }
     m_bindlessSet.writeDescriptors(device,
                                    std::span(writes).subspan(0, count));

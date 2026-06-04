@@ -423,14 +423,16 @@ void scatterMiss(inout ScatterPayload scatterPayload)
 [shader("anyhit")]
 void scatterAnyHit(inout ScatterPayload scatterPayload, BuiltInTriangleIntersectionAttributes attribs)
 {
-    // Alpha test against the diffuse material's alpha texture.
+    // Alpha test (+ CoverageAmount dissolve) against the diffuse material —
+    // the single shared gate, so fading objects also fade out of the GI.
     TriangleHit hit;
     hit.instanceID     = InstanceID();
     hit.primitiveIndex = PrimitiveIndex();
     hit.barycentrics   = attribs.barycentrics;
     VertexData v = gScene.getVertexData(hit);
     uint materialID = gScene.getMaterialID(hit.instanceID);
-    if (gScene.materials.alphaTest(v, materialID, 0.f))
+    if (gScene.materials.alphaTest(v, materialID, 0.f,
+                                   gSceneObjects[hit.instanceID].dissolveAmount))
         IgnoreHit();
 }
 
