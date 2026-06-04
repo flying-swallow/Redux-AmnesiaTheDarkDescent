@@ -1,5 +1,6 @@
 #include "graphics/TranslucentMeshPipelineDesc.h"
 
+#include "graphics/GraphicsTypes.h" // eVertexElementFlag_*
 #include "graphics/RIVK.h"     // RIFormatToVK
 #include "system/Hasher.h"     // hash_u32 / HASH_INITIAL_VALUE
 #include "system/Types.h"      // ARRAY_COUNT
@@ -7,15 +8,19 @@
 namespace hpl {
 
 TranslucentMeshPipelineDesc::TranslucentMeshPipelineDesc(
-    RI_Format_e colorFormat, RI_Format_e depthFormat, BlendMode mode) {
+    RI_Format_e colorFormat, RI_Format_e depthFormat, BlendMode mode,
+    uint32_t vertexPresentMask) {
   // Strides match VertexBuffer_RI: position/tangent/color stored as float4
   // (16 B), normal as float3 (12 B), texcoord as float3 with only .xy
-  // consumed (stride 12 B, R32G32 format reads the first two floats).
-  vertexBindings[0] = {0, 16, VK_VERTEX_INPUT_RATE_VERTEX}; // position
-  vertexBindings[1] = {1, 12, VK_VERTEX_INPUT_RATE_VERTEX}; // normal
-  vertexBindings[2] = {2, 16, VK_VERTEX_INPUT_RATE_VERTEX}; // tangent (w = handedness)
-  vertexBindings[3] = {3, 16, VK_VERTEX_INPUT_RATE_VERTEX}; // color
-  vertexBindings[4] = {4, 12, VK_VERTEX_INPUT_RATE_VERTEX}; // texcoord
+  // consumed (stride 12 B, R32G32 format reads the first two floats). An
+  // optional stream the renderable omits (absent from vertexPresentMask) gets
+  // its stride zeroed below so the bound single-vertex fallback feeds the same
+  // default to every vertex.
+  vertexBindings[0] = {0, 16, VK_VERTEX_INPUT_RATE_VERTEX}; // position (always present)
+  vertexBindings[1] = {1, (vertexPresentMask & eVertexElementFlag_Normal)   ? 12u : 0u, VK_VERTEX_INPUT_RATE_VERTEX}; // normal
+  vertexBindings[2] = {2, (vertexPresentMask & eVertexElementFlag_Texture1) ? 16u : 0u, VK_VERTEX_INPUT_RATE_VERTEX}; // tangent (w = handedness)
+  vertexBindings[3] = {3, (vertexPresentMask & eVertexElementFlag_Color0)   ? 16u : 0u, VK_VERTEX_INPUT_RATE_VERTEX}; // color
+  vertexBindings[4] = {4, (vertexPresentMask & eVertexElementFlag_Texture0) ? 12u : 0u, VK_VERTEX_INPUT_RATE_VERTEX}; // texcoord
   vertexAttributes[0] = {0, 0, VK_FORMAT_R32G32B32_SFLOAT,    0}; // POSITION
   vertexAttributes[1] = {1, 1, VK_FORMAT_R32G32B32_SFLOAT,    0}; // NORMAL
   vertexAttributes[2] = {2, 2, VK_FORMAT_R32G32B32A32_SFLOAT, 0}; // TANGENT
@@ -98,7 +103,10 @@ TranslucentMeshPipelineDesc::TranslucentMeshPipelineDesc(
     blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     break;
   case BLEND_ALPHA:
-    blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    // Premultiplied: the shader outputs rgb·pow(α,kPerceptualBlendExp) and
+    // a = 1−pow(1−α,k) so the powered weights approximate the legacy
+    // display-space lerp in the linear HDR target (see Translucent.frag.slang).
+    blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
     blendAttachment.dstColorBlendFactor =
         VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
     blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
@@ -139,6 +147,9 @@ TranslucentMeshPipelineDesc::TranslucentMeshPipelineDesc(
   hash = hash_u32(HASH_INITIAL_VALUE, (uint32_t)colorFormat);
   hash = hash_u32(hash, (uint32_t)depthFormat);
   hash = hash_u32(hash, (uint32_t)mode);
+  // Distinct vertex-binding strides per presence combination must not alias in
+  // the program's pipeline cache.
+  hash = hash_u32(hash, vertexPresentMask);
 }
 
 } // namespace hpl

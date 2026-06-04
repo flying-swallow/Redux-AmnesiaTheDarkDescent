@@ -1,5 +1,6 @@
 #include "graphics/MaterialResource.h"
 #include "graphics/Material.h"
+#include "graphics/Image.h" // HPLTexture::format + RIFormatChannelCount probe
 
 // Single source of truth for kMaterialFlag* — these used to be mirrored
 // here as the `TextureConfigFlags` enum but now come from the shared
@@ -47,22 +48,31 @@ namespace hpl::material {
     }
 
     uint32_t UniformMaterialBlock::CreateMaterailConfigFlags(cMaterial& material) {
-        // TODO: probe alpha/height channel-count via the RIFormat once a
-        // RIFormatChannelCount helper exists; reference uses TheForge's
-        // TinyImageFormat_ChannelCount. Until then, default to the Amnesia
-        // convention: heightmaps ship as dedicated single-channel grayscale
-        // files (height in .r). Without this flag the parallax shader would
-        // sample .a — which is constant 1.0 for single-channel textures, so
-        // the POM inner loop runs the full 32 steps every fragment and the
-        // UV offset explodes at grazing angles (very bad warping on walls).
-        // IsAlphaSingleChannel stays 0 since the alpha texture is sometimes
-        // packed into RGBA and that path is less exercised.
+        // Alpha/height maps come in two layouts: dedicated grayscale files
+        // (data in .r — e.g. chandelier_simple_alpha.tga loads as R8_UNORM)
+        // and packed RGBA (data in .a). Probe the channel count of the
+        // texture the image was actually created with so the shaders can
+        // pick the right channel; sampling .a on a single-channel texture
+        // reads the constant fill value (POM runs its full 32 steps and
+        // warps walls at grazing angles, alpha test cuts everything or
+        // nothing).
+        auto isSingleChannel = [](const Image* image) {
+            if (!image) {
+                return false;
+            }
+            const auto texture = image->GetTexture();
+            return texture && RIFormatChannelCount(texture->format) == 1;
+        };
+        const Image* alphaImage = material.GetImage(eMaterialTexture_Alpha);
+        const Image* heightImage = material.GetImage(eMaterialTexture_Height);
         uint32_t flags =
             (material.GetImage(eMaterialTexture_Diffuse) ? kMaterialFlagEnableDiffuse : 0) |
             (material.GetImage(eMaterialTexture_NMap) ? kMaterialFlagEnableNormal : 0) |
             (material.GetImage(eMaterialTexture_Specular) ? kMaterialFlagEnableSpecular : 0) |
-            (material.GetImage(eMaterialTexture_Alpha) ? kMaterialFlagEnableAlpha : 0) |
-            (material.GetImage(eMaterialTexture_Height) ? (kMaterialFlagEnableHeight | kMaterialFlagIsHeightMapSingleChannel) : 0) |
+            (alphaImage ? kMaterialFlagEnableAlpha : 0) |
+            (isSingleChannel(alphaImage) ? kMaterialFlagIsAlphaSingleChannel : 0) |
+            (heightImage ? kMaterialFlagEnableHeight : 0) |
+            (isSingleChannel(heightImage) ? kMaterialFlagIsHeightMapSingleChannel : 0) |
             (material.GetImage(eMaterialTexture_Illumination) ? kMaterialFlagEnableIllumination : 0) |
             (material.GetImage(eMaterialTexture_CubeMap) ? kMaterialFlagEnableCubeMap : 0) |
             (material.GetImage(eMaterialTexture_DissolveAlpha) ? kMaterialFlagEnableDissolveAlpha : 0) |
@@ -77,7 +87,8 @@ namespace hpl::material {
                 flags |= (descriptor.m_translucent.m_refractionNormals ? kMaterialFlagUseRefractionNormals : 0) |
                          (descriptor.m_translucent.m_hasRefraction &&
                           descriptor.m_translucent.m_refractionEdgeCheck ? kMaterialFlagUseRefractionEdgeCheck : 0) |
-                         (descriptor.m_translucent.m_hasRefraction ? kMaterialFlagHasRefraction : 0);
+                         (descriptor.m_translucent.m_hasRefraction ? kMaterialFlagHasRefraction : 0) |
+                         (descriptor.m_translucent.m_isAffectedByLightLevel ? kMaterialFlagAffectedByLightLevel : 0);
                 break;
             case MaterialID::Water:
                 // Water always refracts + reflects via the SurfelVBuffer.rt

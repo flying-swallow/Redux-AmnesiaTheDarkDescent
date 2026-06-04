@@ -54,8 +54,12 @@ struct DecalPipelineDesc {
     BLEND_LAST_ENUM = 5,
   };
 
+  // vertexPresentMask: bitset of eVertexElementFlag_* for the optional streams
+  // (Normal / Texture1 tangent / Color0 / Texture0) the renderable supplies.
+  // Absent streams get their binding stride zeroed (single-vertex fallback);
+  // the mask folds into `hash` so RIProgram caches one pipeline per combination.
   DecalPipelineDesc(RI_Format_e colorFormat, RI_Format_e depthFormat,
-                    BlendMode mode);
+                    BlendMode mode, uint32_t vertexPresentMask);
 
   DecalPipelineDesc(const DecalPipelineDesc &) = delete;
   DecalPipelineDesc &operator=(const DecalPipelineDesc &) = delete;

@@ -1831,4 +1831,9 @@ void CmdDrawIndexedIndirect( struct RICmd_s *cmd,
 	vkCmdDrawIndexedIndirect( cmd->vk.cmd, buffer->vk.buffer, offset, drawCount, stride );
 }
 
+void CmdBindIndexBuffer( struct RICmd_s *cmd, struct RIBuffer_s *buffer,
+                         VkDeviceSize offset, VkIndexType indexType ) {
+	vkCmdBindIndexBuffer( cmd->vk.cmd, buffer->vk.buffer, offset, indexType );
+}
+
 

@@ -20,7 +20,7 @@
 // source of `UniformObject` (model matrix, uv matrix, materialID, ...),
 // because Translucent.frag.slang reads it for material lookup.
 
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 import PerFrame.resource;
 

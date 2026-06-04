@@ -17,7 +17,7 @@
 // deviation is refraction. The legacy bend-behind distortion (screen-color
 // copy + per-fragment UV offset) is moved upstream: the RT V-buffer
 // (SurfelVBuffer.rt.slang::closeHit) bends the primary ray through refractive
-// materials and SurfelGIRenderPass.frag.slang shades the resulting hit, so by
+// materials and MainCompositePass.cs.slang shades the resulting hit, so by
 // the time this shader runs the GI composite already shows the refracted
 // background at every refractive pixel. The translucent surface just
 // alpha-blends on top — no screen-color sample, no refraction block here.
@@ -25,10 +25,12 @@
 
 
 #include "Constants.h"
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 import PerFrame.resource;
 import Fog;
+import Scene;
+import Utils.Color.ColorHelpers;   // linearToSRGB / sRGBToLinear (display-space source math)
 
 #define BLEND_MODE_ADD          0u
 #define BLEND_MODE_MUL          1u
@@ -66,17 +68,22 @@ struct TranslucentVSOut
 };
 
 // Schlick-Fresnel — mirrors deferred_common.h.fsl::Fresnel(eDotN, bias, pow).
+// The base is clamped to a tiny positive epsilon: eDotN of two normalize()d
+// vectors can exceed 1.0 by a ULP at dead-on view angles, and pow() of a
+// negative base is NaN (exp2(y·log2(x))) — with MUL blending that poisons the
+// framebuffer pixel permanently (saturate doesn't help: FClamp(NaN) is
+// undefined in Vulkan). Hit by amnesia_bottle.mat (FrenselPow=0.5).
 float computeFresnel(float afEDotN, float afFresnelBias, float afFresnelPow)
 {
-    float fFacing = 1.0f - afEDotN;
+    float fFacing = max(1.0f - afEDotN, 1.0e-6f);
     return saturate(afFresnelBias + (1.0f - afFresnelBias) * pow(fFacing, afFresnelPow));
 }
 
 [shader("fragment")]
 float4 psMain(TranslucentVSOut psIn) : SV_TARGET
 {
-    UniformObject   obj = gSceneObjects[psIn.objectId];
-    DiffuseMaterial mat = gDiffuseMaterials[obj.materialID];
+    UniformObject       obj = gSceneObjects[psIn.objectId];
+    TranslucentMaterial mat = gScene.getTranslucentMaterial(obj.materialID);
 
     // Reference mask: when the second cube-map-only draw runs, the diffuse /
     // illumination / etc. sample paths are switched off so only the
@@ -89,14 +96,20 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
                         | kMaterialFlagEnableCubeMapAlpha);
     }
 
+    // Legacy display-space source: the base game blended raw gamma texels ×
+    // authored vertex colors in a UNORM display target. Re-encode the
+    // hardware-sRGB-decoded sample so the product (and all the blend-mode /
+    // reflection math below) runs in the space it was authored for; the
+    // result is decoded to linear ONCE at the end (see the conversion switch).
     float4 diffuseColor = float4(0.0f, 0.0f, 0.0f, 1.0f);
     if ((textureConfig & kMaterialFlagEnableDiffuse) != 0u)
     {
         uint diffuseTex = mat.tex[0];
         if (diffuseTex != kInvalidTextureIndex)
         {
-            diffuseColor = gTextures2D[NonUniformResourceIndex(diffuseTex)]
-                               .Sample(gMaterialSampler, psIn.uv);
+            float4 s = gTextures2D[NonUniformResourceIndex(diffuseTex)]
+                           .Sample(gMaterialSampler, psIn.uv);
+            diffuseColor = float4(linearToSRGB(s.rgb), s.a);
         }
         diffuseColor *= psIn.color;
     }
@@ -108,12 +121,23 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
     FogResult fog = computeFog(surfacePosW, gPerFrame.posW);
     float finalAlpha = pc.sceneAlpha * fog.visibility;
 
+    // AffectedByLightLevel materials dim with the surrounding analytic light
+    // (base-game afLightLevel behavior — see gScene.lightLevelAt). Per-pixel,
+    // gated on the raw material config (not the illumination-draw-masked
+    // textureConfig) so the cube-map second draw dims its reflection too,
+    // matching the legacy shader's afLightLevel use on the reflection terms.
+    float lightLevel = 1.0f;
+    if ((mat.materialConfig & kMaterialFlagAffectedByLightLevel) != 0u)
+    {
+        lightLevel = gScene.lightLevelAt(surfacePosW);
+    }
+
     float4 finalColor = diffuseColor;
     switch (pc.blendMode)
     {
         case BLEND_MODE_ADD:
         {
-            finalColor.xyz *= finalAlpha * obj.lightLevel;
+            finalColor.xyz *= finalAlpha * lightLevel;
             break;
         }
         case BLEND_MODE_MUL:
@@ -123,21 +147,21 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
         }
         case BLEND_MODE_MULX2:
         {
-            float blendMulAlpha = obj.lightLevel * finalAlpha;
+            float blendMulAlpha = lightLevel * finalAlpha;
             finalColor.xyz = finalColor.xyz * blendMulAlpha
                            + float3(0.5f) * (1.0f - blendMulAlpha);
             break;
         }
         case BLEND_MODE_ALPHA:
         {
-            finalColor.xyz *= obj.lightLevel;
+            finalColor.xyz *= lightLevel;
             finalColor.a   *= finalAlpha;
             break;
         }
         case BLEND_MODE_PREMUL_ALPHA:
         {
             finalColor      *= finalAlpha;
-            finalColor.xyz  *= obj.lightLevel;
+            finalColor.xyz  *= lightLevel;
             break;
         }
     }
@@ -189,6 +213,9 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
         float3 envDirView  = reflect(eyeVec, screenNormal);
         float3 envDirWorld = mul(gPerFrame.invViewRotationMat,
                                  float4(envDirView, 1.0f)).xyz;
+        // No re-encode needed: cube maps keep a UNORM view (only Diffuse /
+        // Illumination get sRGB views — MaterialManager.cpp), so the sample
+        // is already the raw gamma value the legacy display-space add wants.
         float4 reflectionColor =
             gTexturesCube[NonUniformResourceIndex(mat.cubeMapTextureIndex)]
                 .Sample(gMaterialSampler, envDirWorld);
@@ -207,24 +234,60 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
         }
 
         finalColor.xyz += reflectionColor.xyz
-                        * fresnel * finalAlpha * obj.lightLevel;
+                        * fresnel * finalAlpha * lightLevel;
 
-        // Rim reflection term — view-space normal vs -Z.
+        // Rim reflection term — view-space normal vs -Z. Base clamped positive
+        // for the same ULP reason as computeFresnel (abs(dot) can exceed 1).
         if (mat.rimLightMul > 0.0f)
         {
             float fRim = dot(screenNormal, float3(0.0f, 0.0f, -1.0f));
-            fRim = pow(1.0f - abs(fRim), mat.rimLightPow) * mat.rimLightMul;
+            fRim = pow(max(1.0f - abs(fRim), 1.0e-6f), mat.rimLightPow) * mat.rimLightMul;
             finalColor.xyz += reflectionColor.xyz
-                            * fRim * finalAlpha * obj.lightLevel;
+                            * fRim * finalAlpha * lightLevel;
         }
     }
 
     // Reference uses `finalColor.a == 0.0` (no epsilon). The strict check
     // matches; keeps premul-alpha fully-faded fragments out of the depth
-    // test interactions when MSAA resolves later.
-    if (finalColor.a <= 0.0f)
+    // test interactions when MSAA resolves later. Tested on the display-space
+    // alpha, before the blend-weight reshape below.
+    float displayAlpha = finalColor.a;
+    if (displayAlpha <= 0.0f)
     {
         discard;
+    }
+
+    // Everything above (pre-bias, reflection, rim) is legacy display-space
+    // math. Decode to linear ONCE here, and reshape the dst-blend weights —
+    // toLin distributes over the MUL/MULX2 products with dst exactly (power
+    // law) but not over the ALPHA/PREMUL sums, so those use the powered
+    // premultiplied weights src·pow(α,k) / dst·pow(1−α,k) instead
+    // (pipeline ALPHA factors are ONE / 1−srcA). See Particle.frag.slang.
+    const float k = kPerceptualBlendExp;
+    switch (pc.blendMode)
+    {
+        case BLEND_MODE_ADD:
+        case BLEND_MODE_MUL:
+        {
+            finalColor.xyz = sRGBToLinear(finalColor.xyz);
+            break;
+        }
+        case BLEND_MODE_MULX2:
+        {
+            // Legacy: 2·dst·m; HW factors give 2·src·dst → src = toLin(2·m)/2.
+            finalColor.xyz = sRGBToLinear(2.0f * finalColor.xyz) * 0.5f;
+            break;
+        }
+        case BLEND_MODE_ALPHA:
+        case BLEND_MODE_PREMUL_ALPHA:
+        {
+            float a = saturate(displayAlpha);
+            finalColor.xyz = sRGBToLinear(finalColor.xyz);
+            if (pc.blendMode == BLEND_MODE_ALPHA)
+                finalColor.xyz *= pow(a, k);
+            finalColor.a = 1.0f - pow(1.0f - a, k);
+            break;
+        }
     }
 
     return finalColor;

@@ -15,7 +15,7 @@
 
 #include "Constants.h"
 import SceneTypes;
-import Bindless.resource;
+import bindless;
 import PerFrame.resource;
 
 struct FogResult {

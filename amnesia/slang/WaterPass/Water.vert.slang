@@ -7,7 +7,7 @@
 // world-space, like the surfel GI). Drawn over the refracted background already in
 // the pogo (the V-buffer's water refraction clobbered the primary hit).
 
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 import PerFrame.resource;
 

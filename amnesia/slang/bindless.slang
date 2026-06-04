@@ -6,7 +6,7 @@
 // from Constants.h (single source of truth shared with C++ and GLSL).
 //
 // Usage:
-//   import Bindless.resource;
+//   import bindless;
 //   ...
 //   PointLight p = gPointLights[i];
 //
@@ -14,7 +14,7 @@
 // (SPV_EXT_descriptor_indexing + VK_EXT_descriptor_indexing); slangc emits
 // the capability automatically when the array type is bound by `[]`.
 
-#include "../Constants.h"
+#include "Constants.h"
 import SceneTypes;
 
 import SurfelGI.SurfelTypes;
@@ -147,7 +147,7 @@ public RWStructuredBuffer<uint> gLightGridList;
 [vk::binding(kBindingSceneObjects, 0)]
 public RWStructuredBuffer<UniformObject> gSceneObjects;
 
-[vk::binding(kBindingOpaqueMaterial, 0)]
+[vk::binding(kBindingDiffuseMaterial, 0)]
 public RWStructuredBuffer<DiffuseMaterial> gDiffuseMaterials;
 
 [vk::binding(kBindingTranslucentMaterial, 0)]
@@ -229,6 +229,12 @@ public SamplerState gSurfelDepthSampler;
 // (clamp). Keyed on r²=(d/r)² for radial, (1-cosθ)/(1-cosOuter) for the spot cone.
 [vk::binding(kBindingAttenuationLut, 0)]
 public Texture2D<float4> gAttenuationLut;
+
+// core_dissolve.tga — the legacy 128×128 dissolve noise (solid_z.frag.fsl).
+// Immutable, written once at init; sampled UV-space (wrap) by the shared
+// SceneMaterials.alphaTest for the CoverageAmount dissolve fade.
+[vk::binding(kBindingDissolveMap, 0)]
+public Texture2D<float4> gDissolveMap;
 
 // Surfel-GI scatter RT acceleration structure. Pushed on set 1
 // per-dispatch (the TLAS is rebuilt every frame).

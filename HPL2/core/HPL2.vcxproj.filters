@@ -1198,6 +1198,9 @@
     <ClInclude Include="include\scene\Decal.h">
       <Filter>Scene</Filter>
     </ClInclude>
+    <ClInclude Include="include\graphics\HybridGlobalManagedSet.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="sources\system\Container.cpp">
@@ -2165,6 +2168,12 @@
     </ClCompile>
     <ClCompile Include="sources\scene\Decal.cpp">
       <Filter>Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\system\Hasher.cpp">
+      <Filter>System</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\HybridGlobalManagedSet.cpp">
+      <Filter>Graphics</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

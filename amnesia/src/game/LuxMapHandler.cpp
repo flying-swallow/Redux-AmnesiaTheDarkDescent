@@ -172,21 +172,26 @@ cLuxMapHandler::cLuxMapHandler() : iLuxUpdateable("LuxMapHandler")
 	mpPostEffect_Bloom = pGraphics->CreatePostEffect(&bloomParams);
 	pPostEffectComp->AddPostEffect(mpPostEffect_Bloom, 100);
 
-	//Tonemap — ACES filmic + sRGB encode. Runs LAST (lowest priority): the
-	//multimap orders highest-priority first, so 0 places it after every other
-	//effect. Maps linear HDR -> ACES -> sRGB-encoded display, matching the GUI
+	//Tonemap — sRGB encode (+exposure). Runs after every HDR-domain effect
+	//(the multimap orders highest-priority first, so 0 places it below them).
+	//Maps linear HDR -> normalized [0,1] sRGB-encoded display, matching the GUI
 	//which writes display-encoded values to the same UNORM swapchain. It carries
 	//the mandatory output encode, so it must always run — no config toggle.
+	//Only the image trail runs after it (negative priority), in display space.
 	cPostEffectParams_ToneMap tonemapParams;
 	tonemapParams.mfExposure = 1.0f;
 	tonemapParams.mfShadowLift = 1.0f;
 	mpPostEffect_ToneMap = pGraphics->CreatePostEffect(&tonemapParams);
 	pPostEffectComp->AddPostEffect(mpPostEffect_ToneMap, 0);
 
-	//Image trail
+	//Image trail — runs AFTER tonemap (negative priority), on display-encoded
+	//[0,1] values like the legacy LDR game. Its accumulator is a persistent
+	//fp16 mix of the previous frames: feeding it unbounded linear HDR let
+	//bright hotspots accumulate past fp16 range (black NaN squares trailing
+	//across the screen); the tonemapped range is bounded so it can't overflow.
 	cPostEffectParams_ImageTrail imageTrailParams;
 	mpPostEffect_ImageTrail = pGraphics->CreatePostEffect(&imageTrailParams);
-	pPostEffectComp->AddPostEffect(mpPostEffect_ImageTrail, 10);
+	pPostEffectComp->AddPostEffect(mpPostEffect_ImageTrail, -10);
 	mpPostEffect_ImageTrail->SetActive(false);
 
 	//Radial

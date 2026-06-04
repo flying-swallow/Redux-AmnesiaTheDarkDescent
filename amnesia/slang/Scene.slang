@@ -19,16 +19,34 @@
 //   * gScene.rtAccel — TLAS binding not added yet.
 //   * gScene.envMap.eval — env map binding not declared yet.
 //   * Per-light gobo + LUT attenuation: PointLight.sample / SpotLight.sample
-//     in Bindless.interface.slang do analytic fallback only today; the
+//     in ILight.slang do analytic fallback only today; the
 //     unified dispatcher inherits that.
 
 #include "HostDefinitions.h"
+#include "Constants.h"          // kLightGrid* / kLightsPerCellMax / kPointLightIntensityScale (lightLevelAt)
 
 import SceneTypes;
-import Bindless.resource;
-import Bindless.interface;
+import bindless;
+__exported import ILight;
 import PerFrame.resource;
 import BindlessTriangle;
+import Random;
+import Grid;                    // gridCellPos / gridFlattenCellIndex / gridCellValid (lightLevelAt)
+import Utils.Color.ColorHelpers; // linearToSRGB (lightLevelAt's authored-space max channel)
+
+// Concentric (low-distortion) unit-disk map of two [0,1) samples — used for
+// soft-shadow light-disk sampling. Returns a point in the unit disk.
+float2 concentricDiskSample(float2 u)
+{
+    float2 o = 2.0f * u - 1.0f;
+    if (o.x == 0.0f && o.y == 0.0f) return float2(0.0f);
+    float r, theta;
+    const float kPiOver4 = 0.78539816f;
+    const float kPiOver2 = 1.57079633f;
+    if (abs(o.x) > abs(o.y)) { r = o.x; theta = kPiOver4 * (o.y / o.x); }
+    else                     { r = o.y; theta = kPiOver2 - kPiOver4 * (o.x / o.y); }
+    return r * float2(cos(theta), sin(theta));
+}
 
 // Falcor-compatible Ray struct (used by computeRayPinhole). Local to this
 // module to avoid pulling in a Falcor `Scene` dependency.
@@ -55,29 +73,6 @@ public ILight getLight(uint ID)
     return gSpotLights[ID];
 }
 
-// Flat-index → IMaterial resolver. Slices the virtual index across the four
-// typed material SSBOs in the order Diffuse, Translucent, Water, Decal.
-// Counts come from SceneConstants and are populated host-side at upload
-// time. Same existential-boxing tradeoff as getLight — cold-path callers
-// use this; perf paths use the typed gScene.getDiffuseMaterial /
-// getTranslucentMaterial / ... accessors which avoid the boxing.
-public IMaterial getMaterial(uint ID)
-{
-    uint nDiffuse = gPerFrame.diffuseMaterialCount;
-    if (ID < nDiffuse) return gDiffuseMaterials[ID];
-    ID -= nDiffuse;
-
-    uint nTranslucent = gPerFrame.translucentMaterialCount;
-    if (ID < nTranslucent) return gTranslucentMaterials[ID];
-    ID -= nTranslucent;
-
-    uint nWater = gPerFrame.waterMaterialCount;
-    if (ID < nWater) return gWaterMaterials[ID];
-    ID -= nWater;
-
-    return gDecalMaterials[ID];
-}
-
 public struct SceneCamera
 {
     public float3 getPosition()
@@ -96,6 +91,13 @@ public struct SceneCamera
     public float4x4 getViewProjNoJitter()
     {
         return mul(gPerFrame.projMat, gPerFrame.viewMat);
+    }
+
+    // Last frame's no-jitter view-proj — paired with getViewProjNoJitter() and
+    // UniformObject.prevModelMat to build motion vectors in the gbuffer.
+    public float4x4 getPrevViewProj()
+    {
+        return mul(gPerFrame.prevProjMat, gPerFrame.prevViewMat);
     }
 
     // Non-normalized primary ray direction for a pinhole camera, matching
@@ -132,15 +134,69 @@ public struct SceneMaterials
     // Alpha-test for the diffuse opaque path: read tex[2] (alpha slot —
     // see SceneTypes.slang DiffuseMaterial comment), sample at lod with
     // gMaterialSampler, reject when a < 0.5 (matches the GLSL
-    // ALPHA_REJECT default).
-    public bool alphaTest(VertexData v, uint materialID, float lod)
+    // ALPHA_REJECT default). Dedicated grayscale alpha maps (e.g.
+    // chandelier_simple_alpha.tga, loaded as R8_UNORM) carry the mask in
+    // .r — kMaterialFlagIsAlphaSingleChannel picks the channel.
+    // Alpha test + CoverageAmount dissolve — ONE gate for every ray/raster
+    // context (gbuffer FS, V-buffer anyhit, surfel scatter anyhit, shadow /
+    // reflection RayQuery loops), so a fading object's primary visibility,
+    // shadows, and direct lighting all dissolve consistently instead of a
+    // half-dissolved mesh casting a full-strength ghost shadow.
+    //
+    // Dissolve math mirrors the legacy solid_z.frag.fsl (noise reshape per
+    // material variant, threshold at the z-pass ALPHA_REJECT 0.5) with one
+    // deviation: the noise is sampled in UV space (v.texC, wrap) instead of
+    // legacy screen space — RayQuery callers have no pixel coordinate, and a
+    // UV-anchored pattern sticks to the object instead of crawling with the
+    // camera. `dissolveAmount` is UniformObject.dissolveAmount
+    // (GetCoverageAmount); pass 1.0 semantics come from the object, not a
+    // default, so every caller fetches it. NOTE: rays only reach this for
+    // non-FORCE_OPAQUE instances — cHybridRenderer drops that flag while
+    // coverage < 1 or the material carries dissolve variants.
+    public bool alphaTest(VertexData v, uint materialID, float lod, float dissolveAmount)
     {
+        if (materialID >= kSolidMaterialCapacity) return false;  // water range: no diffuse entry
         DiffuseMaterial m = gDiffuseMaterials[materialID];
-        uint alphaIdx = m.tex[2];
-        if (alphaIdx == kInvalidTextureIndex) return false;
 
-        float a = gTextures2D[NonUniformResourceIndex(alphaIdx)]
-                      .SampleLevel(gMaterialSampler, v.texC, lod).a;
+        float a = 1.0f;     // plain solids dissolve from full alpha
+        uint alphaIdx = m.tex[2];
+        if (alphaIdx != kInvalidTextureIndex)
+        {
+            float4 s = gTextures2D[NonUniformResourceIndex(alphaIdx)]
+                           .SampleLevel(gMaterialSampler, v.texC, lod);
+            a = (m.materialConfig & kMaterialFlagIsAlphaSingleChannel) != 0u ? s.r : s.a;
+        }
+        else if (dissolveAmount >= 1.0f &&
+                 (m.materialConfig & (kMaterialFlagEnableDissolveAlpha
+                                    | kMaterialFlagUseDissolveFilter)) == 0u)
+        {
+            return false;   // plain solid at full coverage — cheap keep
+        }
+
+        bool hasDissolveAlpha  = (m.materialConfig & kMaterialFlagEnableDissolveAlpha) != 0u;
+        bool hasDissolveFilter = (m.materialConfig & kMaterialFlagUseDissolveFilter)  != 0u;
+        if (dissolveAmount < 1.0f || hasDissolveAlpha || hasDissolveFilter)
+        {
+            float d = gDissolveMap.SampleLevel(gMaterialSampler, v.texC, 0.f).x;
+            if (hasDissolveAlpha)
+            {
+                // Combine the global noise with the material's DissolveAlpha
+                // map (tex[6]): noise squeezed to [0.75,1], map subtracts up
+                // to 0.25 — matches the legacy HasDissolveAlpha branch.
+                d = d * 0.25f + 0.75f;
+                uint dat = m.tex[6];
+                float da = 1.0f;
+                if (dat != kInvalidTextureIndex)
+                    da = gTextures2D[NonUniformResourceIndex(dat)]
+                             .SampleLevel(gMaterialSampler, v.texC, lod).r;
+                d -= (0.25f - da * 0.25f);
+            }
+            else
+            {
+                d = d * 0.5f + 0.5f;
+            }
+            a = d - (1.0f - dissolveAmount * a) * 0.5f;
+        }
         return a < 0.5f;
     }
 
@@ -150,29 +206,41 @@ public struct SceneMaterials
     // "has cubemap" check (DiffuseMaterial::cubeMapTextureIndex valid).
     public bool isReflective(uint materialID)
     {
+        if (materialID >= kSolidMaterialCapacity) return false;  // water range: no diffuse entry
         DiffuseMaterial m = gDiffuseMaterials[materialID];
         return m.cubeMapTextureIndex != kInvalidTextureIndex;
     }
 
+    // True when materialID falls in the translucent partition
+    // [kTranslucentMaterialBase, kWaterMaterialBase) — indexes gTranslucentMaterials.
+    public bool isTranslucent(uint materialID)
+    {
+        return materialID >= kTranslucentMaterialBase
+            && materialID <  kWaterMaterialBase;
+    }
+
     // True when the material was flagged HasRefraction host-side
-    // (MaterialResource.cpp:CreateMaterailConfigFlags). Drives the
-    // SurfelVBuffer.rt closeHit ray-bend for refractive translucents so the
-    // V-buffer stores the refracted background instead of the glass itself.
+    // (MaterialResource.cpp:CreateMaterailConfigFlags). Only translucent (glass)
+    // materials carry the flag; reads it from the translucent table. Drives the
+    // SurfelVBuffer.rt closeHit ray-bend so the V-buffer stores the refracted
+    // background instead of the glass itself. (Water refraction is handled by
+    // the earlier isWater branch.)
     public bool isRefractive(uint materialID)
     {
-        DiffuseMaterial m = gDiffuseMaterials[materialID];
+        if (!isTranslucent(materialID)) return false;
+        TranslucentMaterial m = gTranslucentMaterials[materialID - kTranslucentMaterialBase];
         return (m.materialConfig & kMaterialFlagHasRefraction) != 0u;
     }
 
-    // True for MaterialID::Water (flagged host-side). Drives the
-    // SurfelVBuffer.rt wave-animated water branch, which spawns both a
-    // refraction and a reflection bounce. Water also sets HasRefraction so
-    // isRefractive() is true and the GIRenderPass swaps to the refracted
-    // background under the surface.
+    // True when materialID falls in the water partition of the continuous
+    // material-id space (ids >= kWaterMaterialBase index gWaterMaterials).
+    // Drives the SurfelVBuffer.rt wave-animated water branch, which re-traces
+    // the refraction ray as a kind-0 bounce so the GI composite shades the
+    // refracted underwater background. Checked before the generic glass
+    // (isRefractive) branch.
     public bool isWater(uint materialID)
     {
-        DiffuseMaterial m = gDiffuseMaterials[materialID];
-        return (m.materialConfig & kMaterialFlagIsWater) != 0u;
+        return materialID >= kWaterMaterialBase;
     }
 
     // Inline non-opaque shadow query. The BLAS is built with
@@ -212,7 +280,8 @@ public struct SceneMaterials
                 uint materialID = gScene.getMaterialID(hit.instanceID);
                 VertexData v    = gScene.getVertexData(hit);
 
-                if (!alphaTest(v, materialID, 0.f))
+                if (!alphaTest(v, materialID, 0.f,
+                               gSceneObjects[hit.instanceID].dissolveAmount))
                     q.CommitNonOpaqueTriangleHit();
             }
         }
@@ -256,7 +325,8 @@ public struct SceneMaterials
 
                 uint matID  = gScene.getMaterialID(candidate.instanceID);
                 VertexData v = gScene.getVertexData(candidate);
-                if (!alphaTest(v, matID, 0.f))
+                if (!alphaTest(v, matID, 0.f,
+                               gSceneObjects[candidate.instanceID].dissolveAmount))
                     q.CommitNonOpaqueTriangleHit();
             }
         }
@@ -308,7 +378,8 @@ public struct SceneMaterials
                 c.barycentrics   = q.CandidateTriangleBarycentrics();
                 uint matID  = gScene.getMaterialID(c.instanceID);
                 VertexData v = gScene.getVertexData(c);
-                if (!alphaTest(v, matID, 0.f))
+                if (!alphaTest(v, matID, 0.f,
+                               gSceneObjects[c.instanceID].dissolveAmount))
                     q.CommitNonOpaqueTriangleHit();
             }
         }
@@ -334,19 +405,33 @@ public struct Scene
         return gSceneObjects[slot];
     }
 
-    public DiffuseMaterial getDiffuseMaterial(uint slot)
+    // Material accessors over the continuous, range-partitioned material-id
+    // space (see Constants.h). These are the single place that maps a
+    // partitioned materialID to a buffer entry — entry shaders must go through
+    // them rather than indexing gDiffuseMaterials / gWaterMaterials directly, so
+    // a repartition only touches Scene.slang + Constants.h.
+
+    // Solid + decal materials occupy [0, kSolidMaterialCapacity), so the
+    // partitioned id is the slot directly. Valid only for solid-range ids.
+    public DiffuseMaterial getDiffuseMaterial(uint materialID)
     {
-        return gDiffuseMaterials[slot];
+        return gDiffuseMaterials[materialID];
     }
 
-    public TranslucentMaterial getTranslucentMaterial(uint slot)
+    // Translucent materials occupy [kTranslucentMaterialBase, kWaterMaterialBase);
+    // de-bias into the translucent table. Valid only for translucent-range ids
+    // (isTranslucent(materialID) == true).
+    public TranslucentMaterial getTranslucentMaterial(uint materialID)
     {
-        return gTranslucentMaterials[slot];
+        return gTranslucentMaterials[materialID - kTranslucentMaterialBase];
     }
 
-    public WaterMaterial getWaterMaterial(uint slot)
+    // Water materials occupy [kWaterMaterialBase, +kWaterMaterialCapacity);
+    // de-bias the partitioned id into the compact water table. Valid only for
+    // water-range ids (isWater(materialID) == true).
+    public WaterMaterial getWaterMaterial(uint materialID)
     {
-        return gWaterMaterials[slot];
+        return gWaterMaterials[materialID - kWaterMaterialBase];
     }
 
     public DecalMaterial getDecalMaterial(uint slot)
@@ -363,14 +448,6 @@ public struct Scene
     public float4x4 getWorldMatrix(uint objectSlot)
     {
         return gSceneObjects[objectSlot].modelMat;
-    }
-
-    public uint getMaterialCount()
-    {
-        return gPerFrame.diffuseMaterialCount
-             + gPerFrame.translucentMaterialCount
-             + gPerFrame.waterMaterialCount
-             + gPerFrame.decalMaterialCount;
     }
 
     // --- Lights ---------------------------------------------------------------
@@ -406,12 +483,14 @@ public struct Scene
     }
 
     // Shade one analytic light at a surface point: sample it, NdotL-cull,
-    // shadow-ray test, return albedo·Li·NdotL (no 1/π — base-game direct
-    // convention). Shared by the direct composite (SurfelShade.evalAnalyticLight)
-    // and the surfel NEE pass (SurfelRayTrace), which scales the result by its
-    // 1/π·invPdf·indirect factors. `origin` is the (epsilon-offset) shadow-ray
-    // origin the caller already computes.
-    public float3 shadeAnalyticLight(float3 posW, float3 normalW, float3 albedo,
+    // shadow-ray test, return pure Li·NdotL (no 1/π — base-game direct
+    // convention; no albedo — demodulated, the caller applies albedo where
+    // outgoing radiance is needed). Shared by the direct composite
+    // (SurfelShade.evalAnalyticLight) and the surfel NEE pass (SurfelRayTrace),
+    // which scales the result by its albedo·1/π·invPdf·indirect factors.
+    // `origin` is the (epsilon-offset) shadow-ray origin the caller already
+    // computes.
+    public float3 shadeAnalyticLight(float3 posW, float3 normalW,
                                      uint lightIndex, float3 origin)
     {
         LightSample ls;
@@ -422,7 +501,138 @@ public struct Scene
 
         if (!materials.traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
 
-        return albedo * ls.Li * NdotL;
+        return ls.Li * NdotL;
+    }
+
+    // Soft-shadow variant: for point or spot lights with a non-zero sourceRadius,
+    // aim the shadow ray at a jittered point on the light disk (radius =
+    // sourceRadius, facing the shading point) so one noisy sample per frame,
+    // accumulated temporally, resolves to a penumbra. Energy (Li·NdotL) still uses
+    // the light centre — only occlusion is softened. sourceRadius == 0 falls back
+    // to the hard centre ray, matching shadeAnalyticLight. Demodulated like
+    // shadeAnalyticLight: pure Li·NdotL, no albedo.
+    public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW,
+                                         uint lightIndex, float3 origin, inout RNG rng)
+    {
+        LightSample ls;
+        if (!sampleLightByIndex(lightIndex, posW, ls)) return float3(0.f);
+
+        float NdotL = dot(normalW, ls.dir);
+        if (NdotL <= 0.f) return float3(0.f);
+
+        float3 sDir = ls.dir;
+        float  sMax = ls.distance;
+        // Pick the source radius + light centre from whichever array this virtual
+        // index lands in: [0, nPoint) are point lights, [nPoint, nPoint+nSpot) spots.
+        float  r    = 0.f;
+        float3 lpos = float3(0.f);
+        uint nPoint = gPerFrame.pointLightCount;
+        if (lightIndex < nPoint)
+        {
+            r    = gPointLights[lightIndex].sourceRadius;
+            lpos = gPointLights[lightIndex].position;
+        }
+        else
+        {
+            uint si = lightIndex - nPoint;
+            if (si < gPerFrame.spotLightCount)
+            {
+                r    = gSpotLights[si].sourceRadius;
+                lpos = gSpotLights[si].position;
+            }
+        }
+        if (r > 0.f)
+        {
+            // Tangent basis perpendicular to the light direction.
+            float3 t = normalize(abs(ls.dir.y) < 0.99f
+                                 ? cross(float3(0.f, 1.f, 0.f), ls.dir)
+                                 : cross(float3(1.f, 0.f, 0.f), ls.dir));
+            float3 b = cross(ls.dir, t);
+            float2 d = concentricDiskSample(rng.next_float2()) * r;
+            float3 target = lpos + d.x * t + d.y * b;
+            float3 toT = target - origin;
+            sMax = length(toT);
+            sDir = toT / max(sMax, 1.0e-6f);
+        }
+
+        if (!materials.traceShadowRay(origin, sDir, sMax)) return float3(0.f);
+
+        return ls.Li * NdotL;
+    }
+
+    // Unshadowed analytic contribution of one light: pure Li·NdotL with no
+    // shadow ray (0 if back-facing / sample fails). Used as the RIS target weight
+    // for stochastic light selection in the direct pass (pick a light ∝ this,
+    // then trace one shadow ray for it).
+    public float3 unshadowedAnalyticLight(float3 posW, float3 normalW,
+                                          uint lightIndex)
+    {
+        LightSample ls;
+        if (!sampleLightByIndex(lightIndex, posW, ls)) return float3(0.f);
+        float NdotL = dot(normalW, ls.dir);
+        if (NdotL <= 0.f) return float3(0.f);
+        return ls.Li * NdotL;
+    }
+
+    // Scalar "surrounding light" heuristic for AffectedByLightLevel
+    // translucents — base-game afLightLevel semantics (the legacy CPU loop in
+    // MaterialType_BasicTranslucent::SetupObjectSpecificData): sum
+    // maxChannel(authored color) · saturate(1 − d/authoredRadius) over the
+    // lights binned to the grid cell at posW, saturated at 1. Normal-free and
+    // shadow-free: billboards have no normal and the legacy heuristic never
+    // had occlusion (or a spot-cone term — spots fall off radially like
+    // points, matching the original).
+    //   * The authored engine radius is recovered from intensity
+    //     (= authoredRadius · kPointLightIntensityScale at upload — see the
+    //     light scratch fill in HybridRenderer.cpp). The struct's `radius`
+    //     field is the grid-bin reach, a different quantity.
+    //   * GPU light colors are linear (sRGB-decoded at upload) while the
+    //     legacy heuristic read the authored sRGB values, so the max channel
+    //     is re-encoded to match the CPU translucent-mesh path's dimming
+    //     curve.
+    //   * Out-of-grid points return 1.0 (don't darken) — distant geometry
+    //     beyond the camera-centered grid shouldn't fade to black.
+    public float lightLevelAt(float3 posW)
+    {
+        int3 cell = gridCellPos(posW, camera.getPosition(), kLightGridUnit);
+        if (getLightCount() == 0u || !gridCellValid(cell, kLightGridDim))
+            return 1.0f;
+
+        uint flat = gridFlattenCellIndex(cell, kLightGridDim);
+        uint n    = min(gLightGridCount[flat], kLightsPerCellMax);
+        uint nPoint = gPerFrame.pointLightCount;
+
+        float sum = 0.0f;
+        for (uint k = 0u; k < n; ++k)
+        {
+            uint li = gLightGridList[flat * kLightsPerCellMax + k];
+            float3 lpos;
+            float3 lcolor;
+            float  lintensity;
+            if (li < nPoint)
+            {
+                lpos       = gPointLights[li].position;
+                lcolor     = gPointLights[li].color;
+                lintensity = gPointLights[li].intensity;
+            }
+            else
+            {
+                uint si = li - nPoint;
+                if (si >= gPerFrame.spotLightCount) continue;
+                lpos       = gSpotLights[si].position;
+                lcolor     = gSpotLights[si].color;
+                lintensity = gSpotLights[si].intensity;
+            }
+
+            float authoredRadius = lintensity / kPointLightIntensityScale;
+            if (authoredRadius <= 0.0f) continue;
+
+            float maxC = linearToSRGB(max(lcolor.x, max(lcolor.y, lcolor.z)));
+            float dist = length(posW - lpos);
+            sum += maxC * saturate(1.0f - dist / authoredRadius);
+            if (sum >= 1.0f) return 1.0f;
+        }
+        return sum;
     }
 
     // --- Mesh / hit data ------------------------------------------------------

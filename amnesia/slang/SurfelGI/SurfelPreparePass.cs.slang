@@ -5,7 +5,7 @@
 // Cell-grid clearing lives in a separate pass because kCellCount (15.6M)
 // exceeds what a 1x1x1 dispatch can cover.
 
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 import SurfelGI.SurfelTypes;
 

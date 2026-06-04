@@ -22,15 +22,22 @@
 
 import SceneTypes;
 import Scene;
-import Bindless.resource;
-import Bindless.interface;
+import bindless;
+import HitInfo;
 import PerFrame.resource;
 import Fog;
 import SurfelGI.SurfelShade;        // DiffuseShading / prepareDiffuseShading / evalAnalyticLight / gatherSurfelIndirect
 import Grid;                         // gridCellPos / gridFlattenCellIndex / gridCellValid (decal grid lookup)
+import Utils.Color.ColorHelpers;     // linearToSRGB / sRGBToLinear (legacy display-space decal blend)
 
 [vk::binding(0, 2)]
 Texture2D<float4> gIndirectLighting;
+
+// Temporally-accumulated direct lighting (soft shadows), produced by
+// DirectLightingPass. Demodulated irradiance — the gather applies the
+// (decal-composited) albedo.
+[vk::binding(3, 2)]
+Texture2D<float4> gDirectLighting;
 
 // Rasterized V-buffer fallback. Same packed layout as `gPackedHitInfo`
 // (see SurfelGBuffer.3d.slang's psMain), but produced by the raster
@@ -55,9 +62,11 @@ RWTexture2D<float4> gOutput;
 // Clustered OOB decals are composited directly onto the base albedo here, before
 // lighting, so they get lit like the surface — no separate albedo buffer/pass.
 
-// Blend one decal texel onto the (linear) albedo, replicating the legacy hardware
+// Blend one decal texel onto the albedo, replicating the legacy hardware
 // blend factors (src = decal texel*tint, dst = albedo). Mode is eMaterialBlendMode
-// (1=Add, 2=Mul, 3=MulX2, 4=Alpha, 5=PremulAlpha).
+// (1=Add, 2=Mul, 3=MulX2, 4=Alpha, 5=PremulAlpha). Operands are DISPLAY-space
+// values (projectDecal encodes both sides and decodes the result), so the math
+// is bit-for-bit the legacy gbuffer blend.
 float3 applyDecalBlend(uint mode, float3 dst, float4 src)
 {
     switch (mode)
@@ -112,18 +121,26 @@ float3 projectDecal(uint di, float3 albedo, float3 posW, float3 normalW)
     float2 uv = float2(saturate((fU + (lp.x + 0.5f)) / float(sx)),
                        1.0f - saturate((fV + (lp.z + 0.5f)) / float(sy)));
 
-    DiffuseMaterial dm = gDiffuseMaterials[d.materialID];
+    DiffuseMaterial dm = gScene.getDiffuseMaterial(d.materialID);
     uint dtex = dm.tex[0];
     if (dtex == kInvalidTextureIndex)
         return albedo;
 
     float4 s = gTextures2D[NonUniformResourceIndex(dtex)]
                    .SampleLevel(gMaterialSampler, uv, 0.0f);
-    s *= d.color;
-    if (s.a < 0.01f)                                          // legacy ALPHA_REJECT
+    // Legacy display-space blend, computed EXACTLY (software blend with dst in
+    // hand — unlike the raster passes no powered-weight approximation is
+    // needed): re-encode the sRGB-decoded texel and the linear albedo back to
+    // the authored display space, blend like the legacy gbuffer did, decode
+    // the result. d.color is the raw authored tint. This is "the albedo the
+    // legacy gbuffer would have held", in linear — fixes e.g. MULX2's 0.5-gray
+    // neutral and the residual pink-blood tint of the old linear-blend
+    // compromise.
+    float4 srcD = float4(linearToSRGB(s.rgb), s.a) * d.color;
+    if (srcD.a < 0.01f)                                       // legacy ALPHA_REJECT
         return albedo;
 
-    return applyDecalBlend(d.blendMode, albedo, s);
+    return sRGBToLinear(applyDecalBlend(d.blendMode, linearToSRGB(albedo), srcD));
 }
 
 // Composite the decals precomputed for this object (the static association the
@@ -189,16 +206,19 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     bool wantDirect   = kDefaultRenderDirectLighting   != 0u;
     bool wantIndirect = kDefaultRenderIndirectLighting != 0u;
 
-    float3 direct   = wantDirect   ? evalAnalyticLight(sd) : float3(0.f);
+    // Direct lighting is now a temporally-accumulated texture (soft shadows),
+    // produced by DirectLightingPass; just read it. Indirect from the surfel cache.
+    float3 direct   = wantDirect   ? gDirectLighting[pixelPos].xyz : float3(0.f);
     float3 indirect = wantIndirect ? gIndirectLighting[pixelPos].xyz : float3(0.f);
 
-    // direct already carries albedo (evalAnalyticLight applies it once, matching
-    // the base game's albedo·color·atten·NdotL). indirect is incoming irradiance
-    // from the cosine-sampled surfel cache (f = albedo/π, pdf = cosθ/π → reduces
-    // to albedo), so it takes exactly one albedo to become outgoing radiance.
-    // Applying albedo to (direct + indirect) double-counted it on direct, which
-    // dimmed all direct lighting (spotlight cones especially) vs the base game.
-    float3 finalGather = direct + sd.albedo * indirect;
+    // Both terms are demodulated irradiance: direct is Σ Li·NdotL·vis from the
+    // direct pass (albedo factored out so the accumulation can't smear it),
+    // indirect is incoming irradiance from the cosine-sampled surfel cache
+    // (f = albedo/π, pdf = cosθ/π → reduces to albedo). Each takes exactly one
+    // albedo to become outgoing radiance — applied here, AFTER compositeDecals,
+    // so projected decals modulate direct and indirect alike (matching the old
+    // inline evalAnalyticLight path and the base game's albedo·color·atten·NdotL).
+    float3 finalGather = sd.albedo * (direct + indirect);
 
     // Emissive (illumination-map) surfaces glow regardless of the direct /
     // indirect toggles — added on top so glowing textures aren't dark.

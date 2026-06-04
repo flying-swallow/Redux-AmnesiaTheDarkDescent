@@ -28,6 +28,9 @@ public:
   uint16_t height;
   uint16_t depth;
   uint8_t mipNum;
+  // RI_Format the image was created with (set by LoadBitmap) — lets
+  // material setup probe channel count (e.g. single-channel alpha maps).
+  RI_Format format = RI_FORMAT_UNKNOWN;
   struct RIDescriptor_s binding;
 
   static void HPLTexture_Delete(HPLTexture* tex); 

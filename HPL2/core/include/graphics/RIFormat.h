@@ -153,6 +153,12 @@ extern "C" {
 
 const struct RIFormatProps_s* GetRIFormatProps(uint32_t format);
 
+// Number of color channels carried by `format` (count of nonzero
+// R/G/B/A bit fields) — 1 for R8_UNORM-style grayscale, 4 for RGBA.
+// Block-compressed formats have no per-channel bits in the props table
+// and report 0, so a `== 1` single-channel probe treats them as packed.
+uint32_t RIFormatChannelCount(uint32_t format);
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */

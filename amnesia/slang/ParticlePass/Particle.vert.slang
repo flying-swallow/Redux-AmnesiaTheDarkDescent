@@ -19,7 +19,7 @@
 // step 12 / 8 bytes per vertex instead of 16 / 12 and read garbage offsets
 // (manifests as billboards anchored to the camera instead of the world).
 
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 import PerFrame.resource;
 
@@ -31,7 +31,7 @@ import PerFrame.resource;
 
 struct ParticleVSOut
 {
-    float3 viewPos                 : VIEWPOS;   // view-space position (for fog)
+    float3 viewPos                 : VIEWPOS;   // view-space position (for fog + lightLevelAt posW)
     float2 uv                      : TEXCRD;
     float4 color                   : COLOR;
     nointerpolation uint objectId  : OBJECTID;

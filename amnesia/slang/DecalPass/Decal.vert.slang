@@ -20,10 +20,9 @@
 // slot id (firstInstance), which indexes gSceneObjects for the UniformObject
 // (model / uv matrix, materialID). Same fix as Translucent.vert.slang.
 
-import Bindless.resource;
+import bindless;
 import SceneTypes;
 import PerFrame.resource;
-import Utils.Color.ColorHelpers;   // adobeRGBToLinear
 
 // Per-vertex inputs — match the bindings declared in DecalPipelineDesc
 // (identical layout to TranslucentMeshPipelineDesc):
@@ -62,11 +61,12 @@ DecalVSOut vsMain(DecalVSIn vin,
 
     DecalVSOut vsOut;
     vsOut.uv       = mul(obj.uvMat, float4(vin.a_texcoord, 0.0f, 1.0f)).xy;
-    // Decal vertex color (DecalCreator's cColor) is authored in Adobe RGB (1998);
-    // decode to linear so the multiply/blend into the LINEAR albedo buffer is
-    // correct (a raw perceptual tint reads too bright in its low channels). Alpha
-    // is coverage/fade — leave it.
-    vsOut.color    = float4(adobeRGBToLinear(vin.a_color.rgb), vin.a_color.a);
+    // Raw authored vertex color: the fragment shader runs the legacy
+    // display-space source math (texel re-encoded × this tint) and decodes to
+    // linear once at output — same scheme as Particle/Translucent.frag. The
+    // old adobeRGBToLinear decode targeted a linear-albedo blend this VS never
+    // feeds (the mesh pass draws onto the lit pogo).
+    vsOut.color    = vin.a_color;
     vsOut.objectId = instanceId;
     vsOut.posH     = mul(modelViewPrj, float4(vin.a_position, 1.0f));
     return vsOut;

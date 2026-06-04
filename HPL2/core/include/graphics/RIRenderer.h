@@ -196,6 +196,39 @@ void CmdDrawIndexedIndirect( struct RICmd_s *cmd,
                              struct RIBuffer_s *buffer, VkDeviceSize offset,
                              uint32_t drawCount, uint32_t stride );
 
+// Bind a single index buffer. Takes an RIBuffer_s* (the RI abstraction) rather
+// than a backend handle so the same call site survives a future DX12 backend.
+void CmdBindIndexBuffer( struct RICmd_s *cmd, struct RIBuffer_s *buffer,
+                         VkDeviceSize offset, VkIndexType indexType );
+
+// Bind `count` vertex buffers. The template parameter N is only the stack
+// capacity reserved for the backend handle scratch array (compile-time sized,
+// no heap); `count` is the actual number bound and must be <= N. `buffers` is a
+// raw RIBuffer_s* array of length `count` (a null entry binds nothing);
+// `offsets` is a parallel byte-offset array. e.g. for a fixed 5-stream layout
+// where all 5 are live: CmdBindVertexBuffers<5>(cmd, 0, 5, bufs). RIBuffer_s*
+// keeps the call site backend-agnostic for the planned DX12 path.
+template <uint32_t N>
+void CmdBindVertexBuffers( struct RICmd_s *cmd, uint32_t firstBinding,
+                           uint32_t count, struct RIBuffer_s *const *buffers,
+                           const VkDeviceSize *offsets ) {
+	assert( count <= N );
+#if ( DEVICE_IMPL_VULKAN )
+	VkBuffer vk[N];
+	for ( uint32_t i = 0; i < count; ++i )
+		vk[i] = buffers[i] ? buffers[i]->vk.buffer : VK_NULL_HANDLE;
+	vkCmdBindVertexBuffers( cmd->vk.cmd, firstBinding, count, vk, offsets );
+#endif
+}
+
+// Convenience overload binding `count` streams at offset 0.
+template <uint32_t N>
+void CmdBindVertexBuffers( struct RICmd_s *cmd, uint32_t firstBinding,
+                           uint32_t count, struct RIBuffer_s *const *buffers ) {
+	const VkDeviceSize offsets[N] = {};
+	CmdBindVertexBuffers<N>( cmd, firstBinding, count, buffers, offsets );
+}
+
 #if DEVICE_IMPL_VULKAN
 void VK_ConfigureBufferQueueFamilies( VkBufferCreateInfo *info, struct RIQueue_s *queues, size_t numQueues, uint32_t *queueFamiliesIdx, size_t reservedLen );
 void VK_ConfigureImageQueueFamilies( VkImageCreateInfo *info, struct RIQueue_s *queues, size_t numQueues, uint32_t *queueFamiliesIdx, size_t reservedLen );

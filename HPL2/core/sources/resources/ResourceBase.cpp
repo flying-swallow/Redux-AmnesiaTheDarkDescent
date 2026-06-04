@@ -21,6 +21,7 @@
 
 #include "system/LowLevelSystem.h"
 #include "system/String.h"
+#include "system/Hasher.h"
 
 
 namespace hpl {
@@ -41,6 +42,7 @@ namespace hpl {
 		msName = asName;
 		mbLogDestruction = false;
 		msFullPath = asFullPath;
+		mUniqueCookie = hash_random();
 	}
 
 	iResourceBase::~iResourceBase()

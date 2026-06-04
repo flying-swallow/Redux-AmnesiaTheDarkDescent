@@ -9,9 +9,8 @@
 #include "Utils/Math/MathConstants.slangh"
 #include "../Constants.h"
 
-import Bindless.resource;
+import bindless;
 import SceneTypes;
-import Bindless.interface;
 import Scene;
 import Utils.Color.ColorHelpers;
 import SurfelGI.SurfelTypes;

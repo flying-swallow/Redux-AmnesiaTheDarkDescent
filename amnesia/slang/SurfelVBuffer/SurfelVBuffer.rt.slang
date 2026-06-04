@@ -20,8 +20,8 @@
 
 import SceneTypes;
 import Scene;
-import Bindless.resource;
-import Bindless.interface;
+import bindless;
+import HitInfo;
 import PerFrame.resource;
 import Brdf;
 import TranslucentPass.WaterCommon;   // waterWaveNormalTangent (shared with Water.frag)
@@ -71,14 +71,18 @@ void miss(inout Payload payload)
 [shader("anyhit")]
 void anyHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attribs)
 {
-    // Alpha test against the diffuse material's alpha slot.
+    // Alpha test + CoverageAmount dissolve against the diffuse material —
+    // the single shared gate (Scene.slang alphaTest), so a cutout mask or an
+    // in-progress fade decides hit-vs-through consistently across the raster
+    // gbuffer, both V-buffer ray kinds, shadow rays, and surfel rays.
     TriangleHit hit;
     hit.instanceID     = InstanceID();
     hit.primitiveIndex = PrimitiveIndex();
     hit.barycentrics   = attribs.barycentrics;
     VertexData v = gScene.getVertexData(hit);
     uint materialID = gScene.getMaterialID(hit.instanceID);
-    if (gScene.materials.alphaTest(v, materialID, 0.f))
+    if (gScene.materials.alphaTest(v, materialID, 0.f,
+                                   gSceneObjects[InstanceID()].dissolveAmount))
         IgnoreHit();
 }
 
@@ -115,7 +119,7 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
     if (gScene.materials.isWater(materialID))
     {
         VertexData v = gScene.getVertexData(triangleHit);
-        WaterMaterial water = gWaterMaterials[materialID];
+        WaterMaterial water = gScene.getWaterMaterial(materialID);
 
         // World-space TBN from the hit, then the wave-perturbed normal.
         float3 N = normalize(v.normalW);
@@ -170,11 +174,11 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
         float3 incidentRayDir = normalize(payload.direction);
         float3 normalW        = normalize(v.normalW);
 
-        // IOR sourced from DiffuseMaterial.refractionScale — the legacy
+        // IOR sourced from TranslucentMaterial.refractionScale — the legacy
         // shader used this as a screen-space distortion magnitude; reusing
         // it here as a relative IOR offset keeps materials authoring the
         // same scalar for both renderers. eta = n1/n2 (ratio entering).
-        DiffuseMaterial mat = gScene.getDiffuseMaterial(materialID);
+        TranslucentMaterial mat = gScene.getTranslucentMaterial(materialID);
         float refractScale  = max(mat.refractionScale, 0.0f);
 
         // Distinguish entry vs exit by sign of dot(incident, normal). On

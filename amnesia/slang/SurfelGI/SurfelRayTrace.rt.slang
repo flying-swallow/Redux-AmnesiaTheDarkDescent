@@ -17,8 +17,9 @@
 
 import SceneTypes;
 import Scene;
-import Bindless.resource;
-import Bindless.interface;
+import bindless;
+import HitInfo;
+import ILight;
 import PerFrame.resource;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
@@ -194,18 +195,20 @@ float3 evalAnalyticLight(DiffuseShading sd, inout RNG rng)
     }
 
     // Type-aware shade shared with the direct path (gScene.shadeAnalyticLight:
-    // sample → NdotL-cull → shadow ray → albedo·Li·NdotL). Point lights use their
-    // full sampler (incl. gobo cube); spot lights use the same cone-restricted
-    // SpotLight.sample() as the direct path — matching the reference Falcor
-    // SurfelGI, where a spot's analytic GI contribution is cone-shaped too. Box
-    // lights aren't NEE-sampled (and aren't binned into the grid).
+    // sample → NdotL-cull → shadow ray → Li·NdotL, demodulated). Point lights use
+    // their full sampler (incl. gobo cube); spot lights use the same
+    // cone-restricted SpotLight.sample() as the direct path — matching the
+    // reference Falcor SurfelGI, where a spot's analytic GI contribution is
+    // cone-shaped too. Box lights aren't NEE-sampled (and aren't binned into the
+    // grid). The bounce needs outgoing radiance at the hit surface, so albedo is
+    // applied here.
     float3 origin   = sd.posW + sd.normalW * kRayEps;
-    float3 perLight = gScene.shadeAnalyticLight(sd.posW, sd.normalW, sd.albedo,
-                                                lightIdx, origin);
+    float3 perLight = sd.albedo * gScene.shadeAnalyticLight(sd.posW, sd.normalW,
+                                                            lightIdx, origin);
 
     // Lambert diffuse BRDF = albedo/π. kIndirectLightScale is a non-physical
     // boost that cheats the GI/indirect term brighter without touching direct
-    // (which lives in SurfelGIRenderPass). π cancels the 1/π so indirect matches
+    // (which lives in MainCompositePass). π cancels the 1/π so indirect matches
     // the base-game no-1/π convention; raise above π to over-cheat.
     return perLight * invPdf * kIndirectLightScale;
 }
@@ -420,14 +423,16 @@ void scatterMiss(inout ScatterPayload scatterPayload)
 [shader("anyhit")]
 void scatterAnyHit(inout ScatterPayload scatterPayload, BuiltInTriangleIntersectionAttributes attribs)
 {
-    // Alpha test against the diffuse material's alpha texture.
+    // Alpha test (+ CoverageAmount dissolve) against the diffuse material —
+    // the single shared gate, so fading objects also fade out of the GI.
     TriangleHit hit;
     hit.instanceID     = InstanceID();
     hit.primitiveIndex = PrimitiveIndex();
     hit.barycentrics   = attribs.barycentrics;
     VertexData v = gScene.getVertexData(hit);
     uint materialID = gScene.getMaterialID(hit.instanceID);
-    if (gScene.materials.alphaTest(v, materialID, 0.f))
+    if (gScene.materials.alphaTest(v, materialID, 0.f,
+                                   gSceneObjects[hit.instanceID].dissolveAmount))
         IgnoreHit();
 }
 

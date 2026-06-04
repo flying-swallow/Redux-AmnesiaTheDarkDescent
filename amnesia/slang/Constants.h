@@ -48,7 +48,7 @@ SHARED_CONST uint kBindingSurfelRayResult           = 17u;  // SurfelRayResult (
 SHARED_CONST uint kBindingCellInfo                   = 18u;  // CellInfo (kCellCount)
 SHARED_CONST uint kBindingCellToSurfel              = 19u;
 SHARED_CONST uint kBindingSceneObjects               = 20u;  // UniformObject[]
-SHARED_CONST uint kBindingOpaqueMaterial             = 21u;  // DiffuseMaterial[]
+SHARED_CONST uint kBindingDiffuseMaterial             = 21u;  // DiffuseMaterial[]
 SHARED_CONST uint kBindingPointLights                = 22u;
 SHARED_CONST uint kBindingTranslucentMaterial        = 24u;
 SHARED_CONST uint kBindingWaterMaterial              = 25u;
@@ -73,7 +73,7 @@ SHARED_CONST uint kBindingPackedReflectionHitInfo     = 44u;  // RGBA32UI storag
 SHARED_CONST uint kBindingAttenuationLut              = 45u;  // default light falloff LUT (core_falloff_linear), immutable on set 0
 SHARED_CONST uint kBindingDecals                      = 46u;  // RWStructuredBuffer<GpuDecal> (kMaxDecals) — clustered OOB decals
 SHARED_CONST uint kBindingObjectDecalIndices          = 47u;  // RWStructuredBuffer<uint> — flat per-object decal-index lists (UniformObject.decalList = offset<<8|count); replaces the decal grid
-// (binding 48 free — former kBindingDecalGridList)
+SHARED_CONST uint kBindingDissolveMap                 = 48u;  // immutable core_dissolve noise (128px), UV-sampled by the shared alphaTest dissolve fade
 
 // -----------------------------------------------------------------------------
 // Bindless pool capacities + sentinel.
@@ -88,7 +88,17 @@ SHARED_CONST uint kBindingObjectDecalIndices          = 47u;  // RWStructuredBuf
 // -----------------------------------------------------------------------------
 SHARED_CONST uint kObjectSlotCapacity        = 32768u;  // 16384 * 2
 SHARED_CONST uint kTextureSlotCapacity       = 16384u;
-SHARED_CONST uint kMaterialSlotCapacity      = 16384u;
+// Material ids form one continuous, range-partitioned space across three typed
+// buffers. Each range's accessor de-biases the id by the range base:
+//   solid+decal : [0, kSolidMaterialCapacity)                  -> gDiffuseMaterials[id]
+//   translucent : [kTranslucentMaterialBase, kWaterMaterialBase) -> gTranslucentMaterials[id - base]
+//   water       : [kWaterMaterialBase, +kWaterMaterialCapacity)   -> gWaterMaterials[id - base]
+// isTranslucent / isWater are the range bounds checks; see Scene.slang.
+SHARED_CONST uint kSolidMaterialCapacity     = 2048u;   // solid + decal slots (range base 0)
+SHARED_CONST uint kTranslucentMaterialCapacity = 256u;  // dedicated translucent/glass table
+SHARED_CONST uint kWaterMaterialCapacity     = 64u;     // dedicated compact water table (scenes use <=64)
+SHARED_CONST uint kTranslucentMaterialBase   = kSolidMaterialCapacity;
+SHARED_CONST uint kWaterMaterialBase         = kSolidMaterialCapacity + kTranslucentMaterialCapacity;
 SHARED_CONST uint kPointSlotLightCapacity    = 256u;
 SHARED_CONST uint kSpotSlotLightCapacity     = 256u;
 SHARED_CONST uint kFogAreaCapacity           = 32u;
@@ -141,6 +151,21 @@ SHARED_CONST uint kMaterialFlagUseDissolveFilter        = 1u << 14;
 SHARED_CONST uint kMaterialFlagUseRefractionNormals     = 1u << 14;
 SHARED_CONST uint kMaterialFlagUseRefractionEdgeCheck   = 1u << 15;
 SHARED_CONST uint kMaterialFlagHasRefraction            = 1u << 16;
+// Translucent "AffectedByLightLevel" material var: the shader dims the
+// translucent/particle color by the surrounding analytic-light level
+// (gScene.lightLevelAt) instead of rendering it full-bright.
+SHARED_CONST uint kMaterialFlagAffectedByLightLevel     = 1u << 17;
+
+// Perceptual blend-weight exponent for the particle/translucent passes.
+// The legacy renderer blended display-space (gamma) values; this renderer
+// blends linear HDR, and sRGB-encode-after-lerp reads brighter than the
+// base game's lerp-after-encode. Source-side math is computed in display
+// space and decoded once at output (exact for products/lerps); the
+// blend-with-dst sum gets the power distributed over its weights instead:
+// ALPHA goes premultiplied with src·αᵏ and dst·(1−α)ᵏ. 2.2 = pure
+// power-law distribution of the sRGB decode; lower biases brighter
+// (toward the plain-linear look). Tune against the base game.
+SHARED_CONST float kPerceptualBlendExp = 2.2f;
 
 // -----------------------------------------------------------------------------
 // Surfel-GI capacities + cell-grid sizing.
@@ -233,7 +258,7 @@ SHARED_CONST uint  kMaxSurfelForStep            = 10u;
 // Non-physical boost on the light radiance the surfel NEE integrates — cheats
 // the indirect/GI term brighter without touching direct. The surfel NEE keeps
 // its 1/π Lambert, so π (≈3.14) cancels it → indirect uses the same no-1/π
-// convention as the (base-matched) direct in SurfelGIRenderPass.frag; raise
+// convention as the (base-matched) direct in MainCompositePass; raise
 // above π to over-cheat the GI fill.
 SHARED_CONST float kIndirectLightScale          = 1.0f;
 
@@ -285,13 +310,35 @@ SHARED_CONST float kWaterReflectionTurbulence = 0.3f;
 // runtime UI hook exists yet.
 SHARED_CONST uint  kDefaultOverlayMode          = 0u;
 
-// SurfelGIRenderPass per-component toggles. 0 = skip that term, 1 = add
+// MainCompositePass per-component toggles. 0 = skip that term, 1 = add
 // it. The host used to drive these via a per-pass CB (SurfelGIRenderCB);
 // they were always set to 1 there, so they live here as static defaults
 // alongside the rest of the SurfelGI knobs. Flip in source + recompile
 // to A/B direct vs. indirect.
 SHARED_CONST uint  kDefaultRenderDirectLighting    = 1u;
 SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
+// Direct-lighting temporal accumulation. The pass keeps a running mean weighted
+// by history length: alpha = max(1/count, kDirectTemporalAlpha), count capped at
+// kDirectMaxAccum. The 1/count term gives exact, fast early convergence (1, ½,
+// ⅓ …); the floor keeps it adaptive once the cap is reached. Lower floor / higher
+// cap = smoother but laggier on changing lighting.
+SHARED_CONST float kDirectTemporalAlpha            = 0.05f;
+SHARED_CONST float kDirectMaxAccum                 = 16.0f;
+// Disocclusion rejection for the direct pass: reproject the surface key (view
+// depth + normal) and reject history (restart accumulation) when the reprojected
+// surface differs — kills camera-motion smear at silhouettes.
+SHARED_CONST float kReprojZRelTol                  = 0.05f;   // ≤5% view-depth difference accepted
+SHARED_CONST float kReprojNormalCos                = 0.9f;    // ≈25° normal tolerance
+// Disocclusion seed: a fresh pixel borrows already-converged direct from
+// same-surface neighbors in the previous accumulation, searching a
+// (2R+1)² window (no shadow rays). Larger = more reuse, more taps.
+SHARED_CONST int   kDisoccSearchRadius             = 3;       // 7×7 spatial reuse window
+// Guard band / overscan: the whole frame renders at (1 + 2·kGuardBandFraction)
+// the display size with a correspondingly wider FOV, and the present blit crops
+// the center back to the display. Gives temporal reprojection valid history just
+// off the visible edge so camera pans don't show edge artifacts. Fill cost scales
+// ~(1+2f)². Crop inset per side (UV) = f/(1+2f).
+SHARED_CONST float kGuardBandFraction              = 0.06f;   // ≈6% per side
 
 // PBR point/spot-light falloff. The host stores intensity = authoredRadius² · scale.
 // The shader emits radiance = color · intensity · 1/(d² + sourceRadius²) — a plain
@@ -309,6 +356,11 @@ SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
 SHARED_CONST float kPointLightIntensityScale   = 0.4f;    // VISUAL radiance/bloom brightness knob only — does NOT affect binning/cull reach (the host computes reach from the unscaled authored radius); tune freely without re-culling lights
 SHARED_CONST float kLightRadianceFloor         = 0.005f;    // min per-channel radiance (linear) worth binning; reach² = maxC(color)·authoredRadius/floor − sourceRadiusSq (scale-independent)
 SHARED_CONST float kPointLightSourceRadiusSq   = 0.25f;  // soft source radius² (0.5m) — near-field softening + on-source peak cap (caps on-lamp radiance at color·intensity/this instead of 1/d²→∞; raise to soften lamp hotspots further)
+// Default soft-shadow source radius when a light authors none (GetSourceRadius()==0):
+// a fraction of the authored reach radius, so the penumbra scales with the lamp and
+// lights are soft by default instead of hard. Host-only fallback in the point-light
+// upload; an explicitly authored sourceRadius always wins.
+SHARED_CONST float kPointLightDefaultSourceRadiusFrac = 0.05f;  // 5% of authored radius (e.g. 5m reach ⇒ 0.25m penumbra disk)
 
 
 HOST_NAMESPACE_END

@@ -149,6 +149,16 @@ inline float sRGBToLinear(float srgb)
 }
 
 /**
+ * Returns a linear-space RGBA version of an input sRGB color in the ITU-R BT.709 color space.
+ * Alpha is coverage, not color — passed through unencoded.
+ * @param sRGBColor sRGB input color
+ */
+inline float4 sRGBToLinear(float4 srgb)
+{
+    return float4(sRGBToLinear(srgb.x), sRGBToLinear(srgb.y), sRGBToLinear(srgb.z), srgb.w);
+}
+
+/**
  * Returns a linear-space RGB version of an input RGB color in the ITU-R BT.709 color space
  * @param sRGBColor sRGB input color
  */

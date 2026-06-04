@@ -43,6 +43,7 @@ SLANG_PUBLIC struct PointLight {
     SLANG_PUBLIC float3  worldToLightY;
     SLANG_PUBLIC float3  worldToLightZ;
     SLANG_PUBLIC float radius;                       // CPU-precomputed light-grid bin reach (world units); 0 ⇒ skip
+    SLANG_PUBLIC float sourceRadius;                 // physical source radius (world units); 0 ⇒ hard shadow. Penumbra.
 };
 
 // Scalar-layout spot light. `intensity` = luminous power (same convention as
@@ -63,6 +64,7 @@ SLANG_PUBLIC struct SpotLight {
     SLANG_PUBLIC uint  shadowEnabled;                // 0 or 1
     SLANG_PUBLIC float4x4  viewProjection;               // light-space ViewProj for gobo UVs
     SLANG_PUBLIC float radius;                       // CPU-precomputed light-grid bin reach (world units); 0 ⇒ skip
+    SLANG_PUBLIC float sourceRadius;                 // physical source radius (world units); 0 ⇒ hard shadow. Penumbra.
 };
 
 // Per-fog-area params for the screen-space fog iteration. One entry per
@@ -98,15 +100,8 @@ SLANG_PUBLIC struct DiffuseMaterial {
     SLANG_PUBLIC uint  tex[8];
     SLANG_PUBLIC float heightMapScale;               // SolidDiffuse-only
     SLANG_PUBLIC float heightMapBias;                // SolidDiffuse-only
-    SLANG_PUBLIC float frenselBias;                  // SolidDiffuse + Translucent
-    SLANG_PUBLIC float frenselPow;                   // SolidDiffuse + Translucent
-    // Translucent-only scalars (zero for solid-diffuse). Reusing this struct
-    // for the translucent mesh path lets resolveMaterial keep one bindless
-    // pool — the Translucent shader reads the same gDiffuseMaterials[] entry
-    // it would have under a dedicated TranslucentMaterial table.
-    SLANG_PUBLIC float refractionScale;
-    SLANG_PUBLIC float rimLightMul;
-    SLANG_PUBLIC float rimLightPow;
+    SLANG_PUBLIC float frenselBias;                  // SolidDiffuse
+    SLANG_PUBLIC float frenselPow;                   // SolidDiffuse
 };
 
 // GPU twin of MaterialTranslucent (Material.h). All bool flags
@@ -115,6 +110,7 @@ SLANG_PUBLIC struct DiffuseMaterial {
 SLANG_PUBLIC struct TranslucentMaterial {
     SLANG_PUBLIC uint  type;                         // MATERIAL_TYPE_TRANSLUCENT
     SLANG_PUBLIC uint  materialConfig;
+    SLANG_PUBLIC uint  cubeMapTextureIndex;          // reflection cubemap; kInvalidTextureIndex when absent
     SLANG_PUBLIC uint  tex[8];
     SLANG_PUBLIC float refractionScale;
     SLANG_PUBLIC float frenselBias;
@@ -150,10 +146,10 @@ SLANG_PUBLIC struct DecalMaterial {
 SLANG_PUBLIC struct UniformObject {
     SLANG_PUBLIC float dissolveAmount;
     SLANG_PUBLIC uint  materialID;
-    SLANG_PUBLIC float lightLevel;
     SLANG_PUBLIC float illuminationAmount;
     SLANG_PUBLIC float4x4  modelMat;
     SLANG_PUBLIC float4x4  invModelMat;
+    SLANG_PUBLIC float4x4  prevModelMat;   // last frame's modelMat (== modelMat for statics); motion vectors
     SLANG_PUBLIC float4x4  uvMat;
     // Precomputed per-object decal list, packed (offset << 8) | count, indexing
     // gObjectDecalIndices[] (stable gDecals[] indices). Built once at load by
@@ -241,6 +237,8 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC float4x4  invViewMat;
     SLANG_PUBLIC float4x4  projMat;
     SLANG_PUBLIC float4x4  invProjMat;                 // for WorldPosFromDepth
+    SLANG_PUBLIC float4x4  prevViewMat;                // last frame's view/proj (no jitter); motion vectors
+    SLANG_PUBLIC float4x4  prevProjMat;
 
     SLANG_PUBLIC float worldFogStart;
     SLANG_PUBLIC float worldFogLength;
@@ -258,10 +256,6 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC float zNear;                      // view-space, positive
     SLANG_PUBLIC float zFar;                       // view-space, positive
     SLANG_PUBLIC uint  spotLightCount;             // active entries in gSpotLights[]
-    SLANG_PUBLIC uint  diffuseMaterialCount;       // active entries in gDiffuseMaterials[]
-    SLANG_PUBLIC uint  translucentMaterialCount;   // active entries in gTranslucentMaterials[]
-    SLANG_PUBLIC uint  waterMaterialCount;         // active entries in gWaterMaterials[]
-    SLANG_PUBLIC uint  decalMaterialCount;         // active entries in gDecalMaterials[]
     SLANG_PUBLIC uint  fogAreaCount;               // active entries in gFogAreas[]
     SLANG_PUBLIC uint  decalCount;                 // active entries in gDecals[]
 

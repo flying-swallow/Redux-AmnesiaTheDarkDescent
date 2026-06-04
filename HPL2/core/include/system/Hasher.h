@@ -56,6 +56,10 @@ static inline hash_t hash_f32( hash_t hash, float value )
 	return hash_u32( hash, u.u32 );
 }
 
+// Returns a unique, randomly generated 64-bit hash. Each call yields a
+// different value, seeded once per thread from a non-deterministic source.
+hash_t hash_random();
+
 static inline hash_t hash_data( hash_t hash, const void *data, size_t size )
 {
 	for( size_t i = 0; i < size; i++ )
