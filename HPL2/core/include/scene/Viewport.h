@@ -25,10 +25,12 @@
 #include "gui/GuiTypes.h"
 #include "scene/SceneTypes.h"
 
+#include <memory>
+
 namespace hpl {
 
 	//------------------------------------------
-	
+
 	class cScene;
 	class cCamera;
 	class iRenderer;
@@ -39,6 +41,7 @@ namespace hpl {
 	class iViewportCallback;
 	class iRendererCallback;
 	class cGuiSet;
+	class cViewportTarget;
 	
 	//------------------------------------------
 	
@@ -84,7 +87,16 @@ namespace hpl {
 		const cVector2l& GetSize(){ return mRenderTarget.mvSize;}
 
 		cRenderTarget* GetRenderTarget(){ return &mRenderTarget; }
-		
+
+		// Offscreen destination (editor panes / previews). When set, the
+		// renderer draws this viewport at the target's 1:1 extent (no guard
+		// band) and delivers the finished frame into the target's sampled
+		// HPLTexture instead of the swapchain pogo; cScene skips the
+		// swapchain tail-blit + GUI passes for the viewport.
+		void SetViewportTarget(const std::shared_ptr<cViewportTarget>& apTarget){ mpViewportTarget = apTarget; }
+		cViewportTarget* GetViewportTarget(){ return mpViewportTarget.get(); }
+		bool RendersToOffscreen() const { return mpViewportTarget != nullptr; }
+
 		void AddViewportCallback(iViewportCallback *apCallback);
 		void RemoveViewportCallback(iViewportCallback *apCallback);
 		void RunViewportCallbackMessage(eViewportMessage aMessage);
@@ -108,7 +120,8 @@ namespace hpl {
 		cPostEffectComposite *mpPostEffectComposite;
 
 		cRenderTarget mRenderTarget;
-		
+		std::shared_ptr<cViewportTarget> mpViewportTarget;
+
 		tViewportCallbackList mlstCallbacks;
 		tRendererCallbackList mlstRendererCallbacks;
 		tGuiSetList mlstGuiSets;

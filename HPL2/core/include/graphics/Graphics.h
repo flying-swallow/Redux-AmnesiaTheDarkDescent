@@ -46,6 +46,7 @@ namespace hpl {
 	class cMeshCreator;
 	class cTextureCreator;
 	class cDecalCreator;
+	class DebugDraw;
 	class iFrameBuffer;
 	class iDepthStencilBuffer;
 	class iTexture;
@@ -137,6 +138,10 @@ namespace hpl {
 		cTextureCreator* GetTextureCreator(){ return mpTextureCreator;}
 		cDecalCreator* GetDecalCreator() {return mpDecalCreator;}
 
+		// Editor / debug overlay batcher (global so thumbnails and previews
+		// can reuse it). Only created with eHplSetup_Screen.
+		DebugDraw* GetDebugDraw(){ return mpDebugDraw; }
+
 		bool GetScreenIsSetUp(){ return mbScreenIsSetup;}
 
 	private:
@@ -145,6 +150,7 @@ namespace hpl {
 		cMeshCreator *mpMeshCreator;
 		cTextureCreator* mpTextureCreator;
 		cDecalCreator* mpDecalCreator;
+		DebugDraw* mpDebugDraw;
 		cResources *mpResources;
 
 		std::vector<cTempFrameBuffer> mvTempFrameBuffers;

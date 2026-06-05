@@ -162,7 +162,7 @@ cTextureWrapper::cTextureWrapper(cMaterialWrapper* apMat, eMaterialTexture aUnit
 cTextureWrapper::~cTextureWrapper()
 {
 	if(mpTexture)
-		mpMat->mpMatEditor->GetEditor()->GetEngine()->GetGraphics()->DestroyTexture(mpTexture);
+		mpMat->mpMatEditor->GetEditor()->GetEngine()->GetResources()->GetTextureManager()->Destroy(mpTexture);
 }
 
 //------------------------------------------------------------------------------------
@@ -182,6 +182,7 @@ void cTextureWrapper::Reset()
 	msWrap="Repeat";
 	msAnimMode = "None";
 	mfFrameTime = 0;
+	mType = eTextureType_2D;
 }
 
 //------------------------------------------------------------------------------------
@@ -224,14 +225,15 @@ void cTextureWrapper::Reload()
 			return;
 
 		cEngine* pEng = mpMat->mpMatEditor->GetEditor()->GetEngine();
-		cGraphics* pGfx = pEng->GetGraphics();
 		cResources* pRes = pEng->GetResources();
-		cMaterialManager* pMatMgr = pRes->GetMaterialManager();
+		cTextureManager* pTexMgr = pRes->GetTextureManager();
 		cFileSearcher* pSearcher = pRes->GetFileSearcher();
 		cBitmapLoaderHandler* pLoader = pRes->GetBitmapLoaderHandler();
 
 		tWString sFullPath = pSearcher->GetFilePath(cString::To8Char(msFile));
 		Log("Loading texture %s...", cString::To8Char(sFullPath).c_str());
+		// The bitmap is loaded only to detect the texture type (1D/2D/Rect/
+		// 3D/CubeMap) — the Image itself comes from the texture manager below.
 		cBitmap* pBmp = pLoader->LoadBitmap(sFullPath, 0);
 		if(pBmp==NULL)
 		{
@@ -241,23 +243,51 @@ void cTextureWrapper::Reload()
 
 		mTimeStamp = cPlatform::FileModifiedDate(sFullPath);
 		eTextureType type = GetTextureTypeFromBitmap(pBmp);
-		if(mpTexture==NULL || mpTexture && type!=mpTexture->GetType())
-		{
-			if(mpTexture) pGfx->DestroyTexture(mpTexture);
-			mpTexture = pGfx->CreateTexture(pMatMgr->GetTextureString(mUnit), type, eTextureUsage_Normal);
-		}
-		mpTexture->SetUseMipMaps(mbMipMaps);
+		hplDelete(pBmp);
 
-		mbValid = (mpTexture!=NULL && mpTexture->CreateFromBitmap(pBmp));
+		// Drop the previous image first so the manager's refcount hits zero
+		// and the resource is evicted — a re-Create then reloads from disk,
+		// preserving the file-watch reload (CheckFileIsUpdated).
+		if(mpTexture)
+		{
+			pTexMgr->Destroy(mpTexture);
+			mpTexture = NULL;
+		}
+
+		tString sName = cString::To8Char(msFile);
+		switch(type)
+		{
+		case eTextureType_1D:
+			mpTexture = pTexMgr->Create1DImage(sName, mbMipMaps);
+			break;
+		case eTextureType_2D:
+			mpTexture = pTexMgr->Create2DImage(sName, mbMipMaps);
+			break;
+		case eTextureType_Rect:
+			mpTexture = pTexMgr->Create2DImage(sName, mbMipMaps, eTextureType_Rect);
+			break;
+		case eTextureType_3D:
+			mpTexture = pTexMgr->Create3DImage(sName, mbMipMaps);
+			break;
+		case eTextureType_CubeMap:
+			mpTexture = pTexMgr->CreateCubeMapImage(sName, mbMipMaps);
+			break;
+		default:
+			break;
+		}
+
+		mbValid = (mpTexture!=NULL);
 		if(mbValid)
 		{
 			Log("success\n");
 			mbNeedsReload = false;
+			mType = type;
 			msType = gsTextureTypeStrings[type];
-			mpTexture->SetFullPath(sFullPath);
 		}
-		
-		hplDelete(pBmp);
+		else
+		{
+			Log("failed\n");
+		}
 	}
 }
 
@@ -277,12 +307,9 @@ void cTextureWrapper::Update()
 		Reload();
 		if(mbValid==false)
 			return;
-		
-		eTextureWrap wrap = pMatMgr->GetWrap(msWrap);
-		mpTexture->SetWrapR(wrap);
-		mpTexture->SetWrapS(wrap);
-		mpTexture->SetWrapT(wrap);
 
+		// Per-texture wrap state is gone in the Image/sampler model — msWrap
+		// stays as the serialized .mat string only.
 		mpTexture->SetAnimMode(pMatMgr->GetAnimMode(msAnimMode));
 		mpTexture->SetFrameTime(mfFrameTime);
 
@@ -292,23 +319,26 @@ void cTextureWrapper::Update()
 
 //------------------------------------------------------------------------------------
 
-void cTextureWrapper::CreateFromTexture(iTexture* apTexture)
+void cTextureWrapper::CreateFromImage(Image* apImage)
 {
 	Reset();
 	SetNeedsReload();
 	SetUpdated();
 
-	if(apTexture==NULL)
+	if(apImage==NULL)
 		return;
 
 	mbEnabled = true;
 
-	mbCompressed = apTexture->IsCompressed();
-	mbMipMaps = apTexture->UsesMipMaps();
-	msFile = apTexture->GetFullPath();
-	msWrap = gsWrapTypeStrings[apTexture->GetWrapR()];
-	msAnimMode = gsAnimModeStrings[apTexture->GetAnimMode()];
-	mfFrameTime = apTexture->GetFrameTime();
+	std::shared_ptr<HPLTexture> pTex = apImage->GetTexture();
+	const RIFormatProps_s* pProps = pTex ? GetRIFormatProps(pTex->format) : NULL;
+	mbCompressed = pProps && pProps->isCompressed;
+	mbMipMaps = pTex && pTex->mipNum > 1;
+	msFile = apImage->GetFullPath();
+	// Per-texture wrap state is gone in the Image/sampler model — keep the
+	// Reset() default ("Repeat"); the .mat string is the source of truth.
+	msAnimMode = gsAnimModeStrings[apImage->GetAnimMode()];
+	mfFrameTime = apImage->GetFrameTime();
 }
 
 //------------------------------------------------------------------------------------
@@ -452,8 +482,8 @@ cMaterialWrapper::cMaterialWrapper(cEditorWindowMaterialEditor* apEditor)
 		mvTextures.push_back(hplNew(cTextureWrapper,(this, (eMaterialTexture)i)));
 
 	mvDefaultTextures.resize(eMaterialTexture_LastEnum);
-	mvDefaultTextures[eMaterialTexture_Diffuse] = pTexMan->Create2D("editor_default_diffuse.jpg", false);
-	mvDefaultTextures[eMaterialTexture_NMap] = pTexMan->Create2D("editor_rect_nrm.jpg", false);
+	mvDefaultTextures[eMaterialTexture_Diffuse] = pTexMan->Create2DImage("editor_default_diffuse.jpg", false);
+	mvDefaultTextures[eMaterialTexture_NMap] = pTexMan->Create2DImage("editor_rect_nrm.jpg", false);
 	for(int i=eMaterialTexture_NMap+1;i<eMaterialTexture_LastEnum;++i)
 		mvDefaultTextures[i] = NULL;
 
@@ -540,7 +570,7 @@ void cMaterialWrapper::Load(const tWString& asFilename)
 
 	for(int i=0;i<eMaterialTexture_LastEnum;++i)
 	{
-		mvTextures[i]->CreateFromTexture(pMat->GetTexture((eMaterialTexture)i));
+		mvTextures[i]->CreateFromImage(pMat->GetImage((eMaterialTexture)i));
 		mvTextures[i]->Update();
 	}
 
@@ -662,44 +692,39 @@ void cMaterialWrapper::UpdateMaterialInMemory(const tString& asName)
 
 	for(int i=0;i<eMaterialTexture_LastEnum;++i)
 	{
-		iTexture* pOldTex = pMat->GetTexture((eMaterialTexture)i);
-		pMat->SetTexture((eMaterialTexture)i, NULL);
+		// SetImage's ImageResourceWrapper releases the previous image through
+		// the texture manager (manager-created materials auto-destroy their
+		// textures) — no manual Destroy of the old texture needed.
+		pMat->SetImage((eMaterialTexture)i, NULL);
 
-		if(pOldTex)
-			pTexMgr->Destroy(pOldTex);
-
-        iTexture* pEditingTex = mvTextures[i]->GetTexture();
-        if(pEditingTex)
+		Image* pEditingTex = mvTextures[i]->GetImage();
+		if(pEditingTex)
 		{
 			tString sName = cString::GetFileName(cString::To8Char(pEditingTex->GetFullPath()));
-			bool bMipMaps = pEditingTex->UsesMipMaps();
-			eTextureWrap wrap = pEditingTex->GetWrapR();
-			iTexture* pNewTex = NULL;
-			switch(pEditingTex->GetType())
+			bool bMipMaps = mvTextures[i]->GetUseMipMaps();
+			Image* pNewTex = NULL;
+			switch(mvTextures[i]->GetTextureType())
 			{
 			case eTextureType_1D:
-				pNewTex = pTexMgr->Create1D(sName, bMipMaps); 
+				pNewTex = pTexMgr->Create1DImage(sName, bMipMaps);
 				break;
 			case eTextureType_2D:
-				pNewTex = pTexMgr->Create2D(sName, bMipMaps);
+				pNewTex = pTexMgr->Create2DImage(sName, bMipMaps);
 				break;
 			case eTextureType_3D:
-				pNewTex = pTexMgr->Create3D(sName, bMipMaps);
+				pNewTex = pTexMgr->Create3DImage(sName, bMipMaps);
 				break;
 			case eTextureType_CubeMap:
-				pNewTex = pTexMgr->CreateCubeMap(sName, bMipMaps);
+				pNewTex = pTexMgr->CreateCubeMapImage(sName, bMipMaps);
 				break;
 			case eTextureType_Rect:
-				pNewTex = pTexMgr->Create2D(sName, bMipMaps, eTextureType_Rect);
+				pNewTex = pTexMgr->Create2DImage(sName, bMipMaps, eTextureType_Rect);
+				break;
+			default:
 				break;
 			}
 			if(pNewTex)
-			{
-				pNewTex->SetWrapR(wrap);
-				pNewTex->SetWrapS(wrap);
-				pNewTex->SetWrapT(wrap);
-				pMat->SetTexture((eMaterialTexture)i, pNewTex);
-			}
+				pMat->SetImage((eMaterialTexture)i, pNewTex);
 		}
 	}
 	pMat->ClearUvAnimations();
@@ -895,14 +920,16 @@ cMaterial* cMaterialWrapper::GetPreviewMaterial()
 
 		for(int i=0;i<eMaterialTexture_LastEnum;++i)
 		{
-			iTexture* pTex = NULL;
+			Image* pTex = NULL;
 			cTextureWrapper* pTexWrapper = mvTextures[i];
 			if(pTexWrapper->IsEnabled() && pTexWrapper->IsValid())
-				pTex = pTexWrapper->GetTexture();
+				pTex = pTexWrapper->GetImage();
 			else
 				pTex = mvDefaultTextures[i];
-	
-			mpPreviewMat->SetTexture((eMaterialTexture)i, pTex);
+
+			// Preview material has SetAutoDestroyTextures(false): SetImage's
+			// wrapper won't release wrapper-/default-owned images.
+			mpPreviewMat->SetImage((eMaterialTexture)i, pTex);
 		}
 
 		mpPreviewMat->ClearUvAnimations();
@@ -1046,9 +1073,15 @@ void cTextureUnitPanel::Update()
 	{
 		const tWString& sTextureFile = mpTextureWrapper->GetFile();
 		mpInpFile->SetValue(mpTextureWrapper->GetFile(), false);
-		iTexture* pTex = mpTextureWrapper->GetTexture();
+		Image* pTex = mpTextureWrapper->GetImage();
 		if(pTex)
-			pImg = pGui->CreateGfxTexture(pTex, false, eGuiMaterial_Alpha);
+		{
+			// cGui only builds elements from Image* now (the iTexture* overload
+			// is gone) — reload the thumbnail from the texture file through the
+			// Image-based loader instead of wrapping the legacy texture.
+			pImg = pGui->CreateGfxTexture(cString::To8Char(cString::GetFileNameW(sTextureFile)),
+										  eGuiMaterial_Alpha, mpTextureWrapper->GetTextureType());
+		}
 	}
 
 	mpInpFile->SetInitialPath(mpWindow->msLastTexturePath);
@@ -2013,7 +2046,7 @@ bool cEditorWindowMaterialEditor::WindowSpecificInputCallback(iEditorInput* apIn
 		// CubeMap
 		if(mpInpBGType->GetValue()==0)
 		{
-			iTexture* pTexture = NULL;
+			Image* pTexture = NULL;
 			if(cEditorHelper::LoadTextureResource( eEditorTextureResourceType_CubeMap, cString::To8Char(mpInpBGCubeMap->GetValue()), &pTexture))
 			{
 				mpMatWorld->SetSkyBox(pTexture,true);
@@ -2025,7 +2058,7 @@ bool cEditorWindowMaterialEditor::WindowSpecificInputCallback(iEditorInput* apIn
 		// Flat
 		else
 		{
-			mpMatWorld->SetSkyBox(static_cast<Image*>(nullptr), true);
+			mpMatWorld->SetSkyBox((Image*)NULL, true);
 			mpMatWorld->SetSkyBoxColor(mpInpBGColor->GetValue());
 		}
 	}

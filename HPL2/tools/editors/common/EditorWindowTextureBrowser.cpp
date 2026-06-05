@@ -370,16 +370,14 @@ cTextureBrowserIcon::cTextureBrowserIcon(cEditorWindowTextureBrowser* apBrowser,
 
 	cEditorThumbnailBuilder* pThbBuilder = pEditor->GetThumbnailBuilder();
 	tWString sThumbFile = pThbBuilder->GetThumbnailNameFromFileW(cString::To16Char(apEntry->GetTextureFileFullPath()));
-	iTexture* pTex = pGfx->CreateTexture("", eTextureType_2D, eTextureUsage_Normal);
-	cBitmap* pBmp = pRes->GetBitmapLoaderHandler()->LoadBitmap(sThumbFile, 0);
-
-	if(pTex && pTex->CreateFromBitmap(pBmp))
-	{
-		cGuiGfxElement* pGfxElem = mpSet->GetGui()->CreateGfxTexture(pTex, false, eGuiMaterial_Diffuse);
+	// cGui only builds elements from Image* now (the iTexture* overload is
+	// gone) — load the thumbnail through the texture manager by name (the
+	// thumbnail dir is registered as a resource dir) instead of hand-building
+	// a legacy iTexture from the bitmap. The element auto-destroys its image.
+	cGuiGfxElement* pGfxElem = mpSet->GetGui()->CreateGfxTexture(
+		cString::To8Char(cString::GetFileNameW(sThumbFile)), eGuiMaterial_Diffuse);
+	if(pGfxElem)
 		mpTexture->SetImage(pGfxElem);
-	}
-
-	hplDelete(pBmp);
 
 	mpTexture->AddCallback(eGuiMessage_MouseUp, this, kGuiCallback(Frame_OnMouseUp));
 	mpTexture->AddCallback(eGuiMessage_MouseDoubleClick, this, kGuiCallback(Frame_OnDoubleClick));
@@ -404,7 +402,11 @@ cTextureBrowserIcon::~cTextureBrowserIcon()
 		if(mpLabelType) mpSet->DestroyWidget(mpLabelType);
 		if(mpTexture)
 		{
-			mpBrowser->GetEditor()->GetEngine()->GetGraphics()->DestroyTexture(mpTexture->GetImage()->GetTexture(0));
+			// The thumbnail element owns its Image (auto-destroy via the
+			// texture manager) — release it through the gui instead of the
+			// old manual iTexture destroy.
+			if(mpTexture->GetImage())
+				mpSet->GetGui()->DestroyGfx(mpTexture->GetImage());
 			mpSet->DestroyWidget(mpTexture);
 		}
 

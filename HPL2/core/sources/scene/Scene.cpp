@@ -33,6 +33,7 @@
 #include "resources/FileSearcher.h"
 #include "resources/WorldLoaderHandler.h"
 
+#include "graphics/DebugDraw.h"
 #include "graphics/Graphics.h"
 #include "graphics/Renderer.h"
 #include "graphics/PostEffectComposite.h"
@@ -222,6 +223,15 @@ namespace hpl {
 									false);
 						}
 						pViewPort->RunViewportCallbackMessage(eViewportMessage_OnPostWorldDraw);
+					}
+
+					// Offscreen viewports (editor panes / previews): the renderer's Draw
+					// already delivered the finished frame into the viewport target's
+					// sampled texture (see the offscreen tail blit in HybridRenderer) —
+					// no post effects, swapchain tail blit, or GUI pass for these.
+					if(pViewPort->RendersToOffscreen())
+					{
+						continue;
 					}
 
 					// Apply the viewport's post-effect composite to the renderer's pogo

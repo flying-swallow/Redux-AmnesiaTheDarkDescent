@@ -59,6 +59,7 @@
 #include "graphics/PostEffect_ImageTrail.h"
 #include "graphics/PostEffect_RadialBlur.h"
 
+#include "graphics/DebugDraw.h"
 #include "graphics/RendererDeferred.h"
 #include "graphics/RendererWireFrame.h"
 #include "graphics/RendererSimple.h"
@@ -84,6 +85,7 @@ namespace hpl {
 		mpMeshCreator = NULL;
 		mpTextureCreator = NULL;
 		mpDecalCreator = NULL;
+		mpDebugDraw = NULL;
 	}
 
 	cGraphics::~cGraphics()
@@ -122,6 +124,7 @@ namespace hpl {
 		hplDelete(mpMeshCreator);
 		hplDelete(mpTextureCreator);
 		hplDelete(mpDecalCreator);
+		if(mpDebugDraw) hplDelete(mpDebugDraw);
 
 		Log("--------------------------------------------------------\n\n");
 	}
@@ -585,8 +588,13 @@ namespace hpl {
 
 			mvRenderers.resize(eRenderer_LastEnum, NULL);
 			mvRenderers[eRenderer_Main] = hplNew(cHybridRenderer, (this, apResources));
-			//mvRenderers[eRenderer_WireFrame] = hplNew(cRendererWireFrame, (this, apResources));
-			//mvRenderers[eRenderer_Simple] = hplNew(cRendererSimple, (this, apResources));
+			mvRenderers[eRenderer_WireFrame] = hplNew(cRendererWireFrame, (this, apResources));
+			mvRenderers[eRenderer_Simple] = hplNew(cRendererSimple, (this, apResources));
+
+			// Editor / debug overlay batcher — flushed by HybridRenderer's
+			// offscreen tail (and reusable for thumbnails / previews).
+			mpDebugDraw = hplNew(DebugDraw, ());
+			mpDebugDraw->Init(apResources);
 
 			//for(size_t i=0; i<mvRenderers.size(); ++i)
 			//{

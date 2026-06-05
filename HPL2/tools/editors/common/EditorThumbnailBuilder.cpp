@@ -90,14 +90,21 @@ cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 
 	//////////////////////////////////////////
 	// Set up render targets
+	// TODO(vulkan-port, Phase 4): the legacy iFrameBuffer chain is dead on the
+	// RI backend — CreateFrameBuffer returns NULL — so thumbnails render
+	// nothing until this is ported to cViewportTarget. Guard the setup (and
+	// early-out in the Build* methods) so the editors can launch.
 	iTexture* pRenderTarget64 = pGfx->CreateTexture("Thumbnail", eTextureType_2D, eTextureUsage_RenderTarget);
 	pRenderTarget64->SetWrapR(eTextureWrap_Clamp);
 	pRenderTarget64->SetWrapS(eTextureWrap_Clamp);
 	pRenderTarget64->CreateFromRawData(cVector3l(64,64,0), ePixelFormat_RGBA, NULL);
 
 	mpFB64 = pGfx->CreateFrameBuffer("Thumbnail");
-	mpFB64->SetTexture2D(0, pRenderTarget64);
-	mpFB64->CompileAndValidate();
+	if(mpFB64)
+	{
+		mpFB64->SetTexture2D(0, pRenderTarget64);
+		mpFB64->CompileAndValidate();
+	}
 
 	mpRenderTarget128 = pGfx->CreateTexture("ThumbnailDest",eTextureType_2D, eTextureUsage_RenderTarget);
 	mpRenderTarget128->SetWrapR(eTextureWrap_Clamp);
@@ -105,12 +112,15 @@ cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 	mpRenderTarget128->CreateFromRawData(cVector3l(128,128,0), ePixelFormat_RGBA, NULL);
 
 	mpFB128 = pGfx->CreateFrameBuffer("ThumbnailDestination");
-	mpFB128->SetTexture2D(0,mpRenderTarget128);
-	mpFB128->CompileAndValidate();
+	if(mpFB128)
+	{
+		mpFB128->SetTexture2D(0,mpRenderTarget128);
+		mpFB128->CompileAndValidate();
+	}
 
 	mpViewport = pScene->CreateViewport(pCamera,pWorld,true);
 	mpViewport->SetSize(cVector2l(128));
-	mpViewport->SetFrameBuffer(mpFB128);
+	if(mpFB128) mpViewport->SetFrameBuffer(mpFB128);
 	mpViewport->SetActive(false);
 	mpViewport->SetVisible(false);
 	mpViewport->GetRenderSettings()->mClearColor = cColor(0,1);
@@ -127,6 +137,9 @@ cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 
 void cEditorThumbnailBuilder::BuildThumbnailFromMeshEntity(cMeshEntity* apEntity, const tWString& asDestName)
 {
+	// TODO(vulkan-port, Phase 4): legacy render-target path is dead on RI.
+	if(mpFB64==NULL || mpFB128==NULL) return;
+
 	cWorld* pOldWorld = apEntity->GetWorld();
 
 	iLowLevelGraphics* pGfx = mpEditor->GetEngine()->GetGraphics()->GetLowLevel();
@@ -194,6 +207,9 @@ void cEditorThumbnailBuilder::BuildThumbnailFromMeshEntity(cMeshEntity* apEntity
 
 void cEditorThumbnailBuilder::BuildThumbnailFromMesh(const tWString& asMeshFilename, const tWString& asDestName)
 {
+	// TODO(vulkan-port, Phase 4): legacy render-target path is dead on RI.
+	if(mpFB64==NULL || mpFB128==NULL) return;
+
 	iLowLevelGraphics* pGfx = mpEditor->GetEngine()->GetGraphics()->GetLowLevel();
 	cCamera* pCamera = mpViewport->GetCamera();
 	cWorld* pWorld = mpViewport->GetWorld();
@@ -269,6 +285,9 @@ void cEditorThumbnailBuilder::BuildThumbnailFromMesh(const tWString& asMeshFilen
 
 void cEditorThumbnailBuilder::BuildThumbnailFromImage(const tWString& asImageFilename, const tWString& asDestName)
 {
+	// TODO(vulkan-port, Phase 4): legacy render-target path is dead on RI.
+	if(mpFB64==NULL || mpFB128==NULL) return;
+
 	cResources* pRes = mpEditor->GetEngine()->GetResources();
 	cTextureManager* pManager = pRes->GetTextureManager();
 	iTexture* pTex = pManager->Create2D(cString::To8Char(asImageFilename), true, eTextureType_2D);

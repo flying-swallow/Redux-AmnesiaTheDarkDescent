@@ -24,6 +24,10 @@
 
 #include "EditorGrid.h"
 
+#include "graphics/RIViewportTarget.h"
+
+#include <memory>
+
 using namespace hpl;
 
 //--------------------------------------------
@@ -273,6 +277,9 @@ public:
 	float GetRayEndDistance() { return mfRayEndDistance; }
 
 	void AddViewportCallback(iRendererCallback* apCallback);
+	// RI path: per-frame viewport messages (OnPreWorldDraw fires before the
+	// renderer Draw — DebugDraw enqueues go there).
+	void AddViewportCallback(iViewportCallback* apCallback);
 
 	void UpdateCameraPlanes();
 
@@ -345,6 +352,10 @@ protected:
 
 	//////////////////////////////
 	// Render to texture stuff
+	// RI offscreen target: the engine viewport renders into this and the GUI
+	// widget displays its Image (see UpdateViewport). Legacy FB members kept
+	// until the Phase-5 cleanup.
+	std::shared_ptr<cViewportTarget> mpViewportTarget;
 	iFrameBuffer* mpFB;
 	iTexture* mpRenderTarget;
 	cVector2f mvUVStart;

@@ -56,10 +56,19 @@ enum eEditorWindowViewportPreset
 
 //--------------------------------------------------------------------
 
-class cViewportCallback : public iRendererCallback
+// The live draw path on the RI backend is iViewportCallback::OnPreWorldDraw —
+// it enqueues into the global DebugDraw batcher, which HybridRenderer flushes
+// into the pane's offscreen target right before the delivery blit. The legacy
+// iRendererCallback methods are kept compiling but are never invoked by the
+// Vulkan renderer; their bodies move over as the Phase-3 call-site port
+// reaches them (grid, clip planes, surface picker, edit modes).
+class cViewportCallback : public iRendererCallback, public iViewportCallback
 {
 public:
 	cViewportCallback();
+
+	void OnPreWorldDraw();
+	void OnPostWorldDraw() {}
 
 	void OnPostSolidDraw(cRendererCallbackFunctions* apFunctions);
 	void OnPostTranslucentDraw(cRendererCallbackFunctions* apFunctions);
@@ -176,7 +185,7 @@ protected:
 	// Menu Items
 	cWidgetMainMenu* mpMainMenu;
 	cWidgetMenuItem* mpMainMenuView;
-	cWidgetMenuItem* mpMainMenuRenderModes[2];
+	cWidgetMenuItem* mpMainMenuRenderModes[eRenderer_LastEnum];
 	cWidgetMenuItem* mpMainMenuShowGrid;
 	cWidgetMenuItem* mpMainMenuShowAxes;
 

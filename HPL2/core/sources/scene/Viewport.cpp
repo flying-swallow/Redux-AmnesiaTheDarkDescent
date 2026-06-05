@@ -108,7 +108,7 @@ namespace hpl {
 	void cViewport::RunViewportCallbackMessage(eViewportMessage aMessage)
 	{
 		tViewportCallbackListIt it = mlstCallbacks.begin();
-		for(; it != mlstCallbacks.begin(); ++it)
+		for(; it != mlstCallbacks.end(); ++it)
 		{
 			iViewportCallback *pCallback = *it;
 

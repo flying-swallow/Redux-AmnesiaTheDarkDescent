@@ -1172,14 +1172,14 @@ void iEditorWorld::UpdateSkybox()
 {
 	if(GetSkyboxActive() && GetShowSkybox())
 	{
-		iTexture* pTex = NULL;
+		Image* pTex = NULL;
 		cEditorHelper::LoadTextureResource(eEditorTextureResourceType_CubeMap, msSkyboxTexture, &pTex);
 		mpWorld->SetSkyBox(pTex, true);
 		mpWorld->SetSkyBoxColor(mSkyboxColor);	
 	}
 	else
 	{
-		mpWorld->SetSkyBox(static_cast<Image*>(nullptr),true);
+		mpWorld->SetSkyBox((Image*)NULL,true);
 		mpWorld->SetSkyBoxColor(mBGDefaultColor);
 	}
 }
