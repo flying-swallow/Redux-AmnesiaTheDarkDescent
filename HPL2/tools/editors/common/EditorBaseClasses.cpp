@@ -1501,6 +1501,8 @@ void iEditorBase::InitLayout()
 
 void iEditorBase::InitRenderTarget(const cVector2f& avSize)
 {
+	return;
+
 	//////////////////////////////////////////////
 	// Creates a render target and framebuffer with size avSize
 	cGraphics* pGfx = mpEngine->GetGraphics();
