@@ -26,6 +26,8 @@
 
 namespace hpl {
 
+	class DebugDraw;
+
 	class iPhysicsWorld;
 	class iCollideShape;
 	class iPhysicsMaterial;
@@ -136,6 +138,8 @@ namespace hpl {
 		virtual bool GetGravity() const=0;
 
 		virtual void RenderDebugGeometry(iLowLevelGraphics *apLowLevel,const cColor &aColor)=0;
+		// RI path: same wireframe walk, enqueued into the DebugDraw batcher.
+		virtual void RenderDebugGeometry(DebugDraw *apDebugDraw,const cColor &aColor)=0;
 
 		bool UpdateBeforeSimulate(float afTimeStep);
 		void UpdateAfterSimulate(float afTimeStep);

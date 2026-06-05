@@ -72,19 +72,18 @@ int cSurfacePicker::ToSurfaceTypeID(int alTypeID)
 
 //----------------------------------------------------------------------
 
-void cSurfacePicker::OnDraw(cRendererCallbackFunctions* apFunctions)
+void cSurfacePicker::OnDraw(DebugDraw* apFunctions)
 {
-	apFunctions->SetMatrix(NULL);
-	apFunctions->SetDepthTest(false);
-
-
 	if(HasPickedSurface())
 	{
-		apFunctions->GetLowLevelGfx()->DrawSphere(mvIntersection, 0.005f, cColor(0,0,1,1));
-		//apFunctions->GetLowLevelGfx()->DrawLine(mvIntersection, mvIntersection+mvTriangleNormal, cColor(0,1,0,1));
-		//apFunctions->GetLowLevelGfx()->DrawLine(mvIntersection, mvIntersection+mvAverageUp, cColor(0,1,1,1));
-		//apFunctions->GetLowLevelGfx()->DrawLine(mvIntersection, mvIntersection+mvRight, cColor(1,0,0,1));
-		//apFunctions->GetLowLevelGfx()->DrawLine(mvIntersection, mvIntersection+mvForward, cColor(0,0,1,1));
+		// Legacy drew with depth test off (always on top).
+		DebugDraw::DebugDrawOptions overlayOptions;
+		overlayOptions.m_depthTest = DebugDraw::DebugDepthTest::Always;
+		apFunctions->DebugDrawSphere(mvIntersection, 0.005f, cColor(0,0,1,1), overlayOptions);
+		//apFunctions->DebugDrawLine(mvIntersection, mvIntersection+mvTriangleNormal, cColor(0,1,0,1));
+		//apFunctions->DebugDrawLine(mvIntersection, mvIntersection+mvAverageUp, cColor(0,1,1,1));
+		//apFunctions->DebugDrawLine(mvIntersection, mvIntersection+mvRight, cColor(1,0,0,1));
+		//apFunctions->DebugDrawLine(mvIntersection, mvIntersection+mvForward, cColor(0,0,1,1));
 		
 
 		/*
@@ -94,18 +93,18 @@ void cSurfacePicker::OnDraw(cRendererCallbackFunctions* apFunctions)
 			const cVector3f& v2 = mvTrianglesToAverage[i+1];
 			const cVector3f& v3 = mvTrianglesToAverage[i+2];
 
-			apFunctions->GetLowLevelGfx()->DrawLine(v1, v2, cColor(0,1,1,1));
-			apFunctions->GetLowLevelGfx()->DrawLine(v2, v3, cColor(0,1,1,1));
-			apFunctions->GetLowLevelGfx()->DrawLine(v3, v1, cColor(0,1,1,1));
+			apFunctions->DebugDrawLine(v1, v2, cColor(0,1,1,1));
+			apFunctions->DebugDrawLine(v2, v3, cColor(0,1,1,1));
+			apFunctions->DebugDrawLine(v3, v1, cColor(0,1,1,1));
 		}
 		*/
 
 		/*cMatrixf mtxTransform = GetOrientationMatrix();
 		mtxTransform.SetTranslation(mvIntersection);
 		apFunctions->SetMatrix(&mtxTransform);
-		apFunctions->GetLowLevelGfx()->DrawLine(0, cVector3f(1,0,0), cColor(1,0,0,1));
-		apFunctions->GetLowLevelGfx()->DrawLine(0, cVector3f(0,1,0), cColor(0,1,0,1));
-		apFunctions->GetLowLevelGfx()->DrawLine(0, cVector3f(0,0,1), cColor(0,0,1,1));
+		apFunctions->DebugDrawLine(0, cVector3f(1,0,0), cColor(1,0,0,1));
+		apFunctions->DebugDrawLine(0, cVector3f(0,1,0), cColor(0,1,0,1));
+		apFunctions->DebugDrawLine(0, cVector3f(0,0,1), cColor(0,0,1,1));
 		*/
 	}
 }

@@ -19,16 +19,6 @@ void RIBootstrap::Dispose() {
     }
   }
 
-  for (uint32_t i = 0; i < swapchain.imageCount; i++) {
-    RI_PogoBufferDestroy(&device, &pogoBuffer[i]);
-    RI_PogoBufferDestroy(&device, &renderPogo[i]);
-    FreeRITextureView(&device, &depthView[i]);
-    FreeRITexture(&device, &depthTextures[i]);
-    FreeRITextureView(&device, &depthView[i]);
-    FreeRITextureView(&device, &visibilityView[i]);
-    FreeRITexture(&device, &visibilityTexture[i]);
-  }
-
   for (auto &set : frameSets) {
     for (auto &entry : set.freelist) {
       FreeRIFree(&device, &entry);
@@ -189,44 +179,29 @@ void RIBootstrap::BeginActiveSet() {
   BeginRICmd(&RI.device, &RI.blasSubmit.cmds[0]);
   BeginRICmd(&RI.device, &RI.primary.cmds[0]);
   {
-    VkImageMemoryBarrier2 imageBarriers[2] = {};
-    imageBarriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    imageBarriers[0].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageBarriers[0].srcStageMask = VK_PIPELINE_STAGE_2_NONE;
-    imageBarriers[0].srcAccessMask = VK_ACCESS_2_NONE;
-    imageBarriers[0].dstStageMask =
+    // Swapchain image: UNDEFINED -> COLOR for the frame. (Depth is
+    // per-viewport now — each renderer's Draw emits its own first-use
+    // UNDEFINED transition on its viewport's depth target.)
+    VkImageMemoryBarrier2 imageBarrier = {};
+    imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    imageBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
+    imageBarrier.srcAccessMask = VK_ACCESS_2_NONE;
+    imageBarrier.dstStageMask =
         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    imageBarriers[0].dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
-                                     VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imageBarriers[0].image =
-        RI.swapchain.vk.images
-            [RI.swapchainIndex]; // cntx->colorAttachment.texture->vk.image;
-    imageBarriers[0].subresourceRange = VkImageSubresourceRange{
+    imageBarrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
+                                 VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    imageBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    imageBarrier.image = RI.swapchain.vk.images[RI.swapchainIndex];
+    imageBarrier.subresourceRange = VkImageSubresourceRange{
         VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
         VK_REMAINING_ARRAY_LAYERS,
     };
-
-    imageBarriers[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    imageBarriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageBarriers[1].srcStageMask = VK_PIPELINE_STAGE_2_NONE;
-    imageBarriers[1].srcAccessMask = VK_ACCESS_2_NONE;
-    imageBarriers[1].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    imageBarriers[1].dstAccessMask =
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    imageBarriers[1].newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    imageBarriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imageBarriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imageBarriers[1].image = RI.depthTextures[RI.swapchainIndex].vk.image;
-    imageBarriers[1].subresourceRange = VkImageSubresourceRange{
-        VK_IMAGE_ASPECT_DEPTH_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
-        VK_REMAINING_ARRAY_LAYERS,
-    };
     VkDependencyInfo dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dependencyInfo.imageMemoryBarrierCount = 2;
-    dependencyInfo.pImageMemoryBarriers = imageBarriers;
+    dependencyInfo.imageMemoryBarrierCount = 1;
+    dependencyInfo.pImageMemoryBarriers = &imageBarrier;
     vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dependencyInfo);
   }
 }

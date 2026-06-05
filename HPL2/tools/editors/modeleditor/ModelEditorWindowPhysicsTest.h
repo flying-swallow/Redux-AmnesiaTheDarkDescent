@@ -45,7 +45,10 @@ public:
 	float mfDist;
 };
 
-class cPhysicsTestRenderCallback : public iRendererCallback
+// RI path: physics-test overlays enqueue into the DebugDraw batcher from
+// iViewportCallback::OnPreWorldDraw (the legacy iRendererCallback hooks are
+// never invoked by the Vulkan renderer).
+class cPhysicsTestRenderCallback : public iViewportCallback
 {
 public:
 	cPhysicsTestRenderCallback()
@@ -54,11 +57,10 @@ public:
 		mbDrawSkeleton=false;
 	}
 
-	void OnPostSolidDraw(cRendererCallbackFunctions *apFunctions);
+	void OnPreWorldDraw();
+	void OnPostWorldDraw() {}
 
-	void OnPostTranslucentDraw(cRendererCallbackFunctions *apFunctions){}
-
-	void DrawSkeletonRec(cRendererCallbackFunctions* apFunctions, cNode3D* apBoneState);
+	void DrawSkeletonRec(DebugDraw* apDebugDraw, cNode3D* apBoneState);
 
 	cModelEditorWindowPhysicsTest* mpWindow;
 	cBodyPicker* mpBodyPicker;

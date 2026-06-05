@@ -75,7 +75,7 @@ public:
 	float GetMaxConeAngle() { return mfMaxConeAngle; }
 	float GetMaxTwistAngle() { return mfMaxTwistAngle; }
 	
-	//void Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected);
+	//void Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected);
 
 	//void SaveToElement(cXmlElement* apElement);
 	

@@ -39,6 +39,10 @@ public:
   cHybridRenderer(cGraphics *apGraphics, cResources *apResources);
   ~cHybridRenderer();
 
+  // Per-viewport internals live in HybridViewportState (pure data — see
+  // scene/Viewport.h), held by cViewport; this renderer owns its
+  // creation/sizing (file-local helper in HybridRenderer.cpp).
+
   // kObjectSlotCapacity / kTextureSlotCapacity / kSolidMaterialCapacity and
   // kTotalSurfelLimit / kRayBudget come from amnesia/glsl/forward_shared.h.
 
@@ -226,11 +230,6 @@ private:
 	// transition once on its first appearance; after that the atlas data
 	// must persist (integrate EMA-blends with the prior frame's values).
 	std::array<bool, RI_MAX_SWAPCHAIN_IMAGES> m_surfelAtlasesInitialized = {};
-
-	// One-shot UNDEFINED transition tracker for the pogo halves. Per
-	// swapchain image, since each backing image needs the initial
-	// transitions emitted once on its first appearance.
-	std::array<bool, RI_MAX_SWAPCHAIN_IMAGES> m_pogoInitialized = {};
 };
 
 } // namespace hpl

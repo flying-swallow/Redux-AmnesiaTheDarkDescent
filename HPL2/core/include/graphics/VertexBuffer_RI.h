@@ -108,12 +108,18 @@ public:
   };
 
   void AttachResourceToCntx(RIBootstrap::FrameContext *cntx);
-  // Uploads the vertex/index streams and (when abBuildBlas) rebuilds the BLAS.
-  // Pass abBuildBlas=false for renderables that are never TLAS instances
-  // (particles/billboards/beams/ropes/decals) to skip the dead BLAS work while
-  // still uploading streams for the raster pass.
+  // Uploads dirty vertex/index streams (allocates GPU buffers on first submit /
+  // shadow-data growth). No-op when nothing changed since the last submit.
   void SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
-                   RIBootstrap::FrameContext *cntx, bool abBuildBlas = true);
+                   RIBootstrap::FrameContext *cntx);
+  // Ensures streams are uploaded (calls SubmitToGPU), then (re)builds the BLAS
+  // if it is missing or was built from an older geometry generation. Only call
+  // for renderables that are TLAS instances; particles/billboards/beams/ropes/
+  // decals just use SubmitToGPU. The build is recorded into `cmd`; the caller
+  // must ensure it completes before the BLAS is read (e.g. via the accel-build
+  // barrier before the TLAS build).
+  void BuildBlas(RICmd_s *cmd, RIDevice_s *device,
+                 RIBootstrap::FrameContext *cntx);
 
   virtual iVertexBuffer *CreateCopy(eVertexBufferType aType,
                                     eVertexBufferUsageType aUsageType,
@@ -161,14 +167,6 @@ public:
   // over-invalidated.
   Event<> &OnGeometryChanged() { return m_onGeometryChanged; }
 
-  // Lazily builds (or returns) a BLAS for this VB's position/index buffers. Returns nullptr
-  // if RT isn't supported, the VB hasn't been Compile()'d, or there's no index buffer.
-  // The build is recorded into `cmd`; the caller must ensure that command buffer is submitted
-  // and finished before the BLAS is read (e.g. by inserting a barrier before the TLAS build).
-  struct RIAccelStructure_s *GetOrBuildBlas(struct RIDevice_s *device, struct RICmd_s *cmd);
-
-
-
 protected:
   static void
   PushVertexElements(std::span<const float> values,
@@ -181,13 +179,14 @@ protected:
 
   uint32_t m_generation = 0;
   uint32_t m_lastSubmitted = 0;
+  uint32_t m_blasGeneration = 0; // m_generation at the last successful BLAS build
 
   size_t m_indexBufferActiveCopy = 0;
   size_t m_indexBufferCapacity = 0; // bytes allocated in m_indexBuffer
   tVertexElementFlag m_updateFlags = 0; // update no need to rebuild buffers
   bool m_updateIndices = false;
 
-  // Cached BLAS built on first GetOrBuildBlas call. Storage shares the deferred-free path
+  // Cached BLAS built on first BuildBlas call. Storage shares the deferred-free path
   // (same shared_ptr deleter as element buffers) so it outlives any in-flight build.
   std::shared_ptr<RIBuffer_s> m_blasStorage;
   std::shared_ptr<RIAccelStructure_s> m_blas = {};

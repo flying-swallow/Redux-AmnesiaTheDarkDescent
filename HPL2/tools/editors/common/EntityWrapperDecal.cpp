@@ -521,7 +521,7 @@ void cEntityWrapperDecal::OnPostDeployAll(bool abX)
 
 //-----------------------------------------------------------------------------------------
 
-void cEntityWrapperDecal::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions,iEditorEditMode* apEditMode,
+void cEntityWrapperDecal::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions,iEditorEditMode* apEditMode,
 						bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol)
 {
 	iEntityWrapper::Draw(apViewport, apFunctions, apEditMode, abIsSelected);
@@ -533,18 +533,18 @@ void cEntityWrapperDecal::Draw(cEditorWindowViewport* apViewport, cRendererCallb
 		//apFunctions->SetTextureRange(NULL,0);
 		//apFunctions->SetDepthTest(true);
 		//apFunctions->SetMatrix(&mmtxTranslate);
-		//apFunctions->GetLowLevelGfx()->DrawLine(0, mtxOrientation.GetRight()*mvScale.x*0.5f, cColor(1,0,0,1));
-		//apFunctions->GetLowLevelGfx()->DrawLine(0, mtxOrientation.GetUp()*mvScale.y*0.5f, cColor(0,1,0,1));
-		//apFunctions->GetLowLevelGfx()->DrawLine(0, mtxOrientation.GetForward()*mvScale.z*0.5f, cColor(0,0,1,1));
+		//apFunctions->DebugDrawLine(0, mtxOrientation.GetRight()*mvScale.x*0.5f, cColor(1,0,0,1));
+		//apFunctions->DebugDrawLine(0, mtxOrientation.GetUp()*mvScale.y*0.5f, cColor(0,1,0,1));
+		//apFunctions->DebugDrawLine(0, mtxOrientation.GetForward()*mvScale.z*0.5f, cColor(0,0,1,1));
 
 		/*apFunctions->SetTextureRange(NULL,0);
 		apFunctions->SetDepthTest(true);
 		apFunctions->SetMatrix(&mmtxTransform);
-		apFunctions->GetLowLevelGfx()->DrawLine(0, cVector3f(1,0,0), cColor(1,0,0,1));
-		apFunctions->GetLowLevelGfx()->DrawLine(0, cVector3f(0,1,0), cColor(0,1,0,1));
-		apFunctions->GetLowLevelGfx()->DrawLine(0, cVector3f(0,0,1), cColor(0,0,1,1));
+		apFunctions->DebugDrawLine(0, cVector3f(1,0,0), cColor(1,0,0,1));
+		apFunctions->DebugDrawLine(0, cVector3f(0,1,0), cColor(0,1,0,1));
+		apFunctions->DebugDrawLine(0, cVector3f(0,0,1), cColor(0,0,1,1));
 		
-		apFunctions->GetLowLevelGfx()->DrawBoxMinMax(-0.5f, 0.5f, cColor(1));*/
+		apFunctions->DebugDrawBoxMinMax(-0.5f, 0.5f, cColor(1));*/
 	}
 }
 

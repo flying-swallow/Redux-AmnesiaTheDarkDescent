@@ -197,24 +197,17 @@ bool cEntityWrapperBodyShape::GetProperty(int alPropID, tString& asX)
 
 //---------------------------------------------------------------------------
 
-void cEntityWrapperBodyShape::Draw(	cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions,
+void cEntityWrapperBodyShape::Draw(	cEditorWindowViewport* apViewport, DebugDraw* apFunctions,
 									iEditorEditMode* apEditMode,bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol )
 {
-	apFunctions->SetProgram(NULL);
-	apFunctions->SetTextureRange(NULL,0);
-
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(false);
-
 	cEngineEntityGeneratedMesh* pMesh = (cEngineEntityGeneratedMesh*)mpEngineEntity;
-	apFunctions->SetMatrix(pMesh->GetMeshEntity()->GetSubMeshEntity(0)->GetModelMatrix(NULL));
+
+	DebugDraw::DebugDrawOptions options;
+	cMatrixf* pModelMtx = pMesh->GetMeshEntity()->GetSubMeshEntity(0)->GetModelMatrix(NULL);
+	if(pModelMtx) options.m_transform = *pModelMtx;
 
 	cColor col = abIsSelected?cColor(1) : cColor(1,1,1,0.1f);
-	apFunctions->SetBlendMode(eMaterialBlendMode_Alpha);
-	apFunctions->DrawWireFrame(pMesh->GetVertexBuffer(), col);
-
-	apFunctions->SetMatrix(NULL);
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
+	apFunctions->DebugWireFrameFromVertexBuffer(pMesh->GetVertexBuffer(), col, options);
 
 //	apFunctions->SetMatrix(&mmtxTransform);
 

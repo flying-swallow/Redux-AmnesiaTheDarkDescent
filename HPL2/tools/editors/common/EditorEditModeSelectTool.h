@@ -65,8 +65,8 @@ public:
 
 	eSelectToolMode GetToolMode() { return mToolMode; }
 
-	void Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions);
-	virtual void DrawAxes(cEditorWindowViewport* apViewport, cRendererCallbackFunctions *apFunctions, float afAxisLength){}
+	void Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions);
+	virtual void DrawAxes(cEditorWindowViewport* apViewport, DebugDraw *apFunctions, float afAxisLength){}
 
 	void OnEditorUpdate();
 	virtual void UpdateTransformation(){}

@@ -220,15 +220,18 @@ void cLuxScreenCapture::OnPostRender()
 	const uint32_t w = RI.swapchain.width;
 	const uint32_t h = RI.swapchain.height;
 
-	// The clean game scene (world + post-effects, NO GUI) lives in the pogo
-	// buffer's "read" half — the same image the renderer's tail blit samples to
-	// write the swapchain (HybridRenderer.cpp). The GUI is composited onto the
-	// swapchain only after that blit, so the swapchain is the wrong source.
-	// The menu/inventory viewport draws no world, so the pogo still holds the
-	// last gameplay frame. The pogo lacks TRANSFER_SRC usage, so we sample it
-	// in a fullscreen pass rather than vkCmdBlitImage.
-	RI_PogoBuffer  *pogo       = &RI.pogoBuffer[RI.swapchainIndex];
-	RIDescriptor_s *sceneColor = RI_PogoBufferShaderResource(pogo);
+	// The clean game scene (world + post-effects, NO GUI) lives in the primary
+	// viewport's pogo "read" half — the same image cScene's tail blit samples
+	// to write the swapchain. The GUI is composited onto the swapchain only
+	// after that blit, so the swapchain is the wrong source. The
+	// menu/inventory viewport draws no world, so the pogo still holds the
+	// last gameplay frame. Sample it in a fullscreen pass.
+	cViewport *pViewport = gpBase->mpEngine->GetScene()->GetPrimaryViewport();
+	RI_PogoBuffer *pPogo = pViewport ? pViewport->GetPogoBuffer() : NULL;
+	if (pPogo == NULL) {
+		return; // No world rendered yet; try again next post-render.
+	}
+	RIDescriptor_s *sceneColor = RI_PogoBufferShaderResource(pPogo);
 
 	// Keep the textures alive until the GPU has consumed them — BeginActiveSet
 	// drains textureLink only after the frame slot's fence signals.

@@ -52,7 +52,7 @@ public:
 	const cColor& GetColor() { return mColor; }
 	void SetColor(const cColor& aCol);
 
-	void Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions);
+	void Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions);
 
 	bool Load(cXmlElement* apElement);
 	bool Save(cXmlElement* apElement);
@@ -70,7 +70,6 @@ private:
 	tEntityWrapperList mlstEntities;
 
 	cColor mColor;
-	iGpuProgram* mpDrawProg;
 };
 
 //------------------------------------------------------

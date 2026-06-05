@@ -53,17 +53,9 @@ cEditorEditModeBodies::cEditorEditModeBodies(iEditorBase* apEditor,
 
 //-----------------------------------------------------------------
 
-void cEditorEditModeBodies::DrawObjectPreview(cEditorWindowViewport* apViewport, cRendererCallbackFunctions *apFunctions, const cVector3f& avPos, bool abPreCreationActive)
+void cEditorEditModeBodies::DrawObjectPreview(cEditorWindowViewport* apViewport, DebugDraw *apFunctions, const cVector3f& avPos, bool abPreCreationActive)
 {
-	apFunctions->SetMatrix(NULL);
-	apFunctions->SetBlendMode(eMaterialBlendMode_Alpha);
-	apFunctions->SetTextureRange(NULL,0);
-	apFunctions->SetProgram(NULL);
-	
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(false);
-
-	apFunctions->GetLowLevelGfx()->DrawSphere(mpEditor->GetPosOnGridFromMousePos(),0.1f,cColor(1,0,0,1));
+	apFunctions->DebugDrawSphere(mpEditor->GetPosOnGridFromMousePos(),0.1f,cColor(1,0,0,1));
 
 	eEditorBodyShape shapeType = ((cEditorWindowBodies*)mpWindow)->GetBodyShapeType();
 	cBoundingVolume shapeBV;
@@ -86,34 +78,22 @@ void cEditorEditModeBodies::DrawObjectPreview(cEditorWindowViewport* apViewport,
 	const cVector3f& vBVMax = shapeBV.GetMax();
 	
 	cMatrixf mtxObject = cMath::MatrixTranslate(avPos);
-	
-	apFunctions->SetMatrix(&mtxObject);
-		
+
+	DebugDraw::DebugDrawOptions previewOptions;
+	previewOptions.m_transform = mtxObject;
 
 	if(abPreCreationActive)
 	{
-		apFunctions->SetDepthTestFunc(eDepthTestFunc_Greater);
-		apFunctions->GetLowLevelGfx()->DrawBoxMinMax(vBVMin,vBVMax, cColor(1,0,0,0.6f));
-		apFunctions->SetDepthTestFunc(eDepthTestFunc_Less);
-		apFunctions->GetLowLevelGfx()->DrawBoxMinMax(vBVMin,vBVMax, cColor(0,1,0,0.6f));
-	
-		/////////////////////////////////////////
-		// Draw Textured Mesh
-		//iVertexBuffer* pShapeVtxBuffer = mpEditor->GetBodyShapeVertexBuffer(shapeType);
-		//if(pShapeVtxBuffer)
-		//{
-		//	apFunctions->SetVertexBuffer(pShapeVtxBuffer);
-		//	apFunctions->DrawCurrent();
-		//}
+		// Occluded part red, visible part green (legacy depth-func flip).
+		previewOptions.m_depthTest = DebugDraw::DebugDepthTest::Greater;
+		apFunctions->DebugDrawBoxMinMax(vBVMin,vBVMax, cColor(1,0,0,0.6f), previewOptions);
+		previewOptions.m_depthTest = DebugDraw::DebugDepthTest::Less;
+		apFunctions->DebugDrawBoxMinMax(vBVMin,vBVMax, cColor(0,1,0,0.6f), previewOptions);
 	}
 	else
 	{
-		apFunctions->GetLowLevelGfx()->DrawBoxMinMax(vBVMin,vBVMax, cColor(1,0.5f));
+		apFunctions->DebugDrawBoxMinMax(vBVMin,vBVMax, cColor(1,0.5f), previewOptions);
 	}
-
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-	apFunctions->SetMatrix(NULL);	
-
 }
 
 //-----------------------------------------------------------------

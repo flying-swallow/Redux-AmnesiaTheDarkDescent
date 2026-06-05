@@ -33,6 +33,7 @@ namespace hpl {
 	class cGraphics;
 	class cSound;
 	class cScene;
+	class cViewport;
 
 	class cFrustum;
 	class iFontData;
@@ -186,7 +187,14 @@ namespace hpl {
 
 		////////////////////////////////////
 		// Rendering
-		void Render(cFrustum *apFrustum);
+		// apViewport tells the set whether the rendering instance it draws
+		// inside has a depth attachment (viewport->GetDepthView() — whoever
+		// opened the instance attached the same view). The cached pipelines
+		// key on it so their depthAttachmentFormat matches the actual
+		// attachments; nullptr (or a viewport with no depth — GUI-only menu
+		// frames) renders the no-depth variant, and 3D-GUI depth testing only
+		// applies when a depth view exists.
+		void Render(cFrustum *apFrustum, cViewport *apViewport = nullptr);
 
 		void ClearRenderObjects();
 

@@ -24,6 +24,15 @@
 #include "EditorSelection.h"
 #include "EditorWorld.h"
 
+#include "graphics/HPLTexture.h"
+#include "graphics/Image.h"
+#include "graphics/RIBootstrap.h"
+#include "graphics/RIRenderer.h"
+
+#if (DEVICE_IMPL_VULKAN)
+#include <vk_mem_alloc.h>
+#endif
+
 int iEditorViewport::mlViewportCount = 0;
 bool iEditorViewport::mbCamPlanesUpdated = true;
 cVector2f iEditorViewport::mvCamPlanes = cVector2f(0.05f, 1000.0f);
@@ -856,6 +865,82 @@ void iEditorViewport::SetFrameBuffer(iFrameBuffer* apFB)
 
 //-------------------------------------------------------------
 
+//-------------------------------------------------------------
+
+// (Re)creates the editor-owned pane color texture at the given extent: a
+// sampled + color-attachable PogoColorFormat image (cScene's TargetView
+// delivery renders the viewport's finished pogo into it and leaves it
+// SHADER_READ_ONLY for the GUI). Returns false on failure. The HPLTexture
+// deleter defers the GPU frees onto the frame freelist, so dropping the
+// previous texture mid-flight is safe.
+static bool CreatePaneTexture(std::shared_ptr<HPLTexture> &outTexture,
+							  uint32_t alWidth, uint32_t alHeight)
+{
+	std::shared_ptr<HPLTexture> texture(new HPLTexture{},
+										HPLTexture::HPLTexture_Delete);
+
+	VkImageCreateInfo imageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.format = RIBootstrap::PogoColorFormatVk;
+	imageInfo.extent = {alWidth, alHeight, 1};
+	imageInfo.mipLevels = 1;
+	imageInfo.arrayLayers = 1;
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	// COLOR_ATTACHMENT: cScene's delivery draw renders into it.
+	// SAMPLED: the GUI (GuiSet) displays it like any other Image.
+	imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+	uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
+	imageInfo.pQueueFamilyIndices = queueFamilies;
+	VK_ConfigureImageQueueFamilies(&imageInfo, RI.device.queues, RI_QUEUE_LEN,
+								   queueFamilies, RI_QUEUE_LEN);
+
+	VmaAllocationCreateInfo allocInfo = {};
+	allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+	if(!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo,
+									 &allocInfo, &texture->handle.vk.image,
+									 &texture->vk.vmaAlloc, NULL)))
+	{
+		Error("EditorViewport: failed to create %ux%u pane image\n", alWidth, alHeight);
+		return false;
+	}
+
+	VkImageViewCreateInfo viewInfo = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+	viewInfo.image = texture->handle.vk.image;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.format = imageInfo.format;
+	viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+	texture->binding.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
+	texture->binding.texture = &texture->handle;
+	texture->binding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+	texture->binding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	if(!VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
+										&texture->binding.vk.image.imageView)))
+	{
+		Error("EditorViewport: failed to create pane image view\n");
+		vmaDestroyImage(RI.device.vk.vmaAllocator, texture->handle.vk.image,
+						texture->vk.vmaAlloc);
+		texture->handle.vk.image = VK_NULL_HANDLE;
+		texture->vk.vmaAlloc = NULL;
+		return false;
+	}
+	RIFinalizeDescriptor(&RI.device, &texture->binding);
+
+	texture->width = (uint16_t)alWidth;
+	texture->height = (uint16_t)alHeight;
+	texture->depth = 1;
+	texture->mipNum = 1;
+	texture->format = RIBootstrap::PogoColorFormat;
+
+	outTexture = texture;
+	return true;
+}
+
+//-------------------------------------------------------------
+
 void iEditorViewport::UpdateViewport()
 {
 	if(mpImgViewport==NULL || mbViewportNeedsUpdate==false)
@@ -864,34 +949,52 @@ void iEditorViewport::UpdateViewport()
 	cGui* pGui = mpGuiSet->GetGui();
 
 	////////////////////////////////////////////
-	// (Re)size the offscreen RI target to the engine viewport extent and point
-	// the engine viewport at it — HybridRenderer then renders this pane 1:1
-	// into the target's sampled texture (see the offscreen tail blit) instead
-	// of the swapchain. Resize keeps the wrapping Image stable, so existing
-	// gfx elements keep working across pane resizes; it defers the old GPU
-	// texture past in-flight frames internally.
+	// (Re)create the editor-owned pane surface at the pane extent and target
+	// the engine viewport at it: cScene's TargetView delivery renders the
+	// viewport's finished pogo into the pane texture each frame and the GUI
+	// samples it. The wrapping Image stays stable across pane resizes, so
+	// existing gfx elements keep working; old textures are freed via the
+	// HPLTexture deleter (frame freelist).
 	const cVector2l vSize = mpEngineViewport->GetSize();
 	if(vSize.x <= 0 || vSize.y <= 0)
 		return;
 
-	if(mpViewportTarget == NULL)
-		mpViewportTarget = std::make_shared<cViewportTarget>();
-	const bool bHadImage = mpViewportTarget->IsValid();
-	mpViewportTarget->Resize((uint32_t)vSize.x, (uint32_t)vSize.y);
-	mpEngineViewport->SetViewportTarget(mpViewportTarget);
+	if(mpPaneTexture == nullptr || mvPaneSize != vSize)
+	{
+		if(!CreatePaneTexture(mpPaneTexture, (uint32_t)vSize.x, (uint32_t)vSize.y))
+			return; // creation failed; retry next update
+		mvPaneSize = vSize;
+
+		// Keep the Image wrapper stable — GUI gfx elements hold the Image*;
+		// GuiSet re-resolves the texture from it every draw.
+		Image::SingleImage singleImage = {};
+		singleImage.image = mpPaneTexture;
+		if(mpPaneImage)
+		{
+			mpPaneImage->SetImage(std::move(singleImage));
+		}
+		else
+		{
+			mpPaneImage = std::make_shared<Image>(std::move(singleImage));
+		}
+	}
+
+	cViewport::TargetView target = {};
+	target.width = (uint32_t)vSize.x;
+	target.height = (uint32_t)vSize.y;
+	target.texture = mpPaneTexture->handle;
+	target.view.vk.image = mpPaneTexture->binding.vk.image.imageView;
+	mpEngineViewport->SetTarget(target);
 
 	////////////////////////////////////////////
-	// Bind the target's Image to the viewport widget. The Image wrapper is
+	// Bind the pane's Image to the viewport widget. The Image wrapper is
 	// stable across resizes, so the gfx element only needs (re)creating once.
-	if(bHadImage == false)
+	if(mpImgViewport->GetImage() == NULL)
 	{
-		cGuiGfxElement* pImg = mpImgViewport->GetImage();
-		if(pImg) pGui->DestroyGfx(pImg);
-
-		// Offscreen target is 1:1 — full UV range, no sub-rect math. The
-		// target owns the texture (abAutoDestroyTexture=false).
-		pImg = pGui->CreateGfxTexture(mpViewportTarget->GetImage().get(), false,
-									  eGuiMaterial_Diffuse);
+		// Pane is 1:1 — full UV range, no sub-rect math. The editor owns the
+		// texture (abAutoDestroyTexture=false).
+		cGuiGfxElement* pImg = pGui->CreateGfxTexture(mpPaneImage.get(), false,
+													  eGuiMaterial_Diffuse);
 		mpImgViewport->SetImage(pImg);
 	}
 

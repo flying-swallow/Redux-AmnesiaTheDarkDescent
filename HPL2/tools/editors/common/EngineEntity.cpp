@@ -183,50 +183,41 @@ void iEngineEntityMesh::UpdateVisibility()
 
 //-----------------------------------------------------------------------
 
-void iEngineEntityMesh::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, bool abIsSelected,	bool abIsActive, const cColor& aHighlightCol)
+void iEngineEntityMesh::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, bool abIsSelected,	bool abIsActive, const cColor& aHighlightCol)
 {
 	if(abIsSelected==false)
 		return;
 
-	apFunctions->SetBlendMode(eMaterialBlendMode_Alpha);
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(false);
-
 	cMeshEntity* pMeshEntity = GetMeshEntity();
 	for(int i=0;i<pMeshEntity->GetSubMeshEntityNum();++i)
 	{
 		cSubMeshEntity* pSubMeshEntity = pMeshEntity->GetSubMeshEntity(i);
-		apFunctions->SetMatrix(pSubMeshEntity->GetModelMatrix(NULL));
-		apFunctions->DrawWireFrame(pSubMeshEntity->GetVertexBuffer(), aHighlightCol);
+
+		DebugDraw::DebugDrawOptions options;
+		cMatrixf* pModelMtx = pSubMeshEntity->GetModelMatrix(NULL);
+		if(pModelMtx) options.m_transform = *pModelMtx;
+
+		apFunctions->DebugWireFrameFromVertexBuffer(pSubMeshEntity->GetVertexBuffer(), aHighlightCol, options);
 	}
-	apFunctions->SetMatrix(NULL);
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-	apFunctions->SetDepthTest(false);
 }
 
 //-----------------------------------------------------------------------
 
-void iEngineEntityMesh::DrawProgram(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iGpuProgram* apProg, const cColor& aCol)
+void iEngineEntityMesh::DrawProgram(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iGpuProgram* apProg, const cColor& aCol)
 {
-	apFunctions->SetBlendMode(eMaterialBlendMode_Alpha);
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(false);
-	apFunctions->SetProgram(apProg);
-	apFunctions->SetTextureRange(NULL, 0);
-
+	// Legacy drew the submeshes through a flat-color GPU program; the batcher
+	// equivalent is a solid tinted triangle walk over the vertex buffers.
 	cMeshEntity* pMeshEntity = GetMeshEntity();
 	for(int i=0;i<pMeshEntity->GetSubMeshEntityNum();++i)
 	{
 		cSubMeshEntity* pSubMeshEntity = pMeshEntity->GetSubMeshEntity(i);
-		apFunctions->SetMatrix(pSubMeshEntity->GetModelMatrix(NULL));
-		apFunctions->SetVertexBuffer(pSubMeshEntity->GetVertexBuffer());
-		apFunctions->GetLowLevelGfx()->SetColor(aCol);
-		
-		apFunctions->DrawCurrent();
+
+		DebugDraw::DebugDrawOptions options;
+		cMatrixf* pModelMtx = pSubMeshEntity->GetModelMatrix(NULL);
+		if(pModelMtx) options.m_transform = *pModelMtx;
+
+		apFunctions->DebugSolidFromVertexBuffer(pSubMeshEntity->GetVertexBuffer(), aCol, options);
 	}
-	apFunctions->SetMatrix(NULL);
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-	apFunctions->SetDepthTest(false);
 }
 
 //-----------------------------------------------------------------------
@@ -483,7 +474,7 @@ bool iIconEntity::CheckRayIntersect(cEditorWindowViewport* apViewport, cVector3f
 }
 
 void iIconEntity::Draw(cEditorWindowViewport* apViewport, 
-					  cRendererCallbackFunctions* apFunctions, 
+					  DebugDraw* apFunctions, 
 					  bool abIsSelected,
 					  bool abIsActive,
 					  const cColor& aHighlightCol)

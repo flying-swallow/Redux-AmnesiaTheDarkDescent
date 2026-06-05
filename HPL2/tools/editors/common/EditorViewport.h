@@ -24,8 +24,6 @@
 
 #include "EditorGrid.h"
 
-#include "graphics/RIViewportTarget.h"
-
 #include <memory>
 
 using namespace hpl;
@@ -352,10 +350,13 @@ protected:
 
 	//////////////////////////////
 	// Render to texture stuff
-	// RI offscreen target: the engine viewport renders into this and the GUI
-	// widget displays its Image (see UpdateViewport). Legacy FB members kept
-	// until the Phase-5 cleanup.
-	std::shared_ptr<cViewportTarget> mpViewportTarget;
+	// Editor-owned pane surface: cScene's delivery draws the engine
+	// viewport's finished pogo into it (TargetView) and the GUI widget
+	// displays its Image (see UpdateViewport). Legacy FB members kept until
+	// the Phase-5 cleanup.
+	std::shared_ptr<HPLTexture> mpPaneTexture;
+	std::shared_ptr<Image> mpPaneImage;
+	cVector2l mvPaneSize = cVector2l(0, 0);
 	iFrameBuffer* mpFB;
 	iTexture* mpRenderTarget;
 	cVector2f mvUVStart;

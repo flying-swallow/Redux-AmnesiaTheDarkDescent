@@ -19,7 +19,6 @@
 #include "graphics/RIProgramHelpers.h"
 #include "graphics/RIResourceUploader.h"
 #include "graphics/RIVK.h"
-#include "graphics/RIViewportTarget.h"
 #include "scene/Viewport.h"
 #include "graphics/Renderable.h"
 #include "graphics/VertexBuffer.h"
@@ -281,7 +280,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
       imgInfo.imageType = VK_IMAGE_TYPE_2D;
       imgInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-      imgInfo.extent = {RI.renderWidth, RI.renderHeight, 1};
+      imgInfo.extent = {overscanExtent(RI.swapchain.width),
+                        overscanExtent(RI.swapchain.height), 1};
       imgInfo.mipLevels = 1;
       imgInfo.arrayLayers = 1;
       imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -321,7 +321,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
       imgInfo.imageType = VK_IMAGE_TYPE_2D;
       imgInfo.format = VK_FORMAT_R32G32B32A32_UINT;
-      imgInfo.extent = {RI.renderWidth, RI.renderHeight, 1};
+      imgInfo.extent = {overscanExtent(RI.swapchain.width),
+                        overscanExtent(RI.swapchain.height), 1};
       imgInfo.mipLevels = 1;
       imgInfo.arrayLayers = 1;
       imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -356,7 +357,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
       imgInfo.imageType = VK_IMAGE_TYPE_2D;
       imgInfo.format = VK_FORMAT_R16G16_SFLOAT;
-      imgInfo.extent = {RI.renderWidth, RI.renderHeight, 1};
+      imgInfo.extent = {overscanExtent(RI.swapchain.width),
+                        overscanExtent(RI.swapchain.height), 1};
       imgInfo.mipLevels = 1;
       imgInfo.arrayLayers = 1;
       imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -392,7 +394,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
       imgInfo.imageType = VK_IMAGE_TYPE_2D;
       imgInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-      imgInfo.extent = {RI.renderWidth, RI.renderHeight, 1};
+      imgInfo.extent = {overscanExtent(RI.swapchain.width),
+                        overscanExtent(RI.swapchain.height), 1};
       imgInfo.mipLevels = 1;
       imgInfo.arrayLayers = 1;
       imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -518,28 +521,108 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
   }
 }
 
+// --------------------------------------------------------------------
+// cViewport::HybridViewportState — the viewport holds the state, this
+// backend refines it: Update receives the target size (GetTargetSize) and
+// grows it by the guard band internally — every target renders the overscan
+// frame; GetBackBuffer exposes the centered authored window, which cScene
+// feeds into the viewport pogo in the post-processing step. Replacement/
+// resize hand the old targets to the frame freelist (drained once the
+// pipeline is done with them) — no stall.
+// --------------------------------------------------------------------
+
+void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
+                                            cVector2l size) {
+  if (size.x <= 0 || size.y <= 0) {
+    return;
+  }
+  const uint32_t renderW = overscanExtent((uint32_t)size.x);
+  const uint32_t renderH = overscanExtent((uint32_t)size.y);
+  if (width == renderW && height == renderH &&
+      targetWidth == (uint32_t)size.x && targetHeight == (uint32_t)size.y) {
+    return;
+  }
+
+  Dispose(cntx);
+
+  width = renderW;
+  height = renderH;
+  targetWidth = (uint32_t)size.x;   // the BackBuffer crop window
+  targetHeight = (uint32_t)size.y;
+
+  for (uint32_t i = 0; i < RI.swapchain.imageCount; i++) {
+    // Overscan HDR color target: the compute composite writes it as a
+    // storage image, the forward raster passes attach it, cScene's pogo
+    // feed blits its centered authored window out (TRANSFER_SRC).
+    CreateViewportColorTexture(
+        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        &renderTarget[i], &renderTargetDescriptor[i],
+        "HybridViewportState.renderTarget");
+
+    // SAMPLED lets surfel_generate / surfel_raytrace bind the depth as
+    // `sampler2D depthMap` after the gbuffer pass flips it to
+    // SHADER_READ_ONLY.
+    CreateViewportAttachmentTexture(
+        &RI.device, renderW, renderH, RIBootstrap::DepthFormat,
+        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_IMAGE_ASPECT_DEPTH_BIT, &depthTextures[i], &depthView[i],
+        "HybridViewportState.depth");
+
+    CreateViewportAttachmentTexture(
+        &RI.device, renderW, renderH, RIBootstrap::VisibilityFormat,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT, &visibilityTexture[i], &visibilityView[i],
+        "HybridViewportState.visibility");
+  }
+}
+
+void cViewport::HybridViewportState::Dispose(RIBootstrap::FrameContext *cntx) {
+  for (uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; i++) {
+    ReleaseViewportColorTexture(cntx->freelist, &renderTarget[i],
+                                &renderTargetDescriptor[i]);
+    ReleaseViewportAttachmentTexture(cntx->freelist, &depthTextures[i],
+                                     &depthView[i]);
+    ReleaseViewportAttachmentTexture(cntx->freelist, &visibilityTexture[i],
+                                     &visibilityView[i]);
+  }
+  width = height = 0;
+  targetWidth = targetHeight = 0;
+}
+
 void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                            float afFrameTime, cFrustum *apFrustum,
                            cWorld *apWorld, cRenderSettings *apSettings,
                            bool abSendFrameBufferToPostEffects) {
 
-  // Offscreen viewport target (editor panes / previews): render at the
-  // target's own 1:1 extent — no guard band — reusing the global overscan
-  // intermediates (renderPogo / depth / visibility are all sized to the
-  // overscan extent, which every pane fits inside), and deliver the finished
-  // frame via the tail blit into the target's sampled texture instead of the
-  // authored pogo crop.
-  cViewportTarget *offTarget =
-      viewport ? viewport->GetViewportTarget() : nullptr;
-  if (offTarget && !offTarget->IsValid()) {
-    offTarget = nullptr;
+  // Target-agnostic: the viewport resolves its extent from its Target
+  // (swapchain extent for TargetSwapchain, the view's for TargetView) and
+  // PrepareToRender configures this backend's state for it (guard-band
+  // overscan applied inside Update — every target renders the overscan frame;
+  // cScene's pogo feed crops the center, keeping the authored FOV).
+  const cVector2l vTargetSize = viewport->GetTargetSize();
+  if (vTargetSize.x <= 0 || vTargetSize.y <= 0) {
+    return;
   }
-  const uint32_t renderWidth =
-      offTarget ? offTarget->GetWidth() : RI.renderWidth;
-  const uint32_t renderHeight =
-      offTarget ? offTarget->GetHeight() : RI.renderHeight;
-  assert(renderWidth <= RI.renderWidth && renderHeight <= RI.renderHeight &&
-         "offscreen target larger than the shared overscan intermediates");
+  const uint32_t authoredWidth = (uint32_t)vTargetSize.x;
+  const uint32_t authoredHeight = (uint32_t)vTargetSize.y;
+
+  cViewport::HybridViewportState *pState =
+      viewport->PrepareToRender<cViewport::HybridViewportState>(cntx,
+                                                                vTargetSize);
+  if (pState == nullptr || pState->width == 0) {
+    return;
+  }
+  cViewport::HybridViewportState &state = *pState;
+  const uint32_t renderWidth = state.width;   // overscan applied by Update
+  const uint32_t renderHeight = state.height;
+  // The shared per-renderer member textures (velocity, surfel history, ...)
+  // are sized once to overscanExtent(swapchain) — every viewport must fit.
+  assert(renderWidth <= overscanExtent(RI.swapchain.width) &&
+         renderHeight <= overscanExtent(RI.swapchain.height) &&
+         "viewport larger than the shared per-renderer member textures");
 
   ml::float4x4 mainFrustumViewInvMat = apFrustum->GetViewMat();
   mainFrustumViewInvMat.Invert();
@@ -549,9 +632,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // the authored FOV. Scaling the projection's x/y focal terms (diagonal a[0],
   // a[5]) by 1/(1+2f) zooms out symmetrically about the centre. Done here so the
   // widened projection flows into perFrame.projMat, invProjMat, and m_prevProjMat
-  // (velocity) — and cameraU/V are widened to match below.
-  // Offscreen targets render 1:1 with no crop, so they keep the authored FOV.
-  if (!offTarget) {
+  // (velocity) — and cameraU/V are widened to match below. Every target renders
+  // the overscan frame (Update applies the same factor), so this is
+  // unconditional.
+  {
     const float gb = 1.0f + 2.0f * kGuardBandFraction;
     mainFrustumProjMat.a[0] /= gb;
     mainFrustumProjMat.a[5] /= gb;
@@ -618,9 +702,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Per-frame prepare for every translucent renderable (particles + meshes +
   // billboards + beams). UpdateGraphicsForFrame/ForViewport recompute dynamic
   // geometry (billboard facing, beam stretch, emitter step) and mark the VB
-  // dirty; SubmitToGPU then allocates/uploads dirty streams and rebuilds the
-  // BLAS (no-op on repeat via the generation check). Done once here so the TLAS
-  // build, particle pass, and mesh pass all consume already-prepared buffers.
+  // dirty; SubmitToGPU then allocates/uploads dirty streams and BuildBlas
+  // rebuilds the BLAS (both no-op on repeat via their generation checks). Done
+  // once here so the TLAS build, particle pass, and mesh pass all consume
+  // already-prepared buffers.
   //
   // Must run BEFORE any vkCmdBeginRendering so the uploader's barriers and
   // BLAS-build cmds don't collide with a dynamic-rendering scope.
@@ -635,8 +720,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
       // Particles/billboards/beams/ropes are translucent but never TLAS
       // instances — upload their streams for the raster pass, skip the BLAS.
-      vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx,
-                        renderableNeedsBlas(pObj));
+      vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
+      if (renderableNeedsBlas(pObj)) {
+        vbri->BuildBlas(&RI.blasSubmit.cmds[0], &RI.device, cntx);
+      }
       vbri->AttachResourceToCntx(cntx);
     }
   }
@@ -654,9 +741,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     iVertexBuffer *pVB = pObj->GetVertexBuffer();
     if (pVB) {
       auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
-      // Decals are never TLAS instances — upload streams, skip the BLAS.
-      vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx,
-                        /*abBuildBlas=*/false);
+      // Decals are never TLAS instances — upload streams, no BLAS.
+      vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
       vbri->AttachResourceToCntx(cntx);
     }
   }
@@ -1125,11 +1211,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       d.decalList = (off << 8) | (cnt & 0xFFu);
     }
     auto *vb = static_cast<VertexBuffer_RI *>(pVB);
-    // Upload the VB geometry first so submitObject sees the post-realloc index
-    // count — an in-loop realloc that changes the triangle count must bump the
-    // slot generation this same frame (anchored surfels with a now-out-of-range
-    // primitiveIndex go stale before the OOB deref).
-    vb->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
+    // BuildBlas submits the VB geometry first (internal SubmitToGPU), so
+    // submitObject below sees the post-realloc index count — an in-loop realloc
+    // that changes the triangle count must bump the slot generation this same
+    // frame (anchored surfels with a now-out-of-range primitiveIndex go stale
+    // before the OOB deref).
+    vb->BuildBlas(&RI.blasSubmit.cmds[0], &RI.device, cntx);
     vb->AttachResourceToCntx(cntx);
 
     // Stable object slot, keyed on the renderable's unique cookie (NOT its
@@ -1168,7 +1255,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       };
     }
 
-    // BLAS was recorded by SubmitToGPU above into the same primary cmd buffer;
+    // BLAS was recorded by BuildBlas above into the same primary cmd buffer;
     // the accel-build→accel-build barrier below guarantees the TLAS read sees
     // the BLAS writes.
     auto blas = vb->accelStructure();
@@ -1555,7 +1642,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     toColor.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     toColor.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     toColor.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    toColor.image = RI.visibilityTexture[RI.swapchainIndex].vk.image;
+    toColor.image = state.visibilityTexture[RI.swapchainIndex].vk.image;
 
     VkImageMemoryBarrier2 &toDepth = attachmentBarriers[1];
     toDepth.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
@@ -1566,7 +1653,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     toDepth.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     toDepth.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     toDepth.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    toDepth.image = RI.depthTextures[RI.swapchainIndex].vk.image;
+    toDepth.image = state.depthTextures[RI.swapchainIndex].vk.image;
 
     // Velocity MRT — same UNDEFINED→COLOR transition as the visibility target
     // (loadOp=CLEAR, so prior contents don't matter).
@@ -1588,7 +1675,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   VkRenderingAttachmentInfo colorAttachment = {
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-  colorAttachment.imageView = RI.visibilityView[RI.swapchainIndex].vk.image;
+  colorAttachment.imageView = state.visibilityView[RI.swapchainIndex].vk.image;
   colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
   colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1612,7 +1699,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   VkRenderingAttachmentInfo depthAttachment = {
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
   // MRT owns the per-frame depth clear.
-  RI_VK_FillDepthAttachment(&depthAttachment, &RI.depthView[RI.swapchainIndex],
+  RI_VK_FillDepthAttachment(&depthAttachment, &state.depthView[RI.swapchainIndex],
                             /*attachAndClear=*/true);
 
   // ----------------------------------------------------------------------
@@ -2155,7 +2242,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     toRead[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     toRead[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     toRead[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    toRead[0].image = RI.visibilityTexture[RI.swapchainIndex].vk.image;
+    toRead[0].image = state.visibilityTexture[RI.swapchainIndex].vk.image;
 
     // Depth -> SHADER_READ_ONLY for the compute pass.
     toRead[1].srcStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
@@ -2166,7 +2253,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     toRead[1].oldLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     toRead[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     toRead[1].subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    toRead[1].image = RI.depthTextures[RI.swapchainIndex].vk.image;
+    toRead[1].image = state.depthTextures[RI.swapchainIndex].vk.image;
 
     // Surfel-result image: surfel_generation_pass only writes gOutput for
     // pixels actually covered by a surfel (indirectLighting.w > 0). Valid-hit
@@ -2437,7 +2524,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                            m_packedHitInfoView[RI.swapchainIndex].vk.image);
     pushTlas(bnd);
     bnd.push_back(pushSampled("gPackedHitInfoRaster",
-                              RI.visibilityView[RI.swapchainIndex].vk.image,
+                              state.visibilityView[RI.swapchainIndex].vk.image,
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
     bnd.push_back(pushSampled("gVelocity",
                               m_velocityView[RI.swapchainIndex].vk.image,
@@ -2475,18 +2562,17 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // MainCompositePass — compute pass. Reads gIndirectLighting
   // (m_surfelResultView, from SurfelGenerationPass above) + gPackedHitInfo /
   // gPackedHitInfoRaster / TLAS / gPerFrame, and writes the composited color
-  // into the pogo buffer. The post-effect chain ping-pongs through pogo from
-  // there; a tail blit lower in this function copies the final pogo "read" half
-  // into the swapchain, which the particle/decal pass composites on top of.
+  // into the viewport render target. The forward passes draw on top of it; the
+  // tail crop-blits it into the viewport backbuffer, which Scene.cpp's
+  // post-effect chain + swapchain tail blit consume.
   // --------------------------------------------------------------------
 
-  // Composite + forward passes render into the OVERSCAN render-pogo (guard band);
-  // cropped 1:1 center into the authored RI.pogoBuffer at the end of Draw, which
-  // Scene.cpp's post-effect chain then consumes.
-  RI_PogoBuffer *pogo = &RI.renderPogo[RI.swapchainIndex];
+  // Composite + forward passes render into the OVERSCAN render target (guard
+  // band, single image — the main draw never ping-pongs); cropped 1:1 center
+  // into the authored-size viewport backbuffer at the end of Draw.
 
   // Barrier: make the surfel cache + gIndirectLighting visible to the COMPUTE
-  // SurfelGI composite, and put the pogo attach into GENERAL for the storage
+  // SurfelGI composite, and put the render target into GENERAL for the storage
   // write. (The RT V-buffer pass (2956) and the raster visibility buffer (3016)
   // were already barriered to the COMPUTE stage upstream.)
   {
@@ -2534,19 +2620,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
       b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
       b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      b.image = pogo->textures[pogo->attachmentIndex].vk.image;
+      b.image = state.renderTarget[RI.swapchainIndex].vk.image;
       b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
       imageBarriers.push_back(b);
-    }
-
-    if (!m_pogoInitialized[RI.swapchainIndex]) {
-      // First frame: bring the OTHER (read) half to SHADER_READ_ONLY so the
-      // post-effect chain / next-frame toggle find it in a defined layout. The
-      // attach half is handled by the UNDEFINED->GENERAL barrier above.
-      const uint32_t readIdx = (pogo->attachmentIndex + 1u) % 2u;
-      imageBarriers.push_back(VK_RI_PogoShaderMemoryBarrier2(
-          pogo->textures[readIdx].vk.image, /*initial=*/true));
-      m_pogoInitialized[RI.swapchainIndex] = true;
     }
 
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
@@ -2578,7 +2654,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     depthBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
     depthBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     depthBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    depthBarrier.image = RI.depthTextures[RI.swapchainIndex].vk.image;
+    depthBarrier.image = state.depthTextures[RI.swapchainIndex].vk.image;
     depthBarrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dep.imageMemoryBarrierCount = 1;
@@ -2633,7 +2709,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
       b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
       b.descriptor.vk.image.imageView =
-          RI.visibilityView[RI.swapchainIndex].vk.image;
+          state.visibilityView[RI.swapchainIndex].vk.image;
       b.descriptor.vk.image.imageLayout =
           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
       RIFinalizeDescriptor(&RI.device, &b.descriptor);
@@ -2643,10 +2719,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     pushSurfelSampledImage(
         bnd, "gDirectLighting",
         m_directLightingView[m_directLightingIndex].vk.image);
-    // gOutput — the pogo attach view bound as a storage image (GENERAL).
+    // gOutput — the viewport render target bound as a storage image (GENERAL).
     pushSurfelStorageImage(
         bnd, "gOutput",
-        pogo->pogoAttachment[pogo->attachmentIndex].vk.image.imageView);
+        state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView);
 
     m_mainComposite.bindDescriptors(
         &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
@@ -2660,9 +2736,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // frame's history.
   m_directLightingIndex ^= 1u;
 
-  // Pogo attach: GENERAL (compute write) -> COLOR_ATTACHMENT_OPTIMAL so the
-  // unchanged RI_PogoBufferToggle below + the downstream raster passes find the
-  // layout they expect.
+  // Render target: GENERAL (compute write) -> COLOR_ATTACHMENT_OPTIMAL so the
+  // downstream raster passes find the layout they expect.
   {
     VkImageMemoryBarrier2 b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
     b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
@@ -2673,7 +2748,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     b.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
     b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.image = pogo->textures[pogo->attachmentIndex].vk.image;
+    b.image = state.renderTarget[RI.swapchainIndex].vk.image;
     b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
     dep.imageMemoryBarrierCount = 1;
@@ -2681,14 +2756,19 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
   }
 
-
-  // Toggle: just-written attach → SHADER_READ_ONLY (now the "read" half)
-  // so downstream post-effects + tail blit can sample it.
-  RI_PogoBufferToggle(&RI.device, pogo, &RI.primary.cmds[0]);
-
-  // The viewport's post-effect composite and the pogo->swapchain tail blit run
-  // in cScene::Render after this Draw returns — Draw just leaves the finished
-  // scene (incl. particles) in the pogo "read" half.
+  // Single render target — no toggle: the main draw never ping-pongs. The
+  // downstream raster passes flip it COLOR -> SHADER_READ as they go (each
+  // pass transitions in before drawing and back out after); the tail blits
+  // it into the viewport backbuffer, where the post-effect chain + tail blit
+  // in cScene::Render consume it.
+  {
+    VkImageMemoryBarrier2 b = VK_RI_PogoShaderMemoryBarrier2(
+        state.renderTarget[RI.swapchainIndex].vk.image, /*initial=*/false);
+    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dep.imageMemoryBarrierCount = 1;
+    dep.pImageMemoryBarriers = &b;
+    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+  }
 
   // (depthFlippedForReadOnly + flipDepthToReadOnly are defined above, before the
   // decal pre-pass, and shared with the particle / translucent passes below.)
@@ -2726,9 +2806,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     if (!decals.empty()) {
       flipDepthToReadOnly();
 
-      const int   pogoReadIdx   = (pogo->attachmentIndex + 1) % 2;
-      VkImage     pogoReadImage = pogo->textures[pogoReadIdx].vk.image;
-      VkImageView pogoReadView  = pogo->pogoAttachment[pogoReadIdx].vk.image.imageView;
+      VkImage     pogoReadImage = state.renderTarget[RI.swapchainIndex].vk.image;
+      VkImageView pogoReadView  = state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
 
       {
         VkImageMemoryBarrier2 b =
@@ -2748,7 +2827,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
       VkRenderingAttachmentInfo depthAttach = {
           VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-      depthAttach.imageView   = RI.depthView[RI.swapchainIndex].vk.image;
+      depthAttach.imageView   = state.depthView[RI.swapchainIndex].vk.image;
       depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
       depthAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_LOAD;
       depthAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
@@ -2876,9 +2955,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     if (!waters.empty()) {
       flipDepthToReadOnly();
 
-      const int   pogoReadIdx   = (pogo->attachmentIndex + 1) % 2;
-      VkImage     pogoReadImage = pogo->textures[pogoReadIdx].vk.image;
-      VkImageView pogoReadView  = pogo->pogoAttachment[pogoReadIdx].vk.image.imageView;
+      VkImage     pogoReadImage = state.renderTarget[RI.swapchainIndex].vk.image;
+      VkImageView pogoReadView  = state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
 
       {
         VkImageMemoryBarrier2 b =
@@ -2898,7 +2976,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
       VkRenderingAttachmentInfo depthAttach = {
           VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-      depthAttach.imageView   = RI.depthView[RI.swapchainIndex].vk.image;
+      depthAttach.imageView   = state.depthView[RI.swapchainIndex].vk.image;
       depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
       depthAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_LOAD;
       depthAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
@@ -3048,9 +3126,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // anything that samples it, e.g. the menu/inventory screen capture) carries
       // particles too. Flip that half COLOR_ATTACHMENT for the draw, then back to
       // SHADER_READ after, so the tail blit below can sample it.
-      const int   pogoReadIdx   = (pogo->attachmentIndex + 1) % 2;
-      VkImage     pogoReadImage = pogo->textures[pogoReadIdx].vk.image;
-      VkImageView pogoReadView  = pogo->pogoAttachment[pogoReadIdx].vk.image.imageView;
+      VkImage     pogoReadImage = state.renderTarget[RI.swapchainIndex].vk.image;
+      VkImageView pogoReadView  = state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
       const RI_Format_e particleTargetFormat = RIBootstrap::PogoColorFormat;
       {
         VkImageMemoryBarrier2 b =
@@ -3070,7 +3147,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
       VkRenderingAttachmentInfo depthAttach = {
           VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-      depthAttach.imageView = RI.depthView[RI.swapchainIndex].vk.image;
+      depthAttach.imageView = state.depthView[RI.swapchainIndex].vk.image;
       depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
       depthAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
       depthAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -3263,9 +3340,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // the particle pass ran above.
       flipDepthToReadOnly();
 
-      const int   pogoReadIdx   = (pogo->attachmentIndex + 1) % 2;
-      VkImage     pogoReadImage = pogo->textures[pogoReadIdx].vk.image;
-      VkImageView pogoReadView  = pogo->pogoAttachment[pogoReadIdx].vk.image.imageView;
+      VkImage     pogoReadImage = state.renderTarget[RI.swapchainIndex].vk.image;
+      VkImageView pogoReadView  = state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
       const RI_Format_e meshTargetFormat = RIBootstrap::PogoColorFormat;
 
       // SHADER_READ_ONLY → COLOR_ATTACHMENT_OPTIMAL. If the particle pass
@@ -3291,7 +3367,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
       VkRenderingAttachmentInfo depthAttach = {
           VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-      depthAttach.imageView = RI.depthView[RI.swapchainIndex].vk.image;
+      depthAttach.imageView = state.depthView[RI.swapchainIndex].vk.image;
       depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
       depthAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
       depthAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -3508,7 +3584,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     restoreDepth.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     restoreDepth.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     restoreDepth.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    restoreDepth.image = RI.depthTextures[RI.swapchainIndex].vk.image;
+    restoreDepth.image = state.depthTextures[RI.swapchainIndex].vk.image;
     restoreDepth.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
 
     VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
@@ -3517,276 +3593,66 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
   }
 
-  // Offscreen delivery: the finished scene sits in the pogo read half at the
-  // viewport's 1:1 extent (no guard band was applied). Blit {0,0,w,h} into the
-  // viewport target's sampled texture and leave it SHADER_READ_ONLY for the
-  // GUI / a later DebugDraw overlay pass. The authored RI.pogoBuffer is left
-  // untouched — Scene.cpp skips the post-effect chain + swapchain tail blit
-  // for offscreen viewports.
-  if (offTarget) {
-    const uint32_t srcReadIdx = (pogo->attachmentIndex + 1u) % 2u;
-    VkImage srcImage = pogo->textures[srcReadIdx].vk.image;
-    VkImage dstImage = offTarget->GetTexture()->handle.vk.image;
-
-    // Pin the target texture on the frame context so a mid-flight Resize
-    // can't free it before this frame's GPU work completes.
-    cntx->textureLink.push_back(offTarget->GetTexture());
-
-    // DebugDraw overlay (editor grid / gizmos / icons, enqueued by the
-    // viewport's OnPreWorldDraw callbacks): draw into the finished scene in
-    // the pogo read half against the scene depth, so the blit below carries
-    // the overlay into the target with it. The read half sits in
-    // SHADER_READ_ONLY (left by the composite toggle / last forward pass);
-    // flip it to COLOR for the overlay pass.
-    DebugDraw *debugDraw = mpGraphics->GetDebugDraw();
-    const bool debugOverlayDrawn = debugDraw && debugDraw->HasRequests();
-    if (debugOverlayDrawn) {
-      {
-        VkImageMemoryBarrier2 toColor = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-        toColor.srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        toColor.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        toColor.dstStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        toColor.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
-                                VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        toColor.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        toColor.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        toColor.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toColor.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        toColor.image = srcImage;
-        toColor.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers = &toColor;
-        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-      }
-      {
-        VkRenderingAttachmentInfo colorAttachment = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        colorAttachment.imageView = pogo->pogoAttachment[srcReadIdx].vk.image.imageView;
-        colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-        colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-
-        // Scene depth, restored to DEPTH_ATTACHMENT_OPTIMAL just above; the
-        // overlay pipelines test against it but never write.
-        VkRenderingAttachmentInfo depthStencil = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        RI_VK_FillDepthAttachment(&depthStencil, &RI.depthView[RI.swapchainIndex], /*attachAndClear=*/false);
-
-        VkRenderingInfo renderingInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-        renderingInfo.renderArea = VkRect2D{{0, 0}, {renderWidth, renderHeight}};
-        renderingInfo.layerCount = 1;
-        renderingInfo.colorAttachmentCount = 1;
-        renderingInfo.pColorAttachments = &colorAttachment;
-        renderingInfo.pDepthAttachment = &depthStencil;
-        vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderingInfo);
-
-        debugDraw->flush(cntx, &RI.primary.cmds[0], apFrustum, renderWidth,
-                         renderHeight, RIBootstrap::PogoColorFormatVk);
-
-        vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
-      }
-    }
-
+  // DebugDraw overlay (editor panes: grid / gizmos / icons, enqueued by the
+  // viewport's OnPreWorldDraw callbacks): draw into the finished scene in
+  // the render target against the scene depth, so cScene's pogo feed carries
+  // the overlay along. The render target sits in SHADER_READ_ONLY (left by
+  // the post-composite flip / last forward pass); flip it to COLOR for the
+  // overlay pass and back to SHADER_READ after — Draw's contract is to leave
+  // the finished frame in the render target, SHADER_READ (the BackBuffer).
+  DebugDraw *debugDraw = mpGraphics->GetDebugDraw();
+  const bool debugOverlayDrawn =
+      debugDraw && debugDraw->HasRequests();
+  if (debugOverlayDrawn) {
     {
-      VkImageMemoryBarrier2 pre[2] = {};
-      pre[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-      if (debugOverlayDrawn) {
-        pre[0].srcStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        pre[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        pre[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-      } else {
-        pre[0].srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-        pre[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        pre[0].oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      }
-      pre[0].dstStageMask  = VK_PIPELINE_STAGE_2_BLIT_BIT;
-      pre[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-      pre[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-      pre[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      pre[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      pre[0].image = srcImage;
-      pre[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-      // Fully overwritten every frame — UNDEFINED discard also covers the
-      // image's very first use, and orders against any prior-frame GUI
-      // sampling on this queue.
-      pre[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-      pre[1].srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-      pre[1].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      pre[1].dstStageMask  = VK_PIPELINE_STAGE_2_BLIT_BIT;
-      pre[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      pre[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      pre[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-      pre[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      pre[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      pre[1].image = dstImage;
-      pre[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
+      VkImageMemoryBarrier2 toColor = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+      toColor.srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
+      toColor.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
+      toColor.dstStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+      toColor.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
+                              VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+      toColor.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      toColor.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      toColor.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toColor.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      toColor.image = state.renderTarget[RI.swapchainIndex].vk.image;
+      toColor.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
       VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep.imageMemoryBarrierCount = 2;
-      dep.pImageMemoryBarriers = pre;
+      dep.imageMemoryBarrierCount = 1;
+      dep.pImageMemoryBarriers = &toColor;
       vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
     }
-
-    VkImageBlit region = {};
-    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.srcOffsets[0]  = {0, 0, 0};
-    region.srcOffsets[1]  = {(int32_t)renderWidth, (int32_t)renderHeight, 1};
-    region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.dstOffsets[0]  = {0, 0, 0};
-    region.dstOffsets[1]  = {(int32_t)renderWidth, (int32_t)renderHeight, 1};
-    vkCmdBlitImage(RI.primary.cmds[0].vk.cmd, srcImage,
-                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region,
-                   VK_FILTER_NEAREST);
-
-    // Post-blit: src back to SHADER_READ_ONLY (the pogo invariant the next
-    // frame's toggle expects), dst → SHADER_READ_ONLY for GUI sampling.
     {
-      VkImageMemoryBarrier2 post[2] = {};
-      post[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-      post[0].srcStageMask  = VK_PIPELINE_STAGE_2_BLIT_BIT;
-      post[0].srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-      post[0].dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-      post[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      post[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-      post[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      post[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      post[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      post[0].image = srcImage;
-      post[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      VkRenderingAttachmentInfo colorAttachment = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      colorAttachment.imageView = state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
+      colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+      colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
-      post[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-      post[1].srcStageMask  = VK_PIPELINE_STAGE_2_BLIT_BIT;
-      post[1].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      post[1].dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-      post[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      post[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-      post[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      post[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      post[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      post[1].image = dstImage;
-      post[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      // Scene depth, restored to DEPTH_ATTACHMENT_OPTIMAL just above; the
+      // overlay pipelines test against it but never write.
+      VkRenderingAttachmentInfo depthStencil = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      RI_VK_FillDepthAttachment(&depthStencil, &state.depthView[RI.swapchainIndex], /*attachAndClear=*/false);
 
-      VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep.imageMemoryBarrierCount = 2;
-      dep.pImageMemoryBarriers = post;
-      vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      VkRenderingInfo renderingInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+      renderingInfo.renderArea = VkRect2D{{0, 0}, {renderWidth, renderHeight}};
+      renderingInfo.layerCount = 1;
+      renderingInfo.colorAttachmentCount = 1;
+      renderingInfo.pColorAttachments = &colorAttachment;
+      renderingInfo.pDepthAttachment = &depthStencil;
+      vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderingInfo);
+
+      debugDraw->flush(cntx, &RI.primary.cmds[0], apFrustum, renderWidth,
+                       renderHeight, RIBootstrap::PogoColorFormatVk);
+
+      vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
     }
-  }
-  // Guard-band crop: the composite + every forward pass rendered the overscan
-  // frame into `pogo` (= RI.renderPogo[...]); its finished scene sits in the
-  // read half (SHADER_READ_ONLY, left by the composite toggle / last forward
-  // pass). Blit the center renderWidth/Height window down to the authored-size
-  // RI.pogoBuffer so Scene.cpp's post-effect chain + tail blit consume a normal
-  // display-size pogo. The displayed FOV is unchanged because the projection was
-  // widened by the same guard-band factor up front, so the cropped center equals
-  // the pre-overscan image.
-  else {
-    RI_PogoBuffer *authored = &RI.pogoBuffer[RI.swapchainIndex];
-    const uint32_t srcReadIdx    = (pogo->attachmentIndex + 1u) % 2u;
-    const uint32_t authReadIdx   = (authored->attachmentIndex + 1u) % 2u;
-    const uint32_t authAttachIdx = authored->attachmentIndex;
-    VkImage srcImage    = pogo->textures[srcReadIdx].vk.image;
-    VkImage dstImage    = authored->textures[authReadIdx].vk.image;
-    VkImage authAttach  = authored->textures[authAttachIdx].vk.image;
-
-    const uint32_t W = RI.swapchain.width;
-    const uint32_t H = RI.swapchain.height;
-    const int32_t  offX = (int32_t)(renderWidth  - W) / 2;
-    const int32_t  offY = (int32_t)(renderHeight - H) / 2;
-
-    // Pre-blit transitions: src read half → TRANSFER_SRC, authored read half →
-    // TRANSFER_DST (UNDEFINED discard — fully overwritten), authored attach half
-    // UNDEFINED → COLOR so the post-effect chain (which renders into the attach
-    // half with no barrier of its own) finds it ready.
     {
-      VkImageMemoryBarrier2 pre[3] = {};
-      pre[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-      pre[0].srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-      pre[0].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      pre[0].dstStageMask  = VK_PIPELINE_STAGE_2_BLIT_BIT;
-      pre[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-      pre[0].oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      pre[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-      pre[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      pre[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      pre[0].image = srcImage;
-      pre[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-      pre[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-      pre[1].srcStageMask  = VK_PIPELINE_STAGE_2_NONE;
-      pre[1].srcAccessMask = VK_ACCESS_2_NONE;
-      pre[1].dstStageMask  = VK_PIPELINE_STAGE_2_BLIT_BIT;
-      pre[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      pre[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      pre[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-      pre[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      pre[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      pre[1].image = dstImage;
-      pre[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-      pre[2].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-      pre[2].srcStageMask  = VK_PIPELINE_STAGE_2_NONE;
-      pre[2].srcAccessMask = VK_ACCESS_2_NONE;
-      pre[2].dstStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-      pre[2].dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-      pre[2].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      pre[2].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-      pre[2].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      pre[2].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      pre[2].image = authAttach;
-      pre[2].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
+      VkImageMemoryBarrier2 toRead = VK_RI_PogoShaderMemoryBarrier2(
+          state.renderTarget[RI.swapchainIndex].vk.image, /*initial=*/false);
       VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep.imageMemoryBarrierCount = 3;
-      dep.pImageMemoryBarriers = pre;
-      vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-    }
-
-    VkImageBlit region = {};
-    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.srcOffsets[0]  = {offX, offY, 0};
-    region.srcOffsets[1]  = {offX + (int32_t)W, offY + (int32_t)H, 1};
-    region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.dstOffsets[0]  = {0, 0, 0};
-    region.dstOffsets[1]  = {(int32_t)W, (int32_t)H, 1};
-    vkCmdBlitImage(RI.primary.cmds[0].vk.cmd, srcImage,
-                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region,
-                   VK_FILTER_NEAREST);
-
-    // Post-blit: src back to SHADER_READ_ONLY (the layout next frame's pogo
-    // toggle expects for the half it re-acquires as the render target), authored
-    // read half → SHADER_READ_ONLY for the post-effect chain / tail blit.
-    {
-      VkImageMemoryBarrier2 post[2] = {};
-      post[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-      post[0].srcStageMask  = VK_PIPELINE_STAGE_2_BLIT_BIT;
-      post[0].srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-      post[0].dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-      post[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      post[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-      post[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      post[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      post[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      post[0].image = srcImage;
-      post[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-      post[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-      post[1].srcStageMask  = VK_PIPELINE_STAGE_2_BLIT_BIT;
-      post[1].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      post[1].dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-      post[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      post[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-      post[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      post[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      post[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      post[1].image = dstImage;
-      post[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-      VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep.imageMemoryBarrierCount = 2;
-      dep.pImageMemoryBarriers = post;
+      dep.imageMemoryBarrierCount = 1;
+      dep.pImageMemoryBarriers = &toRead;
       vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
     }
   }

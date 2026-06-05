@@ -245,6 +245,10 @@ namespace hpl {
 	}
 	void cPlatform::FindFilesInDir(tWStringList &alstStrings,const tWString& asDir, const tWString& asMask, bool abAddHidden)
 	{
+		// Empty dir would index asDir[-1] below (and opendir("") fails anyway).
+		// MaterialEditor's dir handler can feed an empty path from its config.
+		if(asDir.empty()) return;
+
 		//Get the search string
 		wchar_t sSpec[256];
 		wchar_t end = asDir[asDir.size()-1];

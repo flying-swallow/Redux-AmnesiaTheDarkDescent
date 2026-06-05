@@ -43,6 +43,7 @@
 #include "graphics/HPLTexture.h"
 
 #include "scene/Scene.h"
+#include "scene/Viewport.h"
 #include "scene/Camera.h"
 
 #include "input/Input.h"
@@ -86,6 +87,7 @@
 #include <vulkan/vulkan_core.h>
 
 namespace hpl {
+
 	struct GuiPass {
 		float mvp[4 * 4];
 		float clipPlanes[4][4];
@@ -526,7 +528,7 @@ namespace hpl {
 		}
 	}
 
-	void cGuiSet::Render(cFrustum *apFrustum)
+	void cGuiSet::Render(cFrustum *apFrustum, cViewport *apViewport)
 	{
 		if(m_setRenderObjects.empty()) {
 			return;
@@ -534,8 +536,8 @@ namespace hpl {
 
 		RIBootstrap::FrameContext* cntx = RI.GetActiveSet();
 
-		const size_t numVerts = m_setRenderObjects.size() * 4;;
-		const size_t numIndecies = m_setRenderObjects.size() * 6;;
+		const size_t numVerts = m_setRenderObjects.size() * 4;
+		const size_t numIndecies = m_setRenderObjects.size() * 6;
 		RISegmentReq_s vtxReq = {};
 		RISegmentReq_s idxReq = {};
 		if(!IsRIBufferValid(&RI.renderer, &RI.guiVertexBuffer) || !RI.guiVertexAlloc.request(RI.frameIndex, numVerts, &vtxReq)) {
@@ -741,8 +743,17 @@ namespace hpl {
 			bindings[numBindings].descriptor = *desc;
 			bindings[numBindings++].handle = DescriptorBindingID::Create("diffuseSampler");
 
+			// Whether the rendering instance has a depth attachment — viewport
+			// state: whoever opened the instance attached the same
+			// GetDepthView(). No-depth variant for GUI-only frames (menus) and
+			// viewport-less renders: the pipeline's depth format must be
+			// UNDEFINED to match the attachment-less instance.
+			const bool bRenderPassHasDepth =
+				apViewport != nullptr && apViewport->GetDepthView() != nullptr;
+
 			hash_t hash = hash_u32(HASH_INITIAL_VALUE, materialType);
-			hash = hash_u32(hash, RIBootstrap::DepthFormat);
+			hash = hash_u32(hash, bRenderPassHasDepth ? RIBootstrap::DepthFormat
+			                                          : RI_FORMAT_UNKNOWN);
 			hash = hash_u32(hash, RI.swapchain.format);
 			hash = hash_u32(hash, mbIs3D);
 			VkPipelineVertexInputStateCreateInfo vertexInputState = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
@@ -782,8 +793,9 @@ namespace hpl {
 			// target, this needs to take the actual attachment's format instead.
 			VkFormat colorFormats[1] = { RIFormatToVK((RI_Format_e)RI.swapchain.format) };
 			pipelineRenderingCreateInfo.pColorAttachmentFormats = colorFormats;
-			pipelineRenderingCreateInfo.depthAttachmentFormat = RIFormatToVK( RIBootstrap::DepthFormat );
-			pipelineRenderingCreateInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED; 
+			pipelineRenderingCreateInfo.depthAttachmentFormat =
+				bRenderPassHasDepth ? RIFormatToVK( RIBootstrap::DepthFormat ) : VK_FORMAT_UNDEFINED;
+			pipelineRenderingCreateInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
 
 			VkPipelineViewportStateCreateInfo viewportState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
 			viewportState.viewportCount = 1;
@@ -795,7 +807,7 @@ namespace hpl {
 			VkPipelineDepthStencilStateCreateInfo depthStencilState = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
 			depthStencilState.minDepthBounds = 0.0f;
 			depthStencilState.maxDepthBounds = 1.0f;
-			if (mbIs3D) {
+			if (mbIs3D && bRenderPassHasDepth) {
 				depthStencilState.depthTestEnable = VK_TRUE;
 				depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 			}

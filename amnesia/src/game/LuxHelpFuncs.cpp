@@ -226,9 +226,19 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   colorAttachment.clearValue.color.float32[2] = aCol.b;
   colorAttachment.clearValue.color.float32[3] = aCol.a;
 
+  // Depth comes from the primary viewport's renderer internals; GUI-only
+  // frames (menus, loading screens — no world drawn yet) have none and the
+  // set renders the no-depth GuiSet pipeline variant instead (it derives it
+  // from the viewport passed into cGuiSet::Render below).
+  cViewport *pViewport = gpBase->mpEngine->GetScene()->GetPrimaryViewport();
+  struct RITextureView_s *pDepthView =
+      pViewport ? pViewport->GetDepthView() : NULL;
+
   VkRenderingAttachmentInfo depthStencil = {
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
- 	RI_VK_FillDepthAttachment(&depthStencil, &RI.depthView[RI.swapchainIndex], false);
+  if (pDepthView) {
+    RI_VK_FillDepthAttachment(&depthStencil, pDepthView, false);
+  }
   // Clear screen
   //if (abClearScreen) {
   //  mpLowLevelGfx->SetClearColor(aCol);
@@ -242,7 +252,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   renderingInfo.viewMask = 0;
   renderingInfo.colorAttachmentCount = 1;
   renderingInfo.pColorAttachments = &colorAttachment;
-  renderingInfo.pDepthAttachment = &depthStencil;
+  renderingInfo.pDepthAttachment = pDepthView ? &depthStencil : NULL;
   renderingInfo.pStencilAttachment = NULL;
 
   // GuiSet builds its pipelines for RI.swapchain.format / RIBootstrap::DepthFormat
@@ -257,7 +267,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   if (apSet != NULL)
     pSet = apSet;
 
-  pSet->Render(NULL);
+  pSet->Render(NULL, pViewport);
   pSet->ClearRenderObjects();
 	
   vkCmdEndRendering(cmd);
@@ -357,7 +367,7 @@ void cLuxHelpFuncs::RenderBackgroundScreen(bool abDrawFullHUD)
 	gpBase->mpEngine->GetScene()->Render(0.0001f, lFlags);
 	
 	if(abDrawFullHUD==false)
-		gpBase->mpGameHudSet->Render(NULL);
+		gpBase->mpGameHudSet->Render(NULL, gpBase->mpMapHandler->GetViewport());
 
 	gpBase->mpGameHudSet->ClearRenderObjects();
 	gpBase->mpMapHandler->GetViewport()->SetVisible(false);

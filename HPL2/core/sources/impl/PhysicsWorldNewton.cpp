@@ -18,6 +18,7 @@
  */
 
 #include "impl/PhysicsWorldNewton.h"
+#include "graphics/DebugDraw.h"
 
 #include "impl/CollideShapeNewton.h"
 #include "impl/PhysicsBodyNewton.h"
@@ -730,6 +731,48 @@ namespace hpl {
 		{
 			iPhysicsBody *pBody = *it;
 			pBody->RenderDebugGeometry(apLowLevel,aColor);
+		}
+	}
+
+	//-----------------------------------------------------------------------
+
+	static DebugDraw* gpDebugDraw = NULL;
+
+	static void RenderDebugPolygonToDebugDraw(void* apUserData, int alVertexCount, const dFloat* apFaceArray, int alFaceId)
+	{
+		int i = alVertexCount - 1;
+		cVector3f vP0(apFaceArray[i * 3 + 0], apFaceArray[i * 3 + 1], apFaceArray[i * 3 + 2]);
+		for (i = 0; i < alVertexCount; ++i)
+		{
+			cVector3f vP1 (apFaceArray[i * 3 + 0], apFaceArray[i * 3 + 1], apFaceArray[i * 3 + 2]);
+
+			gpDebugDraw->DebugDrawLine(vP0, vP1, gDebugColor);
+
+			vP0 = vP1;
+		}
+	}
+
+	void cPhysicsWorldNewton::RenderShapeDebugGeometry(	iCollideShape *apShape, const cMatrixf& a_mtxTransform,
+														DebugDraw *apDebugDraw, const cColor& aColor)
+	{
+		gpDebugDraw = apDebugDraw;
+		gDebugColor = aColor;
+
+		cCollideShapeNewton *pNewtonShape = static_cast<cCollideShapeNewton*>(apShape);
+		auto transpose = a_mtxTransform.GetTranspose();
+		NewtonCollisionForEachPolygonDo (	pNewtonShape->GetNewtonCollision(),
+											&transpose.m[0][0],
+											RenderDebugPolygonToDebugDraw,
+											NULL);
+	}
+
+	void cPhysicsWorldNewton::RenderDebugGeometry(DebugDraw *apDebugDraw,const cColor &aColor)
+	{
+		tPhysicsBodyListIt it = mlstBodies.begin();
+		for(;it != mlstBodies.end(); ++it)
+		{
+			iPhysicsBody *pBody = *it;
+			pBody->RenderDebugGeometry(apDebugDraw,aColor);
 		}
 	}
 

@@ -303,7 +303,7 @@ void cEntityWrapperCompoundObject::OnRemoveComponent(iEntityWrapper* apEntity)
 //------------------------------------------------------------------------
 
 
-void cEntityWrapperCompoundObject::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected,const cColor& aHighlightCol, const cColor& aDisabledCol)
+void cEntityWrapperCompoundObject::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected,const cColor& aHighlightCol, const cColor& aDisabledCol)
 {
 	if(abIsSelected==false)
 		return;
@@ -315,7 +315,7 @@ void cEntityWrapperCompoundObject::Draw(cEditorWindowViewport* apViewport, cRend
 
 		pEnt->Draw(apViewport, apFunctions, apEditMode, abIsSelected, cColor(1,0,0,1));
 
-		//apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(), pBV->GetMax(), cColor(1,0,0,1));
+		//apFunctions->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(), cColor(1,0,0,1));
 	}
 
 }

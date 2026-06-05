@@ -18,6 +18,7 @@
  */
 
 #include "graphics/DecalCreator.h"
+#include "graphics/DebugDraw.h"
 #include "system/String.h"
 #include "system/LowLevelSystem.h"
 #include "graphics/LowLevelGraphics.h"
@@ -468,6 +469,48 @@ namespace hpl {
 
 		apFunctions->SetBlendMode(eMaterialBlendMode_None);
 		apFunctions->SetDepthTest(false);
+	}
+
+	//-----------------------------------------------------------------------
+
+	void cDecalCreator::DrawDebug(DebugDraw* apDebugDraw, bool abDrawAxes, bool abDrawWireframe)
+	{
+		if(mpDecalVB)
+		{
+			// Legacy drew the textured decal mesh here; the batcher has no
+			// textured-mesh path, so preview as a tinted translucent solid.
+			if(mpDecalMaterial)
+				apDebugDraw->DebugSolidFromVertexBuffer(mpDecalVB, cColor(1,1,1,0.5f));
+
+			if(abDrawWireframe) apDebugDraw->DebugWireFrameFromVertexBuffer(mpDecalVB, cColor(1));
+		}
+
+		if(abDrawAxes)
+		{
+			cVector3f vHalfDecalSize = mvDecalSize*0.5f;
+			cMatrixf mtxTransform = cMath::MatrixUnitVectors(mvDecalRight, mvDecalUp, mvDecalForward, mvDecalPosition);
+			mtxTransform.SetTranslation(mvDecalPosition);
+
+			DebugDraw::DebugDrawOptions options;
+			options.m_transform = mtxTransform;
+			apDebugDraw->DebugDrawLine(0,cVector3f(vHalfDecalSize.x,0,0), cColor(1,0,0,1), options);
+			apDebugDraw->DebugDrawLine(0,cVector3f(0,vHalfDecalSize.y,0), cColor(0,1,0,1), options);
+			apDebugDraw->DebugDrawLine(0,cVector3f(0,0,vHalfDecalSize.z), cColor(0,0,1,1), options);
+			apDebugDraw->DebugDrawBoxMinMax(vHalfDecalSize*-1, vHalfDecalSize, 1, options);
+
+			for(size_t i=0;i<mvTransformedBases.size();i+=4)
+			{
+				const cVector3f& vRight = mvTransformedBases[i+1];
+				const cVector3f& vUp = mvTransformedBases[i+2];
+				const cVector3f& vFwd = mvTransformedBases[i+3];
+
+				options.m_transform = cMath::MatrixUnitVectors(vRight, vUp, vFwd, mvTransformedBases[i]);
+				apDebugDraw->DebugDrawLine(0,cVector3f(vHalfDecalSize.x,0,0), cColor(1,0,0,1), options);
+				apDebugDraw->DebugDrawLine(0,cVector3f(0,vHalfDecalSize.y,0), cColor(0,1,0,1), options);
+				apDebugDraw->DebugDrawLine(0,cVector3f(0,0,vHalfDecalSize.z), cColor(0,0,1,1), options);
+				apDebugDraw->DebugDrawBoxMinMax(vHalfDecalSize*-1, vHalfDecalSize, 1, options);
+			}
+		}
 	}
 
 	cBoundingVolume* cDecalCreator::GetDecalBoundingVolume()

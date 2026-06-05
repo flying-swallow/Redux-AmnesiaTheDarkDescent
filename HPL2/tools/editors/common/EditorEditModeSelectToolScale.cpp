@@ -47,7 +47,7 @@ bool cEditorEditModeSelectToolScale::IsActive()
 
 //----------------------------------------------------------------
 
-void cEditorEditModeSelectToolScale::DrawAxes(cEditorWindowViewport* apViewport, cRendererCallbackFunctions *apFunctions, float afAxisLength)
+void cEditorEditModeSelectToolScale::DrawAxes(cEditorWindowViewport* apViewport, DebugDraw *apFunctions, float afAxisLength)
 {
 
 	float fHalfSide = 0.05f*afAxisLength;
@@ -86,7 +86,12 @@ void cEditorEditModeSelectToolScale::DrawAxes(cEditorWindowViewport* apViewport,
 	cMatrixf mtxTransform = cMath::MatrixMul(cMath::MatrixTranslate(mpSelection->GetCenterTranslation()),
 											 cMath::MatrixRotate(mpSelection->GetCenterRotation(),eEulerRotationOrder_XYZ));
 
-	apFunctions->SetMatrix(&mtxTransform);
+	// Gizmos always render on top of the scene (legacy drew with depth test off).
+	// Cube quads: legacy GL_QUADS took perimeter order [0][1][2][3];
+	// DebugDraw::DrawQuad expects strip order, so pass [0][1][3][2].
+	DebugDraw::DebugDrawOptions gizmoOptions;
+	gizmoOptions.m_depthTest = DebugDraw::DebugDepthTest::Always;
+	gizmoOptions.m_transform = mtxTransform;
 
 	cVector3f vAxes[3];
 	vAxes[0] = cVector3f(afAxisLength + mvAxisAddedLength.x,0,0);
@@ -98,31 +103,29 @@ void cEditorEditModeSelectToolScale::DrawAxes(cEditorWindowViewport* apViewport,
 	for(int i=eSelectToolAxis_X; i<eSelectToolAxis_LastEnum; ++i)
 	{
 		col[i] = mvAxisSelected[i]?mColorSelected:(mvAxisMouseOver[i]?mColorMouseOver:mvAxisColor[i]);
-		apFunctions->GetLowLevelGfx()->DrawLine(0, vAxes[i], col[i]);
+		apFunctions->DebugDrawLine(0, vAxes[i], col[i], gizmoOptions);
 
 		for(int j=0; j<6;++j)
-			apFunctions->GetLowLevelGfx()->DrawQuad(mvCubeQuads[j],col[0] + col[1] + col[2]);
+			apFunctions->DrawQuad(mvCubeQuads[j][0].pos, mvCubeQuads[j][1].pos, mvCubeQuads[j][3].pos, mvCubeQuads[j][2].pos, col[0] + col[1] + col[2], gizmoOptions);
 
 		// DEBUG: draw axes bounding boxes
-		//apFunctions->GetLowLevelGfx()->DrawBoxMinMax(mvAxisMin[i], mvAxisMax[i], cColor(1,1));
-		//apFunctions->GetLowLevelGfx()->DrawBoxMinMax(mvHeadMin[i], mvHeadMax[i], cColor(1,1));
+		//apFunctions->DebugDrawBoxMinMax(mvAxisMin[i], mvAxisMax[i], cColor(1,1), gizmoOptions);
+		//apFunctions->DebugDrawBoxMinMax(mvHeadMin[i], mvHeadMax[i], cColor(1,1), gizmoOptions);
 	}
-	
+
 	float fCubeCenterOffset = 0.05f*afAxisLength;
 	cMatrixf mtxTranslate[3];
 	mtxTranslate[0] = cMath::MatrixMul(mtxTransform,cMath::MatrixTranslate(vAxes[0] - cVector3f(fCubeCenterOffset,0,0)));
 	mtxTranslate[1] = cMath::MatrixMul(mtxTransform,cMath::MatrixTranslate(vAxes[1] - cVector3f(0,fCubeCenterOffset,0)));
 	mtxTranslate[2] = cMath::MatrixMul(mtxTransform,cMath::MatrixTranslate(vAxes[2] - cVector3f(0,0,fCubeCenterOffset)));
 
+	DebugDraw::DebugDrawOptions headOptions = gizmoOptions;
 	for(int i=0;i<3;++i)
 	{
-		apFunctions->SetMatrix(&mtxTranslate[i]);
+		headOptions.m_transform = mtxTranslate[i];
 		for(int j=0; j<6;++j)
-			apFunctions->GetLowLevelGfx()->DrawQuad(mvCubeQuads[j],col[i]);
+			apFunctions->DrawQuad(mvCubeQuads[j][0].pos, mvCubeQuads[j][1].pos, mvCubeQuads[j][3].pos, mvCubeQuads[j][2].pos, col[i], headOptions);
 	}
-
-	apFunctions->SetMatrix(NULL);
-
 }
 
 //----------------------------------------------------------------

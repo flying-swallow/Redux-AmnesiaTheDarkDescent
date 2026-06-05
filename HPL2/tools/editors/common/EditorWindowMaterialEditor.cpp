@@ -1587,15 +1587,22 @@ void cEditorWindowMaterialEditor::OnInitLayout()
 		SetGuiViewportPos(cVector3f(10,10,0.1f));
 		SetGuiViewportSize(cVector2f(430));
 
+		// TODO(vulkan-port, Phase 4): legacy iFrameBuffer chain is dead on the
+		// RI backend (CreateFrameBuffer returns NULL) — the preview pane
+		// renders through the per-viewport cViewportTarget instead (see
+		// iEditorViewport::UpdateViewport).
 		iTexture* pTex = mpEditor->GetEngine()->GetGraphics()->CreateTexture("", eTextureType_Rect, eTextureUsage_RenderTarget);
 		pTex->SetWrapR(eTextureWrap_ClampToEdge);
 		pTex->SetWrapS(eTextureWrap_ClampToEdge);
 		pTex->CreateFromRawData(cVector3l(512,512,0), ePixelFormat_RGB, 0);
 
 		iFrameBuffer* pFB = mpEditor->GetEngine()->GetGraphics()->CreateFrameBuffer("MaterialEditor");
-		pFB->SetTexture2D(0, pTex);
-		pFB->CompileAndValidate();
-		SetFrameBuffer(pFB);
+		if(pFB)
+		{
+			pFB->SetTexture2D(0, pTex);
+			pFB->CompileAndValidate();
+			SetFrameBuffer(pFB);
+		}
 
 		SetEngineViewportPositionAndSize(0, 512);
 		UpdateViewport();

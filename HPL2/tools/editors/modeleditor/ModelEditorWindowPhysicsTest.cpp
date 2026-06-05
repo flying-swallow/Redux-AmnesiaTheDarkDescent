@@ -77,21 +77,20 @@ bool cBodyPicker::OnIntersect(iPhysicsBody *pBody,cPhysicsRayParams *apParams)
 
 //------------------------------------------------------------------------------------
 
-void cPhysicsTestRenderCallback::OnPostSolidDraw(cRendererCallbackFunctions* apFunctions)
+void cPhysicsTestRenderCallback::OnPreWorldDraw()
 {
+	if(mpWindow==NULL)
+		return;
+
+	DebugDraw* pDebugDraw = mpWindow->GetEditor()->GetEngine()->GetGraphics()->GetDebugDraw();
+	if(pDebugDraw==NULL)
+		return;
+
 	cMeshEntity* pEntity = mpWindow->mpTestEntity;
-
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(false);
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-
-	apFunctions->SetProgram(NULL);
-	apFunctions->SetTextureRange(NULL, 0);
-	apFunctions->SetMatrix(NULL);
 
 	if(mbDrawDebug)
 	{
-		mpWindow->mpTestPhysicsWorld->RenderDebugGeometry(apFunctions->GetLowLevelGfx(), cColor(1,1,1,1));
+		mpWindow->mpTestPhysicsWorld->RenderDebugGeometry(pDebugDraw, cColor(1,1,1,1));
 		std::vector<iPhysicsJoint*>& vJoints = mpWindow->mvJoints;
 
 		for(size_t i=0;i<vJoints.size(); ++i)
@@ -99,49 +98,49 @@ void cPhysicsTestRenderCallback::OnPostSolidDraw(cRendererCallbackFunctions* apF
 			iPhysicsJoint *pJoint = vJoints[i];
             
 			cVector3f vPivot = pJoint->GetPivotPoint();
-			apFunctions->GetLowLevelGfx()->DrawSphere(vPivot,0.2f,cColor(1,0,0,1));
-			apFunctions->GetLowLevelGfx()->DrawLine(vPivot,vPivot + pJoint->GetPinDir()*0.25 ,cColor(0,1,0,1));
+			pDebugDraw->DebugDrawSphere(vPivot,0.2f,cColor(1,0,0,1));
+			pDebugDraw->DebugDrawLine(vPivot,vPivot + pJoint->GetPinDir()*0.25 ,cColor(0,1,0,1));
 		}
 	}
 
 	if(mbDrawSkeleton && pEntity && pEntity->GetMesh()->GetSkeleton())
 	{
-		apFunctions->SetDepthTest(false);
-		
 		cNode3DIterator it = mpWindow->mpTestEntity->GetBoneStateRoot()->GetChildIterator();
 
 		while(it.HasNext())
 		{
 			cNode3D *pChild = static_cast<cNode3D*>(it.Next());
-			DrawSkeletonRec(apFunctions ,pChild);
+			DrawSkeletonRec(pDebugDraw ,pChild);
 		}
 	}
 
-	apFunctions->SetDepthTest(true);
-
 	if(mpBodyPicker->mpPickedBody==NULL) return;
 
-	apFunctions->GetLowLevelGfx()->DrawSphere(mpBodyPicker->mvPos,0.1f, cColor(1,0,0,1));
-	apFunctions->GetLowLevelGfx()->DrawSphere(mvDragPos,0.1f, cColor(1,0,0,1));
+	pDebugDraw->DebugDrawSphere(mpBodyPicker->mvPos,0.1f, cColor(1,0,0,1));
+	pDebugDraw->DebugDrawSphere(mvDragPos,0.1f, cColor(1,0,0,1));
 
-	apFunctions->GetLowLevelGfx()->DrawLine(mpBodyPicker->mvPos, mvDragPos, cColor(1,1,1,1));
+	pDebugDraw->DebugDrawLine(mpBodyPicker->mvPos, mvDragPos, cColor(1,1,1,1));
 }
 
 //------------------------------------------------------------------------------------
 
-void cPhysicsTestRenderCallback::DrawSkeletonRec(cRendererCallbackFunctions* apFunctions, cNode3D* apBoneState)
+void cPhysicsTestRenderCallback::DrawSkeletonRec(DebugDraw* apDebugDraw, cNode3D* apBoneState)
 {
-	cVector3f vCameraSpacePos = cMath::MatrixMul(apFunctions->GetFrustum()->GetViewMatrix(), apBoneState->GetWorldPosition());		
+	// Bones always render on top of the mesh (legacy drew with depth test off).
+	DebugDraw::DebugDrawOptions overlayOptions;
+	overlayOptions.m_depthTest = DebugDraw::DebugDepthTest::Always;
+
+	cVector3f vCameraSpacePos = cMath::MatrixMul(mpWindow->GetCamera()->GetViewMatrix(), apBoneState->GetWorldPosition());
 	float fSize = cMath::Min(-0.01f * vCameraSpacePos.z, 0.03f);
-	apFunctions->GetLowLevelGfx()->DrawSphere(apBoneState->GetWorldPosition(),fSize,cColor(1,0,0,1));
+	apDebugDraw->DebugDrawSphere(apBoneState->GetWorldPosition(),fSize,cColor(1,0,0,1), overlayOptions);
 	
 	
 	cNode3DIterator it = apBoneState->GetChildIterator();
 	while(it.HasNext())
 	{
 		cNode3D *pChild = static_cast<cNode3D*>(it.Next());
-		apFunctions->GetLowLevelGfx()->DrawLine(apBoneState->GetWorldPosition(), pChild->GetWorldPosition(), cColor(1,1));
-		DrawSkeletonRec(apFunctions, pChild);
+		apDebugDraw->DebugDrawLine(apBoneState->GetWorldPosition(), pChild->GetWorldPosition(), cColor(1,1), overlayOptions);
+		DrawSkeletonRec(apDebugDraw, pChild);
 	}
 }
 

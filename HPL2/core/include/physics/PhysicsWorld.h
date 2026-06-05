@@ -32,6 +32,8 @@
 
 namespace hpl {
 
+	class DebugDraw;
+
 	class iCollideShape;
 	class iVertexBuffer;
 	class iPhysicsBody;
@@ -241,6 +243,11 @@ namespace hpl {
 												iLowLevelGraphics *apLowLevel, const cColor& aColor)=0;
 		
 		virtual void RenderDebugGeometry(iLowLevelGraphics *apLowLevel, const cColor& aColor)=0;
+
+		// RI path: same wireframe walk, enqueued into the DebugDraw batcher.
+		virtual void RenderShapeDebugGeometry(iCollideShape *apShape, const cMatrixf& a_mtxTransform,
+											  DebugDraw *apDebugDraw, const cColor& aColor)=0;
+		virtual void RenderDebugGeometry(DebugDraw *apDebugDraw, const cColor& aColor)=0;
 
 		virtual bool CheckShapeCollision(	iCollideShape* apShapeA, const cMatrixf& a_mtxA,
 										iCollideShape* apShapeB, const cMatrixf& a_mtxB,

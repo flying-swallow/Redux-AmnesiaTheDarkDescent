@@ -19,6 +19,11 @@ function(AddToolTarget target)
     )
     target_link_libraries(${target} HPL2)
 
+    # Publish next to the Amnesia binary — the engine resolves
+    # compiled_shaders/ and resource dirs relative to cwd, so the tools
+    # belong in the same runtime directory as the game.
+    set_output_dir(${target} "")
+
     set_target_properties(${target} PROPERTIES
         MACOSX_BUNDLE_INFO_PLIST "${TOOLINFO_PLIST}"
         MACOSX_BUNDLE_BUNDLE_VERSION ${VERSION}
@@ -73,4 +78,5 @@ add_executable(MshConverter
     mshconverter/MshConverter.cpp
 )
 target_link_libraries(MshConverter HPL2)
+set_output_dir(MshConverter "")
 

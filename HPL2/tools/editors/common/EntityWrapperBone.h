@@ -87,7 +87,7 @@ public:
 	bool SetProperty(int, const int&);
 	bool GetProperty(int, int&);
 
-	void Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, 
+	void Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, 
 				iEditorEditMode* apEditMode, bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol);
 	
 	bool CheckRayIntersect(cEditorWindowViewport*, cVector3f* , tVector3fVec*, float*);
@@ -98,7 +98,7 @@ public:
 
 	cEditorWindowEntityEditBox* CreateEditBox(cEditorEditModeSelect* apEditMode);
 
-	void DrawBone(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected);
+	void DrawBone(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected);
 
 	void SetParentBone(cEntityWrapperBone* apBone);
 	void AddChildBone(cEntityWrapperBone* apBone);
@@ -119,6 +119,11 @@ protected:
 
 	
 	iVertexBuffer* mpVBBone;
+	// Current bone tint — the RI DebugDraw path draws the bone VB with a
+	// uniform color instead of per-vertex colors. Defaults to the idle grey
+	// (see SetBoneVBColor callers) so a bone drawn before any explicit tint
+	// doesn't flash black.
+	cColor mBoneColor = cColor(0.3f, 1);
 };
 
 //------------------------------------------------------------

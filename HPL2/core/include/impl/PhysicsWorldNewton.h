@@ -104,6 +104,10 @@ namespace hpl {
 										iLowLevelGraphics *apLowLevel, const cColor& aColor);
 		void RenderDebugGeometry(iLowLevelGraphics *apLowLevel, const cColor& aColor);
 
+		void RenderShapeDebugGeometry(iCollideShape *apShape, const cMatrixf& a_mtxTransform,
+									  DebugDraw *apDebugDraw, const cColor& aColor);
+		void RenderDebugGeometry(DebugDraw *apDebugDraw, const cColor& aColor);
+
 		NewtonWorld* GetNewtonWorld(){ return mpNewtonWorld;}
 	private:
 		NewtonWorld *mpNewtonWorld;

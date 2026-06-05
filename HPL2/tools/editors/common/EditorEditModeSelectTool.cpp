@@ -159,18 +159,13 @@ void cEditorEditModeSelectTool::UpdateMouseRay()
 
 //----------------------------------------------------------------------
 
-void cEditorEditModeSelectTool::Draw(cEditorWindowViewport* apViewport,cRendererCallbackFunctions *apFunctions)
+void cEditorEditModeSelectTool::Draw(cEditorWindowViewport* apViewport,DebugDraw *apFunctions)
 {
 	if(mpSelection->IsEmpty()) return;
-
-    apFunctions->SetDepthTest(false);
-	apFunctions->SetTextureRange(NULL,0);
 
 	cCamera *pCam = apViewport->GetCamera();
 
 	float fAxisLength;
-
-	apFunctions->SetMatrix(NULL);
 
 	cVector3f vViewPos;
 	switch(pCam->GetProjectionType())
@@ -187,17 +182,15 @@ void cEditorEditModeSelectTool::Draw(cEditorWindowViewport* apViewport,cRenderer
 	}
 
 	/*DEBUG*/
-	//apFunctions->GetLowLevelGfx()->DrawLine(mvEditVectorStart, mvEditVectorEnd, cColor(1));
+	//apFunctions->DebugDrawLine(mvEditVectorStart, mvEditVectorEnd, cColor(1));
 
-	//apFunctions->GetLowLevelGfx()->DrawSphere(mvEditVectorStart, 0.2f, cColor(0,0,1,1));
-	//apFunctions->GetLowLevelGfx()->DrawSphere(mvEditVectorEnd, 0.2f, cColor(1,0,0,1));
+	//apFunctions->DebugDrawSphere(mvEditVectorStart, 0.2f, cColor(0,0,1,1));
+	//apFunctions->DebugDrawSphere(mvEditVectorEnd, 0.2f, cColor(1,0,0,1));
 
-	//apFunctions->GetLowLevelGfx()->DrawSphere(mpSelection->GetCenterTranslation(), mfUsedAxisLength, cColor(1));
+	//apFunctions->DebugDrawSphere(mpSelection->GetCenterTranslation(), mfUsedAxisLength, cColor(1));
 	
 	
 	DrawAxes(apViewport, apFunctions, fAxisLength);
-
-	apFunctions->SetMatrix(NULL);
 }
 
 //----------------------------------------------------------------------

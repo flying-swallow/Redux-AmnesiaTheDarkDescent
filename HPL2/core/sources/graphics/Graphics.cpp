@@ -218,120 +218,27 @@ namespace hpl {
 		swapchainInit.format = RI_SWAPCHAIN_BT709_G22_8BIT;
 		InitRISwapchain(&RI.device, &swapchainInit, &RI.swapchain);
 
-		// Guard-band overscan render resolution (single source of truth). The
-		// gbuffer / GI / composite / forward targets size to this; the present
-		// crops the center to the authored swapchain size.
-		RI.renderWidth  = overscanExtent(RI.swapchain.width);
-		RI.renderHeight = overscanExtent(RI.swapchain.height);
-
+		// Per-viewport render targets (backbuffer, overscan render target,
+		// depth, visibility) are created lazily by each renderer's Draw on its
+		// cViewport (see scene/Viewport.h) — only the swapchain views
+		// remain global.
 		{
-			uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
 			assert( RI.swapchain.imageCount > 0 );
 			for( uint32_t i = 0; i < RI.swapchain.imageCount; i++ ) {
-				VmaAllocationCreateInfo mem_reqs = { 0 };
-				mem_reqs.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-				{
-					VkImageViewUsageCreateInfo usageInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO };
-					VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-					createInfo.pNext = &usageInfo;
-					createInfo.subresourceRange = VkImageSubresourceRange{
-						VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
-					};
-					// Mirrors the swapchain's image-level usage. The SurfelGI
-					// composite + post-effect chain now write into the pogo
-					// buffer, so the swapchain view only needs COLOR_ATTACHMENT.
-					usageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-					createInfo.image = RI.swapchain.vk.images[i];
-					createInfo.format = RIFormatToVK( RI.swapchain.format );
-					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D; // | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-					//RI.colorAttachment[i].flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-					//RI.colorAttachment[i].texture = &RI.swapchain.textures[i];
-					//RI.colorAttachment[i].vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-					//RI.colorAttachment[i].vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.swapchainView[i].vk.image) );
-
-					//VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.colorAttachment[i].vk.image.imageView ) );
-					//RIFinalizeDescriptor( &RI.device, &RI.colorAttachment[i] );
-				}
-				{
-					VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-					info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
-					info.imageType = VK_IMAGE_TYPE_2D;
-					// Overscan: gbuffer depth backs the GI + forward passes, all of which
-					// render the guard-band frame.
-					info.extent.width = RI.renderWidth;
-					info.extent.height = RI.renderHeight;
-					info.extent.depth = 1;
-					info.mipLevels = 1;
-					info.arrayLayers = 1;
-					info.samples = VK_SAMPLE_COUNT_1_BIT;
-					info.tiling = VK_IMAGE_TILING_OPTIMAL;
-					info.pQueueFamilyIndices = queueFamilies;
-					VK_ConfigureImageQueueFamilies( &info, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
-					info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-					info.format = RIFormatToVK( RIBootstrap::DepthFormat);
-					// SAMPLED_BIT lets surfel_generate / surfel_raytrace bind the
-					// depth as `sampler2D depthMap` after the gbuffer pass
-					// transitions it to SHADER_READ_ONLY_OPTIMAL.
-					info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-								 VK_IMAGE_USAGE_SAMPLED_BIT;
-					VK_WrapResult( vmaCreateImage( RI.device.vk.vmaAllocator, &info, &mem_reqs, &RI.depthTextures[i].vk.image, &RI.depthTextures[i].vk.allocation, NULL ) );
-				}
-				{
-					VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-					createInfo.format = RIFormatToVK( RIBootstrap::DepthFormat );
-					createInfo.subresourceRange = VkImageSubresourceRange{
-						VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1,
-					};
-					createInfo.image = RI.depthTextures[i].vk.image;
-					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.depthView[i].vk.image ) );
-				}
-				{
-
-					VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-					info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
-					info.imageType = VK_IMAGE_TYPE_2D;
-					// Overscan to match the depth target + the guard-band frame.
-					info.extent.width = RI.renderWidth;
-					info.extent.height = RI.renderHeight;
-					info.extent.depth = 1;
-					info.mipLevels = 1;
-					info.arrayLayers = 1;
-					info.samples = VK_SAMPLE_COUNT_1_BIT;
-					info.tiling = VK_IMAGE_TILING_OPTIMAL;
-					info.pQueueFamilyIndices = queueFamilies;
-					VK_ConfigureImageQueueFamilies( &info, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
-					info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-					info.format = RIFormatToVK( RIBootstrap::VisibilityFormat);
-					info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-					VK_WrapResult( vmaCreateImage( RI.device.vk.vmaAllocator, &info, &mem_reqs, &RI.visibilityTexture[i].vk.image, &RI.visibilityTexture[i].vk.allocation, NULL ) );
-				}
-				{
-					VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-					createInfo.format = RIFormatToVK( RIBootstrap::VisibilityFormat);
-					createInfo.subresourceRange = VkImageSubresourceRange{
-						VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
-					};
-					createInfo.image = RI.visibilityTexture[i].vk.image;
-					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.visibilityView[i].vk.image ) );
-				}
-				// The separate normal MRT target was retired when the gbuffer
-				// switched to the packed-TriangleHit (RGBA32_UINT visibility)
-				// format — instId/primId/barycentrics now encode everything the
-				// surfel and lighting passes need, so RIBootstrap::NormalFormat /
-				// normalTexture / normalView no longer exist.
-				// HDR pogo (RIBootstrap::PogoColorFormat) so the GI composite +
-				// post-effect chain keep linear values >1 (the swapchain is
-				// 16-bit linear scRGB); RGBA8_UNORM here clamped to [0,1] + banded.
-				// Pogo + post-effect chain run at the AUTHORED size; the overscan
-				// render-pogo (backbuffer) is cropped into the pogo before this chain.
-				RI_PogoBufferInit( &RI.device, &RI.pogoBuffer[i], RI.swapchain.width, RI.swapchain.height, RIBootstrap::PogoColorFormat );
-				// Overscan render-pogo: the gbuffer/GI/composite/forward passes render
-				// here (guard-band frame); cropped 1:1 center → pogoBuffer afterwards.
-				RI_PogoBufferInit( &RI.device, &RI.renderPogo[i], RI.renderWidth, RI.renderHeight, RIBootstrap::PogoColorFormat );
+				VkImageViewUsageCreateInfo usageInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO };
+				VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+				createInfo.pNext = &usageInfo;
+				createInfo.subresourceRange = VkImageSubresourceRange{
+					VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
+				};
+				// Mirrors the swapchain's image-level usage. The SurfelGI
+				// composite + post-effect chain write into the viewport
+				// backbuffer, so the swapchain view only needs COLOR_ATTACHMENT.
+				usageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+				createInfo.image = RI.swapchain.vk.images[i];
+				createInfo.format = RIFormatToVK( RI.swapchain.format );
+				createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+				VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.swapchainView[i].vk.image) );
 			}
 		}
 

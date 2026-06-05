@@ -33,6 +33,11 @@ namespace hpl {
 	public:
 		cRendererWireFrame(cGraphics *apGraphics,cResources* apResources);
 
+		// Per-viewport internals live in WireframeViewportState (pure data —
+		// see scene/Viewport.h), held by cViewport; this renderer owns
+		// its creation/sizing (file-local helper, shared shape with
+		// cRendererSimple).
+
 		bool LoadData() override { return true; }
 		void DestroyData() override {}
 

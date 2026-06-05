@@ -95,10 +95,8 @@ public:
 	static bool LoadResourceFile(eEditorResourceType aResType, const tString& asFile, void** apEditorResource=NULL, int alID=-1);
 
 
-	static void DrawBillboard(iTexture *apGfx, const cVector3f& avWorldPosition,const cVector2f& avSize,const cColor& aColor,  
-						cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions);
-
-	static void DrawPyramid(cRendererCallbackFunctions* apFunctions, const cVector3f& avBaseCenter, const cVector3f& avTop, float afHalfWidth, const cColor& aColor);
+	// Billboard/pyramid drawing goes through DebugDraw::DrawBillboard /
+	// DebugDraw::DrawPyramid directly now.
 
 	static iVertexBuffer* CreatePyramidVtxBuffer(cGraphics* apGfx, const cVector3f& avBaseCenter, const cVector3f& avTip, float afHalfWidth, const cColor& aColor);
 

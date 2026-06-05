@@ -33,7 +33,6 @@
 #include "graphics/RIPogoBuffer.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
-#include "graphics/RIViewportTarget.h"
 #include "graphics/VertexBuffer_RI.h"
 
 #include "resources/Resources.h"
@@ -78,6 +77,9 @@ namespace hpl {
 	}
 
 	//-----------------------------------------------------------------------
+
+	// cViewport::SimpleViewportState (shared with this renderer) is
+	// implemented in RendererSimple.cpp.
 
 	//////////////////////////////////////////////////////////////////////////
 	// PUBLIC METHODS
@@ -125,7 +127,7 @@ namespace hpl {
 		////////////////////////////////////////////
 		// Upload vertex/index streams. Must run BEFORE vkCmdBeginRendering — the
 		// uploader records barriers that can't live inside a dynamic-rendering
-		// scope. abBuildBlas=false: wireframe never traces.
+		// scope. No BuildBlas: wireframe never traces.
 		for(eRenderListType listType : lists)
 		{
 			for(iRenderable *pObject : m_rendererList.GetRenderableItems(listType))
@@ -144,38 +146,41 @@ namespace hpl {
 				if(pVB == NULL) continue;
 
 				auto *vbri = static_cast<VertexBuffer_RI*>(pVB);
-				vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx, /*abBuildBlas=*/false);
+				vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
 				vbri->AttachResourceToCntx(cntx);
 			}
 		}
 
-		RI_PogoBuffer *pogo = &RI.pogoBuffer[RI.swapchainIndex];
-
-		// Offscreen viewport target (editor ortho panes): render the pane's
-		// 1:1 extent into the pogo attach half, overlay DebugDraw, then blit
-		// the drawn window into the target's sampled texture — mirroring the
-		// offscreen tail in cHybridRenderer::Draw. Panes always fit inside
-		// the authored pogo (they tile the window).
-		cViewportTarget *offTarget =
-			viewport ? viewport->GetViewportTarget() : nullptr;
-		if(offTarget && !offTarget->IsValid()) {
-			offTarget = nullptr;
+		// Target-agnostic: the viewport resolves its extent from its Target
+		// (swapchain extent for TargetSwapchain, the view's for TargetView)
+		// and PrepareToRender configures this backend's state for it. This
+		// renderer draws 1:1 — no guard band.
+		const cVector2l vTargetSize = viewport->GetTargetSize();
+		if(vTargetSize.x <= 0 || vTargetSize.y <= 0) {
+			return;
 		}
-		const uint32_t renderWidth =
-			offTarget ? offTarget->GetWidth() : RI.swapchain.width;
-		const uint32_t renderHeight =
-			offTarget ? offTarget->GetHeight() : RI.swapchain.height;
-		assert(renderWidth <= RI.swapchain.width && renderHeight <= RI.swapchain.height &&
-			   "offscreen target larger than the authored pogo");
+		const uint32_t renderWidth = (uint32_t)vTargetSize.x;
+		const uint32_t renderHeight = (uint32_t)vTargetSize.y;
 
 		////////////////////////////////////////////
-		// Pre-render transitions: pogo attach half UNDEFINED -> COLOR (contents
-		// discarded, we clear) and depth UNDEFINED -> DEPTH_ATTACHMENT (cleared
-		// via loadOp; also the layout Scene's GUI block expects afterwards).
+		// Viewport-owned targets: PrepareToRender configures this backend's
+		// state (1:1 color render target + depth) for the target size. cScene
+		// feeds the finished render target into the viewport pogo afterwards.
+		cViewport::SimpleViewportState *pState =
+			viewport->PrepareToRender<cViewport::SimpleViewportState>(cntx, vTargetSize);
+		if(pState == nullptr || pState->width == 0) {
+			return;
+		}
+		cViewport::SimpleViewportState &state = *pState;
+
+		////////////////////////////////////////////
+		// Pre-render transitions: render target UNDEFINED -> COLOR (contents
+		// discarded, we clear) and depth UNDEFINED -> DEPTH_ATTACHMENT
+		// (cleared via loadOp).
 		{
 			VkImageMemoryBarrier2 barriers[2] = {};
 			barriers[0] = VK_RI_PogoAttachmentMemoryBarrier2(
-				pogo->textures[pogo->attachmentIndex].vk.image, /*initial=*/true);
+				state.renderTarget[RI.swapchainIndex].vk.image, /*initial=*/true);
 
 			barriers[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
 			barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_NONE;
@@ -188,7 +193,7 @@ namespace hpl {
 			barriers[1].newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
 			barriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			barriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			barriers[1].image = RI.depthTextures[RI.swapchainIndex].vk.image;
+			barriers[1].image = state.depthTextures[RI.swapchainIndex].vk.image;
 			barriers[1].subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
 
 			VkDependencyInfo dep = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
@@ -198,18 +203,18 @@ namespace hpl {
 		}
 
 		////////////////////////////////////////////
-		// Begin rendering into the pogo attach half at authored (swapchain)
-		// size — no overscan; Scene's tail blit samples the read half 1:1.
+		// Begin rendering into the state's render target at its 1:1 extent —
+		// no overscan; cScene's pogo feed consumes it afterwards.
 		{
 			VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-			colorAttachment.imageView = RI_PogoBufferAttachment(pogo)->vk.image.imageView;
+			colorAttachment.imageView = state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
 			colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 			colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 			colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 			colorAttachment.clearValue.color = { { 0.0f, 0.0f, 0.0f, 1.0f } };
 
 			VkRenderingAttachmentInfo depthStencil = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-			RI_VK_FillDepthAttachment(&depthStencil, &RI.depthView[RI.swapchainIndex], /*attachAndClear=*/true);
+			RI_VK_FillDepthAttachment(&depthStencil, &state.depthView[RI.swapchainIndex], /*attachAndClear=*/true);
 
 			VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
 			renderingInfo.renderArea = VkRect2D{ { 0, 0 }, { renderWidth, renderHeight } };
@@ -358,7 +363,7 @@ namespace hpl {
 		// same rendering scope before it closes. Same color/depth formats, so
 		// the batcher's pipelines match.
 		DebugDraw *debugDraw = mpGraphics->GetDebugDraw();
-		if(offTarget && debugDraw && debugDraw->HasRequests())
+		if(debugDraw && debugDraw->HasRequests())
 		{
 			debugDraw->flush(cntx, &RI.primary.cmds[0], apFrustum, renderWidth,
 							 renderHeight, RIBootstrap::PogoColorFormatVk);
@@ -367,128 +372,16 @@ namespace hpl {
 		vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
 
 		////////////////////////////////////////////
-		// Offscreen delivery: blit the drawn {0,0,w,h} window into the
-		// viewport target's sampled texture (left SHADER_READ_ONLY for the
-		// GUI), then restore the pogo invariants exactly like the swapchain
-		// handoff below — drawn half ends SHADER_READ, other half COLOR.
-		if(offTarget)
+		// Hand off: render target COLOR -> SHADER_READ — the finished frame
+		// cScene feeds into the viewport pogo (post processing) and delivers
+		// to the Target.
 		{
-			const uint16_t drawnIdx = pogo->attachmentIndex;
-			const uint16_t nextIdx = (drawnIdx + 1) % 2;
-			VkImage srcImage = pogo->textures[drawnIdx].vk.image;
-			VkImage dstImage = offTarget->GetTexture()->handle.vk.image;
-
-			// Pin the target texture so a mid-flight Resize can't free it
-			// before this frame's GPU work completes.
-			cntx->textureLink.push_back(offTarget->GetTexture());
-
-			{
-				VkImageMemoryBarrier2 pre[2] = {};
-				pre[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-				pre[0].srcStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-				pre[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-				pre[0].dstStageMask  = VK_PIPELINE_STAGE_2_BLIT_BIT;
-				pre[0].dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-				pre[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-				pre[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-				pre[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				pre[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				pre[0].image = srcImage;
-				pre[0].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-				// Fully overwritten every frame — UNDEFINED discard also covers
-				// the image's very first use.
-				pre[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-				pre[1].srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-				pre[1].srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-				pre[1].dstStageMask  = VK_PIPELINE_STAGE_2_BLIT_BIT;
-				pre[1].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-				pre[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-				pre[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-				pre[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				pre[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				pre[1].image = dstImage;
-				pre[1].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-				VkDependencyInfo dep = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-				dep.imageMemoryBarrierCount = 2;
-				dep.pImageMemoryBarriers = pre;
-				vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-			}
-
-			VkImageBlit region = {};
-			region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-			region.srcOffsets[0]  = { 0, 0, 0 };
-			region.srcOffsets[1]  = { (int32_t)renderWidth, (int32_t)renderHeight, 1 };
-			region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-			region.dstOffsets[0]  = { 0, 0, 0 };
-			region.dstOffsets[1]  = { (int32_t)renderWidth, (int32_t)renderHeight, 1 };
-			vkCmdBlitImage(RI.primary.cmds[0].vk.cmd, srcImage,
-						   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
-						   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region,
-						   VK_FILTER_NEAREST);
-
-			{
-				VkImageMemoryBarrier2 post[3] = {};
-				// Drawn half -> SHADER_READ (the pogo invariant the next user
-				// expects of the read half).
-				post[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-				post[0].srcStageMask  = VK_PIPELINE_STAGE_2_BLIT_BIT;
-				post[0].srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-				post[0].dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-				post[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-				post[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-				post[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				post[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				post[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				post[0].image = srcImage;
-				post[0].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-				// Target -> SHADER_READ_ONLY for GUI sampling.
-				post[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-				post[1].srcStageMask  = VK_PIPELINE_STAGE_2_BLIT_BIT;
-				post[1].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-				post[1].dstStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-				post[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-				post[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-				post[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				post[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				post[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				post[1].image = dstImage;
-				post[1].subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-				// Other half -> COLOR, ready as the next attach half.
-				post[2] = VK_RI_PogoAttachmentMemoryBarrier2(pogo->textures[nextIdx].vk.image, /*initial=*/true);
-
-				VkDependencyInfo dep = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-				dep.imageMemoryBarrierCount = 3;
-				dep.pImageMemoryBarriers = post;
-				vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-			}
-
-			pogo->attachmentIndex = nextIdx;
-			return;
-		}
-
-		////////////////////////////////////////////
-		// Hand off: drawn half COLOR -> SHADER_READ (becomes the read half the
-		// post-effects/tail blit sample) and the other half UNDEFINED -> COLOR
-		// (the post-effect chain renders into the attach half with no barrier
-		// of its own).
-		{
-			const uint16_t drawnIdx = pogo->attachmentIndex;
-			const uint16_t nextIdx = (drawnIdx + 1) % 2;
-
-			VkImageMemoryBarrier2 barriers[2] = {};
-			barriers[0] = VK_RI_PogoShaderMemoryBarrier2(pogo->textures[drawnIdx].vk.image, /*initial=*/false);
-			barriers[1] = VK_RI_PogoAttachmentMemoryBarrier2(pogo->textures[nextIdx].vk.image, /*initial=*/true);
-
+			VkImageMemoryBarrier2 barrier = VK_RI_PogoShaderMemoryBarrier2(
+				state.renderTarget[RI.swapchainIndex].vk.image, /*initial=*/false);
 			VkDependencyInfo dep = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-			dep.imageMemoryBarrierCount = 2;
-			dep.pImageMemoryBarriers = barriers;
+			dep.imageMemoryBarrierCount = 1;
+			dep.pImageMemoryBarriers = &barrier;
 			vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-
-			pogo->attachmentIndex = nextIdx;
 		}
 	}
 

@@ -79,42 +79,9 @@ add_custom_target(GameRelease DEPENDS Amnesia)
 set(AMNESIA_EXECUTABLE_OUTPUT_PATH  ${INSTALL_OUTPUT_PATH}/Amnesia)
 install(DIRECTORY DESTINATION ${AMNESIA_EXECUTABLE_OUTPUT_PATH})
 
-#if(WITH_TOOLS)
-#    add_custom_command (TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#        $<TARGET_FILE:MapViewer> $<TARGET_FILE_DIR:Amnesia>
-#        DEPENDS MapViewer
-#    )
-#    add_custom_command (TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#        $<TARGET_FILE:ModelViewer> $<TARGET_FILE_DIR:Amnesia>
-#        DEPENDS ModelViewer
-#    )
-#    add_custom_command (TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#        $<TARGET_FILE:MshConverter> $<TARGET_FILE_DIR:Amnesia>
-#        DEPENDS MshConverter
-#    )
-#    add_custom_command (TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#        $<TARGET_FILE:LevelEditor> $<TARGET_FILE_DIR:Amnesia>
-#        DEPENDS LevelEditor
-#    )
-#    add_custom_command (TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#        $<TARGET_FILE:ParticleEditor> $<TARGET_FILE_DIR:Amnesia>
-#        DEPENDS ParticleEditor
-#    )
-#    add_custom_command (TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#        $<TARGET_FILE:ModelEditor> $<TARGET_FILE_DIR:Amnesia>
-#        DEPENDS ModelEditor
-#    )
-#    add_custom_command ( TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} ARGS -E copy_directory
-#        ${_HPL_TOOL_RESOURCE_PATH_} $<TARGET_FILE_DIR:Amnesia>
-#    )
-#endif()
+# Tool binaries are emitted directly into the Amnesia runtime directory via
+# set_output_dir() in AddToolTarget (HPL2/tools/CMakeLists.txt) — no
+# post-build copy needed.
 
 target_compile_definitions(Amnesia PUBLIC AMNESIA_TDD_VERSION="${AMNESIA_TDD_VERSION}")
 target_compile_definitions(Amnesia PUBLIC AMNESIA_TDD_TAG="${AMNESIA_TDD_TAG}")

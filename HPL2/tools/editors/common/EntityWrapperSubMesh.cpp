@@ -80,23 +80,19 @@ bool cEngineEntitySubMesh::CheckRayIntersect(cEditorWindowViewport* apViewport, 
 
 //---------------------------------------------------------------------------
 
-void cEngineEntitySubMesh::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, 
+void cEngineEntitySubMesh::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, 
 								bool abIsSelected, bool abIsActive, const cColor& aHighlightCol)
 {
 	if(abIsSelected==false)
 		return;
 
-	apFunctions->SetBlendMode(eMaterialBlendMode_Alpha);
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(false);
-
 	cSubMeshEntity* pSubMeshEntity = (cSubMeshEntity*)mpEntity;
-	apFunctions->SetMatrix(pSubMeshEntity->GetModelMatrix(NULL));
-	apFunctions->DrawWireFrame(pSubMeshEntity->GetVertexBuffer(), cColor(1,1,1,0.25f));
 
-	apFunctions->SetMatrix(NULL);
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-	apFunctions->SetDepthTest(false);
+	DebugDraw::DebugDrawOptions options;
+	cMatrixf* pModelMtx = pSubMeshEntity->GetModelMatrix(NULL);
+	if(pModelMtx) options.m_transform = *pModelMtx;
+
+	apFunctions->DebugWireFrameFromVertexBuffer(pSubMeshEntity->GetVertexBuffer(), cColor(1,1,1,0.25f), options);
 }
 
 //---------------------------------------------------------------------------

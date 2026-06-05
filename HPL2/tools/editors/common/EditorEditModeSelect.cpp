@@ -442,23 +442,15 @@ void cEditorEditModeSelect::OnViewportMouseUp(int alButtons)
 
 //----------------------------------------------------------------------
 
-void cEditorEditModeSelect::DrawPostGrid(cEditorWindowViewport* apViewport, cRendererCallbackFunctions *apFunctions, const cVector3f &avPos)
+void cEditorEditModeSelect::DrawPostGrid(cEditorWindowViewport* apViewport, DebugDraw *apFunctions, const cVector3f &avPos)
 {
 	iEditorEditMode::DrawPostGrid(apViewport,apFunctions,avPos);
-
-	apFunctions->SetProgram(NULL);
-	apFunctions->SetTextureRange(NULL,0);
-	
-	apFunctions->SetMatrix(NULL);
 
 	if(mpCurrentSelector)
 		mpCurrentSelector->Draw(apViewport, apFunctions);
 
 	if(mpCurrentTool && mbAllowTransform)
 		mpCurrentTool->Draw(apViewport,apFunctions);
-
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-	apFunctions->SetMatrix(NULL);
 
 	//Debug
 	/*
@@ -469,13 +461,13 @@ void cEditorEditModeSelect::DrawPostGrid(cEditorWindowViewport* apViewport, cRen
 		for(int i=0;i<(int)mvTriangle.size();i+=3)
 		{
 			fColor = ((float)i)/30.0f;
-			apFunctions->GetLowLevelGfx()->DrawLine(mvTriangle[i], mvTriangle[i+1], cColor(fColor,0,0,1));
-			apFunctions->GetLowLevelGfx()->DrawLine(mvTriangle[i+1], mvTriangle[i+2], cColor(1,0,0,1));
-			apFunctions->GetLowLevelGfx()->DrawLine(mvTriangle[i+2], mvTriangle[i], cColor(1,0,0,1));
+			apFunctions->DebugDrawLine(mvTriangle[i], mvTriangle[i+1], cColor(fColor,0,0,1));
+			apFunctions->DebugDrawLine(mvTriangle[i+1], mvTriangle[i+2], cColor(1,0,0,1));
+			apFunctions->DebugDrawLine(mvTriangle[i+2], mvTriangle[i], cColor(1,0,0,1));
 		}
 		apFunctions->SetDepthTest(true);
 	}*/
-	//apFunctions->GetLowLevelGfx()->DrawLine(mvRayStart, mvRayEnd, cColor(0,1,0,1));
+	//apFunctions->DebugDrawLine(mvRayStart, mvRayEnd, cColor(0,1,0,1));
 }
 
 //----------------------------------------------------------------------
@@ -971,15 +963,11 @@ void cEntitySelectorNormal::OnEditorUpdate()
 
 //----------------------------------------------------------------------
 
-void cEntitySelectorNormal::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions)
+void cEntitySelectorNormal::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions)
 {
 
 	///////////////////////////////////////////////////
 	// Highlight current selection
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(false);
 
 	// Iterate through entities and draw them selected
 	cEditorSelection* pSelection = mpEditMode->GetEditor()->GetSelection();
@@ -996,17 +984,13 @@ void cEntitySelectorNormal::Draw(cEditorWindowViewport* apViewport, cRendererCal
 		return;
 
 	///////////////////////////////////////////////////
-	// If selecting, show the selection rectangle
+	// If selecting, show the selection rectangle (target-pixel space; the
+	// pane's offscreen target is 1:1 with the GUI viewport)
 	if(IsRayPickingActive()==false)
 	{
-		apFunctions->SetDepthTest(false);
-		apFunctions->GetLowLevelGfx()->SetOrthoProjection(apViewport->GetGuiViewportSize(),-1000,1000);
-		apFunctions->GetLowLevelGfx()->SetIdentityMatrix(eMatrix_ModelView);
-		apFunctions->GetLowLevelGfx()->DrawLineQuad(cRect2f((float)mMouseRect.x,(float)mMouseRect.y,
-															(float)mMouseRect.w,(float)mMouseRect.h),
-															0,
-															cColor(1,1)); 
-		apFunctions->SetNormalFrustumProjection();
+		apFunctions->DebugDraw2DLineQuad(cRect2f((float)mMouseRect.x,(float)mMouseRect.y,
+												 (float)mMouseRect.w,(float)mMouseRect.h),
+												 cColor(1,1));
 	}
 }
 
@@ -1131,14 +1115,14 @@ void cEntitySelectorHighlighter::OnEditorUpdate()
 
 //----------------------------------------------------------------------------
 
-void cEntitySelectorHighlighter::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions)
+void cEntitySelectorHighlighter::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions)
 {
 	cCamera* pCam = apViewport->GetCamera();
 	if(mpEntityUnderPointer)
 	{
 		//cBoundingVolume* pBV = mpEntityUnderPointer->GetPickBV(apViewport);
 		mpEntityUnderPointer->Draw(apViewport, apFunctions, NULL, true, cColor(0,0.5f,1,1));
-		apFunctions->GetLowLevelGfx()->DrawSphere(mpEntityUnderPointer->GetPosition(), 0.1f, cColor(0,0.5f,1,1));
+		apFunctions->DebugDrawSphere(mpEntityUnderPointer->GetPosition(), 0.1f, cColor(0,0.5f,1,1));
 	}
 	tEntityWrapperListIt it = mlstHighlightedEntities.begin();
 	for(;it!=mlstHighlightedEntities.end();++it)
@@ -1146,7 +1130,7 @@ void cEntitySelectorHighlighter::Draw(cEditorWindowViewport* apViewport, cRender
 		iEntityWrapper* pEnt = *it;
 		pEnt->Draw(apViewport, apFunctions, NULL, true, cColor(0,0.5f,1,1));
 		//cBoundingVolume* pBV = pEnt->GetPickBV(apViewport);
-		//apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(), pBV->GetMax(), cColor(0,0.5f,1,1));
+		//apFunctions->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(), cColor(0,0.5f,1,1));
 	}
 }
 

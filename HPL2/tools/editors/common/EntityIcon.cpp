@@ -84,7 +84,7 @@ bool cEntityIcon::CheckRayIntersect(cEditorWindowViewport* apViewport, cVector3f
 //------------------------------------------------------------------
 
 void cEntityIcon::DrawIcon(cEditorWindowViewport* apViewport, 
-						   cRendererCallbackFunctions* apFunctions, 
+						   DebugDraw* apFunctions, 
 						   iEditorEditMode* apEditMode,
 						   bool abIsSelected,
 						   const cVector3f& avPos,
