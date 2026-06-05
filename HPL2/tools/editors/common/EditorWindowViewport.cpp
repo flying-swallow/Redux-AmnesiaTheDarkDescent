@@ -19,6 +19,8 @@
 
 #include "EditorWindowViewport.h"
 
+#include "graphics/DebugDraw.h"
+
 #include "EditorBaseClasses.h"
 #include "EditorGrid.h"
 #include "EditorClipPlane.h"
@@ -56,6 +58,62 @@ cViewportCallback::cViewportCallback()
 ///////////////////////////////////////////////////////////////////////
 // PROTECTED METHODS
 ///////////////////////////////////////////////////////////////////////
+
+//--------------------------------------------------------------------
+
+// RI path: enqueue this pane's overlay into the global DebugDraw batcher.
+// Fires from Scene::Render right before the renderer Draw; HybridRenderer
+// flushes the queued requests into the pane's offscreen target against the
+// scene depth (see the offscreen tail in HybridRenderer.cpp).
+void cViewportCallback::OnPreWorldDraw()
+{
+	if(mpEditor==NULL || mpViewport==NULL)
+		return;
+
+	DebugDraw* pDebugDraw = mpEditor->GetEngine()->GetGraphics()->GetDebugDraw();
+	if(pDebugDraw==NULL)
+		return;
+
+	// TODO(vulkan-port, Phase 3): SurfacePicker->DrawDebug, cEditorGrid::Draw
+	// and cEditorClipPlane::Draw still take cRendererCallbackFunctions* —
+	// ported with the rest of the call sites.
+
+	if(mpViewport->GetDrawAxes())
+	{
+		const cVector3f& vCenter = mpViewport->GetGridCenter();
+		for(int i=0;i<3;++i)
+		{
+			cColor col = cColor(0,1);
+			col.v[i] = 1;
+
+			cVector3f vAxisStart = 0;
+			cVector3f vAxisEnd = 0;
+			vAxisStart.v[i] = vCenter.v[i] -1000.0f;
+			vAxisEnd.v[i] = vCenter.v[i] +1000.0f;
+			pDebugDraw->DebugDrawLine(vAxisStart, vAxisEnd, col);
+		}
+	}
+
+	pDebugDraw->DebugDrawSphere(mpViewport->GetVCamera()->GetTargetPosition(), 0.1f, cColor(0,1,1,1));
+
+	if(mpViewport->GetDrawDebug())
+	{
+		// Quick temp debug code btw (legacy drew this depth-test-off)
+		DebugDraw::DebugDrawOptions overlayOptions;
+		overlayOptions.m_depthTest = DebugDraw::DebugDepthTest::Always;
+
+		cVector3f& vPos1 = mpViewport->vDebugLineStart;
+		cVector3f& vPos2 = mpViewport->vDebugLineEnd;
+		cVector3f& vGridPos = mpViewport->vDebugGridPos;
+		cVector3f& vSnapPos = mpViewport->vDebugSnappedGridPos;
+
+		pDebugDraw->DebugDrawLine(vPos1, vPos2, cColor(0,0,1,1), overlayOptions);
+		pDebugDraw->DebugDrawSphere(vPos1, 0.01f, cColor(0,1,0,1), overlayOptions);
+		pDebugDraw->DebugDrawSphere(vPos2, 0.2f, cColor(0,1,0,1), overlayOptions);
+		pDebugDraw->DebugDrawSphere(vGridPos, 0.3f, cColor(1,0,0,1), overlayOptions);
+		pDebugDraw->DebugDrawSphere(vSnapPos, 0.3f, cColor(1,1,0,1), overlayOptions);
+	}
+}
 
 //--------------------------------------------------------------------
 
@@ -204,10 +262,11 @@ cEditorWindowViewport::cEditorWindowViewport(iEditorBase* apEditor,
 	mbAddViewMenu = abAddViewMenu;
 
 	////////////////////////////////////
-	// Init renderer callback (grid,...)
+	// Init renderer callback (grid,...). Register the iViewportCallback side
+	// — the RI renderer never runs iRendererCallback messages.
 	mViewportCallback.mpEditor = apEditor;
 	mViewportCallback.mpViewport = this;
-	AddViewportCallback(&mViewportCallback);
+	AddViewportCallback(static_cast<iViewportCallback*>(&mViewportCallback));
 
 	vDebugGridPos = 0;
 	vDebugLineEnd = 0;
@@ -384,7 +443,10 @@ void cEditorWindowViewport::SetEnlarged(bool abX)
 		vPos = mvEnlargedPosition;
 		vSize = mvEnlargedSize;
 		vFBPos = cVector2l(0);
-		vFBSize = mpFB->GetSize();		
+		// RI backend: no legacy FB — the offscreen target sizes itself to the
+		// engine viewport, so the enlarged pane just uses its GUI pixel size.
+		vFBSize = mpFB ? mpFB->GetSize()
+					   : cVector2l((int)mvEnlargedSize.x, (int)mvEnlargedSize.y);
 	}
 	else
 	{
@@ -501,7 +563,7 @@ void cEditorWindowViewport::UpdateMenu()
 	else
 		mpMainMenuRenderModes[0]->SetEnabled(true);
 
-	for(int i=0;i<2;++i)
+	for(int i=0;i<eRenderer_LastEnum;++i)
 		mpMainMenuRenderModes[i]->SetChecked(mRenderMode==i);
 
     mpMainMenuShowGrid->SetChecked(GetDrawGrid());
@@ -717,8 +779,9 @@ void cEditorWindowViewport::OnInitLayout()
 		pSubItem1 = pItem->AddMenuItem(_W("Render mode"));
 		mpMainMenuRenderModes[0] = pSubItem1->AddMenuItem(_W("Shaded"));
 		mpMainMenuRenderModes[1] = pSubItem1->AddMenuItem(_W("Wireframe"));
+		mpMainMenuRenderModes[2] = pSubItem1->AddMenuItem(_W("Simple"));
 
-		for(int i=0;i<2;++i)
+		for(int i=0;i<eRenderer_LastEnum;++i)
 			mpMainMenuRenderModes[i]->AddCallback(eGuiMessage_ButtonPressed, this, kGuiCallback(MenuView_Rendering));
 
 		

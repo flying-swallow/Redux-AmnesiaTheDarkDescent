@@ -1,6 +1,12 @@
 cmake_minimum_required (VERSION 3.5)
 project(Tools)
 
+# VERSION is only set in amnesia/CMakeLists.txt (directory-scoped), so the
+# bundle properties in AddToolTarget need a local fallback.
+if(NOT DEFINED VERSION)
+    set(VERSION "1.3.1")
+endif()
+
 find_file(TOOLINFO_PLIST Tool-Info.plist
     PATHS ${CMAKE_CURRENT_SOURCE_DIR}
     NO_DEFAULT_PATH

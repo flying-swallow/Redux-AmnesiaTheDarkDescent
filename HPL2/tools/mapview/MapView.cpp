@@ -619,7 +619,10 @@ public:
 		mpTestRenderTexture = gpEngine->GetGraphics()->CreateTexture("TestTarget",eTextureType_Rect,eTextureUsage_RenderTarget);
 		mpTestRenderTexture->CreateFromRawData(cVector3l(vTestWindowSize.x, vTestWindowSize.y,1),ePixelFormat_RGBA, NULL);
 
-		mpTestRenderGfx = gpEngine->GetGui()->CreateGfxTexture(mpTestRenderTexture,false,eGuiMaterial_Diffuse);
+		// cGui only builds elements from Image* now and there is no bridge from
+		// the legacy iTexture render target (the only DrawGfx of this element is
+		// commented out below anyway).
+		mpTestRenderGfx = NULL;
 
 		iDepthStencilBuffer *pDepthBuffer = gpEngine->GetGraphics()->CreateDepthStencilBuffer(vTestWindowSize,24,8,false);
 		

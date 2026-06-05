@@ -51,7 +51,7 @@ public:
 	void SetVisible(bool abX) { mbVisible = abX; }
 protected:
 	iEntityWrapper* mpParent;
-	iTexture* mvIconGfx[2];
+	Image* mvIconGfx[2];
 
 	cBoundingVolume mIconBV;
 	bool mbVisible;

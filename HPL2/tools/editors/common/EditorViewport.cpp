@@ -864,15 +864,37 @@ void iEditorViewport::UpdateViewport()
 	cGui* pGui = mpGuiSet->GetGui();
 
 	////////////////////////////////////////////
-	// Destroy previous Image
-	cGuiGfxElement* pImg = mpImgViewport->GetImage();
-	if(pImg) pGui->DestroyGfx(pImg);
+	// (Re)size the offscreen RI target to the engine viewport extent and point
+	// the engine viewport at it — HybridRenderer then renders this pane 1:1
+	// into the target's sampled texture (see the offscreen tail blit) instead
+	// of the swapchain. Resize keeps the wrapping Image stable, so existing
+	// gfx elements keep working across pane resizes; it defers the old GPU
+	// texture past in-flight frames internally.
+	const cVector2l vSize = mpEngineViewport->GetSize();
+	if(vSize.x <= 0 || vSize.y <= 0)
+		return;
+
+	if(mpViewportTarget == NULL)
+		mpViewportTarget = std::make_shared<cViewportTarget>();
+	const bool bHadImage = mpViewportTarget->IsValid();
+	mpViewportTarget->Resize((uint32_t)vSize.x, (uint32_t)vSize.y);
+	mpEngineViewport->SetViewportTarget(mpViewportTarget);
 
 	////////////////////////////////////////////
-	// Set updated one	
-	pImg = pGui->CreateGfxTexture(mpRenderTarget, false, eGuiMaterial_Diffuse, cColor(1,1), true, mvUVStart, mvUVEnd);
-	mpImgViewport->SetImage(pImg);
-	
+	// Bind the target's Image to the viewport widget. The Image wrapper is
+	// stable across resizes, so the gfx element only needs (re)creating once.
+	if(bHadImage == false)
+	{
+		cGuiGfxElement* pImg = mpImgViewport->GetImage();
+		if(pImg) pGui->DestroyGfx(pImg);
+
+		// Offscreen target is 1:1 — full UV range, no sub-rect math. The
+		// target owns the texture (abAutoDestroyTexture=false).
+		pImg = pGui->CreateGfxTexture(mpViewportTarget->GetImage().get(), false,
+									  eGuiMaterial_Diffuse);
+		mpImgViewport->SetImage(pImg);
+	}
+
 	mbViewportNeedsUpdate = false;
 }
 
@@ -910,21 +932,26 @@ void iEditorViewport::SetEngineViewportPositionAndSize(const cVector2l& avPos, c
 	mvEngineViewportSize = avSize;
 	mpEngineViewport->SetSize(mvEngineViewportSize);
 
-	const cVector2l& vFBSize = mpFB->GetSize();
-	cVector2f vFBSizeFloat = cVector2f((float)vFBSize.x, (float)vFBSize.y);
+	// Legacy FB sub-rect UV math — dead on the RI backend (offscreen target is
+	// 1:1, mpFB is NULL). Kept for the GL path until the Phase-5 cleanup.
+	if(mpFB)
+	{
+		const cVector2l& vFBSize = mpFB->GetSize();
+		cVector2f vFBSizeFloat = cVector2f((float)vFBSize.x, (float)vFBSize.y);
 
-	cVector2f vPosFloat = cVector2f((float)mvEngineViewportPos.x, (float)mvEngineViewportPos.y);
-	cVector2f vSizeFloat = cVector2f((float)mvEngineViewportSize.x, (float)mvEngineViewportSize.y);
+		cVector2f vPosFloat = cVector2f((float)mvEngineViewportPos.x, (float)mvEngineViewportPos.y);
+		cVector2f vSizeFloat = cVector2f((float)mvEngineViewportSize.x, (float)mvEngineViewportSize.y);
 
-	mvUVStart = (vPosFloat+cVector2f(0,vSizeFloat.y)) / 
-				vFBSizeFloat;
+		mvUVStart = (vPosFloat+cVector2f(0,vSizeFloat.y)) /
+					vFBSizeFloat;
 
-	if(mvUVStart.y>=1.0f) mvUVStart.y-=1.0f;
+		if(mvUVStart.y>=1.0f) mvUVStart.y-=1.0f;
 
-	mvUVSize =  vSizeFloat/
-			   vFBSizeFloat;
+		mvUVSize =  vSizeFloat/
+				   vFBSizeFloat;
 
-	mvUVEnd = mvUVStart + mvUVSize;
+		mvUVEnd = mvUVStart + mvUVSize;
+	}
 
 	mbViewportNeedsUpdate = true;
 }
@@ -937,11 +964,15 @@ void iEditorViewport::SetEngineViewportSize(const cVector2l& avSize)
 	mvEngineViewportSize = avSize;
 	mpEngineViewport->SetSize(mvEngineViewportSize);
 
-	const cVector2l& vFBSize = mpFB->GetSize();
+	// Legacy FB sub-rect UV math — dead on the RI backend (see above).
+	if(mpFB)
+	{
+		const cVector2l& vFBSize = mpFB->GetSize();
 
-	mvUVSize = cVector2f((float)mvEngineViewportSize.x, (float)mvEngineViewportSize.y) /
-			   cVector2f((float)vFBSize.x, (float)vFBSize.y);
-	mvUVStart = cVector2f(mvUVStart.x, mvUVSize.y-mvUVStart.y);
+		mvUVSize = cVector2f((float)mvEngineViewportSize.x, (float)mvEngineViewportSize.y) /
+				   cVector2f((float)vFBSize.x, (float)vFBSize.y);
+		mvUVStart = cVector2f(mvUVStart.x, mvUVSize.y-mvUVStart.y);
+	}
 	mbViewportNeedsUpdate = true;
 }
 
@@ -1044,6 +1075,13 @@ const cVector3f& iEditorViewport::GetGridCenter()
 void iEditorViewport::AddViewportCallback(iRendererCallback* apCallback)
 {
 	mpEngineViewport->AddRendererCallback(apCallback);
+}
+
+//-------------------------------------------------------------
+
+void iEditorViewport::AddViewportCallback(iViewportCallback* apCallback)
+{
+	mpEngineViewport->AddViewportCallback(apCallback);
 }
 
 //-------------------------------------------------------------

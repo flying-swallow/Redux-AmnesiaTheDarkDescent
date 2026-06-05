@@ -55,7 +55,8 @@ public:
 	cTextureWrapper(cMaterialWrapper* apMat, eMaterialTexture aUnit);
 	~cTextureWrapper();
 
-	iTexture* GetTexture() { return mpTexture; }
+	Image* GetImage() { return mpTexture; }
+	eTextureType GetTextureType() { return mType; }
 
 	void Reset();
 
@@ -65,7 +66,7 @@ public:
 	void Reload();
 	void Update();
 
-	void CreateFromTexture(iTexture* apTexture);
+	void CreateFromImage(Image* apImage);
 
 	bool CheckFileIsUpdated();
 
@@ -111,7 +112,8 @@ protected:
 	tString msAnimMode;
 	float mfFrameTime;
 
-	iTexture* mpTexture;
+	Image* mpTexture;
+	eTextureType mType;
 	cDate mTimeStamp;
 };
 
@@ -179,7 +181,7 @@ protected:
 	tWString msBlendMode;
 
 	std::vector<cTextureWrapper*> mvTextures;
-	std::vector<iTexture*> mvDefaultTextures;
+	std::vector<Image*> mvDefaultTextures;
 
 	std::vector<cMaterialUvAnimation> mvUVAnimations;
 

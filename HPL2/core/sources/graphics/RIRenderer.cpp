@@ -1749,7 +1749,9 @@ void CmdBuildRITlas( struct RIDevice_s *dev, struct RICmd_s *cmd, const struct R
 		assert( d->dst->vk.handle != VK_NULL_HANDLE );  // dst TLAS must be created
 		assert( d->scratchBuffer );
 		assert( d->instanceBuffer );
-		assert( d->instanceNum > 0 );  // caller guards on !tlasInstances.empty()
+		// instanceNum == 0 is a legal build (HybridRenderer emits an empty
+		// TLAS for worlds with no RT geometry — e.g. a fresh editor scene —
+		// so the RT descriptor pushes always have a valid handle).
 
 		VkAccelerationStructureGeometryKHR *g = &geoms[i];
 		memset( g, 0, sizeof(*g) );

@@ -143,6 +143,13 @@ SHADERS
     # below rather than listed here.
     ./slang/Gui/gui.vert.slang
     ./slang/Gui/gui.frag.slang
+    ./slang/WireFrame/wireframe.vert.slang
+    ./slang/WireFrame/wireframe.frag.slang
+    ./slang/DebugDraw/debug.vert.slang
+    ./slang/DebugDraw/debug_2d.vert.slang
+    ./slang/DebugDraw/debug.frag.slang
+    ./slang/DebugDraw/debug_uv.vert.slang
+    ./slang/DebugDraw/debug_uv.frag.slang
     ./slang/InventoryPost/inventory_post.vert.slang
     ./slang/InventoryPost/inventory_post.frag.slang
     ./slang/ParticlePass/Particle.vert.slang
@@ -153,6 +160,8 @@ SHADERS
     ./slang/WaterPass/Water.frag.slang
     ./slang/DecalPass/Decal.vert.slang
     ./slang/DecalPass/Decal.frag.slang
+    ./slang/SimplePass/Simple.vert.slang
+    ./slang/SimplePass/Simple.frag.slang
     ./slang/SurfelGBuffer/SurfelGBuffer.3d.slang
     ./slang/SurfelGI/SurfelPreparePass.cs.slang
     ./slang/SurfelGI/SurfelUpdatePass.cs.slang

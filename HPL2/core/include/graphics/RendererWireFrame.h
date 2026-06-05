@@ -21,31 +21,38 @@
 #define HPL_RENDERER_WIRE_FRAME_H
 
 #include "graphics/Renderer.h"
+#include "graphics/RenderList2.h"
+#include "graphics/RIProgram.h"
 
 namespace hpl {
 
     //---------------------------------------------
-	
-	class iFrameBuffer;
-	class iDepthStencilBuffer;
-	class iTexture;
-	class iLight;
-	
-	//---------------------------------------------
-	
+
 	class cRendererWireFrame : public  iRenderer
 	{
 	public:
 		cRendererWireFrame(cGraphics *apGraphics,cResources* apResources);
-		~cRendererWireFrame();
-		
-		bool LoadData();
-		void DestroyData();
+
+		bool LoadData() override { return true; }
+		void DestroyData() override {}
+
+		virtual void Draw(
+				RIBootstrap::FrameContext* cntx,
+				cViewport* viewport,
+				float afFrameTime,
+				cFrustum* apFrustum,
+				cWorld* apWorld,
+				cRenderSettings* apSettings,
+				bool abSendFrameBufferToPostEffects) override;
 
 	private:
-		void CopyToFrameBuffer();
-		void SetupRenderList();
-		void RenderObjects();
+		// Pure virtuals from the legacy GL chain — never invoked; Draw() owns rendering.
+		void CopyToFrameBuffer() override {}
+		void SetupRenderList() override {}
+		void RenderObjects() override {}
+
+		RIProgram m_wireframe;
+		cRenderList2 m_rendererList;
 	};
 
 	//---------------------------------------------
