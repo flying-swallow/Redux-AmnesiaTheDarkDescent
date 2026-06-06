@@ -271,166 +271,9 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
         &RI.device, indirectDesc.maxElements, sizeof(VkDrawIndirectCommand),
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
-    // Surfel-generation output image — one RGBA16F (HDR) storage texture per
-    // swapchain image, full swapchain resolution. The generation pass dispatches
-    // at viewportSize and writes every pixel, so the whole image is fresh each
-    // frame.
-    for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
-      uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-      VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-      imgInfo.imageType = VK_IMAGE_TYPE_2D;
-      imgInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-      imgInfo.extent = {overscanExtent(RI.swapchain.width),
-                        overscanExtent(RI.swapchain.height), 1};
-      imgInfo.mipLevels = 1;
-      imgInfo.arrayLayers = 1;
-      imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-      imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-      // TRANSFER_DST is needed for the per-frame vkCmdClearColorImage in
-      // Draw() — the generation pass only writes pixels with surfel
-      // contribution, so the rest must be explicitly zeroed each frame.
-      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT |
-                      VK_IMAGE_USAGE_SAMPLED_BIT |
-                      VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-      imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
-                                     queueFamilies, RI_QUEUE_LEN);
-      imgInfo.pQueueFamilyIndices = queueFamilies;
-
-      VmaAllocationCreateInfo alloc = {};
-      alloc.usage = VMA_MEMORY_USAGE_AUTO;
-      VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imgInfo, &alloc,
-                                   &m_surfelResultTexture[i].vk.image,
-                                   &m_surfelResultTexture[i].vk.allocation,
-                                   NULL));
-
-      VkImageViewCreateInfo viewInfo = {
-          VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-      viewInfo.image = m_surfelResultTexture[i].vk.image;
-      viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-      viewInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-      viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
-                                      &m_surfelResultView[i].vk.image));
-    }
-
-    // Packed visibility — RGBA32UI storage image written by the SurfelVBuffer RT
-    // pipeline, sampled by the update / generation passes. Swapchain-sized.
-    for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
-      uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-      VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-      imgInfo.imageType = VK_IMAGE_TYPE_2D;
-      imgInfo.format = VK_FORMAT_R32G32B32A32_UINT;
-      imgInfo.extent = {overscanExtent(RI.swapchain.width),
-                        overscanExtent(RI.swapchain.height), 1};
-      imgInfo.mipLevels = 1;
-      imgInfo.arrayLayers = 1;
-      imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-      imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-      imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
-                                     queueFamilies, RI_QUEUE_LEN);
-      imgInfo.pQueueFamilyIndices = queueFamilies;
-
-      VmaAllocationCreateInfo alloc = {};
-      alloc.usage = VMA_MEMORY_USAGE_AUTO;
-      VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imgInfo, &alloc,
-                                   &m_packedHitInfoTexture[i].vk.image,
-                                   &m_packedHitInfoTexture[i].vk.allocation,
-                                   NULL));
-
-      VkImageViewCreateInfo viewInfo = {
-          VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-      viewInfo.image = m_packedHitInfoTexture[i].vk.image;
-      viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-      viewInfo.format = VK_FORMAT_R32G32B32A32_UINT;
-      viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
-                                      &m_packedHitInfoView[i].vk.image));
-    }
-
-    // Velocity (motion vectors) — RG16F, the gbuffer's 2nd color target.
-    // COLOR_ATTACHMENT for the write + SAMPLED so temporal passes can read it.
-    for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
-      uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-      VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-      imgInfo.imageType = VK_IMAGE_TYPE_2D;
-      imgInfo.format = VK_FORMAT_R16G16_SFLOAT;
-      imgInfo.extent = {overscanExtent(RI.swapchain.width),
-                        overscanExtent(RI.swapchain.height), 1};
-      imgInfo.mipLevels = 1;
-      imgInfo.arrayLayers = 1;
-      imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-      imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-      imgInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                      VK_IMAGE_USAGE_SAMPLED_BIT;
-      imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
-                                     queueFamilies, RI_QUEUE_LEN);
-      imgInfo.pQueueFamilyIndices = queueFamilies;
-
-      VmaAllocationCreateInfo alloc = {};
-      alloc.usage = VMA_MEMORY_USAGE_AUTO;
-      VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imgInfo, &alloc,
-                                   &m_velocityTexture[i].vk.image,
-                                   &m_velocityTexture[i].vk.allocation, NULL));
-
-      VkImageViewCreateInfo viewInfo = {
-          VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-      viewInfo.image = m_velocityTexture[i].vk.image;
-      viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-      viewInfo.format = VK_FORMAT_R16G16_SFLOAT;
-      viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
-                                      &m_velocityView[i].vk.image));
-    }
-
-    // Direct-lighting accumulation ping-pong — RGBA16F, STORAGE (compute write)
-    // + SAMPLED (history reproject + composite read). Two textures, kept in
-    // GENERAL; toggled per frame. Not swapchain-indexed (history spans frames).
-    for (uint32_t i = 0; i < 2; ++i) {
-      uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-      VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-      imgInfo.imageType = VK_IMAGE_TYPE_2D;
-      imgInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-      imgInfo.extent = {overscanExtent(RI.swapchain.width),
-                        overscanExtent(RI.swapchain.height), 1};
-      imgInfo.mipLevels = 1;
-      imgInfo.arrayLayers = 1;
-      imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-      imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-                      VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-      imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
-                                     queueFamilies, RI_QUEUE_LEN);
-      imgInfo.pQueueFamilyIndices = queueFamilies;
-
-      VmaAllocationCreateInfo alloc = {};
-      alloc.usage = VMA_MEMORY_USAGE_AUTO;
-      VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imgInfo, &alloc,
-                                   &m_directLightingTexture[i].vk.image,
-                                   &m_directLightingTexture[i].vk.allocation,
-                                   NULL));
-
-      VkImageViewCreateInfo viewInfo = {
-          VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-      viewInfo.image = m_directLightingTexture[i].vk.image;
-      viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-      viewInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-      viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
-                                      &m_directLightingView[i].vk.image));
-
-      // Parallel surface-key texture (viewZ, normal.xyz) for disocclusion reject.
-      VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imgInfo, &alloc,
-                                   &m_directKeyTexture[i].vk.image,
-                                   &m_directKeyTexture[i].vk.allocation, NULL));
-      viewInfo.image = m_directKeyTexture[i].vk.image;
-      VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
-                                      &m_directKeyView[i].vk.image));
-    }
+    // (The per-viewport frame textures — surfel result, packed hit info,
+    // velocity, direct-lighting history — live on
+    // cViewport::HybridViewportState; see its Update below.)
 
     // (Per-bounce refraction/reflection V-buffers removed: water refraction now
     // clobbers the primary gPackedHitInfo like glass; water reflection is drawn
@@ -576,7 +419,55 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VK_IMAGE_ASPECT_COLOR_BIT, &visibilityTexture[i], &visibilityView[i],
         "HybridViewportState.visibility");
+
+    // Surfel-generation output — storage write (surfel_generate), sampled
+    // by the composite, cleared per frame (TRANSFER_DST).
+    CreateViewportAttachmentTexture(
+        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT, &surfelResultTexture[i],
+        &surfelResultView[i], "HybridViewportState.surfelResult");
+
+    // Stage B packed visibility — RT pipeline storage write, sampled by the
+    // surfel update / generation / direct passes.
+    CreateViewportAttachmentTexture(
+        &RI.device, renderW, renderH, RIBootstrap::VisibilityFormat,
+        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT, &packedHitInfoTexture[i],
+        &packedHitInfoView[i], "HybridViewportState.packedHitInfo");
+
+    // Screen-space velocity — gbuffer MRT #2, sampled by temporal passes.
+    CreateViewportAttachmentTexture(
+        &RI.device, renderW, renderH, RIBootstrap::VelocityFormat,
+        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT, &velocityTexture[i], &velocityView[i],
+        "HybridViewportState.velocity");
   }
+
+  // Direct-lighting accumulation ping-pong + parallel surface-key textures —
+  // STORAGE (compute write) + SAMPLED (history reproject + composite read) +
+  // TRANSFER_DST (first-use clear). Kept in GENERAL; toggled per frame.
+  for (uint32_t i = 0; i < 2; i++) {
+    CreateViewportAttachmentTexture(
+        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT, &directLightingTexture[i],
+        &directLightingView[i], "HybridViewportState.directLighting");
+    CreateViewportAttachmentTexture(
+        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT, &directKeyTexture[i], &directKeyView[i],
+        "HybridViewportState.directKey");
+  }
+
+  // Recreation invalidated every history: re-arm the one-time direct-lighting
+  // init/clear and re-seed prev-camera = current on the next Draw.
+  directLightingIndex = 0;
+  directLightingInit = false;
+  hasPrevCamera = false;
 }
 
 void cViewport::HybridViewportState::Dispose(RIBootstrap::FrameContext *cntx) {
@@ -587,9 +478,24 @@ void cViewport::HybridViewportState::Dispose(RIBootstrap::FrameContext *cntx) {
                                      &depthView[i]);
     ReleaseViewportAttachmentTexture(cntx->freelist, &visibilityTexture[i],
                                      &visibilityView[i]);
+    ReleaseViewportAttachmentTexture(cntx->freelist, &surfelResultTexture[i],
+                                     &surfelResultView[i]);
+    ReleaseViewportAttachmentTexture(cntx->freelist, &packedHitInfoTexture[i],
+                                     &packedHitInfoView[i]);
+    ReleaseViewportAttachmentTexture(cntx->freelist, &velocityTexture[i],
+                                     &velocityView[i]);
+  }
+  for (uint32_t i = 0; i < 2; i++) {
+    ReleaseViewportAttachmentTexture(cntx->freelist, &directLightingTexture[i],
+                                     &directLightingView[i]);
+    ReleaseViewportAttachmentTexture(cntx->freelist, &directKeyTexture[i],
+                                     &directKeyView[i]);
   }
   width = height = 0;
   targetWidth = targetHeight = 0;
+  directLightingIndex = 0;
+  directLightingInit = false;
+  hasPrevCamera = false;
 }
 
 void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
@@ -612,11 +518,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   cViewport::HybridViewportState &state = *pState;
   const uint32_t renderWidth = state.width;   // overscan applied by Update
   const uint32_t renderHeight = state.height;
-  // The shared per-renderer member textures (velocity, surfel history, ...)
-  // are sized once to overscanExtent(swapchain) — every viewport must fit.
-  assert(renderWidth <= overscanExtent(RI.swapchain.width) &&
-         renderHeight <= overscanExtent(RI.swapchain.height) &&
-         "viewport larger than the shared per-renderer member textures");
 
   ml::float4x4 mainFrustumViewInvMat = apFrustum->GetViewMat();
   mainFrustumViewInvMat.Invert();
@@ -625,7 +526,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Guard band: widen the FOV by the overscan factor so the cropped center keeps
   // the authored FOV. Scaling the projection's x/y focal terms (diagonal a[0],
   // a[5]) by 1/(1+2f) zooms out symmetrically about the centre. Done here so the
-  // widened projection flows into perFrame.projMat, invProjMat, and m_prevProjMat
+  // widened projection flows into perFrame.projMat, invProjMat, and state.prevProjMat
   // (velocity) — and cameraU/V are widened to match below. Every target renders
   // the overscan frame (Update applies the same factor), so this is
   // unconditional.
@@ -751,15 +652,15 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Previous-frame view/proj for motion vectors (gbuffer velocity target). On
   // the first frame use this frame's matrices so velocity reads ~zero, then
   // remember this frame's for the next.
-  if (!m_hasPrevCamera) {
-    std::memcpy(m_prevViewMat, mainFrustumViewMat.a, sizeof(m_prevViewMat));
-    std::memcpy(m_prevProjMat, mainFrustumProjMat.a, sizeof(m_prevProjMat));
-    m_hasPrevCamera = true;
+  if (!state.hasPrevCamera) {
+    std::memcpy(state.prevViewMat, mainFrustumViewMat.a, sizeof(state.prevViewMat));
+    std::memcpy(state.prevProjMat, mainFrustumProjMat.a, sizeof(state.prevProjMat));
+    state.hasPrevCamera = true;
   }
-  std::memcpy(perFrame.prevViewMat, m_prevViewMat, sizeof(perFrame.prevViewMat));
-  std::memcpy(perFrame.prevProjMat, m_prevProjMat, sizeof(perFrame.prevProjMat));
-  std::memcpy(m_prevViewMat, mainFrustumViewMat.a, sizeof(m_prevViewMat));
-  std::memcpy(m_prevProjMat, mainFrustumProjMat.a, sizeof(m_prevProjMat));
+  std::memcpy(perFrame.prevViewMat, state.prevViewMat, sizeof(perFrame.prevViewMat));
+  std::memcpy(perFrame.prevProjMat, state.prevProjMat, sizeof(perFrame.prevProjMat));
+  std::memcpy(state.prevViewMat, mainFrustumViewMat.a, sizeof(state.prevViewMat));
+  std::memcpy(state.prevProjMat, mainFrustumProjMat.a, sizeof(state.prevProjMat));
   // viewProjMat = proj * view (column-major); fill via direct ml composition
   // when needed. Leaving as identity-stub for now — first pass writes only
   // visibility; lighting in the FS reads viewMat/invViewMat which are correct.
@@ -1524,7 +1425,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
   }
 
-  // m_packedHitInfoView / m_surfelIrradianceView / m_surfelDepthView and the
+  // state.packedHitInfoView / m_surfelIrradianceView / m_surfelDepthView and the
   // freshly built TLAS now live on set 1 and are pushed per-dispatch via
   // RIProgram::bindDescriptors below (see the m_surfelVBuffer / m_surfelRT
   // / m_surfelIntegrate / m_surfelGenerate / m_mainComposite call sites).
@@ -1609,7 +1510,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
          RI_BARRIER_ASPECT_DEPTH},
         // Velocity MRT — same UNDEFINED→COLOR transition as the visibility
         // target (loadOp=CLEAR, so prior contents don't matter).
-        {&m_velocityTexture[RI.swapchainIndex], RI_RESOURCE_STATE_UNDEFINED,
+        {&state.velocityTexture[RI.swapchainIndex], RI_RESOURCE_STATE_UNDEFINED,
          RI_RESOURCE_STATE_RENDER_TARGET}};
     RI.primary.cmds[0].textureBarriers<3>(3, attachmentBarriers);
   }
@@ -1628,7 +1529,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // motion.
   VkRenderingAttachmentInfo velocityAttachment = {
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-  velocityAttachment.imageView = m_velocityView[RI.swapchainIndex].vk.image;
+  velocityAttachment.imageView = state.velocityView[RI.swapchainIndex].vk.image;
   velocityAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
   velocityAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   velocityAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -1699,7 +1600,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   //
   // RT pipeline that traces one ray per swapchain pixel through m_tlas and
   // packs the closest-hit (instanceCustomIndex, primitiveID, attribs) into
-  // m_packedHitInfoTexture. Stages D/F consume this image; for the current
+  // state.packedHitInfoTexture. Stages D/F consume this image; for the current
   // frame the output goes unused so the dispatch's correctness needs to be
   // verified through validation-layer signals (no SBT/descriptor errors,
   // no VK_ERROR_DEVICE_LOST).
@@ -1709,7 +1610,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // (No bounce buffers to clear anymore — water/glass refraction clobbers this
     // primary image, water reflection is in the raster water pass.)
     RI.primary.cmds[0].textureBarrier(
-        {&m_packedHitInfoTexture[RI.swapchainIndex],
+        {&state.packedHitInfoTexture[RI.swapchainIndex],
          RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_STORAGE_WRITE,
          RI_STAGE_NONE, RI_STAGE_RAY_TRACING});
   }
@@ -1739,7 +1640,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       vbBindings.push_back(b);
     }
     pushSurfelStorageImage(vbBindings, "gPackedHitInfo",
-                           m_packedHitInfoView[RI.swapchainIndex].vk.image);
+                           state.packedHitInfoView[RI.swapchainIndex].vk.image);
     pushTlas(vbBindings);
 
     m_surfelVBuffer.bindDescriptors(
@@ -1751,7 +1652,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   }
 
   {
-    // m_packedHitInfoTexture is written by the rgen + miss + chit triplet
+    // state.packedHitInfoTexture is written by the rgen + miss + chit triplet
     // above. Transition it to SHADER_READ_ONLY_OPTIMAL so consumers can
     // Downstream consumers (SurfelEvaluation / SurfelGeneration /
     // SurfelGIRender) read gPackedHitInfo via direct `[pixel]` storage
@@ -2093,11 +1994,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // undefined memory. Clear to (0,0,0,1) each frame so uncovered pixels read
     // as zero indirect instead of garbage. UNDEFINED oldLayout discards stale
     // contents; the clear (transfer) is handed off to the compute write below.
-    toRead[2] = {&m_surfelResultTexture[RI.swapchainIndex],
+    toRead[2] = {&state.surfelResultTexture[RI.swapchainIndex],
                  RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE};
 
     // Velocity (gbuffer MRT) -> SHADER_READ for the direct-lighting pass.
-    toRead[3] = {&m_velocityTexture[RI.swapchainIndex],
+    toRead[3] = {&state.velocityTexture[RI.swapchainIndex],
                  RI_RESOURCE_STATE_RENDER_TARGET,
                  RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_NONE,
                  RI_STAGE_COMPUTE};
@@ -2111,11 +2012,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkClearColorValue clearColor = {};
     clearColor.float32[3] = 1.0f; // (0,0,0,1): zero radiance, opaque alpha
     VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdClearColorImage(cmd, m_surfelResultTexture[RI.swapchainIndex].vk.image,
+    vkCmdClearColorImage(cmd, state.surfelResultTexture[RI.swapchainIndex].vk.image,
                          VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
 
     RI.primary.cmds[0].textureBarrier(
-        {&m_surfelResultTexture[RI.swapchainIndex],
+        {&state.surfelResultTexture[RI.swapchainIndex],
          RI_RESOURCE_STATE_CLEAR_STORAGE, RI_RESOURCE_STATE_UNORDERED_ACCESS,
          RI_STAGE_NONE, RI_STAGE_COMPUTE});
   }
@@ -2125,7 +2026,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   //   integrate: per valid surfel, MSME-blend the per-frame raytraced radiance
   //              (gSurfelRayResultBuffer) into surfel.radiance.
   //   generate:  per pixel, walk the visibility cell's surfel list, write the
-  //              indirect term into m_surfelResultTexture (sampled by the
+  //              indirect term into state.surfelResultTexture (sampled by the
   //              composite), and spawn / recycle surfels by coverage.
   // ----------------------------------------------------------------------
   {
@@ -2195,7 +2096,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       bnd.push_back(b);
     }
     pushSurfelStorageImage(bnd, "gPackedHitInfo",
-                           m_packedHitInfoView[RI.swapchainIndex].vk.image);
+                           state.packedHitInfoView[RI.swapchainIndex].vk.image);
     pushSurfelSampledImage(bnd, "gSurfelDepth",
                            m_surfelDepthView[RI.swapchainIndex].vk.image);
     {
@@ -2204,7 +2105,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
       b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
       b.descriptor.vk.image.imageView =
-          m_surfelResultView[RI.swapchainIndex].vk.image;
+          state.surfelResultView[RI.swapchainIndex].vk.image;
       b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       RIFinalizeDescriptor(&RI.device, &b.descriptor);
       bnd.push_back(b);
@@ -2225,23 +2126,23 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // velocity are all ready by here.
   // --------------------------------------------------------------------
   {
-    const uint32_t dlCur  = m_directLightingIndex;
+    const uint32_t dlCur  = state.directLightingIndex;
     const uint32_t dlPrev = dlCur ^ 1u;
 
-    if (!m_directLightingInit) {
+    if (!state.directLightingInit) {
       // First use: the colour + key ping-pong textures UNDEFINED -> GENERAL +
       // cleared so the history reads are defined; they stay GENERAL thereafter.
       VkImage dirImgs[4] = {
-          m_directLightingTexture[0].vk.image, m_directLightingTexture[1].vk.image,
-          m_directKeyTexture[0].vk.image,      m_directKeyTexture[1].vk.image};
+          state.directLightingTexture[0].vk.image, state.directLightingTexture[1].vk.image,
+          state.directKeyTexture[0].vk.image,      state.directKeyTexture[1].vk.image};
       RITextureBarrier_s toGen[4] = {
-          {&m_directLightingTexture[0], RI_RESOURCE_STATE_UNDEFINED,
+          {&state.directLightingTexture[0], RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE},
-          {&m_directLightingTexture[1], RI_RESOURCE_STATE_UNDEFINED,
+          {&state.directLightingTexture[1], RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE},
-          {&m_directKeyTexture[0], RI_RESOURCE_STATE_UNDEFINED,
+          {&state.directKeyTexture[0], RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE},
-          {&m_directKeyTexture[1], RI_RESOURCE_STATE_UNDEFINED,
+          {&state.directKeyTexture[1], RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE}};
       RI.primary.cmds[0].textureBarriers<4>(4, toGen);
 
@@ -2255,7 +2156,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           {RI_RESOURCE_STATE_CLEAR_STORAGE,
            RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_WRITE,
            RI_STAGE_NONE, RI_STAGE_COMPUTE});
-      m_directLightingInit = true;
+      state.directLightingInit = true;
     } else {
       // Make last frame's writes to the ping-pong textures visible (history
       // sampled-read + current write-after-read/write). Both stay GENERAL.
@@ -2295,24 +2196,24 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       bnd.push_back(b);
     }
     pushSurfelStorageImage(bnd, "gPackedHitInfo",
-                           m_packedHitInfoView[RI.swapchainIndex].vk.image);
+                           state.packedHitInfoView[RI.swapchainIndex].vk.image);
     pushTlas(bnd);
     bnd.push_back(pushSampled("gPackedHitInfoRaster",
                               state.visibilityView[RI.swapchainIndex].vk.image,
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
     bnd.push_back(pushSampled("gVelocity",
-                              m_velocityView[RI.swapchainIndex].vk.image,
+                              state.velocityView[RI.swapchainIndex].vk.image,
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
     bnd.push_back(pushSampled("gDirectHistory",
-                              m_directLightingView[dlPrev].vk.image,
+                              state.directLightingView[dlPrev].vk.image,
                               VK_IMAGE_LAYOUT_GENERAL));
     bnd.push_back(pushSampled("gDirectKeyHistory",
-                              m_directKeyView[dlPrev].vk.image,
+                              state.directKeyView[dlPrev].vk.image,
                               VK_IMAGE_LAYOUT_GENERAL));
     pushSurfelStorageImage(bnd, "gDirectLighting",
-                           m_directLightingView[dlCur].vk.image);
+                           state.directLightingView[dlCur].vk.image);
     pushSurfelStorageImage(bnd, "gDirectKeyOut",
-                           m_directKeyView[dlCur].vk.image);
+                           state.directKeyView[dlCur].vk.image);
 
     m_directLighting.bindDescriptors(&RI.device, &RI.primary.cmds[0],
                                      RI.frameIndex, bnd.data(), bnd.size(),
@@ -2328,7 +2229,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   // --------------------------------------------------------------------
   // MainCompositePass — compute pass. Reads gIndirectLighting
-  // (m_surfelResultView, from SurfelGenerationPass above) + gPackedHitInfo /
+  // (state.surfelResultView, from SurfelGenerationPass above) + gPackedHitInfo /
   // gPackedHitInfoRaster / TLAS / gPerFrame, and writes the composited color
   // into the viewport render target. The forward passes draw on top of it; the
   // tail crop-blits it into the viewport backbuffer, which Scene.cpp's
@@ -2356,7 +2257,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     RITextureBarrier_s imageBarriers[2] = {
         // gIndirectLighting GENERAL -> SHADER_READ_ONLY, now consumed by
         // compute.
-        {&m_surfelResultTexture[RI.swapchainIndex],
+        {&state.surfelResultTexture[RI.swapchainIndex],
          RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
          RI_STAGE_COMPUTE, RI_STAGE_COMPUTE},
         // Pogo attach -> GENERAL for the compute storage write. Discard prior
@@ -2407,7 +2308,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       bnd.push_back(b);
     }
     pushSurfelStorageImage(bnd, "gPackedHitInfo",
-                           m_packedHitInfoView[RI.swapchainIndex].vk.image);
+                           state.packedHitInfoView[RI.swapchainIndex].vk.image);
     pushTlas(bnd);
     {
       RIProgram::DescriptorBinding b;
@@ -2415,7 +2316,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
       b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
       b.descriptor.vk.image.imageView =
-          m_surfelResultView[RI.swapchainIndex].vk.image;
+          state.surfelResultView[RI.swapchainIndex].vk.image;
       b.descriptor.vk.image.imageLayout =
           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
       RIFinalizeDescriptor(&RI.device, &b.descriptor);
@@ -2440,7 +2341,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // gDirectLighting — this frame's accumulated direct (sampled, GENERAL).
     pushSurfelSampledImage(
         bnd, "gDirectLighting",
-        m_directLightingView[m_directLightingIndex].vk.image);
+        state.directLightingView[state.directLightingIndex].vk.image);
     // gOutput — the viewport render target bound as a storage image (GENERAL).
     pushSurfelStorageImage(
         bnd, "gOutput",
@@ -2456,7 +2357,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   // Toggle the direct-lighting ping-pong: this frame's write becomes next
   // frame's history.
-  m_directLightingIndex ^= 1u;
+  state.directLightingIndex ^= 1u;
 
   // Render target: GENERAL (compute write) -> COLOR_ATTACHMENT_OPTIMAL so the
   // downstream raster passes find the layout they expect.
@@ -3317,59 +3218,6 @@ cHybridRenderer::~cHybridRenderer() {
   // Fallback vertex streams are RIBootstrap globals (process-lifetime, like
   // RI.nulVertexBuffer); not freed here.
   for (uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; ++i) {
-    if (m_surfelResultView[i].vk.image != VK_NULL_HANDLE) {
-      vkDestroyImageView(RI.device.vk.device, m_surfelResultView[i].vk.image,
-                         NULL);
-      m_surfelResultView[i] = {};
-    }
-    if (m_surfelResultTexture[i].vk.image != VK_NULL_HANDLE) {
-      vmaDestroyImage(RI.device.vk.vmaAllocator, m_surfelResultTexture[i].vk.image, m_surfelResultTexture[i].vk.allocation);
-      m_surfelResultTexture[i] = {};
-    }
-    if (m_packedHitInfoView[i].vk.image != VK_NULL_HANDLE) {
-      vkDestroyImageView(RI.device.vk.device, m_packedHitInfoView[i].vk.image,
-                         NULL);
-      m_packedHitInfoView[i] = {};
-    }
-    if (m_packedHitInfoTexture[i].vk.image != VK_NULL_HANDLE) {
-      vmaDestroyImage(RI.device.vk.vmaAllocator,
-                      m_packedHitInfoTexture[i].vk.image,
-                      m_packedHitInfoTexture[i].vk.allocation);
-      m_packedHitInfoTexture[i] = {};
-    }
-    if (m_velocityView[i].vk.image != VK_NULL_HANDLE) {
-      vkDestroyImageView(RI.device.vk.device, m_velocityView[i].vk.image, NULL);
-      m_velocityView[i] = {};
-    }
-    if (m_velocityTexture[i].vk.image != VK_NULL_HANDLE) {
-      vmaDestroyImage(RI.device.vk.vmaAllocator, m_velocityTexture[i].vk.image,
-                      m_velocityTexture[i].vk.allocation);
-      m_velocityTexture[i] = {};
-    }
-    if (i < 2) {
-      if (m_directLightingView[i].vk.image != VK_NULL_HANDLE) {
-        vkDestroyImageView(RI.device.vk.device,
-                           m_directLightingView[i].vk.image, NULL);
-        m_directLightingView[i] = {};
-      }
-      if (m_directLightingTexture[i].vk.image != VK_NULL_HANDLE) {
-        vmaDestroyImage(RI.device.vk.vmaAllocator,
-                        m_directLightingTexture[i].vk.image,
-                        m_directLightingTexture[i].vk.allocation);
-        m_directLightingTexture[i] = {};
-      }
-      if (m_directKeyView[i].vk.image != VK_NULL_HANDLE) {
-        vkDestroyImageView(RI.device.vk.device, m_directKeyView[i].vk.image,
-                           NULL);
-        m_directKeyView[i] = {};
-      }
-      if (m_directKeyTexture[i].vk.image != VK_NULL_HANDLE) {
-        vmaDestroyImage(RI.device.vk.vmaAllocator,
-                        m_directKeyTexture[i].vk.image,
-                        m_directKeyTexture[i].vk.allocation);
-        m_directKeyTexture[i] = {};
-      }
-    }
     if (m_surfelIrradianceView[i].vk.image != VK_NULL_HANDLE) {
       vkDestroyImageView(RI.device.vk.device, m_surfelIrradianceView[i].vk.image, NULL);
       m_surfelIrradianceView[i] = {};
