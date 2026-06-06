@@ -31,19 +31,6 @@ class iEditorBase;
 
 //-------------------------------------------------------------------
 
-class cThumbnailRenderCallback : public iRendererCallback
-{
-public:
-	cThumbnailRenderCallback();
-
-	void OnPostSolidDraw(cRendererCallbackFunctions* apFunctions);
-	void OnPostTranslucentDraw(cRendererCallbackFunctions* apFunctions);
-
-	cMeshEntity* mpObject;
-};
-
-//-------------------------------------------------------------------
-
 class cEditorThumbnailBuilder
 {
 public:
@@ -81,8 +68,6 @@ protected:
 	iFrameBuffer* mpFB128;
 
 	iEditorBase* mpEditor;
-
-	cThumbnailRenderCallback mThumbnailCallback;
 
 	tMeshEntityList mlstThumbnailEntities;
 

@@ -407,10 +407,10 @@ bool VertexBuffer_RI::Compile(tVertexCompileFlag aFlags) {
   //  trans.target = *buf;
   //  trans.size = size;
   //  trans.offset = 0;
-  //  trans.vk.current_stage = VK_PIPELINE_STAGE_2_NONE;
-  //  trans.vk.current_access = VK_ACCESS_2_NONE;
-  //  trans.vk.post_stage = postStage;
-  //  trans.vk.post_access = postAccess;
+  //  trans.currentState = RI_RESOURCE_STATE_UNDEFINED;
+  //  trans.currentStages = RI_STAGE_NONE;
+  //  trans.postState = postState;
+  //  trans.postStages = postStages;
   //  RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
   //  std::memcpy(trans.mapped.data, src, size);
   //  RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
@@ -498,16 +498,16 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
   // copy of the RIBuffer_s, but the underlying VkBuffer / VmaAllocation handles
   // are shared, so the upload lands in the same GPU memory.
   auto stageUpload = [&](RIBuffer_s *target, VkDeviceSize size, const void *src,
-                         VkPipelineStageFlags2 postStage,
-                         VkAccessFlags2 postAccess) {
+                         enum RIResourceState_e postState,
+                         uint32_t postStages) {
     RIResourceBufferTransaction_s trans = {};
     trans.target = *target;
     trans.size = size;
     trans.offset = 0;
-    trans.vk.current_stage = VK_PIPELINE_STAGE_2_NONE;
-    trans.vk.current_access = VK_ACCESS_2_NONE;
-    trans.vk.post_stage = postStage;
-    trans.vk.post_access = postAccess;
+    trans.currentState = RI_RESOURCE_STATE_UNDEFINED;
+    trans.currentStages = RI_STAGE_NONE;
+    trans.postState = postState;
+    trans.postStages = postStages;
     RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
     std::memcpy(trans.mapped.data, src, size);
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
@@ -544,8 +544,7 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
     // stream dirty via UpdateData().
     if (needsAlloc || (m_updateFlags & element.flag)) {
       stageUpload(element.buffer.get(), needed, element.m_shadowData.data(),
-                  VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-                  VK_ACCESS_2_SHADER_READ_BIT);
+                  RI_RESOURCE_STATE_UNORDERED_ACCESS, RI_STAGE_VERTEX);
     }
   }
 
@@ -562,8 +561,7 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
     }
     if (needsAlloc || m_updateIndices) {
       stageUpload(m_indexBuffer.get(), needed, m_indices.data(),
-                  VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-                  VK_ACCESS_2_SHADER_READ_BIT);
+                  RI_RESOURCE_STATE_UNORDERED_ACCESS, RI_STAGE_VERTEX);
     }
   }
   // A realloc moved the BDAs above, so notify regardless of whether a BLAS

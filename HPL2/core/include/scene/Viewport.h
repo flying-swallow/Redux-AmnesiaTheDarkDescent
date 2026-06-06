@@ -28,9 +28,9 @@
 #include "gui/GuiTypes.h"
 #include "math/MathTypes.h"
 #include "scene/SceneTypes.h"
+#include "system/Event.h"
 
 #include <memory>
-#include <optional>
 #include <type_traits>
 #include <variant>
 #include <vector>
@@ -42,12 +42,9 @@ namespace hpl {
 class cScene;
 class cCamera;
 class iRenderer;
-class iFrameBuffer;
 class cRenderSettings;
 class cPostEffectComposite;
 class cWorld;
-class iViewportCallback;
-class iRendererCallback;
 class cGuiSet;
 class Image;
 struct HPLTexture;
@@ -89,6 +86,13 @@ class cViewport {
 public:
   cViewport(cScene *apScene);
   ~cViewport();
+
+  // Connected event handlers, the backend state, and the pogo buffer are all
+  // held by address — a viewport never copies or moves.
+  cViewport(const cViewport &) = delete;
+  cViewport &operator=(const cViewport &) = delete;
+  cViewport(cViewport &&) = delete;
+  cViewport &operator=(cViewport &&) = delete;
 
   // The state's finished color target for the current swapchain image, as
   // the consumer should read it: {x, y, width, height} describe the valid
@@ -196,12 +200,7 @@ public:
   void SetRenderer(iRenderer *apRenderer) { mpRenderer = apRenderer; }
   iRenderer *GetRenderer() { return mpRenderer; }
 
-  cRenderSettings *GetRenderSettings() { return mpRenderSettings; }
-
-  void SetFrameBuffer(iFrameBuffer *apFrameBuffer) {
-    mRenderTarget.mpFrameBuffer = apFrameBuffer;
-  }
-  iFrameBuffer *GetFrameBuffer() { return mRenderTarget.mpFrameBuffer; }
+  cRenderSettings *GetRenderSettings() { return mpRenderSettings.get(); }
 
   void SetPostEffectComposite(cPostEffectComposite *apPostEffectComposite) {
     mpPostEffectComposite = apPostEffectComposite;
@@ -212,58 +211,26 @@ public:
 
   void AddGuiSet(cGuiSet *apSet);
   void RemoveGuiSet(cGuiSet *apSet);
-  cGuiSetListIterator GetGuiSetIterator();
+  const std::vector<cGuiSet *> &GetGuiSets() const { return m_guiSets; }
 
-  void SetPosition(const cVector2l &avPos) { mRenderTarget.mvPos = avPos; }
-  void SetSize(const cVector2l &avSize) { mRenderTarget.mvSize = avSize; }
-
-  const cVector2l &GetPosition() { return mRenderTarget.mvPos; }
-  const cVector2l &GetSize() { return mRenderTarget.mvSize; }
-
-  cRenderTarget *GetRenderTarget() { return &mRenderTarget; }
-
-  // Per-viewport pogo (ping-pong) — sized to GetTargetSize, so a different
-  // size for each viewport. cScene's post-processing step feeds the
-  // backend's BackBuffer window into the READ half (SHADER_READ_ONLY, attach
-  // half COLOR), the post-effect chain ping-pongs it natively, and cScene's
-  // delivery samples the read half into the Target. Resizes hand the old
-  // halves to the frame freelist — no stall. nullptr until first prepared.
-  RI_PogoBuffer *GetPogoBuffer() { return mlPogoWidth != 0 ? &mPogoBuffer : nullptr; }
-  RI_PogoBuffer *PreparePogoBuffer(RIBootstrap::FrameContext *cntx,
-                                  uint32_t alWidth, uint32_t alHeight);
-  cVector2l GetPogoSize() const { return cVector2l((int)mlPogoWidth, (int)mlPogoHeight); }
+  // Per-viewport pogo (ping-pong), sized to GetTargetSize(). Resizes hand
+  // the old halves to the frame freelist — no stall.
+  RI_PogoBuffer *PreparePogoBuffer(RIBootstrap::FrameContext *cntx);
+  // Read-only: the existing pogo, or nullptr if none was created yet (no
+  // world evaluated at this viewport so far).
+  RI_PogoBuffer *PogoBuffer() { return mlPogoWidth != 0 ? &mPogoBuffer : nullptr; }
 
   void SetTarget(const Target &aTarget) { mTarget = aTarget; }
   const Target &GetTarget() const { return mTarget; }
-  // The viewport extent resolved from the target: swapchain extent for
-  // TargetSwapchain, the view's extent for TargetView. Callers pass this
-  // into PrepareToRender / EnsurePogoBuffer.
   cVector2l GetTargetSize() const;
 
-  ViewportState &GetRendererState() { return m_state; }
-  // Visitor accessors over the active backend state: the depth view for the
-  // current swapchain image (nullptr on monostate / before the targets
-  // exist) and the backend's finished BackBuffer (zeroed texture on
-  // monostate / unsized — check `texture.vk.image`).
   struct RITextureView_s *GetDepthView();
   BackBuffer GetBackBuffer();
+  Event<> &OnPreWorldDraw() { return m_onPreWorldDraw; }
 
-  void AddViewportCallback(iViewportCallback *apCallback);
-  void RemoveViewportCallback(iViewportCallback *apCallback);
-  void RunViewportCallbackMessage(eViewportMessage aMessage);
-
-  void AddRendererCallback(iRendererCallback *apCallback);
-  void RemoveRendererCallback(iRendererCallback *apCallback);
-  tRendererCallbackList *GetRendererCallbackList() {
-    return &mlstRendererCallbacks;
-  }
-
-  // Configures the backend's per-viewport state: if another backend's state
-  // is held (pane hybrid <-> wireframe toggle), it is Disposed (handles ->
-  // cntx->freelist) and the requested one emplaced; Update then refines the
-  // state for the given target size (no-op when already sized).
   template <typename Backend>
-  Backend *PrepareToRender(RIBootstrap::FrameContext *cntx, cVector2l size) {
+  Backend *PrepareToRender(RIBootstrap::FrameContext *cntx) {
+    const cVector2l size = GetTargetSize();
     if (!std::holds_alternative<Backend>(m_state)) {
       std::visit(
           [cntx](auto &&arg) {
@@ -298,19 +265,16 @@ private:
   iRenderer *mpRenderer;
   cPostEffectComposite *mpPostEffectComposite;
 
-  cRenderTarget mRenderTarget;
-
   RI_PogoBuffer mPogoBuffer = {};
   uint32_t mlPogoWidth = 0;
   uint32_t mlPogoHeight = 0;
 
-  tViewportCallbackList mlstCallbacks;
-  tRendererCallbackList mlstRendererCallbacks;
-  tGuiSetList mlstGuiSets;
+  Event<> m_onPreWorldDraw;
+  std::vector<cGuiSet *> m_guiSets;
 
   ViewportState m_state;
   Target mTarget = TargetSwapchain{};
-  cRenderSettings *mpRenderSettings;
+  std::unique_ptr<cRenderSettings> mpRenderSettings;
 };
 
 //------------------------------------------

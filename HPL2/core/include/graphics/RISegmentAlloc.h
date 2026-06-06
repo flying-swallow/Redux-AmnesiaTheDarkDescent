@@ -7,10 +7,9 @@
 #include <cassert>
 
 struct RISegmentAllocDesc_s {
-  uint32_t numElements;
   uint16_t elementStride;
   uint16_t numSegments;
-  uint16_t maxElements;
+  uint32_t maxElements; // element count — requests can exceed 65535
 };
 
 struct RISegmentReq_s {
@@ -28,12 +27,12 @@ template <size_t N> struct RISegmentAlloc {
 
   uint16_t elementStride = 0;
   uint16_t numSegments = 0;
-  uint16_t maxElements = 0;
+  uint32_t maxElements = 0;
 
   // data
   int16_t tail = 0;
   int16_t head = 1;
-  uint16_t numElements = 0;
+  uint32_t numElements = 0;
   size_t elementOffset = 0;
   struct Segment {
     uint64_t frameNum;

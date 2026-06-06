@@ -1589,8 +1589,8 @@ void cEditorWindowMaterialEditor::OnInitLayout()
 
 		// TODO(vulkan-port, Phase 4): legacy iFrameBuffer chain is dead on the
 		// RI backend (CreateFrameBuffer returns NULL) — the preview pane
-		// renders through the per-viewport cViewportTarget instead (see
-		// iEditorViewport::UpdateViewport).
+		// renders through the editor-owned pane surface set as the engine
+		// viewport's TargetView instead (see iEditorViewport::UpdateViewport).
 		iTexture* pTex = mpEditor->GetEngine()->GetGraphics()->CreateTexture("", eTextureType_Rect, eTextureUsage_RenderTarget);
 		pTex->SetWrapR(eTextureWrap_ClampToEdge);
 		pTex->SetWrapS(eTextureWrap_ClampToEdge);

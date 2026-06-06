@@ -33,7 +33,9 @@
 #include "graphics/LowLevelGraphics.h"
 #include "graphics/FontData.h"
 #include "graphics/Bitmap.h"
-#include "graphics/Texture.h"
+#include "graphics/HPLTexture.h"
+#include "graphics/Image.h"
+#include "graphics/RIBootstrap.h"
 
 #include "gui/Gui.h"
 #include "gui/GuiSkin.h"
@@ -57,6 +59,26 @@ namespace hpl {
 
 	//-------------------------------------------------------------------------------
 
+	// Wrap a procedural cBitmap in a GUI-drawable Image (fragment-sampled
+	// HPLTexture). The returned Image is owned by the caller — attached gfx
+	// elements must use SetDestroyTexture(false), since gfx auto-destroy
+	// routes through the TextureManager which never owned these.
+	static Image* CreateImageFromBitmap(const char* asDebugName, cBitmap* apBmp)
+	{
+		Image::SingleImage singleImage = {};
+		singleImage.image = std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete);
+		HPLTexture::BitmapLoadOptions opts = {0};
+		if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *apBmp, opts))
+		{
+			Error("ColorPicker: couldn't create image '%s'\n", asDebugName);
+			return NULL;
+		}
+		singleImage.image->setDebugName(asDebugName);
+		return hplNew(Image, (std::move(singleImage)));
+	}
+
+	//-------------------------------------------------------------------------------
+
 	/////////////////////////////////////////////////////////////////////////////////
 	// GRAPHIC PICKER MODE - CONSTRUCTORS
 	/////////////////////////////////////////////////////////////////////////////////
@@ -68,9 +90,9 @@ namespace hpl {
 											const cVector3f& avMaxValues) : mpPicker(apPicker), msName(asName), mlSliderParamIndex(alSliderParamIndex), mvMaxValues(avMaxValues)
 	{
 		mpBoxBmp = apPicker->mpColorBoxBitmap;
-		mpBoxTex = apPicker->mpColorBoxTexture;
+		mpBoxImage = apPicker->mpColorBoxImage;
 		mpSliderBmp = apPicker->mpColorSliderBitmap;
-		mpSliderTex = apPicker->mpColorSliderTexture;
+		mpSliderImage = apPicker->mpColorSliderImage;
 
 		///////////////////////////////////////////////
 		// Determine row and column indices
@@ -327,7 +349,7 @@ namespace hpl {
 		
 		////////////////////////////////////////////////////////////
 		// Dump helper bitmap onto texture
-		mpBoxTex->SetRawData(0, 0, vSize, ePixelFormat_RGB, mpBoxBmp->GetData(0, 0)->mpData);
+		mpBoxImage->GetTexture()->UpdateBitmap(*mpBoxBmp);
 	}
 
 	//-------------------------------------------------------------------------------
@@ -383,7 +405,7 @@ namespace hpl {
 
 		////////////////////////////////////////////////////////////
 		// Dump helper bitmap onto texture
-		mpSliderTex->SetRawData(0, 0, vSize, ePixelFormat_RGB, mpSliderBmp->GetData(0, 0)->mpData);
+		mpSliderImage->GetTexture()->UpdateBitmap(*mpSliderBmp);
 	}
 
 	//-------------------------------------------------------------------------------
@@ -507,7 +529,7 @@ namespace hpl {
 			vRGB.v[mlColIndex] += fStep;
 		}
 				
-		mpBoxTex->SetRawData(0, 0, vSize, ePixelFormat_RGB, mpBoxBmp->GetData(0, 0)->mpData);
+		mpBoxImage->GetTexture()->UpdateBitmap(*mpBoxBmp);
 	}
 
 	//-------------------------------------------------------------------------------
@@ -536,7 +558,7 @@ namespace hpl {
 			vRGB.v[mlSliderParamIndex] += step;
 		}
 				
-		mpSliderTex->SetRawData(0, 0, vSize, ePixelFormat_RGB, mpSliderBmp->GetData(0, 0)->mpData);
+		mpSliderImage->GetTexture()->UpdateBitmap(*mpSliderBmp);
 	}
 
 	//-------------------------------------------------------------------------------
@@ -591,11 +613,8 @@ namespace hpl {
 
 		mpCurrentMode = NULL;
 
-		cGraphics* pGfx = mpGraphics;
-		iLowLevelGraphics* pLowLevelGfx = pGfx->GetLowLevel();
-
 		////////////////////////////////////////////////////////////
-		// Create helper bitmaps and textures
+		// Create helper bitmaps and images
 
 		// Color map
 		mpColorBoxBitmap = hplNew(cBitmap,());
@@ -603,23 +622,15 @@ namespace hpl {
 		mpColorBoxBitmap->CreateData(cVector3l(256, 256, 1), ePixelFormat_RGB, 0, 0);
 		mpColorBoxBitmap->Clear(cColor(1,1,1,1), 0, 0);
 
-		mpColorBoxTexture = pLowLevelGfx->CreateTexture("ColorBox", eTextureType_2D, eTextureUsage_Normal);
-		mpColorBoxTexture->SetUseMipMaps(false);
-		mpColorBoxTexture->CreateFromBitmap(mpColorBoxBitmap);
-		mpColorBoxTexture->SetWrapSTR(eTextureWrap_Clamp);
-		mpColorBoxTexture->SetFilter(eTextureFilter_Nearest);
-		
+		mpColorBoxImage = CreateImageFromBitmap("ColorBox", mpColorBoxBitmap);
+
 		// Color slider
 		mpColorSliderBitmap = hplNew(cBitmap,());
 		mpColorSliderBitmap->SetUpData(1,1);
 		mpColorSliderBitmap->CreateData(cVector3l(256, 1, 1) , ePixelFormat_RGB, 0, 0);
 		mpColorSliderBitmap->Clear(cColor(1,1,1,1), 0, 0);
 
-		mpColorSliderTexture = pLowLevelGfx->CreateTexture("ColorSlider", eTextureType_1D, eTextureUsage_Normal);
-		mpColorSliderTexture->SetUseMipMaps(false);
-		mpColorSliderTexture->CreateFromBitmap(mpColorSliderBitmap);
-		mpColorSliderTexture->SetWrapSTR(eTextureWrap_Clamp);
-		mpColorSliderTexture->SetFilter(eTextureFilter_Nearest);
+		mpColorSliderImage = CreateImageFromBitmap("ColorSlider", mpColorSliderBitmap);
 		
 		////////////////////////////////////////
 		// Set up target color
@@ -641,22 +652,26 @@ namespace hpl {
 		// Build horizontal line marker
 		mpGfxHMarker = pGui->CreateGfxFilledRect(cColor(1,1), eGuiMaterial_Diffuse);
 
-		// Build vertical line marker
+		// Build vertical line marker — a 256x1 white→black ramp, drawn rotated
+		// (the 4-corner UVs below) so it shades vertically over the color box.
 		{
-			unsigned char vByteArray[256];
+			cBitmap rampBmp;
+			rampBmp.SetUpData(1,1);
+			rampBmp.CreateData(cVector3l(256, 1, 1), ePixelFormat_RGB, 0, 0);
+
+			unsigned char vByteArray[3];
 			float fStep = 1.0f/255.0f;
 			for(int i=0; i<256; ++i)
 			{
-				vByteArray[i] = FloatColorToUChar(1.0f-i*fStep);
+				vByteArray[0] = vByteArray[1] = vByteArray[2] = FloatColorToUChar(1.0f-i*fStep);
+				rampBmp.SetPixel(0, 0, cVector3l(i, 0, 0), vByteArray);
 			}
 
-			//iTexture* pHoriMarkerTexture = mpGraphics->GetLowLevel()->CreateTexture("AlphaSlider", eTextureType_1D, eTextureUsage_Normal);
-			//pHoriMarkerTexture->CreateFromRawData(cVector3l(256,0,0), ePixelFormat_Luminance, vByteArray);
+			mpVMarkerImage = CreateImageFromBitmap("ColorPickerVMarker", &rampBmp);
 
-			//mpGfxVMarker = mpSet->GetGui()->CreateGfxFilledRect(cColor(1,1), eGuiMaterial_Diffuse);
-			//mpGfxVMarker->AddTexture(pHoriMarkerTexture, cVector2f(1,0), cVector2f(1,1), cVector2f(0,1), cVector2f(0,0));
-			//mpGfxVMarker->SetDestroyTexture(true);
-			assert(false);
+			mpGfxVMarker = pGui->CreateGfxFilledRect(cColor(1,1), eGuiMaterial_Diffuse);
+			mpGfxVMarker->AddTexture(mpVMarkerImage, cVector2f(1,0), cVector2f(1,1), cVector2f(0,1), cVector2f(0,0));
+			mpGfxVMarker->SetDestroyTexture(false); // picker owns the Image
 		}
 		
 		Init();
@@ -668,13 +683,8 @@ namespace hpl {
 
 	cGuiPopUpColorPicker::~cGuiPopUpColorPicker()
 	{
-		cGraphics* pGfx = mpGraphics;
-		
 		hplDelete(mpColorBoxBitmap);
-		pGfx->DestroyTexture(mpColorBoxTexture);
-
 		hplDelete(mpColorSliderBitmap);
-		pGfx->DestroyTexture(mpColorSliderTexture);
 
 		cGui* pGui = mpSet->GetGui();
 		pGui->DestroyGfx(mpGfxBGPattern);
@@ -682,6 +692,13 @@ namespace hpl {
 		pGui->DestroyGfx(mpGfxVMarker);
 		pGui->DestroyGfx(mpGfxColorPointer);
 		pGui->DestroyGfx(mpGfxSliderPointer);
+
+		// Picker-owned procedural Images (the gfx elements were created with
+		// SetDestroyTexture(false)).
+		hplDelete(mpColorBoxImage);
+		hplDelete(mpColorSliderImage);
+		hplDelete(mpVMarkerImage);
+		hplDelete(mpAlphaSliderImage);
 
 		for(size_t i=0; i<mvPickerModeSwitches.size(); ++i)
 		{
@@ -1194,49 +1211,53 @@ namespace hpl {
 		// Init Color map and slider texture
 		cGuiGfxElement* pImg = NULL;
 
-		assert(false); // TODO migrate
-		//pImg = mpSet->GetGui()->CreateGfxTexture(mpColorBoxTexture, false, eGuiMaterial_Diffuse);
-		//mpImgColorBox = mpSet->CreateWidgetImage("", vPos, 256, eGuiMaterial_Diffuse, false, mpWindow);
-		//mpImgColorBox->AddCallback(eGuiMessage_MouseDown, this, kGuiCallback(Img_OnMouseDown));
-		//mpImgColorBox->AddCallback(eGuiMessage_MouseDown, this, kGuiCallback(ColorBox_OnMouseMove));
-		//mpImgColorBox->AddCallback(eGuiMessage_MouseUp, this, kGuiCallback(Img_OnMouseUp));
-		//mpImgColorBox->AddCallback(eGuiMessage_MouseMove, this, kGuiCallback(ColorBox_OnMouseMove));
-		//mpImgColorBox->AddCallback(eGuiMessage_OnDraw, this, kGuiCallback(ColorBox_OnDraw));
-		//mpImgColorBox->SetImage(pImg);
-		//
-		//vPos.x += 255 + 25;
+		pImg = mpSet->GetGui()->CreateGfxTexture(mpColorBoxImage, false, eGuiMaterial_Diffuse);
+		mpImgColorBox = mpSet->CreateWidgetImage("", vPos, 256, eGuiMaterial_Diffuse, false, mpWindow);
+		mpImgColorBox->AddCallback(eGuiMessage_MouseDown, this, kGuiCallback(Img_OnMouseDown));
+		mpImgColorBox->AddCallback(eGuiMessage_MouseDown, this, kGuiCallback(ColorBox_OnMouseMove));
+		mpImgColorBox->AddCallback(eGuiMessage_MouseUp, this, kGuiCallback(Img_OnMouseUp));
+		mpImgColorBox->AddCallback(eGuiMessage_MouseMove, this, kGuiCallback(ColorBox_OnMouseMove));
+		mpImgColorBox->AddCallback(eGuiMessage_OnDraw, this, kGuiCallback(ColorBox_OnDraw));
+		mpImgColorBox->SetImage(pImg);
 
-		//pImg = mpSet->GetGui()->CreateGfxFilledRect(cColor(1,1), eGuiMaterial_Diffuse);
-		//pImg->AddTexture(mpColorSliderTexture, cVector2f(1,0), cVector2f(1,1), cVector2f(0,1), cVector2f(0,0));
-		//pImg->SetDestroyTexture(false);
-		//mpImgColorSlider = mpSet->CreateWidgetImage("", vPos, cVector2f(20, 256), eGuiMaterial_Diffuse, false, mpWindow);
-		//mpImgColorSlider->SetUserData((void*)kGuiCallback(ColorSlider_OnMouseMove));
-		//mpImgColorSlider->AddCallback(eGuiMessage_MouseDown, this, kGuiCallback(Img_OnMouseDown));
-		//mpImgColorSlider->AddCallback(eGuiMessage_MouseDown, this, kGuiCallback(Slider_OnMouseMove));
-		//mpImgColorSlider->AddCallback(eGuiMessage_MouseUp, this, kGuiCallback(Img_OnMouseUp));
-		//mpImgColorSlider->AddCallback(eGuiMessage_MouseMove, this, kGuiCallback(Slider_OnMouseMove));
-		//mpImgColorSlider->AddCallback(eGuiMessage_OnDraw, this, kGuiCallback(ColorSlider_OnDraw));
-		//mpImgColorSlider->SetImage(pImg);
-		//vPos.x += 20 + 25;
+		vPos.x += 255 + 25;
+
+		// Color slider — the 256x1 image rotated vertical via the 4-corner UVs.
+		pImg = mpSet->GetGui()->CreateGfxFilledRect(cColor(1,1), eGuiMaterial_Diffuse);
+		pImg->AddTexture(mpColorSliderImage, cVector2f(1,0), cVector2f(1,1), cVector2f(0,1), cVector2f(0,0));
+		pImg->SetDestroyTexture(false); // picker owns the Image
+		mpImgColorSlider = mpSet->CreateWidgetImage("", vPos, cVector2f(20, 256), eGuiMaterial_Diffuse, false, mpWindow);
+		mpImgColorSlider->SetUserData((void*)kGuiCallback(ColorSlider_OnMouseMove));
+		mpImgColorSlider->AddCallback(eGuiMessage_MouseDown, this, kGuiCallback(Img_OnMouseDown));
+		mpImgColorSlider->AddCallback(eGuiMessage_MouseDown, this, kGuiCallback(Slider_OnMouseMove));
+		mpImgColorSlider->AddCallback(eGuiMessage_MouseUp, this, kGuiCallback(Img_OnMouseUp));
+		mpImgColorSlider->AddCallback(eGuiMessage_MouseMove, this, kGuiCallback(Slider_OnMouseMove));
+		mpImgColorSlider->AddCallback(eGuiMessage_OnDraw, this, kGuiCallback(ColorSlider_OnDraw));
+		mpImgColorSlider->SetImage(pImg);
+		vPos.x += 20 + 25;
 
 		// Create alpha slider
 		{
-			//mpImgAlphaSliderBG = mpSet->CreateWidgetImage("gui_def_colorpicker_bgpattern.tga", vPos, cVector2f(20, 256), eGuiMaterial_Diffuse, false, mpWindow);
+			mpImgAlphaSliderBG = mpSet->CreateWidgetImage("gui_def_colorpicker_bgpattern.tga", vPos, cVector2f(20, 256), eGuiMaterial_Diffuse, false, mpWindow);
 
-			unsigned char vByteArray[256*3];
+			// Black→white ramp, rotated vertical like the color slider.
+			cBitmap rampBmp;
+			rampBmp.SetUpData(1,1);
+			rampBmp.CreateData(cVector3l(256, 1, 1), ePixelFormat_RGB, 0, 0);
+
+			unsigned char vByteArray[3];
 			float fStep = 1.0f/255.0f;
 			for(int i=0; i<256; ++i)
 			{
-				vByteArray[i*3] = vByteArray[i*3+1] = vByteArray[i*3+2] = FloatColorToUChar(float(i)*fStep);
+				vByteArray[0] = vByteArray[1] = vByteArray[2] = FloatColorToUChar(float(i)*fStep);
+				rampBmp.SetPixel(0, 0, cVector3l(i, 0, 0), vByteArray);
 			}
 
-			//iTexture* pAlphaSliderTexture = mpGraphics->GetLowLevel()->CreateTexture("AlphaSlider", eTextureType_1D, eTextureUsage_Normal);
-			//pAlphaSliderTexture->CreateFromRawData(cVector3l(256,0,0), ePixelFormat_RGB, vByteArray);
+			mpAlphaSliderImage = CreateImageFromBitmap("ColorPickerAlphaSlider", &rampBmp);
 
-			//pImg = mpSet->GetGui()->CreateGfxFilledRect(cColor(1,1), eGuiMaterial_Diffuse);
-			//pImg->AddTexture(pAlphaSliderTexture, cVector2f(1,0), cVector2f(1,1), cVector2f(0,1), cVector2f(0,0));
-			//pImg->SetDestroyTexture(true);
-			assert(false);
+			pImg = mpSet->GetGui()->CreateGfxFilledRect(cColor(1,1), eGuiMaterial_Diffuse);
+			pImg->AddTexture(mpAlphaSliderImage, cVector2f(1,0), cVector2f(1,1), cVector2f(0,1), cVector2f(0,0));
+			pImg->SetDestroyTexture(false); // picker owns the Image
 		}
 
 		mpImgAlphaSlider = mpSet->CreateWidgetImage("", vPos, cVector2f(20, 256), eGuiMaterial_Diffuse, false, mpWindow);

@@ -23,23 +23,6 @@
 
 //-------------------------------------------------------------------
 
-cThumbnailRenderCallback::cThumbnailRenderCallback()
-{
-	mpObject = NULL;
-}
-
-void cThumbnailRenderCallback::OnPostSolidDraw(cRendererCallbackFunctions* apFunctions)
-{
-}
-
-//-------------------------------------------------------------------
-
-void cThumbnailRenderCallback::OnPostTranslucentDraw(cRendererCallbackFunctions* apFunctions)
-{
-}
-
-//-------------------------------------------------------------------
-
 /////////////////////////////////////////////////////////////////////
 // CONSTRUCTORS
 /////////////////////////////////////////////////////////////////////
@@ -92,8 +75,10 @@ cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 	// Set up render targets
 	// TODO(vulkan-port, Phase 4): the legacy iFrameBuffer chain is dead on the
 	// RI backend — CreateFrameBuffer returns NULL — so thumbnails render
-	// nothing until this is ported to cViewportTarget. Guard the setup (and
-	// early-out in the Build* methods) so the editors can launch.
+	// nothing until this is ported to the pane-surface path (own a color
+	// texture, SetTarget(cViewport::TargetView{...}), cScene delivers — see
+	// iEditorViewport::UpdateViewport). Guard the setup (and early-out in the
+	// Build* methods) so the editors can launch.
 	iTexture* pRenderTarget64 = pGfx->CreateTexture("Thumbnail", eTextureType_2D, eTextureUsage_RenderTarget);
 	pRenderTarget64->SetWrapR(eTextureWrap_Clamp);
 	pRenderTarget64->SetWrapS(eTextureWrap_Clamp);
@@ -119,12 +104,9 @@ cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 	}
 
 	mpViewport = pScene->CreateViewport(pCamera,pWorld,true);
-	mpViewport->SetSize(cVector2l(128));
-	if(mpFB128) mpViewport->SetFrameBuffer(mpFB128);
 	mpViewport->SetActive(false);
 	mpViewport->SetVisible(false);
 	mpViewport->GetRenderSettings()->mClearColor = cColor(0,1);
-	mpViewport->AddRendererCallback(&mThumbnailCallback);
 }
 
 //-------------------------------------------------------------------
@@ -161,17 +143,9 @@ void cEditorThumbnailBuilder::BuildThumbnailFromMeshEntity(cMeshEntity* apEntity
 
 	//////////////////////////////////////
 	// Render 128x128 thumbnail
-	mpViewport->GetRenderer()->Render(	1.0f/60.0f, 
-										pCamera->GetFrustum(), 
-										pWorld,
-										mpViewport->GetRenderSettings(), 
-										mpViewport->GetRenderTarget(), 
-										false, 
-										mpViewport->GetRendererCallbackList() );
-	pGfx->WaitAndFinishRendering();
-	
-	mThumbnailCallback.mpObject = NULL;
-	
+	// (legacy iRenderer::Render call removed — see the Phase-4 TODO in the
+	// constructor; render via SetTarget(cViewport::TargetView{...}) here.)
+
 	//////////////////////////////////
 	// Now scale to 64x64
 	pGfx->SetDepthTestActive(false);
@@ -184,7 +158,7 @@ void cEditorThumbnailBuilder::BuildThumbnailFromMeshEntity(cMeshEntity* apEntity
 	pGfx->DrawQuad(0,128,cVector2f(0,1),cVector2f(1,0));
 	pGfx->WaitAndFinishRendering();
 	pGfx->SetTexture(0,NULL);
-	
+
 	/////////////////////////////////
 	// Save to file
 	cBitmap *pBmp = pGfx->CopyFrameBufferToBitmap();
@@ -244,21 +218,11 @@ void cEditorThumbnailBuilder::BuildThumbnailFromMesh(const tWString& asMeshFilen
 	pFillLight->SetPosition(cVector3f(10,10,0));
 	pBackLight->SetPosition(cVector3f(0,10,10));
 
-	mThumbnailCallback.mpObject = pEnt;
-	
 	//////////////////////////////////////
 	// Render 128x128 thumbnail
-	mpViewport->GetRenderer()->Render(	1.0f/60.0f, 
-										pCamera->GetFrustum(), 
-										pWorld,
-										mpViewport->GetRenderSettings(), 
-										mpViewport->GetRenderTarget(), 
-										false, 
-										mpViewport->GetRendererCallbackList() );
-	pGfx->WaitAndFinishRendering();
-	
-	mThumbnailCallback.mpObject = NULL;
-	
+	// (legacy iRenderer::Render call removed — see the Phase-4 TODO in the
+	// constructor; render via SetTarget(cViewport::TargetView{...}) here.)
+
 	//////////////////////////////////
 	// Now scale to 64x64
 	pGfx->SetDepthTestActive(false);

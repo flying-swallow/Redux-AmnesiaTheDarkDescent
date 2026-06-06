@@ -530,7 +530,7 @@ public:
 		gpEngine->GetInput()->GetLowLevel()->RelativeMouse(false);
 
 		cRenderSettings *pSettings = gpSimpleCamera->GetViewport()->GetRenderSettings();
-		gpSimpleCamera->GetViewport()->AddRendererCallback(&renderCallback);
+
 
 		gpSimpleCamera->SetMouseMode(true);
 

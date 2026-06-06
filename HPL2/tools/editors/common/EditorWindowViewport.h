@@ -56,19 +56,19 @@ enum eEditorWindowViewportPreset
 
 //--------------------------------------------------------------------
 
-// The draw path on the RI backend is iViewportCallback::OnPreWorldDraw — it
-// enqueues the whole editor overlay (grid, clip planes, surface picker, edit
-// modes, entity visuals) into the global DebugDraw batcher, which
-// HybridRenderer flushes into the pane's offscreen target right before the
-// delivery blit. The legacy iRendererCallback post-solid/post-translucent
-// hooks are gone; depth behavior rides on DebugDrawOptions::m_depthTest.
-class cViewportCallback : public iViewportCallback
+// The draw path on the RI backend is the cViewport::OnPreWorldDraw() event —
+// OnPreWorldDraw enqueues the whole editor overlay (grid, clip planes,
+// surface picker, edit modes, entity visuals) into the global DebugDraw
+// batcher, which HybridRenderer flushes into the pane's offscreen target
+// right before the delivery blit. The legacy iRendererCallback
+// post-solid/post-translucent hooks are gone; depth behavior rides on
+// DebugDrawOptions::m_depthTest.
+class cViewportCallback
 {
 public:
 	cViewportCallback();
 
 	void OnPreWorldDraw();
-	void OnPostWorldDraw() {}
 
 	iEditorBase* mpEditor;
 	cEditorWindowViewport* mpViewport;
@@ -172,6 +172,7 @@ protected:
 	eEditorWindowViewportPreset mPreset;
 	iWidget* mpPrevAttention;
 	cViewportCallback mViewportCallback;
+	EventHandler<> mPreWorldDrawHandler;
 
 	bool mbDrawGrid;
 	bool mbDrawDebug;

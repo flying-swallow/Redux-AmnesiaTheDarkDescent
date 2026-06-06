@@ -557,7 +557,7 @@ namespace hpl {
 		  VK_ConfigureBufferQueueFamilies( &vertexBufferCreateInfo , RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
 		  vertexBufferCreateInfo.pNext = NULL;
 		  vertexBufferCreateInfo.flags = 0;
-		  vertexBufferCreateInfo.size = segmentAllocDesc.maxElements * segmentAllocDesc.elementStride; 
+		  vertexBufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
 		  vertexBufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
 		  VmaAllocationInfo allocationInfo = { 0 };
@@ -588,7 +588,7 @@ namespace hpl {
 		  VK_ConfigureBufferQueueFamilies( &indexBufferCreateInfo , RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
 		  indexBufferCreateInfo.pNext = NULL;
 		  indexBufferCreateInfo.flags = 0;
-		  indexBufferCreateInfo.size = segmentAllocDesc.maxElements * segmentAllocDesc.elementStride; 
+		  indexBufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
 		  indexBufferCreateInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 		  
 			VmaAllocationInfo allocationInfo = { 0 };
@@ -1002,7 +1002,7 @@ namespace hpl {
 			uint64_t ibOffset = idxOffset + indexBufferOffset * sizeof(uint32_t);
 			vkCmdBindVertexBuffers(RI.primary.cmds[0].vk.cmd, 0, 1, &RI.guiVertexBuffer.vk.buffer, &vbOffset);
 			vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, RI.guiIndexBuffer.vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
-			CmdDrawIndexed(&RI.primary.cmds[0], indexBufferIndex, 1, 0, 0, 0);
+			RI.primary.cmds[0].drawIndexed(indexBufferIndex, 1, 0, 0, 0);
 
 			vertexBufferOffset += vertexBufferIndex;
 			indexBufferOffset += indexBufferIndex;

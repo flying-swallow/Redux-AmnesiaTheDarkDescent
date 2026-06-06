@@ -176,11 +176,13 @@ cEditorWindowViewport::cEditorWindowViewport(iEditorBase* apEditor,
 	mbAddViewMenu = abAddViewMenu;
 
 	////////////////////////////////////
-	// Init renderer callback (grid,...). Register the iViewportCallback side
-	// — the RI renderer never runs iRendererCallback messages.
+	// Init renderer callback (grid,...). Hook the overlay enqueue onto the
+	// engine viewport's pre-world-draw event — the RI renderer never runs
+	// iRendererCallback messages. The handler auto-disconnects on destruction.
 	mViewportCallback.mpEditor = apEditor;
 	mViewportCallback.mpViewport = this;
-	AddViewportCallback(static_cast<iViewportCallback*>(&mViewportCallback));
+	mPreWorldDrawHandler = EventHandler<>([this] { mViewportCallback.OnPreWorldDraw(); });
+	mPreWorldDrawHandler.Connect(GetEngineViewport()->OnPreWorldDraw());
 
 	vDebugGridPos = 0;
 	vDebugLineEnd = 0;

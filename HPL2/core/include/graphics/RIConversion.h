@@ -205,6 +205,7 @@ static inline VkImageType ri_vk_RITextureTypeToVKImageType( enum RITextureType_e
 	assert( false );
 	return VK_IMAGE_TYPE_MAX_ENUM;
 }
+
 #endif
 
 #endif

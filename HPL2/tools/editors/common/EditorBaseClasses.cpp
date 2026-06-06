@@ -1511,8 +1511,9 @@ void iEditorBase::InitRenderTarget(const cVector2f& avSize)
 	
 	// TODO(vulkan-port, Phase 5): the legacy iFrameBuffer chain is dead on the
 	// RI backend — CreateFrameBuffer returns NULL. Editor viewports render via
-	// the per-pane cViewportTarget instead (iEditorViewport::UpdateViewport);
-	// this legacy target only remains until the cleanup phase deletes it.
+	// the editor-owned pane surface set as the engine viewport's TargetView
+	// (iEditorViewport::UpdateViewport); this legacy target only remains until
+	// the cleanup phase deletes it.
 	iTexture* pRenderTexture = pGfx->CreateTexture("RenderTexture",eTextureType_Rect, eTextureUsage_RenderTarget);
 	pRenderTexture->SetWrapR(eTextureWrap_ClampToEdge);
 	pRenderTexture->SetWrapS(eTextureWrap_ClampToEdge);

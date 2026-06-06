@@ -252,7 +252,7 @@ namespace hpl {
 		// state (1:1 color render target + depth) for the target size. cScene
 		// feeds the finished render target into the viewport pogo afterwards.
 		cViewport::SimpleViewportState *pState =
-			viewport->PrepareToRender<cViewport::SimpleViewportState>(cntx, vTargetSize);
+			viewport->PrepareToRender<cViewport::SimpleViewportState>(cntx);
 		if(pState == nullptr || pState->width == 0) {
 			return;
 		}
@@ -263,28 +263,18 @@ namespace hpl {
 		// discarded, we clear) and depth UNDEFINED -> DEPTH_ATTACHMENT
 		// (cleared via loadOp).
 		{
-			VkImageMemoryBarrier2 barriers[2] = {};
-			barriers[0] = VK_RI_PogoAttachmentMemoryBarrier2(
-				state.renderTarget[RI.swapchainIndex].vk.image, /*initial=*/true);
+			RITextureBarrier_s barriers[2] = {};
+			barriers[0] = RI_PogoAttachmentBarrier(
+				&state.renderTarget[RI.swapchainIndex], /*initial=*/true);
 
-			barriers[1].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-			barriers[1].srcStageMask = VK_PIPELINE_STAGE_2_NONE;
-			barriers[1].srcAccessMask = VK_ACCESS_2_NONE;
-			barriers[1].dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-									   VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-			barriers[1].dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-										VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-			barriers[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-			barriers[1].newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-			barriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			barriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			barriers[1].image = state.depthTextures[RI.swapchainIndex].vk.image;
-			barriers[1].subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
+			barriers[1].texture = &state.depthTextures[RI.swapchainIndex];
+			barriers[1].before = RI_RESOURCE_STATE_UNDEFINED;
+			barriers[1].after = RI_RESOURCE_STATE_DEPTH_WRITE;
+			barriers[1].aspect = RI_BARRIER_ASPECT_DEPTH;
+			barriers[1].mipCount = 1;
+			barriers[1].layerCount = 1;
 
-			VkDependencyInfo dep = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-			dep.imageMemoryBarrierCount = 2;
-			dep.pImageMemoryBarriers = barriers;
-			vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+			RI.primary.cmds[0].textureBarriers<2>(2, barriers);
 		}
 
 		////////////////////////////////////////////
@@ -540,9 +530,9 @@ namespace hpl {
 					uvBuffer ? uvBuffer : &RI.fallbackUv0Vertex,
 				};
 				const VkDeviceSize vertOffsets[3] = { 0, 0, 0 };
-				CmdBindVertexBuffers<3>(&RI.primary.cmds[0], 0, 3, vertBufs, vertOffsets);
-				CmdBindIndexBuffer(&RI.primary.cmds[0], indexBuffer.get(), 0, VK_INDEX_TYPE_UINT32);
-				CmdDrawIndexed(&RI.primary.cmds[0], (uint32_t)indexCount, 1, 0, 0, 0);
+				RI.primary.cmds[0].bindVertexBuffers<3>(0, 3, vertBufs, vertOffsets);
+				RI.primary.cmds[0].bindIndexBuffer(indexBuffer.get(), 0, VK_INDEX_TYPE_UINT32);
+				RI.primary.cmds[0].drawIndexed((uint32_t)indexCount, 1, 0, 0, 0);
 			}
 		}
 
@@ -565,12 +555,8 @@ namespace hpl {
 		// cScene feeds into the viewport pogo (post processing) and delivers
 		// to the Target.
 		{
-			VkImageMemoryBarrier2 barrier = VK_RI_PogoShaderMemoryBarrier2(
-				state.renderTarget[RI.swapchainIndex].vk.image, /*initial=*/false);
-			VkDependencyInfo dep = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-			dep.imageMemoryBarrierCount = 1;
-			dep.pImageMemoryBarriers = &barrier;
-			vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+			RI.primary.cmds[0].textureBarrier(RI_PogoShaderBarrier(
+				&state.renderTarget[RI.swapchainIndex], /*initial=*/false));
 		}
 	}
 

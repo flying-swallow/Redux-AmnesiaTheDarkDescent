@@ -46,9 +46,9 @@ public:
 };
 
 // RI path: physics-test overlays enqueue into the DebugDraw batcher from
-// iViewportCallback::OnPreWorldDraw (the legacy iRendererCallback hooks are
-// never invoked by the Vulkan renderer).
-class cPhysicsTestRenderCallback : public iViewportCallback
+// OnPreWorldDraw, hooked onto the cViewport::OnPreWorldDraw() event (the
+// legacy iRendererCallback hooks are never invoked by the Vulkan renderer).
+class cPhysicsTestRenderCallback
 {
 public:
 	cPhysicsTestRenderCallback()
@@ -58,7 +58,6 @@ public:
 	}
 
 	void OnPreWorldDraw();
-	void OnPostWorldDraw() {}
 
 	void DrawSkeletonRec(DebugDraw* apDebugDraw, cNode3D* apBoneState);
 
@@ -128,6 +127,7 @@ protected:
 	std::vector<iPhysicsJoint*> mvJoints;
 	cBodyPicker mBodyPicker;
 	cPhysicsTestRenderCallback mRenderCallback;
+	EventHandler<> mPreWorldDrawHandler;
 	iPhysicsBody* mpFloorBody;
 
 	iLight* mpMainLight;

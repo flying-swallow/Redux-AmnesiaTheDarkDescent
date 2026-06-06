@@ -35,27 +35,16 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
   RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
   struct RIQueue_s *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
   {
-    VkImageMemoryBarrier2 imageBarriers[1] = {};
-    imageBarriers[0].sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    imageBarriers[0].srcStageMask =
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    imageBarriers[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
-                                     VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    imageBarriers[0].dstStageMask = VK_PIPELINE_STAGE_2_NONE;
-    imageBarriers[0].dstAccessMask = VK_ACCESS_2_NONE;
-    imageBarriers[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    imageBarriers[0].newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imageBarriers[0].image = RI.swapchain.vk.images[RI.swapchainIndex];
-    imageBarriers[0].subresourceRange = VkImageSubresourceRange{
-        VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
-        VK_REMAINING_ARRAY_LAYERS,
-    };
-    VkDependencyInfo dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dependencyInfo.imageMemoryBarrierCount = 1;
-    dependencyInfo.pImageMemoryBarriers = imageBarriers;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dependencyInfo);
+    // Swapchain image: COLOR -> PRESENT for the queue present. The swapchain
+    // images are raw VkImage handles, so bridge through a stack RITexture_s.
+    RITexture_s swapchainTexture = {};
+    swapchainTexture.vk.image = RI.swapchain.vk.images[RI.swapchainIndex];
+
+    RITextureBarrier_s toPresent = {};
+    toPresent.texture = &swapchainTexture;
+    toPresent.before = RI_RESOURCE_STATE_RENDER_TARGET_READ;
+    toPresent.after = RI_RESOURCE_STATE_PRESENT;
+    RI.primary.cmds[0].textureBarrier(toPresent);
   }
   EndRICmd(&RI.device, &RI.primary.cmds[0]);
   EndRICmd(&RI.device, &RI.blasSubmit.cmds[0]);
@@ -182,27 +171,14 @@ void RIBootstrap::BeginActiveSet() {
     // Swapchain image: UNDEFINED -> COLOR for the frame. (Depth is
     // per-viewport now — each renderer's Draw emits its own first-use
     // UNDEFINED transition on its viewport's depth target.)
-    VkImageMemoryBarrier2 imageBarrier = {};
-    imageBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-    imageBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    imageBarrier.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
-    imageBarrier.srcAccessMask = VK_ACCESS_2_NONE;
-    imageBarrier.dstStageMask =
-        VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    imageBarrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
-                                 VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    imageBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    imageBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imageBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    imageBarrier.image = RI.swapchain.vk.images[RI.swapchainIndex];
-    imageBarrier.subresourceRange = VkImageSubresourceRange{
-        VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0,
-        VK_REMAINING_ARRAY_LAYERS,
-    };
-    VkDependencyInfo dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dependencyInfo.imageMemoryBarrierCount = 1;
-    dependencyInfo.pImageMemoryBarriers = &imageBarrier;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dependencyInfo);
+    RITexture_s swapchainTexture = {};
+    swapchainTexture.vk.image = RI.swapchain.vk.images[RI.swapchainIndex];
+
+    RITextureBarrier_s toColor = {};
+    toColor.texture = &swapchainTexture;
+    toColor.before = RI_RESOURCE_STATE_UNDEFINED;
+    toColor.after = RI_RESOURCE_STATE_RENDER_TARGET_READ;
+    RI.primary.cmds[0].textureBarrier(toColor);
   }
 }
 

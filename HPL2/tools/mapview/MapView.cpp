@@ -634,8 +634,6 @@ public:
 		mpTestViewPort = gpEngine->GetScene()->CreateViewport(gpSimpleCamera->GetCamera(),mpTestWorld);
 		mpTestViewPort->SetRenderer(gpEngine->GetGraphics()->GetRenderer(eRenderer_WireFrame));
 		
-		mpTestViewPort->SetFrameBuffer(mpTestFrameBuffer);
-		mpTestViewPort->SetSize(cVector2l(mpTestRenderTexture->GetWidth(),mpTestRenderTexture->GetHeight()));
 
 		//mpTestViewPort->SetVisible(gbDrawOcclusionGfxInfo);
 		//mpTestViewPort->SetActive(gbDrawOcclusionGfxInfo);
@@ -646,14 +644,12 @@ public:
 		mpTestViewPort->GetRenderSettings()->mClearColor = cColor(0.3f,1);
 
 		testRenderCallback.mpWorld = mpWorld;
-		mpTestViewPort->AddRendererCallback(&testRenderCallback);
 		
         				
 		/////////////////////////////////
 		//Set up normal view port camera
 		cRenderSettings *pSettings = gpSimpleCamera->GetViewport()->GetRenderSettings();
-		gpSimpleCamera->GetViewport()->AddRendererCallback(&renderCallback);
-		
+
 		gpSimpleCamera->SetMouseMode(true);
 
 		//pSettings->mbLog = true;

@@ -2,8 +2,10 @@
 #ifndef RI_TYPES_H
 #define RI_TYPES_H
 
+#include "graphics/RIBarrier.h"
 #include "graphics/RIDefines.h"
 #include "graphics/RIFormat.h"
+#include <cassert>
 #include <cstring>
 
 #ifdef DEVICE_SUPPORT_VULKAN
@@ -32,6 +34,7 @@
 
 #include <cstdio>
 #include <stdint.h>
+#include <vector>
 #undef DestroyAll
 #undef ButtonPress
 
@@ -375,33 +378,11 @@ struct RIBuffer_s {
   void *mappedAddress;
 };
 
-struct RIBarrierImageHandle_s {
-  RIBarrierImageHandle_s() { memset(this, 0, sizeof(*this)); }
-  union {
-#if (DEVICE_IMPL_VULKAN)
-    struct {
-      VkPipelineStageFlags2 stage;
-      VkAccessFlags2 access;
-      VkImageLayout layout;
-    } vk;
-#endif
-  };
-};
-
-struct RIBarrierBufferHandle_s {
-  RIBarrierBufferHandle_s() { memset(this, 0, sizeof(*this)); }
-  union {
-#if (DEVICE_IMPL_VULKAN)
-    struct {
-      VkPipelineStageFlags2 stage;
-      VkAccessFlags2 access;
-    } vk;
-#endif
-  };
-};
-
 struct RITexture_s {
   RITexture_s() { memset(this, 0, sizeof(*this)); }
+  // True when no backing image was created (zeroed handle); the device
+  // resolves which backend's handle to check.
+  bool isEmpty(const struct RIDevice_s *device) const;
   union {
 #if (DEVICE_IMPL_VULKAN)
     struct {
@@ -626,6 +607,157 @@ struct RIPool_s {
 
 struct RICmd_s {
   RICmd_s() { memset(this, 0, sizeof(*this)); }
+
+  // Leaf dispatch/draw command methods. Pipeline binding is done separately
+  // (RIProgram::bindPipeline / bindComputePipeline / bindRayTracingPipeline);
+  // these are the "go" calls that issue the actual work. Core Vulkan 1.0 —
+  // no RIDevice_s needed because there's no fn-pointer indirection.
+  void dispatch(uint32_t groupCountX, uint32_t groupCountY,
+                uint32_t groupCountZ);
+  void dispatchIndirect(struct RIBuffer_s *buffer, VkDeviceSize offset);
+  void draw(uint32_t vertexCount, uint32_t instanceCount, uint32_t firstVertex,
+            uint32_t firstInstance);
+  void drawIndexed(uint32_t indexCount, uint32_t instanceCount,
+                   uint32_t firstIndex, int32_t vertexOffset,
+                   uint32_t firstInstance);
+  void drawIndirect(struct RIBuffer_s *buffer, VkDeviceSize offset,
+                    uint32_t drawCount, uint32_t stride);
+  void drawIndexedIndirect(struct RIBuffer_s *buffer, VkDeviceSize offset,
+                           uint32_t drawCount, uint32_t stride);
+
+  // Emit pipeline barriers from RI resource-state transitions (see
+  // RIBarrier.h). All groups are batched into a single backend barrier
+  // command (vkCmdPipelineBarrier2); any count may be zero. The template
+  // parameters MemN/BufN/TexN are the stack capacities reserved for the
+  // backend barrier scratch arrays (compile-time sized); a capacity of 0
+  // moves that group to the heap instead, for dynamically sized batches.
+  template <uint32_t MemN, uint32_t BufN, uint32_t TexN>
+  void resourceBarrier(uint32_t memoryBarrierNum,
+                       const struct RIMemoryBarrier_s *memoryBarriers,
+                       uint32_t bufferBarrierNum,
+                       const struct RIBufferBarrier_s *bufferBarriers,
+                       uint32_t textureBarrierNum,
+                       const struct RITextureBarrier_s *textureBarriers) {
+    if (memoryBarrierNum + bufferBarrierNum + textureBarrierNum == 0)
+      return;
+
+#if (DEVICE_IMPL_VULKAN)
+    ScratchBuffer<VkMemoryBarrier2, MemN> memScratch;
+    ScratchBuffer<VkBufferMemoryBarrier2, BufN> bufScratch;
+    ScratchBuffer<VkImageMemoryBarrier2, TexN> imgScratch;
+    VkMemoryBarrier2 *mem = memScratch.get(memoryBarrierNum);
+    VkBufferMemoryBarrier2 *buf = bufScratch.get(bufferBarrierNum);
+    VkImageMemoryBarrier2 *img = imgScratch.get(textureBarrierNum);
+
+    for (uint32_t i = 0; i < memoryBarrierNum; i++) {
+      const struct RIMemoryBarrier_s &src = memoryBarriers[i];
+      VkMemoryBarrier2 &dst = mem[i];
+      dst = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
+      dst.srcStageMask = ri_vk_RIStageBitsToVK(src.beforeStages, src.before);
+      dst.srcAccessMask = ri_vk_RIResourceStateToAccess(src.before);
+      dst.dstStageMask = ri_vk_RIStageBitsToVK(src.afterStages, src.after);
+      dst.dstAccessMask = ri_vk_RIResourceStateToAccess(src.after);
+    }
+
+    for (uint32_t i = 0; i < bufferBarrierNum; i++) {
+      const struct RIBufferBarrier_s &src = bufferBarriers[i];
+      VkBufferMemoryBarrier2 &dst = buf[i];
+      dst = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2};
+      dst.srcStageMask = ri_vk_RIStageBitsToVK(src.beforeStages, src.before);
+      dst.srcAccessMask = ri_vk_RIResourceStateToAccess(src.before);
+      dst.dstStageMask = ri_vk_RIStageBitsToVK(src.afterStages, src.after);
+      dst.dstAccessMask = ri_vk_RIResourceStateToAccess(src.after);
+      dst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      dst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      dst.buffer = src.buffer->vk.buffer;
+      dst.offset = src.offset;
+      dst.size = src.size ? src.size : VK_WHOLE_SIZE;
+    }
+
+    for (uint32_t i = 0; i < textureBarrierNum; i++) {
+      const struct RITextureBarrier_s &src = textureBarriers[i];
+      VkImageMemoryBarrier2 &dst = img[i];
+      dst = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+      dst.srcStageMask = ri_vk_RIStageBitsToVK(src.beforeStages, src.before);
+      dst.srcAccessMask = ri_vk_RIResourceStateToAccess(src.before);
+      dst.dstStageMask = ri_vk_RIStageBitsToVK(src.afterStages, src.after);
+      dst.dstAccessMask = ri_vk_RIResourceStateToAccess(src.after);
+      dst.oldLayout = ri_vk_RIResourceStateToImageLayout(src.before);
+      dst.newLayout = ri_vk_RIResourceStateToImageLayout(src.after);
+      dst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      dst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      dst.image = src.texture->vk.image;
+      dst.subresourceRange = VkImageSubresourceRange{
+          ri_vk_RIBarrierAspectToVK(src.aspect),
+          src.baseMip,
+          src.mipCount ? src.mipCount : VK_REMAINING_MIP_LEVELS,
+          src.baseLayer,
+          src.layerCount ? src.layerCount : VK_REMAINING_ARRAY_LAYERS,
+      };
+    }
+
+    VkDependencyInfo dependencyInfo = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+    dependencyInfo.memoryBarrierCount = memoryBarrierNum;
+    dependencyInfo.pMemoryBarriers = mem;
+    dependencyInfo.bufferMemoryBarrierCount = bufferBarrierNum;
+    dependencyInfo.pBufferMemoryBarriers = buf;
+    dependencyInfo.imageMemoryBarrierCount = textureBarrierNum;
+    dependencyInfo.pImageMemoryBarriers = img;
+    vkCmdPipelineBarrier2(vk.cmd, &dependencyInfo);
+#endif
+  }
+
+  // Single-barrier conveniences.
+  void memoryBarrier(const struct RIMemoryBarrier_s &barrier) {
+    resourceBarrier<1, 0, 0>(1, &barrier, 0, NULL, 0, NULL);
+  }
+  void bufferBarrier(const struct RIBufferBarrier_s &barrier) {
+    resourceBarrier<0, 1, 0>(0, NULL, 1, &barrier, 0, NULL);
+  }
+  void textureBarrier(const struct RITextureBarrier_s &barrier) {
+    resourceBarrier<0, 0, 1>(0, NULL, 0, NULL, 1, &barrier);
+  }
+  // Fixed-capacity texture-batch convenience; N is the stack capacity.
+  template <uint32_t N>
+  void textureBarriers(uint32_t num, const struct RITextureBarrier_s *barriers) {
+    resourceBarrier<0, 0, N>(0, NULL, 0, NULL, num, barriers);
+  }
+
+  // Bind a single index buffer. Takes an RIBuffer_s* (the RI abstraction)
+  // rather than a backend handle so the same call site survives a future
+  // DX12 backend.
+  void bindIndexBuffer(struct RIBuffer_s *buffer, VkDeviceSize offset,
+                       VkIndexType indexType);
+
+  // Bind `count` vertex buffers. The template parameter N is only the stack
+  // capacity reserved for the backend handle scratch array (compile-time
+  // sized, no heap); `count` is the actual number bound and must be <= N.
+  // `buffers` is a raw RIBuffer_s* array of length `count` (a null entry
+  // binds nothing); `offsets` is a parallel byte-offset array. e.g. for a
+  // fixed 5-stream layout where all 5 are live:
+  // cmd->bindVertexBuffers<5>(0, 5, bufs). RIBuffer_s* keeps the call site
+  // backend-agnostic for the planned DX12 path.
+  template <uint32_t N>
+  void bindVertexBuffers(uint32_t firstBinding, uint32_t count,
+                         struct RIBuffer_s *const *buffers,
+                         const VkDeviceSize *offsets) {
+    assert(count <= N);
+#if (DEVICE_IMPL_VULKAN)
+    VkBuffer vkBufs[N];
+    for (uint32_t i = 0; i < count; ++i)
+      vkBufs[i] = buffers[i] ? buffers[i]->vk.buffer : VK_NULL_HANDLE;
+    vkCmdBindVertexBuffers(vk.cmd, firstBinding, count, vkBufs, offsets);
+#endif
+  }
+
+  // Convenience overload binding `count` streams at offset 0.
+  template <uint32_t N>
+  void bindVertexBuffers(uint32_t firstBinding, uint32_t count,
+                         struct RIBuffer_s *const *buffers) {
+    const VkDeviceSize offsets[N] = {};
+    bindVertexBuffers<N>(firstBinding, count, buffers, offsets);
+  }
+
   union {
 #if (DEVICE_IMPL_VULKAN)
     struct {
@@ -1073,6 +1205,18 @@ static inline bool IsRITextureValid(struct RIRenderer_s *renderer,
   return handle && handle->vk.image != NULL;
 #endif
   return false;
+}
+
+inline bool RITexture_s::isEmpty(const struct RIDevice_s *device) const {
+  switch (device->renderer->api) {
+#if (DEVICE_IMPL_VULKAN)
+  case RI_DEVICE_API_VK:
+    return vk.image == VK_NULL_HANDLE;
+#endif
+  default:
+    assert(false && "unhandled backend");
+    return true;
+  }
 }
 
 #endif

@@ -48,7 +48,7 @@ namespace hpl {
 		mbActive = true;
 		mbVisible = true;
 
-		mpRenderSettings = hplNew( cRenderSettings, () );
+		mpRenderSettings = std::make_unique<cRenderSettings>();
 
 		mpWorld = NULL;
 		mpCamera = NULL;
@@ -75,8 +75,6 @@ namespace hpl {
 			},
 			m_state);
 		ReleasePogoBuffer(cntx);
-
-		hplDelete( mpRenderSettings );
 	}
 
 	//-----------------------------------------------------------------------
@@ -291,12 +289,14 @@ void ReleaseViewportAttachmentTexture(std::vector<struct RIFree> &freelist,
 
 	//-----------------------------------------------------------------------
 
-	RI_PogoBuffer* cViewport::PreparePogoBuffer(RIBootstrap::FrameContext *cntx,
-	                                           uint32_t alWidth, uint32_t alHeight)
+	RI_PogoBuffer* cViewport::PreparePogoBuffer(RIBootstrap::FrameContext *cntx)
 	{
+		const cVector2l vSize = GetTargetSize();
+		const uint32_t alWidth = (uint32_t)vSize.x;
+		const uint32_t alHeight = (uint32_t)vSize.y;
 		if(alWidth == 0 || alHeight == 0)
 		{
-			return GetPogoBuffer();
+			return PogoBuffer();
 		}
 		if(mlPogoWidth == alWidth && mlPogoHeight == alHeight)
 		{
@@ -363,53 +363,13 @@ void ReleaseViewportAttachmentTexture(std::vector<struct RIFree> &freelist,
 
 	void cViewport::AddGuiSet(cGuiSet *apSet)
 	{
-		mlstGuiSets.push_back(apSet);
+		m_guiSets.push_back(apSet);
 	}
 	void cViewport::RemoveGuiSet(cGuiSet *apSet)
 	{
-		STLFindAndRemove(mlstGuiSets, apSet);
-	}
-	cGuiSetListIterator cViewport::GetGuiSetIterator()
-	{
-		return cGuiSetListIterator(&mlstGuiSets);
+		STLFindAndRemove(m_guiSets, apSet);
 	}
 
-	//-----------------------------------------------------------------------
-
-	void cViewport::AddViewportCallback(iViewportCallback *apCallback)
-	{
-		mlstCallbacks.push_back(apCallback);
-	}
-	
-	void cViewport::RemoveViewportCallback(iViewportCallback *apCallback)
-	{
-		STLFindAndRemove(mlstCallbacks, apCallback);
-	}
-
-	void cViewport::RunViewportCallbackMessage(eViewportMessage aMessage)
-	{
-		tViewportCallbackListIt it = mlstCallbacks.begin();
-		for(; it != mlstCallbacks.end(); ++it)
-		{
-			iViewportCallback *pCallback = *it;
-
-			pCallback->RunMessage(aMessage);
-		}
-
-	}
-
-	//-----------------------------------------------------------------------
-
-	void cViewport::AddRendererCallback(iRendererCallback *apCallback)
-	{
-		mlstRendererCallbacks.push_back(apCallback);
-	}
-
-	void cViewport::RemoveRendererCallback(iRendererCallback *apCallback)
-	{
-		STLFindAndRemove(mlstRendererCallbacks, apCallback);
-	}
-	
 	//-----------------------------------------------------------------------
 
 	//////////////////////////////////////////////////////////////////////////

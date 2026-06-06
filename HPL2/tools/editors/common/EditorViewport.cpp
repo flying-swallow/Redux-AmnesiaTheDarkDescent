@@ -782,7 +782,6 @@ iEditorViewport::iEditorViewport(iEditorBase* apEditor, cWorld* apWorld, iFrameB
 
 iEditorViewport::~iEditorViewport()
 {
-	mpEngineViewport->SetFrameBuffer(NULL);
 	mpEngine->GetScene()->DestroyViewport(mpEngineViewport);
 	if(mpImgViewport) mpGuiSet->DestroyWidget(mpImgViewport);
 
@@ -858,8 +857,9 @@ void iEditorViewport::SetFrameBuffer(iFrameBuffer* apFB)
 	mpFB = apFB;
 	iFrameBufferAttachment* pColorBuffer = mpFB->GetColorBuffer(0);
 	if(pColorBuffer) mpRenderTarget = pColorBuffer->ToTexture();
-	
-	mpEngineViewport->SetFrameBuffer(mpFB);
+
+	// Legacy GL only: the engine cViewport no longer carries a framebuffer
+	// (the RI path renders into per-viewport targets / TargetView).
 	mbViewportNeedsUpdate = true;
 }
 
@@ -955,7 +955,7 @@ void iEditorViewport::UpdateViewport()
 	// samples it. The wrapping Image stays stable across pane resizes, so
 	// existing gfx elements keep working; old textures are freed via the
 	// HPLTexture deleter (frame freelist).
-	const cVector2l vSize = mpEngineViewport->GetSize();
+	const cVector2l vSize = mvEngineViewportSize;
 	if(vSize.x <= 0 || vSize.y <= 0)
 		return;
 
@@ -1031,9 +1031,7 @@ void iEditorViewport::SetEngineViewportPositionAndSize(const cVector2l& avPos, c
 {
 	if(mvEngineViewportPos==avPos && mvEngineViewportSize==avSize) return;
 	mvEngineViewportPos = avPos;
-	mpEngineViewport->SetPosition(mvEngineViewportPos);
 	mvEngineViewportSize = avSize;
-	mpEngineViewport->SetSize(mvEngineViewportSize);
 
 	// Legacy FB sub-rect UV math — dead on the RI backend (offscreen target is
 	// 1:1, mpFB is NULL). Kept for the GL path until the Phase-5 cleanup.
@@ -1065,7 +1063,6 @@ void iEditorViewport::SetEngineViewportSize(const cVector2l& avSize)
 {
 	if(mvEngineViewportSize==avSize) return;
 	mvEngineViewportSize = avSize;
-	mpEngineViewport->SetSize(mvEngineViewportSize);
 
 	// Legacy FB sub-rect UV math — dead on the RI backend (see above).
 	if(mpFB)
@@ -1171,20 +1168,6 @@ const cVector3f& iEditorViewport::GetGridCenter()
 	default:
 		return mCamera.GetTargetPosition();
 	}    
-}
-
-//-------------------------------------------------------------
-
-void iEditorViewport::AddViewportCallback(iRendererCallback* apCallback)
-{
-	mpEngineViewport->AddRendererCallback(apCallback);
-}
-
-//-------------------------------------------------------------
-
-void iEditorViewport::AddViewportCallback(iViewportCallback* apCallback)
-{
-	mpEngineViewport->AddViewportCallback(apCallback);
 }
 
 //-------------------------------------------------------------

@@ -211,44 +211,28 @@ void RI_ResourceEndCopyBuffer( struct RIDevice_s *device, struct RIResourceUploa
 	region.size = trans->size;
 
 	VkCommandBuffer cmd = __AcquireCmd( device, &res->upload_resource );
+	struct RICmd_s *barrierCmd = &res->upload_resource.cmd[res->upload_resource.active_set];
 
-	if( trans->vk.current_stage != VK_PIPELINE_STAGE_2_COPY_BIT || trans->vk.current_access != VK_ACCESS_2_TRANSFER_WRITE_BIT ) {
-		VkBufferMemoryBarrier2 pre_barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
-		pre_barrier.srcStageMask = trans->vk.current_stage;
-		pre_barrier.srcAccessMask = trans->vk.current_access;
-		pre_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-		pre_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-		pre_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		pre_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		pre_barrier.buffer = trans->target.vk.buffer;
-		pre_barrier.offset = 0;
-		pre_barrier.size = VK_WHOLE_SIZE;
-
-		VkDependencyInfo pre_dependency_info = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-		pre_dependency_info.bufferMemoryBarrierCount = 1;
-		pre_dependency_info.pBufferMemoryBarriers = &pre_barrier;
-		vkCmdPipelineBarrier2( cmd, &pre_dependency_info );
+	if( trans->currentState != RI_RESOURCE_STATE_COPY_DST ) {
+		struct RIBufferBarrier_s pre_barrier = {};
+		pre_barrier.buffer = &trans->target;
+		pre_barrier.before = trans->currentState;
+		pre_barrier.beforeStages = trans->currentStages;
+		pre_barrier.after = RI_RESOURCE_STATE_COPY_DST;
+		pre_barrier.afterStages = RI_STAGE_COPY;
+		barrierCmd->bufferBarrier( pre_barrier );
 	}
 
 	vkCmdCopyBuffer( cmd, trans->mapped.buffer, trans->target.vk.buffer, 1, &region );
 
-	if( trans->vk.post_stage != 0 &&
-	    ( trans->vk.post_stage != VK_PIPELINE_STAGE_2_COPY_BIT || trans->vk.post_access != VK_ACCESS_2_TRANSFER_WRITE_BIT ) ) {
-		VkBufferMemoryBarrier2 post_barrier = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2 };
-		post_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-		post_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-		post_barrier.dstStageMask = trans->vk.post_stage;
-		post_barrier.dstAccessMask = trans->vk.post_access;
-		post_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		post_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		post_barrier.buffer = trans->target.vk.buffer;
-		post_barrier.offset = 0;
-		post_barrier.size = VK_WHOLE_SIZE;
-
-		VkDependencyInfo post_dependency_info = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-		post_dependency_info.bufferMemoryBarrierCount = 1;
-		post_dependency_info.pBufferMemoryBarriers = &post_barrier;
-		vkCmdPipelineBarrier2( cmd, &post_dependency_info );
+	if( trans->postState != RI_RESOURCE_STATE_UNDEFINED && trans->postState != RI_RESOURCE_STATE_COPY_DST ) {
+		struct RIBufferBarrier_s post_barrier = {};
+		post_barrier.buffer = &trans->target;
+		post_barrier.before = RI_RESOURCE_STATE_COPY_DST;
+		post_barrier.beforeStages = RI_STAGE_COPY;
+		post_barrier.after = trans->postState;
+		post_barrier.afterStages = trans->postStages;
+		barrierCmd->bufferBarrier( post_barrier );
 	}
 #endif
 }
@@ -305,54 +289,38 @@ void RI_ResourceEndCopyTexture( struct RIDevice_s *device, struct RIResourceUplo
 	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 
 	VkCommandBuffer cmd = __AcquireCmd( device, &res->upload_resource );
+	struct RICmd_s *barrierCmd = &res->upload_resource.cmd[res->upload_resource.active_set];
 
-	if( trans->vk.current_stage != VK_PIPELINE_STAGE_2_COPY_BIT || trans->vk.current_access != VK_ACCESS_2_TRANSFER_WRITE_BIT ) {
-		VkImageMemoryBarrier2 pre_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-		pre_barrier.srcStageMask = trans->vk.current_stage;
-		pre_barrier.srcAccessMask = trans->vk.current_access;
-		pre_barrier.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-		pre_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-		pre_barrier.oldLayout = trans->vk.current_layout;
-		pre_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		pre_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		pre_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		pre_barrier.image = trans->target.vk.image;
-		pre_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		pre_barrier.subresourceRange.baseMipLevel = trans->mipOffset;
-		pre_barrier.subresourceRange.levelCount = 1;
-		pre_barrier.subresourceRange.baseArrayLayer = trans->arrayOffset;
-		pre_barrier.subresourceRange.layerCount = 1;
-
-		VkDependencyInfo pre_dependency_info = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-		pre_dependency_info.imageMemoryBarrierCount = 1;
-		pre_dependency_info.pImageMemoryBarriers = &pre_barrier;
-		vkCmdPipelineBarrier2( cmd, &pre_dependency_info );
+	// Barriers cover only the single (mipOffset, arrayOffset) subresource the
+	// copy writes.
+	if( trans->currentState != RI_RESOURCE_STATE_COPY_DST ) {
+		struct RITextureBarrier_s pre_barrier = {};
+		pre_barrier.texture = &trans->target;
+		pre_barrier.before = trans->currentState;
+		pre_barrier.beforeStages = trans->currentStages;
+		pre_barrier.after = RI_RESOURCE_STATE_COPY_DST;
+		pre_barrier.afterStages = RI_STAGE_COPY;
+		pre_barrier.baseMip = trans->mipOffset;
+		pre_barrier.mipCount = 1;
+		pre_barrier.baseLayer = trans->arrayOffset;
+		pre_barrier.layerCount = 1;
+		barrierCmd->textureBarrier( pre_barrier );
 	}
 
 	vkCmdCopyBufferToImage( cmd, trans->mapped.buffer, trans->target.vk.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
 
-	if( trans->vk.post_stage != 0 &&
-	    ( trans->vk.post_stage != VK_PIPELINE_STAGE_2_COPY_BIT || trans->vk.post_access != VK_ACCESS_2_TRANSFER_WRITE_BIT ) ) {
-		VkImageMemoryBarrier2 post_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-		post_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-		post_barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-		post_barrier.dstStageMask = trans->vk.post_stage;
-		post_barrier.dstAccessMask = trans->vk.post_access;
-		post_barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		post_barrier.newLayout = trans->vk.post_layout != VK_IMAGE_LAYOUT_UNDEFINED ? trans->vk.post_layout : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		post_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		post_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		post_barrier.image = trans->target.vk.image;
-		post_barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		post_barrier.subresourceRange.baseMipLevel = trans->mipOffset;
-		post_barrier.subresourceRange.levelCount = 1;
-		post_barrier.subresourceRange.baseArrayLayer = trans->arrayOffset;
-		post_barrier.subresourceRange.layerCount = 1;
-
-		VkDependencyInfo post_dependency_info = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-		post_dependency_info.imageMemoryBarrierCount = 1;
-		post_dependency_info.pImageMemoryBarriers = &post_barrier;
-		vkCmdPipelineBarrier2( cmd, &post_dependency_info );
+	if( trans->postState != RI_RESOURCE_STATE_UNDEFINED && trans->postState != RI_RESOURCE_STATE_COPY_DST ) {
+		struct RITextureBarrier_s post_barrier = {};
+		post_barrier.texture = &trans->target;
+		post_barrier.before = RI_RESOURCE_STATE_COPY_DST;
+		post_barrier.beforeStages = RI_STAGE_COPY;
+		post_barrier.after = trans->postState;
+		post_barrier.afterStages = trans->postStages;
+		post_barrier.baseMip = trans->mipOffset;
+		post_barrier.mipCount = 1;
+		post_barrier.baseLayer = trans->arrayOffset;
+		post_barrier.layerCount = 1;
+		barrierCmd->textureBarrier( post_barrier );
 	}
 #endif
 }

@@ -558,16 +558,8 @@ namespace hpl {
 	typedef std::list<cGuiGfxElement*> tGuiGfxElementList;
 	typedef tGuiGfxElementList::iterator tGuiGfxElementListIt;
 
-	typedef std::list<cGuiSet*> tGuiSetList;
-	typedef tGuiSetList::iterator tGuiSetListIt;
-
 	typedef std::multimap<tString, cGuiSet*> tGuiSetMap;
 	typedef tGuiSetMap::iterator tGuiSetMapIt;
-
-	//--------------------------------
-
-	typedef cSTLIterator<cGuiSet*, tGuiSetList, tGuiSetListIt> cGuiSetListIterator;
-
 
 	//--------------------------------
 

@@ -46,9 +46,16 @@ public:
     // linear data (normals, packed specular, height, attenuation LUTs).
     bool sRGB = false;
   };
-  bool LoadBitmap(RIBarrierImageHandle_s postBarrier, 
+  // postState/postStages: resource state the texture is transitioned to once
+  // the upload completes (RIBarrier.h); stages 0 derives from the state.
+  bool LoadBitmap(enum RIResourceState_e postState, uint32_t postStages,
                   cBitmap &bitmap,
                   const BitmapLoadOptions &options);
+  // Re-upload pixels into the already-created image (mip 0 / layer 0; bitmap
+  // size and format must match the original LoadBitmap). The image is assumed
+  // fragment-sampled and is returned to that state — the uploader emits the
+  // pre/post barriers. SetRawData replacement for procedural textures.
+  bool UpdateBitmap(cBitmap &bitmap);
   void setDebugName(const tWString& name);
   void setDebugName(const char* name);
 };

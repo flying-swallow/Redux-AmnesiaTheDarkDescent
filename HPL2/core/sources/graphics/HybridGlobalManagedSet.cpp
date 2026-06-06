@@ -667,12 +667,10 @@ HybridGlobalManagedSet::submitMaterial(RIBootstrap::FrameContext *cntx,
       tx.target = m_translucentMaterialBuffer;
       tx.size = sizeof(TranslucentMaterial);
       tx.offset = (size_t)treq.id * sizeof(TranslucentMaterial);
-      tx.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
-                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                            VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-      tx.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-      tx.vk.post_stage = tx.vk.current_stage;
-      tx.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+      tx.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+      tx.currentStages = RI_STAGE_ALL_SHADER;
+      tx.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+      tx.postStages = RI_STAGE_ALL_SHADER;
       RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &tx);
       std::memcpy(tx.mapped.data, &trans, sizeof(trans));
       RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &tx);
@@ -708,12 +706,10 @@ HybridGlobalManagedSet::submitMaterial(RIBootstrap::FrameContext *cntx,
       trans.target = m_waterMaterialBuffer;
       trans.size = sizeof(WaterMaterial);
       trans.offset = (size_t)wreq.id * sizeof(WaterMaterial);
-      trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
-                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                               VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-      trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-      trans.vk.post_stage = trans.vk.current_stage;
-      trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+      trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+      trans.currentStages = RI_STAGE_ALL_SHADER;
+      trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+      trans.postStages = RI_STAGE_ALL_SHADER;
       RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
       std::memcpy(trans.mapped.data, &water, sizeof(water));
       RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
@@ -731,12 +727,10 @@ HybridGlobalManagedSet::submitMaterial(RIBootstrap::FrameContext *cntx,
     trans.target = m_diffuseMaterialBuffer;
     trans.size = sizeof(DiffuseMaterial);
     trans.offset = (size_t)req.id * sizeof(DiffuseMaterial);
-    trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                             VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    trans.vk.post_stage = trans.vk.current_stage;
-    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+    trans.currentStages = RI_STAGE_ALL_SHADER;
+    trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+    trans.postStages = RI_STAGE_ALL_SHADER;
     RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
     std::memcpy(trans.mapped.data, &gpu, sizeof(gpu));
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
@@ -821,12 +815,10 @@ uint32_t HybridGlobalManagedSet::submitObject(uint64_t objectCookie,
       trans.target = m_objectBuffer;
       trans.size = sizeof(UniformObject);
       trans.offset = (size_t)slot * sizeof(UniformObject);
-      trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
-                               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                               VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-      trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-      trans.vk.post_stage = trans.vk.current_stage;
-      trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+      trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+      trans.currentStages = RI_STAGE_ALL_SHADER;
+      trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+      trans.postStages = RI_STAGE_ALL_SHADER;
       RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
       std::memcpy(trans.mapped.data, &payload, sizeof(payload));
       RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
@@ -897,14 +889,12 @@ void HybridGlobalManagedSet::flushMirrors(RIDevice_s *device) {
     trans.offset = off;
     // Read as storage buffers by the gbuffer VS (vertex pull), the surfel
     // VBuffer / ray-trace chit+ahit, and collectCellInfo (compute). The WAR
-    // pre-barrier (current_stage/access) waits on the prior frame's reads before
+    // pre-barrier (currentState/currentStages) waits on the prior frame's reads before
     // the staged copy overwrites the slot; this is the m_objectBuffer path.
-    trans.vk.current_stage = VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT |
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                             VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    trans.vk.post_stage = trans.vk.current_stage;
-    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+    trans.currentStages = RI_STAGE_ALL_SHADER;
+    trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+    trans.postStages = RI_STAGE_ALL_SHADER;
     RI_ResourceBeginCopyBuffer(device, &RI.uploader, &trans);
     std::memcpy(trans.mapped.data, it.mir->shadow.data() + off, sz);
     RI_ResourceEndCopyBuffer(device, &RI.uploader, &trans);

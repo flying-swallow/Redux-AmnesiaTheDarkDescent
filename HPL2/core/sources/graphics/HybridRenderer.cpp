@@ -110,8 +110,8 @@ static inline bool BindVertexStreams(struct RICmd_s *cmd, iVertexBuffer *pVB,
       col ? col : &RI.fallbackColorVertex,
       uv  ? uv  : &RI.fallbackUv0Vertex,
   };
-  CmdBindVertexBuffers<5>(cmd, 0, 5, vertBufs);
-  CmdBindIndexBuffer(cmd, idx, 0, VK_INDEX_TYPE_UINT32);
+  cmd->bindVertexBuffers<5>(0, 5, vertBufs);
+  cmd->bindIndexBuffer(idx, 0, VK_INDEX_TYPE_UINT32);
   return true;
 }
 
@@ -265,7 +265,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     RISegmentAllocDesc_s indirectDesc = {};
     indirectDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
     indirectDesc.elementStride = sizeof(VkDrawIndirectCommand);
-    indirectDesc.maxElements = (uint16_t)kObjectSlotCapacity;
+    indirectDesc.maxElements = kObjectSlotCapacity;
     m_indirectSegment = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>(&indirectDesc);
     m_indirectDrawBuffer = detail::CreateBindlessSlotBuffer(
         &RI.device, indirectDesc.maxElements, sizeof(VkDrawIndirectCommand),
@@ -597,11 +597,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                            cWorld *apWorld, cRenderSettings *apSettings,
                            bool abSendFrameBufferToPostEffects) {
 
-  // Target-agnostic: the viewport resolves its extent from its Target
-  // (swapchain extent for TargetSwapchain, the view's for TargetView) and
-  // PrepareToRender configures this backend's state for it (guard-band
-  // overscan applied inside Update — every target renders the overscan frame;
-  // cScene's pogo feed crops the center, keeping the authored FOV).
   const cVector2l vTargetSize = viewport->GetTargetSize();
   if (vTargetSize.x <= 0 || vTargetSize.y <= 0) {
     return;
@@ -610,8 +605,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   const uint32_t authoredHeight = (uint32_t)vTargetSize.y;
 
   cViewport::HybridViewportState *pState =
-      viewport->PrepareToRender<cViewport::HybridViewportState>(cntx,
-                                                                vTargetSize);
+      viewport->PrepareToRender<cViewport::HybridViewportState>(cntx);
   if (pState == nullptr || pState->width == 0) {
     return;
   }
@@ -927,12 +921,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // resource; tell the uploader to barrier from that to TRANSFER_WRITE
     // and back. On the very first frame the buffer is uninitialised, so
     // the src side of the barrier is a no-op against zero contents — safe.
-    trans.vk.current_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    trans.vk.post_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+    trans.currentStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
+    trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+    trans.postStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
 
     RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
     std::memcpy(trans.mapped.data, m_global.m_pointLightScratch.data(), uploadBytes);
@@ -1025,12 +1017,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     trans.target = m_global.m_spotLightBuffer;
     trans.size = uploadBytes;
     trans.offset = 0;
-    trans.vk.current_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    trans.vk.post_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+    trans.currentStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
+    trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+    trans.postStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
     RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
     std::memcpy(trans.mapped.data, m_global.m_spotLightScratch.data(), uploadBytes);
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
@@ -1079,12 +1069,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     trans.target = m_global.m_fogAreaBuffer;
     trans.size = uploadBytes;
     trans.offset = 0;
-    trans.vk.current_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    trans.vk.post_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+    trans.currentStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
+    trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+    trans.postStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
     RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
     std::memcpy(trans.mapped.data, m_global.m_fogAreaScratch.data(), uploadBytes);
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
@@ -1146,12 +1134,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     trans.target = m_global.m_decalBuffer;
     trans.size = uploadBytes;
     trans.offset = 0;
-    trans.vk.current_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    trans.vk.post_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+    trans.currentStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
+    trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+    trans.postStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
     RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
     std::memcpy(trans.mapped.data, m_global.m_decalScratch.data(), uploadBytes);
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
@@ -1169,10 +1155,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       trans.target = m_global.m_objectDecalIndexBuffer;
       trans.size = uploadBytes;
       trans.offset = 0;
-      trans.vk.current_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-      trans.vk.current_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-      trans.vk.post_stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-      trans.vk.post_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+      trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+      trans.currentStages = RI_STAGE_FRAGMENT;
+      trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+      trans.postStages = RI_STAGE_FRAGMENT;
       RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
       std::memcpy(trans.mapped.data, pool.data(), uploadBytes);
       RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
@@ -1457,13 +1443,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       trans.size = (size_t)instanceCount *
                    sizeof(VkAccelerationStructureInstanceKHR);
       trans.offset = 0;
-      trans.vk.current_stage =
-          VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-      trans.vk.current_access =
-          VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-      trans.vk.post_stage =
-          VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-      trans.vk.post_access = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+      trans.currentState = RI_RESOURCE_STATE_ACCEL_READ;
+      trans.currentStages = RI_STAGE_ACCEL_BUILD;
+      trans.postState = RI_RESOURCE_STATE_ACCEL_READ;
+      trans.postStages = RI_STAGE_ACCEL_BUILD;
       RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
       std::memcpy(trans.mapped.data, tlasInstances.data(), trans.size);
       RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
@@ -1533,22 +1516,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       build.scratchOffset = scratchReq.bufferOffset;
       CmdBuildRITlas(&RI.device, &RI.primary.cmds[0], &build, 1);
 
-      VkMemoryBarrier2 tlasToShader = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-      tlasToShader.srcStageMask =
-          VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-      tlasToShader.srcAccessMask =
-          VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
       // Consumed by both the RT pipelines and fragment-stage ray queries —
       // one barrier covers both.
-      tlasToShader.dstStageMask =
-          VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-          VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-      tlasToShader.dstAccessMask =
-          VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-      VkDependencyInfo dep2 = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep2.memoryBarrierCount = 1;
-      dep2.pMemoryBarriers = &tlasToShader;
-      vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep2);
+      RI.primary.cmds[0].memoryBarrier(
+          {RI_RESOURCE_STATE_ACCEL_WRITE, RI_RESOURCE_STATE_ACCEL_READ,
+           RI_STAGE_ACCEL_BUILD, RI_STAGE_FRAGMENT | RI_STAGE_RAY_TRACING});
     }
   }
 
@@ -1629,48 +1601,17 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // path below, which the gbuffer's expected DEPTH_ATTACHMENT_OPTIMAL
   // wouldn't otherwise match).
   {
-    VkImageMemoryBarrier2 attachmentBarriers[3] = {
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}};
-
-    VkImageMemoryBarrier2 &toColor = attachmentBarriers[0];
-    toColor.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    toColor.srcAccessMask = 0;
-    toColor.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    toColor.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    toColor.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    toColor.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    toColor.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    toColor.image = state.visibilityTexture[RI.swapchainIndex].vk.image;
-
-    VkImageMemoryBarrier2 &toDepth = attachmentBarriers[1];
-    toDepth.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    toDepth.srcAccessMask = 0;
-    toDepth.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                           VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-    toDepth.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    toDepth.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    toDepth.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    toDepth.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    toDepth.image = state.depthTextures[RI.swapchainIndex].vk.image;
-
-    // Velocity MRT — same UNDEFINED→COLOR transition as the visibility target
-    // (loadOp=CLEAR, so prior contents don't matter).
-    VkImageMemoryBarrier2 &toVelocity = attachmentBarriers[2];
-    toVelocity.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    toVelocity.srcAccessMask = 0;
-    toVelocity.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    toVelocity.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    toVelocity.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    toVelocity.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    toVelocity.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    toVelocity.image = m_velocityTexture[RI.swapchainIndex].vk.image;
-
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 3;
-    dep.pImageMemoryBarriers = attachmentBarriers;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    RITextureBarrier_s attachmentBarriers[3] = {
+        {&state.visibilityTexture[RI.swapchainIndex],
+         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_RENDER_TARGET},
+        {&state.depthTextures[RI.swapchainIndex], RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_DEPTH_WRITE, RI_STAGE_NONE, RI_STAGE_NONE,
+         RI_BARRIER_ASPECT_DEPTH},
+        // Velocity MRT — same UNDEFINED→COLOR transition as the visibility
+        // target (loadOp=CLEAR, so prior contents don't matter).
+        {&m_velocityTexture[RI.swapchainIndex], RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_RENDER_TARGET}};
+    RI.primary.cmds[0].textureBarriers<3>(3, attachmentBarriers);
   }
 
   VkRenderingAttachmentInfo colorAttachment = {
@@ -1718,7 +1659,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_surfelPrepare.bindBindlessDescriptorSet(
         &RI.primary.cmds[0], &m_global.m_bindlessSet, 0,
         VK_PIPELINE_BIND_POINT_COMPUTE);
-    CmdDispatch(&RI.primary.cmds[0], 1u, 1u, 1u);
+    RI.primary.cmds[0].dispatch(1u, 1u, 1u);
   }
 
   // Ping-pong the surfel-index buffers: copy this frame's previously-valid
@@ -1740,33 +1681,17 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                     1, &region);
   }
   {
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                       VK_PIPELINE_STAGE_2_COPY_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    RI.primary.cmds[0].memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE | RI_RESOURCE_STATE_COPY_DST,
+         RI_RESOURCE_STATE_UNORDERED_ACCESS, RI_STAGE_COMPUTE | RI_STAGE_COPY,
+         RI_STAGE_COMPUTE});
   }
   // Cell + ref-counter clears are now done by SurfelPreparePass +
   // SurfelUpdatePass on the Slang side. No standalone clear dispatch.
   {
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                       VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    RI.primary.cmds[0].memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_UNORDERED_ACCESS,
+         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING});
   }
 
   // ----------------------------------------------------------------------
@@ -1783,21 +1708,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // Primary V-buffer: UNDEFINED -> GENERAL for the RT pipeline to store into.
     // (No bounce buffers to clear anymore — water/glass refraction clobbers this
     // primary image, water reflection is in the raster water pass.)
-    VkImageMemoryBarrier2 toGeneral = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    toGeneral.srcStageMask  = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    toGeneral.srcAccessMask = 0;
-    toGeneral.dstStageMask  = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-    toGeneral.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    toGeneral.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    toGeneral.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    toGeneral.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toGeneral.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    toGeneral.image = m_packedHitInfoTexture[RI.swapchainIndex].vk.image;
-    toGeneral.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &toGeneral;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    RI.primary.cmds[0].textureBarrier(
+        {&m_packedHitInfoTexture[RI.swapchainIndex],
+         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_STORAGE_WRITE,
+         RI_STAGE_NONE, RI_STAGE_RAY_TRACING});
   }
 
   if (m_tlas.vk.handle != VK_NULL_HANDLE) {
@@ -1845,17 +1759,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // through the frame, so this is just a memory/execution sync, not
     // a layout transition. The bindless descriptor was written with
     // VK_IMAGE_LAYOUT_GENERAL at frame start.
-    VkMemoryBarrier2 vbufferToConsumers = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    vbufferToConsumers.srcStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-    vbufferToConsumers.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    vbufferToConsumers.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                                       VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                                       VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-    vbufferToConsumers.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &vbufferToConsumers;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    RI.primary.cmds[0].memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
+         RI_STAGE_RAY_TRACING,
+         RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT | RI_STAGE_RAY_TRACING});
   }
 
   // ----------------------------------------------------------------------
@@ -1902,22 +1809,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
         bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    CmdDispatch(&RI.primary.cmds[0], (kTotalSurfelLimit + 31u) / 32u, 1u, 1u);
+    RI.primary.cmds[0].dispatch((kTotalSurfelLimit + 31u) / 32u, 1u, 1u);
   }
   // RAW: accumulate reads cellInfo.surfelCount (collect-written) and reads
   // surfelCounter (collect-incremented). Accumulate's own writes are synced by
   // the next barrier — dstAccess=READ is sufficient and avoids an L2 flush of
   // every other SSBO collect touched (valid/free/recycle/rayResult/refCounter).
   {
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    RI.primary.cmds[0].memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
+         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
   }
   {
     VkComputePipelineCreateInfo computeCreate = {
@@ -1930,22 +1831,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         &RI.primary.cmds[0], &m_global.m_bindlessSet, 0,
         VK_PIPELINE_BIND_POINT_COMPUTE);
     const uint32_t groups = (kCellDimension + 3u) / 4u;
-    CmdDispatch(&RI.primary.cmds[0], groups, groups, groups);
+    RI.primary.cmds[0].dispatch(groups, groups, groups);
   }
   // RAW: scatter reads cellInfo.cellToSurfelBufferOffset (accumulate-written)
   // and RMWs cellInfo.surfelCount (accumulate zeroed it). Scatter's writes are
   // synced by the next barrier. Atomic RMWs only need the prior write visible
   // for the read half — dstAccess=READ suffices.
   {
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    RI.primary.cmds[0].memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
+         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
   }
   {
     VkComputePipelineCreateInfo computeCreate = {
@@ -1970,20 +1865,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
         bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    CmdDispatch(&RI.primary.cmds[0], (kTotalSurfelLimit + 31u) / 32u, 1u, 1u);
+    RI.primary.cmds[0].dispatch((kTotalSurfelLimit + 31u) / 32u, 1u, 1u);
   }
   {
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                       VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR |
-                       VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    RI.primary.cmds[0].memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
+         RI_STAGE_COMPUTE,
+         RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING | RI_STAGE_FRAGMENT});
   }
 
   // ----------------------------------------------------------------------
@@ -2017,8 +1905,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                    bnd.data(), bnd.size(),
                                    VK_PIPELINE_BIND_POINT_COMPUTE);
     // One thread per grid cell (the shader early-outs past kLightGridCellCount).
-    CmdDispatch(&RI.primary.cmds[0],
-                (kLightGridCellCount + 63u) / 64u, 1u, 1u);
+    RI.primary.cmds[0].dispatch((kLightGridCellCount + 63u) / 64u, 1u, 1u);
   }
 
   {
@@ -2027,17 +1914,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // cull (fragment — SurfelShade.evalAnalyticLight walks the per-cell light
     // list). Both stages must be in dst or the fragment reads see an empty grid
     // and drop every point/spot light. Compute kept in dst for safety.
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR |
-                       VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                       VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    RI.primary.cmds[0].memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
+         RI_STAGE_COMPUTE,
+         RI_STAGE_RAY_TRACING | RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT});
   }
 
   // One-shot UNDEFINED -> GENERAL transition for both surfel atlases the
@@ -2060,28 +1940,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // first-bounce depths converge. Clearing to 0 instead would make variance=0
     // => weight 0 => every surfel contribution zeroed until the atlas fills in
     // (~hundreds of frames), i.e. a multi-second indirect black-out on enable.
-    VkImageMemoryBarrier2 toClear[2] = {
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}};
-    for (uint32_t i = 0; i < 2; ++i) {
-      toClear[i].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-      toClear[i].srcAccessMask = 0;
-      toClear[i].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-      toClear[i].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      toClear[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      toClear[i].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-      toClear[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      toClear[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      toClear[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    }
-    toClear[0].image = m_surfelIrradianceTexture[RI.swapchainIndex].vk.image;
-    toClear[1].image = m_surfelDepthTexture[RI.swapchainIndex].vk.image;
-    {
-      VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep.imageMemoryBarrierCount = 2;
-      dep.pImageMemoryBarriers = toClear;
-      vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-    }
+    RITextureBarrier_s toClear[2] = {
+        {&m_surfelIrradianceTexture[RI.swapchainIndex],
+         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {&m_surfelDepthTexture[RI.swapchainIndex],
+         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE}};
+    RI.primary.cmds[0].textureBarriers<2>(2, toClear);
 
     VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
     VkClearColorValue irrClear = {}; // 0
@@ -2097,32 +1961,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     // Clear (transfer) -> integrate's storage RW + ray-trace / generation reads
     // (sampled). Same GENERAL layout, availability/visibility only.
-    VkImageMemoryBarrier2 toShader[2] = {
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}};
-    for (uint32_t i = 0; i < 2; ++i) {
-      toShader[i].srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-      toShader[i].srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      toShader[i].dstStageMask =
-          VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-          VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-      toShader[i].dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
-                                  VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
-                                  VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-      toShader[i].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-      toShader[i].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-      toShader[i].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      toShader[i].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      toShader[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    }
-    toShader[0].image = m_surfelIrradianceTexture[RI.swapchainIndex].vk.image;
-    toShader[1].image = m_surfelDepthTexture[RI.swapchainIndex].vk.image;
-    {
-      VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep.imageMemoryBarrierCount = 2;
-      dep.pImageMemoryBarriers = toShader;
-      vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-    }
+    RITextureBarrier_s toShader[2] = {
+        {&m_surfelIrradianceTexture[RI.swapchainIndex],
+         RI_RESOURCE_STATE_CLEAR_STORAGE,
+         RI_RESOURCE_STATE_UNORDERED_ACCESS | RI_RESOURCE_STATE_SHADER_RESOURCE,
+         RI_STAGE_NONE, RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING},
+        {&m_surfelDepthTexture[RI.swapchainIndex],
+         RI_RESOURCE_STATE_CLEAR_STORAGE,
+         RI_RESOURCE_STATE_UNORDERED_ACCESS | RI_RESOURCE_STATE_SHADER_RESOURCE,
+         RI_STAGE_NONE, RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING}};
+    RI.primary.cmds[0].textureBarriers<2>(2, toShader);
     m_surfelAtlasesInitialized[RI.swapchainIndex] = true;
   }
 
@@ -2175,16 +2023,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_surfelRT.traceRays(&RI.primary.cmds[0], kRtHash, kRayBudget, 1u, 1u);
   }
   {
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT |
-                       VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    RI.primary.cmds[0].memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
+         RI_STAGE_RAY_TRACING, RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT});
   }
 
   VkRenderingInfo renderingInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
@@ -2216,10 +2057,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_gbuffer.bindBindlessDescriptorSet(&RI.primary.cmds[0], &m_global.m_bindlessSet, 0);
     m_gbuffer.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
                               bindings.data(), bindings.size());
-    CmdDrawIndirect(&RI.primary.cmds[0], &m_indirectDrawBuffer,
-                    (VkDeviceSize)indirectReq.elementOffset *
-                        sizeof(VkDrawIndirectCommand),
-                    writtenDraws, (uint32_t)sizeof(VkDrawIndirectCommand));
+    RI.primary.cmds[0].drawIndirect(
+        &m_indirectDrawBuffer,
+        (VkDeviceSize)indirectReq.elementOffset * sizeof(VkDrawIndirectCommand),
+        writtenDraws, (uint32_t)sizeof(VkDrawIndirectCommand));
   }
 
   vkCmdEndRendering(cmd);
@@ -2229,31 +2070,18 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // gbuffer left in DEPTH_STENCIL_ATTACHMENT_OPTIMAL. The surfel result
   // image transitions UNDEFINED -> GENERAL for its first compute write.
   {
-    VkImageMemoryBarrier2 toRead[4] = {
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
-        {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}};
-    toRead[0].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    toRead[0].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    toRead[0].dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                             VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    toRead[0].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    toRead[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    toRead[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    toRead[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    toRead[0].image = state.visibilityTexture[RI.swapchainIndex].vk.image;
+    RITextureBarrier_s toRead[4] = {};
+    // Visibility -> SHADER_READ for the fragment + compute consumers.
+    toRead[0] = {&state.visibilityTexture[RI.swapchainIndex],
+                 RI_RESOURCE_STATE_RENDER_TARGET,
+                 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_NONE,
+                 RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE};
 
     // Depth -> SHADER_READ_ONLY for the compute pass.
-    toRead[1].srcStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                             VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-    toRead[1].srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    toRead[1].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    toRead[1].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    toRead[1].oldLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    toRead[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    toRead[1].subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    toRead[1].image = state.depthTextures[RI.swapchainIndex].vk.image;
+    toRead[1] = {&state.depthTextures[RI.swapchainIndex],
+                 RI_RESOURCE_STATE_DEPTH_WRITE,
+                 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_NONE,
+                 RI_STAGE_COMPUTE, RI_BARRIER_ASPECT_DEPTH};
 
     // Surfel-result image: surfel_generation_pass only writes gOutput for
     // pixels actually covered by a surfel (indirectLighting.w > 0). Valid-hit
@@ -2265,29 +2093,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // undefined memory. Clear to (0,0,0,1) each frame so uncovered pixels read
     // as zero indirect instead of garbage. UNDEFINED oldLayout discards stale
     // contents; the clear (transfer) is handed off to the compute write below.
-    toRead[2].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-    toRead[2].srcAccessMask = 0;
-    toRead[2].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-    toRead[2].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    toRead[2].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    toRead[2].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    toRead[2].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    toRead[2].image = m_surfelResultTexture[RI.swapchainIndex].vk.image;
+    toRead[2] = {&m_surfelResultTexture[RI.swapchainIndex],
+                 RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE};
 
     // Velocity (gbuffer MRT) -> SHADER_READ for the direct-lighting pass.
-    toRead[3].srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    toRead[3].srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    toRead[3].dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    toRead[3].dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-    toRead[3].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    toRead[3].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    toRead[3].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    toRead[3].image = m_velocityTexture[RI.swapchainIndex].vk.image;
+    toRead[3] = {&m_velocityTexture[RI.swapchainIndex],
+                 RI_RESOURCE_STATE_RENDER_TARGET,
+                 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_NONE,
+                 RI_STAGE_COMPUTE};
 
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 4;
-    dep.pImageMemoryBarriers = toRead;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    RI.primary.cmds[0].textureBarriers<4>(4, toRead);
   }
 
   // Clear the surfel-result image to zero indirect (see toRead[2] above), then
@@ -2299,23 +2114,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     vkCmdClearColorImage(cmd, m_surfelResultTexture[RI.swapchainIndex].vk.image,
                          VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
 
-    VkImageMemoryBarrier2 afterClear = {
-        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    afterClear.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-    afterClear.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-    afterClear.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    afterClear.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                               VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
-    afterClear.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    afterClear.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    afterClear.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    afterClear.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    afterClear.image = m_surfelResultTexture[RI.swapchainIndex].vk.image;
-    afterClear.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &afterClear;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    RI.primary.cmds[0].textureBarrier(
+        {&m_surfelResultTexture[RI.swapchainIndex],
+         RI_RESOURCE_STATE_CLEAR_STORAGE, RI_RESOURCE_STATE_UNORDERED_ACCESS,
+         RI_STAGE_NONE, RI_STAGE_COMPUTE});
   }
 
   // ----------------------------------------------------------------------
@@ -2358,23 +2160,17 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_surfelIntegrate.bindDescriptors(
         &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
         bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
-    CmdDispatch(&RI.primary.cmds[0], (kTotalSurfelLimit + 31u) / 32u, 1u, 1u);
+    RI.primary.cmds[0].dispatch((kTotalSurfelLimit + 31u) / 32u, 1u, 1u);
   }
   {
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    // SAMPLED_READ: with USE_SURFEL_DEPTH the generation pass samples the depth
-    // atlas (gSurfelDepth) that integrate just wrote via a storage image; the
-    // sampled read needs the write made visible to it, not just storage reads.
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_READ_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                        VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    vkCmdPipelineBarrier2(cmd, &dep);
+    // SHADER_RESOURCE: with USE_SURFEL_DEPTH the generation pass samples the
+    // depth atlas (gSurfelDepth) that integrate just wrote via a storage image;
+    // the sampled read needs the write made visible to it, not just storage
+    // reads.
+    RI.primary.cmds[0].memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE,
+         RI_RESOURCE_STATE_UNORDERED_ACCESS | RI_RESOURCE_STATE_SHADER_RESOURCE,
+         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
   }
   {
     VkComputePipelineCreateInfo computeCreate = {
@@ -2419,8 +2215,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     const uint32_t fullW = renderWidth;
     const uint32_t fullH = renderHeight;
-    CmdDispatch(&RI.primary.cmds[0], (fullW + 15u) / 16u,
-                (fullH + 15u) / 16u, 1u);
+    RI.primary.cmds[0].dispatch((fullW + 15u) / 16u, (fullH + 15u) / 16u, 1u);
   }
 
   // --------------------------------------------------------------------
@@ -2436,27 +2231,19 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     if (!m_directLightingInit) {
       // First use: the colour + key ping-pong textures UNDEFINED -> GENERAL +
       // cleared so the history reads are defined; they stay GENERAL thereafter.
-      VkImageMemoryBarrier2 toGen[4] = {
-          {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
-          {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
-          {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2},
-          {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}};
       VkImage dirImgs[4] = {
           m_directLightingTexture[0].vk.image, m_directLightingTexture[1].vk.image,
           m_directKeyTexture[0].vk.image,      m_directKeyTexture[1].vk.image};
-      for (uint32_t i = 0; i < 4; ++i) {
-        toGen[i].srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        toGen[i].dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-        toGen[i].dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-        toGen[i].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        toGen[i].newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        toGen[i].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        toGen[i].image = dirImgs[i];
-      }
-      VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep.imageMemoryBarrierCount = 4;
-      dep.pImageMemoryBarriers = toGen;
-      vkCmdPipelineBarrier2(cmd, &dep);
+      RITextureBarrier_s toGen[4] = {
+          {&m_directLightingTexture[0], RI_RESOURCE_STATE_UNDEFINED,
+           RI_RESOURCE_STATE_CLEAR_STORAGE},
+          {&m_directLightingTexture[1], RI_RESOURCE_STATE_UNDEFINED,
+           RI_RESOURCE_STATE_CLEAR_STORAGE},
+          {&m_directKeyTexture[0], RI_RESOURCE_STATE_UNDEFINED,
+           RI_RESOURCE_STATE_CLEAR_STORAGE},
+          {&m_directKeyTexture[1], RI_RESOURCE_STATE_UNDEFINED,
+           RI_RESOURCE_STATE_CLEAR_STORAGE}};
+      RI.primary.cmds[0].textureBarriers<4>(4, toGen);
 
       VkClearColorValue clr = {};
       VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -2464,31 +2251,18 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         vkCmdClearColorImage(cmd, dirImgs[i], VK_IMAGE_LAYOUT_GENERAL, &clr, 1,
                              &range);
 
-      VkMemoryBarrier2 mb = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-      mb.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
-      mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-      mb.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      mb.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
-                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-      VkDependencyInfo dep2 = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep2.memoryBarrierCount = 1;
-      dep2.pMemoryBarriers = &mb;
-      vkCmdPipelineBarrier2(cmd, &dep2);
+      RI.primary.cmds[0].memoryBarrier(
+          {RI_RESOURCE_STATE_CLEAR_STORAGE,
+           RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_WRITE,
+           RI_STAGE_NONE, RI_STAGE_COMPUTE});
       m_directLightingInit = true;
     } else {
       // Make last frame's writes to the ping-pong textures visible (history
       // sampled-read + current write-after-read/write). Both stay GENERAL.
-      VkMemoryBarrier2 mb = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-      mb.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      mb.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
-                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-      mb.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      mb.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
-                         VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-      VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep.memoryBarrierCount = 1;
-      dep.pMemoryBarriers = &mb;
-      vkCmdPipelineBarrier2(cmd, &dep);
+      RI.primary.cmds[0].memoryBarrier(
+          {RI_RESOURCE_STATE_STORAGE_WRITE | RI_RESOURCE_STATE_SHADER_RESOURCE,
+           RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_WRITE,
+           RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
     }
 
     VkComputePipelineCreateInfo ci = {
@@ -2543,19 +2317,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_directLighting.bindDescriptors(&RI.device, &RI.primary.cmds[0],
                                      RI.frameIndex, bnd.data(), bnd.size(),
                                      VK_PIPELINE_BIND_POINT_COMPUTE);
-    CmdDispatch(&RI.primary.cmds[0], (renderWidth + 15u) / 16u,
-                (renderHeight + 15u) / 16u, 1u);
+    RI.primary.cmds[0].dispatch((renderWidth + 15u) / 16u,
+                                (renderHeight + 15u) / 16u, 1u);
 
     // Current direct texture write -> composite sampled read (stays GENERAL).
-    VkMemoryBarrier2 done = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    done.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    done.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    done.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    done.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-    VkDependencyInfo depDone = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    depDone.memoryBarrierCount = 1;
-    depDone.pMemoryBarriers = &done;
-    vkCmdPipelineBarrier2(cmd, &depDone);
+    RI.primary.cmds[0].memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
+         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
   }
 
   // --------------------------------------------------------------------
@@ -2576,62 +2344,30 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // write. (The RT V-buffer pass (2956) and the raster visibility buffer (3016)
   // were already barriered to the COMPUTE stage upstream.)
   {
-    VkMemoryBarrier2 mem = {VK_STRUCTURE_TYPE_MEMORY_BARRIER_2};
-    mem.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    mem.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    mem.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    // SAMPLED_READ for the gIndirectLighting image sample; STORAGE_READ so the
-    // isWater branch's gatherSurfelIndirect can read the surfel-cache SSBOs
+    // SHADER_RESOURCE for the gIndirectLighting image sample; STORAGE_READ so
+    // the isWater branch's gatherSurfelIndirect can read the surfel-cache SSBOs
     // (gSurfelBuffer / gCellInfoBuffer / gCellToSurfelBuffer), written by the
     // surfel compute passes earlier this frame.
-    mem.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
-                        VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+    RIMemoryBarrier_s mem = {
+        RI_RESOURCE_STATE_STORAGE_WRITE,
+        RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_READ,
+        RI_STAGE_COMPUTE, RI_STAGE_COMPUTE};
 
-    std::vector<VkImageMemoryBarrier2> imageBarriers;
-    imageBarriers.reserve(3);
+    RITextureBarrier_s imageBarriers[2] = {
+        // gIndirectLighting GENERAL -> SHADER_READ_ONLY, now consumed by
+        // compute.
+        {&m_surfelResultTexture[RI.swapchainIndex],
+         RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
+         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE},
+        // Pogo attach -> GENERAL for the compute storage write. Discard prior
+        // contents (UNDEFINED): the dispatch writes every pixel, matching the
+        // old fragment pass's LOAD_OP_DONT_CARE. This also covers the
+        // first-frame init for the attach half.
+        {&state.renderTarget[RI.swapchainIndex], RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_STORAGE_WRITE, RI_STAGE_NONE, RI_STAGE_COMPUTE}};
 
-    {
-      // gIndirectLighting GENERAL -> SHADER_READ_ONLY, now consumed by compute.
-      VkImageMemoryBarrier2 b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-      b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-      b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      b.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-      b.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-      b.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      b.image = m_surfelResultTexture[RI.swapchainIndex].vk.image;
-      b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      imageBarriers.push_back(b);
-    }
-
-    {
-      // Pogo attach -> GENERAL for the compute storage write. Discard prior
-      // contents (UNDEFINED): the dispatch writes every pixel, matching the old
-      // fragment pass's LOAD_OP_DONT_CARE. This also covers the first-frame
-      // init for the attach half.
-      VkImageMemoryBarrier2 b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-      b.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
-      b.srcAccessMask = VK_ACCESS_2_NONE;
-      b.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-      b.dstAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-      b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-      b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      b.image = state.renderTarget[RI.swapchainIndex].vk.image;
-      b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      imageBarriers.push_back(b);
-    }
-
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.memoryBarrierCount = 1;
-    dep.pMemoryBarriers = &mem;
-    dep.imageMemoryBarrierCount =
-        static_cast<uint32_t>(imageBarriers.size());
-    dep.pImageMemoryBarriers = imageBarriers.data();
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+    RI.primary.cmds[0].resourceBarrier<1, 0, 2>(1, &mem, 0, NULL, 2,
+                                                imageBarriers);
   }
 
   // Depth flip shared by the decal pre-pass (below) and the particle /
@@ -2641,25 +2377,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   auto flipDepthToReadOnly = [&]() {
     if (depthFlippedForReadOnly)
       return;
-    VkImageMemoryBarrier2 depthBarrier = {
-        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    depthBarrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-                                VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    depthBarrier.srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
-                                 VK_ACCESS_2_SHADER_READ_BIT;
-    depthBarrier.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                                VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-    depthBarrier.dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
-    depthBarrier.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    depthBarrier.newLayout = VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL;
-    depthBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    depthBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    depthBarrier.image = state.depthTextures[RI.swapchainIndex].vk.image;
-    depthBarrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &depthBarrier;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+    RI.primary.cmds[0].textureBarrier(
+        {&state.depthTextures[RI.swapchainIndex],
+         RI_RESOURCE_STATE_SHADER_RESOURCE, RI_RESOURCE_STATE_DEPTH_READ,
+         RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE, RI_STAGE_NONE,
+         RI_BARRIER_ASPECT_DEPTH});
     depthFlippedForReadOnly = true;
   };
 
@@ -2728,8 +2450,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
         bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    CmdDispatch(&RI.primary.cmds[0], (renderWidth + 15u) / 16u,
-                (renderHeight + 15u) / 16u, 1u);
+    RI.primary.cmds[0].dispatch((renderWidth + 15u) / 16u,
+                                (renderHeight + 15u) / 16u, 1u);
   }
 
   // Toggle the direct-lighting ping-pong: this frame's write becomes next
@@ -2739,21 +2461,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Render target: GENERAL (compute write) -> COLOR_ATTACHMENT_OPTIMAL so the
   // downstream raster passes find the layout they expect.
   {
-    VkImageMemoryBarrier2 b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    b.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-    b.srcAccessMask = VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
-    b.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-    b.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-    b.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    b.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    b.image = state.renderTarget[RI.swapchainIndex].vk.image;
-    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &b;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+    RI.primary.cmds[0].textureBarrier(
+        {&state.renderTarget[RI.swapchainIndex], RI_RESOURCE_STATE_STORAGE_WRITE,
+         RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_COMPUTE});
   }
 
   // Single render target — no toggle: the main draw never ping-pongs. The
@@ -2762,12 +2472,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // it into the viewport backbuffer, where the post-effect chain + tail blit
   // in cScene::Render consume it.
   {
-    VkImageMemoryBarrier2 b = VK_RI_PogoShaderMemoryBarrier2(
-        state.renderTarget[RI.swapchainIndex].vk.image, /*initial=*/false);
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &b;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+    RI.primary.cmds[0].textureBarrier(RI_PogoShaderBarrier(
+        &state.renderTarget[RI.swapchainIndex], /*initial=*/false));
   }
 
   // (depthFlippedForReadOnly + flipDepthToReadOnly are defined above, before the
@@ -2810,12 +2516,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       VkImageView pogoReadView  = state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
 
       {
-        VkImageMemoryBarrier2 b =
-            VK_RI_PogoAttachmentMemoryBarrier2(pogoReadImage, /*initial=*/false);
-        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &b;
-        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+        RI.primary.cmds[0].textureBarrier(RI_PogoAttachmentBarrier(
+            &state.renderTarget[RI.swapchainIndex], /*initial=*/false));
       }
 
       VkRenderingAttachmentInfo colorAttach = {
@@ -2917,12 +2619,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
 
       {
-        VkImageMemoryBarrier2 b =
-            VK_RI_PogoShaderMemoryBarrier2(pogoReadImage, /*initial=*/false);
-        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &b;
-        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+        RI.primary.cmds[0].textureBarrier(RI_PogoShaderBarrier(
+            &state.renderTarget[RI.swapchainIndex], /*initial=*/false));
       }
     }
   }
@@ -2959,12 +2657,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       VkImageView pogoReadView  = state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
 
       {
-        VkImageMemoryBarrier2 b =
-            VK_RI_PogoAttachmentMemoryBarrier2(pogoReadImage, /*initial=*/false);
-        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &b;
-        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+        RI.primary.cmds[0].textureBarrier(RI_PogoAttachmentBarrier(
+            &state.renderTarget[RI.swapchainIndex], /*initial=*/false));
       }
 
       VkRenderingAttachmentInfo colorAttach = {
@@ -3068,12 +2762,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
 
       {
-        VkImageMemoryBarrier2 b =
-            VK_RI_PogoShaderMemoryBarrier2(pogoReadImage, /*initial=*/false);
-        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &b;
-        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+        RI.primary.cmds[0].textureBarrier(RI_PogoShaderBarrier(
+            &state.renderTarget[RI.swapchainIndex], /*initial=*/false));
       }
     }
   }
@@ -3130,12 +2820,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       VkImageView pogoReadView  = state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
       const RI_Format_e particleTargetFormat = RIBootstrap::PogoColorFormat;
       {
-        VkImageMemoryBarrier2 b =
-            VK_RI_PogoAttachmentMemoryBarrier2(pogoReadImage, /*initial=*/false);
-        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &b;
-        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+        RI.primary.cmds[0].textureBarrier(RI_PogoAttachmentBarrier(
+            &state.renderTarget[RI.swapchainIndex], /*initial=*/false));
       }
 
       VkRenderingAttachmentInfo colorAttach = {
@@ -3277,12 +2963,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
       // pogo "read" half back to SHADER_READ_ONLY so the tail blit can sample it.
       {
-        VkImageMemoryBarrier2 b =
-            VK_RI_PogoShaderMemoryBarrier2(pogoReadImage, /*initial=*/false);
-        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &b;
-        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+        RI.primary.cmds[0].textureBarrier(RI_PogoShaderBarrier(
+            &state.renderTarget[RI.swapchainIndex], /*initial=*/false));
       }
     }
   }
@@ -3350,12 +3032,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // composite + post-effect chain also left it in SHADER_READ_ONLY. The
       // barrier helper handles either source state.
       {
-        VkImageMemoryBarrier2 b =
-            VK_RI_PogoAttachmentMemoryBarrier2(pogoReadImage, /*initial=*/false);
-        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &b;
-        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+        RI.primary.cmds[0].textureBarrier(RI_PogoAttachmentBarrier(
+            &state.renderTarget[RI.swapchainIndex], /*initial=*/false));
       }
 
       VkRenderingAttachmentInfo colorAttach = {
@@ -3540,12 +3218,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
       // pogo "read" half back to SHADER_READ_ONLY so the tail blit can sample it.
       {
-        VkImageMemoryBarrier2 b =
-            VK_RI_PogoShaderMemoryBarrier2(pogoReadImage, /*initial=*/false);
-        VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-        dep.imageMemoryBarrierCount = 1;
-        dep.pImageMemoryBarriers    = &b;
-        vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+        RI.primary.cmds[0].textureBarrier(RI_PogoShaderBarrier(
+            &state.renderTarget[RI.swapchainIndex], /*initial=*/false));
       }
     }
   }
@@ -3556,41 +3230,17 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // here in either SHADER_READ_ONLY_OPTIMAL (surfel-only) or
   // DEPTH_READ_ONLY_OPTIMAL (flipDepthToReadOnly ran for particle/decal).
   {
-    const VkImageLayout currentLayout =
-        depthFlippedForReadOnly ? VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL
-                                : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    const VkPipelineStageFlags2 srcStage =
-        depthFlippedForReadOnly
-            ? (VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-               VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT)
-            : (VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
-               VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
-    const VkAccessFlags2 srcAccess =
-        depthFlippedForReadOnly
-            ? VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT
-            : (VK_ACCESS_2_SHADER_SAMPLED_READ_BIT |
-               VK_ACCESS_2_SHADER_READ_BIT);
+    const uint32_t beforeState =
+        depthFlippedForReadOnly ? RI_RESOURCE_STATE_DEPTH_READ
+                                : RI_RESOURCE_STATE_SHADER_RESOURCE;
+    const uint32_t beforeStages =
+        depthFlippedForReadOnly ? RI_STAGE_NONE
+                                : (RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE);
 
-    VkImageMemoryBarrier2 restoreDepth = {
-        VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    restoreDepth.srcStageMask = srcStage;
-    restoreDepth.srcAccessMask = srcAccess;
-    restoreDepth.dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
-                                VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
-    restoreDepth.dstAccessMask =
-        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-        VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-    restoreDepth.oldLayout = currentLayout;
-    restoreDepth.newLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-    restoreDepth.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    restoreDepth.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    restoreDepth.image = state.depthTextures[RI.swapchainIndex].vk.image;
-    restoreDepth.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers = &restoreDepth;
-    vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+    RI.primary.cmds[0].textureBarrier(
+        {&state.depthTextures[RI.swapchainIndex], beforeState,
+         RI_RESOURCE_STATE_DEPTH_WRITE, beforeStages, RI_STAGE_NONE,
+         RI_BARRIER_ASPECT_DEPTH});
   }
 
   // DebugDraw overlay (editor panes: grid / gizmos / icons, enqueued by the
@@ -3605,22 +3255,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       debugDraw && debugDraw->HasRequests();
   if (debugOverlayDrawn) {
     {
-      VkImageMemoryBarrier2 toColor = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-      toColor.srcStageMask  = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-      toColor.srcAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-      toColor.dstStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-      toColor.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT |
-                              VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-      toColor.oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      toColor.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-      toColor.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      toColor.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-      toColor.image = state.renderTarget[RI.swapchainIndex].vk.image;
-      toColor.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep.imageMemoryBarrierCount = 1;
-      dep.pImageMemoryBarriers = &toColor;
-      vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      RI.primary.cmds[0].textureBarrier(
+          {&state.renderTarget[RI.swapchainIndex],
+           RI_RESOURCE_STATE_SHADER_RESOURCE,
+           RI_RESOURCE_STATE_RENDER_TARGET_READ, RI_STAGE_FRAGMENT});
     }
     {
       VkRenderingAttachmentInfo colorAttachment = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -3648,12 +3286,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
     }
     {
-      VkImageMemoryBarrier2 toRead = VK_RI_PogoShaderMemoryBarrier2(
-          state.renderTarget[RI.swapchainIndex].vk.image, /*initial=*/false);
-      VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-      dep.imageMemoryBarrierCount = 1;
-      dep.pImageMemoryBarriers = &toRead;
-      vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
+      RI.primary.cmds[0].textureBarrier(RI_PogoShaderBarrier(
+          &state.renderTarget[RI.swapchainIndex], /*initial=*/false));
     }
   }
 

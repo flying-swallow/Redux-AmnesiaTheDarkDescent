@@ -53,17 +53,14 @@ struct RIResourceBufferTransaction_s {
 	size_t size;
 	size_t offset; // destination offset inside 'target'
 
-	union {
-#if ( DEVICE_IMPL_VULKAN )
-		struct {
-			VkPipelineStageFlags2 current_stage;
-			VkAccessFlags2 current_access;
-
-			VkPipelineStageFlags2 post_stage;
-			VkAccessFlags2 post_access;
-		} vk;
-#endif
-	};
+	// State the target is in before the copy and the state to return it to
+	// afterwards (RIBarrier.h). currentState == COPY_DST skips the pre-barrier;
+	// postState == UNDEFINED or COPY_DST skips the post-barrier. Stage hints
+	// follow the usual rule: 0 derives a conservative mask from the state.
+	enum RIResourceState_e currentState;
+	uint32_t currentStages; // RIStageBits_e
+	enum RIResourceState_e postState;
+	uint32_t postStages; // RIStageBits_e
 
 	// filled by RI_ResourceBeginCopyBuffer
 	struct RIMappedMemoryRange mapped;
@@ -72,19 +69,12 @@ struct RIResourceBufferTransaction_s {
 struct RIResourceTextureTransaction_s {
 	struct RITexture_s target;
 
-	union {
-#if ( DEVICE_IMPL_VULKAN )
-		struct {
-			VkPipelineStageFlags2 current_stage;
-			VkAccessFlags2 current_access;
-			VkImageLayout current_layout;
-
-			VkPipelineStageFlags2 post_stage;
-			VkAccessFlags2 post_access;
-			VkImageLayout post_layout;
-		} vk;
-#endif
-	};
+	// Same semantics as the buffer transaction states above; barriers cover
+	// only the single (mipOffset, arrayOffset) subresource being written.
+	enum RIResourceState_e currentState;
+	uint32_t currentStages; // RIStageBits_e
+	enum RIResourceState_e postState;
+	uint32_t postStages; // RIStageBits_e
 
 	uint32_t format; // RI_Format_e
 	uint32_t sliceNum;

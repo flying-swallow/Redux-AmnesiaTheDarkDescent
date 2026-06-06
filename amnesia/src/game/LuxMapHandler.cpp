@@ -259,7 +259,6 @@ void cLuxMapHandler::OnStart()
 	mpViewport->AddGuiSet(gpBase->mpGameHudSet);
 
     
-	mpViewport->AddRendererCallback(&mRenderCallback);
 	UpdateViewportRenderProperties();
 }
 

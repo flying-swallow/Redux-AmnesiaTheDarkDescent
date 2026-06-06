@@ -317,21 +317,14 @@ namespace hpl {
 
 				VkImageSubresourceRange colorRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-				VkImageMemoryBarrier2 toTransfer = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-				toTransfer.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
-				toTransfer.srcAccessMask = 0;
-				toTransfer.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-				toTransfer.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-				toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-				toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-				toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				toTransfer.image = RI.whiteTexture2D.vk.image;
-				toTransfer.subresourceRange = colorRange;
-				VkDependencyInfo depToTransfer = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-				depToTransfer.imageMemoryBarrierCount = 1;
-				depToTransfer.pImageMemoryBarriers = &toTransfer;
-				vkCmdPipelineBarrier2(initElem.cmds[0].vk.cmd, &depToTransfer);
+				RITextureBarrier_s toTransfer = {};
+				toTransfer.texture = &RI.whiteTexture2D;
+				toTransfer.before = RI_RESOURCE_STATE_UNDEFINED;
+				toTransfer.after = RI_RESOURCE_STATE_COPY_DST;
+				toTransfer.afterStages = RI_STAGE_COPY;
+				toTransfer.mipCount = 1;
+				toTransfer.layerCount = 1;
+				initElem.cmds[0].textureBarrier(toTransfer);
 
 				VkBufferImageCopy copyRegion = {};
 				copyRegion.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
@@ -339,21 +332,16 @@ namespace hpl {
 				vkCmdCopyBufferToImage(initElem.cmds[0].vk.cmd, whiteUploadStaging, RI.whiteTexture2D.vk.image,
 				                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
-				VkImageMemoryBarrier2 toShaderRead = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-				toShaderRead.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-				toShaderRead.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-				toShaderRead.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-				toShaderRead.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-				toShaderRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-				toShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				toShaderRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				toShaderRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				toShaderRead.image = RI.whiteTexture2D.vk.image;
-				toShaderRead.subresourceRange = colorRange;
-				VkDependencyInfo depToShaderRead = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-				depToShaderRead.imageMemoryBarrierCount = 1;
-				depToShaderRead.pImageMemoryBarriers = &toShaderRead;
-				vkCmdPipelineBarrier2(initElem.cmds[0].vk.cmd, &depToShaderRead);
+				// afterStages 0 derives the all-shader mask — sampled reads can
+				// only happen in shader stages.
+				RITextureBarrier_s toShaderRead = {};
+				toShaderRead.texture = &RI.whiteTexture2D;
+				toShaderRead.before = RI_RESOURCE_STATE_COPY_DST;
+				toShaderRead.beforeStages = RI_STAGE_COPY;
+				toShaderRead.after = RI_RESOURCE_STATE_SHADER_RESOURCE;
+				toShaderRead.mipCount = 1;
+				toShaderRead.layerCount = 1;
+				initElem.cmds[0].textureBarrier(toShaderRead);
 
 				VkImageViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 				viewInfo.image = RI.whiteTexture2D.vk.image;

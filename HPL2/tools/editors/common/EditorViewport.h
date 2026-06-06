@@ -274,11 +274,6 @@ public:
 	cBoundingVolume* GetRayBV();
 	float GetRayEndDistance() { return mfRayEndDistance; }
 
-	void AddViewportCallback(iRendererCallback* apCallback);
-	// RI path: per-frame viewport messages (OnPreWorldDraw fires before the
-	// renderer Draw — DebugDraw enqueues go there).
-	void AddViewportCallback(iViewportCallback* apCallback);
-
 	void UpdateCameraPlanes();
 
 	void SetClearColor(const cColor& aX);
@@ -385,8 +380,6 @@ protected:
 	eRenderer mRenderMode;
 
 	cEditorGrid* mpGrid;
-
-	iRendererCallback* mpViewportCallback;
 
 	static int mlViewportCount;
 

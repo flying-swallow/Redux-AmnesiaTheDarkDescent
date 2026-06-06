@@ -280,7 +280,11 @@ bool cModelEditorWindowPhysicsTest::WindowSpecificInputCallback(iEditorInput* ap
 
 void cModelEditorWindowPhysicsTest::SetUpRender()
 {
-	AddViewportCallback(&mRenderCallback);
+	if(mPreWorldDrawHandler.IsConnected()==false)
+	{
+		mPreWorldDrawHandler = EventHandler<>([this] { mRenderCallback.OnPreWorldDraw(); });
+		mPreWorldDrawHandler.Connect(GetEngineViewport()->OnPreWorldDraw());
+	}
 
 	cScene* pScene = mpEngine->GetScene();
 	cPhysics* pPhysics = mpEngine->GetPhysics();
