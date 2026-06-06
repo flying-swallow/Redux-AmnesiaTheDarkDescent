@@ -115,6 +115,7 @@ namespace hpl {
 		eWidgetType_Image,
 		eWidgetType_ListBox,
 		eWidgetType_ComboBox,
+		eWidgetType_NodeTree,
 		eWidgetType_ContextMenu,
 		eWidgetType_MainMenu,
 		eWidgetType_MenuItem,
