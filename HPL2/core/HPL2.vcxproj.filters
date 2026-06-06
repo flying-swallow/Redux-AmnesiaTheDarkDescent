@@ -1204,9 +1204,6 @@
     <ClInclude Include="include\graphics\DebugDraw.h">
       <Filter>Graphics</Filter>
     </ClInclude>
-    <ClInclude Include="include\graphics\RIViewportTarget.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="sources\system\Container.cpp">
@@ -2182,9 +2179,6 @@
       <Filter>Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\graphics\DebugDraw.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\RIViewportTarget.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
   </ItemGroup>

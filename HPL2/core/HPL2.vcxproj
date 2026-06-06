@@ -194,7 +194,6 @@
     <ClInclude Include="include\graphics\RISegmentAlloc.h" />
     <ClInclude Include="include\graphics\RISwapchain.h" />
     <ClInclude Include="include\graphics\RITypes.h" />
-    <ClInclude Include="include\graphics\RIViewportTarget.h" />
     <ClInclude Include="include\graphics\RIVK.h" />
     <ClInclude Include="include\graphics\spirv.h" />
     <ClInclude Include="include\graphics\spirv_reflect.h" />
@@ -567,7 +566,6 @@
     <ClCompile Include="sources\graphics\RIResourceUploader.cpp" />
     <ClCompile Include="sources\graphics\RIScratchAlloc.cpp" />
     <ClCompile Include="sources\graphics\RISwapchain.cpp" />
-    <ClCompile Include="sources\graphics\RIViewportTarget.cpp" />
     <ClCompile Include="sources\graphics\RIVK.cpp" />
     <ClCompile Include="sources\graphics\spirv_reflect.c" />
     <ClCompile Include="sources\graphics\TranslucentMeshPipelineDesc.cpp" />
