@@ -336,6 +336,11 @@ protected:
 	cGraphics* mpGfx;
 	cGuiSet* mpGuiSet;
 	cViewport* mpEngineViewport;
+	// Per-viewport post chain: the hybrid renderer outputs linear HDR; the
+	// tonemap effect carries the mandatory display encode (active only in
+	// eRenderer_Main mode — wireframe/simple draw display-range colors).
+	cPostEffectComposite* mpPostEffectComposite;
+	iPostEffect* mpPostEffectToneMap;
 	cEditorViewportCamera mCamera;
 
 	bool mbViewportNeedsUpdate;

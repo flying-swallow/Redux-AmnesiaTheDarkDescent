@@ -757,6 +757,19 @@ iEditorViewport::iEditorViewport(iEditorBase* apEditor, cWorld* apWorld, iFrameB
 	mpEngineViewport = mpEngine->GetScene()->CreateViewport(mCamera.GetEngineCamera(), apWorld, true);
 	SetViewportActive(false);
 
+	// Post chain: the hybrid renderer outputs linear HDR into the pogo; the
+	// tonemap effect carries the mandatory exposure+ACES+sRGB display encode
+	// (same setup/params as the game, see LuxMapHandler). SetRenderMode gates
+	// it to eRenderer_Main — wireframe/simple draw display-range colors.
+	mpPostEffectComposite = mpGfx->CreatePostEffectComposite();
+	mpEngineViewport->SetPostEffectComposite(mpPostEffectComposite);
+
+	cPostEffectParams_ToneMap tonemapParams;
+	tonemapParams.mfExposure = 1.0f;
+	tonemapParams.mfShadowLift = 1.0f;
+	mpPostEffectToneMap = mpGfx->CreatePostEffect(&tonemapParams);
+	mpPostEffectComposite->AddPostEffect(mpPostEffectToneMap, 0);
+
 	mpImgViewport = NULL;
 	mvViewportPos = 0;
 	mvViewportSize = 0;
@@ -783,6 +796,8 @@ iEditorViewport::iEditorViewport(iEditorBase* apEditor, cWorld* apWorld, iFrameB
 iEditorViewport::~iEditorViewport()
 {
 	mpEngine->GetScene()->DestroyViewport(mpEngineViewport);
+	mpGfx->DestroyPostEffect(mpPostEffectToneMap);
+	mpGfx->DestroyPostEffectComposite(mpPostEffectComposite);
 	if(mpImgViewport) mpGuiSet->DestroyWidget(mpImgViewport);
 
 	hplDelete(mpGrid);
@@ -842,9 +857,12 @@ void iEditorViewport::SetRenderMode(eRenderer aMode)
 		aMode = eRenderer_WireFrame;
 
 	mRenderMode = aMode;
-	
+
 	iRenderer* pRenderer = mpGfx->GetRenderer(mRenderMode);
 	mpEngineViewport->SetRenderer(pRenderer);
+	// Tonemap encodes the hybrid renderer's HDR output; wireframe/simple
+	// already draw display-range colors.
+	if(mpPostEffectToneMap) mpPostEffectToneMap->SetActive(mRenderMode == eRenderer_Main);
 	SetClearColor(mpEditorBase->GetEditorWorld()->GetBGDefaultColor());
 }
 

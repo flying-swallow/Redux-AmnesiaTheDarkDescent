@@ -338,7 +338,13 @@ SHARED_CONST int   kDisoccSearchRadius             = 3;       // 7×7 spatial re
 // the center back to the display. Gives temporal reprojection valid history just
 // off the visible edge so camera pans don't show edge artifacts. Fill cost scales
 // ~(1+2f)². Crop inset per side (UV) = f/(1+2f).
-SHARED_CONST float kGuardBandFraction              = 0.06f;   // ≈6% per side
+//
+// DISABLED (set to 0): the overscan render misaligns everything that assumes
+// the authored projection — editor DebugDraw overlays (selection wireframes,
+// gizmos, grid) and UI picking (mouse-ray unproject). Re-enabling requires
+// compensating both the overlay flush (DebugDraw) and the picking path.
+// Original value: 0.06 (≈6% per side).
+SHARED_CONST float kGuardBandFraction              = 0.0f;
 
 // PBR point/spot-light falloff. The host stores intensity = authoredRadius² · scale.
 // The shader emits radiance = color · intensity · 1/(d² + sourceRadius²) — a plain
