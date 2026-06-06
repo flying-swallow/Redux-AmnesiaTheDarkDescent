@@ -23,8 +23,6 @@
 
 #include "resources/Resources.h"
 
-#include "scene/Scene.h"
-
 namespace hpl {
 
 	//////////////////////////////////////////////////////////////////////////
@@ -33,10 +31,8 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cFogArea::cFogArea(tString asName, cResources *apResources, cGraphics* apGraphics) : iRenderable(asName)
+	cFogArea::cFogArea(tString asName, cResources *apResources) : iRenderable(asName)
 	{
-		mpGraphics = apGraphics;
-
 		mColor = cColor(1,1);
 		mvSize = 1;
 
@@ -56,9 +52,6 @@ namespace hpl {
 
 	cFogArea::~cFogArea()
 	{
-		cHybridRenderer* pHybridRenderer = static_cast<cHybridRenderer*>(mpGraphics->GetRenderer(eRenderer_Main));
-		cRenderList2* pRenderList = pHybridRenderer->GetRenderList();
-		pRenderList->ForgetFogArea(this);
 	}	
 
 	//-----------------------------------------------------------------------

@@ -768,10 +768,6 @@ namespace hpl {
 
 	void cWorld::DestroyLight(iLight* apLight)
 	{
-		cHybridRenderer* pHybridRenderer = static_cast<cHybridRenderer*>(mpGraphics->GetRenderer(eRenderer_Main));
-		cRenderList2* pRenderList = pHybridRenderer->GetRenderList();
-		pRenderList->ForgetLight(apLight);
-
 		RemoveRenderableFromContainer(apLight);
 
 		STLFindAndDelete(mlstLights, apLight);
@@ -1117,7 +1113,7 @@ namespace hpl {
 
 	cFogArea* cWorld::CreateFogArea(const tString& asName, bool abStatic)
 	{
-		cFogArea *pFog = hplNew( cFogArea, (asName, mpResources, mpGraphics));
+		cFogArea *pFog = hplNew( cFogArea, (asName, mpResources));
 		mlstFogAreas.push_back(pFog);
 		pFog->SetStatic(abStatic);
 
@@ -1458,7 +1454,7 @@ namespace hpl {
 
 	cDummyRenderable* cWorld::CreateDummyRenderable(const tString& asName, bool abStatic)
 	{
-		cDummyRenderable *pDummy = hplNew( cDummyRenderable, (asName, mpGraphics));
+		cDummyRenderable *pDummy = hplNew( cDummyRenderable, (asName));
 		mlstDummyRenderables.push_back(pDummy);
 		pDummy->SetStatic(abStatic);
 
@@ -1513,10 +1509,6 @@ namespace hpl {
 
 	void cWorld::RemoveRenderableFromContainer(iRenderable *apObject)
 	{
-		cHybridRenderer* pHybridRenderer = static_cast<cHybridRenderer*>(mpGraphics->GetRenderer(eRenderer_Main));
-		cRenderList2* pRenderList = pHybridRenderer->GetRenderList();
-		pRenderList->ForgetObject(apObject);
-
 		if(apObject->IsStatic())	mpRenderableContainer[eWorldContainerType_Static]->Remove(apObject);
 		else						mpRenderableContainer[eWorldContainerType_Dynamic]->Remove(apObject);
 	}

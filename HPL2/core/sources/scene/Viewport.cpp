@@ -19,17 +19,21 @@
 
 #include "scene/Viewport.h"
 
+#include "graphics/PostEffectComposite.h"
+#include "graphics/PostEffectHelpers.h"
 #include "graphics/RIBootstrap.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
 #include "graphics/Renderer.h"
 
+#include "system/Hasher.h"
 #include "system/LowLevelSystem.h"
 
 #if (DEVICE_IMPL_VULKAN)
 #include <vk_mem_alloc.h>
 #endif
 
+#include "scene/Camera.h"
 #include "scene/Scene.h"
 #include "scene/World.h"
 
@@ -336,6 +340,256 @@ void ReleaseViewportAttachmentTexture(std::vector<struct RIFree> &freelist,
 		mPogoBuffer.attachmentIndex = 0;
 		mlPogoWidth = 0;
 		mlPogoHeight = 0;
+	}
+
+	//-----------------------------------------------------------------------
+
+	//////////////////////////////////////////////////////////////////////////
+	// EVALUATE (world draw -> feed -> post -> delivery)
+	//////////////////////////////////////////////////////////////////////////
+
+	//-----------------------------------------------------------------------
+
+	namespace {
+
+	// Single-subresource color barrier with the texture and transition filled
+	// in — the feed/delivery path always touches exactly mip 0 / layer 0.
+	RITextureBarrier_s ColorBarrier(RITexture_s *apTexture,
+									enum RIResourceState_e aBefore, uint32_t aBeforeStages,
+									enum RIResourceState_e aAfter, uint32_t aAfterStages)
+	{
+		RITextureBarrier_s barrier = {};
+		barrier.texture = apTexture;
+		barrier.before = aBefore;
+		barrier.beforeStages = aBeforeStages;
+		barrier.after = aAfter;
+		barrier.afterStages = aAfterStages;
+		barrier.mipCount = 1;
+		barrier.layerCount = 1;
+		return barrier;
+	}
+
+	// Fullscreen draw of the pogo READ half into a color-attachable view —
+	// the single delivery primitive (TargetView panes and the swapchain tail
+	// only differ in view/extent/format/pipeline-cache salt). The caller owns
+	// the view's layout (must be COLOR_ATTACHMENT_OPTIMAL around the draw).
+	void DrawPogoToTarget(RI_PogoBuffer *apPogo, VkImageView aView,
+						  uint32_t alWidth, uint32_t alHeight, VkFormat aFormat,
+						  uint32_t alHashSalt, const char *asLabel)
+	{
+		VkRenderingAttachmentInfo colorAttach = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+		colorAttach.imageView   = aView;
+		colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+		colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+		colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+		VkRenderingInfo renderInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+		renderInfo.renderArea = { { 0, 0 }, { alWidth, alHeight } };
+		renderInfo.layerCount = 1;
+		renderInfo.colorAttachmentCount = 1;
+		renderInfo.pColorAttachments    = &colorAttach;
+
+		vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
+
+		VkViewport vp = { 0.0f, 0.0f, (float)alWidth, (float)alHeight, 0.0f, 1.0f };
+		vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
+		VkRect2D scr = { { 0, 0 }, { alWidth, alHeight } };
+		vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &scr);
+
+		PostEffectPipelineState blitState{};
+		InitPostEffectPipelineState(blitState, aFormat, false);
+		// Key on the salt AND the attachment format — bindPipeline's cache only
+		// hashes kHash (the createInfo is consumed on first creation), so two
+		// targets sharing a salt but differing in format must not collide.
+		const hash_t kHash =
+			hash_u32(hash_u32(HASH_INITIAL_VALUE, alHashSalt), (uint32_t)aFormat);
+		RI.postEffectBlit.bindPipeline(&RI.device, &RI.primary.cmds[0], kHash,
+		                               asLabel, &blitState.createInfo);
+
+		RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+		    eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
+		    eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
+		RIProgram::DescriptorBinding bindings[2] = {};
+		bindings[0].descriptor = *samplerDesc;
+		bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
+		bindings[1].descriptor = *RI_PogoBufferShaderResource(apPogo);
+		bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
+		RI.postEffectBlit.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, bindings, 2);
+
+		vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3, 1, 0, 0);
+		vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+	}
+
+	} // namespace
+
+	//-----------------------------------------------------------------------
+
+	bool cViewport::Evaluate(RIBootstrap::FrameContext *cntx, float afFrameTime, tFlag alFlags)
+	{
+		// Once per frame: the renderers' initial UNDEFINED backbuffer barriers
+		// have an empty before-scope, so a second draw of the same per-
+		// swapchain-image backbuffer would race this evaluation's feed blit.
+		if(mlLastEvaluatedFrame == RI.frameIndex)
+		{
+			assert(false && "cViewport::Evaluate called twice in one frame");
+			return false;
+		}
+		mlLastEvaluatedFrame = RI.frameIndex;
+
+		cFrustum* pFrustum = mpCamera ? mpCamera->GetFrustum() : NULL;
+
+		const bool worldRendered =
+				(alFlags & tSceneRenderFlag_World) &&
+				mpRenderer && mpWorld && pFrustum;
+
+		if(alFlags & tSceneRenderFlag_World)
+		{
+			m_onPreWorldDraw.Signal();
+			if (worldRendered) {
+				mpRenderer->Draw(
+						cntx,
+						this,
+						afFrameTime,
+						pFrustum,
+						mpWorld,
+						GetRenderSettings(),
+						false);
+			}
+		}
+
+		// FEED + POST: once the world draw fully evaluated the viewport,
+		// blit the backend's BackBuffer window (the crop is baked in —
+		// the hybrid backend overdraws by its guard band) into the
+		// viewport pogo READ half, prep the ATTACH half, and run the
+		// post-effect chain on the pogo (each effect samples the read
+		// half, renders the attach half, and toggles). Delivery happens
+		// after, per the viewport's Target.
+		BackBuffer backBuffer = GetBackBuffer();
+		RI_PogoBuffer *pPogo = nullptr;
+		if(worldRendered && backBuffer.renderTarget.vk.image != VK_NULL_HANDLE)
+		{
+			const cVector2l vTargetSize = GetTargetSize();
+			pPogo = PreparePogoBuffer(cntx);
+
+			const uint32_t readIdx = (pPogo->attachmentIndex + 1u) % 2u;
+			VkImage srcImage = backBuffer.renderTarget.vk.image;
+			VkImage dstImage = pPogo->textures[readIdx].vk.image;
+
+			// Pre-blit: BackBuffer (left SHADER_READ by the renderer) ->
+			// TRANSFER_SRC, pogo read half -> TRANSFER_DST (UNDEFINED
+			// discard — fully overwritten, the fragment-stage hint orders
+			// the overwrite after the prior frame's reads), pogo attach
+			// half UNDEFINED -> COLOR so the post chain (which renders
+			// into the attach half with no barrier of its own) finds it
+			// ready.
+			const RITextureBarrier_s pre[3] = {
+				ColorBarrier(&backBuffer.renderTarget,
+							 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT,
+							 RI_RESOURCE_STATE_COPY_SRC, RI_STAGE_BLIT),
+				ColorBarrier(&pPogo->textures[readIdx],
+							 RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_FRAGMENT,
+							 RI_RESOURCE_STATE_COPY_DST, RI_STAGE_BLIT),
+				RI_PogoAttachmentBarrier(
+							 &pPogo->textures[pPogo->attachmentIndex], /*initial=*/true),
+			};
+			RI.primary.cmds[0].textureBarriers<3>(3, pre);
+
+			VkImageBlit region = {};
+			region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+			region.srcOffsets[0]  = { (int32_t)backBuffer.x, (int32_t)backBuffer.y, 0 };
+			region.srcOffsets[1]  = { (int32_t)(backBuffer.x + backBuffer.width),
+			                          (int32_t)(backBuffer.y + backBuffer.height), 1 };
+			region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+			region.dstOffsets[0]  = { 0, 0, 0 };
+			region.dstOffsets[1]  = { (int32_t)backBuffer.width, (int32_t)backBuffer.height, 1 };
+			vkCmdBlitImage(RI.primary.cmds[0].vk.cmd, srcImage,
+			               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
+			               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region,
+			               VK_FILTER_NEAREST);
+
+			// Post-blit: BackBuffer back to SHADER_READ (the layout the
+			// backend re-acquires it from next frame), pogo read half ->
+			// SHADER_READ for the post chain / delivery.
+			const RITextureBarrier_s post[2] = {
+				ColorBarrier(&backBuffer.renderTarget,
+							 RI_RESOURCE_STATE_COPY_SRC, RI_STAGE_BLIT,
+							 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT),
+				ColorBarrier(&pPogo->textures[readIdx],
+							 RI_RESOURCE_STATE_COPY_DST, RI_STAGE_BLIT,
+							 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT),
+			};
+			RI.primary.cmds[0].textureBarriers<2>(2, post);
+
+			cPostEffectComposite *pComposite = GetPostEffectComposite();
+			if(pComposite && (alFlags & tSceneRenderFlag_PostEffects) &&
+			   pComposite->HasActiveEffects())
+			{
+				pComposite->Render(afFrameTime, &RI.primary.cmds[0], pPogo,
+				                   (uint32_t)vTargetSize.x, (uint32_t)vTargetSize.y,
+				                   RI.frameIndex);
+			}
+
+			// The pogo read half holds the final (post-processed) image.
+			m_onPostWorldDraw.Signal();
+		}
+
+		// Delivery — symmetric branch on the viewport's own Target
+		// variant. TargetView (standalone, e.g. editor panes / headless
+		// thumbnails): a fullscreen draw of the pogo read half into the
+		// caller-provided view when one was set (contract: color-attachable,
+		// matching the TargetView's `format`; fully rewritten every frame and
+		// left SHADER_READ_ONLY for the consumer — the editor's pane Image
+		// samples it). No swapchain composite or GUI for these.
+		if(const auto *pView = std::get_if<TargetView>(&mTarget))
+		{
+			if(pView->view.vk.image != VK_NULL_HANDLE &&
+			   worldRendered && pPogo != nullptr)
+			{
+				// Caller texture: discard previous contents (fully
+				// rewritten; also covers its first use) -> COLOR for the
+				// delivery draw, then -> SHADER_READ for the consumer.
+				RITexture_s *pViewTexture = const_cast<RITexture_s *>(&pView->texture);
+				RI.primary.cmds[0].textureBarrier(ColorBarrier(pViewTexture,
+								 RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_FRAGMENT,
+								 RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE));
+
+				DrawPogoToTarget(pPogo, pView->view.vk.image, pView->width, pView->height,
+								 pView->format, 2u, "PostEffect.targetViewBlit");
+
+				RI.primary.cmds[0].textureBarrier(ColorBarrier(pViewTexture,
+								 RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
+								 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT));
+
+				// The target is in a known layout (SHADER_READ_ONLY) —
+				// handlers may record against it (e.g. a readback copy; the
+				// thumbnail builder transitions to COPY_SRC and back).
+				m_onPostDelivery.Signal();
+			}
+		}
+		// TargetSwapchain: composite to the swapchain — tail draw of the
+		// (post-processed) pogo read half BEFORE the GUI overlays (the GUI
+		// block runs in cScene::Render, which owns the gui sets).
+		else if(std::holds_alternative<TargetSwapchain>(mTarget))
+		{
+			if(worldRendered && pPogo != nullptr)
+			{
+				// Swapchain images are raw VkImage handles — bridge through
+				// a stack RITexture_s for the barrier.
+				RITexture_s swapchainTexture = {};
+				swapchainTexture.vk.image = RI.swapchain.vk.images[RI.swapchainIndex];
+				RI.primary.cmds[0].textureBarrier(ColorBarrier(&swapchainTexture,
+								 RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_NONE,
+								 RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE));
+
+				DrawPogoToTarget(pPogo, RI.swapchainView[RI.swapchainIndex].vk.image,
+								 RI.swapchain.width, RI.swapchain.height,
+								 RIFormatToVK((RI_Format_e)RI.swapchain.format), 1u,
+								 "PostEffect.tailBlit");
+
+				m_onPostDelivery.Signal();
+			}
+		}
+
+		return worldRendered;
 	}
 
 
