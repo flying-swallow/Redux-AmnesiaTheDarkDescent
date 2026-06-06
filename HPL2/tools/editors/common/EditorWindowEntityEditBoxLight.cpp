@@ -38,6 +38,8 @@ cEditorWindowEntityEditBoxLight::cEditorWindowEntityEditBoxLight(cEditorEditMode
 	mpLight = apLight;
 
 	mpInpRadius = NULL;
+	mpInpCullingRadius = NULL;
+	mpInpSourceRadius = NULL;
 	mpGroupShadows = NULL;
 
 	// Box Light specific
@@ -148,7 +150,24 @@ void cEditorWindowEntityEditBoxLight::AddPropertyRadius(cWidgetTab* apParentTab)
 {
 	mpGroupRadius = mpSet->CreateWidgetDummy(0,apParentTab);
 
-	mpInpRadius = CreateInputNumber(cVector3f(0,0,0.1f), _W("Radius"), "", mpGroupRadius, 50, 0.5f);
+	mpInpRadius = CreateInputNumber(cVector3f(0,0,0.1f), _W("Intensity"), "", mpGroupRadius, 50, 0.5f);
+}
+
+//------------------------------------------------------------
+
+void cEditorWindowEntityEditBoxLight::AddPropertyCullingRadius(cWidgetTab* apParentTab)
+{
+	mpGroupCullingRadius = mpSet->CreateWidgetDummy(0, apParentTab);
+
+	mpInpCullingRadius = CreateInputNumber(cVector3f(0, 0, 0.1f), _W("Culling Radius"), "", mpGroupCullingRadius, 50, 0.5f);
+}
+//------------------------------------------------------------
+
+void cEditorWindowEntityEditBoxLight::AddPropertySourceRadius(cWidgetTab* apParentTab)
+{
+	mpGroupSourceRadius = mpSet->CreateWidgetDummy(0, apParentTab);
+
+	mpInpSourceRadius = CreateInputNumber(cVector3f(0, 0, 0.1f), _W("Source Radius"), "", mpGroupSourceRadius, 50, 0.5f);
 }
 
 //------------------------------------------------------------
@@ -287,8 +306,20 @@ void cEditorWindowEntityEditBoxLight::AddPropertySetPoint(cWidgetTab* apParentTa
 	mpInpRotation->SetPosition(vPos);
 	vPos.y += mpInpRotation->GetSize().y+10;
 
+	AddPropertyCastShadows(apParentTab);
+	mpGroupShadows->SetPosition(vPos);
+	vPos.y += mpGroupShadows->GetSize().y + 5;
+
 	AddPropertyRadius(apParentTab);
 	mpGroupRadius->SetPosition(vPos);
+	vPos.y += mpInpRadius->GetSize().y + 10;
+
+	AddPropertyCullingRadius(apParentTab);
+	mpGroupCullingRadius->SetPosition(vPos);
+	vPos.y += mpInpCullingRadius->GetSize().y + 10;
+
+	AddPropertySourceRadius(apParentTab);
+	mpGroupSourceRadius->SetPosition(vPos);
 }
 
 //------------------------------------------------------------
@@ -413,6 +444,8 @@ void cEditorWindowEntityEditBoxLight::OnUpdate(float afTimeStep)
 	mpInpFlickerFadeOffMaxLength->SetValue(mpLight->GetFlickerOffFadeMaxLength(), false);
 
 	if(mpInpRadius) mpInpRadius->SetValue(mpLight->GetRadius(), false);
+	if(mpInpCullingRadius) mpInpCullingRadius->SetValue(mpLight->GetCullingRadius(), false);
+	if(mpInpSourceRadius) mpInpSourceRadius->SetValue(mpLight->GetSourceRadius(), false);
 
 	if(mpComboBoxBlendFunc) mpComboBoxBlendFunc->SetSelectedItem( ((cEntityWrapperLightBox*)mpLight)->GetBlendFunc(),false,false );
 
@@ -545,6 +578,20 @@ bool cEditorWindowEntityEditBoxLight::WindowSpecificInputCallback(iEditorInput* 
 	else if(apInput==mpInpRadius)
 	{
 		pAction = mpEntity->CreateSetPropertyActionFloat(eLightFloat_Radius, mpInpRadius->GetValue());
+	}
+
+	/////////////////////////////////
+	// Culling Radius
+	else if (apInput == mpInpCullingRadius)
+	{
+		pAction = mpEntity->CreateSetPropertyActionFloat(eLightFloat_CullingRadius, mpInpCullingRadius->GetValue());
+	}
+
+	/////////////////////////////////
+	// Source Radius
+	else if (apInput == mpInpSourceRadius)
+	{
+		pAction = mpEntity->CreateSetPropertyActionFloat(eLightFloat_SourceRadius, mpInpSourceRadius->GetValue());
 	}
 
 	/////////////////////////////////

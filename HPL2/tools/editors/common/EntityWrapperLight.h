@@ -73,7 +73,9 @@ enum eLightCol
 
 enum eLightFloat
 {
-	eLightFloat_Radius = LightPropIdStart,
+	eLightFloat_Radius = LightPropIdStart, //Maps to Intensity
+	eLightFloat_CullingRadius, //Maps to Radius
+	eLightFloat_SourceRadius,
 
 	eLightFloat_GoboAnimFrameTime, 
 	eLightFloat_FlickerOnMinLength,
@@ -132,6 +134,8 @@ public:
 		AddBool(eLightBool_ShadowsAffectDynamic, "ShadowsAffectDynamic");
 
 		AddFloat(eLightFloat_Radius, "Radius", 1.0f);
+		AddFloat(eLightFloat_CullingRadius, "CullingRadius", 1.0f);
+		AddFloat(eLightFloat_SourceRadius, "SourceRadius", 1.0f);
 		AddString(eLightStr_FalloffMap, "FalloffMap");
 		AddString(eLightStr_Gobo, "Gobo");
 		AddString(eLightStr_GoboAnimMode, "GoboAnimMode", "None");
@@ -223,6 +227,12 @@ public:
 	virtual void SetRadius(float afRadius);
 	float GetRadius() { return mfRadius; }
 
+	virtual void SetCullingRadius(float afCullingRadius);
+	float GetCullingRadius() { return mfCullingRadius; }
+
+	virtual void SetSourceRadius(float afSourceRadius);
+	float GetSourceRadius() { return mfSourceRadius; }
+
 	void SetFalloffMap(const tString& asFalloffMap);
 	const tString& GetFalloffMap() { return msFalloffMap; }
 	
@@ -313,6 +323,8 @@ protected:
 	float mfGoboAnimFrameTime;
 
 	float mfRadius;
+	float mfCullingRadius;
+	float mfSourceRadius;
 
 	cColor mcolDiffuseColor;
 

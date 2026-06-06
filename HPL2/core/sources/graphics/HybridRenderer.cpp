@@ -872,7 +872,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // already carries brightness — and the grid binning derives the bin reach from
     // the radiance floor (maxChannel(color)·intensity / kLightRadianceFloor).
     const float authored = pLight->GetRadius();
-    pl.intensity = authored  * kPointLightIntensityScale;
+    pl.intensity = authored;
     // Precompute the light-grid bin reach here so LightGridBuildPass (one thread
     // per cell, looping all lights) doesn't recompute it per (cell,light). reach²
     // = maxChannel(color)·intensity / floor − sourceRadius²; ≤0 ⇒ too dim to bin.
@@ -881,20 +881,22 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // — folding it into the reach made dimming shrink the bin range and pop lights
     // out. Binning stays tied to the artist's authored radius; brightness only
     // scales the shader radiance above.
+    const float authoredCullingRadius = pLight->GetCullingRadius();
+    pl.radius = authoredCullingRadius;
+    /*
     {
       const float maxC = std::max(pl.color[0], std::max(pl.color[1], pl.color[2]));
       const float reachSq = ((maxC * authored) / kLightRadianceFloor) - kPointLightSourceRadiusSq;
       const float calculatedReach = reachSq > 0.f ? std::sqrt(reachSq) : 0.f;
       pl.radius = calculatedReach;
     }
+    */
     // Physical source radius drives the soft-shadow penumbra in the direct pass.
     // Authored per-light via cLight::SetSourceRadius; when a light authors none
     // (0), fall back to a fraction of its authored reach radius so it's softly
     // shadowed by default instead of hard. An explicit author value always wins.
     const float authoredSourceRadius = pLight->GetSourceRadius();
-    pl.sourceRadius = authoredSourceRadius > 0.f
-                          ? authoredSourceRadius
-                          : authored * kPointLightDefaultSourceRadiusFrac;
+    pl.sourceRadius = authoredSourceRadius;
     pl.goboTextureIndex = m_global.resolveCubeTextureSlot(
         cntx, pLight->GetGoboImage(), (uint32_t)RI.frameIndex);
     const cMatrixf &world = pLight->GetWorldMatrix();

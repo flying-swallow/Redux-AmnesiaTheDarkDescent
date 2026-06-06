@@ -223,9 +223,11 @@ namespace hpl {
 		virtual void SetRadius(float afX);
 		float GetRadius(){return mfRadius;}
 
+		virtual void SetCullingRadius(float afX);
+		float GetCullingRadius() { return mfCullingRadius; }
 
-		float GetSourceRadius(){ return mfSourceRadius;}
-		void SetSourceRadius(float afX){ mfSourceRadius = afX;}
+		void SetSourceRadius(float afX);
+		float GetSourceRadius(){ return mfSourceRadius; }
 
 		void UpdateLight(float afTimeStep);
 
@@ -266,8 +268,9 @@ namespace hpl {
 		cColor mDefaultDiffuseColor;
 
 		cColor mSpecularColor;
-		float mfSourceRadius;
 		float mfRadius;
+		float mfCullingRadius;
+		float mfSourceRadius;
 
 		bool mbCastShadows;
 		tObjectVariabilityFlag mlShadowCastersAffected;

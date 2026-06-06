@@ -203,6 +203,12 @@ bool iEntityWrapperLight::GetProperty(int alPropID, float& afX)
 	case eLightFloat_Radius:
 		afX = GetRadius();
 		break;
+	case eLightFloat_CullingRadius:
+		afX = GetCullingRadius();
+		break;
+	case eLightFloat_SourceRadius:
+		afX = GetSourceRadius();
+		break;
 	case eLightFloat_GoboAnimFrameTime:
 		afX = GetGoboAnimFrameTime();
 		break;
@@ -332,6 +338,12 @@ bool iEntityWrapperLight::SetProperty(int alPropID, const float& afX)
 	{
 	case eLightFloat_Radius:
 		SetRadius(afX);
+		break;
+	case eLightFloat_CullingRadius:
+		SetCullingRadius(afX);
+		break;
+	case eLightFloat_SourceRadius:
+		SetSourceRadius(afX);
 		break;
 	case eLightFloat_GoboAnimFrameTime:
 		SetGoboAnimFrameTime(afX);
@@ -472,6 +484,23 @@ void iEntityWrapperLight::SetRadius(float afRadius)
 	((iLight*)mpEngineEntity->GetEntity())->SetRadius(mfRadius);
 }
 
+//------------------------------------------------------------------------------
+
+void iEntityWrapperLight::SetCullingRadius(float afCullingRadius)
+{
+	mfCullingRadius = afCullingRadius;
+
+	((iLight*)mpEngineEntity->GetEntity())->SetCullingRadius(mfCullingRadius);
+}
+
+//------------------------------------------------------------------------------
+
+void iEntityWrapperLight::SetSourceRadius(float afSourceRadius)
+{
+	mfSourceRadius = afSourceRadius;
+
+	((iLight*)mpEngineEntity->GetEntity())->SetSourceRadius(mfSourceRadius);
+}
 
 //------------------------------------------------------------------------------
 

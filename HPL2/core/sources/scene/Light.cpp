@@ -377,6 +377,30 @@ namespace hpl {
 		//This is so that the render container is updated.
 		SetTransformUpdated();
 	}
+
+	//-----------------------------------------------------------------------
+
+	void iLight::SetCullingRadius(float afX)
+	{
+		if (mfCullingRadius == afX) return;
+
+		mfCullingRadius = afX;
+
+		mbUpdateBoundingVolume = true;
+
+		//This is so that the render container is updated.
+		SetTransformUpdated();
+	}
+
+	//-----------------------------------------------------------------------
+
+	void iLight::SetSourceRadius(float afX)
+	{
+		if (mfSourceRadius == afX) return;
+
+		mfSourceRadius = afX;
+	}
+
 	//-----------------------------------------------------------------------
 
 	void iLight::UpdateLogic(float afTimeStep)
