@@ -162,6 +162,7 @@
     <ClInclude Include="..\..\extern\volk\volk.h" />
     <ClInclude Include="include\graphics\AnimatedImage.h" />
     <ClInclude Include="include\graphics\BindlessPool.h" />
+    <ClInclude Include="include\graphics\DebugDraw.h" />
     <ClInclude Include="include\graphics\DecalPipelineDesc.h" />
     <ClInclude Include="include\graphics\DrawPacket.h" />
     <ClInclude Include="include\graphics\GBufferMRTPipelineDesc.h" />
@@ -193,6 +194,7 @@
     <ClInclude Include="include\graphics\RISegmentAlloc.h" />
     <ClInclude Include="include\graphics\RISwapchain.h" />
     <ClInclude Include="include\graphics\RITypes.h" />
+    <ClInclude Include="include\graphics\RIViewportTarget.h" />
     <ClInclude Include="include\graphics\RIVK.h" />
     <ClInclude Include="include\graphics\spirv.h" />
     <ClInclude Include="include\graphics\spirv_reflect.h" />
@@ -538,6 +540,7 @@
   <ItemGroup>
     <ClCompile Include="..\..\extern\volk\volk.c" />
     <ClCompile Include="sources\graphics\BindlessPool.cpp" />
+    <ClCompile Include="sources\graphics\DebugDraw.cpp" />
     <ClCompile Include="sources\graphics\DecalPipelineDesc.cpp" />
     <ClCompile Include="sources\graphics\GBufferMRTPipelineDesc.cpp" />
     <ClCompile Include="sources\graphics\GraphicUtils.cpp" />
@@ -564,6 +567,7 @@
     <ClCompile Include="sources\graphics\RIResourceUploader.cpp" />
     <ClCompile Include="sources\graphics\RIScratchAlloc.cpp" />
     <ClCompile Include="sources\graphics\RISwapchain.cpp" />
+    <ClCompile Include="sources\graphics\RIViewportTarget.cpp" />
     <ClCompile Include="sources\graphics\RIVK.cpp" />
     <ClCompile Include="sources\graphics\spirv_reflect.c" />
     <ClCompile Include="sources\graphics\TranslucentMeshPipelineDesc.cpp" />

@@ -31,6 +31,8 @@
 
 cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 {
+	return;
+
 	mpEditor = apEditor;
 
 	cEngine* pEngine = mpEditor->GetEngine();
