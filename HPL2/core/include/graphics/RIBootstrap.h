@@ -22,7 +22,8 @@ struct HPLTexture;
 struct RIBootstrap {
 public:
   // Raster G-buffer output — packed TriangleHit (uint4), same layout the RT
-  // V-buffer writes into m_packedHitInfoTexture. Decoded with unpackHit() in
+  // V-buffer writes into the viewport state's packedHitInfoTexture. Decoded
+  // with unpackHit() in
   // visibility_shade.frag and the surfel passes (see surfel_vbuffer.rgen for
   // the canonical pack convention).
   static constexpr RI_Format_e VisibilityFormat = RI_FORMAT_RGBA32_UINT;

@@ -135,6 +135,45 @@ public:
 
     struct RITexture_s visibilityTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
     struct RITextureView_s visibilityView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+
+    // Surfel-generation output — full-res HDR storage image written by
+    // surfel_generation_pass (set=3, binding=1). One per swapchain image.
+    struct RITexture_s surfelResultTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITextureView_s surfelResultView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+
+    // Stage B packed visibility — RGBA32UI storage image written by the
+    // surfel_vbuffer RT pipeline, sampled by the Stage D / F surfel update
+    // and generation passes. Per-frame layout is UNDEFINED → GENERAL →
+    // SHADER_READ_ONLY, like the gbuffer outputs.
+    struct RITexture_s packedHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITextureView_s packedHitInfoView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+
+    // Screen-space velocity (motion vectors), RG16F — the gbuffer's 2nd
+    // color target; sampled by temporal passes.
+    struct RITexture_s velocityTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITextureView_s velocityView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+
+    // Direct-lighting accumulation history (RGBA16F ping-pong, kept in
+    // GENERAL). [directLightingIndex] is this frame's write target; [^1] is
+    // the history the direct pass reprojects. NOT swapchain-indexed (history
+    // spans frames). directLightingInit triggers the one-time
+    // UNDEFINED→GENERAL + clear — re-armed by Update on resize, since
+    // recreation invalidates the history.
+    struct RITexture_s directLightingTexture[2] = {};
+    struct RITextureView_s directLightingView[2] = {};
+    // Parallel surface-key ping-pong (viewZ, normal.xyz) for disocclusion
+    // rejection; shares directLightingIndex with the colour history above.
+    struct RITexture_s directKeyTexture[2] = {};
+    struct RITextureView_s directKeyView[2] = {};
+    uint32_t directLightingIndex = 0;
+    bool directLightingInit = false;
+
+    // Previous-frame camera for velocity / history reprojection —
+    // per-viewport camera state. hasPrevCamera seeds prev = current on the
+    // first frame (and after resize, when the histories were invalidated).
+    float prevViewMat[16] = {};
+    float prevProjMat[16] = {};
+    bool hasPrevCamera = false;
   };
 
   // cRendererWireFrame + cRendererSimple (identical needs): they draw 1:1
