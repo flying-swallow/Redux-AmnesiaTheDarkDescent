@@ -23,8 +23,6 @@
 #include "graphics/GraphicsTypes.h"
 #include "graphics/Renderable.h"
 
-#include "graphics/Graphics.h"
-
 namespace hpl {
 	
 	//------------------------------------------
@@ -39,7 +37,7 @@ namespace hpl {
 	class cFogArea : public iRenderable
 	{
 	public:
-		cFogArea(tString asName, cResources *apResources, cGraphics* apGraphics);
+		cFogArea(tString asName, cResources *apResources);
 		virtual ~cFogArea();
 
 		//////////////////////////////
@@ -79,8 +77,6 @@ namespace hpl {
 		cMatrixf* GetModelMatrix(cFrustum* apFrustum);
 		
 	private:
-		cGraphics* mpGraphics;
-
 		cColor mColor;
 		cVector3f mvSize;
 		float mfStart;

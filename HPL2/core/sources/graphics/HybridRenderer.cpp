@@ -553,12 +553,19 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       }
       m_rendererList.AddObject(pObject);
     };
+    // No frustum culling: the render list rebuilds fresh every frame and the
+    // TLAS instances are gathered from it — RT shadows/GI need whole-map
+    // geometry, including everything behind the camera. (Replaces the [TEMP]
+    // persistent-render-list mechanism, which accumulated dangling pointers
+    // to destroyed renderables and missed never-yet-seen geometry.)
     rendering::WalkAndPrepareRenderList(dynamicContainer, apFrustum,
                                         prepareObjectHandler,
-                                        eRenderableFlag_VisibleInNonReflection);
+                                        eRenderableFlag_VisibleInNonReflection,
+                                        /*abIgnoreFrustumCull=*/true);
     rendering::WalkAndPrepareRenderList(staticContainer, apFrustum,
                                         prepareObjectHandler,
-                                        eRenderableFlag_VisibleInNonReflection);
+                                        eRenderableFlag_VisibleInNonReflection,
+                                        /*abIgnoreFrustumCull=*/true);
     m_rendererList.End(
         eRenderListCompileFlag_Diffuse | eRenderListCompileFlag_Translucent |
         eRenderListCompileFlag_Decal | eRenderListCompileFlag_Illumination |

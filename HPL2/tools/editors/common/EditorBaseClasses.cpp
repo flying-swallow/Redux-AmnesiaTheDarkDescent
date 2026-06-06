@@ -1320,6 +1320,17 @@ void iEditorBase::Update(float afTimeStep)
 
 //----------------------------------------------------------------------------
 
+void iEditorBase::OnDraw(float afFrameTime)
+{
+	// Pump the async thumbnail job queue: OnDraw runs inside the frame's
+	// command-recording window, so the builder can Evaluate its headless
+	// viewport here (see EditorThumbnailBuilder.h).
+	if(mpThumbnailBuilder)
+		mpThumbnailBuilder->Pump(afFrameTime);
+}
+
+//----------------------------------------------------------------------------
+
 void iEditorBase::ShowLoadingWindow(const tWString& asCaption, const tWString& asStatus)
 {
 	if(mpLoaderStatusWindow)

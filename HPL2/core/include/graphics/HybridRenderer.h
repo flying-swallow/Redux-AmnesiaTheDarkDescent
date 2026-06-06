@@ -57,8 +57,6 @@ public:
   virtual void SetupRenderList() override {};
   virtual void RenderObjects() override {};
 
-  cRenderList2* GetRenderList() { return &m_rendererList; };
-
 private:
   // Owns set 0 — the global bindless descriptor set and every buffer bound to
   // it. The resolve* / flushMirrors operations and all set-0 buffers live here;

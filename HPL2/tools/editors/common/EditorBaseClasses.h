@@ -392,7 +392,10 @@ public:
 	// iUpdateable implementation
 	void Update(float afTimeStep);
 
-	void OnDraw(float afFrameTime){}
+	// Pumps the async thumbnail job queue — OnDraw runs inside the frame's
+	// command-recording window, where the builder's headless viewport can be
+	// Evaluated (see EditorThumbnailBuilder.h).
+	void OnDraw(float afFrameTime);
 	void OnStart(){}
 	void OnExit(){}
 

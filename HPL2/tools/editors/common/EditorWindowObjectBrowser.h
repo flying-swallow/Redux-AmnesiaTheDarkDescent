@@ -23,6 +23,12 @@
 #include "EditorWindow.h"
 #include "EditorIndex.h"
 
+#include <memory>
+
+namespace hpl {
+	class Image;
+}
+
 //----------------------------------------------------------
 
 class iEditorBase;
@@ -57,6 +63,10 @@ public:
 	void Save(cXmlElement* apElement);
 
 	virtual cMeshEntity* CreateTempEntity(cWorld* apWorld);
+
+	// The entry OWNS its GPU-resident thumbnail — delivered by the builder's
+	// callback, released when the entry dies (GPU frees are deferred).
+	Image* GetThumbnailImage() { return mpThumbnailImage.get(); }
 protected:
 	void BuildThumbnail();
 
@@ -67,6 +77,8 @@ protected:
 	tString msTempFileName;
 
 	tWString msMeshFileName;
+
+	std::shared_ptr<Image> mpThumbnailImage;
 };
 
 
@@ -104,6 +116,9 @@ protected:
 
 	bool Refresh_OnPressed(iWidget* apWidget, const cGuiMessageData& aData);
 	kGuiCallbackDeclarationEnd(Refresh_OnPressed);
+
+	bool Thumbnail_OnUpdate(iWidget* apWidget, const cGuiMessageData& aData);
+	kGuiCallbackDeclarationEnd(Thumbnail_OnUpdate);
 
 	void BuildObjectSetList();
 	void BuildObjectSetListHelper(const tWString& asFolder, int alLevel);

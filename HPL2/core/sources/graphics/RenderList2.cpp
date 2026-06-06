@@ -42,25 +42,6 @@
 
 namespace hpl {
 
-    template<class T>
-    static void PushUnique(std::vector<T*>& vec, std::unordered_set<T*>& set, T* ptr)
-    {
-        if (set.insert(ptr).second) {
-            vec.push_back(ptr);
-        }
-    }
-
-    template<class T>
-    static void RemovePtr(std::vector<T*>& vec, std::unordered_set<T*>& set, T* ptr)
-    {
-        set.erase(ptr);
-
-        vec.erase(
-            std::remove(vec.begin(), vec.end(), ptr),
-            vec.end()
-        );
-    }
-
     // Pack (anisotropy, wrap, filter) into a single uint32_t so sorting groups
      // solids by the sampler state the bindless renderer would otherwise have to
      // re-bind for every batch.
@@ -173,9 +154,15 @@ namespace hpl {
         m_frameTime = frameTime;
         m_frustum = frustum;
 
-        // TEMP NO-CULL HACK:
-        // Do not clear source object vectors here.
-        // They are now persistent-per-map and duplicate-guarded by unordered_set.
+        // Use resize instead of clear, because that way capacity is preserved and allocation is never
+        // needed unless there is a need to increase the vector size.
+        m_occlusionQueryObjects.resize(0);
+        m_transObjects.resize(0);
+        m_decalObjects.resize(0);
+        m_solidObjects.resize(0);
+        m_illumObjects.resize(0);
+        m_lights.resize(0);
+        m_fogAreas.resize(0);
 
         for (int i = 0; i < eRenderListType_LastEnum; ++i) {
             m_sortedArrays[i].resize(0);
@@ -318,32 +305,6 @@ namespace hpl {
         }
     }
 
-    void cRenderList2::ForgetObject(iRenderable* obj)
-    {
-        if (!obj) return;
-
-        RemovePtr(m_occlusionQueryObjects, m_occlusionQueryObjectsSet, obj);
-        RemovePtr(m_transObjects, m_transObjectsSet, obj);
-        RemovePtr(m_decalObjects, m_decalObjectsSet, obj);
-        RemovePtr(m_solidObjects, m_solidObjectsSet, obj);
-        RemovePtr(m_illumObjects, m_illumObjectsSet, obj);
-
-        for (int i = 0; i < eRenderListType_LastEnum; ++i) {
-            auto& arr = m_sortedArrays[i];
-            arr.erase(std::remove(arr.begin(), arr.end(), obj), arr.end());
-        }
-    }
-
-    void cRenderList2::ForgetLight(iLight* light)
-    {
-        RemovePtr(m_lights, m_lightsSet, light);
-    }
-
-    void cRenderList2::ForgetFogArea(cFogArea* fog)
-    {
-        RemovePtr(m_fogAreas, m_fogAreasSet, fog);
-    }
-
     void cRenderList2::Setup(float afFrameTime, cFrustum* apFrustum) {
         m_frameTime = afFrameTime;
         m_frustum = apFrustum;
@@ -409,18 +370,18 @@ namespace hpl {
         //////////////////////////////
         // If objects uses occlusion queries, add it as such
         if (apObject->UsesOcclusionQuery()) {
-            PushUnique(m_occlusionQueryObjects, m_occlusionQueryObjectsSet, apObject);
+            m_occlusionQueryObjects.push_back(apObject);
         }
 
         //////////////////////////////
         // Light, add to special list
         if (renderType == eRenderableType_Light) {
-            PushUnique(m_lights, m_lightsSet, static_cast<iLight*>(apObject));
+            m_lights.push_back(static_cast<iLight*>(apObject));
         }
         //////////////////////////////
         // Fog area, add to special list
         if (renderType == eRenderableType_FogArea) {
-            PushUnique(m_fogAreas, m_fogAreasSet, static_cast<cFogArea*>(apObject));
+            m_fogAreas.push_back(static_cast<cFogArea*>(apObject));
         }
         //////////////////////////////
         // GuiSet, add to special list
@@ -437,51 +398,36 @@ namespace hpl {
             // Transparent
             if (cMaterial::IsTranslucent(pMaterial->Descriptor().m_id)) {
                 if (pMaterial->Descriptor().m_id == MaterialID::Decal) {
-                    PushUnique(m_decalObjects, m_decalObjectsSet, apObject);
+                    m_decalObjects.push_back(apObject);
                 } else {
-                    PushUnique(m_transObjects, m_transObjectsSet, apObject);
+                    m_transObjects.push_back(apObject);
                 }
             }
             ////////////////////////
             // Solid
             else {
-                PushUnique(m_solidObjects, m_solidObjectsSet, apObject);
+                m_solidObjects.push_back(apObject);
                 if (pMaterial->GetImage(eMaterialTexture_Illumination) && apObject->GetIlluminationAmount() > 0) {
-                    PushUnique(m_illumObjects, m_illumObjectsSet, apObject);
+                    m_illumObjects.push_back(apObject);
                 }
             }
         }
     }
 
     void cRenderList2::Clear() {
-        // TEMP NO-CULL HACK:
-        // Do not clear source object vectors here.
+        // Use resize instead of clear, because that way capacity is preserved and allocation is never
+        // needed unless there is a need to increase the vector size.
+
+        m_occlusionQueryObjects.resize(0);
+        m_transObjects.resize(0);
+        m_decalObjects.resize(0);
+        m_solidObjects.resize(0);
+        m_illumObjects.resize(0);
+        m_lights.resize(0);
+        m_fogAreas.resize(0);
 
         for (int i = 0; i < eRenderListType_LastEnum; ++i) {
             m_sortedArrays[i].resize(0);
-        }
-    }
-
-    void cRenderList2::ClearPersistentObjectsForMapChange()
-    {
-        m_occlusionQueryObjects.clear();
-        m_transObjects.clear();
-        m_decalObjects.clear();
-        m_solidObjects.clear();
-        m_illumObjects.clear();
-        m_lights.clear();
-        m_fogAreas.clear();
-
-        m_occlusionQueryObjectsSet.clear();
-        m_transObjectsSet.clear();
-        m_decalObjectsSet.clear();
-        m_solidObjectsSet.clear();
-        m_illumObjectsSet.clear();
-        m_lightsSet.clear();
-        m_fogAreasSet.clear();
-
-        for (int i = 0; i < eRenderListType_LastEnum; ++i) {
-            m_sortedArrays[i].clear();
         }
     }
 

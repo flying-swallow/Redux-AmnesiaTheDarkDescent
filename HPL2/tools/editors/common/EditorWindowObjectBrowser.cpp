@@ -108,16 +108,21 @@ void iEditorObjectIndexEntryMeshObject::BuildThumbnail()
 	////////////////////////////////////////////////////////////////
 	// Create thumbnail if it doesn't exist or the object was updated
 	bool bIsUpdated = IsUpdated();
-	if(bIsUpdated || cPlatform::FileExists(GetThumbnailFilename())==false)
+	if(bIsUpdated || mpThumbnailImage==NULL)
 	{
-		pEditor->ShowLoadingWindow(_W("Loading"), _W("Creating Thumbnail"));
-		cMeshEntity* pEnt = CreateTempEntity(pEditor->GetTempWorld());
+		// Async: this only enqueues — the builder hands the finished Image
+		// to the callback a frame later (ownership transfers to this entry)
+		// and the browser preview refreshes via OnThumbnailReady. The entity
+		// goes in the builder's OWN world (isolated from the editor temp
+		// world). Capturing `this` is safe: PreBuild flushes the queue at the
+		// start of every index Refresh, before entries are deleted/recreated.
+		cMeshEntity* pEnt = CreateTempEntity(pTmbBuilder->GetWorld());
 
-		//pEditor->GetThumbnailBuilder()->BuildThumbnailFromMesh(sMeshFilename,sThumbnailFilename);
-		pTmbBuilder->BuildThumbnailFromMeshEntity(pEnt, _W(""));
-
-		if(bIsUpdated==false)
-			pIndex->SetRefreshThumbnails(true);
+		pTmbBuilder->BuildThumbnailFromMeshEntity(pEnt,
+			[this](std::shared_ptr<Image> apImage)
+			{
+				mpThumbnailImage = std::move(apImage);
+			});
 	}
 }
 
@@ -307,8 +312,26 @@ void cEditorWindowObjectBrowser::OnInitLayout()
 
 	mpThumbnail = mpSet->CreateWidgetImage("",cVector3f(0,0,1.1f),128,eGuiMaterial_Diffuse, false, pThumbFrame);
 
+	/////////////////////////////////////////////
+	// Thumbnails build asynchronously (the builder hands each entry its
+	// Image via callback) — poll on the widget's per-frame update and fill
+	// the preview in once the selected entry has received its image.
+	mpThumbnail->AddCallback(eGuiMessage_OnUpdate, this, kGuiCallback(Thumbnail_OnUpdate));
+
 	BuildObjectSetList();
 }
+
+//-------------------------------------------------------------------
+
+bool cEditorWindowObjectBrowser::Thumbnail_OnUpdate(iWidget* apWidget, const cGuiMessageData& aData)
+{
+	iEditorObjectIndexEntryMeshObject* pObj = GetSelectedObject();
+	if(pObj && pObj->GetThumbnailImage() && mpThumbnail->GetImage()==NULL)
+		UpdateObjectInfo();
+
+	return true;
+}
+kGuiCallbackDeclaredFuncEnd(cEditorWindowObjectBrowser, Thumbnail_OnUpdate);
 
 //-------------------------------------------------------------------
 
@@ -436,8 +459,19 @@ void cEditorWindowObjectBrowser::UpdateObjectInfo()
 		sBVSize+=_W(")");
 
 		sTriCount = cString::ToStringW(pObj->GetTriangleCount());
-		tString sThumbFile = cString::To8Char(pObj->GetThumbnailFilename());
-		pImg = pGui->CreateGfxImage(sThumbFile,eGuiMaterial_Diffuse);
+
+		// GPU-resident thumbnail: sample the entry's texture directly (the
+		// editor-pane Image pattern; the entry owns the texture).
+		Image* pThumb = pObj->GetThumbnailImage();
+		if(pThumb)
+		{
+			pImg = pGui->CreateGfxTexture(pThumb, false, eGuiMaterial_Diffuse);
+		}
+		else
+		{
+			// Still building — filled in by the OnThumbnailReady handler.
+			pImg = NULL;
+		}
 	}
 
 	mvLabelBVSize[1]->SetText(sBVSize);

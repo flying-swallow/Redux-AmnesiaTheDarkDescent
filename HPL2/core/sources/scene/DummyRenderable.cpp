@@ -23,8 +23,6 @@
 
 //#include "resources/Resources.h"
 
-#include "scene/Scene.h"
-
 namespace hpl {
 
 	//////////////////////////////////////////////////////////////////////////
@@ -33,10 +31,8 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cDummyRenderable::cDummyRenderable(tString asName, cGraphics* apGraphics) : iRenderable(asName)
+	cDummyRenderable::cDummyRenderable(tString asName) : iRenderable(asName)
 	{
-		mpGraphics = apGraphics;
-
 		mbApplyTransformToBV = true;
 
 		mBoundingVolume.SetSize(0);
@@ -46,10 +42,7 @@ namespace hpl {
 
 	cDummyRenderable::~cDummyRenderable()
 	{
-		cHybridRenderer* pHybridRenderer = static_cast<cHybridRenderer*>(mpGraphics->GetRenderer(eRenderer_Main));
-		cRenderList2* pRenderList = pHybridRenderer->GetRenderList();
-		pRenderList->ForgetObject(this);
-	}
+	}	
 
 	//-----------------------------------------------------------------------
 
