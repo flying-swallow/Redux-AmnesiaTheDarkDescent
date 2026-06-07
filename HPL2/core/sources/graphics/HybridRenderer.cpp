@@ -775,20 +775,17 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     pl.color[0] = detail::sRGBToLinear(c.r);
     pl.color[1] = detail::sRGBToLinear(c.g);
     pl.color[2] = detail::sRGBToLinear(c.b);
-    // Store the light's intensity = authoredRadius² · scale. It multiplies the
-    // radiance (color · intensity · inverse-square) — no luminance here, color
-    // already carries brightness — and the grid binning derives the bin reach from
-    // the radiance floor (maxChannel(color)·intensity / kLightRadianceFloor).
-    const float authored = pLight->GetRadius();
-    pl.intensity = authored;
+    // Falcor LightData semantics: `intensity` IS the light's radiance — the
+    // authored engine radius uploads verbatim, identically for points and
+    // spots (one unit for every analytic light, so direct and the surfel NEE,
+    // which share shadeAnalyticLight, agree by construction). No scale knobs;
+    // brightness is an authoring concern.
+    pl.intensity = pLight->GetRadius();
     // Precompute the light-grid bin reach here so LightGridBuildPass (one thread
     // per cell, looping all lights) doesn't recompute it per (cell,light). reach²
     // = maxChannel(color)·intensity / floor − sourceRadius²; ≤0 ⇒ too dim to bin.
-    // The reach uses the UNSCALED authored intensity (kPointLightIntensityScale
-    // omitted): the scale is a visual brightness knob and must NOT re-cull lights
-    // — folding it into the reach made dimming shrink the bin range and pop lights
-    // out. Binning stays tied to the artist's authored radius; brightness only
-    // scales the shader radiance above.
+    // Binning stays tied to the artist's authored culling radius — independent
+    // of brightness so retuning a light can't pop it out of cells.
     const float authoredCullingRadius = pLight->GetCullingRadius();
     pl.radius = authoredCullingRadius;
     /*
@@ -882,17 +879,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     sl.color[0] = detail::sRGBToLinear(c.r);
     sl.color[1] = detail::sRGBToLinear(c.g);
     sl.color[2] = detail::sRGBToLinear(c.b);
-    // Store the light's intensity = authoredRadius² · scale (same as point lights):
-    // it multiplies the radiance (color · intensity · inverse-square) — no luminance
-    // here, color carries brightness — and the grid binning derives the bin reach from
-    // the radiance floor (maxChannel(color)·intensity / kLightRadianceFloor).
+    // Falcor LightData semantics, same as the point loop: `intensity` IS the
+    // light's radiance — the authored engine radius uploads verbatim, no scale
+    // knobs.
     const float authored = pLight->GetRadius();
-    sl.intensity = authored  * kPointLightIntensityScale;
+    sl.intensity = authored;
     // Precompute the light-grid bin reach (same as point lights) so the per-cell
     // gather in LightGridBuildPass just reads it. The spot cone ⊂ the radius
-    // sphere, so the radial reach is a conservative bound. Uses the UNSCALED
-    // authored intensity (kPointLightIntensityScale omitted) so the brightness
-    // knob doesn't re-cull lights — see the point-light note above.
+    // sphere, so the radial reach is a conservative bound.
     {
       const float maxC = std::max(sl.color[0], std::max(sl.color[1], sl.color[2]));
       const float reachSq =
