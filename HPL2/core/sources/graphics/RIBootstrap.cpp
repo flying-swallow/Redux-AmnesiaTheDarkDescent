@@ -4,14 +4,96 @@
 #include "graphics/RISwapchain.h"
 #include "graphics/RIVK.h"
 
+#include <algorithm>
+
 namespace hpl {
 
 RIBootstrap RI = RIBootstrap{};
 
 void RIBootstrap::IncrementFrame() { frameIndex++; }
 
+namespace {
+// Shared grow-and-recreate for the per-frame scratch buffers (mirrors the
+// GuiSet gui*Alloc blocks / DebugDraw::requestSegments): try to claim a
+// segment; on miss, grow the allocator ×1.5 until the request fits, recreate
+// the host-mapped buffer (old one parked on the active set's freelist so
+// in-flight frames keep their data) and claim from the fresh allocator.
+bool __RequestScratchSegment(RIBootstrap::FrameContext *cntx,
+                             RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> &alloc,
+                             RIBuffer_s &buffer, uint16_t elementStride,
+                             VkBufferUsageFlags usage, size_t numElements,
+                             struct RISegmentReq_s *req) {
+  if (IsRIBufferValid(&RI.renderer, &buffer) &&
+      alloc.request(RI.frameIndex, numElements, req)) {
+    return true;
+  }
+
+  struct RISegmentAllocDesc_s segmentAllocDesc = {0};
+  segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
+  segmentAllocDesc.elementStride = elementStride;
+  segmentAllocDesc.maxElements = std::max<size_t>(alloc.maxElements, 4096);
+  do {
+    segmentAllocDesc.maxElements =
+        segmentAllocDesc.maxElements + (segmentAllocDesc.maxElements >> 1);
+  } while (segmentAllocDesc.maxElements < numElements);
+  alloc = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>(&segmentAllocDesc);
+  if (!alloc.request(RI.frameIndex, numElements, req)) {
+    assert(false);
+    return false;
+  }
+
+  uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
+  VkBufferCreateInfo bufferCreateInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  VK_ConfigureBufferQueueFamilies(&bufferCreateInfo, RI.device.queues,
+                                  RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
+  bufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements *
+                          segmentAllocDesc.elementStride;
+  bufferCreateInfo.usage = usage;
+
+  VmaAllocationInfo allocationInfo = {0};
+  VmaAllocationCreateInfo allocInfo = {0};
+  allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
+                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
+  if (buffer.vk.buffer) {
+    cntx->freelist.push_back(buffer);
+  }
+  VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferCreateInfo,
+                                &allocInfo, &buffer.vk.buffer,
+                                &buffer.vk.allocation, &allocationInfo));
+  buffer.mappedAddress = allocationInfo.pMappedData;
+  return true;
+}
+} // namespace
+
+bool RIBootstrap::RequestTranslucentVtx(FrameContext *cntx, size_t numFloats,
+                                        struct RISegmentReq_s *req) {
+  // SHADER_DEVICE_ADDRESS: the hybrid ParticlePass pulls these streams via BDA
+  // (segment base address + byte offset fanned into the bindless slot mirrors).
+  return __RequestScratchSegment(cntx, translucentVtxAlloc,
+                                 translucentVtxBuffer, sizeof(float),
+                                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+                                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                 numFloats, req);
+}
+
+bool RIBootstrap::RequestTranslucentIdx(FrameContext *cntx, size_t numIndices,
+                                        struct RISegmentReq_s *req) {
+  return __RequestScratchSegment(cntx, translucentIdxAlloc,
+                                 translucentIdxBuffer, sizeof(uint32_t),
+                                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+                                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                 numIndices, req);
+}
+
 void RIBootstrap::Dispose() {
   device.queues[RI_QUEUE_GRAPHICS].waitIdle(&device);
+
+  if (translucentVtxBuffer.vk.buffer)
+    translucentVtxBuffer.dispose(&device);
+  if (translucentIdxBuffer.vk.buffer)
+    translucentIdxBuffer.dispose(&device);
 
   for (auto &desc : cachedFilters) {
     if (desc.cookie) {
@@ -55,13 +137,14 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
   RIResourceUploaderVKResult_s uploadResult =
       RI_VKFlushResourceUpdate(&RI.device, &RI.uploader, 0, NULL);
 
-  // Submit the dedicated BLAS-build command buffer ahead of the primary. It waits
-  // on the uploader (so the builds see uploaded geometry) and signals its own
-  // semaphore; the primary submit below waits on that, so every BLAS is fully
-  // built before the primary's TLAS build runs — no inline accel-build barrier
-  // needed. Submitted even when it recorded no builds so the semaphore signals.
-  // The upload→blas→primary chain also makes uploads visible to the primary, so
-  // the (binary) uploader semaphore is waited by exactly one consumer (here).
+  // Submit the dedicated BLAS-build command buffer ahead of the primary. It
+  // waits on the uploader (so the builds see uploaded geometry) and signals its
+  // own semaphore; the primary submit below waits on that, so every BLAS is
+  // fully built before the primary's TLAS build runs — no inline accel-build
+  // barrier needed. Submitted even when it recorded no builds so the semaphore
+  // signals. The upload→blas→primary chain also makes uploads visible to the
+  // primary, so the (binary) uploader semaphore is waited by exactly one
+  // consumer (here).
   {
     VkCommandBufferSubmitInfo blasCmd = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
@@ -71,7 +154,8 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
     blasWait.semaphore = uploadResult.vk.semaphore;
     blasWait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
-    VkSemaphoreSubmitInfo blasSignal = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+    VkSemaphoreSubmitInfo blasSignal = {
+        VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
     blasSignal.semaphore = RI.blasSubmit.vk.semaphore;
     blasSignal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 

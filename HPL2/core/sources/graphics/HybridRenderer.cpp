@@ -2798,15 +2798,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       };
 
       for (iParticleEmitter *pEmitter : emitters) {
-        iVertexBuffer *pVB = pEmitter->GetVertexBuffer();
         cMaterial *pMat = pEmitter->GetMaterial();
-        if (!pVB || !pMat)
+        if (!pMat)
           continue;
-        int indexCount = pVB->GetElementNum();   // live count: mlNumOfParticles * 6
-        if (indexCount < 0)                       // -1 == "not set" -> draw all
-          indexCount = pVB->GetIndexNum();
-        if (indexCount <= 0)                      // 0 == emitter requested skip
+        // Per-frame scratch geometry (no persistent emitter VB): build this
+        // frame's camera-facing quads into the shared RI.translucentVtx/Idx
+        // segments — same single producer as the wireframe/simple panes.
+        auto geom = pEmitter->BuildScratchGeometry(apFrustum, afFrameTime, /*withUv=*/true);
+        if (!geom.valid)
           continue;
+        const int indexCount = (int)geom.indexCount;
 
         uint32_t materialId =
             m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex).materialId;
@@ -2819,21 +2820,38 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         d.modelMatrix = pEmitter->GetModelMatrix(apFrustum);
         d.materialId = materialId;
 
-        // Particles share the object-slot pool with opaque solids. submitObject
-        // bumps the slot generation when this slot is (re)assigned to the emitter
-        // — so a surfel still anchored to the slot's previous opaque occupant
-        // self-invalidates before it feeds a stale opaque primitiveIndex into the
-        // particle mesh's smaller index/vertex BDA (unbounded read → GPUVM fault).
-        // The particle VS pulls pos/uv0/color/index via BDA, so submitObject
-        // writes the stream + index handles too. (normal/tangent are written as
-        // well but never read for a particle slot — harmless.)
-        auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
+        // Particles share the object-slot pool with opaque solids; the payload
+        // submit also bumps the slot generation when the slot is (re)assigned —
+        // so a surfel still anchored to the slot's previous opaque occupant
+        // self-invalidates before it dereferences this slot's smaller streams.
         const uint32_t slot = m_global.submitObject(
-            pEmitter->GetUniqueCookie(), (uint32_t)RI.frameIndex, vbri, d,
-            kSubmitData | kSubmitVertex | kSubmitIndex);
+            pEmitter->GetUniqueCookie(), (uint32_t)RI.frameIndex, nullptr, d,
+            kSubmitData);
         if (slot == UINT32_MAX) {
           Warning("bindless pool exhausted (particle)");
           continue;
+        }
+
+        // The particle VS pulls pos/uv0/color/index via BDA; point this slot's
+        // handles at the scratch segments (base address + byte offset). The
+        // mirrors are public by design — direct fill-site writes, refreshed
+        // every frame exactly like the VB path was. normal/tangent are never
+        // read for a particle slot; zero them so a stale opaque BDA can't
+        // linger on a reused slot.
+        {
+          const uint64_t vtxBase =
+              RI.translucentVtxBuffer.GetDeviceHandle(&RI.device);
+          m_global.m_opaquePositionMirror.write<VkDeviceAddress>(
+              slot, vtxBase + geom.posByteOffset);
+          m_global.m_opaqueColorMirror.write<VkDeviceAddress>(
+              slot, vtxBase + geom.colByteOffset);
+          m_global.m_opaqueUv0Mirror.write<VkDeviceAddress>(
+              slot, vtxBase + geom.uvByteOffset);
+          m_global.m_opaqueIndexMirror.write<VkDeviceAddress>(
+              slot, RI.translucentIdxBuffer.GetDeviceHandle(&RI.device) +
+                        geom.idxByteOffset);
+          m_global.m_opaqueNormalMirror.write<VkDeviceAddress>(slot, 0);
+          m_global.m_opaqueTangentMirror.write<VkDeviceAddress>(slot, 0);
         }
 
         const ParticlePipelineDesc::BlendMode mode =

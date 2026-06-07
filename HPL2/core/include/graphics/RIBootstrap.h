@@ -105,9 +105,22 @@ public:
 	struct RICommandRingElement_s blasSubmit;
 
   struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> guiVertexAlloc;
-  RIBuffer_s guiVertexBuffer; 
+  RIBuffer_s guiVertexBuffer;
   struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> guiIndexAlloc;
   RIBuffer_s guiIndexBuffer;
+
+  // Per-viewport camera-facing translucent geometry (particles): each pane
+  // builds its verts/indices straight into its own per-frame segment of these
+  // host-mapped buffers and binds them at a byte offset — bypassing the
+  // object's persistent VertexBuffer_RI, whose uploader copies all coalesce
+  // into the fenced pre-pass (last pane's copy would win for EVERY pane).
+  // Same pattern as the gui*Alloc pair above. The vertex allocator is
+  // float-granular (stride 4 bytes) so mixed streams (pos 16B / col 16B /
+  // uv 12B) share it; the index allocator is uint32-granular.
+  struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> translucentVtxAlloc;
+  RIBuffer_s translucentVtxBuffer;
+  struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> translucentIdxAlloc;
+  RIBuffer_s translucentIdxBuffer;
 
   std::array<FrameContext, RI_NUMBER_FRAMES_FLIGHT> frameSets;
 	std::array<RIDescriptor_s, 1024> cachedFilters; 
@@ -121,6 +134,14 @@ public:
   FrameContext *GetActiveSet() { return &frameSets[frameIndex % RI_NUMBER_FRAMES_FLIGHT]; }
 
   void UpdateFrameUBO(RIDescriptor_s* descriptor, void* data, size_t size);
+
+  // Claim per-frame segments of the translucent scratch buffers (grow ×1.5 +
+  // recreate on overflow, old buffer parked on the active set's freelist).
+  // numFloats / numIndices are element counts; the returned req's
+  // elementOffset is in elements (multiply by 4 for the bind byte offset).
+  bool RequestTranslucentVtx(FrameContext* cntx, size_t numFloats, struct RISegmentReq_s* req);
+  bool RequestTranslucentIdx(FrameContext* cntx, size_t numIndices, struct RISegmentReq_s* req);
+
   void CloseAndSubmitActiveSet();
   void BeginActiveSet();
   void Dispose();

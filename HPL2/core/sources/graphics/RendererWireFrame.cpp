@@ -39,6 +39,7 @@
 
 #include "graphics/HPLTexture.h"
 
+#include "scene/ParticleEmitter.h"
 #include "scene/Viewport.h"
 #include "scene/World.h"
 #include "scene/RenderableContainer.h"
@@ -134,10 +135,21 @@ namespace hpl {
 			{
 				if(pObject == NULL) continue;
 
-				// Dynamic translucent geometry (billboards/beams/particles)
-				// rebuilds its vertex data per viewport before upload.
 				if(listType == eRenderListType_Translucent)
 				{
+					// Particle emitters take the per-viewport scratch path in
+					// the draw loop (BuildViewportVertices straight into
+					// RI.translucentVtx/Idx segments) — panes must NOT write
+					// the persistent VB: its uploader copies coalesce in the
+					// fenced pre-pass, so the last pane would win for EVERY
+					// pane (and poison the hybrid view).
+					if(pObject->GetRenderType() == eRenderableType_ParticleEmitter)
+						continue;
+
+					// Dynamic translucent geometry (billboards/beams) still
+					// rebuilds its vertex data per viewport before upload.
+					// TODO: same shared-buffer disease as particles — migrate
+					// to the scratch path.
 					pObject->UpdateGraphicsForFrame(afFrameTime);
 					pObject->UpdateGraphicsForViewport(apFrustum, afFrameTime);
 				}
@@ -312,6 +324,52 @@ namespace hpl {
 			for(iRenderable *pObject : m_rendererList.GetRenderableItems(listType))
 			{
 				if(pObject == NULL) continue;
+
+				////////////////////////////////////////////
+				// Particles: per-viewport scratch path. Build this pane's
+				// camera-facing quads straight into per-frame segments of
+				// RI.translucentVtx/IdxBuffer and bind them at byte offsets —
+				// each pane gets its own correctly-billboarded geometry (the
+				// persistent VB stays the hybrid renderer's).
+				if(listType == eRenderListType_Translucent &&
+				   pObject->GetRenderType() == eRenderableType_ParticleEmitter)
+				{
+					// Build this pane's camera-facing quads into the shared
+					// per-frame scratch (one copy per viewport, billboarded to
+					// its own camera). withUv=false — this pipeline reads only
+					// position.
+					auto *pEmitter = static_cast<iParticleEmitter*>(pObject);
+					auto geom = pEmitter->BuildScratchGeometry(apFrustum, afFrameTime, /*withUv=*/false);
+					if(!geom.valid) continue;
+
+					// Particle verts are in VIEW space; GetModelMatrix returns
+					// the inverse view so MVP collapses to the projection.
+					cMatrixf *pModelMtx = pObject->GetModelMatrix(apFrustum);
+					const ml::float4x4 mvp = viewProjMtx *
+						cMath::ToFloatTranspose4x4(pModelMtx ? *pModelMtx : cMatrixf::Identity);
+
+					WireFramePass uniformBlock = {};
+					std::memcpy(uniformBlock.mvp, mvp.a, sizeof(uniformBlock.mvp));
+					uniformBlock.color[0] = 1.0f;
+					uniformBlock.color[1] = 1.0f;
+					uniformBlock.color[2] = 1.0f;
+					uniformBlock.color[3] = 1.0f;
+
+					RIProgram::DescriptorBinding binding = {};
+					RI.UpdateFrameUBO(&binding.descriptor, (void*)&uniformBlock, sizeof(uniformBlock));
+					binding.handle = DescriptorBindingID::Create("pass");
+					m_wireframe.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, &binding, 1);
+
+					RIBuffer_s *vertBufs[1] = { &RI.translucentVtxBuffer };
+					const VkDeviceSize vertOffsets[1] = { (VkDeviceSize)geom.posByteOffset };
+					RI.primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
+					RI.primary.cmds[0].bindIndexBuffer(&RI.translucentIdxBuffer,
+													   (VkDeviceSize)geom.idxByteOffset,
+													   VK_INDEX_TYPE_UINT32);
+					RI.primary.cmds[0].drawIndexed(geom.indexCount, 1, 0, 0, 0);
+					continue;
+				}
+
 				iVertexBuffer *pVB = pObject->GetVertexBuffer();
 				if(pVB == NULL) continue;
 

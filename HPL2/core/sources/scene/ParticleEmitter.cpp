@@ -28,6 +28,8 @@
 #include "graphics/LowLevelGraphics.h"
 #include "graphics/VertexBuffer.h"
 #include "graphics/Renderer.h"
+#include "graphics/RIBootstrap.h"
+#include "graphics/RISegmentAlloc.h"
 
 #include "scene/Camera.h"
 #include "math/Math.h"
@@ -104,45 +106,13 @@ namespace hpl {
 		mvMaterials = avMaterials;
 
 		//////////////////////////////////
-		//Create vertex buffer
-		mpVtxBuffer = apGraphics->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Hardware,
-																	eVertexBufferDrawType_Tri, eVertexBufferUsageType_Stream,
-																	alMaxParticles*4, alMaxParticles*6);
-		mpVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);
-		mpVtxBuffer->CreateElementArray(eVertexBufferElement_Color0,eVertexBufferElementFormat_Float,4);
-		mpVtxBuffer->CreateElementArray(eVertexBufferElement_Texture0,eVertexBufferElementFormat_Float,3);
-		
-		//////////////////////////////////
-		//Fill the indices with quads
-		for(int i=0;i<(int)alMaxParticles;i++)
-		{
-			int lStart = i*4;
-			for(int j=0;j<3;j++) mpVtxBuffer->AddIndex(lStart + j);
-			for(int j=2;j<5;j++) mpVtxBuffer->AddIndex(lStart + (j==4?0:j));
-		}
+		// No persistent vertex buffer: every renderer builds this emitter's
+		// camera-facing quads per frame/viewport into its own scratch segment
+		// via BuildViewportVertices (hybrid + wireframe/simple all share
+		// RI.translucentVtx/Idx). A shared persistent VB couldn't serve
+		// multiple viewports — the uploader pre-pass coalesces per-pane copies
+		// (last-write-wins). See [[per-viewport-translucent-scratch]].
 
-		//////////////////////////////////
-		//Fill with texture coords (will do for most particle systems)
-		for(int i=0;i<(int)alMaxParticles;i++)
-		{
-			mpVtxBuffer->AddVertexVec3f(eVertexBufferElement_Texture0, cVector3f(1,1,0));
-			mpVtxBuffer->AddVertexVec3f(eVertexBufferElement_Texture0, cVector3f(0,1,0));
-			mpVtxBuffer->AddVertexVec3f(eVertexBufferElement_Texture0, cVector3f(0,0,0));
-			mpVtxBuffer->AddVertexVec3f(eVertexBufferElement_Texture0, cVector3f(1,0,0));
-		}
-
-		//////////////////////////////////
-		//Set default values for pos and col
-		for(int i=0;i<(int)alMaxParticles*4;i++){
-			mpVtxBuffer->AddVertexVec3f(eVertexBufferElement_Position, 0);
-			mpVtxBuffer->AddVertexColor(eVertexBufferElement_Color0, cColor(1,1));
-		}
-		
-		////////////////////////////////////
-		// Compile vertex buffer
-		mpVtxBuffer->Compile(0);
-
-		
 		////////////////////////////////////
 		//Setup vars
 		mlSleepCount = 60*5; //Start with high sleep count to make sure a looping particle system reaches equilibrium. 5 secs should eb enough!
@@ -180,8 +150,6 @@ namespace hpl {
 		{
 			hplDelete(mvParticles[i]);
 		}
-
-		hplDelete(mpVtxBuffer);
 	}
 
 	//-----------------------------------------------------------------------
@@ -305,15 +273,65 @@ namespace hpl {
 		apTex[2] = aPos.z;
 	}
 
-	bool iParticleEmitter::UpdateGraphicsForViewport(cFrustum *apFrustum,float afFrameTime)
+	iParticleEmitter::ParticleScratchGeometry
+	iParticleEmitter::BuildScratchGeometry(cFrustum *apFrustum, float afFrameTime,
+										   bool abWithUv)
+	{
+		ParticleScratchGeometry geom;
+
+		const int lNumParticles = GetParticleNum();
+		if(lNumParticles <= 0) return geom;
+
+		// Vertex stream is interleaved-by-stream within one scratch slice:
+		// [pos(4f)·V][col(4f)·V][uv(3f)·V]. Wireframe omits uv (8 floats/vert).
+		const uint32_t lNumVerts = (uint32_t)lNumParticles * 4;
+		const uint32_t lFloatsPerVert = abWithUv ? 11u : 8u;
+
+		RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
+		RISegmentReq_s vtxReq = {};
+		RISegmentReq_s idxReq = {};
+		if(!RI.RequestTranslucentVtx(cntx, (size_t)lNumVerts * lFloatsPerVert, &vtxReq))
+			return geom;
+		if(!RI.RequestTranslucentIdx(cntx, (size_t)lNumParticles * 6, &idxReq))
+			return geom;
+
+		float *pDst = (float*)RI.translucentVtxBuffer.mappedAddress + vtxReq.elementOffset;
+		float *pDstPos = pDst;
+		float *pDstCol = pDst + (size_t)lNumVerts * 4;
+		float *pDstUv  = abWithUv ? pDst + (size_t)lNumVerts * 8 : NULL;
+		if(!BuildViewportVertices(apFrustum, afFrameTime, pDstPos, 4, pDstCol, pDstUv))
+			return geom; // distance-faded out
+
+		// Quad index pattern (two tris per particle: 0,1,2, 2,3,0 + q·4).
+		uint32_t *pDstIdx = (uint32_t*)RI.translucentIdxBuffer.mappedAddress + idxReq.elementOffset;
+		for(int q = 0; q < lNumParticles; ++q)
+		{
+			const uint32_t s = (uint32_t)q * 4;
+			pDstIdx[q*6 + 0] = s;     pDstIdx[q*6 + 1] = s + 1;
+			pDstIdx[q*6 + 2] = s + 2; pDstIdx[q*6 + 3] = s + 2;
+			pDstIdx[q*6 + 4] = s + 3; pDstIdx[q*6 + 5] = s;
+		}
+
+		geom.valid         = true;
+		geom.vertexCount   = lNumVerts;
+		geom.indexCount    = (uint32_t)lNumParticles * 6;
+		geom.posByteOffset = (size_t)vtxReq.elementOffset * sizeof(float);
+		geom.colByteOffset = geom.posByteOffset + (size_t)lNumVerts * 4 * sizeof(float);
+		geom.uvByteOffset  = geom.posByteOffset + (size_t)lNumVerts * 8 * sizeof(float);
+		geom.idxByteOffset = (size_t)idxReq.elementOffset * sizeof(uint32_t);
+		return geom;
+	}
+
+	//-----------------------------------------------------------------------
+
+	bool iParticleEmitter::BuildViewportVertices(cFrustum *apFrustum, float afFrameTime,
+												 float *apPosArray, int alPosStrideFloats,
+												 float *apColArray, float *apUvArray)
 	{
 		//if(mbUpdateGfx == false) return;
 
-		//////////////////////////
-		// Get Data
-		float *pPosArray = mpVtxBuffer->GetFloatArray(eVertexBufferElement_Position);
-		float *pColArray = mpVtxBuffer->GetFloatArray(eVertexBufferElement_Color0);
-
+		float *pPosArray = apPosArray;
+		float *pColArray = apColArray;
 
 		//////////////////////////
 		// Set up color mul
@@ -369,7 +387,6 @@ namespace hpl {
 		// If alpha is 0, skip rendering anything
 		if(colorMul.a <= 0)
 		{
-			mpVtxBuffer->SetElementNum(0);
 			return false;
 		}
 		
@@ -392,26 +409,38 @@ namespace hpl {
 		else
 		{
 			//////////////////////////////////////////////////
-			// SUB DIVISION SET UP
-			if(mvSubDivUV.size() > 1)
+			// UV SET UP — subdivision (animated) UVs when present, otherwise
+			// the static quad pattern (matches the VB-creation fill). The
+			// persistent-VB wrapper only passes apUvArray for the subdivision
+			// case (static UVs already live in the shadow); the scratch path
+			// always passes a destination.
+			if(apUvArray != NULL)
 			{
-				float *pTexArray = mpVtxBuffer->GetFloatArray(eVertexBufferElement_Texture0);	
+				float *pTexArray = apUvArray;
 
-				for(int i=0;i<(int)mlNumOfParticles;i++)
+				if(mvSubDivUV.size() > 1)
 				{
-					cParticle *pParticle = mvParticles[i];
+					for(int i=0;i<(int)mlNumOfParticles;i++)
+					{
+						cParticle *pParticle = mvParticles[i];
 
-					cPESubDivision &subDiv = mvSubDivUV[pParticle->mlSubDivNum];
+						cPESubDivision &subDiv = mvSubDivUV[pParticle->mlSubDivNum];
 
-					SetTex(&pTexArray[i*12 + 0*3],subDiv.mvUV[0]);
-					SetTex(&pTexArray[i*12 + 1*3],subDiv.mvUV[1]);
-					SetTex(&pTexArray[i*12 + 2*3],subDiv.mvUV[2]);
-					SetTex(&pTexArray[i*12 + 3*3],subDiv.mvUV[3]);
-
-					/*SetTex(&pTexArray[i*12 + 0*3], cVector3f(1,1,0));
-					SetTex(&pTexArray[i*12 + 1*3], cVector3f(0,1,0));
-					SetTex(&pTexArray[i*12 + 2*3], cVector3f(0,0,0));
-					SetTex(&pTexArray[i*12 + 3*3], cVector3f(1,0,0));*/
+						SetTex(&pTexArray[i*12 + 0*3],subDiv.mvUV[0]);
+						SetTex(&pTexArray[i*12 + 1*3],subDiv.mvUV[1]);
+						SetTex(&pTexArray[i*12 + 2*3],subDiv.mvUV[2]);
+						SetTex(&pTexArray[i*12 + 3*3],subDiv.mvUV[3]);
+					}
+				}
+				else
+				{
+					for(int i=0;i<(int)mlNumOfParticles;i++)
+					{
+						SetTex(&pTexArray[i*12 + 0*3], cVector3f(1,1,0));
+						SetTex(&pTexArray[i*12 + 1*3], cVector3f(0,1,0));
+						SetTex(&pTexArray[i*12 + 2*3], cVector3f(0,0,0));
+						SetTex(&pTexArray[i*12 + 3*3], cVector3f(1,0,0));
+					}
 				}
 			}
 
@@ -437,7 +466,7 @@ namespace hpl {
 				// ---
 
 
-				int lVtxStride = mpVtxBuffer->GetElementNum(eVertexBufferElement_Position);
+				int lVtxStride = alPosStrideFloats;
 				int lVtxQuadSize = lVtxStride*4;
 
 				for(int i=0;i<(int)mlNumOfParticles;i++)
@@ -484,7 +513,7 @@ namespace hpl {
 					for(int i=0; i<4; ++i)	vAdd[i].y = -vAdd[i].y;
 				}
 				
-				int lVtxStride = mpVtxBuffer->GetElementNum(eVertexBufferElement_Position);
+				int lVtxStride = alPosStrideFloats;
 				int lVtxQuadSize = lVtxStride*4;
 
 				for(int i=0;i<(int)mlNumOfParticles;i++)
@@ -548,7 +577,7 @@ namespace hpl {
 			// LINE
 			else if(mDrawType == eParticleEmitterType_Line)
 			{
-				int lVtxStride = mpVtxBuffer->GetElementNum(eVertexBufferElement_Position);
+				int lVtxStride = alPosStrideFloats;
 				int lVtxQuadSize = lVtxStride*4;	
 
 				for(int i=0;i<(int)mlNumOfParticles;i++)
@@ -625,7 +654,7 @@ namespace hpl {
 				mvRight		 +	mvForward * -1
 				};*/
 
-				int lVtxStride = mpVtxBuffer->GetElementNum(eVertexBufferElement_Position);
+				int lVtxStride = alPosStrideFloats;
 				int lVtxQuadSize = lVtxStride*4;
 
 				for(int i=0;i<(int)mlNumOfParticles;i++)
@@ -664,17 +693,8 @@ namespace hpl {
 				}
 			}
 
-			mpVtxBuffer->SetElementNum(mlNumOfParticles * 6);
-
-			//Update the vertex buffer data
-
-			if(mvSubDivUV.size() > 1)
-				mpVtxBuffer->UpdateData(eVertexElementFlag_Position | eVertexElementFlag_Color0 | eVertexElementFlag_Texture0, false);
-			else
-				mpVtxBuffer->UpdateData(eVertexElementFlag_Position | eVertexElementFlag_Color0, false);
-
 		}
-		
+
 		return true;
 	}
 
@@ -682,7 +702,11 @@ namespace hpl {
 
 	iVertexBuffer* iParticleEmitter::GetVertexBuffer()
 	{
-		return mpVtxBuffer;
+		// No persistent VB — renderers build per-frame scratch geometry via
+		// BuildViewportVertices. NULL is handled by every caller (HybridRenderer
+		// translucent prep / particle pass, wireframe/simple panes, RenderList
+		// pointer-compare sorts).
+		return NULL;
 	}
 
 	//-----------------------------------------------------------------------
