@@ -371,7 +371,7 @@ namespace hpl {
 					{
 						float fDist = cMath::Vector3Dist(pLight->GetWorldPosition(), vCenterPos);
 
-						fLightAmount += GetMaxColorValue(pLight->GetDiffuseColor()) * cMath::Max(1.0f - (fDist / pLight->GetRadius()), 0.0f);
+						fLightAmount += GetMaxColorValue(pLight->GetDiffuseColor()) * cMath::Max(1.0f - (fDist / pLight->GetIntensity()), 0.0f);
 					}
 					
 					if(fLightAmount >= 1.0f)

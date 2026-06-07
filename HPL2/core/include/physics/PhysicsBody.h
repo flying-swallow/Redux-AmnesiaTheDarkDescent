@@ -73,9 +73,6 @@ namespace hpl {
 
 	class iPhysicsBody : public iEntity3D
 	{
-	#ifdef __GNUC__
-		typedef iEntity3D __super;
-	#endif
 	public:
 		iPhysicsBody(const tString &asName, iPhysicsWorld *apWorld,iCollideShape *apShape);
 		virtual ~iPhysicsBody();

@@ -17,7 +17,9 @@
 // Bindings (set 0):
 //   binding 0 : SamplerState inputSampler
 //   binding 1 : Texture2D<float4> sourceInput
-// Push constant: exposure (scene-linear multiply); shadowLift unused (layout).
+// Push constant: exposure (scene-linear multiply); shadowLift unused (layout);
+// gamma (user display-gamma setting, 1.0 = no-op) applied as the final encode
+// step — replaces the deprecated SDL window-brightness ramp.
 
 import Utils.Color.ColorHelpers;   // piecewise linearToSRGB()
 
@@ -61,7 +63,7 @@ struct ToneMapPC
 {
     float exposure;
     float shadowLift;
-    float _pad0;
+    float gamma;     // user display-gamma (1.0 = no-op)
     float _pad1;
 };
 
@@ -77,5 +79,8 @@ struct PSIn
 float4 psMain(PSIn pin) : SV_Target
 {
     float3 hdr = sourceInput.Sample(inputSampler, pin.v_uv).rgb * pc.exposure;
-    return float4(saturate(ACESFitted(linearToSRGB(hdr))), 1.0f);   // display-encoded sRGB [0,1]
+    float3 display = saturate(ACESFitted(linearToSRGB(hdr)));   // display-encoded sRGB [0,1]
+    // User gamma adjust (final): gamma 1.0 = identity, <1 darker / >1 brighter.
+    display = pow(display, (1.0f / max(pc.gamma, 1e-4f)).xxx);
+    return float4(display, 1.0f);
 }

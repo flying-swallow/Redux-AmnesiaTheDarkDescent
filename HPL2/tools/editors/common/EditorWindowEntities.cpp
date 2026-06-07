@@ -117,7 +117,7 @@ cEditorWindowEntities::~cEditorWindowEntities()
 
 void cEditorWindowEntities::Reset()
 {
-	mpObjectList->SetSelectedItem(-1);
+	mpObjectList->SetSelectedItemIdx(-1);
 	UpdateObjectInfo();
 	ResetInputs();
 }
@@ -150,7 +150,6 @@ void cEditorWindowEntities::OnInitLayout()
 	mpBGFrame->SetSize(mpBGFrame->GetSize()+cVector2f(0,200));
 	//////////////////////
 	// Set up layout
-	mpSelectionGroup->SetText(_W("Entities"));
 
 	cVector3f vPos = cVector3f(5,515,0.1f);
 	cVector2f vSize;

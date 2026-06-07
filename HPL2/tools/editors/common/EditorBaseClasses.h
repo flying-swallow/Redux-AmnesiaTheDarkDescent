@@ -171,6 +171,11 @@ public:
 	void SetSelectionChanged() { mbSelectionChanged = true; }
 	cEditorSelection* GetSelection() { return mpSelection; }
 
+	// Per-category viewport visibility (lower-toolbar toggles). Setting one
+	// flags the world's visibility dirty so consumers re-evaluate next draw.
+	void SetVisibilityTypeState(eEditorVisibilityType aType, bool abEnabled);
+	bool GetVisibilityTypeState(eEditorVisibilityType aType) { return mbVisibilityTypes[aType]; }
+
 	///////////////////////////////////////////////
 	// Editor Windows Management
 	void AddWindow(iEditorWindow* apWindow);
@@ -480,6 +485,7 @@ protected:
 	bool mbDestroyingEditor;
 	bool mbWorldModified;
 	bool mbSelectionChanged;
+	bool mbVisibilityTypes[eEditorVisibilityType_LastEnum];
 
 	iEditorEditMode* mpCurrentEditMode;
 	iEditorWorld* mpEditorWorld;

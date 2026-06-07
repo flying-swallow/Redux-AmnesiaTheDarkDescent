@@ -1140,10 +1140,11 @@ bool cLuxBase::InitEngine()
 	/////////////////////////
 	// Set up more properties
 	mpEngine->GetGraphics()->GetLowLevel()->SetVsyncActive(mpConfigHandler->mbVSync, mpConfigHandler->mbAdaptiveVSync);
-	
-	float fGamma = mpMainConfig->GetFloat("Graphics","Gamma", 1.0f);
-	mpEngine->GetGraphics()->GetLowLevel()->SetGammaCorrection(fGamma);
-	
+
+	// Gamma now lives in cLuxConfigHandler (loaded in LoadMainConfig) and is
+	// consumed by the tonemap post-effect; nothing to push here at startup
+	// (no map is loaded yet — applied on map load / via SetGamma).
+
 	mpEngine->SetLimitFPS(mpMainConfig->GetBool("Engine","LimitFPS", false));
 	mpEngine->SetWaitIfAppOutOfFocus(mpMainConfig->GetBool("Engine","SleepWhenOutOfFocus", true));
 

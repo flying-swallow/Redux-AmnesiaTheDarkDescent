@@ -177,9 +177,6 @@ namespace hpl
 	typedef std::list<cMeshEntity*> tMeshEntityList;
 	typedef std::list<cMeshEntity*>::iterator tMeshEntityListIt;
 
-	typedef std::list<cSubMeshEntity*> tSubMeshEntityList;
-	typedef std::list<cSubMeshEntity*>::iterator tSubMeshEntityListIt;
-
 	typedef std::list<cBillboard*> tBillboardList;
 	typedef std::list<cBillboard*>::iterator tBillboardListIt;
 

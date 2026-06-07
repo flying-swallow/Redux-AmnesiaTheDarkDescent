@@ -102,6 +102,11 @@ public:
 
 	static void GetViewSpacePosAndSize(cCamera* apCamera, const cVector3f& avWorldPosition, const cVector3f& avWorldSize, cVector3f& avViewSpacePosition, cVector3f& avViewSpaceSize);
 
+	// Forwards to the active editor's per-category visibility toggle — lets
+	// draw-time consumers (EntityIcon, EntityWrapperArea, EngineEntity) query
+	// it without an editor pointer.
+	static bool GetVisibilityTypeState(eEditorVisibilityType aType);
+
 	static iEditorBase* mpEditor;
 };
 

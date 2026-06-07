@@ -102,9 +102,6 @@ public:
 
   virtual void SetMultisamplingActive(bool abX) = 0;
 
-  virtual void SetGammaCorrection(float afX) = 0;
-  virtual float GetGammaCorrection() = 0;
-
   /////////////////////////////////////////////////////
   /////////////// DATA CREATION ///////////////////////
   /////////////////////////////////////////////////////

@@ -927,18 +927,18 @@ void cEngineLight_SaveData::FromLight(iLight *apLight)
 		if(apLight->IsFading() && apLight->GetFlickerActive()==false)
 		{
 			apLight->SetDiffuseColor(apLight->GetDestColor());
-			apLight->SetRadius(apLight->GetDestRadius());
+			apLight->SetIntensity(apLight->GetDestIntensity());
 		}
 
 		if(apLight->GetFlickerActive())
 		{
 			mDiffuseColor = apLight->GetFlickerOnColor();
-			mfFarAttenuation = apLight->GetFlickerOnRadius();
+			mfFarAttenuation = apLight->GetFlickerOnIntensity();
 		}
 		else
 		{
 			mDiffuseColor = apLight->GetDiffuseColor();
-			mfFarAttenuation = apLight->GetRadius();
+			mfFarAttenuation = apLight->GetIntensity();
 		}
 
 		//TODO: Add billboard attaching!
@@ -953,7 +953,7 @@ void cEngineLight_SaveData::FromLight(iLight *apLight)
 		mfFlickerOnMaxLength = apLight->GetFlickerOnMaxLength();
 		mfFlickerOffMaxLength = apLight->GetFlickerOffMaxLength();
 		mFlickerOffColor = apLight->GetFlickerOffColor();
-		mfFlickerOffRadius = apLight->GetFlickerOffRadius();
+		mfFlickerOffRadius = apLight->GetFlickerOffIntensity();
 		mbFlickerFade = apLight->GetFlickerFade();
 		mfFlickerOnFadeMinLength = apLight->GetFlickerOnFadeMinLength();
 		mfFlickerOnFadeMaxLength = apLight->GetFlickerOnFadeMaxLength();
@@ -980,7 +980,7 @@ void cEngineLight_SaveData::ToLight(iLight *apLight)
 	if(bHasParent==false)
 	{
 		apLight->SetDiffuseColor(mDiffuseColor);
-		apLight->SetRadius(mfFarAttenuation);
+		apLight->SetIntensity(mfFarAttenuation);
 
 		//TODO: Attach billboards.
 

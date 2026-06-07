@@ -31,3 +31,6 @@
 [submodule "extern/Vulkan-Headers"]
 	path = extern/Vulkan-Headers
 	url = https://github.com/KhronosGroup/Vulkan-Headers.git
+[submodule "extern/tracy"]
+	path = extern/tracy
+	url = https://github.com/wolfpld/tracy.git

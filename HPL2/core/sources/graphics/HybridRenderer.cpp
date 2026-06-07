@@ -768,26 +768,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     pl.position[1] = pos.y;
     pl.position[2] = pos.z;
     const cColor c = pLight->GetDiffuseColor();
-    // sRGB authored → linear, matching the diffuse-texture sRGB decode and the
-    // output sRGB encode so a fully-lit surface round-trips to base-game brightness.
-    // (An earlier "over-saturated" result came from reading the color *raw* with
-    // no decode at all — not from a proper sRGB decode like this.)
     pl.color[0] = detail::sRGBToLinear(c.r);
     pl.color[1] = detail::sRGBToLinear(c.g);
     pl.color[2] = detail::sRGBToLinear(c.b);
-    // Falcor LightData semantics: `intensity` IS the light's radiance — the
-    // authored engine radius uploads verbatim, identically for points and
-    // spots (one unit for every analytic light, so direct and the surfel NEE,
-    // which share shadeAnalyticLight, agree by construction). No scale knobs;
-    // brightness is an authoring concern.
-    pl.intensity = pLight->GetRadius();
-    // Precompute the light-grid bin reach here so LightGridBuildPass (one thread
-    // per cell, looping all lights) doesn't recompute it per (cell,light). reach²
-    // = maxChannel(color)·intensity / floor − sourceRadius²; ≤0 ⇒ too dim to bin.
-    // Binning stays tied to the artist's authored culling radius — independent
-    // of brightness so retuning a light can't pop it out of cells.
-    const float authoredCullingRadius = pLight->GetCullingRadius();
-    pl.radius = authoredCullingRadius;
+    pl.intensity = pLight->GetIntensity();
+    pl.radius = pLight->GetRadius();
     /*
     {
       const float maxC = std::max(pl.color[0], std::max(pl.color[1], pl.color[2]));
@@ -882,27 +867,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // Falcor LightData semantics, same as the point loop: `intensity` IS the
     // light's radiance — the authored engine radius uploads verbatim, no scale
     // knobs.
-    const float authored = pLight->GetRadius();
-    sl.intensity = authored;
-    // Precompute the light-grid bin reach (same as point lights) so the per-cell
-    // gather in LightGridBuildPass just reads it. The spot cone ⊂ the radius
-    // sphere, so the radial reach is a conservative bound.
-    {
-      const float maxC = std::max(sl.color[0], std::max(sl.color[1], sl.color[2]));
-      const float reachSq =
-          ((maxC * authored)/ kLightRadianceFloor) - kPointLightSourceRadiusSq;
-      sl.radius = reachSq > 0.f ? std::sqrt(reachSq) : 0.f;
-    }
-    // Physical source radius drives the soft-shadow penumbra in the direct pass
-    // (same as point lights above). Authored per-light via cLight::SetSourceRadius;
-    // when a light authors none (0), fall back to a fraction of its authored reach
-    // so it's softly shadowed by default. An explicit author value always wins.
-    {
-      const float authoredSourceRadius = pLight->GetSourceRadius();
-      sl.sourceRadius = authoredSourceRadius > 0.f
-                            ? authoredSourceRadius
-                            : authored * kPointLightDefaultSourceRadiusFrac;
-    }
+    sl.intensity = pLight->GetIntensity();
+    sl.radius = pLight->GetRadius();
+    sl.sourceRadius = pLight->GetSourceRadius();
     sl.goboTextureIndex = m_global.resolveTextureSlot(cntx, pLight->GetGoboImage(),
                                              (uint32_t)RI.frameIndex);
     sl.shadowEnabled = pLight->GetCastShadows() ? 1u : 0u;

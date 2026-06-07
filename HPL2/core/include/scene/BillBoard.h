@@ -40,9 +40,6 @@ namespace hpl {
 
 	class cBillboard : public iRenderable
 	{
-	#ifdef __GNUC__
-		typedef iRenderable __super;
-	#endif
 	public:
 		cBillboard(const tString asName,const cVector2f& avSize,eBillboardType aType, cResources *apResources,cGraphics *apGraphics);
 		~cBillboard();

@@ -510,16 +510,24 @@ void cLevelEditor::OnInit()
 	{
 		const tWString& sExtraDir = mvExtraSODirs[i];
 		mpEngine->GetResources()->AddResourceDir(sExtraDir, true);
+		// Also register as a lookup dir so the dir shows up as a browsable
+		// category in the object browser (not just loadable as a resource).
+		mpDirHandler->AddLookUpDir(eDir_StaticObjects, sExtraDir, true);
 	}
 	// entities
 	for(int i=0;i<(int)mvExtraEntDirs.size();++i)
 	{
 		const tWString& sExtraDir = mvExtraEntDirs[i];
 		mpEngine->GetResources()->AddResourceDir(sExtraDir, true);
+		mpDirHandler->AddLookUpDir(eDir_Entities, sExtraDir, true);
 	}
 	///////////////////////////////////////////////////
 	// Add EditModes here!
-	mpEngine->GetPhysics()->LoadSurfaceData("materials.cfg");
+	// Per-instance override: [Directories] MaterialsOverride in the editor
+	// config points at an alternate surface-data file, else stock materials.cfg.
+	tString materialsOverride = mpMainConfig->GetString("Directories", "MaterialsOverride", "");
+	if(materialsOverride != "") mpEngine->GetPhysics()->LoadSurfaceData(materialsOverride);
+	else mpEngine->GetPhysics()->LoadSurfaceData("materials.cfg");
 
 	AddEditMode(hplNew(cEditorEditModeSelect,(this, mpEditorWorld)));
 	AddEditMode(hplNew(cEditorEditModeLights,(this, mpEditorWorld)));
@@ -560,6 +568,9 @@ void cLevelEditor::OnInitLayout()
 	pHandle->SetPosition(vHandlePos);
 	vHandlePos += cVector3f(pHandle->GetSize().x+10, 0, 0);
 	pHandle = mpLowerToolbar->AddClipPlaneControls();
+	pHandle->SetPosition(vHandlePos);
+	vHandlePos += cVector3f(pHandle->GetSize().x+10, 0, 0);
+	pHandle = mpLowerToolbar->AddVisibilityControls();
 	pHandle->SetPosition(vHandlePos);
 
 	////////////////////////////////////
@@ -806,12 +817,14 @@ cWidgetMainMenu* cLevelEditor::CreateMainMenu()
 	// New
 	mpMainMenuNew = pItem->AddMenuItem(_W("New"));
 	mpMainMenuNew->AddCallback(eGuiMessage_ButtonPressed,this,kGuiCallback(MainMenu_ItemClick));
+	mpMainMenuNew->AddShortcut(eKeyModifier_Ctrl, eKey_N);
 
 	pItem->AddSeparator();
 
 	// Open
 	mpMainMenuLoad = pItem->AddMenuItem(_W("Open"));
 	mpMainMenuLoad->AddCallback(eGuiMessage_ButtonPressed,this,kGuiCallback(MainMenu_ItemClick));
+	mpMainMenuLoad->AddShortcut(eKeyModifier_Ctrl, eKey_O);
 
 	pItem->AddSeparator();
 	// Save

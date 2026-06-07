@@ -83,7 +83,8 @@ namespace hpl {
 		mSpecularColor = 0;
 		mbCastShadows = false;
 		mlShadowCastersAffected = eObjectVariabilityFlag_All;
-		mfRadius =0;
+		mfIntensity =0;
+		mfRadius = 0;
 		mfSourceRadius = 0;
 		mfFadeTime=0;
 		mbFlickering = false;
@@ -133,7 +134,7 @@ namespace hpl {
 	{ 
 		if(mDiffuseColor.r <=0 && mDiffuseColor.g <=0 && mDiffuseColor.b <=0 && mDiffuseColor.a <=0) 
 			return false;
-		if(mfRadius <= 0) return false;
+		if(mfIntensity <= 0) return false;
 
 		return mbIsVisible; 
 	}
@@ -168,8 +169,8 @@ namespace hpl {
 		{
 			//Log("Fading: %f / %f\n",afTimeStep,mfFadeTime);
 
-			float fNewRadius = mfRadius + mfRadiusAdd*afTimeStep;
-			SetRadius(fNewRadius);
+			float fNewRadius = mfIntensity + mfIntensityAdd*afTimeStep;
+			SetIntensity(fNewRadius);
 			
 			mDiffuseColor.r += mColAdd.r*afTimeStep;
 			mDiffuseColor.g += mColAdd.g*afTimeStep;
@@ -184,7 +185,7 @@ namespace hpl {
 			{
 				mfFadeTime =0;
 				SetDiffuseColor(mDestCol);
-				mfRadius = mfDestRadius;
+				mfIntensity = mfDestIntensity;
 			}
 		}
 
@@ -202,11 +203,11 @@ namespace hpl {
 					if(!mbFlickerFade)
 					{
 						SetDiffuseColor(mFlickerOffColor);
-						SetRadius(mfFlickerOffRadius);
+						SetIntensity(mfFlickerOffIntensity);
 					}
 					else
 					{
-						FadeTo(mFlickerOffColor,mfFlickerOffRadius, cMath::RandRectf(mfFlickerOffFadeMinLength, mfFlickerOffFadeMaxLength));
+						FadeTo(mFlickerOffColor,mfFlickerOffIntensity, cMath::RandRectf(mfFlickerOffFadeMinLength, mfFlickerOffFadeMaxLength));
 					}
 					//Sound
 					if(msFlickerOffSound!=""){
@@ -235,11 +236,11 @@ namespace hpl {
 					if(!mbFlickerFade)
 					{
 						SetDiffuseColor(mFlickerOnColor);
-						SetRadius(mfFlickerOnRadius);
+						SetIntensity(mfFlickerOnIntensity);
 					}
 					else
 					{
-						FadeTo(mFlickerOnColor,mfFlickerOnRadius,cMath::RandRectf(mfFlickerOnFadeMinLength, mfFlickerOnFadeMaxLength));
+						FadeTo(mFlickerOnColor,mfFlickerOnIntensity,cMath::RandRectf(mfFlickerOnFadeMinLength, mfFlickerOnFadeMaxLength));
 					}
 					if(msFlickerOnSound!=""){
 						cSoundEntity *pSound = mpWorld->CreateSoundEntity("FlickerOn", msFlickerOnSound,true);
@@ -268,7 +269,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void iLight::FadeTo(const cColor& aCol, float afRadius, float afTime)
+	void iLight::FadeTo(const cColor& aCol, float afIntensity, float afTime)
 	{
 		if(afTime<=0) afTime = 0.0001f;
 
@@ -279,9 +280,9 @@ namespace hpl {
 		mColAdd.b = (aCol.b - mDiffuseColor.b)/afTime;
 		mColAdd.a = (aCol.a - mDiffuseColor.a)/afTime;
 
-		mfRadiusAdd = (afRadius - mfRadius)/afTime;
+		mfIntensityAdd = (afIntensity - mfIntensity)/afTime;
 
-		mfDestRadius = afRadius;
+		mfDestIntensity = afIntensity;
 		mDestCol = aCol;
 	}
 
@@ -302,14 +303,14 @@ namespace hpl {
 		mbFlickering = abX;
 	}
 
-	void iLight::SetFlicker(const cColor& aOffCol, float afOffRadius,
+	void iLight::SetFlicker(const cColor& aOffCol, float afOffIntensity,
 		float afOnMinLength, float afOnMaxLength,const tString &asOnSound,const tString &asOnPS,
 		float afOffMinLength, float afOffMaxLength,const tString &asOffSound,const tString &asOffPS,
 		bool abFade,	float afOnFadeMinLength, float afOnFadeMaxLength, 
 						float afOffFadeMinLength, float afOffFadeMaxLength)
 	{
 		mFlickerOffColor = aOffCol;
-		mfFlickerOffRadius = afOffRadius;
+		mfFlickerOffIntensity = afOffIntensity;
 
 		mfFlickerOnMinLength = afOnMinLength;
 		mfFlickerOnMaxLength = afOnMaxLength;
@@ -329,7 +330,7 @@ namespace hpl {
 		mfFlickerOffFadeMaxLength = afOffFadeMaxLength;
 
 		mFlickerOnColor = mDiffuseColor;
-		mfFlickerOnRadius = mfRadius;
+		mfFlickerOnIntensity = mfIntensity;
 
 		mbFlickerOn = true;
 		mfFlickerTime =0;
@@ -366,11 +367,11 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void iLight::SetRadius(float afX)
+	void iLight::SetIntensity(float afX)
 	{ 
-		if(mfRadius == afX) return;
+		if(mfIntensity == afX) return;
 
-		mfRadius = afX;
+		mfIntensity = afX;
 
 		mbUpdateBoundingVolume = true;
 		
@@ -380,11 +381,11 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void iLight::SetCullingRadius(float afX)
+	void iLight::SetRadius(float afX)
 	{
-		if (mfCullingRadius == afX) return;
+		if (mfRadius == afX) return;
 
-		mfCullingRadius = afX;
+		mfRadius = afX;
 
 		mbUpdateBoundingVolume = true;
 
@@ -623,8 +624,14 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
+	void iLight::UpdateBillboard(cBillboard* apBillboard, const cColor& aBaseColor)
+	{
+		apBillboard->SetColor(aBaseColor * cColor(mDiffuseColor.r, mDiffuseColor.g, mDiffuseColor.b, 1));
+		apBillboard->SetVisible(IsVisible());
+	}
 
-	
+	//-----------------------------------------------------------------------
+
 	//////////////////////////////////////////////////////////////////////////
 	// PROTECTED METHODS
 	//////////////////////////////////////////////////////////////////////////

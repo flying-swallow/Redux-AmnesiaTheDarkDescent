@@ -166,11 +166,10 @@ void iEntityWrapperPrimitive::SetMaterial(const tString& asMaterial)
 void iEntityWrapperPrimitive::SetCastShadows(bool abX)
 {
 	mbCastShadows = abX;
-	/*
 	if(mpEngineEntity)
 	{
-		((cMeshEntity*)mpEngineEntity)->SetRenderFlagBit(eRenderableFlag_ShadowCaster, abX); 
-	}*/
+		((iEngineEntityMesh*)mpEngineEntity)->SetCastShadows(abX);
+	}
 }
 
 //------------------------------------------------------------------------

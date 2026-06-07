@@ -111,7 +111,6 @@ void cEditorWindowStaticObjects::OnInitLayout()
 	mpBGFrame->SetSize(mpBGFrame->GetSize()+cVector2f(0,200));
 	//////////////////////
 	// Set up layout
-	mpSelectionGroup->SetText(_W("Static objects"));
 	mpObjectList->SetName("Static objects list");
 
 	cVector3f vPos;

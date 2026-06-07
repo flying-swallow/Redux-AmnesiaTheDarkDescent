@@ -37,6 +37,7 @@ cLuxConfigHandler::cLuxConfigHandler()
 {
 	mbGameNeedsRestart = false;
 	mbRestartDialogShown = false;
+	mfGamma = 1.0f;
 }
 
 //-----------------------------------------------------------------------
@@ -115,6 +116,7 @@ void cLuxConfigHandler::LoadMainConfig()
 	mlTextureQuality =	gpBase->mpMainConfig->GetInt("Graphics", "TextureQuality", 0);
 	mlTextureFilter =	gpBase->mpMainConfig->GetInt("Graphics", "TextureFilter", eTextureFilter_Bilinear);
 	mfTextureAnisotropy = gpBase->mpMainConfig->GetFloat("Graphics", "TextureAnisotropy", 1.0f);
+	mfGamma = gpBase->mpMainConfig->GetFloat("Graphics", "Gamma", 1.0f);
 
 	mbForceShaderModel3And4Off = gpBase->mpMainConfig->GetBool("Graphics", "ForceShaderModel3And4Off", false);
 
@@ -160,7 +162,7 @@ void cLuxConfigHandler::SaveMainConfig()
 	cMaterialManager* pMatMgr = gpBase->mpEngine->GetResources()->GetMaterialManager();
 	cRenderSettings* pRenderSettings = gpBase->mpMapHandler->GetViewport()->GetRenderSettings();
 
-	gpBase->mpMainConfig->SetFloat("Graphics","Gamma",gpBase->mpEngine->GetGraphics()->GetLowLevel()->GetGammaCorrection());
+	gpBase->mpMainConfig->SetFloat("Graphics","Gamma", mfGamma);
 
 	gpBase->mpMainConfig->SetBool("Graphics", "OcclusionTestLights", mbOcclusionTestLights);
 
@@ -200,6 +202,16 @@ void cLuxConfigHandler::SaveMainConfig()
 	// Engine properties
 	gpBase->mpMainConfig->SetBool("Engine","LimitFPS", gpBase->mpEngine->GetLimitFPS());
 	gpBase->mpMainConfig->SetBool("Engine","SleepWhenOutOfFocus",gpBase->mpEngine->GetWaitIfAppOutOfFocus());
+}
+
+//-----------------------------------------------------------------------
+
+void cLuxConfigHandler::SetGamma(float afX)
+{
+	mfGamma = afX;
+
+	// Live-apply to the active map's tonemap effect (if a map is loaded).
+	if(gpBase->mpMapHandler) gpBase->mpMapHandler->RefreshToneMapGamma();
 }
 
 //-----------------------------------------------------------------------

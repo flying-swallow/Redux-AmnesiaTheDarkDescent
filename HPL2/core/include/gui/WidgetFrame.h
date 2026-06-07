@@ -45,6 +45,15 @@ namespace hpl {
 		void SetBackGroundColor(const cColor &aColor){ mBackGroundColor = aColor;}
 		const cColor& GetBackGroundColor(){ return mBackGroundColor;}
 
+		// Override the frame's background gfx element with a specific skin gfx
+		// (e.g. eGuiSkinGfx_ListBoxBackground for an inset look).
+		void SetBackgroundBgfx(eGuiSkinGfx aType);
+
+		// Swap the frame's background gfx to the color-picking variant (distinct
+		// backdrop behind the color-picker preview swatches). No-op fallback to
+		// the normal background if the skin lacks the element.
+		void ChangeBackgroundForColorPicking();
+
 		void OnAttachChild(iWidget* apChild);
 		void OnRemoveChild(iWidget* apChild);
 

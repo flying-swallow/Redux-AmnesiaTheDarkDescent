@@ -270,9 +270,6 @@ bool cLowLevelGraphicsSDL::Init(int alWidth, int alHeight, int alDisplay,
   // Turn off cursor as default
   ShowCursor(false);
 
-  // Gamma
-  mfGammaCorrection = 1.0f;
-  SDL_SetWindowBrightness(mpScreen, mfGammaCorrection);
   mbInitHasBeenRun = true;
 
 
@@ -641,25 +638,6 @@ void cLowLevelGraphicsSDL::SetMultisamplingActive(bool abX) {
     glEnable(GL_MULTISAMPLE_ARB);
   else
     glDisable(GL_MULTISAMPLE_ARB);
-}
-
-//-----------------------------------------------------------------------
-
-void cLowLevelGraphicsSDL::SetGammaCorrection(float afX) {
-  ;
-
-  mfGammaCorrection = afX;
-#if SDL_VERSION_ATLEAST(2, 0, 0)
-  SDL_SetWindowBrightness(mpScreen, mfGammaCorrection);
-#else
-  SDL_SetGamma(mfGammaCorrection, mfGammaCorrection, mfGammaCorrection);
-#endif
-}
-
-float cLowLevelGraphicsSDL::GetGammaCorrection() {
-  ;
-
-  return mfGammaCorrection;
 }
 
 //-----------------------------------------------------------------------

@@ -132,6 +132,10 @@ protected:
 
 	cMesh* mpMesh;
 
+	// false ⇒ this is a blocker mesh (loader "ShowMesh"=false); its visibility
+	// follows the Blockers toolbar toggle (see UpdateVisibility).
+	bool mbShowMesh;
+
 	static float mfDisabledCoverage;
 };
 

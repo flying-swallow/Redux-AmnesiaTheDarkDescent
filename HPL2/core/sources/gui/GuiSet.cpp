@@ -72,6 +72,8 @@
 #include "gui/WidgetListBox.h"
 #include "gui/WidgetMultiPropertyListBox.h"
 #include "gui/WidgetComboBox.h"
+#include "gui/WidgetNodeTree.h"
+#include "gui/WidgetMeshObjectList.h"
 #include "gui/WidgetMenuItem.h"
 #include "gui/WidgetContextMenu.h"
 #include "gui/WidgetMainMenu.h"
@@ -1254,6 +1256,32 @@ namespace hpl {
 		pTextBox->SetName(asName);
 		AddWidget(pTextBox,apParent);
 		return pTextBox;
+	}
+
+	cWidgetNodeTree* cGuiSet::CreateWidgetNodeTree( float afContainerWidth,
+													iWidget *apParent,
+													const tString &asName)
+	{
+		cWidgetNodeTree* pNodeTree = hplNew(cWidgetNodeTree, (this, mpSkin));
+		pNodeTree->SetSize(cVector2f(afContainerWidth, 16));
+		pNodeTree->SetName(asName);
+		AddWidget(pNodeTree, apParent);
+		return pNodeTree;
+	}
+
+	//-----------------------------------------------------------------------
+
+	cWidgetMeshObjectList* cGuiSet::CreateWidgetMeshObjectList( const cVector3f& avLocalPos,
+													const cVector2f& avSize,
+													iWidget* apParent,
+													const tString& asName)
+	{
+		cWidgetMeshObjectList* pMeshObjectList = hplNew(cWidgetMeshObjectList, (this, mpSkin));
+		pMeshObjectList->SetPosition(avLocalPos);
+		pMeshObjectList->SetSize(avSize);
+		pMeshObjectList->SetName(asName);
+		AddWidget(pMeshObjectList, apParent);
+		return pMeshObjectList;
 	}
 
 	cWidgetCheckBox* cGuiSet::CreateWidgetCheckBox(	const cVector3f &avLocalPos,

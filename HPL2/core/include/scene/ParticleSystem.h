@@ -72,9 +72,6 @@ namespace hpl {
 
 	class cParticleSystem : public iEntity3D
 	{
-	#ifdef __GNUC__
-		typedef iEntity3D __super;
-	#endif
 	friend class iParticleEmitter;
 	public:
 		cParticleSystem(	const tString asName,cParticleSystemData *apData, 

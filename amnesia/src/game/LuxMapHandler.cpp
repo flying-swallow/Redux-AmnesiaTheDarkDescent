@@ -137,6 +137,7 @@ cLuxMapHandler::cLuxMapHandler() : iLuxUpdateable("LuxMapHandler")
 	cPostEffectParams_ToneMap tonemapParams;
 	tonemapParams.mfExposure = 1.0f;
 	tonemapParams.mfShadowLift = 1.0f;
+	tonemapParams.mfGamma = gpBase->mpConfigHandler->GetGamma();
 	mpPostEffect_ToneMap = pGraphics->CreatePostEffect(&tonemapParams);
 	pPostEffectComp->AddPostEffect(mpPostEffect_ToneMap, 0);
 
@@ -244,6 +245,21 @@ void cLuxMapHandler::UpdateViewportRenderProperties()
 	cRenderSettings *pRenderSettings = mpViewport->GetRenderSettings();
 	pRenderSettings->mbRenderWorldReflection = gpBase->mpConfigHandler->mbWorldReflection;
 	pRenderSettings->mbRenderShadows = gpBase->mpConfigHandler->mbShadowsActive;
+}
+
+//-----------------------------------------------------------------------
+
+void cLuxMapHandler::RefreshToneMapGamma()
+{
+	if(mpPostEffect_ToneMap == NULL) return;
+
+	// Rebuild with the constants used at creation (exposure/shadowLift = 1) plus
+	// the current config gamma, then re-apply.
+	cPostEffectParams_ToneMap tonemapParams;
+	tonemapParams.mfExposure = 1.0f;
+	tonemapParams.mfShadowLift = 1.0f;
+	tonemapParams.mfGamma = gpBase->mpConfigHandler->GetGamma();
+	mpPostEffect_ToneMap->SetParams(&tonemapParams);
 }
 
 //-----------------------------------------------------------------------

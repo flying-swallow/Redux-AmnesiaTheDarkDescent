@@ -100,6 +100,9 @@ public:
 
 	cViewport* GetViewport(){ return mpViewport;}
 
+	// Re-push the config gamma (cLuxConfigHandler) onto the live tonemap effect.
+	void RefreshToneMapGamma();
+
 	const tString& GetMapFolder(){ return msMapFolder;}
 	void SetMapFolder(const tString& asFolder){ msMapFolder = asFolder;}
 
