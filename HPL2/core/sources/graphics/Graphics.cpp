@@ -60,7 +60,6 @@
 #include "graphics/PostEffect_RadialBlur.h"
 
 #include "graphics/DebugDraw.h"
-#include "graphics/RendererDeferred.h"
 #include "graphics/RendererWireFrame.h"
 #include "graphics/RendererSimple.h"
 #include "graphics/RIScratchAlloc.h"
@@ -171,18 +170,18 @@ namespace hpl {
 		backendInit.vk.enableValidationLayer = false;
 #endif
 
-		if(InitRIRenderer(&backendInit, &RI.renderer) != RI_SUCCESS) {
+		if(RI.renderer.init(&backendInit) != RI_SUCCESS) {
 			return false;
 		}
 
 		uint32_t numAdapters = 0;
-		if( EnumerateRIAdapters( &RI.renderer, NULL, &numAdapters ) != RI_SUCCESS ) {
+		if( RI.renderer.enumerateAdapters( NULL, &numAdapters ) != RI_SUCCESS ) {
 			return false;
 		}
 		assert(numAdapters > 0);
 		std::vector<RIPhysicalAdapter_s> physicalAdapters(numAdapters);
 
-		if(EnumerateRIAdapters(&RI.renderer, physicalAdapters.data(), &numAdapters) != RI_SUCCESS) {
+		if(RI.renderer.enumerateAdapters(physicalAdapters.data(), &numAdapters) != RI_SUCCESS) {
 			return false;
 		}
 		uint32_t selectedAdapterIdx = 0;
@@ -202,7 +201,7 @@ namespace hpl {
 		}
 		struct RIDeviceDesc_s deviceInit = { 0 };
 		deviceInit.physicalAdapter = &physicalAdapters[selectedAdapterIdx];
-		InitRIDevice(&RI.renderer, &deviceInit, &RI.device );
+		RI.device.init(&RI.renderer, &deviceInit );
 		RI_InitResourceUploader(&RI.device, &RI.uploader);
 		struct RIWindowHandle_s windowHandle = mpLowLevelGraphics->GetWindowHandle(); 
 		if(windowHandle.type == RI_WINDOW_UNKNOWN) {
@@ -243,7 +242,7 @@ namespace hpl {
 		}
 
 		struct RIQueue_s *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
-		InitRICommandRingBuffer( &RI.device, graphicsQueue, &RI.graphicsCmdRing,
+		RI.graphicsCmdRing.init( &RI.device, graphicsQueue,
 		                         RI_NUMBER_FRAMES_FLIGHT, RI_NUMBER_SUB_COMMANDS, true );
 		for(auto& set: RI.frameSets) {
 			struct RIScratchAllocDesc_s uboDesc = {
@@ -263,9 +262,9 @@ namespace hpl {
 		}
 		}
 		{
-			struct RICommandRingElement_s initElem = GetRICommandRingElement( &RI.device, &RI.graphicsCmdRing, 1 );
-			ResetRIPool( &RI.device, initElem.pool );
-			BeginRICmd( &RI.device, &initElem.cmds[0] );
+			struct RICommandRingElement_s initElem = RI.graphicsCmdRing.acquire( &RI.device, 1 );
+			initElem.pool->reset( &RI.device );
+			initElem.cmds[0].begin( &RI.device );
 
 			VkBuffer whiteUploadStaging = VK_NULL_HANDLE;
 			VmaAllocation whiteUploadStagingAlloc = VK_NULL_HANDLE;
@@ -357,7 +356,7 @@ namespace hpl {
 				RI.whiteTexture2DBinding.texture = &RI.whiteTexture2D;
 				RI.whiteTexture2DBinding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 				RI.whiteTexture2DBinding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				RIFinalizeDescriptor(&RI.device, &RI.whiteTexture2DBinding);
+				RI.whiteTexture2DBinding.finalize(&RI.device);
 			}
 
 			// Zero-filled vertex buffer — small mapped buffer, never modified after init.
@@ -429,7 +428,7 @@ namespace hpl {
 				}
 			}
 
-			EndRICmd( &RI.device, &initElem.cmds[0] );
+			initElem.cmds[0].end( &RI.device );
 
 			VkCommandBufferSubmitInfo cmdSubmitInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
 			cmdSubmitInfo.commandBuffer = initElem.cmds[0].vk.cmd;
@@ -440,7 +439,7 @@ namespace hpl {
 
 			VK_WrapResult( vkResetFences( RI.device.vk.device, 1, &initElem.vk.fence ) );
 			VK_WrapResult( vkQueueSubmit2( RI.device.queues[RI_QUEUE_GRAPHICS].vk.queue, 1, &submitInfo, initElem.vk.fence ) );
-			WaitRIQueueIdle(&RI.device, &RI.device.queues[RI_QUEUE_GRAPHICS]);
+			RI.device.queues[RI_QUEUE_GRAPHICS].waitIdle(&RI.device);
 
 			if (whiteUploadStaging != VK_NULL_HANDLE) {
 				vmaDestroyBuffer(RI.device.vk.vmaAllocator, whiteUploadStaging, whiteUploadStagingAlloc);

@@ -16,16 +16,16 @@
 #include <vulkan/vulkan_core.h>
 
 namespace hpl {
-void HPLTexture::HPLTexture_Delete(HPLTexture *texture) {
-  // Defer GPU resource destruction to the next time this frame slot is
-  // reused — by then the ring fence has signaled and the GPU is done with
-  // anything that referenced this texture.
-  RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
-  cntx->freelist.push_back(RIFree(texture->binding.vk.image.imageView));
-  cntx->freelist.push_back(RIFree(texture->handle.vk.image));
-  cntx->freelist.push_back(RIFree(texture->vk.vmaAlloc));
-  delete texture;
+HPLTexture::~HPLTexture() {
+  // Free the GPU resources directly — no freelist deferral needed. Every
+  // frame that samples this texture parks a shared_ptr in that frame set's
+  // resourceLink, and BeginActiveSet waits the ring fence before clearing it,
+  // so by the time the last reference drops the GPU is done with the texture.
+  binding.dispose(&RI.device); // owned image view (RI_VK_DESC_OWN_IMAGE_VIEW)
+  handle.dispose(&RI.device);  // image + VMA allocation
 }
+
+void HPLTexture::HPLTexture_Delete(HPLTexture *texture) { delete texture; }
 
 RI_Format from_hpl_format(ePixelFormat format) {
   switch (format) {
@@ -373,7 +373,7 @@ bool HPLTexture::LoadBitmap(
 		VK_IMAGE_ASPECT_COLOR_BIT, 0, std::max<uint32_t>(info.mipLevels, 1), 0, info.arrayLayers,
 	};
 	VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-	if(!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &info, &memReqs, &handle.vk.image, &vk.vmaAlloc, NULL))) {
+	if(!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &info, &memReqs, &handle.vk.image, &handle.vk.allocation, NULL))) {
 	  return false;
 	}
 
@@ -399,7 +399,7 @@ bool HPLTexture::LoadBitmap(
 	binding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 	binding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 	VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &binding.vk.image.imageView ) );
-	RIFinalizeDescriptor( &RI.device, &binding );
+	binding.finalize(&RI.device);
 	
 	setDebugName(bitmap.GetFileName());
   RI_Format sourceFormat = from_hpl_format(bitmap.GetPixelFormat());

@@ -48,22 +48,6 @@ private:
 
 //----------------------------------------------
 
-class cLuxDebugRenderCallback : public iRendererCallback
-{
-public:
-	cLuxDebugRenderCallback();
-
-	void OnPostSolidDraw(cRendererCallbackFunctions* apFunctions);
-
-	void OnPostTranslucentDraw(cRendererCallbackFunctions* apFunctions);
-
-	iPhysicsWorld* mpPhysicsWorld;
-	iLowLevelGraphics* mpLowLevelGfx;
-};
-
-
-//----------------------------------------------
-
 class cLuxMapHandler_ChangeMap
 {
 public:
@@ -99,7 +83,7 @@ public:
 
 	void SetUpdateActive(bool abX);
 	
-	void RenderSolid(cRendererCallbackFunctions* apFunctions);
+	void RenderSolid(DebugDraw* apDebugDraw);
 
 	void OnEnterContainer(const tString& asOldContainer);
 	void OnLeaveContainer(const tString& asNewContainer);
@@ -148,7 +132,11 @@ private:
 
 	void CheckMapChange(float afTimeStep);
 
-	cLuxDebugRenderCallback mRenderCallback;
+	// RI path: debug overlays are enqueued into the global DebugDraw batcher
+	// right before the renderer Draw — the Hybrid renderer never runs
+	// iRendererCallback messages. Handler auto-disconnects on destruction.
+	void OnPreWorldDraw();
+	EventHandler<> mPreWorldDrawHandler;
 
 	tString msMapFolder;
 

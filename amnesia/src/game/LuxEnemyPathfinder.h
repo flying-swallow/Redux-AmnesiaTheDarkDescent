@@ -72,7 +72,7 @@ public:
 
 	//////////////////////
 	//Debug
-	void OnRenderSolid(cRendererCallbackFunctions* apFunctions);
+	void OnRenderSolid(DebugDraw* apDebugDraw);
 	
 	//////////////////////
 	//Save data stuff

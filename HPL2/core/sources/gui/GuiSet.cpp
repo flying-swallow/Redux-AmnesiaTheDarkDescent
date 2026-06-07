@@ -566,8 +566,7 @@ namespace hpl {
 		  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 		  
 			if( RI.guiVertexBuffer.vk.buffer) {
-				cntx->freelist.push_back(RIFree(RI.guiVertexBuffer.vk.buffer));
-				cntx->freelist.push_back(RIFree(RI.guiVertexBuffer.vk.allocation));
+				cntx->freelist.push_back(RI.guiVertexBuffer);
 			}
 			VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &vertexBufferCreateInfo, &allocInfo, &RI.guiVertexBuffer.vk.buffer, &RI.guiVertexBuffer.vk.allocation, &allocationInfo ) );
 			RI.guiVertexBuffer.mappedAddress = allocationInfo.pMappedData;
@@ -597,8 +596,7 @@ namespace hpl {
 		  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 			
 			if( RI.guiIndexBuffer.vk.buffer) {
-				cntx->freelist.push_back(RIFree(RI.guiIndexBuffer.vk.buffer));
-				cntx->freelist.push_back(RIFree(RI.guiIndexBuffer.vk.allocation));
+				cntx->freelist.push_back(RI.guiIndexBuffer);
 			}
 
 			VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &indexBufferCreateInfo, &allocInfo, &RI.guiIndexBuffer.vk.buffer, &RI.guiIndexBuffer.vk.allocation, &allocationInfo ) );
@@ -717,7 +715,7 @@ namespace hpl {
 			struct RIProgram::DescriptorBinding bindings[6] = {};
 			size_t numBindings = 0;
 			// Resolve the diffuse texture, pin its lifetime to this frame
-			// slot BEFORE we touch any of its Vulkan handles. textureLink
+			// slot BEFORE we touch any of its Vulkan handles. resourceLink
 			// holds the shared_ptr until next reuse of this frame slot
 			// (after the fence wait in BeginActiveSet), so the VkImage
 			// stays alive past the submit that references it.
@@ -726,7 +724,7 @@ namespace hpl {
 				diffuseTexture = pTexture->GetTexture();
 			}
 			if (diffuseTexture) {
-				cntx->textureLink.push_back(diffuseTexture);
+				cntx->resourceLink.push_back(diffuseTexture);
 				uniformBlock.textureCfg |= (1 << 0); // Has texture
 				bindings[numBindings].descriptor = diffuseTexture->binding;
 			} else {

@@ -139,13 +139,6 @@ namespace hpl {
 		
 
 		//////////////////////////////
-		// If objects uses occlusion queries, add it as such
-		if(apObject->UsesOcclusionQuery())
-		{
-			mvOcclusionQueryObjects.push_back(apObject);
-		}
-        
-		//////////////////////////////
 		// Light, add to special list
 		if(renderType == eRenderableType_Light)
 		{
@@ -214,7 +207,6 @@ namespace hpl {
 		// Use resize instead of clear, because that way capacity is preserved and allocation is never 
 		// needed unless there is a need to increase the vector size.
 
-		mvOcclusionQueryObjects.resize(0);
 		mvTransObjects.resize(0);
 		mvDecalObjects.resize(0);
 		mvSolidObjects.resize(0);
@@ -272,13 +264,6 @@ namespace hpl {
 	cRenderableVecIterator cRenderList::GetArrayIterator(eRenderListType aType)
 	{
 		return cRenderableVecIterator(&mvSortedArrays[aType]);
-	}
-
-	//-----------------------------------------------------------------------
-
-	cRenderableVecIterator cRenderList::GetOcclusionQueryObjectIterator()
-	{
-		return cRenderableVecIterator(&mvOcclusionQueryObjects);
 	}
 
 	//-----------------------------------------------------------------------

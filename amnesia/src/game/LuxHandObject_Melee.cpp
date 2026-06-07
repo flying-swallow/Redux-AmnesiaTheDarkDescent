@@ -48,18 +48,18 @@ cLuxHandObject_Melee::~cLuxHandObject_Melee()
 
 //-----------------------------------------------------------------------
 
-void cLuxHandObject_Melee::RenderSolid(cRendererCallbackFunctions* apFunctions)
+void cLuxHandObject_Melee::RenderSolid(DebugDraw* apDebugDraw)
 {
 	/*cCamera *pCam = gpBase->mpPlayer->GetCamera();
 
 	cVector3f vRotation(pCam->GetPitch(), pCam->GetYaw(), pCam->GetRoll());
 	cMatrixf mtxHands = cMath::MatrixRotate(vRotation, eEulerRotationOrder_XYZ);
 	mtxHands.SetTranslation(pCam->GetPosition());
-	
+
 	cBoundingVolume shapeBV =  mpCollideShape->GetBoundingVolume();
 	shapeBV.SetTransform(cMath::MatrixMul(mtxHands, shapeBV.GetTransform()));
-	
-	apFunctions->GetLowLevelGfx()->DrawBoxMinMax(shapeBV.GetMin(), shapeBV.GetMax(), cColor(1,1));*/
+
+	apDebugDraw->DebugDrawBoxMinMax(shapeBV.GetMin(), shapeBV.GetMax(), cColor(1,1));*/
 }
 
 //-----------------------------------------------------------------------

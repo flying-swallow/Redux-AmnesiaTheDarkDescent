@@ -156,7 +156,6 @@ namespace hpl {
 
         // Use resize instead of clear, because that way capacity is preserved and allocation is never
         // needed unless there is a need to increase the vector size.
-        m_occlusionQueryObjects.resize(0);
         m_transObjects.resize(0);
         m_decalObjects.resize(0);
         m_solidObjects.resize(0);
@@ -368,12 +367,6 @@ namespace hpl {
         }
 
         //////////////////////////////
-        // If objects uses occlusion queries, add it as such
-        if (apObject->UsesOcclusionQuery()) {
-            m_occlusionQueryObjects.push_back(apObject);
-        }
-
-        //////////////////////////////
         // Light, add to special list
         if (renderType == eRenderableType_Light) {
             m_lights.push_back(static_cast<iLight*>(apObject));
@@ -418,7 +411,6 @@ namespace hpl {
         // Use resize instead of clear, because that way capacity is preserved and allocation is never
         // needed unless there is a need to increase the vector size.
 
-        m_occlusionQueryObjects.resize(0);
         m_transObjects.resize(0);
         m_decalObjects.resize(0);
         m_solidObjects.resize(0);
@@ -490,10 +482,6 @@ namespace hpl {
             return std::span<iRenderable*>();
         }
         return std::span<iRenderable*>(m_transObjects);
-    }
-
-    std::span<iRenderable*> cRenderList2::GetOcclusionQueryItems() {
-        return std::span<iRenderable*>(m_occlusionQueryObjects);
     }
 
     std::span<cFogArea*> cRenderList2::GetFogAreas() {

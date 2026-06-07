@@ -230,14 +230,13 @@ static bool __VK_SupportExtension(VkExtensionProperties *properties, size_t len,
 
 #endif
 
-int EnumerateRIAdapters(struct RIRenderer_s *renderer,
-                        struct RIPhysicalAdapter_s *adapters,
-                        uint32_t *numAdapters) {
+int RIRenderer_s::enumerateAdapters(struct RIPhysicalAdapter_s *adapters,
+                                    uint32_t *numAdapters) {
 #if (DEVICE_IMPL_VULKAN)
   {
     uint32_t deviceGroupNum = 0;
     if (!VK_WrapResult(vkEnumeratePhysicalDeviceGroups(
-            renderer->vk.instance, &deviceGroupNum, NULL))) {
+            vk.instance, &deviceGroupNum, NULL))) {
       return RI_FAIL;
     }
 
@@ -250,7 +249,7 @@ int EnumerateRIAdapters(struct RIRenderer_s *renderer,
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_GROUP_PROPERTIES;
       }
       if (!VK_WrapResult(vkEnumeratePhysicalDeviceGroups(
-              renderer->vk.instance, &deviceGroupNum,
+              vk.instance, &deviceGroupNum,
               physicalDeviceGroupProperties))) {
         free(physicalDeviceGroupProperties);
         return RI_FAIL;
@@ -776,11 +775,11 @@ __VK_findQueueCreateInfo(VkDeviceQueueCreateInfo *queues, size_t numQueues,
   return NULL;
 }
 
-int InitRIDevice(struct RIRenderer_s *renderer, struct RIDeviceDesc_s *init,
-                 struct RIDevice_s *device) {
-  assert(device);
+int RIDevice_s::init(struct RIRenderer_s *renderer,
+                     struct RIDeviceDesc_s *init) {
   assert(init->physicalAdapter);
-  memset(device, 0, sizeof(struct RIDevice_s));
+  memset(this, 0, sizeof(*this));
+  struct RIDevice_s *device = this; // body below predates the method form
 
   enum RIResult_e riResult = RI_SUCCESS;
   struct RIPhysicalAdapter_s *physicalAdapter = init->physicalAdapter;
@@ -1335,10 +1334,9 @@ int InitRIDevice(struct RIRenderer_s *renderer, struct RIDeviceDesc_s *init,
   return riResult;
 }
 
-int InitRIRenderer(const struct RIBackendInit_s *init,
-                   struct RIRenderer_s *renderer) {
-  memset(renderer, 0, sizeof(struct RIRenderer_s));
-  renderer->api = init->api;
+int RIRenderer_s::init(const struct RIBackendInit_s *init) {
+  memset(this, 0, sizeof(*this));
+  api = init->api;
 #if (DEVICE_IMPL_VULKAN)
   {
     volkInitialize();
@@ -1352,7 +1350,7 @@ int InitRIRenderer(const struct RIBackendInit_s *init,
     appInfo.engineVersion = VK_MAKE_VERSION(1, 0, 0);
     appInfo.apiVersion = VK_API_VERSION_1_3;
 
-    renderer->vk.apiVersion = appInfo.apiVersion;
+    vk.apiVersion = appInfo.apiVersion;
 
     // GPU-Assisted Validation is enabled here to localize the surfel-branch
     // GPUVM read fault (TCP client, RW:0, high BDA-range address): with GPU-AV
@@ -1494,17 +1492,17 @@ int InitRIRenderer(const struct RIBackendInit_s *init,
     }
 
     VkResult result =
-        vkCreateInstance(&instanceCreateInfo, NULL, &renderer->vk.instance);
+        vkCreateInstance(&instanceCreateInfo, NULL, &vk.instance);
     free(layerProperties);
     free(extProperties);
     if (!VK_WrapResult(result)) {
       return RI_FAIL;
     }
-    volkLoadInstance(renderer->vk.instance);
+    volkLoadInstance(vk.instance);
     if (init->vk.enableValidationLayer && vkCreateDebugUtilsMessengerEXT) {
       VkDebugUtilsMessengerCreateInfoEXT createInfo = {
           VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
-      createInfo.pUserData = renderer;
+      createInfo.pUserData = this;
       createInfo.pfnUserCallback = __VK_DebugUtilsMessenger;
 
       createInfo.messageSeverity =
@@ -1517,65 +1515,65 @@ int InitRIRenderer(const struct RIBackendInit_s *init,
       createInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                                VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
       createInfo.messageType |= VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-      vkCreateDebugUtilsMessengerEXT(renderer->vk.instance, &createInfo, NULL,
-                                     &renderer->vk.debugMessageUtils);
+      vkCreateDebugUtilsMessengerEXT(vk.instance, &createInfo, NULL,
+                                     &vk.debugMessageUtils);
     }
   }
 #endif
   return RI_SUCCESS;
 }
 
-void RIFinalizeDescriptor(struct RIDevice_s *dev, struct RIDescriptor_s *desc) {
+void RIDescriptor_s::finalize(struct RIDevice_s *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
-    switch (desc->vk.type) {
+    switch (vk.type) {
     case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
     case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE: {
       // For sampled/storage images Vulkan ignores the sampler field of
       // VkDescriptorImageInfo; hashing it wastes entropy and is a foot-gun
-      // if any caller leaves it uninitialised. desc->texture is optional:
+      // if any caller leaves it uninitialised. texture is optional:
       // callers may attach a long-lived RITexture_s, or fill the inline
       // vk.image.imageView directly (e.g. per-pass compute pushes).
-      assert(desc->vk.image.imageView);
-      hash_t cookie = hash_u64(HASH_INITIAL_VALUE, desc->vk.type);
-      cookie = hash_u64(cookie, (uint64_t)desc->vk.image.imageView);
-      cookie = hash_u32(cookie, (uint32_t)desc->vk.image.imageLayout);
-      desc->cookie = cookie;
+      assert(vk.image.imageView);
+      hash_t hash = hash_u64(HASH_INITIAL_VALUE, vk.type);
+      hash = hash_u64(hash, (uint64_t)vk.image.imageView);
+      hash = hash_u32(hash, (uint32_t)vk.image.imageLayout);
+      cookie = hash;
       break;
     }
     case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER: {
       // Sampler MATTERS for this type (unlike SAMPLED/STORAGE_IMAGE);
       // the combined-sampler binding uses both view and sampler.
-      assert(desc->vk.image.imageView);
-      assert(desc->vk.image.sampler);
-      hash_t cookie = hash_u64(HASH_INITIAL_VALUE, desc->vk.type);
-      cookie = hash_u64(cookie, (uint64_t)desc->vk.image.imageView);
-      cookie = hash_u64(cookie, (uint64_t)desc->vk.image.sampler);
-      cookie = hash_u32(cookie, (uint32_t)desc->vk.image.imageLayout);
-      desc->cookie = cookie;
+      assert(vk.image.imageView);
+      assert(vk.image.sampler);
+      hash_t hash = hash_u64(HASH_INITIAL_VALUE, vk.type);
+      hash = hash_u64(hash, (uint64_t)vk.image.imageView);
+      hash = hash_u64(hash, (uint64_t)vk.image.sampler);
+      hash = hash_u32(hash, (uint32_t)vk.image.imageLayout);
+      cookie = hash;
       break;
     }
     case VK_DESCRIPTOR_TYPE_SAMPLER:
-      desc->cookie = hash_data(hash_u64(HASH_INITIAL_VALUE, desc->vk.type),
-                               &desc->vk.image, sizeof(desc->vk.image));
+      cookie = hash_data(hash_u64(HASH_INITIAL_VALUE, vk.type), &vk.image,
+                         sizeof(vk.image));
       break;
     case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
     case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-      assert(desc->buffer);
-      desc->vk.buffer.buffer = desc->buffer->vk.buffer;
-      desc->cookie = hash_data(hash_u64(HASH_INITIAL_VALUE, desc->vk.type),
-                               &desc->vk.buffer, sizeof(desc->vk.buffer));
+      assert(buffer);
+      vk.buffer.buffer = buffer->vk.buffer;
+      cookie = hash_data(hash_u64(HASH_INITIAL_VALUE, vk.type), &vk.buffer,
+                         sizeof(vk.buffer));
       break;
     case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
-      // desc->accelStructure is optional: callers may attach a
+      // accelStructure is optional: callers may attach a
       // long-lived RIAccelStructure_s, or fill the inline
       // vk.accelStructure handle directly (per-pass compute pushes).
-      if (desc->accelStructure) {
-        desc->vk.accelStructure = desc->accelStructure->vk.handle;
+      if (accelStructure) {
+        vk.accelStructure = accelStructure->vk.handle;
       }
-      assert(desc->vk.accelStructure);
-      desc->cookie = hash_u64(hash_u64(HASH_INITIAL_VALUE, desc->vk.type),
-                              (uint64_t)desc->vk.accelStructure);
+      assert(vk.accelStructure);
+      cookie = hash_u64(hash_u64(HASH_INITIAL_VALUE, vk.type),
+                        (uint64_t)vk.accelStructure);
       break;
     default:
       assert(false);
@@ -1585,16 +1583,16 @@ void RIFinalizeDescriptor(struct RIDevice_s *dev, struct RIDescriptor_s *desc) {
 #endif
 }
 
-void FreeRIDescriptor(struct RIDevice_s *dev, struct RIDescriptor_s *desc) {
+void RIDescriptor_s::dispose(struct RIDevice_s *device) {
 #if (DEVICE_IMPL_VULKAN)
-  switch (desc->vk.type) {
+  switch (vk.type) {
   case VK_DESCRIPTOR_TYPE_SAMPLER:
   case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
   case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
-    if (desc->vk.image.sampler && (desc->flags & RI_VK_DESC_OWN_SAMPLER))
-      vkDestroySampler(dev->vk.device, desc->vk.image.sampler, NULL);
-    if (desc->vk.image.imageView && (desc->flags & RI_VK_DESC_OWN_IMAGE_VIEW))
-      vkDestroyImageView(dev->vk.device, desc->vk.image.imageView, NULL);
+    if (vk.image.sampler && (flags & RI_VK_DESC_OWN_SAMPLER))
+      vkDestroySampler(device->vk.device, vk.image.sampler, NULL);
+    if (vk.image.imageView && (flags & RI_VK_DESC_OWN_IMAGE_VIEW))
+      vkDestroyImageView(device->vk.device, vk.image.imageView, NULL);
     break;
   case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
   case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
@@ -1603,123 +1601,87 @@ void FreeRIDescriptor(struct RIDevice_s *dev, struct RIDescriptor_s *desc) {
     break;
   }
 #endif
-
-  memset(desc, 0, sizeof(struct RIDescriptor_s));
+  // Leave the descriptor zeroed/empty — pooled slots (cachedFilters) are
+  // probed with isEmpty(), which needs the cookie cleared.
+  memset(this, 0, sizeof(*this));
 }
 
-void FreeRIFree(struct RIDevice_s *dev, struct RIFree *mem) {
-  assert(free);
-  switch (mem->type) {
-#if (DEVICE_IMPL_VULKAN)
-  case RI_FREE_VK_IMAGE:
-    vkDestroyImage(dev->vk.device, mem->vkImage, NULL);
-    break;
-  case RI_FREE_VK_IMAGEVIEW:
-    vkDestroyImageView(dev->vk.device, mem->vkImageView, NULL);
-    break;
-  case RI_FREE_VK_SAMPLER:
-    vkDestroySampler(dev->vk.device, mem->vkSampler, NULL);
-    break;
-  case RI_FREE_VK_VMA_AllOC:
-    vmaFreeMemory(dev->vk.vmaAllocator, mem->vmaAlloc);
-    break;
-  case RI_FREE_VK_BUFFER:
-    vkDestroyBuffer(dev->vk.device, mem->vkBuffer, NULL);
-    break;
-  case RI_FREE_VK_BUFFER_VIEW:
-    vkDestroyBufferView(dev->vk.device, mem->vkBufferView, NULL);
-    break;
-  case RI_FREE_VK_ACCELERATION_STRUCTURE:
-    if (mem->vkAccelStructure) {
-      vkDestroyAccelerationStructureKHR(dev->vk.device, mem->vkAccelStructure,
-                                        NULL);
-    }
-    break;
-#endif
-  default:
-    assert(false); // invalid type to free
-    break;
-  }
-}
-
-void FreeRITexture(struct RIDevice_s *dev, struct RITexture_s *tex) {
+void RITexture_s::dispose(struct RIDevice_s *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
-    if (tex->vk.image) {
-      if (tex->vk.allocation) {
-        vmaDestroyImage(dev->vk.vmaAllocator, tex->vk.image,
-                        tex->vk.allocation);
-        tex->vk.allocation = NULL;
+    if (vk.image) {
+      if (vk.allocation) {
+        vmaDestroyImage(device->vk.vmaAllocator, vk.image, vk.allocation);
+        vk.allocation = NULL;
       } else {
-        vkDestroyImage(dev->vk.device, tex->vk.image, NULL);
+        vkDestroyImage(device->vk.device, vk.image, NULL);
       }
-      tex->vk.image = NULL;
+      vk.image = NULL;
     }
   }
 #endif
 }
 
-void FreeRITextureView(struct RIDevice_s *dev, struct RITextureView_s *view) {
+void RITextureView_s::dispose(struct RIDevice_s *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
-    if (view->vk.image) {
-      vkDestroyImageView(dev->vk.device, view->vk.image, NULL);
-      view->vk.image = VK_NULL_HANDLE;
+    if (vk.image) {
+      vkDestroyImageView(device->vk.device, vk.image, NULL);
+      vk.image = VK_NULL_HANDLE;
     }
   }
 #endif
-  memset(view, 0, sizeof(struct RITextureView_s));
+  memset(this, 0, sizeof(*this));
 }
 
-struct RITextureView_s TextureviewRIDescriptor(struct RIDescriptor_s *desc) {
+struct RITextureView_s RIDescriptor_s::textureView() const {
   struct RITextureView_s res = {};
 #if (DEVICE_IMPL_VULKAN)
-  if (desc->vk.type == VK_DESCRIPTOR_TYPE_SAMPLER ||
-      desc->vk.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ||
-      desc->vk.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) {
-    res.vk.image = desc->vk.image.imageView;
+  if (vk.type == VK_DESCRIPTOR_TYPE_SAMPLER ||
+      vk.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ||
+      vk.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) {
+    res.vk.image = vk.image.imageView;
   }
 #endif
   return res;
 }
 
-void InitRIPool(struct RIDevice_s *dev, struct RIPool_s *pool,
-                struct RIQueue_s *queue) {
+void RIPool_s::init(struct RIDevice_s *device, struct RIQueue_s *queue) {
 #if (DEVICE_IMPL_VULKAN)
   {
     VkCommandPoolCreateInfo cmdPoolCreateInfo = {
         VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     cmdPoolCreateInfo.queueFamilyIndex = queue->vk.queueFamilyIdx;
     cmdPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    VK_WrapResult(vkCreateCommandPool(dev->vk.device, &cmdPoolCreateInfo, NULL,
-                                      &pool->vk.pool));
-    pool->vk.queue = queue->vk.queue;
+    VK_WrapResult(vkCreateCommandPool(device->vk.device, &cmdPoolCreateInfo,
+                                      NULL, &vk.pool));
+    vk.queue = queue->vk.queue;
     return;
   }
 #endif
   assert(false);
 }
 
-void FreeRIPool(struct RIDevice_s *dev, struct RIPool_s *pool) {
+void RIPool_s::dispose(struct RIDevice_s *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
-    vkDestroyCommandPool(dev->vk.device, pool->vk.pool, NULL);
+    vkDestroyCommandPool(device->vk.device, vk.pool, NULL);
+    vk.pool = VK_NULL_HANDLE;
     return;
   }
 #endif
   assert(false);
 }
 
-void ResetRIPool(struct RIDevice_s *dev, struct RIPool_s *pool) {
+void RIPool_s::reset(struct RIDevice_s *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
-    VK_WrapResult(vkResetCommandPool(dev->vk.device, pool->vk.pool, 0));
+    VK_WrapResult(vkResetCommandPool(device->vk.device, vk.pool, 0));
   }
 #endif
 }
 
-void InitRICmd(struct RIDevice_s *dev, struct RIPool_s *pool,
-               struct RICmd_s *cmd) {
+void RICmd_s::init(struct RIDevice_s *device, struct RIPool_s *pool) {
 #if (DEVICE_IMPL_VULKAN)
   {
     VkCommandBufferAllocateInfo command_allocate_info = {
@@ -1727,89 +1689,87 @@ void InitRICmd(struct RIDevice_s *dev, struct RIPool_s *pool,
     command_allocate_info.commandPool = pool->vk.pool;
     command_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     command_allocate_info.commandBufferCount = 1;
-    VK_WrapResult(vkAllocateCommandBuffers(
-        dev->vk.device, &command_allocate_info, &cmd->vk.cmd));
-    cmd->vk.pool = pool->vk.pool;
+    VK_WrapResult(vkAllocateCommandBuffers(device->vk.device,
+                                           &command_allocate_info, &vk.cmd));
+    vk.pool = pool->vk.pool;
     return;
   }
 #endif
 }
 
-void BeginRICmd(struct RIDevice_s *dev, struct RICmd_s *cmd) {
+void RICmd_s::begin(struct RIDevice_s *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
     VkCommandBufferBeginInfo info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    VK_WrapResult(vkBeginCommandBuffer(cmd->vk.cmd, &info));
+    VK_WrapResult(vkBeginCommandBuffer(vk.cmd, &info));
     return;
   }
 #endif
 }
 
-void EndRICmd(struct RIDevice_s *dev, struct RICmd_s *cmd) {
+void RICmd_s::end(struct RIDevice_s *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
-    VK_WrapResult(vkEndCommandBuffer(cmd->vk.cmd));
+    VK_WrapResult(vkEndCommandBuffer(vk.cmd));
     return;
   }
 #endif
 }
 
-void WaitRICommandRingElement(struct RIDevice_s *dev,
-                              struct RICommandRingElement_s *element) {
+void RICommandRingElement_s::wait(struct RIDevice_s *device) {
 #if (DEVICE_IMPL_VULKAN)
-  if (element->vk.fence) {
-    VK_WrapResult(vkWaitForFences(dev->vk.device, 1, &element->vk.fence,
-                                  VK_TRUE, UINT64_MAX));
+  if (vk.fence) {
+    VK_WrapResult(
+        vkWaitForFences(device->vk.device, 1, &vk.fence, VK_TRUE, UINT64_MAX));
   }
 #endif
 }
 
-void FreeRICmd(struct RIDevice_s *dev, struct RICmd_s *cmd) {
-  assert(cmd->vk.pool);
-  assert(cmd->vk.cmd);
+void RICmd_s::dispose(struct RIDevice_s *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
-    if (cmd->vk.cmd) {
-      vkFreeCommandBuffers(dev->vk.device, cmd->vk.pool, 1, &cmd->vk.cmd);
+    if (vk.cmd) {
+      vkFreeCommandBuffers(device->vk.device, vk.pool, 1, &vk.cmd);
     }
-    cmd->vk.cmd = VK_NULL_HANDLE;
-    cmd->vk.pool = VK_NULL_HANDLE;
+    vk.cmd = VK_NULL_HANDLE;
+    vk.pool = VK_NULL_HANDLE;
   }
+#endif
+}
+
+void RIRenderer_s::dispose() {
+#if (DEVICE_IMPL_VULKAN)
+  if (vk.debugMessageUtils)
+    vkDestroyDebugUtilsMessengerEXT(vk.instance, vk.debugMessageUtils, NULL);
+  vkDestroyInstance(vk.instance, NULL);
 #endif
 }
 
 void ShutdownRIRenderer(struct RIRenderer_s *renderer) {
 #if (DEVICE_IMPL_VULKAN)
-  if (renderer->vk.debugMessageUtils)
-    vkDestroyDebugUtilsMessengerEXT(renderer->vk.instance,
-                                    renderer->vk.debugMessageUtils, NULL);
-  vkDestroyInstance(renderer->vk.instance, NULL);
+  renderer->dispose();
   volkFinalize();
 #endif
 }
 
-void WaitRIQueueIdle(struct RIDevice_s *device, struct RIQueue_s *queue) {
+void RIQueue_s::waitIdle(struct RIDevice_s *device) {
 #if (DEVICE_IMPL_VULKAN)
-  VK_WrapResult(vkQueueWaitIdle(queue->vk.queue));
+  VK_WrapResult(vkQueueWaitIdle(vk.queue));
 #endif
 }
 
-int FreeRIDevice(struct RIDevice_s *dev) {
+void RIDevice_s::dispose() {
 #if (DEVICE_IMPL_VULKAN)
-  assert(dev);
-  assert(dev->vk.vmaAllocator);
-  assert(dev->vk.device);
+  if (vk.vmaAllocator)
+    vmaDestroyAllocator(vk.vmaAllocator);
+  if (vk.device)
+    vkDestroyDevice(vk.device, NULL);
 
-  if (dev->vk.vmaAllocator)
-    vmaDestroyAllocator(dev->vk.vmaAllocator);
-  vkDestroyDevice(dev->vk.device, NULL);
-
-  dev->vk.device = NULL;
-  dev->vk.vmaAllocator = NULL;
+  vk.device = NULL;
+  vk.vmaAllocator = NULL;
 #endif
-  return 0;
 }
 
 // =================================================================================================
@@ -1898,14 +1858,12 @@ static void RI_VK_FillGeometry(struct RIDevice_s *dev,
 
 #endif // DEVICE_IMPL_VULKAN
 
-void GetRIAccelStructureMemoryReqs(struct RIDevice_s *dev,
-                                   const struct RIAccelStructureDesc_s *desc,
-                                   uint64_t *outStorageSize,
-                                   uint64_t *outBuildScratchSize,
-                                   uint64_t *outUpdateScratchSize) {
+void RIAccelStructureDesc_s::getMemoryReqs(
+    struct RIDevice_s *dev, uint64_t *outStorageSize,
+    uint64_t *outBuildScratchSize, uint64_t *outUpdateScratchSize) const {
 #if (DEVICE_IMPL_VULKAN)
   assert(dev);
-  assert(desc);
+  const struct RIAccelStructureDesc_s *desc = this;
 
   VkAccelerationStructureBuildGeometryInfoKHR buildInfo = {
       VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
@@ -1966,20 +1924,18 @@ void GetRIAccelStructureMemoryReqs(struct RIDevice_s *dev,
 #endif
 }
 
-int InitRIAccelStructure(struct RIDevice_s *dev,
-                         const struct RIAccelStructureDesc_s *desc,
-                         struct RIAccelStructure_s *outAS) {
+int RIAccelStructure_s::init(struct RIDevice_s *device,
+                             const struct RIAccelStructureDesc_s *desc) {
 #if (DEVICE_IMPL_VULKAN)
-  assert(dev);
+  assert(device);
   assert(desc);
-  assert(outAS);
   assert(desc->storage);
   assert(desc->storage->vk.buffer != VK_NULL_HANDLE);
   assert(desc->storageSize > 0);
 
-  outAS->type = desc->type;
-  outAS->flags = desc->flags;
-  // outAS->storageOffset = desc->storageOffset;
+  type = desc->type;
+  flags = desc->flags;
+  // storageOffset = desc->storageOffset;
 
   VkAccelerationStructureCreateInfoKHR createInfo = {
       VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR};
@@ -1988,16 +1944,16 @@ int InitRIAccelStructure(struct RIDevice_s *dev,
   createInfo.size = desc->storageSize;
   createInfo.type = RI_VK_AccelStructureType(desc->type);
 
-  VkResult res = vkCreateAccelerationStructureKHR(dev->vk.device, &createInfo,
-                                                  NULL, &outAS->vk.handle);
+  VkResult res = vkCreateAccelerationStructureKHR(device->vk.device,
+                                                  &createInfo, NULL, &vk.handle);
   if (!VK_WrapResult(res))
     return RI_FAIL;
 
   VkAccelerationStructureDeviceAddressInfoKHR addrInfo = {
       VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR};
-  addrInfo.accelerationStructure = outAS->vk.handle;
-  outAS->vk.deviceAddress =
-      vkGetAccelerationStructureDeviceAddressKHR(dev->vk.device, &addrInfo);
+  addrInfo.accelerationStructure = vk.handle;
+  vk.deviceAddress =
+      vkGetAccelerationStructureDeviceAddressKHR(device->vk.device, &addrInfo);
 
   return RI_SUCCESS;
 #else
@@ -2005,50 +1961,32 @@ int InitRIAccelStructure(struct RIDevice_s *dev,
 #endif
 }
 
-void FreeRIAccelStructure(struct RIDevice_s *dev,
-                          struct RIAccelStructure_s *as) {
+uint64_t RIAccelStructure_s::getDeviceAddress(struct RIDevice_s *device) const {
 #if (DEVICE_IMPL_VULKAN)
-  if (!dev || !as)
-    return;
-  if (as->vk.handle != VK_NULL_HANDLE) {
-    vkDestroyAccelerationStructureKHR(dev->vk.device, as->vk.handle, NULL);
-  }
-  // Storage buffer is caller-owned; we do not touch it here.
-  memset(as, 0, sizeof(*as));
-#endif
-}
-
-uint64_t GetRIAccelStructureDeviceAddress(struct RIDevice_s *dev,
-                                          const struct RIAccelStructure_s *as) {
-#if (DEVICE_IMPL_VULKAN)
-  (void)dev;
-  if (!as)
-    return 0;
-  return as->vk.deviceAddress;
+  (void)device;
+  return vk.deviceAddress;
 #else
   return 0;
 #endif
 }
 
-void RIFinalizeAccelStructureDescriptor(struct RIDevice_s *dev,
-                                        struct RIDescriptor_s *desc,
-                                        struct RIAccelStructure_s *as) {
+void RIDescriptor_s::finalize(struct RIDevice_s *device,
+                              struct RIAccelStructure_s *as) {
 #if (DEVICE_IMPL_VULKAN)
-  assert(desc);
   assert(as);
-  desc->accelStructure = as;
-  desc->vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-  RIFinalizeDescriptor(dev, desc);
+  accelStructure = as;
+  vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+  finalize(device);
 #endif
 }
 
-void CmdBuildRIBlas(struct RIDevice_s *dev, struct RICmd_s *cmd,
-                    const struct RIBuildBlasDesc_s *descs, uint32_t numDescs) {
+void RICmd_s::buildBlas(struct RIDevice_s *dev,
+                        const struct RIBuildBlasDesc_s *descs,
+                        uint32_t numDescs) {
 #if (DEVICE_IMPL_VULKAN)
   if (numDescs == 0)
     return;
   assert(dev);
-  assert(cmd);
   assert(descs);
 
   // Each build needs: a geometry array (one entry per BLAS geometry), a range
@@ -2068,7 +2006,7 @@ void CmdBuildRIBlas(struct RIDevice_s *dev, struct RICmd_s *cmd,
     const struct RIBuildBlasDesc_s *d = &descs[i];
     assert(d->dst);
     assert(d->dst->vk.handle !=
-           VK_NULL_HANDLE); // dst BLAS must be created (InitRIAccelStructure)
+           VK_NULL_HANDLE); // dst BLAS must be created (RIAccelStructure_s::init)
     assert(d->scratchBuffer);
     assert(d->geometryNum > 0);
     assert(d->geometries);
@@ -2122,18 +2060,18 @@ void CmdBuildRIBlas(struct RIDevice_s *dev, struct RICmd_s *cmd,
     }
   }
 
-  vkCmdBuildAccelerationStructuresKHR(cmd->vk.cmd, numDescs, buildInfos.data(),
+  vkCmdBuildAccelerationStructuresKHR(vk.cmd, numDescs, buildInfos.data(),
                                       rangePtrs.data());
 #endif
 }
 
-void CmdBuildRITlas(struct RIDevice_s *dev, struct RICmd_s *cmd,
-                    const struct RIBuildTlasDesc_s *descs, uint32_t numDescs) {
+void RICmd_s::buildTlas(struct RIDevice_s *dev,
+                        const struct RIBuildTlasDesc_s *descs,
+                        uint32_t numDescs) {
 #if (DEVICE_IMPL_VULKAN)
   if (numDescs == 0)
     return;
   assert(dev);
-  assert(cmd);
   assert(descs);
 
   std::vector<VkAccelerationStructureBuildGeometryInfoKHR> buildInfos(numDescs);
@@ -2201,7 +2139,7 @@ void CmdBuildRITlas(struct RIDevice_s *dev, struct RICmd_s *cmd,
     }
   }
 
-  vkCmdBuildAccelerationStructuresKHR(cmd->vk.cmd, numDescs, buildInfos.data(),
+  vkCmdBuildAccelerationStructuresKHR(vk.cmd, numDescs, buildInfos.data(),
                                       rangePtrs.data());
 #endif
 }

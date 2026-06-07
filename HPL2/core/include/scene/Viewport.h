@@ -64,7 +64,7 @@ bool CreateViewportColorTexture(struct RIDevice_s *device, uint32_t width,
                                 VkImageUsageFlags usage,
                                 struct RITexture_s *tex,
                                 struct RIDescriptor_s *desc, const char *what);
-void ReleaseViewportColorTexture(std::vector<struct RIFree> &freelist,
+void ReleaseViewportColorTexture(std::vector<RIFreeHandle> &freelist,
                                  struct RITexture_s *tex,
                                  struct RIDescriptor_s *desc);
 
@@ -76,7 +76,7 @@ bool CreateViewportAttachmentTexture(struct RIDevice_s *device, uint32_t width,
                                      struct RITexture_s *tex,
                                      struct RITextureView_s *view,
                                      const char *what);
-void ReleaseViewportAttachmentTexture(std::vector<struct RIFree> &freelist,
+void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
                                       struct RITexture_s *tex,
                                       struct RITextureView_s *view);
 

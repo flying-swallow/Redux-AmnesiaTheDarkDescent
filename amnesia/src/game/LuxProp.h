@@ -244,7 +244,7 @@ public:
 
 	void BeforeEntityDestruction();
 
-	virtual void OnRenderSolid(cRendererCallbackFunctions* apFunctions);
+	virtual void OnRenderSolid(DebugDraw* apDebugDraw);
     
 	//////////////////////
 	//Actions

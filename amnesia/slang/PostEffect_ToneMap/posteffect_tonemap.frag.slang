@@ -77,5 +77,5 @@ struct PSIn
 float4 psMain(PSIn pin) : SV_Target
 {
     float3 hdr = sourceInput.Sample(inputSampler, pin.v_uv).rgb * pc.exposure;
-    return float4(saturate(linearToSRGB(hdr)), 1.0f);   // display-encoded sRGB [0,1]
+    return float4(saturate(ACESFitted(linearToSRGB(hdr))), 1.0f);   // display-encoded sRGB [0,1]
 }

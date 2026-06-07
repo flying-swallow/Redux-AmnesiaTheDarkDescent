@@ -50,10 +50,15 @@ public:
   struct FrameContext {
     struct RIScratchAlloc_s uboScratchAlloc;
     struct RIScratchAlloc_s accelScratchAlloc;
-    std::vector<std::shared_ptr<HPLTexture>> textureLink; // keep track of textures that are used in this frame
-    std::vector<std::shared_ptr<RIBuffer_s>> bufferLink; 
-    std::vector<std::shared_ptr<RIAccelStructure_s>> accelLink;
-    std::vector<RIFree> freelist;
+    // Keep-alive refs for resources used this frame; cleared after the ring
+    // fence wait when the slot is reused, so by then the GPU is done with
+    // everything parked here. One vector for all resource kinds.
+    std::vector<std::variant<std::shared_ptr<HPLTexture>,
+                             std::shared_ptr<RIBuffer_s>,
+                             std::shared_ptr<RIAccelStructure_s>>> resourceLink;
+    // Deferred destroys: by-value copies of owned RI structs, disposed when
+    // the slot is reused (std::visit -> dispose in BeginActiveSet).
+    std::vector<RIFreeHandle> freelist;
   };
 
   RIRenderer_s renderer;

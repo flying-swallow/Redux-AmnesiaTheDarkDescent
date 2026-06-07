@@ -12,18 +12,13 @@ namespace hpl {
 struct RIBootstrap;
 class cBitmap;
 
-RI_Format to_image_supported_format(ePixelFormat format); 
+RI_Format to_image_supported_format(ePixelFormat format);
 
 struct HPLTexture {
 public:
+  // Image + its VMA allocation (handle.vk.allocation); handle.dispose()
+  // releases both.
   struct RITexture_s handle;
-  union {
-#if (DEVICE_IMPL_VULKAN)
-    struct {
-      struct VmaAllocation_T *vmaAlloc;
-    } vk;
-#endif
-  };
   uint16_t width;
   uint16_t height;
   uint16_t depth;
@@ -33,7 +28,9 @@ public:
   RI_Format format = RI_FORMAT_UNKNOWN;
   struct RIDescriptor_s binding;
 
-  static void HPLTexture_Delete(HPLTexture* tex); 
+  ~HPLTexture();
+
+  static void HPLTexture_Delete(HPLTexture *tex);
 
   struct BitmapLoadOptions {
   public:
@@ -49,15 +46,14 @@ public:
   // postState/postStages: resource state the texture is transitioned to once
   // the upload completes (RIBarrier.h); stages 0 derives from the state.
   bool LoadBitmap(enum RIResourceState_e postState, uint32_t postStages,
-                  cBitmap &bitmap,
-                  const BitmapLoadOptions &options);
+                  cBitmap &bitmap, const BitmapLoadOptions &options);
   // Re-upload pixels into the already-created image (mip 0 / layer 0; bitmap
   // size and format must match the original LoadBitmap). The image is assumed
   // fragment-sampled and is returned to that state — the uploader emits the
   // pre/post barriers. SetRawData replacement for procedural textures.
   bool UpdateBitmap(cBitmap &bitmap);
-  void setDebugName(const tWString& name);
-  void setDebugName(const char* name);
+  void setDebugName(const tWString &name);
+  void setDebugName(const char *name);
 };
 
 } // namespace hpl

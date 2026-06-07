@@ -37,7 +37,6 @@
 #include "impl/FrameBufferGL.h"
 #include "impl/GLSLProgram.h"
 #include "impl/GLSLShader.h"
-#include "impl/OcclusionQueryOGL.h"
 #include "impl/VertexBufferOGL_Array.h"
 #include "impl/VertexBufferOGL_VBO.h"
 
@@ -766,14 +765,6 @@ iDepthStencilBuffer *cLowLevelGraphicsSDL::CreateDepthStencilBuffer(
     return NULL;
 
   return hplNew(cDepthStencilBufferGL, (avSize, alDepthBits, alStencilBits));
-}
-
-//-----------------------------------------------------------------------
-
-iOcclusionQuery *cLowLevelGraphicsSDL::CreateOcclusionQuery() {
-  ;
-
-  return hplNew(cOcclusionQueryOGL, ());
 }
 
 //-----------------------------------------------------------------------

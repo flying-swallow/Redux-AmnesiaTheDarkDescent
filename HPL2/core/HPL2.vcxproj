@@ -270,13 +270,11 @@
     <ClInclude Include="include\graphics\MaterialType.h" />
     <ClInclude Include="include\graphics\Mesh.h" />
     <ClInclude Include="include\graphics\MeshCreator.h" />
-    <ClInclude Include="include\graphics\OcclusionQuery.h" />
     <ClInclude Include="include\graphics\PostEffect.h" />
     <ClInclude Include="include\graphics\PostEffectComposite.h" />
     <ClInclude Include="include\graphics\ProgramComboManager.h" />
     <ClInclude Include="include\graphics\Renderable.h" />
     <ClInclude Include="include\graphics\Renderer.h" />
-    <ClInclude Include="include\graphics\RendererDeferred.h" />
     <ClInclude Include="include\graphics\RendererSimple.h" />
     <ClInclude Include="include\graphics\RendererWireFrame.h" />
     <ClInclude Include="include\graphics\RenderFunctions.h" />
@@ -357,7 +355,6 @@
     <ClInclude Include="include\impl\GLSLProgram.h" />
     <ClInclude Include="include\impl\GLSLShader.h" />
     <ClInclude Include="include\impl\LowLevelGraphicsSDL.h" />
-    <ClInclude Include="include\impl\OcclusionQueryOGL.h" />
     <ClInclude Include="include\impl\PBuffer.h" />
     <ClInclude Include="include\impl\SDLFontData.h" />
     <ClInclude Include="include\impl\SDLTexture.h" />
@@ -631,7 +628,6 @@
     <ClCompile Include="sources\graphics\ProgramComboManager.cpp" />
     <ClCompile Include="sources\graphics\Renderable.cpp" />
     <ClCompile Include="sources\graphics\Renderer.cpp" />
-    <ClCompile Include="sources\graphics\RendererDeferred.cpp" />
     <ClCompile Include="sources\graphics\RendererSimple.cpp" />
     <ClCompile Include="sources\graphics\RendererWireFrame.cpp" />
     <ClCompile Include="sources\graphics\RenderFunctions.cpp" />
@@ -702,7 +698,6 @@
     <ClCompile Include="sources\impl\GLSLProgram.cpp" />
     <ClCompile Include="sources\impl\GLSLShader.cpp" />
     <ClCompile Include="sources\impl\LowLevelGraphicsSDL.cpp" />
-    <ClCompile Include="sources\impl\OcclusionQueryOGL.cpp" />
     <ClCompile Include="sources\impl\PBuffer.cpp" />
     <ClCompile Include="sources\impl\SDLFontData.cpp" />
     <ClCompile Include="sources\impl\SDLTexture.cpp" />

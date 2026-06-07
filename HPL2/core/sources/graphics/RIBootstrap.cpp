@@ -11,24 +11,25 @@ RIBootstrap RI = RIBootstrap{};
 void RIBootstrap::IncrementFrame() { frameIndex++; }
 
 void RIBootstrap::Dispose() {
-  WaitRIQueueIdle(&device, &device.queues[RI_QUEUE_GRAPHICS]);
+  device.queues[RI_QUEUE_GRAPHICS].waitIdle(&device);
 
   for (auto &desc : cachedFilters) {
     if (desc.cookie) {
-      FreeRIDescriptor(&device, &desc);
+      desc.dispose(&device);
     }
   }
 
   for (auto &set : frameSets) {
+    set.resourceLink.clear();
     for (auto &entry : set.freelist) {
-      FreeRIFree(&device, &entry);
+      std::visit([&](auto &res) { res.dispose(&device); }, entry);
     }
     set.freelist.clear();
     FreeRIScratchAlloc(&device, &set.uboScratchAlloc);
     FreeRIScratchAlloc(&device, &set.accelScratchAlloc);
   }
 
-  FreeRICommandRingBuffer(&device, &graphicsCmdRing);
+  graphicsCmdRing.dispose(&device);
 }
 
 void RIBootstrap::CloseAndSubmitActiveSet() {
@@ -46,8 +47,8 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
     toPresent.after = RI_RESOURCE_STATE_PRESENT;
     RI.primary.cmds[0].textureBarrier(toPresent);
   }
-  EndRICmd(&RI.device, &RI.primary.cmds[0]);
-  EndRICmd(&RI.device, &RI.blasSubmit.cmds[0]);
+  RI.primary.cmds[0].end(&RI.device);
+  RI.blasSubmit.cmds[0].end(&RI.device);
 
   // Flush pending resource uploads (the vertex/index data the BLAS builds read)
   // once, up front, so both the BLAS submit and the primary chain off it.
@@ -134,17 +135,17 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
 void RIBootstrap::BeginActiveSet() {
   RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
 
-  AdvanceRICommandRingBuffer(&RI.graphicsCmdRing);
-  RI.primary = GetRICommandRingElement(&RI.device, &RI.graphicsCmdRing, 1);
+  RI.graphicsCmdRing.advance();
+  RI.primary = RI.graphicsCmdRing.acquire(&RI.device, 1);
   // Second element from the same pool for the dedicated BLAS-build submit.
-  RI.blasSubmit = GetRICommandRingElement(&RI.device, &RI.graphicsCmdRing, 1);
-  WaitRICommandRingElement(&RI.device, &RI.primary);
-  WaitRICommandRingElement(&RI.device, &RI.blasSubmit);
+  RI.blasSubmit = RI.graphicsCmdRing.acquire(&RI.device, 1);
+  RI.primary.wait(&RI.device);
+  RI.blasSubmit.wait(&RI.device);
   // One pool backs both elements; resetting it once frees both command buffers.
-  ResetRIPool(&RI.device, RI.primary.pool);
+  RI.primary.pool->reset(&RI.device);
 
   for (auto &entry : cntx->freelist) {
-    FreeRIFree(&RI.device, &entry);
+    std::visit([&](auto &res) { res.dispose(&RI.device); }, entry);
   }
   cntx->freelist.clear();
 
@@ -154,19 +155,16 @@ void RIBootstrap::BeginActiveSet() {
   RIResetScratchAlloc(&RI.device, &cntx->uboScratchAlloc);
   RIResetScratchAlloc(&RI.device, &cntx->accelScratchAlloc);
   // cntx->colorAttachment = RI.colorAttachment[RI.swapchainIndex];
-  // RIFinalizeDescriptor(&RI.device, &cntx->colorAttachment);
-  cntx->textureLink.clear();
-  cntx->bufferLink.clear();
-  // accelLink defers BLAS-handle release by frames-in-flight, mirroring
-  // bufferLink (which holds the BLAS *storage* + vertex/index buffers).
-  // Without this clear the vector grew unbounded (handles never released) and,
-  // worse, decoupled the handle's lifetime from its backing storage. The Draw
-  // path re-parks every BLAS-backed geometry here each frame, so a BLAS stays
-  // resident as long as it (or a TLAS that references it) can be in flight.
-  cntx->accelLink.clear();
+  // cntx->colorAttachment.finalize(&RI.device);
+  // Drop the keep-alive refs parked last time this slot was used. BLAS
+  // handles ride here too, deferring their release by frames-in-flight
+  // alongside the storage/vertex/index buffers — the Draw path re-parks
+  // every BLAS-backed geometry each frame, so a BLAS stays resident as long
+  // as it (or a TLAS that references it) can be in flight.
+  cntx->resourceLink.clear();
 
-  BeginRICmd(&RI.device, &RI.blasSubmit.cmds[0]);
-  BeginRICmd(&RI.device, &RI.primary.cmds[0]);
+  RI.blasSubmit.cmds[0].begin(&RI.device);
+  RI.primary.cmds[0].begin(&RI.device);
   {
     // Swapchain image: UNDEFINED -> COLOR for the frame. (Depth is
     // per-viewport now — each renderer's Draw emits its own first-use
@@ -239,14 +237,14 @@ RIDescriptor_s *RIBootstrap::resolve_filter_descriptor(eTextureWrap wrapS,
     do {
       if (cachedFilters[index].cookie == hash) {
         return &cachedFilters[index];
-      } else if (RI_IsEmptyDescriptor(&cachedFilters[index])) {
+      } else if (cachedFilters[index].isEmpty()) {
         cachedFilters[index].vk.type = VK_DESCRIPTOR_TYPE_SAMPLER;
         cachedFilters[index].vk.image.imageView = VK_NULL_HANDLE;
         cachedFilters[index].vk.image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         cachedFilters[index].flags = RI_VK_DESC_OWN_SAMPLER;
         VK_WrapResult(vkCreateSampler(device.vk.device, &info, NULL,
                                       &cachedFilters[index].vk.image.sampler));
-        RIFinalizeDescriptor(&device, &cachedFilters[index]);
+        cachedFilters[index].finalize(&device);
         cachedFilters[index].cookie = hash;
         return &cachedFilters[index];
       }

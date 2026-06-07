@@ -19,6 +19,8 @@
 
 #include "LuxPlayerState_InteractWheel.h"
 
+#include "graphics/DebugDraw.h"
+
 #include "LuxPlayer.h"
 #include "LuxMapHandler.h"
 #include "LuxMap.h"
@@ -55,32 +57,27 @@ cLuxPlayerState_InteractWheel::~cLuxPlayerState_InteractWheel()
 
 //-----------------------------------------------------------------------
 
-void cLuxPlayerState_InteractWheel::RenderSolid(cRendererCallbackFunctions* apFunctions)
+void cLuxPlayerState_InteractWheel::RenderSolid(DebugDraw* apDebugDraw)
 {
 	return;
 	cCamera *pCam = mpPlayer->GetCamera();
-
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-	apFunctions->SetProgram(NULL);
-	apFunctions->SetMatrix(NULL);
-
 
 	cVector3f vAxes(1,1,1);
 	vAxes = cMath::MatrixMul(mpCurrentBody->GetInertiaMatrix(), vAxes);
 
 	cVector3f vPinDir = mpCurrentJoint->GetPinDir();
 	vPinDir = cMath::MatrixMul(mpCurrentBody->GetInertiaMatrix(), vPinDir);
-	
-	cVector3f vPivot = mpCurrentJoint->GetPivotPoint();
-	//apFunctions->GetLowLevelGfx()->DrawLine(vPivot, vPivot+cVector3f(1,0,0)*vAxes.x*10, cColor(1,0,0,1));
-	//apFunctions->GetLowLevelGfx()->DrawLine(vPivot, vPivot+cVector3f(0,1,0)*vAxes.y*10, cColor(0,1,0,1));
-	//apFunctions->GetLowLevelGfx()->DrawLine(vPivot, vPivot+cVector3f(0,0,1)*vAxes.z*-10, cColor(0,0,1,1));
 
-	apFunctions->GetLowLevelGfx()->DrawLine(vPivot, vPivot+vPinDir*10, cColor(0,0,1,1));
-	
-	//apFunctions->GetLowLevelGfx()->DrawLine(vPivot, vPivot+mpCurrentJoint->GetPinDir(), cColor(0,0,1,1));
-	//apFunctions->GetLowLevelGfx()->DrawLine(mpCurrentBody->GetLocalPosition(), 
-	//										mpCurrentBody->GetLocalPosition() + mpCurrentBody->GetAngularVelocity(), 
+	cVector3f vPivot = mpCurrentJoint->GetPivotPoint();
+	//apDebugDraw->DebugDrawLine(vPivot, vPivot+cVector3f(1,0,0)*vAxes.x*10, cColor(1,0,0,1));
+	//apDebugDraw->DebugDrawLine(vPivot, vPivot+cVector3f(0,1,0)*vAxes.y*10, cColor(0,1,0,1));
+	//apDebugDraw->DebugDrawLine(vPivot, vPivot+cVector3f(0,0,1)*vAxes.z*-10, cColor(0,0,1,1));
+
+	apDebugDraw->DebugDrawLine(vPivot, vPivot+vPinDir*10, cColor(0,0,1,1));
+
+	//apDebugDraw->DebugDrawLine(vPivot, vPivot+mpCurrentJoint->GetPinDir(), cColor(0,0,1,1));
+	//apDebugDraw->DebugDrawLine(mpCurrentBody->GetLocalPosition(),
+	//										mpCurrentBody->GetLocalPosition() + mpCurrentBody->GetAngularVelocity(),
 	//										cColor(0,0,1,1));
 
 }

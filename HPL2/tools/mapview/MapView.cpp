@@ -18,6 +18,7 @@
  */
 
 #include "hpl.h"
+#include "graphics/DebugDraw.h"
 #include "scene/RenderableContainer_DynBoxTree.h"
 
 #include "../../tests/Common/SimpleCamera.h"
@@ -216,7 +217,11 @@ cColor gObjectDebugColor[glObjectDebugColorNum] = {	cColor(1,1,1),cColor(1,0,1),
 													cColor(0,1,0.75f),cColor(0.25f,0.25f,1),cColor(0.25f,1,0.25f),
 													cColor(1,0.25f,0.25f),cColor(0.75f,0.75f,1),cColor(0.75f,1,0.25f) 
 													};
-class cSimpleRenderCallback : public iRendererCallback
+// RI path: enqueue the overlay into the global DebugDraw batcher right
+// before the renderer Draw — the Hybrid renderer never runs
+// iRendererCallback messages. Legacy depth-test-off sections ride on
+// DebugDrawOptions::m_depthTest = Always instead.
+class cSimpleRenderCallback
 {
 public:
 	cSimpleRenderCallback()
@@ -235,7 +240,7 @@ public:
 		return cColor(fVal, 1);
 	}
 
-	void RenderDynamicContainerDebug(cRendererCallbackFunctions *apFunctions, iRenderableContainerNode *apNode, int alLevel)
+	void RenderDynamicContainerDebug(DebugDraw *apDebugDraw, iRenderableContainerNode *apNode, int alLevel)
 	{
 		///////////////////////////////////////
 		//Make sure node is updated
@@ -263,7 +268,7 @@ public:
 				{
 					if(CheckEntityInsideBox(pObject, pCheckNode->GetMin(), pCheckNode->GetMax())==false)
 					{
-						apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),cColor(1,0,0,1));
+						apDebugDraw->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),cColor(1,0,0,1));
 						bObjectIsOutSide = true;
 					}
 					pCheckNode = pCheckNode->GetParent();
@@ -273,8 +278,8 @@ public:
 
 		if(bObjectIsOutSide)
 		{
-			apFunctions->GetLowLevelGfx()->DrawBoxMinMax(apNode->GetMin(), apNode->GetMax(),cColor(0,1,0,1));
-			apFunctions->GetLowLevelGfx()->DrawBoxMinMax(vBoxMin, vBoxMin,cColor(0,1,0,1));
+			apDebugDraw->DebugDrawBoxMinMax(apNode->GetMin(), apNode->GetMax(),cColor(0,1,0,1));
+			apDebugDraw->DebugDrawBoxMinMax(vBoxMin, vBoxMin,cColor(0,1,0,1));
 		}
 
 		////////////////////////
@@ -285,20 +290,19 @@ public:
 			for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
 			{
 				iRenderableContainerNode *pChildNode = *childIt;
-				RenderDynamicContainerDebug(apFunctions,pChildNode, alLevel+1);
+				RenderDynamicContainerDebug(apDebugDraw,pChildNode, alLevel+1);
 			}
 		}
 	}
-	
-	void OnPostSolidDraw(cRendererCallbackFunctions *apFunctions)
-	{
-		apFunctions->SetDepthTest(false);
-		apFunctions->SetDepthWrite(false);
-		apFunctions->SetBlendMode(eMaterialBlendMode_None);
 
-		apFunctions->SetProgram(NULL);
-		apFunctions->SetTextureRange(NULL, 0);
-		apFunctions->SetMatrix(NULL);
+	void OnPreWorldDraw()
+	{
+		DebugDraw* pDebugDraw = gpEngine->GetGraphics()->GetDebugDraw();
+		if(pDebugDraw==NULL) return;
+
+		// Legacy drew most of this overlay depth-test-off (always on top).
+		DebugDraw::DebugDrawOptions overlayOptions;
+		overlayOptions.m_depthTest = DebugDraw::DebugDepthTest::Always;
 
 		cRenderSettings *pSettings = gpSimpleCamera->GetViewport()->GetRenderSettings();
 		cRenderList *pRenderList = pSettings->mpRenderList;
@@ -308,13 +312,13 @@ public:
 		if(gbDrawSepperateObjects)
 		{
 			///////////////////////////////////
-			// Iterate the static mesh any draw the 
+			// Iterate the static mesh any draw the
 			int lCount = 0;
 			cMeshEntityIterator meshIt = mpWorld->GetStaticMeshEntityIterator();
 			while(meshIt.HasNext())
 			{
 				cMeshEntity *pEntity = meshIt.Next();
-				
+
 				for(int i=0; i<pEntity->GetSubMeshEntityNum(); ++i)
 				{
 					cSubMeshEntity *pSubEnt = pEntity->GetSubMeshEntity(i);
@@ -322,12 +326,14 @@ public:
 
 					int lColNum = lCount % glObjectDebugColorNum;
 					const cColor &currentColor = gObjectDebugColor[lColNum];
-					
-					apFunctions->SetMatrix(pSubEnt->GetModelMatrix(NULL));
-					apFunctions->DrawWireFrame(pSubEnt->GetVertexBuffer(), currentColor);
+
+					DebugDraw::DebugDrawOptions wireOptions = overlayOptions;
+					cMatrixf* pModelMtx = pSubEnt->GetModelMatrix(NULL);
+					if(pModelMtx) wireOptions.m_transform = *pModelMtx;
+					pDebugDraw->DebugWireFrameFromVertexBuffer(pSubEnt->GetVertexBuffer(), currentColor, wireOptions);
 
 					//cBoundingVolume *pBV = pObject->GetBoundingVolume();
-					//apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),);				
+					//pDebugDraw->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),...);
 					lCount++;
 				}
 			}
@@ -337,8 +343,6 @@ public:
 		//Sounds
 		if(gbRenderSoundsPlaying)
 		{
-			apFunctions->SetDepthTest(false);
-			apFunctions->SetMatrix(NULL);
 			cSoundHandler *pSoundHandler = gpEngine->GetSound()->GetSoundHandler();
 
 			//////////////////////////////
@@ -353,14 +357,12 @@ public:
 
 				if(pSound->Get3D() && pSound->GetPositionIsRelative() ==false)
 				{
-					apFunctions->GetLowLevelGfx()->DrawSphere(pSound->GetPosition(), 0.1f, cColor(1,1,1,1));
+					pDebugDraw->DebugDrawSphere(pSound->GetPosition(), 0.1f, cColor(1,1,1,1), overlayOptions);
 
-					apFunctions->GetLowLevelGfx()->DrawSphere(pSound->GetPosition(), pSound->GetMinDistance(), cColor(0.75,1));
-					apFunctions->GetLowLevelGfx()->DrawSphere(pSound->GetPosition(), pSound->GetMaxDistance(), cColor(0.5,1));
+					pDebugDraw->DebugDrawSphere(pSound->GetPosition(), pSound->GetMinDistance(), cColor(0.75,1), overlayOptions);
+					pDebugDraw->DebugDrawSphere(pSound->GetPosition(), pSound->GetMaxDistance(), cColor(0.5,1), overlayOptions);
 				}
 			}
-
-			apFunctions->SetDepthTest(true);
 		}
 
 		/////////////////////////////////////////
@@ -368,33 +370,35 @@ public:
 		if(mpBodyPicker->mpPickedBody)
 		{
 			//cBoundingVolume *pBV = mBodyPicker.mpPickedBody->GetBV();
-			//mpLowLevelGraphics->DrawBoxMaxMin(pBV->GetMax(), pBV->GetMin(),cColor(1,0,1,1));
+			//pDebugDraw->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),cColor(1,0,1,1));
 
-			apFunctions->GetLowLevelGfx()->DrawSphere(mpBodyPicker->mvPos,0.1f, cColor(1,0,0,1));
-			apFunctions->GetLowLevelGfx()->DrawSphere(mvDragPos,0.1f, cColor(1,0,0,1));
+			pDebugDraw->DebugDrawSphere(mpBodyPicker->mvPos,0.1f, cColor(1,0,0,1));
+			pDebugDraw->DebugDrawSphere(mvDragPos,0.1f, cColor(1,0,0,1));
 
-			apFunctions->GetLowLevelGfx()->DrawLine(mpBodyPicker->mvPos, mvDragPos, cColor(1,1,1,1));
+			pDebugDraw->DebugDrawLine(mpBodyPicker->mvPos, mvDragPos, cColor(1,1,1,1));
 		}
-		
+
 		/////////////////////////////////////////
 		//Draws how the level have been grouped
 		if(gbDrawContainerDebug)
 		{
-			mpWorld->GetRenderableContainer(eWorldContainerType_Static)->RenderDebug(apFunctions);
+			// Legacy path: iRenderableContainer::RenderDebug still takes the dead
+			// cRendererCallbackFunctions plumbing — port it to DebugDraw if this
+			// toggle is ever needed again.
+			//mpWorld->GetRenderableContainer(eWorldContainerType_Static)->RenderDebug(...);
 		}
 
 		if(gbDrawDynContainerDebug)
 		{
-			RenderDynamicContainerDebug(apFunctions, mpWorld->GetRenderableContainer(eWorldContainerType_Dynamic)->GetRoot(),0);
+			RenderDynamicContainerDebug(pDebugDraw, mpWorld->GetRenderableContainer(eWorldContainerType_Dynamic)->GetRoot(),0);
 		}
 
 		/////////////////////////////////////////
 		//Draws what is current rendered
 		if(gbDrawOcclusionGfxInfo)
 		{
-			apFunctions->SetDepthTest(false);
+			cFrustum *pFrustum = gpSimpleCamera->GetCamera()->GetFrustum();
 
-            			
 			/////////////////////////
 			//Solid objects (reverse order = back to front)
 			int lNum = pRenderList->GetSolidObjectNum();
@@ -405,9 +409,10 @@ public:
 
 				cColor col = CalcDistColor(pObject);//cColor(1,1);//gObjectDebugColor[(size_t)pObject % glObjectDebugColorNum];
 
-
-				apFunctions->SetMatrix(pObject->GetModelMatrix(apFunctions->GetFrustum()));
-				apFunctions->DrawWireFrame(pObject->GetVertexBuffer(), col);
+				DebugDraw::DebugDrawOptions wireOptions = overlayOptions;
+				cMatrixf* pModelMtx = pObject->GetModelMatrix(pFrustum);
+				if(pModelMtx) wireOptions.m_transform = *pModelMtx;
+				pDebugDraw->DebugWireFrameFromVertexBuffer(pObject->GetVertexBuffer(), col, wireOptions);
 			}
 
 			/////////////////////////
@@ -420,11 +425,11 @@ public:
 
 				cColor col = CalcDistColor(pObject);//cColor(1,1);//gObjectDebugColor[(size_t)pObject % glObjectDebugColorNum];
 
-				apFunctions->SetMatrix(pObject->GetModelMatrix(apFunctions->GetFrustum()));
-				apFunctions->DrawWireFrame(pObject->GetVertexBuffer(), col);
+				DebugDraw::DebugDrawOptions wireOptions = overlayOptions;
+				cMatrixf* pModelMtx = pObject->GetModelMatrix(pFrustum);
+				if(pModelMtx) wireOptions.m_transform = *pModelMtx;
+				pDebugDraw->DebugWireFrameFromVertexBuffer(pObject->GetVertexBuffer(), col, wireOptions);
 			}
-
-			apFunctions->SetDepthTest(true);
 		}
 		
 		/////////////////////////////////////////
@@ -443,8 +448,8 @@ public:
 				if(pCam->GetFrustum()->CollideBoundingVolume(pBody->GetBoundingVolume())== eCollision_Outside) continue; //Frustum test for some extra speed!				
 
 				cColor col = pBody->GetCollide() ? cColor(1,1) : cColor(1,0,1,1);
-				
-				pBody->RenderDebugGeometry(apFunctions->GetLowLevelGfx(),col);
+
+				pBody->RenderDebugGeometry(pDebugDraw,col);
 			}
 		}
 
@@ -458,13 +463,13 @@ public:
 			{
 				cAINode *pNode = gpNodeContainer->GetNode(i);
 
-				apFunctions->GetLowLevelGfx()->DrawSphere(pNode->GetPosition(), 0.3f,cColor(0.4f,1));
+				pDebugDraw->DebugDrawSphere(pNode->GetPosition(), 0.3f,cColor(0.4f,1));
 
 				for(int j=0; j < pNode->GetEdgeNum(); ++j)
 				{
 					cAINodeEdge *pEdge = pNode->GetEdge(j);
 
-					apFunctions->GetLowLevelGfx()->DrawLine(pNode->GetPosition(),pEdge->mpNode->GetPosition(),cColor(0.4f,0.4f,0.4f,1));
+					pDebugDraw->DebugDrawLine(pNode->GetPosition(),pEdge->mpNode->GetPosition(),cColor(0.4f,0.4f,0.4f,1));
 				}
 			}
 		}
@@ -472,72 +477,12 @@ public:
 		/////////////////////////////////////////
 		//Draws bounding boxes
    	}
-	
-	void OnPostTranslucentDraw(cRendererCallbackFunctions *apFunctions)
-	{
 
-	}
-	
 	cWorld *mpWorld;
 	cBodyPicker *mpBodyPicker;
 	cVector3f mvDragPos;
 };
 
-//--------------------------------------------------------------------------------
-
-class cTestRenderCallback : public iRendererCallback
-{
-public:
-	cTestRenderCallback()
-	{
-
-	};
-
-	void OnPostSolidDraw(cRendererCallbackFunctions *apFunctions)
-	{
-		cRenderSettings *pSettings = gpSimpleCamera->GetViewport()->GetRenderSettings();
-		cRenderList *pRenderList = pSettings->mpRenderList;
-
-		/////////////////////////
-		//Solid objects
-		int lCount =0;
-		int lNum = pRenderList->GetSolidObjectNum();
-		for(int i=0; i<lNum; ++i)
-		{
-			iRenderable *pObject = pRenderList->GetSolidObject(i);
-
-			cColor col = gObjectDebugColor[(size_t)pObject % glObjectDebugColorNum];
-
-
-			apFunctions->SetMatrix(pObject->GetModelMatrix(NULL));
-			apFunctions->DrawWireFrame(pObject->GetVertexBuffer(), col);
-
-			lCount++;
-		}
-		
-		/////////////////////////
-		//Trans
-		lNum = pRenderList->GetTransObjectNum();
-		for(int i=0; i<lNum; ++i)
-		{
-			iRenderable *pObject = pRenderList->GetTransObject(i);
-			
-			cColor col = gObjectDebugColor[(size_t)pObject % glObjectDebugColorNum];
-
-			apFunctions->SetMatrix(pObject->GetModelMatrix(NULL));
-			apFunctions->DrawWireFrame(pObject->GetVertexBuffer(), col);
-			
-			lCount++;
-		}
-	}
-
-	void OnPostTranslucentDraw(cRendererCallbackFunctions *apFunctions)
-	{
-
-	}
-
-	cWorld *mpWorld;
-};
 //--------------------------------------------------------------------------------
 
 class cSimpleUpdate : public iUpdateable
@@ -643,12 +588,12 @@ public:
 
 		mpTestViewPort->GetRenderSettings()->mClearColor = cColor(0.3f,1);
 
-		testRenderCallback.mpWorld = mpWorld;
-		
-        				
 		/////////////////////////////////
 		//Set up normal view port camera
 		cRenderSettings *pSettings = gpSimpleCamera->GetViewport()->GetRenderSettings();
+
+		mPreWorldDrawHandler = EventHandler<>([this]{ renderCallback.OnPreWorldDraw(); });
+		mPreWorldDrawHandler.Connect(gpSimpleCamera->GetViewport()->OnPreWorldDraw());
 
 		gpSimpleCamera->SetMouseMode(true);
 
@@ -827,7 +772,6 @@ public:
 		{
 			gpSimpleCamera->GetViewport()->SetWorld(mpWorld);
 			renderCallback.mpWorld = mpWorld;
-			testRenderCallback.mpWorld = mpWorld;
 
 			mpCheckAmbientActive->SetChecked(mpAmbientBox->IsVisible());
 			mpSliderAmbientColor->SetValue( (int)(mpAmbientBox->GetDiffuseColor().r * 255.0 + 0.5f));
@@ -1267,7 +1211,6 @@ public:
 
 			//SSAO scatter length
 			/*{
-				float fVal = cRendererDeferred::GetSSAOScatterLengthMul();
 				pLabel = pSet->CreateWidgetLabel(vGroupPos, vLabelSize, _W("Scatter Length:"), pGroup);
 				pLabel = pSet->CreateWidgetLabel(vGroupPos+cVector3f(vLabelSize.x,0,0), vLabelSize, 
 												cString::ToStringW(fVal,4), pGroup);
@@ -1285,7 +1228,6 @@ public:
 
 			//SSAO scatter min
 			{
-				float fVal = cRendererDeferred::GetSSAOScatterLengthMin();
 				pLabel = pSet->CreateWidgetLabel(vGroupPos, vLabelSize, _W("Scatter Min:"), pGroup);
 				pLabel = pSet->CreateWidgetLabel(vGroupPos+cVector3f(vLabelSize.x,0,0), vLabelSize, 
 					cString::ToStringW(fVal,4), pGroup);
@@ -1302,7 +1244,6 @@ public:
 
 			//SSAO scatter max
 			{
-				float fVal = cRendererDeferred::GetSSAOScatterLengthMax();
 				pLabel = pSet->CreateWidgetLabel(vGroupPos, vLabelSize, _W("Scatter Max:"), pGroup);
 				pLabel = pSet->CreateWidgetLabel(vGroupPos+cVector3f(vLabelSize.x,0,0), vLabelSize, 
 					cString::ToStringW(fVal,4), pGroup);
@@ -1345,7 +1286,7 @@ public:
 
 			//Large light test
 			pCheckBox = pSet->CreateWidgetCheckBox(vGroupPos,vSize,_W("Large light test"),pGroup);
-			pCheckBox->SetChecked(cRendererDeferred::GetOcclusionTestLargeLights());
+			pCheckBox->SetChecked(false);
 			pCheckBox->AddCallback(eGuiMessage_CheckChange,this, kGuiCallback(ChangeLargeLightTest));
 			vGroupPos.y += 22;
 
@@ -1529,7 +1470,6 @@ public:
 	{
 		float fVal = ((float)aData.mlVal)/200.0f * gfScatterLengthMaxVal + gfScatterLengthMinVal;
 		
-		cRendererDeferred::SetSSAOScatterLengthMul(fVal);
 		mpLabelScatterLength->SetText(cString::ToStringW(fVal,4));
 
 		return true;
@@ -1541,7 +1481,6 @@ public:
 	{
 		float fVal = ((float)aData.mlVal)/200.0f * gfScatterMinMaxVal + gfScatterMinMinVal;
 
-		cRendererDeferred::SetSSAOScatterLengthMin(fVal);
 		mpLabelScatterMin->SetText(cString::ToStringW(fVal,4));
 
 		return true;
@@ -1552,7 +1491,6 @@ public:
 	{
 		float fVal = ((float)aData.mlVal)/200.0f * gfScatterMaxMaxVal + gfScatterMaxMinVal;
 
-		cRendererDeferred::SetSSAOScatterLengthMax(fVal);
 		mpLabelScatterMax->SetText(cString::ToStringW(fVal,4));
 
 		return true;
@@ -1625,7 +1563,6 @@ public:
 
 	bool ChangeLargeLightTest(iWidget* apWidget,const cGuiMessageData& aData)
 	{
-		cRendererDeferred::SetOcclusionTestLargeLights(aData.mlVal==1 ? true : false);
 		return true;
 	}
 	kGuiCallbackFuncEnd(cSimpleUpdate,ChangeLargeLightTest)  
@@ -1949,8 +1886,8 @@ public:
 	cWorld* mpWorld;
 	
 	cSimpleRenderCallback renderCallback;
-	cTestRenderCallback testRenderCallback;
-	
+	EventHandler<> mPreWorldDrawHandler;
+
 	cWidgetWindow *mpOptionWindow;
 
 	cLightBox *mpAmbientBox;
@@ -2011,13 +1948,7 @@ int hplMain(const tString &asCommandline)
 
 	//iResourceBase::SetLogCreateAndDelete(true);
 	//iGpuProgram::SetLogDebugInformation(true); 
-	cRendererDeferred::SetGBufferType(eDeferredGBuffer_32Bit);
-	cRendererDeferred::SetNumOfGBufferTextures(3);
-	cRendererDeferred::SetSSAOLoaded(true);
-	cRendererDeferred::SetSSAOType(eDeferredSSAO_OnColorBuffer);
 
-	//cRendererDeferred::SetShadowMapQuality(eShadowMapQuality_Low);
-	//cRendererDeferred::SetShadowMapResolution(eShadowMapResolution_Low);
 
 	tWString sPersonalDir = cString::ReplaceCharToW(cPlatform::GetSystemSpecialPath(eSystemPath_Personal), _W("\\"), _W("/"));
 #ifdef USERDIR_RESOURCES

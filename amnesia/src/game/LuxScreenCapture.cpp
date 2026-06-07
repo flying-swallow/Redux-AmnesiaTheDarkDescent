@@ -33,7 +33,7 @@ using namespace hpl;
 // Allocate `outTex` as a screen-sized RGBA8 color attachment that is also
 // sampleable as a 2D texture, and wire up the descriptor binding used by
 // cGui::CreateGfxTexture / RIProgram::bindDescriptors. The HPLTexture_Delete
-// deleter expects `handle.vk.image`, `vk.vmaAlloc`, and `binding.vk.image.imageView`
+// deleter expects `handle.vk.image` (+ its VMA allocation) and `binding.vk.image.imageView`
 // to be set — see HPLTexture.cpp:19 — so we fill all three.
 static bool CreateScreenRenderTarget(
 		std::shared_ptr<hpl::HPLTexture> &outTex,
@@ -63,7 +63,7 @@ static bool CreateScreenRenderTarget(
 	memReqs.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
 	if (!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo, &memReqs,
-	                                  &tex->handle.vk.image, &tex->vk.vmaAlloc, NULL))) {
+	                                  &tex->handle.vk.image, &tex->handle.vk.allocation, NULL))) {
 		return false;
 	}
 
@@ -82,7 +82,7 @@ static bool CreateScreenRenderTarget(
 	                                     &tex->binding.vk.image.imageView))) {
 		return false;
 	}
-	RIFinalizeDescriptor(&RI.device, &tex->binding);
+	tex->binding.finalize(&RI.device);
 	tex->setDebugName(debugName);
 
 	outTex = std::move(tex);
@@ -223,10 +223,10 @@ void cLuxScreenCapture::OnPostRender()
 	RIDescriptor_s *sceneColor = RI_PogoBufferShaderResource(pPogo);
 
 	// Keep the textures alive until the GPU has consumed them — BeginActiveSet
-	// drains textureLink only after the frame slot's fence signals.
-	frameCtx->textureLink.push_back(m_screenColor);
-	frameCtx->textureLink.push_back(m_screenBgColor);
-	if (m_screenScratch) frameCtx->textureLink.push_back(m_screenScratch);
+	// drains resourceLink only after the frame slot's fence signals.
+	frameCtx->resourceLink.push_back(m_screenColor);
+	frameCtx->resourceLink.push_back(m_screenBgColor);
+	if (m_screenScratch) frameCtx->resourceLink.push_back(m_screenScratch);
 
 	////////////////////////////////////////////////
 	// Pass 0: copy the pogo scene-color into m_screenColor (the sharp copy).

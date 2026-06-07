@@ -377,7 +377,7 @@ public:
 	
 	void OnUpdate(float afTimeStep);
 
-	void OnRenderSolid(cRendererCallbackFunctions* apFunctions);
+	void OnRenderSolid(DebugDraw* apDebugDraw);
 
 	bool CanInteract(iPhysicsBody *apBody);
 	bool OnInteract(iPhysicsBody *apBody, const cVector3f &avPos);
@@ -601,7 +601,7 @@ protected:
 	virtual void OnSetupAfterLoad(cWorld *apWorld)=0;
 	virtual void OnAfterWorldLoad()=0;
 	virtual void UpdateEnemySpecific(float afTimeStep)=0;
-	virtual void OnRenderSolidImplemented(cRendererCallbackFunctions* apFunctions)=0;
+	virtual void OnRenderSolidImplemented(DebugDraw* apDebugDraw)=0;
 
 	//////////////
 	//Variables

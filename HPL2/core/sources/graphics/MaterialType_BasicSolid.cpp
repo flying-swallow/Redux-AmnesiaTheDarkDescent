@@ -36,7 +36,6 @@
 #include "graphics/Material.h"
 #include "graphics/ProgramComboManager.h"
 #include "graphics/Renderable.h"
-#include "graphics/RendererDeferred.h"
 
 
 namespace hpl {
@@ -298,14 +297,6 @@ namespace hpl {
 		defaultVars.Add("UseNormals");
 		defaultVars.Add("UseDepth");
 		defaultVars.Add("VirtualPositionAddScale",mfVirtualPositionAddScale);
-		
-		//Get the G-buffer type
-		if(cRendererDeferred::GetGBufferType() == eDeferredGBuffer_32Bit)	defaultVars.Add("Deferred_32bit");
-		else																defaultVars.Add("Deferred_64bit");
-
-		//Set up number of gbuffer textures used
-		if(cRendererDeferred::GetNumOfGBufferTextures() == 4)	defaultVars.Add("RenderTargets_4");
-		else													defaultVars.Add("RenderTargets_3");
 
 		//Set up relief mapping method
 		if(	iRenderer::GetParallaxQuality() != eParallaxQuality_Low &&

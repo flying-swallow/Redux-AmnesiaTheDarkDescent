@@ -509,7 +509,7 @@ namespace hpl {
 				std::shared_ptr<HPLTexture> texture = pDiffuseImage ? pDiffuseImage->GetTexture() : nullptr;
 				RIDescriptor_s textureDescriptor = RI.whiteTexture2DBinding;
 				if(texture) {
-					cntx->textureLink.push_back(texture);
+					cntx->resourceLink.push_back(texture);
 					textureDescriptor = texture->binding;
 				}
 

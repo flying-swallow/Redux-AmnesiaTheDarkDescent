@@ -48,16 +48,13 @@ cLuxEffectRenderer::cLuxEffectRenderer() : iLuxUpdateable("LuxEffectRenderer")
 
 	/////////////////////////////
 	//Get deferred renderer stuff
-	//cRendererDeferred *pRendererDeferred = static_cast<cRendererDeferred*>(pGraphics->GetRenderer(eRenderer_Main));
 
-	//mpDeferredAccumBuffer = pRendererDeferred->GetAccumBuffer();
 
 	/////////////////////////////
 	//Create Outline color buffer
 	//mpOutlineColorTexture = pGraphics->GetTempFrameBuffer(vScreenSize,ePixelFormat_RGBA,0)->GetColorBuffer(0)->ToTexture();
 
 	//mpFrameBufferColor = pGraphics->CreateFrameBuffer("OutlineColor");
-	////mpFrameBufferColor->SetDepthStencilBuffer(pRendererDeferred->GetDepthStencilBuffer());
 	//mpFrameBufferColor->SetTexture2D(0,mpOutlineColorTexture);
 
 	//mpFrameBufferColor->CompileAndValidate();	

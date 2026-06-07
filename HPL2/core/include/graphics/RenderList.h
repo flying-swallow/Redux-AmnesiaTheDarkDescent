@@ -54,7 +54,6 @@ namespace hpl {
 		bool ArrayHasObjects(eRenderListType aType);
 		cRenderableVecIterator GetArrayIterator(eRenderListType aType);
 
-		cRenderableVecIterator GetOcclusionQueryObjectIterator();
 
 		void Clear();
 
@@ -81,7 +80,6 @@ namespace hpl {
 		float mfFrameTime;
 		cFrustum *mpFrustum;
 
-		tRenderableVec mvOcclusionQueryObjects;
 		tRenderableVec mvSolidObjects;
 		tRenderableVec mvTransObjects;
 		tRenderableVec mvDecalObjects;

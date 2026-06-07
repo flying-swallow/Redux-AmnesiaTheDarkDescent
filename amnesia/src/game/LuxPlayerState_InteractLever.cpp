@@ -19,6 +19,8 @@
 
 #include "LuxPlayerState_InteractLever.h"
 
+#include "graphics/DebugDraw.h"
+
 #include "LuxPlayer.h"
 #include "LuxMapHandler.h"
 #include "LuxMap.h"
@@ -53,15 +55,11 @@ cLuxPlayerState_InteractLever::~cLuxPlayerState_InteractLever()
 
 //-----------------------------------------------------------------------
 
-void cLuxPlayerState_InteractLever::RenderSolid(cRendererCallbackFunctions* apFunctions)
+void cLuxPlayerState_InteractLever::RenderSolid(DebugDraw* apDebugDraw)
 {
 	return;
 
 	cCamera *pCam = mpPlayer->GetCamera();
-
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-	apFunctions->SetProgram(NULL);
-	apFunctions->SetMatrix(NULL);
 
 	cVector3f vBodyCenter = cMath::MatrixMul(mpCurrentBody->GetLocalMatrix(), mpCurrentBody->GetMassCentre());
 	cVector3f vJointToBody =  cMath::Vector3Normalize(vBodyCenter - mpCurrentJoint->GetPivotPoint());
@@ -83,10 +81,10 @@ void cLuxPlayerState_InteractLever::RenderSolid(cRendererCallbackFunctions* apFu
 	cVector3f vPushRotateDir = cMath::Vector3Cross(vJointToBody, vPushAmount);
 
 	cVector3f vPivot = mpCurrentJoint->GetPivotPoint();
-	apFunctions->GetLowLevelGfx()->DrawLine(vPivot, vPivot+vPushAmount*30, cColor(1,0,0,1));
-	apFunctions->GetLowLevelGfx()->DrawLine(vPivot, vPivot+vUpJointForward, cColor(1,0,1,1));
-	apFunctions->GetLowLevelGfx()->DrawLine(vPivot, vPivot+vJointToBody, cColor(0,1,0,1));
-	apFunctions->GetLowLevelGfx()->DrawLine(vPivot, vPivot+mpCurrentJoint->GetPinDir(), cColor(0,0,1,1));
+	apDebugDraw->DebugDrawLine(vPivot, vPivot+vPushAmount*30, cColor(1,0,0,1));
+	apDebugDraw->DebugDrawLine(vPivot, vPivot+vUpJointForward, cColor(1,0,1,1));
+	apDebugDraw->DebugDrawLine(vPivot, vPivot+vJointToBody, cColor(0,1,0,1));
+	apDebugDraw->DebugDrawLine(vPivot, vPivot+mpCurrentJoint->GetPinDir(), cColor(0,0,1,1));
 
 }
 

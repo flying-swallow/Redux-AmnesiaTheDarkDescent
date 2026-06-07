@@ -35,7 +35,6 @@ struct RISwapchainDesc_s {
 int InitRISwapchain(struct RIDevice_s* dev, struct RISwapchainDesc_s* init, RISwapchain_s<>* swapchain);
 uint32_t RISwapchainAcquireNextTexture(struct RIDevice_s* dev, RISwapchain_s<>* swapchain);
 void RISwapchainPresent(struct RIDevice_s* dev, RISwapchain_s<>* swapchain);
-void FreeRISwapchain(struct RIDevice_s* dev, RISwapchain_s<>* swapchain);
 
 static inline bool IsRISwapchainValid( RISwapchain_s<> *swapchain )
 {

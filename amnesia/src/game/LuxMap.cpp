@@ -431,7 +431,7 @@ bool cLuxMap::RecompileScript(tString *apOutput)
 
 //-----------------------------------------------------------------------
 
-void cLuxMap::OnRenderSolid(cRendererCallbackFunctions* apFunctions)
+void cLuxMap::OnRenderSolid(DebugDraw* apDebugDraw)
 {
 	if(gpBase->mpDebugHandler->GetShowEntityInfo()==false) return;
 
@@ -440,8 +440,8 @@ void cLuxMap::OnRenderSolid(cRendererCallbackFunctions* apFunctions)
 	{
 		iLuxEntity *pEntity = *entityIt;
 
-		if(pEntity->IsActive()) 
-			pEntity->OnRenderSolid(apFunctions);
+		if(pEntity->IsActive())
+			pEntity->OnRenderSolid(apDebugDraw);
 	}
 }
 

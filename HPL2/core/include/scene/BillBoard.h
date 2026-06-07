@@ -73,11 +73,7 @@ namespace hpl {
 
 		void SetHaloSourceSize(const cVector3f &avSize);
 		cVector3f GetHaloSourceSize(){return mvHaloSourceSize;}
-		
-		bool UsesOcclusionQuery();
-		void AssignOcclusionQuery(iRenderer *apRenderer);
-		bool RetrieveOcculsionQuery(iRenderer *apRenderer);
-		
+
 		/////////////////////////////////
 		//Entity implementation
 		tString GetEntityType(){ return "Billboard";}
@@ -101,7 +97,6 @@ namespace hpl {
 		cMaterial *mpMaterial;
 		iVertexBuffer* mpVtxBuffer;
 
-		cMatrixf m_mtxHaloOcclusionMatrix;
 		cMatrixf m_mtxTempTransform;
 
 		eBillboardType mType;

@@ -65,7 +65,7 @@ static bool CreateThumbnailCacheTexture(std::shared_ptr<HPLTexture> &outTexture)
 	allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 	if(!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo,
 									 &allocInfo, &texture->handle.vk.image,
-									 &texture->vk.vmaAlloc, NULL)))
+									 &texture->handle.vk.allocation, NULL)))
 	{
 		Error("ThumbnailBuilder: failed to create cache image\n");
 		return false;
@@ -86,12 +86,12 @@ static bool CreateThumbnailCacheTexture(std::shared_ptr<HPLTexture> &outTexture)
 	{
 		Error("ThumbnailBuilder: failed to create cache image view\n");
 		vmaDestroyImage(RI.device.vk.vmaAllocator, texture->handle.vk.image,
-						texture->vk.vmaAlloc);
+						texture->handle.vk.allocation);
 		texture->handle.vk.image = VK_NULL_HANDLE;
-		texture->vk.vmaAlloc = NULL;
+		texture->handle.vk.allocation = NULL;
 		return false;
 	}
-	RIFinalizeDescriptor(&RI.device, &texture->binding);
+	texture->binding.finalize(&RI.device);
 
 	texture->width = (uint16_t)kThumbnailSize;
 	texture->height = (uint16_t)kThumbnailSize;

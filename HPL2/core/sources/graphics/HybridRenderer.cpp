@@ -579,7 +579,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // map transition, and the surfel RT passes trace it every frame -> a
     // dangling acceleration-structure / vertex-buffer dereference -> GPUVM
     // read fault -> device lost. AttachResourceToCntx pushes the BLAS handle,
-    // its storage, and the vertex/index buffers onto accelLink/bufferLink,
+    // its storage, and the vertex/index buffers onto resourceLink,
     // which defer release by frames-in-flight, so any BLAS the TLAS can still
     // reference outlives the in-flight window even after its owning renderable
     // is destroyed. Only geometry with a built BLAS is parked (the rest can't
@@ -1302,9 +1302,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     auto destroyBuffer = [](RIBuffer_s *b) {
       if (b->vk.buffer) {
-        auto *cntx = RI.GetActiveSet();
-        cntx->freelist.push_back(RIFree(b->vk.buffer));
-        cntx->freelist.push_back(RIFree(b->vk.allocation));
+        RI.GetActiveSet()->freelist.push_back(*b);
       }
       delete b;
     };
@@ -1319,8 +1317,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       while (newCap < instanceCapacityNeeded)
         newCap += (newCap >> 1);
       if (m_tlasInstanceBuffer.vk.buffer) {
-        cntx->freelist.push_back(RIFree(m_tlasInstanceBuffer.vk.buffer));
-        cntx->freelist.push_back(RIFree(m_tlasInstanceBuffer.vk.allocation));
+        cntx->freelist.push_back(m_tlasInstanceBuffer);
         m_tlasInstanceBuffer = {};
       }
       // Device-local: the instance buffer is a transfer destination written
@@ -1376,15 +1373,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     uint64_t tlasStorageSize = 0;
     uint64_t tlasBuildScratch = 0;
-    GetRIAccelStructureMemoryReqs(&RI.device, &tlasDesc, &tlasStorageSize,
-                                  &tlasBuildScratch, nullptr);
+    tlasDesc.getMemoryReqs(&RI.device, &tlasStorageSize, &tlasBuildScratch,
+                           nullptr);
 
     if ((m_tlas.vk.handle == VK_NULL_HANDLE) ||
         (m_tlasStorage.vk.buffer == VK_NULL_HANDLE || tlasStorageSize > m_tlasStorageCapacity)) {
       if (m_tlas.vk.handle != VK_NULL_HANDLE) {
-        cntx->freelist.push_back(RIFree(m_tlas.vk.handle));
-        cntx->freelist.push_back(RIFree(m_tlasStorage.vk.allocation));
-        cntx->freelist.push_back(RIFree(m_tlasStorage.vk.buffer));
+        cntx->freelist.push_back(m_tlas);
+        cntx->freelist.push_back(m_tlasStorage);
         m_tlas = {};
       }
       uint32_t qf[RI_QUEUE_LEN] = {0};
@@ -1400,7 +1396,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       tlasDesc.storage = &m_tlasStorage;
       tlasDesc.storageOffset = 0;
       tlasDesc.storageSize = tlasStorageSize;
-      if (InitRIAccelStructure(&RI.device, &tlasDesc, &m_tlas) != RI_SUCCESS) {
+      if (m_tlas.init(&RI.device, &tlasDesc) != RI_SUCCESS) {
         // Leave m_tlas zeroed; skip the build this frame.
         m_tlas = {};
       }
@@ -1424,7 +1420,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       build.instanceOffset = 0;
       build.scratchBuffer = &scratchReq.block.buffer;
       build.scratchOffset = scratchReq.bufferOffset;
-      CmdBuildRITlas(&RI.device, &RI.primary.cmds[0], &build, 1);
+      RI.primary.cmds[0].buildTlas(&RI.device, &build, 1);
 
       // Consumed by both the RT pipelines and fragment-stage ray queries —
       // one barrier covers both.
@@ -1470,7 +1466,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
         b.descriptor.vk.image.imageView = view;
         b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        RIFinalizeDescriptor(&RI.device, &b.descriptor);
+        b.descriptor.finalize(&RI.device);
         v.push_back(b);
       };
   auto pushSurfelSampledImage =
@@ -1482,7 +1478,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
         b.descriptor.vk.image.imageView = view;
         b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        RIFinalizeDescriptor(&RI.device, &b.descriptor);
+        b.descriptor.finalize(&RI.device);
         v.push_back(b);
       };
   auto pushTlas = [&](std::vector<RIProgram::DescriptorBinding> &v) {
@@ -1490,7 +1486,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     b.handle = DescriptorBindingID::Create("gRtAccel");
     b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
     b.descriptor.vk.accelStructure = m_tlas.vk.handle;
-    RIFinalizeDescriptor(&RI.device, &b.descriptor);
+    b.descriptor.finalize(&RI.device);
     v.push_back(b);
   };
 
@@ -2116,7 +2112,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       b.descriptor.vk.image.imageView =
           state.surfelResultView[RI.swapchainIndex].vk.image;
       b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-      RIFinalizeDescriptor(&RI.device, &b.descriptor);
+      b.descriptor.finalize(&RI.device);
       bnd.push_back(b);
     }
     m_surfelGenerate.bindDescriptors(
@@ -2192,7 +2188,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
       b.descriptor.vk.image.imageView = view;
       b.descriptor.vk.image.imageLayout = layout;
-      RIFinalizeDescriptor(&RI.device, &b.descriptor);
+      b.descriptor.finalize(&RI.device);
       return b;
     };
 
@@ -2328,7 +2324,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           state.surfelResultView[RI.swapchainIndex].vk.image;
       b.descriptor.vk.image.imageLayout =
           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      RIFinalizeDescriptor(&RI.device, &b.descriptor);
+      b.descriptor.finalize(&RI.device);
       bnd.push_back(b);
     }
     {
@@ -2344,7 +2340,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           state.visibilityView[RI.swapchainIndex].vk.image;
       b.descriptor.vk.image.imageLayout =
           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      RIFinalizeDescriptor(&RI.device, &b.descriptor);
+      b.descriptor.finalize(&RI.device);
       bnd.push_back(b);
     }
     // gDirectLighting — this frame's accumulated direct (sampled, GENERAL).

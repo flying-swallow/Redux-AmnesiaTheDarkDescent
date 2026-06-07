@@ -51,7 +51,6 @@ namespace hpl {
 		bool ArrayHasObjects(eRenderListType aType);
 
 		std::span<iRenderable*> GetRenderableItems(eRenderListType aType);
-		std::span<iRenderable*> GetOcclusionQueryItems();
 		std::span<iRenderable*> GetTransObjects();
 		std::span<iRenderable*> GetSolidObjects();
 		std::span<cFogArea*> GetFogAreas();
@@ -79,7 +78,6 @@ namespace hpl {
 		float m_frameTime = 0.0f;
 		cFrustum* m_frustum = nullptr;
 
-		std::vector<iRenderable*> m_occlusionQueryObjects;
 		std::vector<iRenderable*> m_solidObjects;
 		std::vector<iRenderable*> m_transObjects;
 		std::vector<iRenderable*> m_decalObjects;

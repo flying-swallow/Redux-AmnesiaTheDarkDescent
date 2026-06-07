@@ -58,7 +58,7 @@ void RI_PogoBufferInit( struct RIDevice_s *device, struct RI_PogoBuffer *pogo, u
 		pogo->pogoAttachment[p].vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 		pogo->pogoAttachment[p].vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		VK_WrapResult( vkCreateImageView( device->vk.device, &createInfo, NULL, &pogo->pogoAttachment[p].vk.image.imageView ) );
-		RIFinalizeDescriptor( device, &pogo->pogoAttachment[p] );
+		pogo->pogoAttachment[p].finalize( device );
 	}
 #endif
 }

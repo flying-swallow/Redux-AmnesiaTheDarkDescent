@@ -201,19 +201,20 @@ bool CreateViewportColorTexture(struct RIDevice_s *device, uint32_t width,
 		*desc = RIDescriptor_s{};
 		return false;
 	}
-	RIFinalizeDescriptor(device, desc);
+	desc->finalize(device);
 	return true;
 }
 
-void ReleaseViewportColorTexture(std::vector<struct RIFree> &freelist,
+void ReleaseViewportColorTexture(std::vector<RIFreeHandle> &freelist,
 								 struct RITexture_s *tex,
 								 struct RIDescriptor_s *desc) {
 	if (desc->vk.image.imageView) {
-		freelist.emplace_back(desc->vk.image.imageView);
+		RITextureView_s view = {};
+		view.vk.image = desc->vk.image.imageView;
+		freelist.push_back(view);
 	}
 	if (tex->vk.image) {
-		freelist.emplace_back(tex->vk.image);
-		freelist.emplace_back(tex->vk.allocation);
+		freelist.push_back(*tex);
 	}
 	*desc = RIDescriptor_s{};
 	*tex = RITexture_s{};
@@ -271,15 +272,14 @@ bool CreateViewportAttachmentTexture(struct RIDevice_s *device, uint32_t width,
 	return true;
 }
 
-void ReleaseViewportAttachmentTexture(std::vector<struct RIFree> &freelist,
+void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 									  struct RITexture_s *tex,
 									  struct RITextureView_s *view) {
 	if (view->vk.image) {
-		freelist.emplace_back(view->vk.image);
+		freelist.push_back(*view);
 	}
 	if (tex->vk.image) {
-		freelist.emplace_back(tex->vk.image);
-		freelist.emplace_back(tex->vk.allocation);
+		freelist.push_back(*tex);
 	}
 	*view = RITextureView_s{};
 	*tex = RITexture_s{};
@@ -327,12 +327,13 @@ void ReleaseViewportAttachmentTexture(std::vector<struct RIFree> &freelist,
 		{
 			if(mPogoBuffer.pogoAttachment[p].vk.image.imageView)
 			{
-				cntx->freelist.emplace_back(mPogoBuffer.pogoAttachment[p].vk.image.imageView);
+				RITextureView_s view = {};
+				view.vk.image = mPogoBuffer.pogoAttachment[p].vk.image.imageView;
+				cntx->freelist.push_back(view);
 			}
 			if(mPogoBuffer.textures[p].vk.image)
 			{
-				cntx->freelist.emplace_back(mPogoBuffer.textures[p].vk.image);
-				cntx->freelist.emplace_back(mPogoBuffer.textures[p].vk.allocation);
+				cntx->freelist.push_back(mPogoBuffer.textures[p]);
 			}
 			mPogoBuffer.pogoAttachment[p] = RIDescriptor_s{};
 			mPogoBuffer.textures[p] = RITexture_s{};

@@ -483,8 +483,7 @@ namespace hpl {
 			allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 
 			if(m_vertexBuffer.vk.buffer) {
-				cntx->freelist.push_back(RIFree(m_vertexBuffer.vk.buffer));
-				cntx->freelist.push_back(RIFree(m_vertexBuffer.vk.allocation));
+				cntx->freelist.push_back(m_vertexBuffer);
 			}
 			VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferCreateInfo, &allocInfo,
 										  &m_vertexBuffer.vk.buffer, &m_vertexBuffer.vk.allocation, &allocationInfo));
@@ -517,8 +516,7 @@ namespace hpl {
 			allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 
 			if(m_indexBuffer.vk.buffer) {
-				cntx->freelist.push_back(RIFree(m_indexBuffer.vk.buffer));
-				cntx->freelist.push_back(RIFree(m_indexBuffer.vk.allocation));
+				cntx->freelist.push_back(m_indexBuffer);
 			}
 			VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferCreateInfo, &allocInfo,
 										  &m_indexBuffer.vk.buffer, &m_indexBuffer.vk.allocation, &allocationInfo));
@@ -763,7 +761,7 @@ namespace hpl {
 
 				// Pin the texture so a mid-frame destroy can't free the VkImage
 				// before this submit retires.
-				cntx->textureLink.push_back(texture);
+				cntx->resourceLink.push_back(texture);
 
 				RIDescriptor_s* samplerDesc = RI.resolve_filter_descriptor(
 					eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,

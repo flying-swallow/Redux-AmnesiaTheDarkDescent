@@ -52,7 +52,6 @@
 
 #include "graphics/Graphics.h"
 #include "graphics/LowLevelGraphics.h"
-#include "graphics/RendererDeferred.h"
 #include "graphics/RendererSimple.h"
 #include "graphics/RenderList.h"
 #include "graphics/MeshCreator.h"
@@ -70,7 +69,6 @@
 #include "graphics/BoneState.h"
 #include "graphics/Animation.h"
 #include "graphics/AnimationTrack.h"
-#include "graphics/OcclusionQuery.h"
 #include "graphics/VideoStream.h"
 #include "graphics/Bitmap.h"
 #include "graphics/FrameTexture.h"

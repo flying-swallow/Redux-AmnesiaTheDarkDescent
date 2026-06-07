@@ -192,9 +192,8 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   // RI.primary is otherwise just zero/null until something acquires it.
   if (RI.primary.cmds == NULL)
   {
-	  RI.primary = GetRICommandRingElement(
+	  RI.primary = RI.graphicsCmdRing.acquire(
 		  &RI.device,
-		  &RI.graphicsCmdRing,
 		  RI_NUMBER_SUB_COMMANDS
 	  );
 
@@ -204,8 +203,8 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
 		  return;
 	  }
 
-	  ResetRIPool(&RI.device, RI.primary.pool);
-	  BeginRICmd(&RI.device, &RI.primary.cmds[0]);
+	  RI.primary.pool->reset(&RI.device);
+	  RI.primary.cmds[0].begin(&RI.device);
   }
 
   VkCommandBuffer cmd = RI.primary.cmds[0].vk.cmd;
