@@ -270,7 +270,7 @@ cLuxPreMenu::cLuxPreMenu() : iLuxUpdateable("LuxPreMenu")
 		mpSGamma->SetBarValueSize(cMath::RoundToInt(0.25f*(float)lMaxValue));
 
 		// Set initial value
-		SetGammaValueToInput(gpBase->mpEngine->GetGraphics()->GetLowLevel()->GetGammaCorrection(), true);
+		SetGammaValueToInput(gpBase->mpConfigHandler->GetGamma(), true);
 
 		mpSGamma->SetVisible(false);
 		mpSGamma->SetEnabled(false);
@@ -421,7 +421,7 @@ bool cLuxPreMenu::Gamma_ChangeValue(iWidget* apWidget, const cGuiMessageData& aD
 	float fGamma = mfGammaMinValue + fRange*fSliderRelValue;
 
 	mpLGamma->SetText(kTranslate("OptionsMenu","Gamma") + _W(": ") + cString::ToStringW(fGamma, 2, true));
-	gpBase->mpEngine->GetGraphics()->GetLowLevel()->SetGammaCorrection(fGamma);
+	gpBase->mpConfigHandler->SetGamma(fGamma);
 
 	return true;
 }

@@ -40,9 +40,6 @@ namespace hpl {
 
 	class cBillboard : public iRenderable
 	{
-	#ifdef __GNUC__
-		typedef iRenderable __super;
-	#endif
 	public:
 		cBillboard(const tString asName,const cVector2f& avSize,eBillboardType aType, cResources *apResources,cGraphics *apGraphics);
 		~cBillboard();
@@ -73,11 +70,7 @@ namespace hpl {
 
 		void SetHaloSourceSize(const cVector3f &avSize);
 		cVector3f GetHaloSourceSize(){return mvHaloSourceSize;}
-		
-		bool UsesOcclusionQuery();
-		void AssignOcclusionQuery(iRenderer *apRenderer);
-		bool RetrieveOcculsionQuery(iRenderer *apRenderer);
-		
+
 		/////////////////////////////////
 		//Entity implementation
 		tString GetEntityType(){ return "Billboard";}
@@ -101,7 +94,6 @@ namespace hpl {
 		cMaterial *mpMaterial;
 		iVertexBuffer* mpVtxBuffer;
 
-		cMatrixf m_mtxHaloOcclusionMatrix;
 		cMatrixf m_mtxTempTransform;
 
 		eBillboardType mType;

@@ -73,8 +73,8 @@ enum eLightCol
 
 enum eLightFloat
 {
-	eLightFloat_Radius = LightPropIdStart, //Maps to Intensity
-	eLightFloat_CullingRadius, //Maps to Radius
+	eLightFloat_Intensity = LightPropIdStart, // light brightness
+	eLightFloat_Radius,                       // light reach
 	eLightFloat_SourceRadius,
 
 	eLightFloat_GoboAnimFrameTime, 
@@ -115,6 +115,8 @@ public:
 	void CopyFromEntity(iEntityWrapper* apEntity);
 	void CopyToEntity(iEntityWrapper* apEntity, int alCopyFlags);
 
+	bool Load(cXmlElement* apElement);
+
 	const tIntList& GetConnectedBBIDS();
 protected:
 	tIntList mlstConnectedBBIds;
@@ -133,8 +135,8 @@ public:
 		AddBool(eLightBool_ShadowsAffectStatic, "ShadowsAffectStatic");
 		AddBool(eLightBool_ShadowsAffectDynamic, "ShadowsAffectDynamic");
 
+		AddFloat(eLightFloat_Intensity, "Intensity", 1.0f);
 		AddFloat(eLightFloat_Radius, "Radius", 1.0f);
-		AddFloat(eLightFloat_CullingRadius, "CullingRadius", 1.0f);
 		AddFloat(eLightFloat_SourceRadius, "SourceRadius", 1.0f);
 		AddString(eLightStr_FalloffMap, "FalloffMap");
 		AddString(eLightStr_Gobo, "Gobo");
@@ -224,11 +226,11 @@ public:
 	float GetGoboAnimFrameTime() { return mfGoboAnimFrameTime; }
 	void SetGoboAnimFrameTime(float afX);
 
+	virtual void SetIntensity(float afIntensity);
+	float GetIntensity() { return mfIntensity; }
+
 	virtual void SetRadius(float afRadius);
 	float GetRadius() { return mfRadius; }
-
-	virtual void SetCullingRadius(float afCullingRadius);
-	float GetCullingRadius() { return mfCullingRadius; }
 
 	virtual void SetSourceRadius(float afSourceRadius);
 	float GetSourceRadius() { return mfSourceRadius; }
@@ -322,8 +324,8 @@ protected:
 	tString msGoboAnimMode;
 	float mfGoboAnimFrameTime;
 
+	float mfIntensity;
 	float mfRadius;
-	float mfCullingRadius;
 	float mfSourceRadius;
 
 	cColor mcolDiffuseColor;

@@ -42,6 +42,7 @@
 
 #include "graphics/HPLTexture.h"
 
+#include "scene/ParticleEmitter.h"
 #include "scene/Viewport.h"
 #include "scene/World.h"
 #include "scene/RenderableContainer.h"
@@ -219,10 +220,21 @@ namespace hpl {
 			{
 				if(pObject == NULL) continue;
 
-				// Dynamic translucent geometry (billboards/beams/particles)
-				// rebuilds its vertex data per viewport before upload.
 				if(listType == eRenderListType_Translucent)
 				{
+					// Particle emitters take the per-viewport scratch path in
+					// the draw loop (BuildViewportVertices straight into
+					// RI.translucentVtx/Idx segments) — panes must NOT write
+					// the persistent VB: its uploader copies coalesce in the
+					// fenced pre-pass, so the last pane would win for EVERY
+					// pane (and poison the hybrid view).
+					if(pObject->GetRenderType() == eRenderableType_ParticleEmitter)
+						continue;
+
+					// Dynamic translucent geometry (billboards/beams) still
+					// rebuilds its vertex data per viewport before upload.
+					// TODO: same shared-buffer disease as particles — migrate
+					// to the scratch path.
 					pObject->UpdateGraphicsForFrame(afFrameTime);
 					pObject->UpdateGraphicsForViewport(apFrustum, afFrameTime);
 				}
@@ -286,7 +298,12 @@ namespace hpl {
 			colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 			colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 			colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-			colorAttachment.clearValue.color = { { 0.0f, 0.0f, 0.0f, 1.0f } };
+			// Honor the viewport's clear color (e.g. the thumbnail builder's
+			// gray backdrop) like the other renderers do.
+			colorAttachment.clearValue.color = { { apSettings->mClearColor.r,
+												   apSettings->mClearColor.g,
+												   apSettings->mClearColor.b,
+												   apSettings->mClearColor.a } };
 
 			VkRenderingAttachmentInfo depthStencil = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
 			RI_VK_FillDepthAttachment(&depthStencil, &state.depthView[RI.swapchainIndex], /*attachAndClear=*/true);
@@ -453,20 +470,59 @@ namespace hpl {
 			for(iRenderable *pObject : m_rendererList.GetRenderableItems(listType))
 			{
 				if(pObject == NULL) continue;
-				iVertexBuffer *pVB = pObject->GetVertexBuffer();
-				if(pVB == NULL) continue;
 
-				auto *vbri = static_cast<VertexBuffer_RI*>(pVB);
-				const auto *posElement = vbri->GetElement(eVertexBufferElement_Position);
-				const auto *colElement = vbri->GetElement(eVertexBufferElement_Color0);
-				const auto *uvElement = vbri->GetElement(eVertexBufferElement_Texture0);
-				const auto &indexBuffer = vbri->GetIndexRIBuffer();
-				const int indexCount = vbri->GetIndexNum();
-				if(posElement == NULL || !posElement->buffer || !indexBuffer || indexCount <= 0) {
-					continue;
+				// Draw sources — persistent VB by default; particles use the
+				// per-viewport scratch path below.
+				RIBuffer_s *posBuffer = nullptr;
+				RIBuffer_s *colBuffer = nullptr;
+				RIBuffer_s *uvBuffer = nullptr;
+				RIBuffer_s *idxBuffer = nullptr;
+				VkDeviceSize posOffset = 0, colOffset = 0, uvOffset = 0, idxOffset = 0;
+				int indexCount = 0;
+
+				if(listType == eRenderListType_Translucent &&
+				   pObject->GetRenderType() == eRenderableType_ParticleEmitter)
+				{
+					////////////////////////////////////////////
+					// Particles: build this pane's camera-facing quads straight
+					// into per-frame segments of RI.translucentVtx/IdxBuffer —
+					// each viewport gets its own correctly-billboarded geometry
+					// (the persistent VB stays the hybrid renderer's; its
+					// uploader copies coalesce in the fenced pre-pass, so panes
+					// writing it would let the last pane win for EVERY pane).
+					auto *pEmitter = static_cast<iParticleEmitter*>(pObject);
+					auto geom = pEmitter->BuildScratchGeometry(apFrustum, afFrameTime, /*withUv=*/true);
+					if(!geom.valid) continue;
+
+					posBuffer = &RI.translucentVtxBuffer;
+					colBuffer = &RI.translucentVtxBuffer;
+					uvBuffer  = &RI.translucentVtxBuffer;
+					idxBuffer = &RI.translucentIdxBuffer;
+					posOffset = (VkDeviceSize)geom.posByteOffset;
+					colOffset = (VkDeviceSize)geom.colByteOffset;
+					uvOffset  = (VkDeviceSize)geom.uvByteOffset;
+					idxOffset = (VkDeviceSize)geom.idxByteOffset;
+					indexCount = (int)geom.indexCount;
 				}
-				RIBuffer_s *colBuffer = (colElement && colElement->buffer) ? colElement->buffer.get() : nullptr;
-				RIBuffer_s *uvBuffer = (uvElement && uvElement->buffer) ? uvElement->buffer.get() : nullptr;
+				else
+				{
+					iVertexBuffer *pVB = pObject->GetVertexBuffer();
+					if(pVB == NULL) continue;
+
+					auto *vbri = static_cast<VertexBuffer_RI*>(pVB);
+					const auto *posElement = vbri->GetElement(eVertexBufferElement_Position);
+					const auto *colElement = vbri->GetElement(eVertexBufferElement_Color0);
+					const auto *uvElement = vbri->GetElement(eVertexBufferElement_Texture0);
+					const auto &indexBufferPtr = vbri->GetIndexRIBuffer();
+					indexCount = vbri->GetIndexNum();
+					if(posElement == NULL || !posElement->buffer || !indexBufferPtr || indexCount <= 0) {
+						continue;
+					}
+					posBuffer = posElement->buffer.get();
+					idxBuffer = indexBufferPtr.get();
+					colBuffer = (colElement && colElement->buffer) ? colElement->buffer.get() : nullptr;
+					uvBuffer = (uvElement && uvElement->buffer) ? uvElement->buffer.get() : nullptr;
+				}
 
 				cMaterial *pMat = pObject->GetMaterial();
 
@@ -504,7 +560,7 @@ namespace hpl {
 				std::shared_ptr<HPLTexture> texture = pDiffuseImage ? pDiffuseImage->GetTexture() : nullptr;
 				RIDescriptor_s textureDescriptor = RI.whiteTexture2DBinding;
 				if(texture) {
-					cntx->textureLink.push_back(texture);
+					cntx->resourceLink.push_back(texture);
 					textureDescriptor = texture->binding;
 				}
 
@@ -525,13 +581,13 @@ namespace hpl {
 				m_simple.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, bindings, 3);
 
 				RIBuffer_s *vertBufs[3] = {
-					posElement->buffer.get(),
+					posBuffer,
 					colBuffer ? colBuffer : &RI.fallbackColorVertex,
 					uvBuffer ? uvBuffer : &RI.fallbackUv0Vertex,
 				};
-				const VkDeviceSize vertOffsets[3] = { 0, 0, 0 };
+				const VkDeviceSize vertOffsets[3] = { posOffset, colOffset, uvOffset };
 				RI.primary.cmds[0].bindVertexBuffers<3>(0, 3, vertBufs, vertOffsets);
-				RI.primary.cmds[0].bindIndexBuffer(indexBuffer.get(), 0, VK_INDEX_TYPE_UINT32);
+				RI.primary.cmds[0].bindIndexBuffer(idxBuffer, idxOffset, VK_INDEX_TYPE_UINT32);
 				RI.primary.cmds[0].drawIndexed((uint32_t)indexCount, 1, 0, 0, 0);
 			}
 		}

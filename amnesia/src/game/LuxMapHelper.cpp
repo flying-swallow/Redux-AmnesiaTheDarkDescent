@@ -594,7 +594,7 @@ float cLuxMapHelper::GetLightLevelAtPos(const cVector3f& avPos, std::vector<iLig
 			float fDist = cMath::Vector3Dist(pLight->GetWorldPosition(), avPos);
 
 			//Calculate attenuation
-			float fT = 1 - fDist / (pLight->GetRadius() + afRadiusAdd);
+			float fT = 1 - fDist / (pLight->GetIntensity() + afRadiusAdd);
 			if(fT<0)fT =0;
 			fAmount *= fT;
 
@@ -656,7 +656,7 @@ void cLuxMapHelper::GetLightsAtNode(iRenderableContainerNode *apNode, tLightList
 				bAdd = cMath::CheckPointInBVIntersection(avPos, *pLight->GetBoundingVolume());
 				break;
 			case eLightType_Point:
-				bAdd = cMath::CheckPointInSphereIntersection(avPos, pLight->GetWorldPosition(), pLight->GetRadius());
+				bAdd = cMath::CheckPointInSphereIntersection(avPos, pLight->GetWorldPosition(), pLight->GetIntensity());
 				break;
 			case eLightType_Spot:
 				cLightSpot *pSpotLight = static_cast<cLightSpot*>(pLight);

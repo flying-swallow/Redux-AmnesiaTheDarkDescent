@@ -21,9 +21,9 @@ HOST_NAMESPACE_BEGIN
 
 // -----------------------------------------------------------------------------
 // Scalar-layout point light. `type` discriminator at offset 0 (ILight contract).
-// `intensity` is the light's luminous power (CPU-derived in HybridRenderer's
-// point-light loop as authoredRadius²·kPointLightIntensityScale; color already
-// carries brightness, so no luminance term). The radiance falloff
+// `intensity` is the light's radiance (Falcor LightData semantics — the
+// authored engine radius uploads verbatim in HybridRenderer's light loops, no
+// scale knobs; color already carries brightness). The radiance falloff
 // (interface.slang) is a plain WINDOWLESS inverse-square, so intensity only sets
 // brightness there; the reach cutoff (reach² = maxChannel(color)·intensity /
 // kLightRadianceFloor − kPointLightSourceRadiusSq) lives solely in

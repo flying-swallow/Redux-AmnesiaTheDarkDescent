@@ -65,7 +65,7 @@ public:
 	void CreateEntity(cLuxMap *apMap);
 	void DestroyEntity(cLuxMap *apMap);
 
-	virtual void RenderSolid(cRendererCallbackFunctions* apFunctions){}
+	virtual void RenderSolid(DebugDraw* apDebugDraw){}
 	virtual void RenderTrans(cRendererCallbackFunctions* apFunctions){}
 
 	void Reset();

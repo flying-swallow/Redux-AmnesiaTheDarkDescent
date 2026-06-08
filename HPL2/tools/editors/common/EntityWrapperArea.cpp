@@ -297,6 +297,9 @@ void cEntityWrapperArea::SetMeshFile(const tString& asX)
 void cEntityWrapperArea::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode,
 								bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol)
 {
+	if(cEditorHelper::GetVisibilityTypeState(eEditorVisibilityType_Areas) == false)
+		return;
+
 	iEntityWrapper::Draw(apViewport, apFunctions, apEditMode, abIsSelected, aHighlightCol, cColor(1,0,0,1));
 	cEntityWrapperTypeArea* pType = (cEntityWrapperTypeArea*)mpType;
 	

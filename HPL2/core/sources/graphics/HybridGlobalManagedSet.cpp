@@ -547,7 +547,7 @@ uint32_t HybridGlobalManagedSet::resolveTextureSlot(
   auto req = m_textureBindless.request(texture_cookie, frameIndex);
   if (req.exhausted)
     return kInvalidTextureIndex;
-  cntx->textureLink.push_back(texture);
+  cntx->resourceLink.push_back(texture);
   // BindlessPool reports `found == true` only when the same cookie still
   // owns the slot. Fresh allocations and LRU recycles both come back with
   // `found == false`, so that's when we (re)stage the descriptor write at
@@ -579,7 +579,7 @@ uint32_t HybridGlobalManagedSet::resolveCubeTextureSlot(
   auto req = m_textureCubeBindless.request(texture_cookie, frameIndex);
   if (req.exhausted)
     return kInvalidTextureIndex;
-  cntx->textureLink.push_back(texture);
+  cntx->resourceLink.push_back(texture);
   if (!req.found) {
     RIBindlessDescriptorSet::WriteBinding binding = {};
     binding.binding = kBindingTexturesCube;

@@ -246,9 +246,6 @@
     <ClInclude Include="include\graphics\MeshCreator.h">
       <Filter>Graphics</Filter>
     </ClInclude>
-    <ClInclude Include="include\graphics\OcclusionQuery.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
     <ClInclude Include="include\graphics\PostEffect.h">
       <Filter>Graphics</Filter>
     </ClInclude>
@@ -262,9 +259,6 @@
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\Renderer.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\RendererDeferred.h">
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\RendererSimple.h">
@@ -505,9 +499,6 @@
       <Filter>Impl\Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\impl\LowLevelGraphicsSDL.h">
-      <Filter>Impl\Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\impl\OcclusionQueryOGL.h">
       <Filter>Impl\Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\impl\PBuffer.h">
@@ -1353,9 +1344,6 @@
     <ClCompile Include="sources\graphics\Renderer.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
-    <ClCompile Include="sources\graphics\RendererDeferred.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
     <ClCompile Include="sources\graphics\RendererSimple.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
@@ -1564,9 +1552,6 @@
       <Filter>Impl\Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\impl\LowLevelGraphicsSDL.cpp">
-      <Filter>Impl\Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\impl\OcclusionQueryOGL.cpp">
       <Filter>Impl\Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\impl\PBuffer.cpp">

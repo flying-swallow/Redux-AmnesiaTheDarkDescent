@@ -553,12 +553,19 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       }
       m_rendererList.AddObject(pObject);
     };
+    // No frustum culling: the render list rebuilds fresh every frame and the
+    // TLAS instances are gathered from it — RT shadows/GI need whole-map
+    // geometry, including everything behind the camera. (Replaces the [TEMP]
+    // persistent-render-list mechanism, which accumulated dangling pointers
+    // to destroyed renderables and missed never-yet-seen geometry.)
     rendering::WalkAndPrepareRenderList(dynamicContainer, apFrustum,
                                         prepareObjectHandler,
-                                        eRenderableFlag_VisibleInNonReflection);
+                                        eRenderableFlag_VisibleInNonReflection,
+                                        /*abIgnoreFrustumCull=*/true);
     rendering::WalkAndPrepareRenderList(staticContainer, apFrustum,
                                         prepareObjectHandler,
-                                        eRenderableFlag_VisibleInNonReflection);
+                                        eRenderableFlag_VisibleInNonReflection,
+                                        /*abIgnoreFrustumCull=*/true);
     m_rendererList.End(
         eRenderListCompileFlag_Diffuse | eRenderListCompileFlag_Translucent |
         eRenderListCompileFlag_Decal | eRenderListCompileFlag_Illumination |
@@ -572,7 +579,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // map transition, and the surfel RT passes trace it every frame -> a
     // dangling acceleration-structure / vertex-buffer dereference -> GPUVM
     // read fault -> device lost. AttachResourceToCntx pushes the BLAS handle,
-    // its storage, and the vertex/index buffers onto accelLink/bufferLink,
+    // its storage, and the vertex/index buffers onto resourceLink,
     // which defer release by frames-in-flight, so any BLAS the TLAS can still
     // reference outlives the in-flight window even after its owning renderable
     // is destroyed. Only geometry with a built BLAS is parked (the rest can't
@@ -761,29 +768,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     pl.position[1] = pos.y;
     pl.position[2] = pos.z;
     const cColor c = pLight->GetDiffuseColor();
-    // sRGB authored → linear, matching the diffuse-texture sRGB decode and the
-    // output sRGB encode so a fully-lit surface round-trips to base-game brightness.
-    // (An earlier "over-saturated" result came from reading the color *raw* with
-    // no decode at all — not from a proper sRGB decode like this.)
     pl.color[0] = detail::sRGBToLinear(c.r);
     pl.color[1] = detail::sRGBToLinear(c.g);
     pl.color[2] = detail::sRGBToLinear(c.b);
-    // Store the light's intensity = authoredRadius² · scale. It multiplies the
-    // radiance (color · intensity · inverse-square) — no luminance here, color
-    // already carries brightness — and the grid binning derives the bin reach from
-    // the radiance floor (maxChannel(color)·intensity / kLightRadianceFloor).
-    const float authored = pLight->GetRadius();
-    pl.intensity = authored;
-    // Precompute the light-grid bin reach here so LightGridBuildPass (one thread
-    // per cell, looping all lights) doesn't recompute it per (cell,light). reach²
-    // = maxChannel(color)·intensity / floor − sourceRadius²; ≤0 ⇒ too dim to bin.
-    // The reach uses the UNSCALED authored intensity (kPointLightIntensityScale
-    // omitted): the scale is a visual brightness knob and must NOT re-cull lights
-    // — folding it into the reach made dimming shrink the bin range and pop lights
-    // out. Binning stays tied to the artist's authored radius; brightness only
-    // scales the shader radiance above.
-    const float authoredCullingRadius = pLight->GetCullingRadius();
-    pl.radius = authoredCullingRadius;
+    pl.intensity = pLight->GetIntensity();
+    pl.radius = pLight->GetRadius();
     /*
     {
       const float maxC = std::max(pl.color[0], std::max(pl.color[1], pl.color[2]));
@@ -875,33 +864,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     sl.color[0] = detail::sRGBToLinear(c.r);
     sl.color[1] = detail::sRGBToLinear(c.g);
     sl.color[2] = detail::sRGBToLinear(c.b);
-    // Store the light's intensity = authoredRadius² · scale (same as point lights):
-    // it multiplies the radiance (color · intensity · inverse-square) — no luminance
-    // here, color carries brightness — and the grid binning derives the bin reach from
-    // the radiance floor (maxChannel(color)·intensity / kLightRadianceFloor).
-    const float authored = pLight->GetRadius();
-    sl.intensity = authored  * kPointLightIntensityScale;
-    // Precompute the light-grid bin reach (same as point lights) so the per-cell
-    // gather in LightGridBuildPass just reads it. The spot cone ⊂ the radius
-    // sphere, so the radial reach is a conservative bound. Uses the UNSCALED
-    // authored intensity (kPointLightIntensityScale omitted) so the brightness
-    // knob doesn't re-cull lights — see the point-light note above.
-    {
-      const float maxC = std::max(sl.color[0], std::max(sl.color[1], sl.color[2]));
-      const float reachSq =
-          ((maxC * authored)/ kLightRadianceFloor) - kPointLightSourceRadiusSq;
-      sl.radius = reachSq > 0.f ? std::sqrt(reachSq) : 0.f;
-    }
-    // Physical source radius drives the soft-shadow penumbra in the direct pass
-    // (same as point lights above). Authored per-light via cLight::SetSourceRadius;
-    // when a light authors none (0), fall back to a fraction of its authored reach
-    // so it's softly shadowed by default. An explicit author value always wins.
-    {
-      const float authoredSourceRadius = pLight->GetSourceRadius();
-      sl.sourceRadius = authoredSourceRadius > 0.f
-                            ? authoredSourceRadius
-                            : authored * kPointLightDefaultSourceRadiusFrac;
-    }
+    // Falcor LightData semantics, same as the point loop: `intensity` IS the
+    // light's radiance — the authored engine radius uploads verbatim, no scale
+    // knobs.
+    sl.intensity = pLight->GetIntensity();
+    sl.radius = pLight->GetRadius();
+    sl.sourceRadius = pLight->GetSourceRadius();
     sl.goboTextureIndex = m_global.resolveTextureSlot(cntx, pLight->GetGoboImage(),
                                              (uint32_t)RI.frameIndex);
     sl.shadowEnabled = pLight->GetCastShadows() ? 1u : 0u;
@@ -1295,9 +1263,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     auto destroyBuffer = [](RIBuffer_s *b) {
       if (b->vk.buffer) {
-        auto *cntx = RI.GetActiveSet();
-        cntx->freelist.push_back(RIFree(b->vk.buffer));
-        cntx->freelist.push_back(RIFree(b->vk.allocation));
+        RI.GetActiveSet()->freelist.push_back(*b);
       }
       delete b;
     };
@@ -1312,8 +1278,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       while (newCap < instanceCapacityNeeded)
         newCap += (newCap >> 1);
       if (m_tlasInstanceBuffer.vk.buffer) {
-        cntx->freelist.push_back(RIFree(m_tlasInstanceBuffer.vk.buffer));
-        cntx->freelist.push_back(RIFree(m_tlasInstanceBuffer.vk.allocation));
+        cntx->freelist.push_back(m_tlasInstanceBuffer);
         m_tlasInstanceBuffer = {};
       }
       // Device-local: the instance buffer is a transfer destination written
@@ -1369,15 +1334,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     uint64_t tlasStorageSize = 0;
     uint64_t tlasBuildScratch = 0;
-    GetRIAccelStructureMemoryReqs(&RI.device, &tlasDesc, &tlasStorageSize,
-                                  &tlasBuildScratch, nullptr);
+    tlasDesc.getMemoryReqs(&RI.device, &tlasStorageSize, &tlasBuildScratch,
+                           nullptr);
 
     if ((m_tlas.vk.handle == VK_NULL_HANDLE) ||
         (m_tlasStorage.vk.buffer == VK_NULL_HANDLE || tlasStorageSize > m_tlasStorageCapacity)) {
       if (m_tlas.vk.handle != VK_NULL_HANDLE) {
-        cntx->freelist.push_back(RIFree(m_tlas.vk.handle));
-        cntx->freelist.push_back(RIFree(m_tlasStorage.vk.allocation));
-        cntx->freelist.push_back(RIFree(m_tlasStorage.vk.buffer));
+        cntx->freelist.push_back(m_tlas);
+        cntx->freelist.push_back(m_tlasStorage);
         m_tlas = {};
       }
       uint32_t qf[RI_QUEUE_LEN] = {0};
@@ -1393,7 +1357,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       tlasDesc.storage = &m_tlasStorage;
       tlasDesc.storageOffset = 0;
       tlasDesc.storageSize = tlasStorageSize;
-      if (InitRIAccelStructure(&RI.device, &tlasDesc, &m_tlas) != RI_SUCCESS) {
+      if (m_tlas.init(&RI.device, &tlasDesc) != RI_SUCCESS) {
         // Leave m_tlas zeroed; skip the build this frame.
         m_tlas = {};
       }
@@ -1417,7 +1381,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       build.instanceOffset = 0;
       build.scratchBuffer = &scratchReq.block.buffer;
       build.scratchOffset = scratchReq.bufferOffset;
-      CmdBuildRITlas(&RI.device, &RI.primary.cmds[0], &build, 1);
+      RI.primary.cmds[0].buildTlas(&RI.device, &build, 1);
 
       // Consumed by both the RT pipelines and fragment-stage ray queries —
       // one barrier covers both.
@@ -1463,7 +1427,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
         b.descriptor.vk.image.imageView = view;
         b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        RIFinalizeDescriptor(&RI.device, &b.descriptor);
+        b.descriptor.finalize(&RI.device);
         v.push_back(b);
       };
   auto pushSurfelSampledImage =
@@ -1475,7 +1439,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
         b.descriptor.vk.image.imageView = view;
         b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        RIFinalizeDescriptor(&RI.device, &b.descriptor);
+        b.descriptor.finalize(&RI.device);
         v.push_back(b);
       };
   auto pushTlas = [&](std::vector<RIProgram::DescriptorBinding> &v) {
@@ -1483,7 +1447,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     b.handle = DescriptorBindingID::Create("gRtAccel");
     b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
     b.descriptor.vk.accelStructure = m_tlas.vk.handle;
-    RIFinalizeDescriptor(&RI.device, &b.descriptor);
+    b.descriptor.finalize(&RI.device);
     v.push_back(b);
   };
 
@@ -2109,7 +2073,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       b.descriptor.vk.image.imageView =
           state.surfelResultView[RI.swapchainIndex].vk.image;
       b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-      RIFinalizeDescriptor(&RI.device, &b.descriptor);
+      b.descriptor.finalize(&RI.device);
       bnd.push_back(b);
     }
     m_surfelGenerate.bindDescriptors(
@@ -2185,7 +2149,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
       b.descriptor.vk.image.imageView = view;
       b.descriptor.vk.image.imageLayout = layout;
-      RIFinalizeDescriptor(&RI.device, &b.descriptor);
+      b.descriptor.finalize(&RI.device);
       return b;
     };
 
@@ -2321,7 +2285,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           state.surfelResultView[RI.swapchainIndex].vk.image;
       b.descriptor.vk.image.imageLayout =
           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      RIFinalizeDescriptor(&RI.device, &b.descriptor);
+      b.descriptor.finalize(&RI.device);
       bnd.push_back(b);
     }
     {
@@ -2337,7 +2301,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           state.visibilityView[RI.swapchainIndex].vk.image;
       b.descriptor.vk.image.imageLayout =
           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      RIFinalizeDescriptor(&RI.device, &b.descriptor);
+      b.descriptor.finalize(&RI.device);
       bnd.push_back(b);
     }
     // gDirectLighting — this frame's accumulated direct (sampled, GENERAL).
@@ -2801,15 +2765,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       };
 
       for (iParticleEmitter *pEmitter : emitters) {
-        iVertexBuffer *pVB = pEmitter->GetVertexBuffer();
         cMaterial *pMat = pEmitter->GetMaterial();
-        if (!pVB || !pMat)
+        if (!pMat)
           continue;
-        int indexCount = pVB->GetElementNum();   // live count: mlNumOfParticles * 6
-        if (indexCount < 0)                       // -1 == "not set" -> draw all
-          indexCount = pVB->GetIndexNum();
-        if (indexCount <= 0)                      // 0 == emitter requested skip
+        // Per-frame scratch geometry (no persistent emitter VB): build this
+        // frame's camera-facing quads into the shared RI.translucentVtx/Idx
+        // segments — same single producer as the wireframe/simple panes.
+        auto geom = pEmitter->BuildScratchGeometry(apFrustum, afFrameTime, /*withUv=*/true);
+        if (!geom.valid)
           continue;
+        const int indexCount = (int)geom.indexCount;
 
         uint32_t materialId =
             m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex).materialId;
@@ -2822,21 +2787,38 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         d.modelMatrix = pEmitter->GetModelMatrix(apFrustum);
         d.materialId = materialId;
 
-        // Particles share the object-slot pool with opaque solids. submitObject
-        // bumps the slot generation when this slot is (re)assigned to the emitter
-        // — so a surfel still anchored to the slot's previous opaque occupant
-        // self-invalidates before it feeds a stale opaque primitiveIndex into the
-        // particle mesh's smaller index/vertex BDA (unbounded read → GPUVM fault).
-        // The particle VS pulls pos/uv0/color/index via BDA, so submitObject
-        // writes the stream + index handles too. (normal/tangent are written as
-        // well but never read for a particle slot — harmless.)
-        auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
+        // Particles share the object-slot pool with opaque solids; the payload
+        // submit also bumps the slot generation when the slot is (re)assigned —
+        // so a surfel still anchored to the slot's previous opaque occupant
+        // self-invalidates before it dereferences this slot's smaller streams.
         const uint32_t slot = m_global.submitObject(
-            pEmitter->GetUniqueCookie(), (uint32_t)RI.frameIndex, vbri, d,
-            kSubmitData | kSubmitVertex | kSubmitIndex);
+            pEmitter->GetUniqueCookie(), (uint32_t)RI.frameIndex, nullptr, d,
+            kSubmitData);
         if (slot == UINT32_MAX) {
           Warning("bindless pool exhausted (particle)");
           continue;
+        }
+
+        // The particle VS pulls pos/uv0/color/index via BDA; point this slot's
+        // handles at the scratch segments (base address + byte offset). The
+        // mirrors are public by design — direct fill-site writes, refreshed
+        // every frame exactly like the VB path was. normal/tangent are never
+        // read for a particle slot; zero them so a stale opaque BDA can't
+        // linger on a reused slot.
+        {
+          const uint64_t vtxBase =
+              RI.translucentVtxBuffer.GetDeviceHandle(&RI.device);
+          m_global.m_opaquePositionMirror.write<VkDeviceAddress>(
+              slot, vtxBase + geom.posByteOffset);
+          m_global.m_opaqueColorMirror.write<VkDeviceAddress>(
+              slot, vtxBase + geom.colByteOffset);
+          m_global.m_opaqueUv0Mirror.write<VkDeviceAddress>(
+              slot, vtxBase + geom.uvByteOffset);
+          m_global.m_opaqueIndexMirror.write<VkDeviceAddress>(
+              slot, RI.translucentIdxBuffer.GetDeviceHandle(&RI.device) +
+                        geom.idxByteOffset);
+          m_global.m_opaqueNormalMirror.write<VkDeviceAddress>(slot, 0);
+          m_global.m_opaqueTangentMirror.write<VkDeviceAddress>(slot, 0);
         }
 
         const ParticlePipelineDesc::BlendMode mode =

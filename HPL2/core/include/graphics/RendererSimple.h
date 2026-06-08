@@ -50,11 +50,6 @@ namespace hpl {
 				bool abSendFrameBufferToPostEffects) override;
 
 	private:
-		// Pure virtuals from the legacy GL chain — never invoked; Draw() owns rendering.
-		void CopyToFrameBuffer() override {}
-		void SetupRenderList() override {}
-		void RenderObjects() override {}
-
 		RIProgram m_simple;
 		cRenderList2 m_rendererList;
 	};

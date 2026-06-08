@@ -22,6 +22,8 @@
 // the 1/pi normalization); callers multiply by Li * N.L. sampleBrdf() picks a
 // lobe stochastically and returns L plus the throughput weight f*N.L/pdf.
 
+#include "Constants.h"      // kDiffuseBrdf selector, kDefaultDiffuseRoughness
+
 import SceneTypes;          // DiffuseMaterial + kMaterialFlag* / kInvalidTextureIndex
 import bindless;   // gTextures2D, gMaterialSampler
 import Random;              // RNG
@@ -65,6 +67,75 @@ public float3 fresnelSchlick(float cosTheta, float3 F0, float p)
     return F0 + (float3(1.0f) - F0) * pow(m, p);
 }
 
+// Scalar Schlick with explicit f0/f90 (Falcor Fresnel.slang's evalFresnelSchlick).
+float fresnelSchlickF(float f0, float f90, float cosTheta)
+{
+    float m = clamp(1.0f - cosTheta, 0.0f, 1.0f);
+    float m2 = m * m;
+    return f0 + (f90 - f0) * (m2 * m2 * m);
+}
+
+// -----------------------------------------------------------------------------
+// Standard-BSDF diffuse lobe, selected by kDiffuseBrdf (Constants.h) — mirrors
+// Falcor's BSDFs/{Lambert,Disney,Frostbite}DiffuseBRDF evalWeight() with the
+// albedo factored OUT (this pipeline is demodulated: the composite / NEE apply
+// albedo once). `rough` is PERCEPTUAL roughness (Falcor convention; GGX alpha
+// = rough²). Returns f_d·π/albedo.
+// -----------------------------------------------------------------------------
+public float diffuseLobeWeight(float NoL, float NoV, float LoH, float rough)
+{
+#if kDiffuseBrdf == kDiffuseBrdfLambert
+    return 1.0f;
+#elif kDiffuseBrdf == kDiffuseBrdfDisney
+    // Burley 2012 retro-reflection (Falcor DisneyDiffuseBRDF.slang).
+    float fd90 = 0.5f + 2.0f * LoH * LoH * rough;
+    return fresnelSchlickF(1.0f, fd90, NoL) * fresnelSchlickF(1.0f, fd90, NoV);
+#else // kDiffuseBrdfFrostbite
+    // Disney + Lagarde energy renormalization (Falcor FrostbiteDiffuseBRDF.slang).
+    float energyBias   = lerp(0.0f, 0.5f, rough);
+    float energyFactor = lerp(1.0f, 1.0f / 1.51f, rough);
+    float fd90 = energyBias + 2.0f * LoH * LoH * rough;
+    return fresnelSchlickF(1.0f, fd90, NoL) * fresnelSchlickF(1.0f, fd90, NoV)
+         * energyFactor;
+#endif
+}
+
+// Demodulated diffuse BRDF value f_d/albedo (carries the 1/π; the caller
+// multiplies Li·NdotL·albedo). NoV is clamped rather than zeroed so
+// normal-mapped grazing pixels don't go black (Falcor's hard kMinCosTheta cut
+// is a path-tracing concern).
+public float evalDiffuseDemodulated(float3 N, float3 V, float3 L, float rough)
+{
+    float NoL = saturate(dot(N, L));
+    float NoV = max(dot(N, V), 1e-4f);
+    float3 H  = normalize(V + L);
+    float LoH = saturate(dot(L, H));
+    return diffuseLobeWeight(NoL, NoV, LoH, rough) * (1.0f / kBrdfPi);
+}
+
+// Legacy gloss channel (tex[3].y) -> GGX alpha: Blinn-Phong exponent
+// n = exp2(gloss·10)+1 (~2..1025), remapped alpha = sqrt(2/(n+2))
+// (deferred_light_frag.glsl:234 is the source).
+float glossToGGXAlpha(float gloss)
+{
+    float n = exp2(gloss * 10.0f) + 1.0f;
+    return sqrt(2.0f / (n + 2.0f));
+}
+
+// Perceptual diffuse-lobe roughness for a material: decoded from the spec-map
+// gloss channel when present (alpha = rough² per the Falcor convention),
+// kDefaultDiffuseRoughness (fully rough) otherwise.
+public float decodeMaterialRoughness(DiffuseMaterial m, float2 uv)
+{
+    bool hasSpec = ((m.materialConfig & kMaterialFlagEnableSpecular) != 0u)
+                 && (m.tex[3] != kInvalidTextureIndex);
+    if (!hasSpec)
+        return kDefaultDiffuseRoughness;
+    float gloss = gTextures2D[NonUniformResourceIndex(m.tex[3])]
+                      .SampleLevel(gMaterialSampler, uv, 0.0f).y;
+    return clamp(sqrt(glossToGGXAlpha(gloss)), kMinRough, 1.0f);
+}
+
 // GGX / Trowbridge-Reitz normal distribution.
 float distGGX(float NoH, float a)
 {
@@ -94,7 +165,11 @@ public float3 evalBrdf(SurfaceBRDF s, float3 V, float3 L)
     float  VoH = saturate(dot(V, H));
 
     float3 F       = s.hasSpecular ? fresnelSchlick(VoH, s.F0, s.fresnelPow) : float3(0.0f);
-    float3 diffuse = s.albedo * (float3(1.0f) - F) * (1.0f / kBrdfPi);
+    // Standard diffuse lobe (kDiffuseBrdf). s.rough is GGX alpha; the lobe
+    // wants perceptual roughness (alpha = rough²). VoH ≡ LoH (H bisects V,L).
+    float3 diffuse = s.albedo * (float3(1.0f) - F)
+                   * diffuseLobeWeight(NoL, NoV, VoH, sqrt(s.rough))
+                   * (1.0f / kBrdfPi);
 
     float3 spec = float3(0.0f);
     if (s.hasSpecular)
@@ -155,16 +230,21 @@ public bool sampleBrdf(SurfaceBRDF s, float3 V, inout RNG rng, out float3 L, out
         return true;
     }
 
-    // Diffuse: cosine-weighted hemisphere. f*N.L/pdf = kd.
+    // Diffuse: cosine-weighted hemisphere. pdf = NoL/π, so f·N.L/pdf reduces
+    // to kd·diffuseLobeWeight (the lobe's 1/π cancels against the pdf).
     float u1   = rng.next_float();
     float u2   = rng.next_float();
     float r    = sqrt(u1);
     float phi  = 2.0f * kBrdfPi * u2;
     float3 Ll  = float3(r * cos(phi), r * sin(phi), sqrt(max(0.0f, 1.0f - u1)));
     L = normalize(mul(Ll, basis));
-    if (dot(s.N, L) <= 0.0f) return false;
+    float NoL = dot(s.N, L);
+    if (NoL <= 0.0f) return false;
 
-    weight = kd / max(1.0f - pSpec, 1e-4f);
+    float3 Hd  = normalize(V + L);
+    float  LoH = saturate(dot(L, Hd));
+    weight = kd * diffuseLobeWeight(NoL, NoV, LoH, sqrt(s.rough))
+                / max(1.0f - pSpec, 1e-4f);
     return true;
 }
 
@@ -195,11 +275,7 @@ public SurfaceBRDF prepareSurface(DiffuseMaterial m, float3 N, float2 uv)
                           .SampleLevel(gMaterialSampler, uv, 0.0f).xy;
         float specIntensity = spec.x;
         float gloss         = spec.y;
-        // Legacy gloss encoding: Blinn-Phong exponent n = exp2(gloss*10)+1
-        // (~2..1025); remap Phong exponent -> GGX alpha = sqrt(2/(n+2)).
-        float n     = exp2(gloss * 10.0f) + 1.0f;
-        float alpha = sqrt(2.0f / (n + 2.0f));
-        s.rough = clamp(alpha, kMinRough, 1.0f);
+        s.rough = clamp(glossToGGXAlpha(gloss), kMinRough, 1.0f);
         // Dielectric F0 (~0.04) scaled by the legacy specular-map intensity.
         // NOT frenselBias: in the base game frenselBias only drove the *cubemap*
         // reflection (helper_reflection.glsl), so feeding its 0.2 default into

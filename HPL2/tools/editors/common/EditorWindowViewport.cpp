@@ -112,7 +112,8 @@ void cViewportCallback::OnPreWorldDraw()
 		vClipPlanes[i]->Draw(pDebugDraw, 0);
 	}
 
-	pDebugDraw->DebugDrawSphere(mpViewport->GetVCamera()->GetTargetPosition(), 0.1f, cColor(0,1,1,1));
+	// Old HPL2 target-point gizmo — removed (viewport declutter, matches HPL3).
+	//pDebugDraw->DebugDrawSphere(mpViewport->GetVCamera()->GetTargetPosition(), 0.1f, cColor(0,1,1,1));
 
 	if(mpViewport->GetDrawDebug())
 	{

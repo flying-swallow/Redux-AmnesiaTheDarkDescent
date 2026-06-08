@@ -413,7 +413,7 @@ void RIProgram::bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, 
 			hash_t hash = HASH_INITIAL_VALUE;
 			for( size_t i = 0; i < bindingCount; i++ ) {
 				const struct RIProgram::BindingReflection *refl = findReflection(bindings[i].handle );
-				if( !refl || setIndex != refl->set || RI_IsEmptyDescriptor( &bindings[i].descriptor ) )
+				if( !refl || setIndex != refl->set || bindings[i].descriptor.isEmpty() )
 					continue;
 				hash = hash_u64( hash, refl->hash );
 				hash = hash_u64( hash, bindings[i].registerOffset );
@@ -433,7 +433,7 @@ void RIProgram::bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, 
 				VkWriteDescriptorSetAccelerationStructureKHR accelWrites[32] = {};
 				for( size_t i = 0; i < bindingCount; i++ ) {
 						const struct RIProgram::BindingReflection *refl = findReflection(bindings[i].handle );
-					if( !refl || setIndex != refl->set || RI_IsEmptyDescriptor( &bindings[i].descriptor ) )
+					if( !refl || setIndex != refl->set || bindings[i].descriptor.isEmpty() )
 						continue;
 
 					if( numWrites == ARRAY_COUNT( descriptorWrite ) ) {

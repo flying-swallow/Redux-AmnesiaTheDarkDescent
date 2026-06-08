@@ -118,7 +118,7 @@ public:
 	virtual bool AllowPlayerMenus(){ return true;}
 	virtual bool AllowLantern(){ return true;}
 	
-	virtual void RenderSolid(cRendererCallbackFunctions* apFunctions){}
+	virtual void RenderSolid(DebugDraw* apDebugDraw){}
 	virtual void RenderTrans(cRendererCallbackFunctions* apFunctions){}
 
 	void SetPreviousState(eLuxPlayerState aState) { mPreviousState = aState; }

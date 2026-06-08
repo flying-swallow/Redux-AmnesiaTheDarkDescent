@@ -184,6 +184,11 @@ iEditorBase::iEditorBase(const tWString& asFileCategoryName, const tWString& asF
 	mbDestroyingEditor = false;
 	mbWorldModified = false;
 
+	mbVisibilityTypes[eEditorVisibilityType_Icons] = true;
+	mbVisibilityTypes[eEditorVisibilityType_Areas] = true;
+	mbVisibilityTypes[eEditorVisibilityType_Blockers] = true;
+	mbVisibilityTypes[eEditorVisibilityType_GlobalFog] = true;
+
 	msFileCategoryName = asFileCategoryName;
 	msFileCategoryString = asFileCategoryString;
 
@@ -738,7 +743,12 @@ cEngine* iEditorBase::Init(cEngine* apEngine, const char* asName, const char* as
 #ifdef USERDIR_RESOURCES
 		mpEngine->GetResources()->LoadResourceDirsFile("resources.cfg", mpDirHandler->GetUserResourceDir());
 #else
-		mpEngine->GetResources()->LoadResourceDirsFile("resources.cfg");
+		// Per-instance override: [Directories] ResourcesOverride in the editor
+		// config points at an alternate resource-dirs file (e.g. a mod's), else
+		// the stock resources.cfg.
+		tString customResources = mpMainConfig->GetString("Directories", "ResourcesOverride", "");
+		if(customResources != "") mpEngine->GetResources()->LoadResourceDirsFile(customResources);
+		else mpEngine->GetResources()->LoadResourceDirsFile("resources.cfg");
 #endif
 	}
 
@@ -1036,6 +1046,18 @@ void iEditorBase::ViewportMouseUp(cEditorWindowViewport* apViewport, int alButto
 
 //-----------------------------------------------------------------------
 
+void iEditorBase::SetVisibilityTypeState(eEditorVisibilityType aType, bool abEnabled)
+{
+	mbVisibilityTypes[aType] = abEnabled;
+
+	// Flag the world dirty so per-entity visibility (blockers, billboards) is
+	// re-evaluated; icon/area/fog consumers read the flag directly each draw.
+	mpEditorWorld->SetVisibilityUpdated();
+	mpEditorWorld->UpdateVisibility();
+}
+
+//-----------------------------------------------------------------------
+
 void iEditorBase::SetUpDirectories()
 {
 	///////////////////////////////////////////////////
@@ -1316,6 +1338,17 @@ void iEditorBase::Update(float afTimeStep)
 	////////////////////////////////////////////////////////////////////
 	// Call app specific update routines
 	OnUpdate(afTimeStep);
+}
+
+//----------------------------------------------------------------------------
+
+void iEditorBase::OnDraw(float afFrameTime)
+{
+	// Pump the async thumbnail job queue: OnDraw runs inside the frame's
+	// command-recording window, so the builder can Evaluate its headless
+	// viewport here (see EditorThumbnailBuilder.h).
+	if(mpThumbnailBuilder)
+		mpThumbnailBuilder->Pump(afFrameTime);
 }
 
 //----------------------------------------------------------------------------

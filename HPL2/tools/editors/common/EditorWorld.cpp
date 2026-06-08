@@ -1197,7 +1197,8 @@ void iEditorWorld::SetShowFog(bool abX)
 void iEditorWorld::SetFogActive(bool abX)
 {
 	mbFogActive = abX;
-	mpWorld->SetFogActive(abX && mbShowFog);
+	mpWorld->SetFogActive(abX && mbShowFog &&
+		mpEditor->GetVisibilityTypeState(eEditorVisibilityType_GlobalFog));
 }
 
 //----------------------------------------------------------------------------

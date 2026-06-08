@@ -18,6 +18,7 @@
 import SceneTypes;
 import Scene;
 import bindless;
+import Brdf;                    // decodeMaterialRoughness (diffuse-lobe roughness)
 import HitInfo;
 import ILight;
 import PerFrame.resource;
@@ -77,6 +78,7 @@ struct DiffuseShading
 {
     float3 posW;
     float3 normalW;
+    float  rough;    // perceptual diffuse-lobe roughness (decodeMaterialRoughness)
     float3 albedo;
     float3 emission;
 };
@@ -104,6 +106,8 @@ DiffuseShading prepareDiffuseShading(VertexData v, uint materialID, float illumi
         sd.emission = gTextures2D[NonUniformResourceIndex(illumTex)]
                           .SampleLevel(gMaterialSampler, v.texC, 0.0f).rgb
                       * illuminationAmount;
+
+    sd.rough = decodeMaterialRoughness(m, v.texC);
     return sd;
 }
 
@@ -158,9 +162,10 @@ void traceScatterRay(inout ScatterPayload scatterPayload)
 }
 
 // Single-light NEE. Picks a light uniformly, evaluates BSDF * Li / pdf.
-// `rng` is the call-site RNG (used for light index + sample randomness);
-// no payload mutation here.
-float3 evalAnalyticLight(DiffuseShading sd, inout RNG rng)
+// `V` is the outgoing direction at the hit (back along the scatter ray) —
+// the diffuse lobe (kDiffuseBrdf) is view-dependent. `rng` is the call-site
+// RNG (used for light index + sample randomness); no payload mutation here.
+float3 evalAnalyticLight(DiffuseShading sd, float3 V, inout RNG rng)
 {
     uint lightCount = gScene.getLightCount();
     if (lightCount == 0) return float3(0.f);
@@ -204,13 +209,15 @@ float3 evalAnalyticLight(DiffuseShading sd, inout RNG rng)
     // applied here.
     float3 origin   = sd.posW + sd.normalW * kRayEps;
     float3 perLight = sd.albedo * gScene.shadeAnalyticLight(sd.posW, sd.normalW,
+                                                            V, sd.rough,
                                                             lightIdx, origin);
 
-    // Lambert diffuse BRDF = albedo/π. kIndirectLightScale is a non-physical
-    // boost that cheats the GI/indirect term brighter without touching direct
-    // (which lives in MainCompositePass). π cancels the 1/π so indirect matches
-    // the base-game no-1/π convention; raise above π to over-cheat.
-    return perLight * invPdf * kIndirectLightScale;
+    // shadeAnalyticLight evaluates the standard diffuse lobe (with its 1/π);
+    // albedo re-modulates it into outgoing radiance for the bounce. No scale
+    // knobs (Falcor parity): the NEE shares shadeAnalyticLight and the same Li
+    // units as the direct pass, so indirect lands in direct's units by
+    // construction.
+    return perLight * invPdf;
 }
 
 // Try to terminate the path early by sampling the surfel cache instead of
@@ -359,13 +366,16 @@ void handleHit(TriangleHit triangleHit, inout ScatterPayload scatterPayload)
     RNG rng;
     rng.s = uint2(scatterPayload.rngHi, scatterPayload.rngLo);
 
-    // Direct lighting (one-sample NEE).
-    float3 Lr = evalAnalyticLight(sd, rng);
+    // Direct lighting (one-sample NEE). scatterPayload.direction still holds
+    // the incoming ray direction here (overwritten below for the next bounce),
+    // so the outgoing/"view" direction at the hit is its negation.
+    float3 Lr = evalAnalyticLight(sd, -scatterPayload.direction, rng);
     scatterPayload.radiance += scatterPayload.thp * Lr;
 
     // Sample the next bounce direction (cosine-hemisphere, local frame
-    // around sd.normalW). BSDF * cosθ / pdf for cosine sampling reduces
-    // to albedo (the cosθ / pdf factors cancel).
+    // around sd.normalW). BSDF * cosθ / pdf for cosine sampling =
+    // albedo · diffuseLobeWeight (the lobe's 1/π cancels against the pdf;
+    // at kDiffuseBrdfLambert the weight is 1 and this reduces to albedo).
     float3 localDir;
     float  bsdfPdf;
     {
@@ -375,9 +385,20 @@ void handleHit(TriangleHit triangleHit, inout ScatterPayload scatterPayload)
     }
     float3 worldDir = normalize(mul(localDir, buildTangentSpace(sd.normalW)));
 
+    // Lobe weight uses the same V as the NEE above (incoming ray, negated) —
+    // computed BEFORE scatterPayload.direction is overwritten for the bounce.
+    float bounceW;
+    {
+        float3 Vb = -scatterPayload.direction;
+        float3 Hb = normalize(Vb + worldDir);
+        bounceW = diffuseLobeWeight(saturate(dot(sd.normalW, worldDir)),
+                                    max(dot(sd.normalW, Vb), 1e-4f),
+                                    saturate(dot(worldDir, Hb)), sd.rough);
+    }
+
     scatterPayload.origin    = sd.posW + sd.normalW * kRayEps;
     scatterPayload.direction = worldDir;
-    scatterPayload.thp      *= sd.albedo;
+    scatterPayload.thp      *= sd.albedo * bounceW;
 
     // Last step / Russian roulette / surfel-cache finalize, same as the
     // Falcor port — the russian-roulette probability uses luminance(thp).

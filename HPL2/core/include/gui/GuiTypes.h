@@ -115,6 +115,8 @@ namespace hpl {
 		eWidgetType_Image,
 		eWidgetType_ListBox,
 		eWidgetType_ComboBox,
+		eWidgetType_NodeTree,
+		eWidgetType_MeshObjectList,
 		eWidgetType_ContextMenu,
 		eWidgetType_MainMenu,
 		eWidgetType_MenuItem,
@@ -248,6 +250,7 @@ namespace hpl {
 		eGuiSkinGfx_FrameCornerLD,
 
 		eGuiSkinGfx_FrameBackground,
+		eGuiSkinGfx_FrameBackgroundColorPicking,
 
 		///////////////////////////////////
 		// Check Box

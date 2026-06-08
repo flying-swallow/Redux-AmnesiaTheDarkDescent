@@ -87,7 +87,7 @@ public:
 	void OnEnterContainer(const tString& asOldContainer);
 	void OnLeaveContainer(const tString& asNewContainer);
 	
-	void RenderSolid(cRendererCallbackFunctions* apFunctions);
+	void RenderSolid(DebugDraw* apDebugDraw);
 	void RenderTrans(cRendererCallbackFunctions* apFunctions);
 
 	////////////////////

@@ -631,7 +631,7 @@ void VertexBuffer_RI::BuildBlas(RICmd_s *cmd, RIDevice_s *device,
 
   uint64_t storageSize = 0;
   uint64_t buildScratchSize = 0;
-  GetRIAccelStructureMemoryReqs(device, &asDesc, &storageSize, &buildScratchSize, NULL );
+  asDesc.getMemoryReqs(device, &storageSize, &buildScratchSize, NULL );
 
   m_blasStorage = std::shared_ptr<RIBuffer_s>(
       new RIBuffer_s(),
@@ -677,7 +677,7 @@ void VertexBuffer_RI::BuildBlas(RICmd_s *cmd, RIDevice_s *device,
         a->dispose(&RI.device);
         delete a;
       });
-  if (InitRIAccelStructure(device, &asDesc, m_blas.get()) != RI_SUCCESS) {
+  if (m_blas->init(device, &asDesc) != RI_SUCCESS) {
     Error("failed to construct acceel structure");
   }
   // Distinct name for the AS itself (was reusing the storage buffer's name).
@@ -698,7 +698,7 @@ void VertexBuffer_RI::BuildBlas(RICmd_s *cmd, RIDevice_s *device,
   buildDesc.geometryNum = 1;
   buildDesc.scratchOffset = scratchReq.bufferOffset;
   buildDesc.scratchBuffer = &scratchReq.block.buffer;
-  CmdBuildRIBlas(device, cmd, &buildDesc, 1);
+  cmd->buildBlas(device, &buildDesc, 1);
 
   m_blasGeneration = m_generation;
 }
@@ -707,15 +707,15 @@ void VertexBuffer_RI::AttachResourceToCntx(RIBootstrap::FrameContext *cntx) {
 
   for (auto &element : m_vertexElements) {
     if(element.buffer) {
-      cntx->bufferLink.push_back(element.buffer);
+      cntx->resourceLink.push_back(element.buffer);
     }
   }
   if(m_indexBuffer) {
-    cntx->bufferLink.push_back(m_indexBuffer);
+    cntx->resourceLink.push_back(m_indexBuffer);
   }
   if(m_blas) {
-    cntx->accelLink.push_back(m_blas);
-    cntx->bufferLink.push_back(m_blasStorage);
+    cntx->resourceLink.push_back(m_blas);
+    cntx->resourceLink.push_back(m_blasStorage);
   }
 }
 

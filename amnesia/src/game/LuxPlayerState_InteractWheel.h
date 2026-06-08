@@ -45,7 +45,7 @@ public:
 	cLuxPlayerState_InteractWheel(cLuxPlayer *apPlayer);
 	virtual ~cLuxPlayerState_InteractWheel();
 
-	void RenderSolid(cRendererCallbackFunctions* apFunctions);
+	void RenderSolid(DebugDraw* apDebugDraw);
 
 	/////////////////////////////////
 	//Save data stuff

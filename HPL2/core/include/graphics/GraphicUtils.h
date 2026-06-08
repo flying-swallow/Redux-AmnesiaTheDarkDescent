@@ -45,8 +45,13 @@ namespace hpl {
 		cRect2l GetClipRectFromObject(iRenderable* apObject, float afPaddingPercent,
 			cFrustum* apFrustum, const cVector2l& avScreenSize, float afHalfFovTan);
 
+		// abIgnoreFrustumCull visits every node regardless of the frustum test
+		// (view-distance bookkeeping still runs) — the hybrid renderer uses it
+		// so the TLAS sees whole-map geometry, with the render list rebuilt
+		// fresh every frame.
 		void WalkAndPrepareRenderList(iRenderableContainer* container, cFrustum* frustum,
-			std::function<void(iRenderable*)> handler, tRenderableFlag renderableFlag);
+			std::function<void(iRenderable*)> handler, tRenderableFlag renderableFlag,
+			bool abIgnoreFrustumCull = false);
 
 		void UpdateRenderListWalkAllNodesTestFrustumAndVisibility(
 			cRenderList* apRenderList, cFrustum* frustum,

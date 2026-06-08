@@ -64,7 +64,7 @@ bool CreateViewportColorTexture(struct RIDevice_s *device, uint32_t width,
                                 VkImageUsageFlags usage,
                                 struct RITexture_s *tex,
                                 struct RIDescriptor_s *desc, const char *what);
-void ReleaseViewportColorTexture(std::vector<struct RIFree> &freelist,
+void ReleaseViewportColorTexture(std::vector<RIFreeHandle> &freelist,
                                  struct RITexture_s *tex,
                                  struct RIDescriptor_s *desc);
 
@@ -76,7 +76,7 @@ bool CreateViewportAttachmentTexture(struct RIDevice_s *device, uint32_t width,
                                      struct RITexture_s *tex,
                                      struct RITextureView_s *view,
                                      const char *what);
-void ReleaseViewportAttachmentTexture(std::vector<struct RIFree> &freelist,
+void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
                                       struct RITexture_s *tex,
                                       struct RITextureView_s *view);
 
@@ -219,6 +219,10 @@ public:
     // transitions around the delivery draw.
     struct RITexture_s texture;
     RITextureView_s view;
+    // Format of `view` — the delivery draw's color attachment (and pipeline
+    // key). Defaults to the pogo format; readback consumers (thumbnails) can
+    // hand an RGBA8 target instead.
+    VkFormat format = RIBootstrap::PogoColorFormatVk;
   };
   using Target = std::variant<TargetSwapchain, TargetView>;
 
@@ -263,9 +267,39 @@ public:
   const Target &GetTarget() const { return mTarget; }
   cVector2l GetTargetSize() const;
 
+  // Fully evaluate the viewport for this frame: world draw -> feed (the
+  // BackBuffer crop window blitted into the pogo read half) -> post-effect
+  // chain -> delivery per Target (TargetView draw / swapchain tail blit; the
+  // primary viewport's GUI block stays in cScene::Render). Returns whether
+  // the world was rendered (the GUI block keys LOAD vs CLEAR off this).
+  //
+  // Normally driven by cScene::Render for visible viewports, but callable
+  // directly during the command-recording window (OnDraw ->
+  // FlushRendering) for HEADLESS viewports outside the visible set — e.g.
+  // the editor thumbnail builder. At most ONE Evaluate per viewport per
+  // frame: the renderers' initial UNDEFINED backbuffer barriers have an
+  // empty before-scope, so a second draw would race the first evaluation's
+  // pending feed blit of the shared renderTarget[RI.swapchainIndex].
+  bool Evaluate(RIBootstrap::FrameContext *cntx, float afFrameTime, tFlag alFlags);
+
+
   struct RITextureView_s *GetDepthView();
   BackBuffer GetBackBuffer();
+
+  // Pipeline-stage events, signaled by Evaluate. Handlers run inside the
+  // frame's command-recording window and may record their own commands into
+  // RI.primary.cmds[0] (e.g. a readback copy of the delivered TargetView —
+  // see the editor thumbnail builder).
+  //  - OnPreWorldDraw: before the renderer Draw (also on world-less frames).
+  //  - OnPostWorldDraw: after the world draw + feed blit + post-effect
+  //    chain — the pogo read half holds the final image. Only signaled when
+  //    the world was actually rendered this Evaluate.
+  //  - OnPostDelivery: after the Target delivery (TargetView left
+  //    SHADER_READ_ONLY / swapchain tail-blitted). Only signaled when
+  //    delivery actually ran, so handlers never touch a stale target.
   Event<> &OnPreWorldDraw() { return m_onPreWorldDraw; }
+  Event<> &OnPostWorldDraw() { return m_onPostWorldDraw; }
+  Event<> &OnPostDelivery() { return m_onPostDelivery; }
 
   template <typename Backend>
   Backend *PrepareToRender(RIBootstrap::FrameContext *cntx) {
@@ -309,11 +343,15 @@ private:
   uint32_t mlPogoHeight = 0;
 
   Event<> m_onPreWorldDraw;
+  Event<> m_onPostWorldDraw;
+  Event<> m_onPostDelivery;
   std::vector<cGuiSet *> m_guiSets;
 
   ViewportState m_state;
   Target mTarget = TargetSwapchain{};
   std::unique_ptr<cRenderSettings> mpRenderSettings;
+
+  uint32_t mlLastEvaluatedFrame = UINT32_MAX; // once-per-frame guard
 };
 
 //------------------------------------------

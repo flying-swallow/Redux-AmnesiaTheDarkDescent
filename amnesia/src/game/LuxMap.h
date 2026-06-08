@@ -91,7 +91,7 @@ public:
 	void RunScript(const tString& asCommand);
 	bool RecompileScript(tString *apOutput);
 
-	void OnRenderSolid(cRendererCallbackFunctions* apFunctions);
+	void OnRenderSolid(DebugDraw* apDebugDraw);
 	
 	cWorld* GetWorld(){ return mpWorld; }
 	iPhysicsWorld* GetPhysicsWorld(){ return mpPhysicsWorld; }

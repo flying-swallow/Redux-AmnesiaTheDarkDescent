@@ -127,27 +127,11 @@ void cEditorObjectIndexEntryTexture::BuildEntryName(tString& asEntryName)
 
 void cEditorObjectIndexEntryTexture::BuildThumbnail()
 {
-	bool bIsUpdated = IsUpdated();
-	
-	iEditorObjectIndex* pIndex = mpParentDir->GetIndex();
-	iEditorBase* pEditor = pIndex->GetEditor();
-	cEditorThumbnailBuilder* pTmbBuilder = pEditor->GetThumbnailBuilder();
-	cResources* pRes = pEditor->GetEngine()->GetResources();
-	////////////////////////////////////////////////////////////////
-	// Create thumbnail if it doesn't exist or the object was updated
-	tWString sFilename = cString::ReplaceCharToW(cString::To16Char(GetFileName()), _W("/"), _W("_"));
-	//tString sFilename = GetTextureFile();
-	tWString sFilenameFullPath = cString::To16Char(GetTextureFileFullPath());
-	tWString sThumbnailFilename = pTmbBuilder->GetThumbnailNameFromFileW(sFilenameFullPath);
-
-	if(bIsUpdated || cPlatform::FileExists(sThumbnailFilename)==false)
-	{
-		pEditor->ShowLoadingWindow(_W("Loading"), _W("Creating Thumbnail"));
-		pEditor->GetThumbnailBuilder()->BuildThumbnailFromImage(sFilenameFullPath, _W(""));
-
-		if(bIsUpdated==false)
-			pIndex->SetRefreshThumbnails(true);
-	}	
+	// No-op: the texture browser now previews the original texture directly
+	// (see the cell build in EditorTextureBrowserEntry), so the disk-thumbnail
+	// JPEGs this used to generate are no longer consumed. The old CPU path
+	// (BuildThumbnailFromImage) also couldn't downsample DDS sources, so it
+	// produced nothing for nearly every texture anyway.
 }
 
 //----------------------------------------------------------------------------------------
@@ -368,14 +352,19 @@ cTextureBrowserIcon::cTextureBrowserIcon(cEditorWindowTextureBrowser* apBrowser,
 										 false, 
 										 mpIconBG);
 
-	cEditorThumbnailBuilder* pThbBuilder = pEditor->GetThumbnailBuilder();
-	tWString sThumbFile = pThbBuilder->GetThumbnailNameFromFileW(cString::To16Char(apEntry->GetTextureFileFullPath()));
-	// cGui only builds elements from Image* now (the iTexture* overload is
-	// gone) — load the thumbnail through the texture manager by name (the
-	// thumbnail dir is registered as a resource dir) instead of hand-building
-	// a legacy iTexture from the bitmap. The element auto-destroys its image.
+	// Load the ORIGINAL texture directly. The old disk-thumbnail path
+	// (BuildThumbnailFromImage) can't downsample compressed sources, so it
+	// silently produced no file for DDS/DXT — i.e. nearly every texture —
+	// leaving the preview blank. cGui builds the element from an Image* via the
+	// texture manager (DDS is sampled natively on the GPU); the filename
+	// overload auto-destroys the image when the widget is destroyed. The widget
+	// scales the image down to the cell size.
+	eTextureType texType =
+		apEntry->GetTextureType() == eEditorTextureResourceType_CubeMap ? eTextureType_CubeMap :
+		apEntry->GetTextureType() == eEditorTextureResourceType_1D      ? eTextureType_1D :
+		                                                                  eTextureType_2D;
 	cGuiGfxElement* pGfxElem = mpSet->GetGui()->CreateGfxTexture(
-		cString::To8Char(cString::GetFileNameW(sThumbFile)), eGuiMaterial_Diffuse);
+		apEntry->GetTextureFileFullPath(), eGuiMaterial_Diffuse, texType);
 	if(pGfxElem)
 		mpTexture->SetImage(pGfxElem);
 

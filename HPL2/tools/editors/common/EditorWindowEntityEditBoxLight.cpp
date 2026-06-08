@@ -159,7 +159,7 @@ void cEditorWindowEntityEditBoxLight::AddPropertyCullingRadius(cWidgetTab* apPar
 {
 	mpGroupCullingRadius = mpSet->CreateWidgetDummy(0, apParentTab);
 
-	mpInpCullingRadius = CreateInputNumber(cVector3f(0, 0, 0.1f), _W("Culling Radius"), "", mpGroupCullingRadius, 50, 0.5f);
+	mpInpCullingRadius = CreateInputNumber(cVector3f(0, 0, 0.1f), _W("Radius"), "", mpGroupCullingRadius, 50, 0.5f);
 }
 //------------------------------------------------------------
 
@@ -383,6 +383,14 @@ void cEditorWindowEntityEditBoxLight::AddPropertySetSpot(cWidgetTab* apParentTab
 
 	vPos.y += mpInpSpotFOV->GetSize().y + 10;
 
+	AddPropertyCullingRadius(apParentTab);
+	mpGroupCullingRadius->SetPosition(vPos);
+	vPos.y += mpInpCullingRadius->GetSize().y + 10;
+
+	AddPropertySourceRadius(apParentTab);
+	mpGroupSourceRadius->SetPosition(vPos);
+	vPos.y += mpInpSourceRadius->GetSize().y + 10;
+
 	mpInpSpotFalloffMap = CreateInputFile(vPos, _W("Spot Falloff Map"), "", apParentTab);
 	mpInpSpotFalloffMap->SetInitialPath(mpEditor->GetMainLookUpDir(eDir_Lights));
 	mpInpSpotFalloffMap->SetBrowserSubType(eEditorTextureResourceType_1D);
@@ -451,8 +459,8 @@ void cEditorWindowEntityEditBoxLight::OnUpdate(float afTimeStep)
 	mpInpFlickerFadeOffMinLength->SetValue(mpLight->GetFlickerOffFadeMinLength(), false);
 	mpInpFlickerFadeOffMaxLength->SetValue(mpLight->GetFlickerOffFadeMaxLength(), false);
 
-	if(mpInpRadius) mpInpRadius->SetValue(mpLight->GetRadius(), false);
-	if(mpInpCullingRadius) mpInpCullingRadius->SetValue(mpLight->GetCullingRadius(), false);
+	if(mpInpRadius) mpInpRadius->SetValue(mpLight->GetIntensity(), false);
+	if(mpInpCullingRadius) mpInpCullingRadius->SetValue(mpLight->GetRadius(), false);
 	if(mpInpSourceRadius) mpInpSourceRadius->SetValue(mpLight->GetSourceRadius(), false);
 
 	if(mpComboBoxBlendFunc) mpComboBoxBlendFunc->SetSelectedItem( ((cEntityWrapperLightBox*)mpLight)->GetBlendFunc(),false,false );
@@ -585,14 +593,14 @@ bool cEditorWindowEntityEditBoxLight::WindowSpecificInputCallback(iEditorInput* 
 	// Radius
 	else if(apInput==mpInpRadius)
 	{
-		pAction = mpEntity->CreateSetPropertyActionFloat(eLightFloat_Radius, mpInpRadius->GetValue());
+		pAction = mpEntity->CreateSetPropertyActionFloat(eLightFloat_Intensity, mpInpRadius->GetValue());
 	}
 
 	/////////////////////////////////
 	// Culling Radius
 	else if (apInput == mpInpCullingRadius)
 	{
-		pAction = mpEntity->CreateSetPropertyActionFloat(eLightFloat_CullingRadius, mpInpCullingRadius->GetValue());
+		pAction = mpEntity->CreateSetPropertyActionFloat(eLightFloat_Radius, mpInpCullingRadius->GetValue());
 	}
 
 	/////////////////////////////////

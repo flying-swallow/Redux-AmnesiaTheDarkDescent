@@ -53,11 +53,6 @@ public:
 
   virtual bool LoadData() override { return true; };
   virtual void DestroyData() override {};
-  virtual void CopyToFrameBuffer() override {};
-  virtual void SetupRenderList() override {};
-  virtual void RenderObjects() override {};
-
-  cRenderList2* GetRenderList() { return &m_rendererList; };
 
 private:
   // Owns set 0 — the global bindless descriptor set and every buffer bound to

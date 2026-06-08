@@ -19,6 +19,8 @@
 
 #include "hpl.h"
 
+#include "graphics/DebugDraw.h"
+
 #include "../../tests/Common/SimpleCamera.h"
 
 using namespace hpl;
@@ -141,7 +143,11 @@ public:
 
 //--------------------------------------------------------------------------------
 
-class cSimpleRenderCallback : public iRendererCallback
+// RI path: enqueue the overlay into the global DebugDraw batcher right
+// before the renderer Draw — the Hybrid renderer never runs
+// iRendererCallback messages. Legacy depth-test-off sections ride on
+// DebugDrawOptions::m_depthTest = Always instead.
+class cSimpleRenderCallback
 {
 public:
 	cSimpleRenderCallback()
@@ -149,45 +155,44 @@ public:
 
 	};
 
-	void DrawSkeletonRec(cRendererCallbackFunctions *apFunctions, cNode3D *apBoneState)
+	void DrawSkeletonRec(DebugDraw *apDebugDraw, const DebugDraw::DebugDrawOptions& aOptions, cNode3D *apBoneState)
 	{
-		cVector3f vCameraSpacePos = cMath::MatrixMul(apFunctions->GetFrustum()->GetViewMatrix(), apBoneState->GetWorldPosition());		
+		cVector3f vCameraSpacePos = cMath::MatrixMul(gpSimpleCamera->GetCamera()->GetViewMatrix(), apBoneState->GetWorldPosition());
 		float fSize = cMath::Min(-0.01f * vCameraSpacePos.z, 0.03f);
-		apFunctions->GetLowLevelGfx()->DrawSphere(apBoneState->GetWorldPosition(),fSize,cColor(1,0,0,1));
-		
+		apDebugDraw->DebugDrawSphere(apBoneState->GetWorldPosition(),fSize,cColor(1,0,0,1), aOptions);
+
 		//Draw bone bounding radii
 		/*int lBoneIdx = gpEntity->GetBoneStateIndexFromPtr(static_cast<cBoneState*>(apBoneState));
 		if(lBoneIdx >0)
 		{
 			float fRadius = gpEntity->GetMesh()->GetBoneBoundingRadius(lBoneIdx);
-			apFunctions->GetLowLevelGfx()->DrawSphere(apBoneState->GetWorldPosition(),fRadius,cColor(0,1,0,1));
+			apDebugDraw->DebugDrawSphere(apBoneState->GetWorldPosition(),fRadius,cColor(0,1,0,1), aOptions);
 		}*/
-		
-		
+
+
 		cNode3DIterator it = apBoneState->GetChildIterator();
 		while(it.HasNext())
 		{
 			cNode3D *pChild = static_cast<cNode3D*>(it.Next());
-			apFunctions->GetLowLevelGfx()->DrawLine(apBoneState->GetWorldPosition(), pChild->GetWorldPosition(), cColor(1,1));
-			DrawSkeletonRec(apFunctions, pChild);
+			apDebugDraw->DebugDrawLine(apBoneState->GetWorldPosition(), pChild->GetWorldPosition(), cColor(1,1), aOptions);
+			DrawSkeletonRec(apDebugDraw, aOptions, pChild);
 		}
 	}
-	
-	void OnPostSolidDraw(cRendererCallbackFunctions *apFunctions)
-	{
-		apFunctions->SetDepthTest(true);
-		apFunctions->SetDepthWrite(false);
-		apFunctions->SetBlendMode(eMaterialBlendMode_None);
 
-		apFunctions->SetProgram(NULL);
-		apFunctions->SetTextureRange(NULL, 0);
-		apFunctions->SetMatrix(NULL);
+	void OnPreWorldDraw()
+	{
+		DebugDraw* pDebugDraw = gpEngine->GetGraphics()->GetDebugDraw();
+		if(pDebugDraw==NULL) return;
+
+		// Legacy drew these sections depth-test-off (always on top).
+		DebugDraw::DebugDrawOptions overlayOptions;
+		overlayOptions.m_depthTest = DebugDraw::DebugDepthTest::Always;
 
 		/*for(size_t i=0; i<gvLights.size(); ++i)
 		{
 			cLightSpot *pLight = gvLights[i];
 
-            pLight->GetFrustum()->Draw(apFunctions->GetLowLevelGfx());
+            pLight->GetFrustum()->Draw(...);
 		}*/
 
 		if(gbShowInvalidVertices)
@@ -233,11 +238,11 @@ public:
 					float fRadius = vCamPos.z * 0.02f;
 
 					if(bTooManyBinds && bBadNormal)
-						apFunctions->GetLowLevelGfx()->DrawSphere(vPos,fRadius, cColor(1,1,0));
+						pDebugDraw->DebugDrawSphere(vPos,fRadius, cColor(1,1,0));
 					else if(bTooManyBinds)
-						apFunctions->GetLowLevelGfx()->DrawSphere(vPos,fRadius, cColor(1,0,0));
+						pDebugDraw->DebugDrawSphere(vPos,fRadius, cColor(1,0,0));
 					else if(bBadNormal)
-						apFunctions->GetLowLevelGfx()->DrawSphere(vPos,fRadius, cColor(0,1,0));
+						pDebugDraw->DebugDrawSphere(vPos,fRadius, cColor(0,1,0));
 				}
   			}	
 		}
@@ -245,50 +250,48 @@ public:
 		if(gbDrawBoundingBox)
 		{
 			//cBoundingVolume *pBV = gpEntity->GetBoundingVolume();
-            //apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(),pBV->GetMax(), cColor(1,1));
+            //pDebugDraw->DebugDrawBoxMinMax(pBV->GetMin(),pBV->GetMax(), cColor(1,1));
 			for(int i=0; i<gpEntity->GetSubMeshEntityNum(); ++i)
 			{
 				cSubMeshEntity *pSubEnt = gpEntity->GetSubMeshEntity(i);
-				
+
 				cBoundingVolume *pBV = pSubEnt->GetBoundingVolume();
-				apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(),pBV->GetMax(), cColor(1,1));
-				
+				pDebugDraw->DebugDrawBoxMinMax(pBV->GetMin(),pBV->GetMax(), cColor(1,1));
+
 				cVector3f vLocalCenter = (pBV->GetLocalMin() + pBV->GetLocalMax())/2.0f;
 
 				cVector3f  vWorldCenter;
 				/*vWorldCenter = cMath::MatrixMul(pSubEnt->GetWorldMatrix(), vLocalCenter);//pBV->GetLocalCenter());
-				apFunctions->GetLowLevelGfx()->DrawSphere(vWorldCenter,0.01f, cColor(0,1,1));*/
+				pDebugDraw->DebugDrawSphere(vWorldCenter,0.01f, cColor(0,1,1));*/
 
 				vWorldCenter = cMath::MatrixMul(pSubEnt->GetWorldMatrix(), pBV->GetLocalCenter());
-				apFunctions->GetLowLevelGfx()->DrawSphere(vWorldCenter,0.01f, cColor(1,1,0));
+				pDebugDraw->DebugDrawSphere(vWorldCenter,0.01f, cColor(1,1,0));
 			}
 		}
 
 		if(gbDrawSkeleton && gpEntity)
 		{
-			apFunctions->SetDepthTest(false);
 			if(gpEntity->GetMesh()->GetSkeleton())
 			{
 				cNode3DIterator it = gpEntity->GetBoneStateRoot()->GetChildIterator();
 				while(it.HasNext())
 				{
 					cNode3D *pChild = static_cast<cNode3D*>(it.Next());
-					DrawSkeletonRec(apFunctions ,pChild);
+					DrawSkeletonRec(pDebugDraw, overlayOptions, pChild);
 				}
 			}
-			apFunctions->SetDepthTest(true);
 		}
 
 
 		if(gbPhysicsActive && mpBodyPicker->mpPickedBody)
 		{
 			//cBoundingVolume *pBV = mBodyPicker.mpPickedBody->GetBV();
-			//mpLowLevelGraphics->DrawBoxMaxMin(pBV->GetMax(), pBV->GetMin(),cColor(1,0,1,1));
+			//pDebugDraw->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),cColor(1,0,1,1));
 
-			apFunctions->GetLowLevelGfx()->DrawSphere(mpBodyPicker->mvPos,0.1f, cColor(1,0,0,1));
-			apFunctions->GetLowLevelGfx()->DrawSphere(mvDragPos,0.1f, cColor(1,0,0,1));
+			pDebugDraw->DebugDrawSphere(mpBodyPicker->mvPos,0.1f, cColor(1,0,0,1));
+			pDebugDraw->DebugDrawSphere(mvDragPos,0.1f, cColor(1,0,0,1));
 
-			apFunctions->GetLowLevelGfx()->DrawLine(mpBodyPicker->mvPos, mvDragPos, cColor(1,1,1,1));
+			pDebugDraw->DebugDrawLine(mpBodyPicker->mvPos, mvDragPos, cColor(1,1,1,1));
 		}
 
 		if(gbDrawGrid)
@@ -298,50 +301,41 @@ public:
 			float fStart = fSize *0.5f * (float)lNum + fSize;
 			float fEnd = fSize *0.5f* (float)-lNum - fSize;
 			float fY = 0;//gpFloor->GetWorldPosition().y + 0.05f;
-			
+
 			for(int i=-lNum/2; i<lNum/2+1;++i)
 			{
 				float fPos = fSize * (float)i;
-				apFunctions->GetLowLevelGfx()->DrawLine(cVector3f(fPos,fY,fStart),cVector3f(fPos,fY,fEnd),cColor(0.5f,1));
-				apFunctions->GetLowLevelGfx()->DrawLine(cVector3f(fStart,fY,fPos),cVector3f(fEnd,fY,fPos),cColor(0.5f,1));
+				pDebugDraw->DebugDrawLine(cVector3f(fPos,fY,fStart),cVector3f(fPos,fY,fEnd),cColor(0.5f,1));
+				pDebugDraw->DebugDrawLine(cVector3f(fStart,fY,fPos),cVector3f(fEnd,fY,fPos),cColor(0.5f,1));
 			}
-			
+
 		}
 
-		//apFunctions->GetLowLevelGfx()->DrawBoxMinMax(gpEntity->GetBoundingVolume()->GetMin(),gpEntity->GetBoundingVolume()->GetMax(),cColor(1,1,1,1));
-		
+		//pDebugDraw->DebugDrawBoxMinMax(gpEntity->GetBoundingVolume()->GetMin(),gpEntity->GetBoundingVolume()->GetMax(),cColor(1,1,1,1));
+
 		if(gbPhysicsActive && gbDrawPhysicsDebug)
 		{
-			mpPhysicsWorld->RenderDebugGeometry(apFunctions->GetLowLevelGfx(),cColor(1,1,1,1));
+			mpPhysicsWorld->RenderDebugGeometry(pDebugDraw,cColor(1,1,1,1));
 
-			apFunctions->SetDepthTest(false);
 			for(size_t i=0;i<gvJoints.size(); ++i)
 			{
 				iPhysicsJoint *pJoint = gvJoints[i];
 				if(mpPhysicsWorld->JointExists(pJoint)==false) continue;
-                
+
 				cVector3f vPivot = pJoint->GetPivotPoint();
-				apFunctions->GetLowLevelGfx()->DrawSphere(vPivot,0.2f,cColor(1,0,0,1));
-				apFunctions->GetLowLevelGfx()->DrawLine(vPivot,vPivot + pJoint->GetPinDir()*0.25 ,cColor(0,1,0,1));
+				pDebugDraw->DebugDrawSphere(vPivot,0.2f,cColor(1,0,0,1), overlayOptions);
+				pDebugDraw->DebugDrawLine(vPivot,vPivot + pJoint->GetPinDir()*0.25 ,cColor(0,1,0,1), overlayOptions);
 			}
-			apFunctions->SetDepthTest(true);
 		}
 
 		if(gbDrawAxes)
 		{
-			apFunctions->SetDepthTest(false);
-			apFunctions->GetLowLevelGfx()->DrawLine(0,cVector3f(1,0,0),cColor(1,0,0,1));
-			apFunctions->GetLowLevelGfx()->DrawLine(0,cVector3f(0,1,0),cColor(0,1,0,1));
-			apFunctions->GetLowLevelGfx()->DrawLine(0,cVector3f(0,0,1),cColor(0,0,1,1));
-			apFunctions->SetDepthTest(true);
+			pDebugDraw->DebugDrawLine(0,cVector3f(1,0,0),cColor(1,0,0,1), overlayOptions);
+			pDebugDraw->DebugDrawLine(0,cVector3f(0,1,0),cColor(0,1,0,1), overlayOptions);
+			pDebugDraw->DebugDrawLine(0,cVector3f(0,0,1),cColor(0,0,1,1), overlayOptions);
 		}
    	}
-	
-	void OnPostTranslucentDraw(cRendererCallbackFunctions *apFunctions)
-	{
 
-	}
-	
 	cWorld *mpWorld;
 	iPhysicsWorld *mpPhysicsWorld;
 	cBodyPicker *mpBodyPicker;
@@ -531,6 +525,8 @@ public:
 
 		cRenderSettings *pSettings = gpSimpleCamera->GetViewport()->GetRenderSettings();
 
+		mPreWorldDrawHandler = EventHandler<>([this]{ renderCallback.OnPreWorldDraw(); });
+		mPreWorldDrawHandler.Connect(gpSimpleCamera->GetViewport()->OnPreWorldDraw());
 
 		gpSimpleCamera->SetMouseMode(true);
 
@@ -2226,6 +2222,7 @@ public:
 	iPhysicsWorld *mpPhysicsWorld;
 	
 	cSimpleRenderCallback renderCallback;
+	EventHandler<> mPreWorldDrawHandler;
 	cBodyPicker mBodyPicker;
 
 	
@@ -2292,12 +2289,6 @@ int hplMain(const tString &asCommandline)
 
 	//iResourceBase::SetLogCreateAndDelete(true);
 	//iGpuProgram::SetLogDebugInformation(true); 
-	cRendererDeferred::SetGBufferType(eDeferredGBuffer_32Bit);
-	cRendererDeferred::SetNumOfGBufferTextures(3);
-	cRendererDeferred::SetSSAOLoaded(true);
-	cRendererDeferred::SetEdgeSmoothLoaded(true);
-	cRendererDeferred::SetShadowMapQuality(eShadowMapQuality_Medium);
-	//cRendererDeferred::SetParallaxQuality(eParallaxQuality_Low);
 
 	//iLowLevelGraphics::SetForceShaderModel3And4Off(true);
 	tWString sPersonalDir = cString::ReplaceCharToW(cPlatform::GetSystemSpecialPath(eSystemPath_Personal), _W("\\"), _W("/"));

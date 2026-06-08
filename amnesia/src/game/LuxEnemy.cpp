@@ -19,6 +19,8 @@
 
 #include "LuxEnemy.h"
 
+#include "graphics/DebugDraw.h"
+
 #include "LuxEnemyMover.h"
 #include "LuxEnemyPathfinder.h"
 
@@ -710,16 +712,16 @@ void iLuxEnemy::OnUpdate(float afTimeStep)
 
 //-----------------------------------------------------------------------
 
-void iLuxEnemy::OnRenderSolid(cRendererCallbackFunctions* apFunctions)
+void iLuxEnemy::OnRenderSolid(DebugDraw* apDebugDraw)
 {
 	//return;
 	iPhysicsWorld *pPhysicsWorld = mpMap->GetPhysicsWorld();
 
-	//pPhysicsWorld->RenderShapeDebugGeometry(mpCharBody->GetCurrentShape(), mpCharBody->GetMoveMatrix(), apFunctions->GetLowLevelGfx(),cColor(1,1));
+	//pPhysicsWorld->RenderShapeDebugGeometry(mpCharBody->GetCurrentShape(), mpCharBody->GetMoveMatrix(), apDebugDraw, cColor(1,1));
 
-	mpPathfinder->OnRenderSolid(apFunctions);
+	mpPathfinder->OnRenderSolid(apDebugDraw);
 
-	apFunctions->GetLowLevelGfx()->DrawSphere(mvLastKnownPlayerPos, 0.3f, cColor(1,0,0));
+	apDebugDraw->DebugDrawSphere(mvLastKnownPlayerPos, 0.3f, cColor(1,0,0));
 
 
 	////////////////////////////////////////
@@ -750,9 +752,9 @@ void iLuxEnemy::OnRenderSolid(cRendererCallbackFunctions* apFunctions)
 	if(bCrouching)
 		fMaxRange = fMaxRange * mfCrouchVisibleRangeMul;
 
-	apFunctions->GetLowLevelGfx()->DrawSphere(mpCharBody->GetPosition(), fMaxRange, cColor(0,1,1));
+	apDebugDraw->DebugDrawSphere(mpCharBody->GetPosition(), fMaxRange, cColor(0,1,1));
 
-	OnRenderSolidImplemented(apFunctions);
+	OnRenderSolidImplemented(apDebugDraw);
 }
 
 //-----------------------------------------------------------------------

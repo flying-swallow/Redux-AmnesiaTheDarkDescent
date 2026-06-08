@@ -64,7 +64,15 @@ void cIconEntityBB::Update()
 		if(pParent->mbColorUpdated)
 		{
 			pParent->mbColorUpdated=false;
-			pBB->SetColor(pParent->GetBillboardColor());
+			// Route through the connected light so the billboard colour stays
+			// the base colour modulated by the light's current diffuse (and
+			// inherits its visibility) instead of desyncing to the raw base.
+			iEngineEntity* pLightEngine = pParent->mpConnectedLight
+				? pParent->mpConnectedLight->GetEngineEntity() : NULL;
+			if(pLightEngine)
+				((iLight*)pLightEngine->GetEntity())->UpdateBillboard(pBB, pParent->GetBillboardColor());
+			else
+				pBB->SetColor(pParent->GetBillboardColor());
 		}
 		
 		if(pParent->mbMatUpdated)

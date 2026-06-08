@@ -59,7 +59,7 @@ public:
 	bool GetDebugWindowActive(){ return mbWindowActive;}
 		
 	void OnDraw(float afFrameTime);
-	void RenderSolid(cRendererCallbackFunctions* apFunctions);
+	void RenderSolid(DebugDraw* apDebugDraw);
 
 	void AddErrorOrWarningMessage(const tWString& asText);
 	void AddMessage(const tWString& asText, bool abCheckForDuplicates);

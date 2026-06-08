@@ -33,7 +33,6 @@
 namespace hpl {
 
 class iFontData;
-class iOcclusionQuery;
 class iGpuShader;
 class iGpuProgram;
 class iTexture;
@@ -103,9 +102,6 @@ public:
 
   virtual void SetMultisamplingActive(bool abX) = 0;
 
-  virtual void SetGammaCorrection(float afX) = 0;
-  virtual float GetGammaCorrection() = 0;
-
   /////////////////////////////////////////////////////
   /////////////// DATA CREATION ///////////////////////
   /////////////////////////////////////////////////////
@@ -129,8 +125,6 @@ public:
   virtual iDepthStencilBuffer *CreateDepthStencilBuffer(const cVector2l &avSize,
                                                         int alDepthBits,
                                                         int alStencilBits) = 0;
-
-  virtual iOcclusionQuery *CreateOcclusionQuery() = 0;
 
   /////////////////////////////////////////////////////
   /////////// FRAME BUFFER OPERATIONS ///////

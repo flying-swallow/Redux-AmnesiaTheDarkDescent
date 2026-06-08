@@ -1472,7 +1472,7 @@ void cLuxMainMenu_Options::ApplyChanges()
 		pCfgHdr->mbVSync = mpChBVSync->IsChecked();
 //		pCfgHdr->mbAdaptiveVSync = mpChBAdaptiveVSync->IsChecked();
 		pGfx->GetLowLevel()->SetVsyncActive(pCfgHdr->mbVSync, pCfgHdr->mbAdaptiveVSync);
-		pGfx->GetLowLevel()->SetGammaCorrection(GetGamma());
+		gpBase->mpConfigHandler->SetGamma(GetGamma());
 
 		// Parallax
 		//int lParallax = (int)mpCBParallaxQuality->GetSelectedItem() - 1;
@@ -1826,7 +1826,7 @@ void cLuxMainMenu_Options::DumpInitialValues(cResourceVarsObject &aObj)
 
 		///////////////////
 		// Gamma
-		aObj.AddVarFloat("Gamma", gpBase->mpEngine->GetGraphics()->GetLowLevel()->GetGammaCorrection());
+		aObj.AddVarFloat("Gamma", gpBase->mpConfigHandler->GetGamma());
 	}
 
 	////////////////////////////////
@@ -2079,7 +2079,7 @@ bool cLuxMainMenu_Options::GammaSlider_OnMove(iWidget* apWidget, const cGuiMessa
 	float fGamma = GetGamma();
 	SetGammaLabelString(fGamma);
 
-	gpBase->mpEngine->GetGraphics()->GetLowLevel()->SetGammaCorrection(fGamma);
+	gpBase->mpConfigHandler->SetGamma(fGamma);
 
 	return true;
 }
@@ -2201,7 +2201,7 @@ bool cLuxMainMenu_Options::PressCancel(iWidget* apWidget, const cGuiMessageData&
 	//	gpBase->LoadLanguage(mInitialValues.GetVarString("Language"));
 	//	gpBase->mpMainMenu->RecreateGui();
 	//}
-	gpBase->mpEngine->GetGraphics()->GetLowLevel()->SetGammaCorrection(mInitialValues.GetVarFloat("Gamma"));
+	gpBase->mpConfigHandler->SetGamma(mInitialValues.GetVarFloat("Gamma"));
 	gpBase->mpInputHandler->SetMouseSensitivity(mInitialValues.GetVarFloat("MouseSensitivity"));
 #ifdef USE_GAMEPAD
 	gpBase->mpInputHandler->SetGamepadLookSensitivity(mInitialValues.GetVarFloat("GamepadLookSensitivity"));

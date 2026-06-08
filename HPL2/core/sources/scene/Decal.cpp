@@ -54,9 +54,6 @@ namespace hpl {
 
 	cDecal::~cDecal()
 	{
-		cHybridRenderer* pHybridRenderer = static_cast<cHybridRenderer*>(mpGraphics->GetRenderer(eRenderer_Main));
-		cRenderList2* pRenderList = pHybridRenderer->GetRenderList();
-		pRenderList->ForgetObject(this);
 	}
 
 	//-----------------------------------------------------------------------

@@ -891,13 +891,13 @@ bool cLuxEnemy_Grunt::StateEventImplement(int alState, eLuxEnemyStateEvent aEven
 
 //-----------------------------------------------------------------------
 
-void cLuxEnemy_Grunt::OnRenderSolidImplemented(cRendererCallbackFunctions* apFunctions)
+void cLuxEnemy_Grunt::OnRenderSolidImplemented(DebugDraw* apDebugDraw)
 {
 	iPhysicsWorld *pPhysicsWorld = mpMap->GetPhysicsWorld();
 
 	if(mCurrentState == eLuxEnemyState_AttackMeleeShort)
 	{
-		pPhysicsWorld->RenderShapeDebugGeometry(GetAttackShape(0), GetDamageShapeMatrix(cVector3f(0,0,1)), apFunctions->GetLowLevelGfx(),
+		pPhysicsWorld->RenderShapeDebugGeometry(GetAttackShape(0), GetDamageShapeMatrix(cVector3f(0,0,1)), apDebugDraw,
 												cColor(1,0,0,1));
 	}
 }

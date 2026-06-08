@@ -70,9 +70,6 @@ namespace hpl {
 
 	class cBeam : public iRenderable
 	{
-	#ifdef __GNUC__
-		typedef iRenderable __super;
-	#endif
 	friend class cBeamEnd;
 	public:
 		cBeam(const tString asName, cResources *apResources,cGraphics *apGraphics);

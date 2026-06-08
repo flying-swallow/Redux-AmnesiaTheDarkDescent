@@ -92,9 +92,6 @@ namespace hpl {
 
 	class iPhysicsJoint
 	{
-	#ifdef __GNUC__
-		typedef iSaveObject __super;
-	#endif
 	public:
 		iPhysicsJoint(	const tString &asName, iPhysicsBody *apParentBody, iPhysicsBody *apChildBody,
 						iPhysicsWorld *apWorld,const cVector3f &avPivotPoint, const cVector3f &avPinDir);

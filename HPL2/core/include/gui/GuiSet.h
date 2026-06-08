@@ -55,6 +55,8 @@ namespace hpl {
 	class cWidgetListBox;
 	class cWidgetMultiPropertyListBox;
 	class cWidgetComboBox;
+	class cWidgetNodeTree;
+	class cWidgetMeshObjectList;
 	class cWidgetMenuItem;
 	class cWidgetContextMenu;
 	class cWidgetMainMenu;
@@ -271,6 +273,15 @@ namespace hpl {
 											float afNumericAdd=1.0f,
 											bool abShowButtons=true,
 											const tString& asName = "" );
+
+		cWidgetNodeTree* CreateWidgetNodeTree(float afContainerWidth=0,
+											iWidget *apParent=NULL,
+											const tString& asName = "");
+
+		cWidgetMeshObjectList* CreateWidgetMeshObjectList(const cVector3f& avLocalPos=0,
+											const cVector2f& avSize=0,
+											iWidget* apParent=NULL,
+											const tString& asName = "");
 
 		cWidgetCheckBox* CreateWidgetCheckBox(const cVector3f &avLocalPos=0,
 											const cVector2f &avSize=0,

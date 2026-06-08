@@ -11,6 +11,49 @@
 //   SurfelGI/RenderPasses/Surfel/SurfelGI/SurfelTypes.slang
 //   SurfelGI/RenderPasses/Surfel/SurfelGI/SurfelGI.h (StaticParams / RuntimeParams defaults)
 
+// -----------------------------------------------------------------------------
+// Standard-BSDF diffuse lobe (Falcor BSDFConfig.slangh analogue). Selects the
+// demodulated diffuse weight evaluated by Brdf.slang's diffuseLobeWeight():
+//   Lambert   — flat 1 (the old look, modulo the now-explicit 1/π)
+//   Disney    — Burley 2012 retro-reflection (fd90 = 0.5 + 2·LdotH²·rough)
+//   Frostbite — Disney + Lagarde energy renormalization (Falcor's default)
+// Pure preprocessor defines, so they live OUTSIDE the shared-const guard
+// below: Brdf.slang's raw #include must see them (an undefined kDiffuseBrdf
+// would silently #if-select Lambert).
+// -----------------------------------------------------------------------------
+#define kDiffuseBrdfLambert   0
+#define kDiffuseBrdfDisney    1
+#define kDiffuseBrdfFrostbite 2
+#ifndef kDiffuseBrdf
+#define kDiffuseBrdf kDiffuseBrdfFrostbite
+#endif
+
+// Static surfel feature toggles. The Falcor reference set these via host
+// addDefine; here we #define them directly. They MUST live outside the
+// shared-const guard below — the SurfelGI shaders include Constants.h raw
+// (no HPL_DEFINE_SHARED_CONSTS), and a guarded #define is invisible to their
+// #ifdef blocks (they sat inside the guard until 2026-06-06, silently
+// compiling every USE_* feature out). Comment a line out to disable.
+//   USE_SURFEL_RADIANCE   - multi-bounce surfel feedback in the ray trace.
+//                           (the port's `finalize` runs unconditionally, so
+//                           this define is informational — kept for parity.)
+//   USE_IRRADIANCE_SHARING- SurfelIntegratePass blends each surfel's radiance
+//                           with its cell neighbours' — smooths the splotchy
+//                           look of sparse coverage.
+//   USE_SURFEL_DEPTH      - Chebyshev visibility weighting (reduces light leak)
+//                           + writes the surfel-depth atlas. Reference default
+//                           ON; left OFF here deliberately: the weighting
+//                           SUPPRESSES contributions until the depth atlas
+//                           converges (~100 frames), and the atlas has never
+//                           been written in a live build (the guard bug above)
+//                           — enable separately to A/B leak-prevention against
+//                           GI brightness.
+//   USE_RAY_GUIDING       - reference default OFF; leave off.
+#define USE_SURFEL_RADIANCE    1
+#define USE_IRRADIANCE_SHARING 1
+#define USE_SURFEL_DEPTH    1
+// #define USE_RAY_GUIDING     1
+
 // The typed constants below are emitted in:
 //   - every C++ TU (`static const` at namespace scope = internal linkage, no ODR worry), and
 //   - exactly one Slang module: SceneTypes, gated by HPL_DEFINE_SHARED_CONSTS.
@@ -199,6 +242,10 @@ SHARED_CONST uint2 kIrradianceMapRes       = uint2(4096, 4096);
 SHARED_CONST uint2 kIrradianceMapUnit      = uint2(7, 7);
 SHARED_CONST uint2 kSurfelDepthTextureRes  = uint2(4096, 4096);
 SHARED_CONST uint2 kSurfelDepthTextureUnit = uint2(7, 7);
+// Half-extent of one depth-atlas tile (Falcor SurfelTypes.slang:
+// kSurfelDepthTextureUnit / 2). Used by SurfelIntegratePass's octahedral
+// depth-write offset math (USE_SURFEL_DEPTH).
+SHARED_CONST uint2 kSurfelDepthTextureHalfUnit = uint2(3, 3);
 
 // World-space light grid (coarse, camera-centered) for surfel NEE importance
 // sampling. Covers the same extent as the surfel grid (kCellDimension·kCellUnit)
@@ -229,39 +276,11 @@ SHARED_CONST uint kSurfelCounterRequestedRay   = 4u;
 SHARED_CONST uint kSurfelCounterMissBounce     = 5u;
 SHARED_CONST uint kSurfelCounterSlotCount      = 6u;
 
-// Static feature toggles. The Falcor reference set these via host addDefine;
-// here we #define them directly (Constants.h is included by every SurfelGI
-// shader, so the #ifdef blocks see them). Comment a line out to disable.
-//   USE_SURFEL_RADIANCE   - multi-bounce surfel feedback in the ray trace.
-//                           (the port's `finalize` runs unconditionally, so
-//                           this define is informational — kept for parity.)
-//   USE_IRRADIANCE_SHARING- SurfelIntegratePass blends each surfel's radiance
-//                           with its cell neighbours' — smooths the splotchy
-//                           look of sparse coverage.
-//   USE_SURFEL_DEPTH      - Chebyshev visibility weighting (reduces light leak)
-//                           + writes the surfel-depth atlas. Reference default
-//                           ON; left OFF here until enabled deliberately (its
-//                           weight suppresses contributions until the depth
-//                           atlas converges over the first ~100 frames).
-//   USE_RAY_GUIDING       - reference default OFF; leave off.
-#define USE_SURFEL_RADIANCE    1
-#define USE_IRRADIANCE_SHARING 1
-#define USE_SURFEL_DEPTH      1 
-// #define USE_RAY_GUIDING     1
-
 // -----------------------------------------------------------------------------
 // Runtime param defaults (originally SurfelGI::RuntimeParams in SurfelGI.h).
 // Kept here so host and UI code share one source of truth.
 // -----------------------------------------------------------------------------
 SHARED_CONST uint  kMaxSurfelForStep            = 10u;
-
-// Non-physical boost on the light radiance the surfel NEE integrates — cheats
-// the indirect/GI term brighter without touching direct. The surfel NEE keeps
-// its 1/π Lambert, so π (≈3.14) cancels it → indirect uses the same no-1/π
-// convention as the (base-matched) direct in MainCompositePass; raise
-// above π to over-cheat the GI fill.
-SHARED_CONST float kIndirectLightScale          = 1.0f;
-
 
 // Surfel generation.
 SHARED_CONST float kDefaultChanceMultiply       = 0.3f;
@@ -346,11 +365,14 @@ SHARED_CONST int   kDisoccSearchRadius             = 3;       // 7×7 spatial re
 // Original value: 0.06 (≈6% per side).
 SHARED_CONST float kGuardBandFraction              = 0.0f;
 
-// PBR point/spot-light falloff. The host stores intensity = authoredRadius² · scale.
-// The shader emits radiance = color · intensity · 1/(d² + sourceRadius²) — a plain
-// softened inverse-square that goes HDR (>1) near the source so lights cross the
-// bloom white point. At d = authoredRadius the radiance lands at ≈ color · scale and
-// rises above it closer in.
+// PBR point/spot-light falloff — Falcor LightData semantics, no scale knobs:
+// `intensity` IS the light's radiance (the host uploads the authored engine
+// radius verbatim for both point and spot — one unit for every analytic light,
+// so direct and the surfel NEE agree by construction). The shader emits
+// radiance = color · intensity · 1/(d² + sourceRadius²) — a softened
+// inverse-square that goes HDR (>1) near the source so lights cross the bloom
+// white point. Brightness tuning is an AUTHORING concern (light radius /
+// color), not a constant.
 //
 // LightGridBuildPass bins each light out to the distance where its brightest
 // channel's radiance dims to kLightRadianceFloor:
@@ -359,7 +381,6 @@ SHARED_CONST float kGuardBandFraction              = 0.0f;
 // also governs indirect/GI spread — the surfel NEE only samples lights binned into a
 // surfel's cell, so lowering the floor widens and brightens GI (and crowds the
 // per-cell light cap); it is not purely a grid-cost knob.
-SHARED_CONST float kPointLightIntensityScale   = 0.4f;    // VISUAL radiance/bloom brightness knob only — does NOT affect binning/cull reach (the host computes reach from the unscaled authored radius); tune freely without re-culling lights
 SHARED_CONST float kLightRadianceFloor         = 0.005f;    // min per-channel radiance (linear) worth binning; reach² = maxC(color)·authoredRadius/floor − sourceRadiusSq (scale-independent)
 SHARED_CONST float kPointLightSourceRadiusSq   = 0.25f;  // soft source radius² (0.5m) — near-field softening + on-source peak cap (caps on-lamp radiance at color·intensity/this instead of 1/d²→∞; raise to soften lamp hotspots further)
 // Default soft-shadow source radius when a light authors none (GetSourceRadius()==0):
@@ -367,6 +388,12 @@ SHARED_CONST float kPointLightSourceRadiusSq   = 0.25f;  // soft source radius²
 // lights are soft by default instead of hard. Host-only fallback in the point-light
 // upload; an explicitly authored sourceRadius always wins.
 SHARED_CONST float kPointLightDefaultSourceRadiusFrac = 0.05f;  // 5% of authored radius (e.g. 5m reach ⇒ 0.25m penumbra disk)
+
+// Diffuse-lobe roughness for materials without a specular map (no gloss
+// channel to decode): fully rough = matte with the strongest grazing
+// retro-reflection. Materials with a spec map decode their roughness from
+// tex[3].y (Brdf.slang decodeMaterialRoughness).
+SHARED_CONST float kDefaultDiffuseRoughness = 1.0f;
 
 
 HOST_NAMESPACE_END

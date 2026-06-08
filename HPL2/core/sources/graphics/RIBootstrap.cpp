@@ -4,31 +4,114 @@
 #include "graphics/RISwapchain.h"
 #include "graphics/RIVK.h"
 
+#include <algorithm>
+
 namespace hpl {
 
 RIBootstrap RI = RIBootstrap{};
 
 void RIBootstrap::IncrementFrame() { frameIndex++; }
 
+namespace {
+// Shared grow-and-recreate for the per-frame scratch buffers (mirrors the
+// GuiSet gui*Alloc blocks / DebugDraw::requestSegments): try to claim a
+// segment; on miss, grow the allocator ×1.5 until the request fits, recreate
+// the host-mapped buffer (old one parked on the active set's freelist so
+// in-flight frames keep their data) and claim from the fresh allocator.
+bool __RequestScratchSegment(RIBootstrap::FrameContext *cntx,
+                             RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> &alloc,
+                             RIBuffer_s &buffer, uint16_t elementStride,
+                             VkBufferUsageFlags usage, size_t numElements,
+                             struct RISegmentReq_s *req) {
+  if (IsRIBufferValid(&RI.renderer, &buffer) &&
+      alloc.request(RI.frameIndex, numElements, req)) {
+    return true;
+  }
+
+  struct RISegmentAllocDesc_s segmentAllocDesc = {0};
+  segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
+  segmentAllocDesc.elementStride = elementStride;
+  segmentAllocDesc.maxElements = std::max<size_t>(alloc.maxElements, 4096);
+  do {
+    segmentAllocDesc.maxElements =
+        segmentAllocDesc.maxElements + (segmentAllocDesc.maxElements >> 1);
+  } while (segmentAllocDesc.maxElements < numElements);
+  alloc = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>(&segmentAllocDesc);
+  if (!alloc.request(RI.frameIndex, numElements, req)) {
+    assert(false);
+    return false;
+  }
+
+  uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
+  VkBufferCreateInfo bufferCreateInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  VK_ConfigureBufferQueueFamilies(&bufferCreateInfo, RI.device.queues,
+                                  RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
+  bufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements *
+                          segmentAllocDesc.elementStride;
+  bufferCreateInfo.usage = usage;
+
+  VmaAllocationInfo allocationInfo = {0};
+  VmaAllocationCreateInfo allocInfo = {0};
+  allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
+                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+
+  if (buffer.vk.buffer) {
+    cntx->freelist.push_back(buffer);
+  }
+  VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferCreateInfo,
+                                &allocInfo, &buffer.vk.buffer,
+                                &buffer.vk.allocation, &allocationInfo));
+  buffer.mappedAddress = allocationInfo.pMappedData;
+  return true;
+}
+} // namespace
+
+bool RIBootstrap::RequestTranslucentVtx(FrameContext *cntx, size_t numFloats,
+                                        struct RISegmentReq_s *req) {
+  // SHADER_DEVICE_ADDRESS: the hybrid ParticlePass pulls these streams via BDA
+  // (segment base address + byte offset fanned into the bindless slot mirrors).
+  return __RequestScratchSegment(cntx, translucentVtxAlloc,
+                                 translucentVtxBuffer, sizeof(float),
+                                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+                                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                 numFloats, req);
+}
+
+bool RIBootstrap::RequestTranslucentIdx(FrameContext *cntx, size_t numIndices,
+                                        struct RISegmentReq_s *req) {
+  return __RequestScratchSegment(cntx, translucentIdxAlloc,
+                                 translucentIdxBuffer, sizeof(uint32_t),
+                                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+                                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                 numIndices, req);
+}
+
 void RIBootstrap::Dispose() {
-  WaitRIQueueIdle(&device, &device.queues[RI_QUEUE_GRAPHICS]);
+  device.queues[RI_QUEUE_GRAPHICS].waitIdle(&device);
+
+  if (translucentVtxBuffer.vk.buffer)
+    translucentVtxBuffer.dispose(&device);
+  if (translucentIdxBuffer.vk.buffer)
+    translucentIdxBuffer.dispose(&device);
 
   for (auto &desc : cachedFilters) {
     if (desc.cookie) {
-      FreeRIDescriptor(&device, &desc);
+      desc.dispose(&device);
     }
   }
 
   for (auto &set : frameSets) {
+    set.resourceLink.clear();
     for (auto &entry : set.freelist) {
-      FreeRIFree(&device, &entry);
+      std::visit([&](auto &res) { res.dispose(&device); }, entry);
     }
     set.freelist.clear();
     FreeRIScratchAlloc(&device, &set.uboScratchAlloc);
     FreeRIScratchAlloc(&device, &set.accelScratchAlloc);
   }
 
-  FreeRICommandRingBuffer(&device, &graphicsCmdRing);
+  graphicsCmdRing.dispose(&device);
 }
 
 void RIBootstrap::CloseAndSubmitActiveSet() {
@@ -46,21 +129,22 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
     toPresent.after = RI_RESOURCE_STATE_PRESENT;
     RI.primary.cmds[0].textureBarrier(toPresent);
   }
-  EndRICmd(&RI.device, &RI.primary.cmds[0]);
-  EndRICmd(&RI.device, &RI.blasSubmit.cmds[0]);
+  RI.primary.cmds[0].end(&RI.device);
+  RI.blasSubmit.cmds[0].end(&RI.device);
 
   // Flush pending resource uploads (the vertex/index data the BLAS builds read)
   // once, up front, so both the BLAS submit and the primary chain off it.
   RIResourceUploaderVKResult_s uploadResult =
       RI_VKFlushResourceUpdate(&RI.device, &RI.uploader, 0, NULL);
 
-  // Submit the dedicated BLAS-build command buffer ahead of the primary. It waits
-  // on the uploader (so the builds see uploaded geometry) and signals its own
-  // semaphore; the primary submit below waits on that, so every BLAS is fully
-  // built before the primary's TLAS build runs — no inline accel-build barrier
-  // needed. Submitted even when it recorded no builds so the semaphore signals.
-  // The upload→blas→primary chain also makes uploads visible to the primary, so
-  // the (binary) uploader semaphore is waited by exactly one consumer (here).
+  // Submit the dedicated BLAS-build command buffer ahead of the primary. It
+  // waits on the uploader (so the builds see uploaded geometry) and signals its
+  // own semaphore; the primary submit below waits on that, so every BLAS is
+  // fully built before the primary's TLAS build runs — no inline accel-build
+  // barrier needed. Submitted even when it recorded no builds so the semaphore
+  // signals. The upload→blas→primary chain also makes uploads visible to the
+  // primary, so the (binary) uploader semaphore is waited by exactly one
+  // consumer (here).
   {
     VkCommandBufferSubmitInfo blasCmd = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
@@ -70,7 +154,8 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
     blasWait.semaphore = uploadResult.vk.semaphore;
     blasWait.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
-    VkSemaphoreSubmitInfo blasSignal = {VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
+    VkSemaphoreSubmitInfo blasSignal = {
+        VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
     blasSignal.semaphore = RI.blasSubmit.vk.semaphore;
     blasSignal.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
 
@@ -134,17 +219,17 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
 void RIBootstrap::BeginActiveSet() {
   RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
 
-  AdvanceRICommandRingBuffer(&RI.graphicsCmdRing);
-  RI.primary = GetRICommandRingElement(&RI.device, &RI.graphicsCmdRing, 1);
+  RI.graphicsCmdRing.advance();
+  RI.primary = RI.graphicsCmdRing.acquire(&RI.device, 1);
   // Second element from the same pool for the dedicated BLAS-build submit.
-  RI.blasSubmit = GetRICommandRingElement(&RI.device, &RI.graphicsCmdRing, 1);
-  WaitRICommandRingElement(&RI.device, &RI.primary);
-  WaitRICommandRingElement(&RI.device, &RI.blasSubmit);
+  RI.blasSubmit = RI.graphicsCmdRing.acquire(&RI.device, 1);
+  RI.primary.wait(&RI.device);
+  RI.blasSubmit.wait(&RI.device);
   // One pool backs both elements; resetting it once frees both command buffers.
-  ResetRIPool(&RI.device, RI.primary.pool);
+  RI.primary.pool->reset(&RI.device);
 
   for (auto &entry : cntx->freelist) {
-    FreeRIFree(&RI.device, &entry);
+    std::visit([&](auto &res) { res.dispose(&RI.device); }, entry);
   }
   cntx->freelist.clear();
 
@@ -154,19 +239,16 @@ void RIBootstrap::BeginActiveSet() {
   RIResetScratchAlloc(&RI.device, &cntx->uboScratchAlloc);
   RIResetScratchAlloc(&RI.device, &cntx->accelScratchAlloc);
   // cntx->colorAttachment = RI.colorAttachment[RI.swapchainIndex];
-  // RIFinalizeDescriptor(&RI.device, &cntx->colorAttachment);
-  cntx->textureLink.clear();
-  cntx->bufferLink.clear();
-  // accelLink defers BLAS-handle release by frames-in-flight, mirroring
-  // bufferLink (which holds the BLAS *storage* + vertex/index buffers).
-  // Without this clear the vector grew unbounded (handles never released) and,
-  // worse, decoupled the handle's lifetime from its backing storage. The Draw
-  // path re-parks every BLAS-backed geometry here each frame, so a BLAS stays
-  // resident as long as it (or a TLAS that references it) can be in flight.
-  cntx->accelLink.clear();
+  // cntx->colorAttachment.finalize(&RI.device);
+  // Drop the keep-alive refs parked last time this slot was used. BLAS
+  // handles ride here too, deferring their release by frames-in-flight
+  // alongside the storage/vertex/index buffers — the Draw path re-parks
+  // every BLAS-backed geometry each frame, so a BLAS stays resident as long
+  // as it (or a TLAS that references it) can be in flight.
+  cntx->resourceLink.clear();
 
-  BeginRICmd(&RI.device, &RI.blasSubmit.cmds[0]);
-  BeginRICmd(&RI.device, &RI.primary.cmds[0]);
+  RI.blasSubmit.cmds[0].begin(&RI.device);
+  RI.primary.cmds[0].begin(&RI.device);
   {
     // Swapchain image: UNDEFINED -> COLOR for the frame. (Depth is
     // per-viewport now — each renderer's Draw emits its own first-use
@@ -239,14 +321,14 @@ RIDescriptor_s *RIBootstrap::resolve_filter_descriptor(eTextureWrap wrapS,
     do {
       if (cachedFilters[index].cookie == hash) {
         return &cachedFilters[index];
-      } else if (RI_IsEmptyDescriptor(&cachedFilters[index])) {
+      } else if (cachedFilters[index].isEmpty()) {
         cachedFilters[index].vk.type = VK_DESCRIPTOR_TYPE_SAMPLER;
         cachedFilters[index].vk.image.imageView = VK_NULL_HANDLE;
         cachedFilters[index].vk.image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         cachedFilters[index].flags = RI_VK_DESC_OWN_SAMPLER;
         VK_WrapResult(vkCreateSampler(device.vk.device, &info, NULL,
                                       &cachedFilters[index].vk.image.sampler));
-        RIFinalizeDescriptor(&device, &cachedFilters[index]);
+        cachedFilters[index].finalize(&device);
         cachedFilters[index].cookie = hash;
         return &cachedFilters[index];
       }

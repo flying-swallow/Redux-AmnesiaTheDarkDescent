@@ -65,7 +65,7 @@ namespace hpl {
 		mfFOV = cMath::ToRad(60.0f);
 		mfAspect = 1.0f;
 		mfNearClipPlane = 0.1f;
-		mfRadius = 100.0f;
+		mfIntensity = 100.0f;
 
 		mfTanHalfFOV = tan(mfFOV*0.5f);
 		mfCosHalfFOV = cos(mfFOV*0.5f);
@@ -98,13 +98,17 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
+	void cLightSpot::SetIntensity(float afX)
+	{
+		mfIntensity = afX;
+	}
+
 	void cLightSpot::SetRadius(float afX)
-	{ 
-		mfRadius = afX;
+	{
+		iLight::SetRadius(afX);
 
+		// Reach feeds the frustum far-plane, so rebuild projection + BV.
 		UpdateBoundingVolume();
-
-		//This is so that the render container is updated.
 		SetTransformUpdated();
 		mbProjectionUpdated = true;
 	}
@@ -138,7 +142,7 @@ namespace hpl {
 	{
 		if(mbProjectionUpdated)
 		{
-			float fFar = mfRadius;
+			float fFar = GetReach();
 			float fNear = mfNearClipPlane;
 			float fTop = tan(mfFOV*0.5f) * fNear;
 			float fBottom = -fTop;
@@ -192,7 +196,7 @@ namespace hpl {
 		{
 			mpFrustum->SetupPerspectiveProj(GetProjectionMatrix(),
 											GetViewMatrix(),
-											mfRadius,mfNearClipPlane,
+											GetReach(),mfNearClipPlane,
 											mfFOV,mfAspect,GetWorldPosition(),false);
 			mbFrustumUpdated = false;
 			mlFrustumMatrixCount = GetTransformUpdateCount();

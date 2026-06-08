@@ -54,7 +54,7 @@ void CreatePostEffectColorTarget(PostEffectColorTarget &out, uint32_t width,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, nullptr,
                                     &out.descriptor.vk.image.imageView));
-    RIFinalizeDescriptor(&RI.device, &out.descriptor);
+    out.descriptor.finalize(&RI.device);
 
     if (debugName && vkSetDebugUtilsObjectNameEXT) {
         VkDebugUtilsObjectNameInfoEXT name = {

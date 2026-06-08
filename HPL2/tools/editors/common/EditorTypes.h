@@ -109,6 +109,21 @@ enum eEditorEntityType
 
 //-------------------------------------------------------------
 
+// Per-category viewport visibility toggles (the lower-toolbar visibility
+// section). All default on; gated at each consumer's draw via
+// cEditorHelper::GetVisibilityTypeState.
+enum eEditorVisibilityType
+{
+	eEditorVisibilityType_Icons,     // entity billboard icons (EntityIcon)
+	eEditorVisibilityType_Areas,     // area gizmos (EntityWrapperArea)
+	eEditorVisibilityType_Blockers,  // blocker meshes (EngineEntity)
+	eEditorVisibilityType_GlobalFog, // world fog (EditorWorld)
+
+	eEditorVisibilityType_LastEnum
+};
+
+//-------------------------------------------------------------
+
 enum eEditorBodyShape
 {
 	eEditorBodyShape_Box,

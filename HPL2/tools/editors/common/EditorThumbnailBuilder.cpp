@@ -1,18 +1,18 @@
 /*
  * Copyright © 2009-2020 Frictional Games
- * 
+ *
  * This file is part of Amnesia: The Dark Descent.
- * 
+ *
  * Amnesia: The Dark Descent is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version. 
+ * (at your option) any later version.
 
  * Amnesia: The Dark Descent is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with Amnesia: The Dark Descent.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -20,6 +20,88 @@
 #include "EditorThumbnailBuilder.h"
 
 #include "EditorBaseClasses.h"
+
+#include "graphics/HPLTexture.h"
+#include "graphics/Image.h"
+#include "graphics/RIBootstrap.h"
+#include "graphics/RIRenderer.h"
+#include "scene/Viewport.h"
+
+#include <vk_mem_alloc.h>
+
+//-------------------------------------------------------------------
+
+static constexpr uint32_t kThumbnailSize = 128;
+
+//-------------------------------------------------------------------
+
+// Creates one cache texture a finished thumbnail is copied into: a plain
+// sampled RGBA8_SRGB image (TRANSFER_DST for the copy; the GUI samples it
+// like any other Image — the editor-pane pattern). The HPLTexture deleter
+// defers the GPU frees onto the frame freelist, so dropping cache entries
+// mid-flight is safe.
+static bool CreateThumbnailCacheTexture(std::shared_ptr<HPLTexture> &outTexture)
+{
+	std::shared_ptr<HPLTexture> texture(new HPLTexture{},
+										HPLTexture::HPLTexture_Delete);
+
+	VkImageCreateInfo imageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+	imageInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageInfo.format = VK_FORMAT_R8G8B8A8_SRGB;
+	imageInfo.extent = {kThumbnailSize, kThumbnailSize, 1};
+	imageInfo.mipLevels = 1;
+	imageInfo.arrayLayers = 1;
+	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+	uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
+	imageInfo.pQueueFamilyIndices = queueFamilies;
+	VK_ConfigureImageQueueFamilies(&imageInfo, RI.device.queues, RI_QUEUE_LEN,
+								   queueFamilies, RI_QUEUE_LEN);
+
+	VmaAllocationCreateInfo allocInfo = {};
+	allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+	if(!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo,
+									 &allocInfo, &texture->handle.vk.image,
+									 &texture->handle.vk.allocation, NULL)))
+	{
+		Error("ThumbnailBuilder: failed to create cache image\n");
+		return false;
+	}
+
+	VkImageViewCreateInfo viewInfo = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+	viewInfo.image = texture->handle.vk.image;
+	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	viewInfo.format = imageInfo.format;
+	viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+
+	texture->binding.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
+	texture->binding.texture = &texture->handle;
+	texture->binding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+	texture->binding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	if(!VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
+										&texture->binding.vk.image.imageView)))
+	{
+		Error("ThumbnailBuilder: failed to create cache image view\n");
+		vmaDestroyImage(RI.device.vk.vmaAllocator, texture->handle.vk.image,
+						texture->handle.vk.allocation);
+		texture->handle.vk.image = VK_NULL_HANDLE;
+		texture->handle.vk.allocation = NULL;
+		return false;
+	}
+	texture->binding.finalize(&RI.device);
+
+	texture->width = (uint16_t)kThumbnailSize;
+	texture->height = (uint16_t)kThumbnailSize;
+	texture->depth = 1;
+	texture->mipNum = 1;
+	texture->format = RI_FORMAT_RGBA8_SRGB;
+
+	outTexture = texture;
+	return true;
+}
 
 //-------------------------------------------------------------------
 
@@ -31,84 +113,89 @@
 
 cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 {
-	return;
-
 	mpEditor = apEditor;
+	mpViewport = NULL;
+	mpWorld = NULL;
+	mTargetTexture = RITexture_s{};
+	mTargetDescriptor = RIDescriptor_s{};
+	mpActiveCopyDst = NULL;
 
 	cEngine* pEngine = mpEditor->GetEngine();
-	cGraphics* pGfx = pEngine->GetGraphics();
 	cScene* pScene = pEngine->GetScene();
-
-	cWorld* pWorld = mpEditor->GetTempWorld();//pScene->CreateWorld("ThumbnailWorld");
-	pWorld->SetSkyBoxActive(true);
-	pWorld->SetSkyBoxColor(cColor(0.2f,1));
 
 	cCamera* pCamera = pScene->CreateCamera(eCameraMoveMode_Fly);
 	pCamera->SetPitchLimits(0,0);
 
-	iLight* pLight = NULL;
-
-	///////////////////////////////////////////
-	// Set up Lights
-	pLight = pWorld->CreateLightPoint("ThumbCameraLight", "", false);
-	pLight->SetDiffuseColor(cColor(1,1,1,0));
-	pLight->SetCastShadows(false);
-	pLight->SetVisible(true);
-
-	pLight = pWorld->CreateLightPoint("ThumbKeyLight","",false);
-	pLight->SetDiffuseColor(cColor(1,1,1,0));
-	pLight->SetVisible(false);
-	pLight->SetCastShadows(false);
-	pLight->SetRadius(50);
-	
-	pLight = pWorld->CreateLightPoint("ThumbFillLight","",false);
-	pLight->SetDiffuseColor(cColor(1,1,1,0));
-	pLight->SetVisible(false);
-	pLight->SetCastShadows(false);
-	pLight->SetRadius(50);
-
-	pLight = pWorld->CreateLightPoint("ThumbBackLight","",false);
-	pLight->SetDiffuseColor(cColor(1,1,1,0));
-	pLight->SetVisible(false);
-	pLight->SetCastShadows(false);
-	pLight->SetRadius(50);
+	//////////////////////////////////////////
+	// 128x128 RGBA8_SRGB render target: the sRGB attachment write encodes
+	// linear->display for free; TRANSFER_SRC backs the per-thumbnail cache
+	// copy after delivery.
+	if(!CreateViewportColorTexture(&RI.device, kThumbnailSize, kThumbnailSize,
+								   RI_FORMAT_RGBA8_SRGB,
+								   VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+								   VK_IMAGE_USAGE_SAMPLED_BIT |
+								   VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+								   &mTargetTexture, &mTargetDescriptor,
+								   "EditorThumbnail"))
+	{
+		return; // builder stays a safe no-op
+	}
 
 	//////////////////////////////////////////
-	// Set up render targets
-	// TODO(vulkan-port, Phase 4): the legacy iFrameBuffer chain is dead on the
-	// RI backend — CreateFrameBuffer returns NULL — so thumbnails render
-	// nothing until this is ported to the pane-surface path (own a color
-	// texture, SetTarget(cViewport::TargetView{...}), cScene delivers — see
-	// iEditorViewport::UpdateViewport). Guard the setup (and early-out in the
-	// Build* methods) so the editors can launch.
-	iTexture* pRenderTarget64 = pGfx->CreateTexture("Thumbnail", eTextureType_2D, eTextureUsage_RenderTarget);
-	pRenderTarget64->SetWrapR(eTextureWrap_Clamp);
-	pRenderTarget64->SetWrapS(eTextureWrap_Clamp);
-	pRenderTarget64->CreateFromRawData(cVector3l(64,64,0), ePixelFormat_RGBA, NULL);
+	// The builder's own world: job entities live here, fully isolated from
+	// the editor temp world (nothing else can leak into a thumbnail render).
+	mpWorld = pScene->CreateWorld("ThumbnailWorld");
+	mpWorld->SetActive(false); // never logic-updated; entities are static props
 
-	mpFB64 = pGfx->CreateFrameBuffer("Thumbnail");
-	if(mpFB64)
-	{
-		mpFB64->SetTexture2D(0, pRenderTarget64);
-		mpFB64->CompileAndValidate();
-	}
-
-	mpRenderTarget128 = pGfx->CreateTexture("ThumbnailDest",eTextureType_2D, eTextureUsage_RenderTarget);
-	mpRenderTarget128->SetWrapR(eTextureWrap_Clamp);
-	mpRenderTarget128->SetWrapS(eTextureWrap_Clamp);
-	mpRenderTarget128->CreateFromRawData(cVector3l(128,128,0), ePixelFormat_RGBA, NULL);
-
-	mpFB128 = pGfx->CreateFrameBuffer("ThumbnailDestination");
-	if(mpFB128)
-	{
-		mpFB128->SetTexture2D(0,mpRenderTarget128);
-		mpFB128->CompileAndValidate();
-	}
-
-	mpViewport = pScene->CreateViewport(pCamera,pWorld,true);
+	//////////////////////////////////////////
+	// One persistent HEADLESS viewport — never visible to cScene's loop;
+	// Pump Evaluates it directly. cRendererSimple: unlit textured forward,
+	// no BLAS/surfel cost per render (and no use for the legacy key/fill/
+	// back light rig the old GL path set up).
+	mpViewport = pScene->CreateViewport(pCamera, mpWorld);
+	mpViewport->SetRenderer(pEngine->GetGraphics()->GetRenderer(eRenderer_Simple));
 	mpViewport->SetActive(false);
 	mpViewport->SetVisible(false);
-	mpViewport->GetRenderSettings()->mClearColor = cColor(0,1);
+	mpViewport->GetRenderSettings()->mClearColor = cColor(0.2f,1);
+
+	cViewport::TargetView target = {};
+	target.width = kThumbnailSize;
+	target.height = kThumbnailSize;
+	target.texture = mTargetTexture;
+	target.view.vk.image = mTargetDescriptor.vk.image.imageView;
+	target.format = VK_FORMAT_R8G8B8A8_SRGB;
+	mpViewport->SetTarget(target);
+
+	//////////////////////////////////////////
+	// Record the cache copy from the viewport's delivery stage — the handler
+	// runs inside Evaluate, with the target in a known layout.
+	mPostDeliveryHandler = EventHandler<>([this](){ RecordCacheCopy(); });
+	mPostDeliveryHandler.Connect(mpViewport->OnPostDelivery());
+}
+
+//-------------------------------------------------------------------
+
+cEditorThumbnailBuilder::~cEditorThumbnailBuilder()
+{
+	////////////////////////////////////////
+	// Drop queued jobs — we own their entities (they live in our world).
+	for(cThumbnailJob& job : mlstJobs)
+	{
+		if(mpWorld && job.mpEntity)
+			mpWorld->DestroyMeshEntity(job.mpEntity);
+	}
+	mlstJobs.clear();
+
+	////////////////////////////////////////
+	// GPU handles go to the frame freelist — freed once the in-flight
+	// pipeline is done with them (or in RIBootstrap::Dispose at shutdown).
+	RIBootstrap::FrameContext* cntx = RI.GetActiveSet();
+	ReleaseViewportColorTexture(cntx->freelist, &mTargetTexture, &mTargetDescriptor);
+
+	if(mpViewport)
+		mpEditor->GetEngine()->GetScene()->DestroyViewport(mpViewport);
+	if(mpWorld)
+		mpEditor->GetEngine()->GetScene()->DestroyWorld(mpWorld);
 }
 
 //-------------------------------------------------------------------
@@ -119,188 +206,253 @@ cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 
 //-------------------------------------------------------------------
 
-void cEditorThumbnailBuilder::BuildThumbnailFromMeshEntity(cMeshEntity* apEntity, const tWString& asDestName)
+void cEditorThumbnailBuilder::BuildThumbnailFromMeshEntity(cMeshEntity* apEntity, tThumbnailReadyCallback aOnReady)
 {
-	// TODO(vulkan-port, Phase 4): legacy render-target path is dead on RI.
-	if(mpFB64==NULL || mpFB128==NULL) return;
+	if(apEntity==NULL) return;
 
-	cWorld* pOldWorld = apEntity->GetWorld();
+	// Target setup failed (no viewport), or the entity was created in the
+	// wrong world (must be GetWorld() — the builder's own): safe no-op, but
+	// we own the entity, so clean it up.
+	if(mpWorld==NULL || apEntity->GetWorld()!=mpWorld || !aOnReady)
+	{
+		if(apEntity->GetWorld()) apEntity->GetWorld()->DestroyMeshEntity(apEntity);
+		return;
+	}
 
-	iLowLevelGraphics* pGfx = mpEditor->GetEngine()->GetGraphics()->GetLowLevel();
-	cCamera* pCamera = mpViewport->GetCamera();
-	cWorld* pWorld = mpViewport->GetWorld();
-	iLight* pKeyLight = pWorld->GetLight("ThumbKeyLight");
-	iLight* pFillLight = pWorld->GetLight("ThumbFillLight");
-	iLight* pBackLight = pWorld->GetLight("ThumbBackLight");
+	cThumbnailJob job;
+	job.mpEntity = apEntity;
+	job.mOnReady = std::move(aOnReady);
 
-	apEntity->SetWorld(pWorld);
-	apEntity->SetPosition(0);
-	apEntity->SetVisible(true);
-	
-	FocusCameraOnEntity(apEntity);
-
-	pKeyLight->SetPosition(10);
-	pFillLight->SetPosition(cVector3f(10,10,0));
-	pBackLight->SetPosition(cVector3f(0,10,10));
-
-	//////////////////////////////////////
-	// Render 128x128 thumbnail
-	// (legacy iRenderer::Render call removed — see the Phase-4 TODO in the
-	// constructor; render via SetTarget(cViewport::TargetView{...}) here.)
-
-	//////////////////////////////////
-	// Now scale to 64x64
-	pGfx->SetDepthTestActive(false);
-	pGfx->SetDepthWriteActive(false);
-	pGfx->SetBlendActive(false);
-
-	pGfx->SetTexture(0, mpRenderTarget128);
-	pGfx->SetOrthoProjection(128,-1000,1000);
-	pGfx->SetIdentityMatrix(eMatrix_ModelView);
-	pGfx->DrawQuad(0,128,cVector2f(0,1),cVector2f(1,0));
-	pGfx->WaitAndFinishRendering();
-	pGfx->SetTexture(0,NULL);
-
-	/////////////////////////////////
-	// Save to file
-	cBitmap *pBmp = pGfx->CopyFrameBufferToBitmap();
-	mpEditor->GetEngine()->GetResources()->GetBitmapLoaderHandler()->SaveBitmap(pBmp,GetThumbnailNameFromFileW(cString::To16Char(apEntity->GetSourceFile())),0);
-	hplDelete(pBmp);
-
-	//pGfx->SetCurrentFrameBuffer(NULL);
-	//pGfx->SetDepthTestActive(true);
-	//pGfx->SetDepthWriteActive(true);
-	//pGfx->SetBlendActive(true);
-
-	//pEnt->SetPosition(1000000.0f);
-	apEntity->SetWorld(pOldWorld);
-	apEntity->SetRenderFlagBit(eRenderableFlag_VisibleInNonReflection, false);
-	apEntity->SetRenderFlagBit(eRenderableFlag_VisibleInReflection, false);
+	apEntity->SetActive(false);
 	apEntity->SetVisible(false);
+
+	mlstJobs.push_back(std::move(job));
 }
 
 //-------------------------------------------------------------------
 
-void cEditorThumbnailBuilder::BuildThumbnailFromMesh(const tWString& asMeshFilename, const tWString& asDestName)
+void cEditorThumbnailBuilder::BuildThumbnailFromMesh(const tWString& asMeshFilename, tThumbnailReadyCallback aOnReady)
 {
-	// TODO(vulkan-port, Phase 4): legacy render-target path is dead on RI.
-	if(mpFB64==NULL || mpFB128==NULL) return;
-
-	iLowLevelGraphics* pGfx = mpEditor->GetEngine()->GetGraphics()->GetLowLevel();
-	cCamera* pCamera = mpViewport->GetCamera();
-	cWorld* pWorld = mpViewport->GetWorld();
-	iLight* pKeyLight = pWorld->GetLight("ThumbKeyLight");
-	iLight* pFillLight = pWorld->GetLight("ThumbFillLight");
-	iLight* pBackLight = pWorld->GetLight("ThumbBackLight");
+	if(mpWorld==NULL) return;
 
 	tString sMeshFilename = cString::To8Char(asMeshFilename);
+	tString sName = "ThumbnailObject_" + sMeshFilename;
+
+	// Already queued for this mesh.
+	if(mpWorld->GetDynamicMeshEntity(sName) != NULL)
+		return;
 
 	cMesh* pMesh = mpEditor->GetEngine()->GetResources()->GetMeshManager()->CreateMesh(sMeshFilename);
-
 	if(pMesh==NULL)
 		return;
 
-	tString sName = "ThumbnailObject_" + sMeshFilename;
+	cMeshEntity* pEnt = mpWorld->CreateMeshEntity(sName, pMesh, false);
+	pEnt->SetSourceFile(sMeshFilename);
 
-	cMeshEntity* pEnt = pWorld->GetDynamicMeshEntity(sName);
-	if(pEnt==NULL)
-	{
-		pEnt = pWorld->CreateMeshEntity(sName, pMesh, false);
-		mlstThumbnailEntities.push_back(pEnt);
-	}
-
-	pEnt->SetPosition(0);
-	pEnt->SetRenderFlagBit(eRenderableFlag_VisibleInNonReflection, true);
-	pEnt->SetRenderFlagBit(eRenderableFlag_VisibleInReflection, true);
-	pEnt->SetVisible(true);
-
-	FocusCameraOnEntity(pEnt);
-
-	pKeyLight->SetPosition(10);
-	pFillLight->SetPosition(cVector3f(10,10,0));
-	pBackLight->SetPosition(cVector3f(0,10,10));
-
-	//////////////////////////////////////
-	// Render 128x128 thumbnail
-	// (legacy iRenderer::Render call removed — see the Phase-4 TODO in the
-	// constructor; render via SetTarget(cViewport::TargetView{...}) here.)
-
-	//////////////////////////////////
-	// Now scale to 64x64
-	pGfx->SetDepthTestActive(false);
-	pGfx->SetDepthWriteActive(false);
-	pGfx->SetBlendActive(false);
-
-	pGfx->SetTexture(0, mpRenderTarget128);
-	pGfx->SetOrthoProjection(128,-1000,1000);
-	pGfx->SetIdentityMatrix(eMatrix_ModelView);
-	pGfx->DrawQuad(0,128,cVector2f(0,1),cVector2f(1,0));
-	pGfx->WaitAndFinishRendering();
-	pGfx->SetTexture(0,NULL);
-	
-	/////////////////////////////////
-	// Save to file
-	cBitmap *pBmp = pGfx->CopyFrameBufferToBitmap();
-	mpEditor->GetEngine()->GetResources()->GetBitmapLoaderHandler()->SaveBitmap(pBmp,GetThumbnailNameFromFileW(asMeshFilename),0);
-	hplDelete(pBmp);
-
-	pEnt->SetVisible(false);
+	BuildThumbnailFromMeshEntity(pEnt, std::move(aOnReady));
 }
 
 //-------------------------------------------------------------------
 
 void cEditorThumbnailBuilder::BuildThumbnailFromImage(const tWString& asImageFilename, const tWString& asDestName)
 {
-	// TODO(vulkan-port, Phase 4): legacy render-target path is dead on RI.
-	if(mpFB64==NULL || mpFB128==NULL) return;
-
+	/////////////////////////////////
+	// Pure CPU path (legacy texture-browser flow, still disk-based): load,
+	// point-sample down to 128x128 RGBA, save.
 	cResources* pRes = mpEditor->GetEngine()->GetResources();
-	cTextureManager* pManager = pRes->GetTextureManager();
-	iTexture* pTex = pManager->Create2D(cString::To8Char(asImageFilename), true, eTextureType_2D);
-	if(pTex==NULL)
+
+	cBitmap* pSrc = pRes->GetBitmapLoaderHandler()->LoadBitmap(asImageFilename, 0);
+	if(pSrc==NULL)
 		return;
 
-	int lWidth = pTex->GetWidth();
-	int lHeight = pTex->GetHeight();
+	const ePixelFormat srcFormat = pSrc->GetPixelFormat();
+	const bool bSupported =
+		pSrc->IsCompressed()==false &&
+		(srcFormat==ePixelFormat_RGB || srcFormat==ePixelFormat_RGBA ||
+		 srcFormat==ePixelFormat_BGR || srcFormat==ePixelFormat_BGRA);
 
-	if(cMath::IsPow2(lWidth)== false || cMath::IsPow2(lHeight)==false)
-		pTex = pManager->Create2D(cString::To8Char(asImageFilename), true, eTextureType_Rect);	
+	// TODO: block-compressed sources (DDS) need a decompress pass.
+	if(bSupported==false || pSrc->GetWidth()<=0 || pSrc->GetHeight()<=0)
+	{
+		hplDelete(pSrc);
+		return;
+	}
 
-	iLowLevelGraphics* pGfx = mpEditor->GetEngine()->GetGraphics()->GetLowLevel();
+	const int lChannels = GetChannelsInPixelFormat(srcFormat);
+	const bool bSwapRB = (srcFormat==ePixelFormat_BGR || srcFormat==ePixelFormat_BGRA);
+	const unsigned char* pSrcData = pSrc->GetData(0,0)->mpData;
+	const int lSrcW = pSrc->GetWidth();
+	const int lSrcH = pSrc->GetHeight();
 
-	pGfx->SetTexture(0, pTex);
-	pGfx->SetOrthoProjection(128,-1000,1000);
-	pGfx->SetIdentityMatrix(eMatrix_ModelView);
-	pGfx->SetBlendActive(true);
-	pGfx->SetBlendFunc(eBlendFunc_SrcAlpha, eBlendFunc_OneMinusSrcAlpha);
-	pGfx->DrawQuad(0,128,cVector2f(0,0),cVector2f(1,1));
-	pGfx->WaitAndFinishRendering();	
-	
-	pGfx->SetTexture(0,NULL);
-	mpEditor->GetEngine()->GetResources()->GetTextureManager()->Destroy(pTex);
+	cBitmap bmp;
+	bmp.CreateData(cVector3l(kThumbnailSize,kThumbnailSize,1), ePixelFormat_RGBA, 0, 0);
+	unsigned char* pDst = bmp.GetData(0,0)->mpData;
 
-	/////////////////////////////////
-	// Save to file
-	tWString sDestinationFile = GetThumbnailNameFromFileW(asImageFilename);
-	cBitmap *pBmp = pGfx->CopyFrameBufferToBitmap();
-	mpEditor->GetEngine()->GetResources()->GetBitmapLoaderHandler()->SaveBitmap(pBmp,sDestinationFile,0);
-	hplDelete(pBmp);
+	for(int y=0; y<(int)kThumbnailSize; ++y)
+	{
+		const int lSrcY = (int)(((int64_t)y * lSrcH) / kThumbnailSize);
+		for(int x=0; x<(int)kThumbnailSize; ++x)
+		{
+			const int lSrcX = (int)(((int64_t)x * lSrcW) / kThumbnailSize);
+			const unsigned char* pPix = pSrcData + (lSrcY*lSrcW + lSrcX)*lChannels;
+			unsigned char* pOut = pDst + (y*kThumbnailSize + x)*4;
+			pOut[0] = bSwapRB ? pPix[2] : pPix[0];
+			pOut[1] = pPix[1];
+			pOut[2] = bSwapRB ? pPix[0] : pPix[2];
+			pOut[3] = lChannels==4 ? pPix[3] : 255;
+		}
+	}
 
-	pGfx->ClearFrameBuffer(eClearFrameBufferFlag_Color);
+	tWString sDestinationFile = asDestName.empty()
+		? GetThumbnailNameFromFileW(asImageFilename) : asDestName;
+	pRes->GetBitmapLoaderHandler()->SaveBitmap(&bmp, sDestinationFile, 0);
+
+	hplDelete(pSrc);
 }
 
 //-------------------------------------------------------------------
 
-void cEditorThumbnailBuilder::SaveToFile(iTexture* apTexture)
+/////////////////////////////////////////////////////////////////////
+// JOB PUMP (driven by iEditorBase::OnDraw, see header)
+/////////////////////////////////////////////////////////////////////
+
+//-------------------------------------------------------------------
+
+void cEditorThumbnailBuilder::Pump(float afFrameTime)
 {
-	/////////////////////////////////
-	// Save to file
-	/*tWString sDestinationFile = GetThumbnailNameFromFileW(asImageFilename);
-	cBitmap *pBmp = pGfx->CopyFrameBufferToBitmap();
-	mpEditor->GetEngine()->GetResources()->GetBitmapLoaderHandler()->SaveBitmap(pBmp,sDestinationFile,0);
-	hplDelete(pBmp);
-*/
-	//pGfx->ClearFrameBuffer(eClearFrameBufferFlag_Color);
+	if(mpViewport==NULL || mlstJobs.empty()) return;
+
+	cThumbnailJob job = mlstJobs.front();
+	if(job.mpEntity==NULL)
+	{
+		mlstJobs.pop_front();
+		return;
+	}
+
+	////////////////////////////////////////
+	// The job's cache texture — the OnPostDelivery handler copies the
+	// delivered target into it on the main command buffer.
+	std::shared_ptr<HPLTexture> pCacheTexture;
+	if(CreateThumbnailCacheTexture(pCacheTexture)==false)
+		return; // retry next frame
+
+	mlstJobs.pop_front();
+
+	////////////////////////////////////////
+	// Place + evaluate headless: the entity is visible for exactly this draw.
+	cMeshEntity* pEntity = job.mpEntity;
+	pEntity->SetPosition(0);
+	pEntity->SetActive(true);
+	pEntity->SetVisible(true);
+	pEntity->SetRenderFlagBit(eRenderableFlag_VisibleInNonReflection, true);
+	pEntity->SetRenderFlagBit(eRenderableFlag_VisibleInReflection, true);
+
+	FocusCameraOnEntity(pEntity);
+
+	mpActiveCopyDst = pCacheTexture.get();
+	mpViewport->Evaluate(RI.GetActiveSet(), afFrameTime, tSceneRenderFlag_World);
+
+	pEntity->SetVisible(false);
+	pEntity->SetActive(false);
+
+	////////////////////////////////////////
+	// Delivery skipped (handler never fired — shouldn't happen with a valid
+	// world/camera): put the job back and retry next frame.
+	if(mpActiveCopyDst != NULL)
+	{
+		mpActiveCopyDst = NULL;
+		mlstJobs.push_front(job);
+		return;
+	}
+
+	////////////////////////////////////////
+	// Hand the finished Image to the requester — OWNERSHIP TRANSFERS (the
+	// builder retains nothing; the caller releases the resource by dropping
+	// the shared_ptr). The copy is ordered before any GUI sampling by its
+	// barriers, so the image is usable immediately.
+	Image::SingleImage singleImage = {};
+	singleImage.image = pCacheTexture;
+	std::shared_ptr<Image> pImage = std::make_shared<Image>(std::move(singleImage));
+
+	mpWorld->DestroyMeshEntity(pEntity);
+
+	job.mOnReady(std::move(pImage));
+}
+
+//-------------------------------------------------------------------
+
+void cEditorThumbnailBuilder::RecordCacheCopy()
+{
+	// Fired by the viewport's OnPostDelivery for EVERY delivery — only act
+	// when this Pump placed a job.
+	if(mpActiveCopyDst == NULL) return;
+	HPLTexture* pDst = mpActiveCopyDst;
+	mpActiveCopyDst = NULL;
+
+	////////////////////////////////////////
+	// The delivery left the target SHADER_RESOURCE; copy it into the cache
+	// texture and transition both for fragment sampling. The barrier back on
+	// the target also keeps the chain the next delivery's UNDEFINED discard
+	// hangs off intact.
+	const RITextureBarrier_s pre[2] = {
+		RITextureBarrier_s(&mTargetTexture,
+			RI_RESOURCE_STATE_SHADER_RESOURCE, RI_RESOURCE_STATE_COPY_SRC,
+			RI_STAGE_FRAGMENT, RI_STAGE_COPY),
+		RITextureBarrier_s(&pDst->handle,
+			RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_COPY_DST,
+			RI_STAGE_NONE, RI_STAGE_COPY),
+	};
+	RI.primary.cmds[0].textureBarriers<2>(2, pre);
+
+	VkImageCopy region = {};
+	region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+	region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
+	region.extent = { kThumbnailSize, kThumbnailSize, 1 };
+	vkCmdCopyImage(RI.primary.cmds[0].vk.cmd,
+				   mTargetTexture.vk.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				   pDst->handle.vk.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				   1, &region);
+
+	const RITextureBarrier_s post[2] = {
+		RITextureBarrier_s(&mTargetTexture,
+			RI_RESOURCE_STATE_COPY_SRC, RI_RESOURCE_STATE_SHADER_RESOURCE,
+			RI_STAGE_COPY, RI_STAGE_FRAGMENT),
+		RITextureBarrier_s(&pDst->handle,
+			RI_RESOURCE_STATE_COPY_DST, RI_RESOURCE_STATE_SHADER_RESOURCE,
+			RI_STAGE_COPY, RI_STAGE_FRAGMENT),
+	};
+	RI.primary.cmds[0].textureBarriers<2>(2, post);
+}
+
+//-------------------------------------------------------------------
+
+void cEditorThumbnailBuilder::PreBuild()
+{
+	////////////////////////////////////////
+	// Cancellation point: iEditorObjectIndex::Refresh calls this FIRST, then
+	// deletes/recreates index entries — whose pointers queued callbacks
+	// capture. Flush the queue (callbacks never fire) before that churn;
+	// Refresh re-enqueues whatever is still missing right after.
+	for(cThumbnailJob& job : mlstJobs)
+	{
+		if(mpWorld && job.mpEntity)
+			mpWorld->DestroyMeshEntity(job.mpEntity);
+	}
+	mlstJobs.clear();
+}
+
+//-------------------------------------------------------------------
+
+void cEditorThumbnailBuilder::PostBuild()
+{
+	// Legacy hook (framebuffer unbind) — nothing to do.
+}
+
+//-------------------------------------------------------------------
+
+void cEditorThumbnailBuilder::CleanUp()
+{
+	// Legacy hook — job entities are destroyed when their job completes.
 }
 
 //-------------------------------------------------------------------
@@ -320,12 +472,16 @@ tWString cEditorThumbnailBuilder::GetThumbnailNameFromFileW(const tWString& asFi
 
 //-------------------------------------------------------------------
 
+/////////////////////////////////////////////////////////////////////
+// PROTECTED METHODS
+/////////////////////////////////////////////////////////////////////
+
+//-------------------------------------------------------------------
+
 void cEditorThumbnailBuilder::FocusCameraOnEntity(cMeshEntity *apEntity)
 {
 	cCamera *pCam = mpViewport->GetCamera();
 	cMesh *pMesh = apEntity->GetMesh();
-	cWorld* pWorld = mpViewport->GetWorld();
-	iLight* pLight = pWorld->GetLight("ThumbCameraLight");
 
 	cBoundingVolume meshBV;
 	if(pMesh->GetSkeleton())
@@ -344,14 +500,14 @@ void cEditorThumbnailBuilder::FocusCameraOnEntity(cMeshEntity *apEntity)
 	{
 		meshBV = *apEntity->GetBoundingVolume();
 	}
-	
+
 
 	/////////////////////////
 	// Calculate direction most tris face
 	cVector3f vVecSum =0;
 	float fVecCount=0;
 	for(int i=0; i<pMesh->GetSubMeshNum(); ++i)
-	{	
+	{
 		cSubMesh *pSubMesh = pMesh->GetSubMesh(i);
 		cSubMeshEntity *pSubEnt = apEntity->GetSubMeshEntity(i);
 
@@ -362,7 +518,7 @@ void cEditorThumbnailBuilder::FocusCameraOnEntity(cMeshEntity *apEntity)
 	}
 
 	vVecSum.Normalize();
-	
+
 	/////////////////////////
 	// Calculate position
 	cVector3f vDir=1;
@@ -377,7 +533,7 @@ void cEditorThumbnailBuilder::FocusCameraOnEntity(cMeshEntity *apEntity)
 	float fDist = meshBV.GetSize().x;
 	if(fDist < meshBV.GetSize().y) fDist = meshBV.GetSize().y;
 	if(fDist < meshBV.GetSize().z) fDist = meshBV.GetSize().z;
-	
+
 	//Making the 2.0 larger might reduce some of the perspective distortion if needed
 	fDist = sqrt(fDist*fDist)*2.0f;
 
@@ -418,18 +574,13 @@ void cEditorThumbnailBuilder::FocusCameraOnEntity(cMeshEntity *apEntity)
 	for(int i=0;i<8; ++i)
 	{
 		cVector3f vToCorner =  cMath::Vector3Normalize(vCorners[i] - vCamPos);
-		
+
 		float fAngle = cMath::Vector3Angle(vToCorner, vDirToCenter);
 		if(fAngle > fLargestAngle) fLargestAngle = fAngle;
 	}
-	
+
 	pCam->SetFOV(fLargestAngle*2);
 	pCam->SetAspect(1); //<- this makes it looks stretch but since u render to a square it should be like this for you!
-	
-	/////////////////////////
-	// Light
-	pLight->SetRadius(fDist*4);
-	pLight->SetPosition(vCamPos);
 }
 
 //-------------------------------------------------------------------
@@ -445,7 +596,7 @@ void cEditorThumbnailBuilder::VtxBufferAddNormals(const cMatrixf a_mtxTransform,
 	for(int tri=0; tri<lIndexNum; tri+=3)
 	{
 		///////////////////////
-		//Get positions 
+		//Get positions
 		cVector3f vPos[3];
 		cVector3f vCenterPos=0;
 		for(int i=0; i<3; ++i)
@@ -474,7 +625,7 @@ void cEditorThumbnailBuilder::VtxBufferAddNormals(const cMatrixf a_mtxTransform,
 
 		//Make sure that 2 times normals need to point down in order to view it from below.
 		if(vNormal.y < 0) vNormal = vNormal * 0.45f;
-		
+
 		//In case both sides have equal amount of polygons
 		if(vNormal.x < 0) vNormal = vNormal * 0.85f;
 		else if(vNormal.z < 0) vNormal = vNormal * 0.8f;
@@ -485,40 +636,3 @@ void cEditorThumbnailBuilder::VtxBufferAddNormals(const cMatrixf a_mtxTransform,
 }
 
 //-------------------------------------------------------------------
-
-void cEditorThumbnailBuilder::PreBuild()
-{
-	iLowLevelGraphics* pGfx = mpEditor->GetEngine()->GetGraphics()->GetLowLevel();
-
-	pGfx->SetCurrentFrameBuffer(mpFB128);
-}
-
-//-------------------------------------------------------------------
-
-void cEditorThumbnailBuilder::PostBuild()
-{
-	iLowLevelGraphics* pGfx = mpEditor->GetEngine()->GetGraphics()->GetLowLevel();
-
-	pGfx->SetCurrentFrameBuffer(NULL);
-
-	pGfx->SetDepthTestActive(true);
-	pGfx->SetDepthWriteActive(true);
-	pGfx->SetBlendActive(true);
-}
-
-//-------------------------------------------------------------------
-
-void cEditorThumbnailBuilder::CleanUp()
-{
-	cWorld* pWorld = mpViewport->GetWorld();
-	tMeshEntityListIt itEntities = mlstThumbnailEntities.begin();
-	for(;itEntities!=mlstThumbnailEntities.end();++itEntities)
-	{
-		pWorld->DestroyMeshEntity(*itEntities);
-		//mpEditor->RemoveTempMeshEntity(*itEntities);
-	}
-	mlstThumbnailEntities.clear();
-}
-
-//-------------------------------------------------------------------
-

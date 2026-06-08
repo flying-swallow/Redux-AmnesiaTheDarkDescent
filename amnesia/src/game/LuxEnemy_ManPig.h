@@ -93,7 +93,7 @@ public:
 
 	//////////////////////
 	//Debug
-	void OnRenderSolidImplemented(cRendererCallbackFunctions* apFunctions);
+	void OnRenderSolidImplemented(DebugDraw* apDebugDraw);
 		
 	
 	//////////////////////

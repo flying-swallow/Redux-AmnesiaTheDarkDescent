@@ -45,7 +45,7 @@ public:
 	cLuxPlayerState_InteractLever(cLuxPlayer *apPlayer);
 	virtual ~cLuxPlayerState_InteractLever();
 
-	void RenderSolid(cRendererCallbackFunctions* apFunctions);
+	void RenderSolid(DebugDraw* apDebugDraw);
 
 	/////////////////////////////////
 	//Save data stuff

@@ -275,22 +275,3 @@ void RISwapchainPresent(struct RIDevice_s* dev, RISwapchain_s<>* swapchain) {
 #endif
 }
 
-void FreeRISwapchain( struct RIDevice_s *dev, RISwapchain_s<> *swapchain )
-{
-#if ( DEVICE_IMPL_VULKAN )
-	{
-		for( size_t p = 0; p < RI_MAX_SWAPCHAIN_IMAGES; p++ ) {
-			if( swapchain->vk.imageAcquireSem[p] )
-				vkDestroySemaphore( dev->vk.device, swapchain->vk.imageAcquireSem[p], NULL );
-			if( swapchain->vk.finishSem[p] )
-				vkDestroySemaphore( dev->vk.device, swapchain->vk.finishSem[p], NULL );
-		}
-		if( swapchain->vk.swapchain )
-			vkDestroySwapchainKHR( dev->vk.device, swapchain->vk.swapchain, NULL );
-		if( swapchain->vk.surface )
-			vkDestroySurfaceKHR( dev->renderer->vk.instance, swapchain->vk.surface, NULL );
-	}
-	memset( swapchain, 0, sizeof( RISwapchain_s<> ) );
-#endif
-}
-
