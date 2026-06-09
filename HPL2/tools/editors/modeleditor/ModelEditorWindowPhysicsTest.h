@@ -28,6 +28,8 @@
 class cBodyPicker;
 class cModelEditorWindowPhysicsTest;
 
+namespace hpl { struct WorldDrawCtx; }
+
 
 class cBodyPicker : public iPhysicsRayCallback
 {
@@ -127,7 +129,7 @@ protected:
 	std::vector<iPhysicsJoint*> mvJoints;
 	cBodyPicker mBodyPicker;
 	cPhysicsTestRenderCallback mRenderCallback;
-	EventHandler<> mPreWorldDrawHandler;
+	EventHandler<const WorldDrawCtx&> mPreWorldDrawHandler;
 	iPhysicsBody* mpFloorBody;
 
 	iLight* mpMainLight;

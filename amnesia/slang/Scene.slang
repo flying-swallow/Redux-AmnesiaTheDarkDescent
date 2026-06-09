@@ -266,7 +266,7 @@ public struct SceneMaterials
 
         RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
                | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES
-               | RAY_FLAG_CULL_BACK_FACING_TRIANGLES> q;
+               | RAY_FLAG_CULL_FRONT_FACING_TRIANGLES> q;
         q.TraceRayInline(gRtAccel, 0, kRayMaskOpaque, ray);
 
         while (q.Proceed())
@@ -647,6 +647,16 @@ public struct Scene
     public VertexData getVertexData(TriangleHit hit)
     {
         BindlessTriangleVtx vtx;
+        return getVertexDataAndTri(hit, vtx);
+    }
+
+    // Same as getVertexData, but also returns the raw per-vertex triangle data
+    // (positions / normals / tangents / UVs). Parallax mapping needs the
+    // per-vertex UVs to invert a UV offset back into a barycentric delta — see
+    // SurfelVBuffer.rt.slang. Fetches the bindless triangle once so callers that
+    // want both don't pay the BDA handle loads twice.
+    public VertexData getVertexDataAndTri(TriangleHit hit, out BindlessTriangleVtx vtx)
+    {
         fetchBindlessTriangle(hit.instanceID, hit.primitiveIndex, vtx);
 
         float b1 = hit.barycentrics.x;

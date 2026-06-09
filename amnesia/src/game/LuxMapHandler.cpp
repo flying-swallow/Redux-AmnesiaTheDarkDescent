@@ -218,8 +218,12 @@ void cLuxMapHandler::OnStart()
 	// RI path: enqueue all game debug overlays into the global DebugDraw
 	// batcher right before the renderer Draw — the Hybrid renderer never
 	// runs iRendererCallback messages.
-	mPreWorldDrawHandler = EventHandler<>([this]{ OnPreWorldDraw(); });
+	mPreWorldDrawHandler = EventHandler<const WorldDrawCtx&>([this](const WorldDrawCtx&){ OnPreWorldDraw(); });
 	mPreWorldDrawHandler.Connect(mpViewport->OnPreWorldDraw());
+
+	// cLuxEffectRenderer composites the hover outline / pickup flash / enemy
+	// glow over the final lit image via its own OnPostWorldDraw handler.
+	gpBase->mpEffectRenderer->AttachViewport(mpViewport);
 
 	UpdateViewportRenderProperties();
 }

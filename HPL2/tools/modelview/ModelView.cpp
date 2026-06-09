@@ -525,7 +525,7 @@ public:
 
 		cRenderSettings *pSettings = gpSimpleCamera->GetViewport()->GetRenderSettings();
 
-		mPreWorldDrawHandler = EventHandler<>([this]{ renderCallback.OnPreWorldDraw(); });
+		mPreWorldDrawHandler = EventHandler<const WorldDrawCtx&>([this](const WorldDrawCtx&){ renderCallback.OnPreWorldDraw(); });
 		mPreWorldDrawHandler.Connect(gpSimpleCamera->GetViewport()->OnPreWorldDraw());
 
 		gpSimpleCamera->SetMouseMode(true);
@@ -2222,7 +2222,7 @@ public:
 	iPhysicsWorld *mpPhysicsWorld;
 	
 	cSimpleRenderCallback renderCallback;
-	EventHandler<> mPreWorldDrawHandler;
+	EventHandler<const WorldDrawCtx&> mPreWorldDrawHandler;
 	cBodyPicker mBodyPicker;
 
 	

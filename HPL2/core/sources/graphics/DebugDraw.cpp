@@ -763,7 +763,7 @@ namespace hpl {
 				// before this submit retires.
 				cntx->resourceLink.push_back(texture);
 
-				RIDescriptor_s* samplerDesc = RI.resolve_filter_descriptor(
+				auto samplerDesc = RI.resolve_filter_descriptor(
 					eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 					eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 				assert(samplerDesc);

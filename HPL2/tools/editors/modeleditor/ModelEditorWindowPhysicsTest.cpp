@@ -282,7 +282,7 @@ void cModelEditorWindowPhysicsTest::SetUpRender()
 {
 	if(mPreWorldDrawHandler.IsConnected()==false)
 	{
-		mPreWorldDrawHandler = EventHandler<>([this] { mRenderCallback.OnPreWorldDraw(); });
+		mPreWorldDrawHandler = EventHandler<const WorldDrawCtx&>([this](const WorldDrawCtx&) { mRenderCallback.OnPreWorldDraw(); });
 		mPreWorldDrawHandler.Connect(GetEngineViewport()->OnPreWorldDraw());
 	}
 

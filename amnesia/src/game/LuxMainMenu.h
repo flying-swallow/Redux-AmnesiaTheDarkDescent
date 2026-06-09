@@ -111,6 +111,8 @@ public:
 	void OnDraw(float afFrameTime);
 	void OnPostRender(float afFrameTime);
 
+	void RefreshToneMapGamma();
+
 	cGuiSet* GetSet() { return mpGuiSet; }
 
 	void SetWindowActive(eLuxMainMenuWindow aWindow);
@@ -265,6 +267,7 @@ private:
 	iFontData *mpFont;
 	
 	cViewport *mpViewport;
+	iPostEffect *mpPostEffect_ToneMap;
 
 	// In-game (escape) menu backdrop: blurred snapshot of the game screen.
 	cLuxScreenCapture mScreenCapture;

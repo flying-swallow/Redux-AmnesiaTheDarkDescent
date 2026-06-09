@@ -108,7 +108,7 @@ void cEntityIcon::DrawIcon(cEditorWindowViewport* apViewport,
 		if(pDebugDraw)
 		{
 			const float fScale = DebugDraw::BillboardScale(apViewport->GetCamera(), avPos);
-			pDebugDraw->DrawBillboard(avPos, cVector2f(0.2f) * fScale, cVector2f(0,1), cVector2f(1,0),
+			pDebugDraw->DrawBillboard(avPos, cVector2f(0.2f) * fScale, cVector2f(1,0), cVector2f(0,1),
 									  mvIconGfx[abIsSelected], bbColor);
 		}
 	}

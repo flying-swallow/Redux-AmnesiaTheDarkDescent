@@ -484,7 +484,7 @@ void HybridGlobalManagedSet::initialize(RIDevice_s *device,
     // once at init time. The image views it samples (kBindingSurfelDepthSampled
     // / kBindingSurfelDepth) live on set 1 and are pushed per-dispatch.
     {
-      RIDescriptor_s *surfelDepthDesc = RI.resolve_filter_descriptor(
+      auto surfelDepthDesc = RI.resolve_filter_descriptor(
           eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
           eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
       writes[count].binding = kBindingSurfelDepthSampler;

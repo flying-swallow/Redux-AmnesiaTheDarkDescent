@@ -37,6 +37,7 @@ class iEditorBase;
 
 namespace hpl {
 	struct HPLTexture;
+	struct WorldDrawCtx;
 	class Image;
 }
 
@@ -95,8 +96,9 @@ public:
 
 protected:
 	// OnPostDelivery handler body: records the target -> cache-texture copy
-	// (barriers + vkCmdCopyImage) for the job placed by this Pump.
-	void RecordCacheCopy();
+	// (barriers + vkCmdCopyImage) for the job placed by this Pump. The
+	// per-signal context supplies the command buffer (no RI-global reach).
+	void RecordCacheCopy(const WorldDrawCtx& ctx);
 
 	/////////////////////////////////////
 	// Data
@@ -122,7 +124,7 @@ protected:
 	// around Evaluate.
 	HPLTexture* mpActiveCopyDst;
 
-	EventHandler<> mPostDeliveryHandler;
+	EventHandler<const WorldDrawCtx&> mPostDeliveryHandler;
 
 	SHA1 mSha;
 };

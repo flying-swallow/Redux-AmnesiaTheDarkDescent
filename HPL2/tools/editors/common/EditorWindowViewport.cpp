@@ -182,7 +182,7 @@ cEditorWindowViewport::cEditorWindowViewport(iEditorBase* apEditor,
 	// iRendererCallback messages. The handler auto-disconnects on destruction.
 	mViewportCallback.mpEditor = apEditor;
 	mViewportCallback.mpViewport = this;
-	mPreWorldDrawHandler = EventHandler<>([this] { mViewportCallback.OnPreWorldDraw(); });
+	mPreWorldDrawHandler = EventHandler<const WorldDrawCtx&>([this](const WorldDrawCtx&) { mViewportCallback.OnPreWorldDraw(); });
 	mPreWorldDrawHandler.Connect(GetEngineViewport()->OnPreWorldDraw());
 
 	vDebugGridPos = 0;

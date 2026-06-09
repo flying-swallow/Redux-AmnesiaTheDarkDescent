@@ -149,6 +149,13 @@ SHADERS
     ./slang/PostEffect_ImageTrail/posteffect_image_trail.frag.slang
     ./slang/PostEffect_RadialBlur/posteffect_radial_blur.frag.slang
     ./slang/PostEffect_Insanity/posteffect_insanity.frag.slang
+    ./slang/Outline/outline_geom.vert.slang
+    ./slang/Outline/outline_geom.frag.slang
+    ./slang/Outline/outline_alpha.vert.slang
+    ./slang/Outline/outline_alpha.frag.slang
+    ./slang/Outline/glow_object.vert.slang
+    ./slang/Outline/glow_object.frag.slang
+    ./slang/Outline/outline_composite.frag.slang
 INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/slang
 OUTPUT_FOLDER

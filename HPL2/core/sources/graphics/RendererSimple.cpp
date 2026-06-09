@@ -564,7 +564,7 @@ namespace hpl {
 					textureDescriptor = texture->binding;
 				}
 
-				RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+				auto samplerDesc = RI.resolve_filter_descriptor(
 					pMat ? pMat->GetTextureWrap() : eTextureWrap_Repeat,
 					pMat ? pMat->GetTextureWrap() : eTextureWrap_Repeat,
 					pMat ? pMat->GetTextureWrap() : eTextureWrap_Repeat,

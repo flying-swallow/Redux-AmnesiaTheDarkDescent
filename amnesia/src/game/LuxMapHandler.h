@@ -30,6 +30,8 @@ class cLuxMap;
 class cLuxSavedGameMapCollection;
 class cLuxModelCache;
 
+namespace hpl { struct WorldDrawCtx; }
+
 typedef std::list<cLuxMap*> tLuxMapList;
 typedef tLuxMapList::iterator tLuxMapListIt;
 
@@ -139,7 +141,7 @@ private:
 	// right before the renderer Draw — the Hybrid renderer never runs
 	// iRendererCallback messages. Handler auto-disconnects on destruction.
 	void OnPreWorldDraw();
-	EventHandler<> mPreWorldDrawHandler;
+	EventHandler<const WorldDrawCtx&> mPreWorldDrawHandler;
 
 	tString msMapFolder;
 

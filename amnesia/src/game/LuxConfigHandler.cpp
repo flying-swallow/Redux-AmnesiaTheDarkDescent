@@ -21,6 +21,7 @@
 
 #include "LuxMap.h"
 #include "LuxMapHandler.h"
+#include "LuxMainMenu.h"
 #include "LuxInputHandler.h"
 #include "LuxHintHandler.h"
 #include "LuxHelpFuncs.h"
@@ -210,8 +211,10 @@ void cLuxConfigHandler::SetGamma(float afX)
 {
 	mfGamma = afX;
 
-	// Live-apply to the active map's tonemap effect (if a map is loaded).
+	// Live-apply to the active map's tonemap effect (if a map is loaded) and to
+	// the main-menu background scene's tonemap.
 	if(gpBase->mpMapHandler) gpBase->mpMapHandler->RefreshToneMapGamma();
+	if(gpBase->mpMainMenu)   gpBase->mpMainMenu->RefreshToneMapGamma();
 }
 
 //-----------------------------------------------------------------------

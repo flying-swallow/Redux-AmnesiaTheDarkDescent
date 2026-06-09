@@ -169,7 +169,8 @@ cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 	//////////////////////////////////////////
 	// Record the cache copy from the viewport's delivery stage — the handler
 	// runs inside Evaluate, with the target in a known layout.
-	mPostDeliveryHandler = EventHandler<>([this](){ RecordCacheCopy(); });
+	mPostDeliveryHandler = EventHandler<const WorldDrawCtx&>(
+		[this](const WorldDrawCtx& ctx){ RecordCacheCopy(ctx); });
 	mPostDeliveryHandler.Connect(mpViewport->OnPostDelivery());
 }
 
@@ -381,13 +382,15 @@ void cEditorThumbnailBuilder::Pump(float afFrameTime)
 
 //-------------------------------------------------------------------
 
-void cEditorThumbnailBuilder::RecordCacheCopy()
+void cEditorThumbnailBuilder::RecordCacheCopy(const WorldDrawCtx& ctx)
 {
 	// Fired by the viewport's OnPostDelivery for EVERY delivery — only act
 	// when this Pump placed a job.
 	if(mpActiveCopyDst == NULL) return;
 	HPLTexture* pDst = mpActiveCopyDst;
 	mpActiveCopyDst = NULL;
+
+	RICmd_s* pCmd = ctx.cmd;
 
 	////////////////////////////////////////
 	// The delivery left the target SHADER_RESOURCE; copy it into the cache
@@ -402,13 +405,13 @@ void cEditorThumbnailBuilder::RecordCacheCopy()
 			RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_COPY_DST,
 			RI_STAGE_NONE, RI_STAGE_COPY),
 	};
-	RI.primary.cmds[0].textureBarriers<2>(2, pre);
+	pCmd->textureBarriers<2>(2, pre);
 
 	VkImageCopy region = {};
 	region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
 	region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
 	region.extent = { kThumbnailSize, kThumbnailSize, 1 };
-	vkCmdCopyImage(RI.primary.cmds[0].vk.cmd,
+	vkCmdCopyImage(pCmd->vk.cmd,
 				   mTargetTexture.vk.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				   pDst->handle.vk.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 				   1, &region);
@@ -421,7 +424,7 @@ void cEditorThumbnailBuilder::RecordCacheCopy()
 			RI_RESOURCE_STATE_COPY_DST, RI_RESOURCE_STATE_SHADER_RESOURCE,
 			RI_STAGE_COPY, RI_STAGE_FRAGMENT),
 	};
-	RI.primary.cmds[0].textureBarriers<2>(2, post);
+	pCmd->textureBarriers<2>(2, post);
 }
 
 //-------------------------------------------------------------------

@@ -119,6 +119,21 @@ namespace hpl {
 			m_state);
 	}
 
+	struct RITexture_s* cViewport::GetDepthTexture()
+	{
+		return std::visit(
+			[](auto &&arg) -> struct RITexture_s * {
+				using T = std::decay_t<decltype(arg)>;
+				if constexpr (std::is_same_v<T, std::monostate>) {
+					return nullptr;
+				} else {
+					return arg.width != 0 ? &arg.depthTextures[RI.swapchainIndex]
+										  : nullptr;
+				}
+			},
+			m_state);
+	}
+
 	cViewport::BackBuffer cViewport::GetBackBuffer()
 	{
 		return std::visit(
@@ -406,7 +421,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 		RI.postEffectBlit.bindPipeline(&RI.device, &RI.primary.cmds[0], kHash,
 		                               asLabel, &blitState.createInfo);
 
-		RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+		auto samplerDesc = RI.resolve_filter_descriptor(
 		    eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 		    eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 		RIProgram::DescriptorBinding bindings[2] = {};
@@ -444,7 +459,18 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 
 		if(alFlags & tSceneRenderFlag_World)
 		{
-			m_onPreWorldDraw.Signal();
+			const cVector2l vPreSize = GetTargetSize();
+			WorldDrawCtx preCtx{};
+			preCtx.viewport   = this;
+			preCtx.cmd        = &RI.primary.cmds[0];
+			preCtx.device     = &RI.device;
+			preCtx.frame      = cntx;
+			preCtx.frustum    = pFrustum;
+			preCtx.width      = (uint32_t)vPreSize.x;
+			preCtx.height     = (uint32_t)vPreSize.y;
+			preCtx.frameIndex = RI.frameIndex;
+			preCtx.frameTime  = afFrameTime;
+			m_onPreWorldDraw.Signal(preCtx);
 			if (worldRendered) {
 				mpRenderer->Draw(
 						cntx,
@@ -454,6 +480,26 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 						mpWorld,
 						GetRenderSettings(),
 						false);
+
+				// PRE-FEED HDR hook: the renderer left the BackBuffer holding
+				// the linear-HDR scene (SHADER_READ) and depth in
+				// DEPTH_ATTACHMENT_OPTIMAL. Handlers draw additive geometry
+				// here (pickup flash / enemy glow) so the still-to-run feed
+				// blit + post chain (bloom + tonemap) process it — the pogo
+				// does not exist yet. Handlers must return the BackBuffer to
+				// SHADER_READ for the feed blit below.
+				PostTranslucenceDrawCtx transCtx{};
+				transCtx.viewport   = this;
+				transCtx.cmd        = &RI.primary.cmds[0];
+				transCtx.device     = &RI.device;
+				transCtx.frame      = cntx;
+				transCtx.frustum    = pFrustum;
+				transCtx.width      = (uint32_t)preCtx.width;
+				transCtx.height     = (uint32_t)preCtx.height;
+				transCtx.frameIndex = RI.frameIndex;
+				transCtx.frameTime  = afFrameTime;
+				transCtx.depthView  = GetDepthView();   // pogo not created yet
+				m_onPostTranslucenceDraw.Signal(transCtx);
 			}
 		}
 
@@ -530,16 +576,42 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 			}
 
 			// The pogo read half holds the final (post-processed) image.
-			m_onPostWorldDraw.Signal();
+			PostWorldDrawCtx postCtx{};
+			postCtx.viewport   = this;
+			postCtx.cmd        = &RI.primary.cmds[0];
+			postCtx.device     = &RI.device;
+			postCtx.frame      = cntx;
+			postCtx.frustum    = pFrustum;
+			postCtx.width      = (uint32_t)vTargetSize.x;
+			postCtx.height     = (uint32_t)vTargetSize.y;
+			postCtx.frameIndex = RI.frameIndex;
+			postCtx.frameTime  = afFrameTime;
+			postCtx.pogo       = pPogo;
+			postCtx.depthView  = GetDepthView();
+			m_onPostWorldDraw.Signal(postCtx);
 		}
 
 		// Delivery — symmetric branch on the viewport's own Target
-		// variant. TargetView (standalone, e.g. editor panes / headless
-		// thumbnails): a fullscreen draw of the pogo read half into the
-		// caller-provided view when one was set (contract: color-attachable,
-		// matching the TargetView's `format`; fully rewritten every frame and
-		// left SHADER_READ_ONLY for the consumer — the editor's pane Image
-		// samples it). No swapchain composite or GUI for these.
+		// variant. Shared post-delivery context (pPogo is valid in both
+		// branches' signal guard; the delivered target itself is reached
+		// through ctx.viewport). TargetView (standalone, e.g. editor panes /
+		// headless thumbnails): a fullscreen draw of the pogo read half into
+		// the caller-provided view when one was set (contract: color-
+		// attachable, matching the TargetView's `format`; fully rewritten
+		// every frame and left SHADER_READ_ONLY for the consumer — the
+		// editor's pane Image samples it). No swapchain composite or GUI for
+		// these.
+		const cVector2l vDeliverSize = GetTargetSize();
+		WorldDrawCtx deliverCtx{};
+		deliverCtx.viewport   = this;
+		deliverCtx.cmd        = &RI.primary.cmds[0];
+		deliverCtx.device     = &RI.device;
+		deliverCtx.frame      = cntx;
+		deliverCtx.frustum    = pFrustum;
+		deliverCtx.width      = (uint32_t)vDeliverSize.x;
+		deliverCtx.height     = (uint32_t)vDeliverSize.y;
+		deliverCtx.frameIndex = RI.frameIndex;
+		deliverCtx.frameTime  = afFrameTime;
 		if(const auto *pView = std::get_if<TargetView>(&mTarget))
 		{
 			if(pView->view.vk.image != VK_NULL_HANDLE &&
@@ -563,7 +635,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 				// The target is in a known layout (SHADER_READ_ONLY) —
 				// handlers may record against it (e.g. a readback copy; the
 				// thumbnail builder transitions to COPY_SRC and back).
-				m_onPostDelivery.Signal();
+				m_onPostDelivery.Signal(deliverCtx);
 			}
 		}
 		// TargetSwapchain: composite to the swapchain — tail draw of the
@@ -586,7 +658,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 								 RIFormatToVK((RI_Format_e)RI.swapchain.format), 1u,
 								 "PostEffect.tailBlit");
 
-				m_onPostDelivery.Signal();
+				m_onPostDelivery.Signal(deliverCtx);
 			}
 		}
 

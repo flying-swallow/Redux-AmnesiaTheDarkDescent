@@ -592,7 +592,7 @@ public:
 		//Set up normal view port camera
 		cRenderSettings *pSettings = gpSimpleCamera->GetViewport()->GetRenderSettings();
 
-		mPreWorldDrawHandler = EventHandler<>([this]{ renderCallback.OnPreWorldDraw(); });
+		mPreWorldDrawHandler = EventHandler<const WorldDrawCtx&>([this](const WorldDrawCtx&){ renderCallback.OnPreWorldDraw(); });
 		mPreWorldDrawHandler.Connect(gpSimpleCamera->GetViewport()->OnPreWorldDraw());
 
 		gpSimpleCamera->SetMouseMode(true);
@@ -1886,7 +1886,7 @@ public:
 	cWorld* mpWorld;
 	
 	cSimpleRenderCallback renderCallback;
-	EventHandler<> mPreWorldDrawHandler;
+	EventHandler<const WorldDrawCtx&> mPreWorldDrawHandler;
 
 	cWidgetWindow *mpOptionWindow;
 

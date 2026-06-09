@@ -109,7 +109,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
 
     VkViewport viewport = { 0.0f, 0.0f, static_cast<float>(ctx.width), static_cast<float>(ctx.height), 0.0f, 1.0f };
     VkRect2D scissor = { {0, 0}, {ctx.width, ctx.height} };
-    RIDescriptor_s* samplerDesc = RI.resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
+    auto samplerDesc = RI.resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 
     // ----- Pass 1: blend new frame into accum (with alpha) -----
     // Layout: SHADER_READ (or UNDEFINED first time) → COLOR_ATTACH

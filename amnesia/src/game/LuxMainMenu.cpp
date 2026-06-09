@@ -41,6 +41,8 @@
 #include <sstream>
 #include "LuxAchievementHandler.h"
 #include "graphics/Image.h"
+#include "graphics/PostEffectComposite.h"
+#include "graphics/PostEffect_ToneMap.h"
 
 //--------------------------------------------------------------------------------
 
@@ -139,6 +141,20 @@ cLuxMainMenu::cLuxMainMenu() : iLuxUpdateable("LuxDebugHandler")
 
 	mpViewport->AddGuiSet(mpGuiSet);
 
+	///////////////////////////////
+	// Tonemap post-effect for the menu background scene: maps its linear HDR
+	// output -> sRGB-encoded [0,1] display range (the same mandatory encode the
+	// in-game viewport gets via cLuxMapHandler). Priority 0 = runs last.
+	cPostEffectComposite *pPostEffectComp = mpGraphics->CreatePostEffectComposite();
+	mpViewport->SetPostEffectComposite(pPostEffectComp);
+
+	cPostEffectParams_ToneMap tonemapParams;
+	tonemapParams.mfExposure   = 1.0f;
+	tonemapParams.mfShadowLift = 1.0f;
+	tonemapParams.mfGamma      = gpBase->mpConfigHandler->GetGamma();
+	mpPostEffect_ToneMap = mpGraphics->CreatePostEffect(&tonemapParams);
+	pPostEffectComp->AddPostEffect(mpPostEffect_ToneMap, 0);
+
 	///////////////////////
 	// Create Windows
 	mvWindows.resize(eLuxMainMenuWindow_LastEnum, NULL);
@@ -221,6 +237,19 @@ cLuxMainMenu::~cLuxMainMenu()
 	{
 		if(mvWindows[i]) hplDelete(mvWindows[i]);
 	}
+}
+
+//-----------------------------------------------------------------------
+
+void cLuxMainMenu::RefreshToneMapGamma()
+{
+	if(mpPostEffect_ToneMap == NULL) return;
+
+	cPostEffectParams_ToneMap tonemapParams;
+	tonemapParams.mfExposure   = 1.0f;
+	tonemapParams.mfShadowLift = 1.0f;
+	tonemapParams.mfGamma      = gpBase->mpConfigHandler->GetGamma();
+	mpPostEffect_ToneMap->SetParams(&tonemapParams);
 }
 
 void cLuxMainMenu::OnQuit()

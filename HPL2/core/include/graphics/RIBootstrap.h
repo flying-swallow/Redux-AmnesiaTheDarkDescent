@@ -13,6 +13,7 @@
 #include <graphics/RIProgram.h>
 #include <graphics/RIPogoBuffer.h>
 #include <memory>
+#include <optional>
 
 namespace hpl {
 struct HPLTexture;
@@ -27,7 +28,14 @@ public:
   // visibility_shade.frag and the surfel passes (see surfel_vbuffer.rgen for
   // the canonical pack convention).
   static constexpr RI_Format_e VisibilityFormat = RI_FORMAT_RGBA32_UINT;
-  static constexpr RI_Format_e DepthFormat = RI_FORMAT_D32_SFLOAT;
+  // Depth+stencil: the depth aspect drives all the normal Z passes; the
+  // stencil aspect is used by cLuxEffectRenderer's outline pass (mark the
+  // silhouette, then composite with a NOTEQUAL stencil test). The Hybrid
+  // viewport's depth view is created with both aspects so the effect can
+  // attach stencil; the depth aspect is never sampled (the surfel passes
+  // sample their own depth atlas, not scene depth), so no separate
+  // depth-only view is required.
+  static constexpr RI_Format_e DepthFormat = RI_FORMAT_D32_SFLOAT_S8_UINT;
   // Screen-space motion vectors (gbuffer 2nd MRT), RG16F.
   static constexpr RI_Format_e VelocityFormat = RI_FORMAT_RG16_SFLOAT;
 
@@ -130,7 +138,7 @@ public:
   struct RIResourceUploader_s uploader = {};
 
   void IncrementFrame();
-  RIDescriptor_s *resolve_filter_descriptor(eTextureWrap wrapS, eTextureWrap wrapT, eTextureWrap wrapR, eTextureFilter filter);
+  std::optional<RIDescriptor_s> resolve_filter_descriptor(eTextureWrap wrapS, eTextureWrap wrapT, eTextureWrap wrapR, eTextureFilter filter);
   FrameContext *GetActiveSet() { return &frameSets[frameIndex % RI_NUMBER_FRAMES_FLIGHT]; }
 
   void UpdateFrameUBO(RIDescriptor_s* descriptor, void* data, size_t size);

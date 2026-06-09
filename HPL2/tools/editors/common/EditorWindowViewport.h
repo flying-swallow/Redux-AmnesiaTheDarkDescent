@@ -36,6 +36,8 @@ class cDrawGridCallback;
 class cEditorWindowViewport;
 class cEditorWindowViewportCamera;
 
+namespace hpl { struct WorldDrawCtx; }
+
 
 
 enum eEditorWindowViewportPreset
@@ -172,7 +174,7 @@ protected:
 	eEditorWindowViewportPreset mPreset;
 	iWidget* mpPrevAttention;
 	cViewportCallback mViewportCallback;
-	EventHandler<> mPreWorldDrawHandler;
+	EventHandler<const WorldDrawCtx&> mPreWorldDrawHandler;
 
 	bool mbDrawGrid;
 	bool mbDrawDebug;

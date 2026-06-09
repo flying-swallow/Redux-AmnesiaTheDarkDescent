@@ -5,6 +5,7 @@
 #include "graphics/RIVK.h"
 
 #include <algorithm>
+#include <optional>
 
 namespace hpl {
 
@@ -283,7 +284,7 @@ void RIBootstrap::UpdateFrameUBO(RIDescriptor_s *descriptor, void *data,
   }
 }
 
-RIDescriptor_s *RIBootstrap::resolve_filter_descriptor(eTextureWrap wrapS,
+std::optional<RIDescriptor_s> RIBootstrap::resolve_filter_descriptor(eTextureWrap wrapS,
                                                        eTextureWrap wrapT,
                                                        eTextureWrap wrapR,
                                                        eTextureFilter filter) {
@@ -320,7 +321,7 @@ RIDescriptor_s *RIBootstrap::resolve_filter_descriptor(eTextureWrap wrapS,
     size_t index = startIndex;
     do {
       if (cachedFilters[index].cookie == hash) {
-        return &cachedFilters[index];
+        return cachedFilters[index];
       } else if (cachedFilters[index].isEmpty()) {
         cachedFilters[index].vk.type = VK_DESCRIPTOR_TYPE_SAMPLER;
         cachedFilters[index].vk.image.imageView = VK_NULL_HANDLE;
@@ -330,13 +331,13 @@ RIDescriptor_s *RIBootstrap::resolve_filter_descriptor(eTextureWrap wrapS,
                                       &cachedFilters[index].vk.image.sampler));
         cachedFilters[index].finalize(&device);
         cachedFilters[index].cookie = hash;
-        return &cachedFilters[index];
+        return cachedFilters[index];
       }
       index = (index + 1) % cachedFilters.size();
     } while (index != startIndex);
   }
 #endif
-  return NULL;
+  return std::nullopt;
 }
 
 } // namespace hpl

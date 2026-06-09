@@ -738,7 +738,7 @@ namespace hpl {
 			RI.UpdateFrameUBO(&bindings[numBindings].descriptor, (void*)&uniformBlock, sizeof(GuiPass));		
 			bindings[numBindings++].handle = DescriptorBindingID::Create("pass");
 
-			RIDescriptor_s* desc = 	RI.resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
+			auto desc = 	RI.resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 			assert(desc);
 			bindings[numBindings].descriptor = *desc;
 			bindings[numBindings++].handle = DescriptorBindingID::Create("diffuseSampler");

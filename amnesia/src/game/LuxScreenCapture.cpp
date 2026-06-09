@@ -236,7 +236,7 @@ void cLuxScreenCapture::OnPostRender()
 		InitPostEffectPipelineState(copyState, VK_FORMAT_R8G8B8A8_UNORM, false);
 		const hash_t kCopyHash = hash_u32(HASH_INITIAL_VALUE, 0u);
 
-		RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+		auto samplerDesc = RI.resolve_filter_descriptor(
 			eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 			eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 		assert(samplerDesc);
@@ -296,7 +296,7 @@ void cLuxScreenCapture::OnPostRender()
 		InitPostEffectPipelineState(blurState, VK_FORMAT_R8G8B8A8_UNORM, false);
 		const hash_t kBlurHash = hash_u32(HASH_INITIAL_VALUE, 0u);
 
-		RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+		auto samplerDesc = RI.resolve_filter_descriptor(
 			eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 			eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 		assert(samplerDesc);
@@ -457,7 +457,7 @@ void cLuxScreenCapture::OnPostRender()
 	m_postProgram.bindPipeline(&RI.device, &RI.primary.cmds[0], pipelineHash,
 	                           "screen.post", &pipelineCreateInfo);
 
-	RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+	auto samplerDesc = RI.resolve_filter_descriptor(
 		eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 		eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 	assert(samplerDesc);

@@ -149,7 +149,7 @@ void cLuxPostEffect_Insanity::RenderEffect(const hpl::PostEffectRenderCtx &ctx)
 	m_program.bindPipeline(&RI.device, ctx.cmd, pipelineHash, "PostEffect_Insanity",
 	                       &state.createInfo);
 
-	RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+	auto samplerDesc = RI.resolve_filter_descriptor(
 	    eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 	    eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 

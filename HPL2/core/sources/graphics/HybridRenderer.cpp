@@ -50,27 +50,6 @@ namespace hpl {
 
 namespace detail {
 
-// sRGB → linear transfer (IEC 61966-2-1). Inverse of the swapchain's write
-// encode; brings artist-authored cColor.rgb into the shaders' linear lighting.
-static inline float sRGBToLinear(float c) {
-  if (c <= 0.04045f) return c / 12.92f;
-  return std::pow((c + 0.055f) / 1.055f, 2.4f);
-}
-
-// CreateBindlessSlotBuffer moved to graphics/HybridGlobalManagedSet.h (shared
-// with HybridGlobalManagedSet); still reachable here as
-// detail::CreateBindlessSlotBuffer for the indirect-draw buffer below.
-
-// Resolve a renderable's 5 fixed-function vertex streams (+ index) for the
-// translucent-layout raster passes (translucent / water / decal), substitute
-// the global single-vertex default buffers (RI.fallback*Vertex) for any absent
-// optional stream, and bind them on `cmd`. Returns false — after a warning
-// tagged with `passLabel` — when the mesh lacks position/index, so the caller
-// can skip the renderable. On success *outPresentMask receives a bitset of
-// eVertexElementFlag_* naming the streams supplied by real buffers; the caller
-// passes it to the pipeline desc so an absent stream's binding stride is zeroed
-// (the single-vertex fallback then feeds every vertex) and the variant gets its
-// own cached pipeline.
 static inline bool BindVertexStreams(struct RICmd_s *cmd, iVertexBuffer *pVB,
                                      const char *passLabel,
                                      uint32_t *outPresentMask) {
@@ -408,11 +387,16 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
     // SAMPLED lets surfel_generate / surfel_raytrace bind the depth as
     // `sampler2D depthMap` after the gbuffer pass flips it to
     // SHADER_READ_ONLY.
+    // DEPTH|STENCIL view: the Z passes only touch the depth aspect, but
+    // cLuxEffectRenderer's outline pass binds this same view as a stencil
+    // attachment (mark silhouette -> NOTEQUAL composite), so the view must
+    // carry the stencil aspect. The depth aspect is never sampled (surfel
+    // passes sample their own depth atlas), so one combined view suffices.
     CreateViewportAttachmentTexture(
         &RI.device, renderW, renderH, RIBootstrap::DepthFormat,
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_IMAGE_ASPECT_DEPTH_BIT, &depthTextures[i], &depthView[i],
-        "HybridViewportState.depth");
+        VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
+        &depthTextures[i], &depthView[i], "HybridViewportState.depth");
 
     CreateViewportAttachmentTexture(
         &RI.device, renderW, renderH, RIBootstrap::VisibilityFormat,
@@ -768,9 +752,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     pl.position[1] = pos.y;
     pl.position[2] = pos.z;
     const cColor c = pLight->GetDiffuseColor();
-    pl.color[0] = detail::sRGBToLinear(c.r);
-    pl.color[1] = detail::sRGBToLinear(c.g);
-    pl.color[2] = detail::sRGBToLinear(c.b);
+    pl.color[0] = hpl::sRGBToLinear(c.r);
+    pl.color[1] = hpl::sRGBToLinear(c.g);
+    pl.color[2] = hpl::sRGBToLinear(c.b);
     pl.intensity = pLight->GetIntensity();
     pl.radius = pLight->GetRadius();
     /*
@@ -861,9 +845,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     const cColor c = pLight->GetDiffuseColor();
     // Linear-throughout pipeline: see point-light upload above for rationale.
     // sRGB authored → linear (same as point lights).
-    sl.color[0] = detail::sRGBToLinear(c.r);
-    sl.color[1] = detail::sRGBToLinear(c.g);
-    sl.color[2] = detail::sRGBToLinear(c.b);
+    sl.color[0] = hpl::sRGBToLinear(c.r);
+    sl.color[1] = hpl::sRGBToLinear(c.g);
+    sl.color[2] = hpl::sRGBToLinear(c.b);
     // Falcor LightData semantics, same as the point loop: `intensity` IS the
     // light's radiance — the authored engine radius uploads verbatim, no scale
     // knobs.
@@ -921,9 +905,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // Fog colour stays sRGB-authored — same as worldFogColor. The opaque
     // composite blends linearly so sRGB→linear conversion mirrors the
     // box-light path.
-    fa.color   = float3{detail::sRGBToLinear(c.r),
-                        detail::sRGBToLinear(c.g),
-                        detail::sRGBToLinear(c.b)};
+    fa.color   = float3{hpl::sRGBToLinear(c.r),
+                        hpl::sRGBToLinear(c.g),
+                        hpl::sRGBToLinear(c.b)};
     fa.colorA       = c.a;
     fa.start        = pFogArea->GetStart();
     fa.end          = pFogArea->GetEnd();
@@ -1098,11 +1082,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     vb->AttachResourceToCntx(cntx);
 
-    // firstInstance carries the slot id to the VS via gl_InstanceIndex;
-    // the VS pulls vertex / index data via BDA from the bindless set 0 SSBOs,
-    // so vertexCount is the index count (one VS invocation per index).
-    // Only frustum-visible objects emit an indirect draw — shadow-only casters
-    // contribute via the TLAS instance below.
     if (writtenDraws < indirectReq.numElements) {
       indirectDst[writtenDraws++] = VkDrawIndirectCommand{
           /*vertexCount   =*/(uint32_t)pVB->GetIndexNum(),
@@ -1130,32 +1109,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       inst.instanceCustomIndex = slot;
       inst.mask = kRayMaskOpaque;
       inst.instanceShaderBindingTableRecordOffset = 0;
-      // FLIP_FACING, not CULL_DISABLE: this engine's content + raster chain is
-      // clockwise-front (GBufferMRTPipelineDesc frontFace=CLOCKWISE + the
-      // negative-height viewport), while VK RT defines front-facing as
-      // counter-clockwise from the ray origin. Flipping the per-instance
-      // facing makes the shaders' RAY_FLAG_CULL_BACK_FACING_TRIANGLES cull the
-      // same side raster culls. The previous blanket CULL_DISABLE neutralized
-      // backface culling entirely, so "double-sided by sandwiching" assets
-      // (e.g. banner_long01: two exactly-coplanar quads with opposed winding)
-      // hit BOTH sheets at identical t — the closest-hit tie broke per-pixel
-      // and painted concentric z-fighting rings into the V-buffer.
       inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_FLIP_FACING;
-      // Solid meshes (no alpha-cutout texture) never alpha-reject a ray, so mark
-      // them FORCE_OPAQUE: the driver auto-commits the first hit and skips the
-      // RayQuery Proceed()/alphaTest loop entirely — a universal speedup for
-      // shadow / primary V-buffer / surfel rays. Alpha-cutout meshes (foliage,
-      // grates — they carry an alpha texture) stay non-opaque so their
-      // see-through shadows / hits are preserved.
-      //
-      // FORCE_OPAQUE also skips the anyhit/RayQuery alphaTest (which now
-      // carries the CoverageAmount dissolve for visibility, shadows, and GI
-      // alike), so anything that must dissolve-test a ray has to stay
-      // non-opaque: an in-progress fade, and materials whose dissolve
-      // variants run even at full coverage (DissolveAlpha map /
-      // AlphaDissolveFilter — dithered alpha edges). The instance list is
-      // rebuilt every frame, so a finished fade returns to the opaque fast
-      // path next frame.
       const ShaderMaterialData &solidDesc = pMat->Descriptor();
       const bool dissolveFlags =
           pMat->GetImage(eMaterialTexture_DissolveAlpha) ||
@@ -1245,8 +1199,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     inst.instanceCustomIndex = slot;
     inst.mask = kRayMaskTranslucent;
     inst.instanceShaderBindingTableRecordOffset = 0;
-    // FLIP_FACING to match the raster clockwise-front convention — see the
-    // solids loop above for the full rationale (coplanar sandwich z-fighting).
     inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_FLIP_FACING;
     assert(blas->vk.deviceAddress != 0);
     inst.accelerationStructureReference = blas->vk.deviceAddress;

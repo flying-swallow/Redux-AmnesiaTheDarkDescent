@@ -389,6 +389,9 @@ SHARED_CONST float kPointLightSourceRadiusSq   = 0.25f;  // soft source radius²
 // upload; an explicitly authored sourceRadius always wins.
 SHARED_CONST float kPointLightDefaultSourceRadiusFrac = 0.05f;  // 5% of authored radius (e.g. 5m reach ⇒ 0.25m penumbra disk)
 
+SHARED_CONST float kParalaxScale = 0.4f;
+
+
 // Diffuse-lobe roughness for materials without a specular map (no gloss
 // channel to decode): fully rough = matte with the strongest grazing
 // retro-reflection. Materials with a spec map decode their roughness from

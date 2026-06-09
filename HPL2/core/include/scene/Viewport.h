@@ -41,13 +41,55 @@ namespace hpl {
 
 class cScene;
 class cCamera;
+class cFrustum;
 class iRenderer;
 class cRenderSettings;
 class cPostEffectComposite;
 class cWorld;
 class cGuiSet;
 class Image;
+class cViewport;
 struct HPLTexture;
+
+//------------------------------------------
+
+// Per-signal context for the viewport pipeline-stage events. Evaluate builds
+// one at each signal site so handlers don't have to capture the firing cViewport
+// or reach into the global RI bootstrap for the command buffer / frame state.
+//
+// Rather than one struct with fields that are null at the stages that don't
+// produce them, each event carries ONLY what that stage exposes — a common
+// recording/camera base plus stage-specific render handles:
+//   - OnPreWorldDraw / OnPostDelivery : WorldDrawCtx          (base only)
+//   - OnPostTranslucenceDraw          : PostTranslucenceDrawCtx (+ depthView;
+//        the linear-HDR scene is reached via viewport->GetBackBuffer(), the
+//        pogo does not exist yet)
+//   - OnPostWorldDraw                 : PostWorldDrawCtx        (+ pogo +
+//        depthView; pogo read half = final post-processed image)
+struct WorldDrawCtx {
+  cViewport                 *viewport;   // who fired — replaces a captured mpViewport
+  struct RICmd_s            *cmd;        // = &RI.primary.cmds[0]
+  struct RIDevice_s         *device;     // = &RI.device
+  RIBootstrap::FrameContext *frame;      // active set (scratch allocs, freelist)
+  cFrustum                  *frustum;
+  uint32_t                   width, height;
+  uint32_t                   frameIndex;
+  float                      frameTime;
+};
+
+// After the renderer drew the scene (linear HDR in viewport->GetBackBuffer())
+// but BEFORE the feed blit + post chain. Depth is read-only
+// (DEPTH_ATTACHMENT_OPTIMAL); the pogo is not created yet.
+struct PostTranslucenceDrawCtx : WorldDrawCtx {
+  struct RITextureView_s    *depthView;
+};
+
+// After the feed blit + post-effect chain: the pogo read half holds the final
+// image and the scene depth is still available.
+struct PostWorldDrawCtx : WorldDrawCtx {
+  struct RI_PogoBuffer      *pogo;
+  struct RITextureView_s    *depthView;
+};
 
 //------------------------------------------
 
@@ -284,6 +326,9 @@ public:
 
 
   struct RITextureView_s *GetDepthView();
+  // The depth+stencil attachment image backing GetDepthView() — for callers
+  // that need to issue their own subresource (e.g. stencil-aspect) barriers.
+  struct RITexture_s *GetDepthTexture();
   BackBuffer GetBackBuffer();
 
   // Pipeline-stage events, signaled by Evaluate. Handlers run inside the
@@ -291,15 +336,24 @@ public:
   // RI.primary.cmds[0] (e.g. a readback copy of the delivered TargetView —
   // see the editor thumbnail builder).
   //  - OnPreWorldDraw: before the renderer Draw (also on world-less frames).
+  //  - OnPostTranslucenceDraw: after the renderer Draw but BEFORE the feed
+  //    blit + post-effect chain — the BackBuffer (GetBackBuffer()) still holds
+  //    the LINEAR-HDR scene and depth is DEPTH_ATTACHMENT_OPTIMAL, so handlers
+  //    can draw additive/translucent geometry that bloom + tonemap then
+  //    process (e.g. the pickup-flash / enemy glow). pogo is null here (not yet
+  //    created). Only signaled when the world was actually rendered.
   //  - OnPostWorldDraw: after the world draw + feed blit + post-effect
   //    chain — the pogo read half holds the final image. Only signaled when
   //    the world was actually rendered this Evaluate.
   //  - OnPostDelivery: after the Target delivery (TargetView left
   //    SHADER_READ_ONLY / swapchain tail-blitted). Only signaled when
   //    delivery actually ran, so handlers never touch a stale target.
-  Event<> &OnPreWorldDraw() { return m_onPreWorldDraw; }
-  Event<> &OnPostWorldDraw() { return m_onPostWorldDraw; }
-  Event<> &OnPostDelivery() { return m_onPostDelivery; }
+  Event<const WorldDrawCtx &> &OnPreWorldDraw() { return m_onPreWorldDraw; }
+  Event<const PostTranslucenceDrawCtx &> &OnPostTranslucenceDraw() {
+    return m_onPostTranslucenceDraw;
+  }
+  Event<const PostWorldDrawCtx &> &OnPostWorldDraw() { return m_onPostWorldDraw; }
+  Event<const WorldDrawCtx &> &OnPostDelivery() { return m_onPostDelivery; }
 
   template <typename Backend>
   Backend *PrepareToRender(RIBootstrap::FrameContext *cntx) {
@@ -342,9 +396,10 @@ private:
   uint32_t mlPogoWidth = 0;
   uint32_t mlPogoHeight = 0;
 
-  Event<> m_onPreWorldDraw;
-  Event<> m_onPostWorldDraw;
-  Event<> m_onPostDelivery;
+  Event<const WorldDrawCtx &> m_onPreWorldDraw;
+  Event<const PostTranslucenceDrawCtx &> m_onPostTranslucenceDraw;
+  Event<const PostWorldDrawCtx &> m_onPostWorldDraw;
+  Event<const WorldDrawCtx &> m_onPostDelivery;
   std::vector<cGuiSet *> m_guiSets;
 
   ViewportState m_state;
