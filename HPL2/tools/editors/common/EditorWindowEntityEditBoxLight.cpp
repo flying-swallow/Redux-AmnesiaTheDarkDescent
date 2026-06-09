@@ -383,14 +383,6 @@ void cEditorWindowEntityEditBoxLight::AddPropertySetSpot(cWidgetTab* apParentTab
 
 	vPos.y += mpInpSpotFOV->GetSize().y + 10;
 
-	AddPropertyCullingRadius(apParentTab);
-	mpGroupCullingRadius->SetPosition(vPos);
-	vPos.y += mpInpCullingRadius->GetSize().y + 10;
-
-	AddPropertySourceRadius(apParentTab);
-	mpGroupSourceRadius->SetPosition(vPos);
-	vPos.y += mpInpSourceRadius->GetSize().y + 10;
-
 	mpInpSpotFalloffMap = CreateInputFile(vPos, _W("Spot Falloff Map"), "", apParentTab);
 	mpInpSpotFalloffMap->SetInitialPath(mpEditor->GetMainLookUpDir(eDir_Lights));
 	mpInpSpotFalloffMap->SetBrowserSubType(eEditorTextureResourceType_1D);
