@@ -102,7 +102,7 @@ void cPostEffect_RadialBlur::RenderEffect(const PostEffectRenderCtx &ctx) {
                                              "PostEffect_RadialBlur",
                                              &state.createInfo);
 
-    RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+    auto samplerDesc = RI.resolve_filter_descriptor(
         eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
         eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 

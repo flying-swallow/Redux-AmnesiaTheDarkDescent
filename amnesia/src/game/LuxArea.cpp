@@ -103,13 +103,13 @@ iLuxArea::~iLuxArea()
 
 //-----------------------------------------------------------------------
 
-void iLuxArea::OnRenderSolid(cRendererCallbackFunctions* apFunctions)
+void iLuxArea::OnRenderSolid(DebugDraw* apDebugDraw)
 {
     /*if(mpBody==NULL) return;
 
 	cBoundingVolume* pBV = mpBody->GetBoundingVolume();
-	
-	apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),cColor(1,1,1,1));*/
+
+	apDebugDraw->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),cColor(1,1,1,1));*/
 }
 
 //-----------------------------------------------------------------------

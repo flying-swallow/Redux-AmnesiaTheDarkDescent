@@ -32,7 +32,8 @@ namespace {
 struct ToneMapPushConstants {
     float exposure;
     float shadowLift;
-    float _pad[2];
+    float gamma;
+    float _pad;
 };
 } // namespace
 
@@ -101,7 +102,7 @@ void cPostEffect_ToneMap::RenderEffect(const PostEffectRenderCtx &ctx) {
                                           "PostEffect_ToneMap",
                                           &state.createInfo);
 
-    RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+    auto samplerDesc = RI.resolve_filter_descriptor(
         eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
         eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
     {
@@ -117,6 +118,10 @@ void cPostEffect_ToneMap::RenderEffect(const PostEffectRenderCtx &ctx) {
     ToneMapPushConstants pc{};
     pc.exposure = mParams.mfExposure;
     pc.shadowLift = mParams.mfShadowLift;
+    // User display-gamma setting, applied in-shader as the final encode step
+    // (replaces the deprecated SDL window-brightness ramp). Authored by the
+    // game's cLuxConfigHandler and pushed in via the tonemap params.
+    pc.gamma = mParams.mfGamma;
     vkCmdPushConstants(cmd, mpToneMapType->m_program.getPipelineLayout(),
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 

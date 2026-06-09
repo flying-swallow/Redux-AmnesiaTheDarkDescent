@@ -56,9 +56,6 @@ namespace hpl {
 
 	class cSoundEntity : public iEntity3D
 	{
-	#ifdef __GNUC__
-		typedef iEntity3D __super;
-	#endif
 	friend class cSoundEntityChannelCallback;
 	public:
 		cSoundEntity(const tString& asName,cSoundEntityData *apData,

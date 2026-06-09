@@ -102,8 +102,8 @@ cEntityWrapperLightPoint::~cEntityWrapperLightPoint()
 void cEntityWrapperLightPoint::SetGobo(const tString& asGoboFilename)
 {
 	cResources* pRes = GetEditorWorld()->GetEditor()->GetEngine()->GetResources();
-	
-	iTexture* pTex = NULL;
+
+	Image* pTex = NULL;
 
 	if(cEditorHelper::LoadTextureResource(eEditorTextureResourceType_CubeMap, msGoboFilename, &pTex))
 		msGoboFilename = asGoboFilename;
@@ -116,12 +116,12 @@ void cEntityWrapperLightPoint::SetGobo(const tString& asGoboFilename)
 
 //---------------------------------------------------------------------------
 
-void cEntityWrapperLightPoint::DrawLightTypeSpecific(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, 
+void cEntityWrapperLightPoint::DrawLightTypeSpecific(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, 
 													 iEditorEditMode* apEditMode, bool abIsSelected)
 {
 	if(abIsSelected==false) return;
 	
-	apFunctions->GetLowLevelGfx()->DrawSphere(mvPosition, mfRadius, mcolDiffuseColor);
+	apFunctions->DebugDrawSphere(mvPosition, mfRadius, mcolDiffuseColor);
 }
 
 //---------------------------------------------------------------------------

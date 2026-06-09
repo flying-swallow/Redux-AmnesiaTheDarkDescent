@@ -62,13 +62,6 @@ namespace hpl
 
 	//-----------------------------------------
 
-	enum eViewportMessage
-	{
-		eViewportMessage_OnPreWorldDraw,
-		eViewportMessage_OnPostWorldDraw,
-		eViewportMessage_LastEnum
-	};
-
 	enum eRendererMessage
 	{
 		eRendererMessage_PostSolid,
@@ -89,26 +82,6 @@ namespace hpl
 	
     //-----------------------------------------
 	
-	class iViewportCallback
-	{
-	public:
-		virtual void OnPreWorldDraw()=0;
-		virtual void OnPostWorldDraw()=0;
-
-		void RunMessage(eViewportMessage aMessage)
-		{
-			switch(aMessage)
-			{
-			case eViewportMessage_OnPreWorldDraw:
-				OnPreWorldDraw(); break;
-			case eViewportMessage_OnPostWorldDraw:
-				OnPostWorldDraw(); break;
-			}
-		}
-	};
-
-	//------------------------------------------
-
 	class iEntity3D;
 
 	class iEntityCallback
@@ -146,9 +119,6 @@ namespace hpl
 	};
 
 	//------------------------------------------
-
-	typedef std::list<iViewportCallback*> tViewportCallbackList;
-	typedef tViewportCallbackList::iterator tViewportCallbackListIt;
 
 	typedef std::list<iRendererCallback*> tRendererCallbackList;
 	typedef tRendererCallbackList::iterator tRendererCallbackListIt;
@@ -206,9 +176,6 @@ namespace hpl
 
 	typedef std::list<cMeshEntity*> tMeshEntityList;
 	typedef std::list<cMeshEntity*>::iterator tMeshEntityListIt;
-
-	typedef std::list<cSubMeshEntity*> tSubMeshEntityList;
-	typedef std::list<cSubMeshEntity*>::iterator tSubMeshEntityListIt;
 
 	typedef std::list<cBillboard*> tBillboardList;
 	typedef std::list<cBillboard*>::iterator tBillboardListIt;

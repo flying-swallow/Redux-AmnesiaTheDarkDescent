@@ -37,7 +37,7 @@ public:
 	bool CheckRayIntersect(cEditorWindowViewport* , cVector3f* , tVector3fVec*, float* apT=NULL);
 
 	void DrawIcon(cEditorWindowViewport* apViewport, 
-				  cRendererCallbackFunctions* apFunctions, 
+				  DebugDraw* apFunctions, 
 				  iEditorEditMode* apEditMode, 
 				  bool abIsSelected,
 				  const cVector3f& avPos,
@@ -51,7 +51,7 @@ public:
 	void SetVisible(bool abX) { mbVisible = abX; }
 protected:
 	iEntityWrapper* mpParent;
-	iTexture* mvIconGfx[2];
+	Image* mvIconGfx[2];
 
 	cBoundingVolume mIconBV;
 	bool mbVisible;

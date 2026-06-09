@@ -13,6 +13,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <optional>
 #include <vector>
 
 #include "Constants.h"
@@ -327,7 +328,7 @@ public:
   struct RIBuffer_s m_diffuseMaterialBuffer;
   struct RIBuffer_s m_translucentMaterialBuffer = {};
   struct RIBuffer_s m_waterMaterialBuffer = {};
-  struct RIDescriptor_s *m_materialSampler = nullptr;
+  std::optional<RIDescriptor_s> m_materialSampler;
 
   // Default light falloff LUT (core_falloff_linear), bound once to set 0 as the
   // immutable gAttenuationLut. Held resident for the renderer's lifetime.

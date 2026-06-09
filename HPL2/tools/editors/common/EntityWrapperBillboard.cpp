@@ -64,7 +64,15 @@ void cIconEntityBB::Update()
 		if(pParent->mbColorUpdated)
 		{
 			pParent->mbColorUpdated=false;
-			pBB->SetColor(pParent->GetBillboardColor());
+			// Route through the connected light so the billboard colour stays
+			// the base colour modulated by the light's current diffuse (and
+			// inherits its visibility) instead of desyncing to the raw base.
+			iEngineEntity* pLightEngine = pParent->mpConnectedLight
+				? pParent->mpConnectedLight->GetEngineEntity() : NULL;
+			if(pLightEngine)
+				((iLight*)pLightEngine->GetEntity())->UpdateBillboard(pBB, pParent->GetBillboardColor());
+			else
+				pBB->SetColor(pParent->GetBillboardColor());
 		}
 		
 		if(pParent->mbMatUpdated)
@@ -80,7 +88,7 @@ void cIconEntityBB::Update()
 	}
 }
 
-void cIconEntityBB::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, bool abIsSelected, bool abIsActive)
+void cIconEntityBB::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, bool abIsSelected, bool abIsActive)
 {
 	iIconEntity::Draw(apViewport, apFunctions, abIsSelected, abIsActive);
 	if(abIsSelected==false)
@@ -89,7 +97,7 @@ void cIconEntityBB::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFun
 	//apFunctions->SetMatrix(NULL);
 	//cBoundingVolume* pBV = GetRenderBV();
 	//if(pBV)
-	//	apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(), pBV->GetMax(), cColor(1));
+	//	apFunctions->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(), cColor(1));
 }
 
 bool cIconEntityBB::ReCreateBB()
@@ -413,21 +421,15 @@ bool cEntityWrapperBillboard::SetProperty(int alPropID, const cVector3f& avX)
 
 //------------------------------------------------------------------------------
 
-void cEntityWrapperBillboard::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol)
+void cEntityWrapperBillboard::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol)
 {
 	iEntityWrapper::Draw(apViewport, apFunctions, apEditMode, abIsSelected, aHighlightCol);
 
     if(abIsSelected==false)
 		return;
 
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(false);
-
-	apFunctions->SetMatrix(NULL);
-	apFunctions->SetProgram(NULL);
-	
 	cBoundingVolume* pBV = mpEngineEntity->GetRenderBV();
-	apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(), pBV->GetMax(), cColor(1,1));
+	apFunctions->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(), cColor(1,1));
 
 	if(msType=="Axis" || msType=="FixedAxis")
 		DrawArrow(apViewport, apFunctions, mmtxTransform, 1, true, cVector2f(0.05f, 0.4f), cColor(1,1));
@@ -436,9 +438,12 @@ void cEntityWrapperBillboard::Draw(cEditorWindowViewport* apViewport, cRendererC
 	{
 		cMatrixf mtxTransform = mmtxTransform.GetRotation();
 		mtxTransform.SetTranslation(mvPosition);
-		apFunctions->SetMatrix(&mtxTransform);
+
+		DebugDraw::DebugDrawOptions options;
+		options.m_transform = mtxTransform;
+
 		cVector3f vHalfHaloSourceSize = mvHaloSourceSize*0.5f;
-		apFunctions->GetLowLevelGfx()->DrawBoxMinMax(vHalfHaloSourceSize*-1, vHalfHaloSourceSize, cColor(0,1,0,1));
+		apFunctions->DebugDrawBoxMinMax(vHalfHaloSourceSize*-1, vHalfHaloSourceSize, cColor(0,1,0,1), options);
 	}
 }
 

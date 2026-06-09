@@ -33,7 +33,7 @@ using namespace hpl;
 // Allocate `outTex` as a screen-sized RGBA8 color attachment that is also
 // sampleable as a 2D texture, and wire up the descriptor binding used by
 // cGui::CreateGfxTexture / RIProgram::bindDescriptors. The HPLTexture_Delete
-// deleter expects `handle.vk.image`, `vk.vmaAlloc`, and `binding.vk.image.imageView`
+// deleter expects `handle.vk.image` (+ its VMA allocation) and `binding.vk.image.imageView`
 // to be set — see HPLTexture.cpp:19 — so we fill all three.
 static bool CreateScreenRenderTarget(
 		std::shared_ptr<hpl::HPLTexture> &outTex,
@@ -63,7 +63,7 @@ static bool CreateScreenRenderTarget(
 	memReqs.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
 	if (!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo, &memReqs,
-	                                  &tex->handle.vk.image, &tex->vk.vmaAlloc, NULL))) {
+	                                  &tex->handle.vk.image, &tex->handle.vk.allocation, NULL))) {
 		return false;
 	}
 
@@ -82,7 +82,7 @@ static bool CreateScreenRenderTarget(
 	                                     &tex->binding.vk.image.imageView))) {
 		return false;
 	}
-	RIFinalizeDescriptor(&RI.device, &tex->binding);
+	tex->binding.finalize(&RI.device);
 	tex->setDebugName(debugName);
 
 	outTex = std::move(tex);
@@ -91,27 +91,15 @@ static bool CreateScreenRenderTarget(
 
 //-----------------------------------------------------------------------
 
-// Lay down a single image memory barrier on the active command buffer.
-static void ImageBarrier(VkCommandBuffer cmd, VkImage image,
-		VkPipelineStageFlags2 srcStage, VkAccessFlags2 srcAccess, VkImageLayout oldLayout,
-		VkPipelineStageFlags2 dstStage, VkAccessFlags2 dstAccess, VkImageLayout newLayout)
+// Lay down a single image barrier on the active command buffer.
+static void ImageBarrier(RICmd_s *cmd, RITexture_s *texture,
+		uint32_t before, uint32_t beforeStages,
+		uint32_t after, uint32_t afterStages)
 {
-	VkImageMemoryBarrier2 barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-	barrier.srcStageMask = srcStage;
-	barrier.srcAccessMask = srcAccess;
-	barrier.dstStageMask = dstStage;
-	barrier.dstAccessMask = dstAccess;
-	barrier.oldLayout = oldLayout;
-	barrier.newLayout = newLayout;
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.image = image;
-	barrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-	VkDependencyInfo depInfo = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-	depInfo.imageMemoryBarrierCount = 1;
-	depInfo.pImageMemoryBarriers = &barrier;
-	vkCmdPipelineBarrier2(cmd, &depInfo);
+	RITextureBarrier_s barrier(texture, before, after, beforeStages, afterStages);
+	barrier.mipCount = 1;
+	barrier.layerCount = 1;
+	cmd->textureBarrier(barrier);
 }
 
 //-----------------------------------------------------------------------
@@ -220,22 +208,25 @@ void cLuxScreenCapture::OnPostRender()
 	const uint32_t w = RI.swapchain.width;
 	const uint32_t h = RI.swapchain.height;
 
-	// The clean game scene (world + post-effects, NO GUI) lives in the pogo
-	// buffer's "read" half — the same image the renderer's tail blit samples to
-	// write the swapchain (HybridRenderer.cpp). The GUI is composited onto the
-	// swapchain only after that blit, so the swapchain is the wrong source.
-	// The menu/inventory viewport draws no world, so the pogo still holds the
-	// last gameplay frame. The pogo lacks TRANSFER_SRC usage, so we sample it
-	// in a fullscreen pass rather than vkCmdBlitImage.
-	RI_PogoBuffer  *pogo       = &RI.pogoBuffer[RI.swapchainIndex];
-	RIDescriptor_s *sceneColor = RI_PogoBufferShaderResource(pogo);
+	// The clean game scene (world + post-effects, NO GUI) lives in the primary
+	// viewport's pogo "read" half — the same image cScene's tail blit samples
+	// to write the swapchain. The GUI is composited onto the swapchain only
+	// after that blit, so the swapchain is the wrong source. The
+	// menu/inventory viewport draws no world, so the pogo still holds the
+	// last gameplay frame. Sample it in a fullscreen pass.
+	auto *frameCtx = RI.GetActiveSet();
+	cViewport *pViewport = gpBase->mpEngine->GetScene()->GetPrimaryViewport();
+	RI_PogoBuffer *pPogo = pViewport ? pViewport->PogoBuffer() : NULL;
+	if (pPogo == NULL) {
+		return; // No world rendered yet; try again next post-render.
+	}
+	RIDescriptor_s *sceneColor = RI_PogoBufferShaderResource(pPogo);
 
 	// Keep the textures alive until the GPU has consumed them — BeginActiveSet
-	// drains textureLink only after the frame slot's fence signals.
-	auto *frameCtx = RI.GetActiveSet();
-	frameCtx->textureLink.push_back(m_screenColor);
-	frameCtx->textureLink.push_back(m_screenBgColor);
-	if (m_screenScratch) frameCtx->textureLink.push_back(m_screenScratch);
+	// drains resourceLink only after the frame slot's fence signals.
+	frameCtx->resourceLink.push_back(m_screenColor);
+	frameCtx->resourceLink.push_back(m_screenBgColor);
+	if (m_screenScratch) frameCtx->resourceLink.push_back(m_screenScratch);
 
 	////////////////////////////////////////////////
 	// Pass 0: copy the pogo scene-color into m_screenColor (the sharp copy).
@@ -245,17 +236,14 @@ void cLuxScreenCapture::OnPostRender()
 		InitPostEffectPipelineState(copyState, VK_FORMAT_R8G8B8A8_UNORM, false);
 		const hash_t kCopyHash = hash_u32(HASH_INITIAL_VALUE, 0u);
 
-		RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+		auto samplerDesc = RI.resolve_filter_descriptor(
 			eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 			eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 		assert(samplerDesc);
 
-		ImageBarrier(cmd, m_screenColor->handle.vk.image,
-				VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE,
-				VK_IMAGE_LAYOUT_UNDEFINED,
-				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+		ImageBarrier(&RI.primary.cmds[0], &m_screenColor->handle,
+				RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_NONE,
+				RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
 
 		VkRenderingAttachmentInfo attach = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
 		attach.imageView   = m_screenColor->binding.vk.image.imageView;
@@ -291,13 +279,9 @@ void cLuxScreenCapture::OnPostRender()
 		vkCmdEndRendering(cmd);
 
 		// m_screenColor → sampleable for the effect passes and the GUI.
-		ImageBarrier(cmd, m_screenColor->handle.vk.image,
-				VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-				VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-				VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-				VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-				VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-				VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+		ImageBarrier(&RI.primary.cmds[0], &m_screenColor->handle,
+				RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
+				RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
 	}
 
 	////////////////////////////////////////////////
@@ -312,7 +296,7 @@ void cLuxScreenCapture::OnPostRender()
 		InitPostEffectPipelineState(blurState, VK_FORMAT_R8G8B8A8_UNORM, false);
 		const hash_t kBlurHash = hash_u32(HASH_INITIAL_VALUE, 0u);
 
-		RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+		auto samplerDesc = RI.resolve_filter_descriptor(
 			eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 			eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 		assert(samplerDesc);
@@ -327,13 +311,9 @@ void cLuxScreenCapture::OnPostRender()
 		{
 			// dst → color attachment (discard old contents; wait on any
 			// prior sampling of dst — covers the WAR hazard on the ping-pong).
-			ImageBarrier(cmd, dst->handle.vk.image,
-					VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-					VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-					VK_IMAGE_LAYOUT_UNDEFINED,
-					VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-					VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+			ImageBarrier(&RI.primary.cmds[0], &dst->handle,
+					RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_FRAGMENT,
+					RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
 
 			VkRenderingAttachmentInfo attach = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
 			attach.imageView   = dst->binding.vk.image.imageView;
@@ -371,13 +351,9 @@ void cLuxScreenCapture::OnPostRender()
 			vkCmdEndRendering(cmd);
 
 			// dst → sampleable for the next pass / the GUI.
-			ImageBarrier(cmd, dst->handle.vk.image,
-					VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-					VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-					VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-					VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-					VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-					VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+			ImageBarrier(&RI.primary.cmds[0], &dst->handle,
+					RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
+					RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
 		};
 
 		const float kBlurSize   = 2.0f; // texel multiplier per tap (tunable)
@@ -397,12 +373,9 @@ void cLuxScreenCapture::OnPostRender()
 		return;
 	}
 
-	ImageBarrier(cmd, m_screenBgColor->handle.vk.image,
-			VK_PIPELINE_STAGE_2_NONE, VK_ACCESS_2_NONE,
-			VK_IMAGE_LAYOUT_UNDEFINED,
-			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+	ImageBarrier(&RI.primary.cmds[0], &m_screenBgColor->handle,
+			RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_NONE,
+			RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
 
 	////////////////////////////////////////////////
 	// Pass 2: fullscreen post-effect — sample m_screenColor, write m_screenBgColor.
@@ -484,7 +457,7 @@ void cLuxScreenCapture::OnPostRender()
 	m_postProgram.bindPipeline(&RI.device, &RI.primary.cmds[0], pipelineHash,
 	                           "screen.post", &pipelineCreateInfo);
 
-	RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+	auto samplerDesc = RI.resolve_filter_descriptor(
 		eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 		eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 	assert(samplerDesc);
@@ -501,13 +474,9 @@ void cLuxScreenCapture::OnPostRender()
 	vkCmdEndRendering(cmd);
 
 	// m_screenBgColor → SHADER_READ_ONLY so subsequent GUI draws can sample it.
-	ImageBarrier(cmd, m_screenBgColor->handle.vk.image,
-			VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-			VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-			VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-			VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-			VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+	ImageBarrier(&RI.primary.cmds[0], &m_screenBgColor->handle,
+			RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
+			RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
 
 	mbPending  = false;
 	mbCaptured = true;

@@ -538,11 +538,12 @@ namespace hpl {
 												m_mtxViewProj.m[3][2] - m_mtxViewProj.m[1][2],
 												m_mtxViewProj.m[3][3] - m_mtxViewProj.m[1][3]);
 				
-		//Near
-		mPlane[eFrustumPlane_Near] = cPlanef(	m_mtxViewProj.m[3][0] + m_mtxViewProj.m[2][0],
-												m_mtxViewProj.m[3][1] + m_mtxViewProj.m[2][1],	
-												m_mtxViewProj.m[3][2] + m_mtxViewProj.m[2][2],
-												m_mtxViewProj.m[3][3] + m_mtxViewProj.m[2][3]);
+		//Near — Vulkan clip convention (z_ndc ∈ [0,1]): the near half-space is
+		//z_clip ≥ 0, so the plane is row2 alone (GL's [-1,1] used row3 + row2).
+		mPlane[eFrustumPlane_Near] = cPlanef(	m_mtxViewProj.m[2][0],
+												m_mtxViewProj.m[2][1],
+												m_mtxViewProj.m[2][2],
+												m_mtxViewProj.m[2][3]);
 		
 		//Far
 		if(apCustomFarProjMtx)

@@ -93,6 +93,11 @@ public:
   void DestroyViewport(cViewport *apViewPort);
   bool ViewportExists(cViewport *apViewPort);
 
+  // First visible viewport that renders to the swapchain (not offscreen) —
+  // the one whose backbuffer cScene's tail blits out. Game code uses this to
+  // reach the main viewport's backbuffer/depth (screen capture, GUI depth).
+  cViewport *GetPrimaryViewport();
+
   void SetCurrentListener(cViewport *apViewPort);
 
   ///// CAMERA METHODS ////////////////////

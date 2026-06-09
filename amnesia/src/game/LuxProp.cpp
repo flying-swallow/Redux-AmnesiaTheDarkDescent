@@ -19,6 +19,8 @@
 
 #include "LuxProp.h"
 
+#include "graphics/DebugDraw.h"
+
 #include "LuxMap.h"
 #include "LuxPlayer.h"
 #include "LuxInteractConnections.h"
@@ -418,13 +420,13 @@ void iLuxProp::BeforeEntityDestruction()
 
 //-----------------------------------------------------------------------
 
-void iLuxProp::OnRenderSolid(cRendererCallbackFunctions* apFunctions)
+void iLuxProp::OnRenderSolid(DebugDraw* apDebugDraw)
 {
 	return;
 	if(mvBodies.size()<=0) return;
-	
+
 	cBoundingVolume* pBV = mvBodies[0]->GetBoundingVolume();
-	apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),cColor(1,1,1,1));
+	apDebugDraw->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),cColor(1,1,1,1));
 }
 
 //-----------------------------------------------------------------------
@@ -470,7 +472,7 @@ void iLuxProp::SetEffectsActive(bool abActive, bool abFadeAndPlaySounds)
 			else 
 			{
 				pLight->SetDiffuseColor(pLightData->mOnColor);
-				pLight->SetRadius(pLightData->mfOnRadius);
+				pLight->SetIntensity(pLightData->mfOnRadius);
 				pLight->SetFlickerActive(pLightData->mbFlickering);
 			}
 		}
@@ -521,7 +523,7 @@ void iLuxProp::SetEffectsActive(bool abActive, bool abFadeAndPlaySounds)
 			else
 			{	
 				pLight->SetDiffuseColor(mEffectsOffLightColor);
-				pLight->SetRadius(fOffRadius);
+				pLight->SetIntensity(fOffRadius);
 			}
 		}
 
@@ -1068,7 +1070,7 @@ void iLuxProp::SetupEffectData()
 		cLuxProp_LightData lightData;
 
 		lightData.mOnColor = pLight->GetDiffuseColor();
-		lightData.mfOnRadius = pLight->GetRadius();
+		lightData.mfOnRadius = pLight->GetIntensity();
 		lightData.mbFlickering = pLight->GetFlickerActive();
 
 		//TODO: Check all lights?

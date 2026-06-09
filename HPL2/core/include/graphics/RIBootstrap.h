@@ -13,6 +13,7 @@
 #include <graphics/RIProgram.h>
 #include <graphics/RIPogoBuffer.h>
 #include <memory>
+#include <optional>
 
 namespace hpl {
 struct HPLTexture;
@@ -22,11 +23,19 @@ struct HPLTexture;
 struct RIBootstrap {
 public:
   // Raster G-buffer output — packed TriangleHit (uint4), same layout the RT
-  // V-buffer writes into m_packedHitInfoTexture. Decoded with unpackHit() in
+  // V-buffer writes into the viewport state's packedHitInfoTexture. Decoded
+  // with unpackHit() in
   // visibility_shade.frag and the surfel passes (see surfel_vbuffer.rgen for
   // the canonical pack convention).
   static constexpr RI_Format_e VisibilityFormat = RI_FORMAT_RGBA32_UINT;
-  static constexpr RI_Format_e DepthFormat = RI_FORMAT_D32_SFLOAT;
+  // Depth+stencil: the depth aspect drives all the normal Z passes; the
+  // stencil aspect is used by cLuxEffectRenderer's outline pass (mark the
+  // silhouette, then composite with a NOTEQUAL stencil test). The Hybrid
+  // viewport's depth view is created with both aspects so the effect can
+  // attach stencil; the depth aspect is never sampled (the surfel passes
+  // sample their own depth atlas, not scene depth), so no separate
+  // depth-only view is required.
+  static constexpr RI_Format_e DepthFormat = RI_FORMAT_D32_SFLOAT_S8_UINT;
   // Screen-space motion vectors (gbuffer 2nd MRT), RG16F.
   static constexpr RI_Format_e VelocityFormat = RI_FORMAT_RG16_SFLOAT;
 
@@ -49,10 +58,15 @@ public:
   struct FrameContext {
     struct RIScratchAlloc_s uboScratchAlloc;
     struct RIScratchAlloc_s accelScratchAlloc;
-    std::vector<std::shared_ptr<HPLTexture>> textureLink; // keep track of textures that are used in this frame
-    std::vector<std::shared_ptr<RIBuffer_s>> bufferLink; 
-    std::vector<std::shared_ptr<RIAccelStructure_s>> accelLink;
-    std::vector<RIFree> freelist;
+    // Keep-alive refs for resources used this frame; cleared after the ring
+    // fence wait when the slot is reused, so by then the GPU is done with
+    // everything parked here. One vector for all resource kinds.
+    std::vector<std::variant<std::shared_ptr<HPLTexture>,
+                             std::shared_ptr<RIBuffer_s>,
+                             std::shared_ptr<RIAccelStructure_s>>> resourceLink;
+    // Deferred destroys: by-value copies of owned RI structs, disposed when
+    // the slot is reused (std::visit -> dispose in BeginActiveSet).
+    std::vector<RIFreeHandle> freelist;
   };
 
   RIRenderer_s renderer;
@@ -84,28 +98,11 @@ public:
   struct RIBuffer_s fallbackColorVertex;
   struct RIBuffer_s fallbackUv0Vertex;
 
+  // Per-viewport render targets (backbuffer, overscan render target, depth,
+  // visibility) live on cViewport (scene/Viewport.h),
+  // not here — one renderer instance serves every viewport.
   RISwapchain_s<RI_MAX_SWAPCHAIN_IMAGES> swapchain;
 	struct RITextureView_s swapchainView[RI_MAX_SWAPCHAIN_IMAGES];
-	struct RITexture_s depthTextures[RI_MAX_SWAPCHAIN_IMAGES];
-	struct RITextureView_s depthView[RI_MAX_SWAPCHAIN_IMAGES];
-	struct RI_PogoBuffer pogoBuffer[RI_MAX_SWAPCHAIN_IMAGES];
-
-  // Overscan render resolution (guard band): the gbuffer / GI / composite /
-  // forward passes render at this size; the present crops the center back to the
-  // (authored) swapchain size. = overscanExtent(swapchain.{width,height}). Single
-  // source of truth — depthTextures + visibilityTexture + backBuffer + every
-  // renderer viewport/dispatch use these, not swapchain.{width,height}.
-  uint32_t renderWidth = 0;
-  uint32_t renderHeight = 0;
-
-  // Overscan HDR "backbuffer" — a full pogo (same ping-pong the composite +
-  // forward passes need: refraction reads the read-half, renders the write-half).
-  // The renderer uses this in place of pogoBuffer; its final image is cropped
-  // (1:1 center blit) into the authored-size pogoBuffer before the post-effects.
-  struct RI_PogoBuffer renderPogo[RI_MAX_SWAPCHAIN_IMAGES];
-
-  struct RITexture_s visibilityTexture[RI_MAX_SWAPCHAIN_IMAGES];
-  struct RITextureView_s visibilityView[RI_MAX_SWAPCHAIN_IMAGES];
 
 	RICommandRingBuffer_s<RI_COMMAND_RING_POOL_COUNT, RI_COMMAND_RING_CMD_PER_POOL> graphicsCmdRing;
 	struct RICommandRingElement_s primary;
@@ -116,9 +113,22 @@ public:
 	struct RICommandRingElement_s blasSubmit;
 
   struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> guiVertexAlloc;
-  RIBuffer_s guiVertexBuffer; 
+  RIBuffer_s guiVertexBuffer;
   struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> guiIndexAlloc;
   RIBuffer_s guiIndexBuffer;
+
+  // Per-viewport camera-facing translucent geometry (particles): each pane
+  // builds its verts/indices straight into its own per-frame segment of these
+  // host-mapped buffers and binds them at a byte offset — bypassing the
+  // object's persistent VertexBuffer_RI, whose uploader copies all coalesce
+  // into the fenced pre-pass (last pane's copy would win for EVERY pane).
+  // Same pattern as the gui*Alloc pair above. The vertex allocator is
+  // float-granular (stride 4 bytes) so mixed streams (pos 16B / col 16B /
+  // uv 12B) share it; the index allocator is uint32-granular.
+  struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> translucentVtxAlloc;
+  RIBuffer_s translucentVtxBuffer;
+  struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> translucentIdxAlloc;
+  RIBuffer_s translucentIdxBuffer;
 
   std::array<FrameContext, RI_NUMBER_FRAMES_FLIGHT> frameSets;
 	std::array<RIDescriptor_s, 1024> cachedFilters; 
@@ -128,10 +138,18 @@ public:
   struct RIResourceUploader_s uploader = {};
 
   void IncrementFrame();
-  RIDescriptor_s *resolve_filter_descriptor(eTextureWrap wrapS, eTextureWrap wrapT, eTextureWrap wrapR, eTextureFilter filter);
+  std::optional<RIDescriptor_s> resolve_filter_descriptor(eTextureWrap wrapS, eTextureWrap wrapT, eTextureWrap wrapR, eTextureFilter filter);
   FrameContext *GetActiveSet() { return &frameSets[frameIndex % RI_NUMBER_FRAMES_FLIGHT]; }
 
   void UpdateFrameUBO(RIDescriptor_s* descriptor, void* data, size_t size);
+
+  // Claim per-frame segments of the translucent scratch buffers (grow ×1.5 +
+  // recreate on overflow, old buffer parked on the active set's freelist).
+  // numFloats / numIndices are element counts; the returned req's
+  // elementOffset is in elements (multiply by 4 for the bind byte offset).
+  bool RequestTranslucentVtx(FrameContext* cntx, size_t numFloats, struct RISegmentReq_s* req);
+  bool RequestTranslucentIdx(FrameContext* cntx, size_t numIndices, struct RISegmentReq_s* req);
+
   void CloseAndSubmitActiveSet();
   void BeginActiveSet();
   void Dispose();

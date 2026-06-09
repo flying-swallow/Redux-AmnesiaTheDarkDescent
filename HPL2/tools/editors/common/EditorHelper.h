@@ -86,7 +86,7 @@ public:
 	// Misc helpers
 	static void GetIDsFromEntityList(const tEntityWrapperList &alstEntities, tIntList& alstEntityIDs, bool abClearList=true);
 
-	static bool LoadTextureResource(eEditorTextureResourceType aTexType, const tString& asFile, iTexture** apTexture, const tString& asAnimMode="none", float afFrameTime=0 );
+	static bool LoadTextureResource(eEditorTextureResourceType aTexType, const tString& asFile, Image** apTexture, const tString& asAnimMode="none", float afFrameTime=0 );
 
 	static bool LoadEntityFile(int alID, const tString& asName, const tString& asFilename, cMeshEntity** apEntity, bool abLoadAsTemp=false);
 
@@ -95,14 +95,17 @@ public:
 	static bool LoadResourceFile(eEditorResourceType aResType, const tString& asFile, void** apEditorResource=NULL, int alID=-1);
 
 
-	static void DrawBillboard(iTexture *apGfx, const cVector3f& avWorldPosition,const cVector2f& avSize,const cColor& aColor,  
-						cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions);
-
-	static void DrawPyramid(cRendererCallbackFunctions* apFunctions, const cVector3f& avBaseCenter, const cVector3f& avTop, float afHalfWidth, const cColor& aColor);
+	// Billboard/pyramid drawing goes through DebugDraw::DrawBillboard /
+	// DebugDraw::DrawPyramid directly now.
 
 	static iVertexBuffer* CreatePyramidVtxBuffer(cGraphics* apGfx, const cVector3f& avBaseCenter, const cVector3f& avTip, float afHalfWidth, const cColor& aColor);
 
 	static void GetViewSpacePosAndSize(cCamera* apCamera, const cVector3f& avWorldPosition, const cVector3f& avWorldSize, cVector3f& avViewSpacePosition, cVector3f& avViewSpaceSize);
+
+	// Forwards to the active editor's per-category visibility toggle — lets
+	// draw-time consumers (EntityIcon, EntityWrapperArea, EngineEntity) query
+	// it without an editor pointer.
+	static bool GetVisibilityTypeState(eEditorVisibilityType aType);
 
 	static iEditorBase* mpEditor;
 };

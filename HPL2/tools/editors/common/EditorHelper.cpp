@@ -600,13 +600,13 @@ bool cEditorHelper::LoadEntityFile(int alID,
 	return pEntity!=NULL;
 }
 
-bool cEditorHelper::LoadTextureResource(eEditorTextureResourceType aTexType, const tString& asFile, iTexture** apTexture, const tString& asAnimMode, float afFrameTime)
+bool cEditorHelper::LoadTextureResource(eEditorTextureResourceType aTexType, const tString& asFile, Image** apTexture, const tString& asAnimMode, float afFrameTime)
 {
 	if(asFile=="")
 		return false;
 
 	cTextureManager* pManager = mpEditor->GetEngine()->GetResources()->GetTextureManager();
-	iTexture* pTexture = NULL;
+	Image* pTexture = NULL;
 
 	tString sAnimMode = cString::ToLowerCase(asAnimMode);
 
@@ -615,16 +615,16 @@ bool cEditorHelper::LoadTextureResource(eEditorTextureResourceType aTexType, con
 		switch(aTexType)
 		{
 		case eEditorTextureResourceType_1D:
-			pTexture = pManager->Create1D(asFile, true);
+			pTexture = pManager->Create1DImage(asFile, true);
 			break;
 		case eEditorTextureResourceType_2D:
-			pTexture = pManager->Create2D(asFile,true);
+			pTexture = pManager->Create2DImage(asFile,true);
 			break;
 		case eEditorTextureResourceType_3D:
-			pTexture = pManager->Create3D(asFile,true);
+			pTexture = pManager->Create3DImage(asFile,true);
 			break;
 		case eEditorTextureResourceType_CubeMap:
-			pTexture = pManager->CreateCubeMap(asFile,true);
+			pTexture = pManager->CreateCubeMapImage(asFile,true);
 			break;
 		}
 	}
@@ -652,14 +652,14 @@ bool cEditorHelper::LoadTextureResource(eEditorTextureResourceType aTexType, con
 		else if(sAnimMode=="oscillate")
 			animMode = eTextureAnimMode_Oscillate;
 
-		pTexture = pManager->CreateAnim(asFile, true, texType);
+		pTexture = pManager->CreateAnimImage(asFile, true, texType);
 		if(pTexture)
 		{
 			pTexture->SetAnimMode(animMode);
 			pTexture->SetFrameTime(afFrameTime);
 		}
 	}
-	
+
 	if(apTexture==NULL)
 	{
 		if(pTexture) pManager->Destroy(pTexture);
@@ -692,11 +692,11 @@ bool cEditorHelper::LoadResourceFile(eEditorResourceType aResType, const tString
 		break;
 	case eEditorResourceType_Texture:
 		pManager = pResources->GetTextureManager();
-		pResource = ((cTextureManager*)pManager)->Create1D(asFile, true);
+		pResource = ((cTextureManager*)pManager)->Create1DImage(asFile, true);
 		if(pResource==NULL)
-			pResource = ((cTextureManager*)pManager)->Create2D(asFile,true);
+			pResource = ((cTextureManager*)pManager)->Create2DImage(asFile,true);
 		if(pResource==NULL)
-			pResource = ((cTextureManager*)pManager)->Create3D(asFile,true);
+			pResource = ((cTextureManager*)pManager)->Create3DImage(asFile,true);
 		break;
 	case eEditorResourceType_Sound:
 		pManager = pResources->GetSoundEntityManager();
@@ -734,78 +734,8 @@ bool cEditorHelper::LoadResourceFile(eEditorResourceType aResType, const tString
 
 //----------------------------------------------------------------------------------
 
-void cEditorHelper::DrawBillboard(iTexture *apGfx, const cVector3f& avWorldPosition,
-									const cVector2f& avSize, const cColor& aColor, 
-									cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions)
-{
-	apFunctions->SetModelViewMatrix(cMatrixf::Identity);
-
-	cVector3f vViewSpacePos;
-	cVector3f vViewSpaceSize; 
-	
-	GetViewSpacePosAndSize(apViewport->GetCamera(), avWorldPosition, avSize, vViewSpacePos, vViewSpaceSize);
-
-	// TODO: I have to turn cull mode off because the quad is drawn facing away to the camera :S
-	// Any fixes for this?
-	// Yeah, need to inverse the vertex order somehow. It is possible to have a static variable with a vertex array for this.
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(true);
-	apFunctions->SetTexture(0, apGfx);
-	apFunctions->SetAlphaMode(eMaterialAlphaMode_Trans);
-	apFunctions->GetLowLevelGfx()->SetCullActive(false);
-	apFunctions->DrawQuad(vViewSpacePos - cVector3f(vViewSpaceSize.x,vViewSpaceSize.y,0)*0.5f, cVector2f(vViewSpaceSize.x, vViewSpaceSize.y), cVector2f(0,1), cVector2f(1,0),false, aColor);
-	apFunctions->GetLowLevelGfx()->SetCullActive(true);
-	apFunctions->SetTexture(0,NULL);
-	apFunctions->SetAlphaMode(eMaterialAlphaMode_Solid);
-	apFunctions->SetDepthWrite(false);
-	apFunctions->SetMatrix(NULL);
-}
-
-//----------------------------------------------------------------------------------
-
-void cEditorHelper::DrawPyramid(cRendererCallbackFunctions* apFunctions, const cVector3f& avBaseCenter, const cVector3f& avTop, float afHalfWidth, const cColor& aColor)
-{
-	cVector3f vNormal = avTop-avBaseCenter;
-	cVector3f vPoint = avBaseCenter+1;
-	cVector3f vRight = cMath::Vector3Cross(vNormal, vPoint);
-	vRight.Normalize();
-	cVector3f vForward = cMath::Vector3Cross(vNormal, vRight);
-	vForward.Normalize();
-
-	cVector3f vVertices[4] = 
-	{
-		avBaseCenter + (vRight+vForward)*afHalfWidth,
-		avBaseCenter + (vRight-vForward)*afHalfWidth,
-		avBaseCenter + (vRight*(-1)-vForward)*afHalfWidth,
-		avBaseCenter + (vRight*(-1)+vForward)*afHalfWidth,
-	};
-
-	tVertexVec vTriPoints[4];
-	vTriPoints[0].push_back(cVertex(avTop,aColor));
-	vTriPoints[0].push_back(cVertex(vVertices[0],aColor));
-	vTriPoints[0].push_back(cVertex(vVertices[1],aColor));
-
-	vTriPoints[1].push_back(cVertex(avTop,aColor));
-	vTriPoints[1].push_back(cVertex(vVertices[1],aColor));
-	vTriPoints[1].push_back(cVertex(vVertices[2],aColor));
-
-	vTriPoints[2].push_back(cVertex(avTop,aColor));
-	vTriPoints[2].push_back(cVertex(vVertices[2],aColor));
-	vTriPoints[2].push_back(cVertex(vVertices[3],aColor));
-
-	vTriPoints[3].push_back(cVertex(avTop,aColor));
-	vTriPoints[3].push_back(cVertex(vVertices[3],aColor));
-	vTriPoints[3].push_back(cVertex(vVertices[0],aColor));
-
-	//apFunctions->SetMatrix(NULL);
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(true);
-	for(int i=0;i<4;++i)
-	{
-		apFunctions->GetLowLevelGfx()->DrawTriangle(vTriPoints[i]);
-	}
-	apFunctions->SetDepthWrite(false);
-}
+// Billboard/pyramid drawing goes through DebugDraw::DrawBillboard /
+// DebugDraw::DrawPyramid directly now.
 
 //----------------------------------------------------------------------------------
 
@@ -890,6 +820,13 @@ void cEditorHelper::GetViewSpacePosAndSize(cCamera* apCamera, const cVector3f& a
 			break;
 		}
 	}
+}
+
+//----------------------------------------------------------------------------------
+
+bool cEditorHelper::GetVisibilityTypeState(eEditorVisibilityType aType)
+{
+	return mpEditor->GetVisibilityTypeState(aType);
 }
 
 //----------------------------------------------------------------------------------

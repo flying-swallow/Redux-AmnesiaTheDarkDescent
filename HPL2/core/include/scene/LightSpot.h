@@ -34,9 +34,6 @@ namespace hpl {
 
 	class cLightSpot : public iLight
 	{
-	#ifdef __GNUC__
-		typedef iLight __super;
-	#endif
 	public:
 		cLightSpot(tString asName, cResources *apResources);
 		~cLightSpot();
@@ -57,8 +54,13 @@ namespace hpl {
 		void SetNearClipPlane(float afX) { mfNearClipPlane = afX; mbProjectionUpdated = true;}
 		float GetNearClipPlane() { return mfNearClipPlane;}
 
-		void SetRadius(float afX);
-		
+		void SetIntensity(float afX) override;
+		void SetRadius(float afX) override;
+
+		// Frustum far-plane / cull reach = the authored radius (mfRadius);
+		// fall back to intensity only if a map authored no radius at all.
+		float GetReach() const { return mfRadius > 0.f ? mfRadius : mfIntensity; }
+
 		cFrustum* GetFrustum();
 
 		[[deprecated("use GetSpotFalloffImage")]]

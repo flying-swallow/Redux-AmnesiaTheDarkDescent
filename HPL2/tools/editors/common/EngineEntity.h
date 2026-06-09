@@ -68,12 +68,12 @@ public:
 	virtual void UpdateVisibility()=0;
 
 	virtual void Draw(cEditorWindowViewport* apViewport, 
-					  cRendererCallbackFunctions* apFunctions,  
+					  DebugDraw* apFunctions,  
 					  bool abIsSelected,
 					  bool abIsActive,
 					  const cColor& aHighlightCol=cColor(1,1)) {};
 	virtual void DrawProgram(cEditorWindowViewport* apViewport, 
-							 cRendererCallbackFunctions* apFunctions, 
+							 DebugDraw* apFunctions, 
 							 iGpuProgram* apProg, 
 							 const cColor& aCol) {}
 
@@ -109,11 +109,11 @@ public:
 	void UpdateVisibility();
 
 	void Draw(cEditorWindowViewport* apViewport, 
-				cRendererCallbackFunctions* apFunctions,  
+				DebugDraw* apFunctions,  
 				bool abIsSelected,
 				bool abIsActive, const cColor& aHighlightCol);
 	void DrawProgram(cEditorWindowViewport* apViewport, 
-					 cRendererCallbackFunctions* apFunctions, 
+					 DebugDraw* apFunctions, 
 					 iGpuProgram* apProg, 
 					 const cColor& aCol);
 
@@ -131,6 +131,10 @@ protected:
 	void SetMesh(cMesh* apMesh) { mpMesh = apMesh; }
 
 	cMesh* mpMesh;
+
+	// false ⇒ this is a blocker mesh (loader "ShowMesh"=false); its visibility
+	// follows the Blockers toolbar toggle (see UpdateVisibility).
+	bool mbShowMesh;
 
 	static float mfDisabledCoverage;
 };
@@ -208,7 +212,7 @@ public:
 	void UpdateVisibility() { Update(); }
 
 	void Draw(cEditorWindowViewport* apViewport, 
-					  cRendererCallbackFunctions* apFunctions, 
+					  DebugDraw* apFunctions, 
 					  bool abIsSelected,
 					  bool abIsActive,
 					  const cColor& aHighlightCol=cColor(1,1));

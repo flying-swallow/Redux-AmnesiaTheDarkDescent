@@ -294,9 +294,12 @@ void cEntityWrapperArea::SetMeshFile(const tString& asX)
 
 //------------------------------------------------------------------------------
 
-void cEntityWrapperArea::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iEditorEditMode* apEditMode,
+void cEntityWrapperArea::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode,
 								bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol)
 {
+	if(cEditorHelper::GetVisibilityTypeState(eEditorVisibilityType_Areas) == false)
+		return;
+
 	iEntityWrapper::Draw(apViewport, apFunctions, apEditMode, abIsSelected, aHighlightCol, cColor(1,0,0,1));
 	cEntityWrapperTypeArea* pType = (cEntityWrapperTypeArea*)mpType;
 	
@@ -308,11 +311,14 @@ void cEntityWrapperArea::Draw(cEditorWindowViewport* apViewport, cRendererCallba
 
 	cMatrixf mtxRT = cMath::MatrixMul(cMath::MatrixTranslate(mvPosition), cMath::MatrixRotate(mvRotation, eEulerRotationOrder_XYZ));
 
-	apFunctions->SetMatrix(&mtxRT);
+	// The area's rotation+translation must ride along on every draw call —
+	// the legacy SetMatrix render state is gone on the RI path.
+	DebugDraw::DebugDrawOptions options;
+	options.m_transform = mtxRT;
 
-	apFunctions->GetLowLevelGfx()->DrawLine(cVector3f(-0.05f,0,0), cVector3f(0.05f,0,0), col);
-	apFunctions->GetLowLevelGfx()->DrawLine(cVector3f(0,-0.05f,0), cVector3f(0,0.05f,0), col);
-	apFunctions->GetLowLevelGfx()->DrawLine(cVector3f(0,0,-0.05f), cVector3f(0,0,0.05f), col);
+	apFunctions->DebugDrawLine(cVector3f(-0.05f,0,0), cVector3f(0.05f,0,0), col, options);
+	apFunctions->DebugDrawLine(cVector3f(0,-0.05f,0), cVector3f(0,0.05f,0), col, options);
+	apFunctions->DebugDrawLine(cVector3f(0,0,-0.05f), cVector3f(0,0,0.05f), col, options);
 
 	cVector3f vHalfScale;
 	if(pType->IsScalable())
@@ -324,11 +330,11 @@ void cEntityWrapperArea::Draw(cEditorWindowViewport* apViewport, cRendererCallba
 	if(pType->GetDrawAsSphere())
 	{
 		vHalfScale = vHalfScale*0.5f;
-		apFunctions->GetLowLevelGfx()->DrawSphere(0, vHalfScale.x, col);
+		apFunctions->DebugDrawSphere(0, vHalfScale.x, col, options);
 	}
 	else
 	{
-		apFunctions->GetLowLevelGfx()->DrawBoxMinMax(vHalfScale*-1, vHalfScale, col);
+		apFunctions->DebugDrawBoxMinMax(vHalfScale*-1, vHalfScale, col, options);
 	}
 
 	if(pType->GetShowOrientation())
@@ -341,15 +347,13 @@ void cEntityWrapperArea::Draw(cEditorWindowViewport* apViewport, cRendererCallba
 			vDir.v[i] = 1;
 			vDir = vDir*vLength;
 			col.v[i] = 1;
-			apFunctions->GetLowLevelGfx()->DrawLine(0 , vDir, col);
-			cEditorHelper::DrawPyramid(apFunctions, vDir, vDir+vDir*0.1f, 0.025f, col);
+			apFunctions->DebugDrawLine(0 , vDir, col, options);
+			apFunctions->DrawPyramid(vDir, vDir+vDir*0.1f, 0.025f, col, options);
 		}
 	}
 
 	if(mpMesh)
 		mpMesh->SetVisible(mbSelected);
-
-	apFunctions->SetMatrix(NULL);
 }
 
 //------------------------------------------------------------------------------

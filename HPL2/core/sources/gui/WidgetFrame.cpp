@@ -353,7 +353,26 @@ namespace hpl {
 	}
 
 	//-----------------------------------------------------------------------
-	
+
+	void cWidgetFrame::ChangeBackgroundForColorPicking()
+	{
+		// Fall back to the normal background when the skin has no color-picking
+		// variant, so the frame never ends up with a null background gfx (which
+		// cGuiSet::DrawGfx would dereference).
+		cGuiGfxElement* pGfx = mpSkin->GetGfx(eGuiSkinGfx_FrameBackgroundColorPicking);
+		if(pGfx) mpGfxBackground = pGfx;
+	}
+
+	//-----------------------------------------------------------------------
+
+	void cWidgetFrame::SetBackgroundBgfx(eGuiSkinGfx aType)
+	{
+		cGuiGfxElement* pGfx = mpSkin->GetGfx(aType);
+		if(pGfx) mpGfxBackground = pGfx;
+	}
+
+	//-----------------------------------------------------------------------
+
 	bool cWidgetFrame::OnMouseMove(const cGuiMessageData& aData)
 	{
 		return true;

@@ -184,6 +184,11 @@ iEditorBase::iEditorBase(const tWString& asFileCategoryName, const tWString& asF
 	mbDestroyingEditor = false;
 	mbWorldModified = false;
 
+	mbVisibilityTypes[eEditorVisibilityType_Icons] = true;
+	mbVisibilityTypes[eEditorVisibilityType_Areas] = true;
+	mbVisibilityTypes[eEditorVisibilityType_Blockers] = true;
+	mbVisibilityTypes[eEditorVisibilityType_GlobalFog] = true;
+
 	msFileCategoryName = asFileCategoryName;
 	msFileCategoryString = asFileCategoryString;
 
@@ -738,7 +743,12 @@ cEngine* iEditorBase::Init(cEngine* apEngine, const char* asName, const char* as
 #ifdef USERDIR_RESOURCES
 		mpEngine->GetResources()->LoadResourceDirsFile("resources.cfg", mpDirHandler->GetUserResourceDir());
 #else
-		mpEngine->GetResources()->LoadResourceDirsFile("resources.cfg");
+		// Per-instance override: [Directories] ResourcesOverride in the editor
+		// config points at an alternate resource-dirs file (e.g. a mod's), else
+		// the stock resources.cfg.
+		tString customResources = mpMainConfig->GetString("Directories", "ResourcesOverride", "");
+		if(customResources != "") mpEngine->GetResources()->LoadResourceDirsFile(customResources);
+		else mpEngine->GetResources()->LoadResourceDirsFile("resources.cfg");
 #endif
 	}
 
@@ -1036,6 +1046,18 @@ void iEditorBase::ViewportMouseUp(cEditorWindowViewport* apViewport, int alButto
 
 //-----------------------------------------------------------------------
 
+void iEditorBase::SetVisibilityTypeState(eEditorVisibilityType aType, bool abEnabled)
+{
+	mbVisibilityTypes[aType] = abEnabled;
+
+	// Flag the world dirty so per-entity visibility (blockers, billboards) is
+	// re-evaluated; icon/area/fog consumers read the flag directly each draw.
+	mpEditorWorld->SetVisibilityUpdated();
+	mpEditorWorld->UpdateVisibility();
+}
+
+//-----------------------------------------------------------------------
+
 void iEditorBase::SetUpDirectories()
 {
 	///////////////////////////////////////////////////
@@ -1320,6 +1342,17 @@ void iEditorBase::Update(float afTimeStep)
 
 //----------------------------------------------------------------------------
 
+void iEditorBase::OnDraw(float afFrameTime)
+{
+	// Pump the async thumbnail job queue: OnDraw runs inside the frame's
+	// command-recording window, so the builder can Evaluate its headless
+	// viewport here (see EditorThumbnailBuilder.h).
+	if(mpThumbnailBuilder)
+		mpThumbnailBuilder->Pump(afFrameTime);
+}
+
+//----------------------------------------------------------------------------
+
 void iEditorBase::ShowLoadingWindow(const tWString& asCaption, const tWString& asStatus)
 {
 	if(mpLoaderStatusWindow)
@@ -1501,6 +1534,8 @@ void iEditorBase::InitLayout()
 
 void iEditorBase::InitRenderTarget(const cVector2f& avSize)
 {
+	return;
+
 	//////////////////////////////////////////////
 	// Creates a render target and framebuffer with size avSize
 	cGraphics* pGfx = mpEngine->GetGraphics();
@@ -1509,18 +1544,26 @@ void iEditorBase::InitRenderTarget(const cVector2f& avSize)
 	lTexW = (int) avSize.x;
 	lTexH = (int) avSize.y;
 	
+	// TODO(vulkan-port, Phase 5): the legacy iFrameBuffer chain is dead on the
+	// RI backend — CreateFrameBuffer returns NULL. Editor viewports render via
+	// the editor-owned pane surface set as the engine viewport's TargetView
+	// (iEditorViewport::UpdateViewport); this legacy target only remains until
+	// the cleanup phase deletes it.
 	iTexture* pRenderTexture = pGfx->CreateTexture("RenderTexture",eTextureType_Rect, eTextureUsage_RenderTarget);
 	pRenderTexture->SetWrapR(eTextureWrap_ClampToEdge);
 	pRenderTexture->SetWrapS(eTextureWrap_ClampToEdge);
 	pRenderTexture->CreateFromRawData(cVector3l(lTexW, lTexH, 0), ePixelFormat_RGBA, 0);
 
 	mpFrameBuffer = pGfx->CreateFrameBuffer("MainRenderTarget");
-	mpFrameBuffer->SetTexture2D(0, pRenderTexture);
+	if(mpFrameBuffer)
+	{
+		mpFrameBuffer->SetTexture2D(0, pRenderTexture);
 
-	iDepthStencilBuffer *pDepthBuffer = pGfx->CreateDepthStencilBuffer(mpFrameBuffer->GetSize(),24,8,false);
+		iDepthStencilBuffer *pDepthBuffer = pGfx->CreateDepthStencilBuffer(mpFrameBuffer->GetSize(),24,8,false);
 
-	mpFrameBuffer->SetDepthStencilBuffer(pDepthBuffer);
-	mpFrameBuffer->CompileAndValidate();
+		mpFrameBuffer->SetDepthStencilBuffer(pDepthBuffer);
+		mpFrameBuffer->CompileAndValidate();
+	}
 }
 
 //----------------------------------------------------------------------------

@@ -77,29 +77,16 @@ void cPostEffect_ImageTrail::OnSetActive(bool abX) {
 }
 
 namespace {
-void EmitAccumBarrier(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout,
-                      VkImageLayout newLayout,
-                      VkPipelineStageFlags2 srcStage,
-                      VkAccessFlags2 srcAccess,
-                      VkPipelineStageFlags2 dstStage,
-                      VkAccessFlags2 dstAccess) {
-    VkImageMemoryBarrier2 barrier = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    barrier.srcStageMask  = srcStage;
-    barrier.srcAccessMask = srcAccess;
-    barrier.dstStageMask  = dstStage;
-    barrier.dstAccessMask = dstAccess;
-    barrier.oldLayout     = oldLayout;
-    barrier.newLayout     = newLayout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image         = image;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                                VK_REMAINING_MIP_LEVELS, 0,
-                                VK_REMAINING_ARRAY_LAYERS};
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers    = &barrier;
-    vkCmdPipelineBarrier2(cmd, &dep);
+void EmitAccumBarrier(RICmd_s *cmd, RITexture_s *texture,
+                      enum RIResourceState_e before, uint32_t beforeStages,
+                      enum RIResourceState_e after, uint32_t afterStages) {
+    RITextureBarrier_s barrier = {};
+    barrier.texture = texture;
+    barrier.before = before;
+    barrier.beforeStages = beforeStages;
+    barrier.after = after;
+    barrier.afterStages = afterStages;
+    cmd->textureBarrier(barrier);
 }
 } // namespace
 
@@ -122,22 +109,19 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
 
     VkViewport viewport = { 0.0f, 0.0f, static_cast<float>(ctx.width), static_cast<float>(ctx.height), 0.0f, 1.0f };
     VkRect2D scissor = { {0, 0}, {ctx.width, ctx.height} };
-    RIDescriptor_s* samplerDesc = RI.resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
+    auto samplerDesc = RI.resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 
     // ----- Pass 1: blend new frame into accum (with alpha) -----
     // Layout: SHADER_READ (or UNDEFINED first time) → COLOR_ATTACH
     {
+        // The blend pass both reads and writes the attachment, hence
+        // RENDER_TARGET_READ (color read|write) rather than write-only.
         EmitAccumBarrier(
-            cmd, m_accum.texture.vk.image,
-            mbClearAccum ? VK_IMAGE_LAYOUT_UNDEFINED
-            : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            mbClearAccum ? VK_PIPELINE_STAGE_2_NONE
-            : VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-            mbClearAccum ? VkAccessFlags2{} : VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT |
-            VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT);
+            ctx.cmd, &m_accum.texture,
+            mbClearAccum ? RI_RESOURCE_STATE_UNDEFINED
+                         : RI_RESOURCE_STATE_SHADER_RESOURCE,
+            mbClearAccum ? RI_STAGE_NONE : RI_STAGE_FRAGMENT,
+            RI_RESOURCE_STATE_RENDER_TARGET_READ, RI_STAGE_NONE);
 
         VkRenderingAttachmentInfo accumAttach = {
             VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
@@ -204,13 +188,9 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
 
         // Accum has been written; flip it to SHADER_READ_ONLY so pass 2 can sample.
         EmitAccumBarrier(
-            cmd, m_accum.texture.vk.image,
-            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-            VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-            VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+            ctx.cmd, &m_accum.texture,
+            RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
+            RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
     }
 
     {

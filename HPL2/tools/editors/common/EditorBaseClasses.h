@@ -171,6 +171,11 @@ public:
 	void SetSelectionChanged() { mbSelectionChanged = true; }
 	cEditorSelection* GetSelection() { return mpSelection; }
 
+	// Per-category viewport visibility (lower-toolbar toggles). Setting one
+	// flags the world's visibility dirty so consumers re-evaluate next draw.
+	void SetVisibilityTypeState(eEditorVisibilityType aType, bool abEnabled);
+	bool GetVisibilityTypeState(eEditorVisibilityType aType) { return mbVisibilityTypes[aType]; }
+
 	///////////////////////////////////////////////
 	// Editor Windows Management
 	void AddWindow(iEditorWindow* apWindow);
@@ -392,7 +397,10 @@ public:
 	// iUpdateable implementation
 	void Update(float afTimeStep);
 
-	void OnDraw(float afFrameTime){}
+	// Pumps the async thumbnail job queue — OnDraw runs inside the frame's
+	// command-recording window, where the builder's headless viewport can be
+	// Evaluated (see EditorThumbnailBuilder.h).
+	void OnDraw(float afFrameTime);
 	void OnStart(){}
 	void OnExit(){}
 
@@ -477,6 +485,7 @@ protected:
 	bool mbDestroyingEditor;
 	bool mbWorldModified;
 	bool mbSelectionChanged;
+	bool mbVisibilityTypes[eEditorVisibilityType_LastEnum];
 
 	iEditorEditMode* mpCurrentEditMode;
 	iEditorWorld* mpEditorWorld;

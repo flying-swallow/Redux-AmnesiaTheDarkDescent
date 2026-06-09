@@ -23,13 +23,14 @@
 //     unified dispatcher inherits that.
 
 #include "HostDefinitions.h"
-#include "Constants.h"          // kLightGrid* / kLightsPerCellMax / kPointLightIntensityScale (lightLevelAt)
+#include "Constants.h"          // kLightGrid* / kLightsPerCellMax (lightLevelAt)
 
 import SceneTypes;
 import bindless;
 __exported import ILight;
 import PerFrame.resource;
 import BindlessTriangle;
+import Brdf;                    // evalDiffuseDemodulated (standard diffuse lobe)
 import Random;
 import Grid;                    // gridCellPos / gridFlattenCellIndex / gridCellValid (lightLevelAt)
 import Utils.Color.ColorHelpers; // linearToSRGB (lightLevelAt's authored-space max channel)
@@ -265,7 +266,7 @@ public struct SceneMaterials
 
         RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
                | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES
-               | RAY_FLAG_CULL_BACK_FACING_TRIANGLES> q;
+               | RAY_FLAG_CULL_FRONT_FACING_TRIANGLES> q;
         q.TraceRayInline(gRtAccel, 0, kRayMaskOpaque, ray);
 
         while (q.Proceed())
@@ -483,15 +484,17 @@ public struct Scene
     }
 
     // Shade one analytic light at a surface point: sample it, NdotL-cull,
-    // shadow-ray test, return pure Li·NdotL (no 1/π — base-game direct
-    // convention; no albedo — demodulated, the caller applies albedo where
+    // shadow-ray test, return Li·NdotL·f_d/albedo where f_d is the standard
+    // diffuse lobe (kDiffuseBrdf, carries its 1/π — the intensity knobs are
+    // π-compensated; no albedo — demodulated, the caller applies albedo where
     // outgoing radiance is needed). Shared by the direct composite
-    // (SurfelShade.evalAnalyticLight) and the surfel NEE pass (SurfelRayTrace),
-    // which scales the result by its albedo·1/π·invPdf·indirect factors.
-    // `origin` is the (epsilon-offset) shadow-ray origin the caller already
-    // computes.
-    public float3 shadeAnalyticLight(float3 posW, float3 normalW,
-                                     uint lightIndex, float3 origin)
+    // (SurfelShade.evalAnalyticLight, V = toward camera) and the surfel NEE
+    // pass (SurfelRayTrace, V = back along the scatter ray), which scales the
+    // result by its albedo·invPdf·indirect factors. `origin` is the
+    // (epsilon-offset) shadow-ray origin the caller already computes; `rough`
+    // is the perceptual diffuse-lobe roughness (decodeMaterialRoughness).
+    public float3 shadeAnalyticLight(float3 posW, float3 normalW, float3 V,
+                                     float rough, uint lightIndex, float3 origin)
     {
         LightSample ls;
         if (!sampleLightByIndex(lightIndex, posW, ls)) return float3(0.f);
@@ -501,18 +504,19 @@ public struct Scene
 
         if (!materials.traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
 
-        return ls.Li * NdotL;
+        return ls.Li * NdotL * evalDiffuseDemodulated(normalW, V, ls.dir, rough);
     }
 
     // Soft-shadow variant: for point or spot lights with a non-zero sourceRadius,
     // aim the shadow ray at a jittered point on the light disk (radius =
     // sourceRadius, facing the shading point) so one noisy sample per frame,
-    // accumulated temporally, resolves to a penumbra. Energy (Li·NdotL) still uses
-    // the light centre — only occlusion is softened. sourceRadius == 0 falls back
+    // accumulated temporally, resolves to a penumbra. Energy still uses the
+    // light centre — only occlusion is softened. sourceRadius == 0 falls back
     // to the hard centre ray, matching shadeAnalyticLight. Demodulated like
-    // shadeAnalyticLight: pure Li·NdotL, no albedo.
-    public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW,
-                                         uint lightIndex, float3 origin, inout RNG rng)
+    // shadeAnalyticLight: Li·NdotL·f_d/albedo, no albedo.
+    public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW, float3 V,
+                                         float rough, uint lightIndex,
+                                         float3 origin, inout RNG rng)
     {
         LightSample ls;
         if (!sampleLightByIndex(lightIndex, posW, ls)) return float3(0.f);
@@ -557,21 +561,22 @@ public struct Scene
 
         if (!materials.traceShadowRay(origin, sDir, sMax)) return float3(0.f);
 
-        return ls.Li * NdotL;
+        return ls.Li * NdotL * evalDiffuseDemodulated(normalW, V, ls.dir, rough);
     }
 
-    // Unshadowed analytic contribution of one light: pure Li·NdotL with no
-    // shadow ray (0 if back-facing / sample fails). Used as the RIS target weight
-    // for stochastic light selection in the direct pass (pick a light ∝ this,
-    // then trace one shadow ray for it).
-    public float3 unshadowedAnalyticLight(float3 posW, float3 normalW,
-                                          uint lightIndex)
+    // Unshadowed analytic contribution of one light: Li·NdotL·f_d/albedo with
+    // no shadow ray (0 if back-facing / sample fails). Used as the RIS target
+    // weight for stochastic light selection in the direct pass (pick a light
+    // ∝ this, then trace one shadow ray for it) — including the lobe keeps the
+    // target proportional to the true integrand.
+    public float3 unshadowedAnalyticLight(float3 posW, float3 normalW, float3 V,
+                                          float rough, uint lightIndex)
     {
         LightSample ls;
         if (!sampleLightByIndex(lightIndex, posW, ls)) return float3(0.f);
         float NdotL = dot(normalW, ls.dir);
         if (NdotL <= 0.f) return float3(0.f);
-        return ls.Li * NdotL;
+        return ls.Li * NdotL * evalDiffuseDemodulated(normalW, V, ls.dir, rough);
     }
 
     // Scalar "surrounding light" heuristic for AffectedByLightLevel
@@ -582,10 +587,10 @@ public struct Scene
     // shadow-free: billboards have no normal and the legacy heuristic never
     // had occlusion (or a spot-cone term — spots fall off radially like
     // points, matching the original).
-    //   * The authored engine radius is recovered from intensity
-    //     (= authoredRadius · kPointLightIntensityScale at upload — see the
-    //     light scratch fill in HybridRenderer.cpp). The struct's `radius`
-    //     field is the grid-bin reach, a different quantity.
+    //   * `intensity` IS the authored engine radius (uploaded verbatim for
+    //     both light types — Falcor LightData semantics, no scale knobs), so
+    //     it is used directly. The struct's `radius` field is the grid-bin
+    //     reach, a different quantity.
     //   * GPU light colors are linear (sRGB-decoded at upload) while the
     //     legacy heuristic read the authored sRGB values, so the max channel
     //     is re-encoded to match the CPU translucent-mesh path's dimming
@@ -624,7 +629,7 @@ public struct Scene
                 lintensity = gSpotLights[si].intensity;
             }
 
-            float authoredRadius = lintensity / kPointLightIntensityScale;
+            float authoredRadius = lintensity;
             if (authoredRadius <= 0.0f) continue;
 
             float maxC = linearToSRGB(max(lcolor.x, max(lcolor.y, lcolor.z)));
@@ -642,6 +647,16 @@ public struct Scene
     public VertexData getVertexData(TriangleHit hit)
     {
         BindlessTriangleVtx vtx;
+        return getVertexDataAndTri(hit, vtx);
+    }
+
+    // Same as getVertexData, but also returns the raw per-vertex triangle data
+    // (positions / normals / tangents / UVs). Parallax mapping needs the
+    // per-vertex UVs to invert a UV offset back into a barycentric delta — see
+    // SurfelVBuffer.rt.slang. Fetches the bindless triangle once so callers that
+    // want both don't pay the BDA handle loads twice.
+    public VertexData getVertexDataAndTri(TriangleHit hit, out BindlessTriangleVtx vtx)
+    {
         fetchBindlessTriangle(hit.instanceID, hit.primitiveIndex, vtx);
 
         float b1 = hit.barycentrics.x;

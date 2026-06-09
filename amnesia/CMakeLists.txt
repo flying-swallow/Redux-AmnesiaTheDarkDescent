@@ -79,42 +79,9 @@ add_custom_target(GameRelease DEPENDS Amnesia)
 set(AMNESIA_EXECUTABLE_OUTPUT_PATH  ${INSTALL_OUTPUT_PATH}/Amnesia)
 install(DIRECTORY DESTINATION ${AMNESIA_EXECUTABLE_OUTPUT_PATH})
 
-#if(WITH_TOOLS)
-#    add_custom_command (TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#        $<TARGET_FILE:MapViewer> $<TARGET_FILE_DIR:Amnesia>
-#        DEPENDS MapViewer
-#    )
-#    add_custom_command (TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#        $<TARGET_FILE:ModelViewer> $<TARGET_FILE_DIR:Amnesia>
-#        DEPENDS ModelViewer
-#    )
-#    add_custom_command (TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#        $<TARGET_FILE:MshConverter> $<TARGET_FILE_DIR:Amnesia>
-#        DEPENDS MshConverter
-#    )
-#    add_custom_command (TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#        $<TARGET_FILE:LevelEditor> $<TARGET_FILE_DIR:Amnesia>
-#        DEPENDS LevelEditor
-#    )
-#    add_custom_command (TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#        $<TARGET_FILE:ParticleEditor> $<TARGET_FILE_DIR:Amnesia>
-#        DEPENDS ParticleEditor
-#    )
-#    add_custom_command (TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-#        $<TARGET_FILE:ModelEditor> $<TARGET_FILE_DIR:Amnesia>
-#        DEPENDS ModelEditor
-#    )
-#    add_custom_command ( TARGET Amnesia POST_BUILD
-#        COMMAND ${CMAKE_COMMAND} ARGS -E copy_directory
-#        ${_HPL_TOOL_RESOURCE_PATH_} $<TARGET_FILE_DIR:Amnesia>
-#    )
-#endif()
+# Tool binaries are emitted directly into the Amnesia runtime directory via
+# set_output_dir() in AddToolTarget (HPL2/tools/CMakeLists.txt) — no
+# post-build copy needed.
 
 target_compile_definitions(Amnesia PUBLIC AMNESIA_TDD_VERSION="${AMNESIA_TDD_VERSION}")
 target_compile_definitions(Amnesia PUBLIC AMNESIA_TDD_TAG="${AMNESIA_TDD_TAG}")
@@ -143,6 +110,13 @@ SHADERS
     # below rather than listed here.
     ./slang/Gui/gui.vert.slang
     ./slang/Gui/gui.frag.slang
+    ./slang/WireFrame/wireframe.vert.slang
+    ./slang/WireFrame/wireframe.frag.slang
+    ./slang/DebugDraw/debug.vert.slang
+    ./slang/DebugDraw/debug_2d.vert.slang
+    ./slang/DebugDraw/debug.frag.slang
+    ./slang/DebugDraw/debug_uv.vert.slang
+    ./slang/DebugDraw/debug_uv.frag.slang
     ./slang/InventoryPost/inventory_post.vert.slang
     ./slang/InventoryPost/inventory_post.frag.slang
     ./slang/ParticlePass/Particle.vert.slang
@@ -153,6 +127,8 @@ SHADERS
     ./slang/WaterPass/Water.frag.slang
     ./slang/DecalPass/Decal.vert.slang
     ./slang/DecalPass/Decal.frag.slang
+    ./slang/SimplePass/Simple.vert.slang
+    ./slang/SimplePass/Simple.frag.slang
     ./slang/SurfelGBuffer/SurfelGBuffer.3d.slang
     ./slang/SurfelGI/SurfelPreparePass.cs.slang
     ./slang/SurfelGI/SurfelUpdatePass.cs.slang
@@ -173,6 +149,13 @@ SHADERS
     ./slang/PostEffect_ImageTrail/posteffect_image_trail.frag.slang
     ./slang/PostEffect_RadialBlur/posteffect_radial_blur.frag.slang
     ./slang/PostEffect_Insanity/posteffect_insanity.frag.slang
+    ./slang/Outline/outline_geom.vert.slang
+    ./slang/Outline/outline_geom.frag.slang
+    ./slang/Outline/outline_alpha.vert.slang
+    ./slang/Outline/outline_alpha.frag.slang
+    ./slang/Outline/glow_object.vert.slang
+    ./slang/Outline/glow_object.frag.slang
+    ./slang/Outline/outline_composite.frag.slang
 INCLUDE_DIRS
     ${CMAKE_CURRENT_SOURCE_DIR}/slang
 OUTPUT_FOLDER

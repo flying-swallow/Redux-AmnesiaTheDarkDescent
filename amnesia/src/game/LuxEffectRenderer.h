@@ -1,18 +1,18 @@
 /*
  * Copyright © 2009-2020 Frictional Games
- * 
+ *
  * This file is part of Amnesia: The Dark Descent.
- * 
+ *
  * Amnesia: The Dark Descent is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version. 
+ * (at your option) any later version.
 
  * Amnesia: The Dark Descent is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with Amnesia: The Dark Descent.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -23,6 +23,14 @@
 //----------------------------------------------
 
 #include "LuxBase.h"
+
+#include "graphics/PostEffectHelpers.h"
+#include "graphics/RIProgram.h"
+#include "system/Event.h"
+
+namespace hpl { struct PostTranslucenceDrawCtx; struct PostWorldDrawCtx; }
+
+//----------------------------------------------
 
 class cGlowObject
 {
@@ -36,9 +44,16 @@ public:
 
 //----------------------------------------------
 
+// Hover-outline + pickup-flash + enemy-darkness-glow renderer. Gameplay
+// collects renderables each frame via the Add*/Clear* API (unchanged from the
+// legacy GL path). The draws run as cViewport handlers: flash + enemy glow are
+// TRUE additive into the linear-HDR scene on OnPostTranslucenceDraw (so bloom +
+// tonemap soften them, like the original), while the hover outline composites
+// over the final tone-mapped pogo read half on OnPostWorldDraw. See
+// LuxEffectRenderer.cpp for the pass breakdown.
 class cLuxEffectRenderer : public iLuxUpdateable
 {
-public:	
+public:
 	cLuxEffectRenderer();
 	~cLuxEffectRenderer();
 
@@ -48,8 +63,9 @@ public:
 
 	void ClearRenderLists();
 
-	void RenderSolid(cRendererCallbackFunctions* apFunctions);
-	void RenderTrans(cRendererCallbackFunctions* apFunctions);
+	// Connect the OnPostWorldDraw handler to the game viewport (called once
+	// from cLuxMapHandler::OnStart). Re-attaching swaps the target viewport.
+	void AttachViewport(cViewport* apViewport);
 
 	void AddOutlineObject(iRenderable *apObject);
 	void ClearOutlineObjects();
@@ -58,37 +74,45 @@ public:
 	void AddEnemyGlow(iRenderable *apObject, float afAlpha);
 
 private:
-	void RenderFlashObjects(cRendererCallbackFunctions* apFunctions);
-	void RenderEnemyGlow(cRendererCallbackFunctions* apFunctions);
-	
-	void RenderOutline(cRendererCallbackFunctions* apFunctions);
-	void RenderOutlineBlur(cRendererCallbackFunctions* apFunctions, iTexture *apInputTex);
-		
+	// Flash + enemy glow: TRUE additive into the linear-HDR BackBuffer, BEFORE
+	// the feed blit + post chain, so bloom + tonemap compress the result into a
+	// soft halo (matching the original). Fires on OnPostTranslucenceDraw.
+	void OnPostTranslucenceDraw(const hpl::PostTranslucenceDrawCtx& ctx);
+
+	// Hover outline: composites a pre-blurred silhouette over the FINAL
+	// tone-mapped image in the pogo read half. Fires on OnPostWorldDraw.
+	void OnPostWorldDraw(const hpl::PostWorldDrawCtx& ctx);
+
+	void EnsurePrograms();
+	void EnsureTargets(uint32_t alWidth, uint32_t alHeight);
+
+	// Outline: stencil silhouette -> rim color into m_outlineColor, then the
+	// separable blur into m_blur[]. Leaves m_blur[1] SHADER_RESOURCE.
+	void RenderOutline(const hpl::PostWorldDrawCtx& ctx, const RIDescriptor_s& aPassDesc);
+	void BlurOutline(RICmd_s* apCmd, uint32_t alBlurW, uint32_t alBlurH);
+
 	std::vector<cGlowObject> mvFlashObjects;
 	std::vector<cGlowObject> mvEnemyGlowObjects;
-	
+
 	std::vector<iRenderable*> mvOutlineObjects;
 
-	iFrameBuffer *mpDeferredAccumBuffer;
-	iFrameBuffer *mpFrameBufferColor;
+	cViewport* mpViewport;
+	EventHandler<const hpl::PostTranslucenceDrawCtx&> mTranslucenceDrawHandler;
+	EventHandler<const hpl::PostWorldDrawCtx&> mPostWorldDrawHandler;
 
-	int mlBlurSizeDiv;
-	iGpuProgram *mpBlurProgram[2];
-	iFrameBuffer *mpBlurBuffer[2];
-	iTexture *mpBlurTexture[2];
+	bool mbProgramsLoaded;
+	RIProgram mGeomProgram;      // outline_geom.vert + outline_geom.frag (hover outline)
+	RIProgram mAlphaProgram;     // outline_alpha.vert + outline_alpha.frag (cutout outline)
+	RIProgram mGlowProgram;      // glow_object.vert + glow_object.frag (flash + enemy glow)
+	RIProgram mBlurProgram;      // posteffect_fullscreen.vert + posteffect_bloom_blur.frag
+	RIProgram mCompositeProgram; // posteffect_fullscreen.vert + outline_composite.frag
 
-	iTexture *mpOutlineColorTexture;
+	PostEffectColorTarget m_outlineColor; // full-res silhouette/rim target
+	PostEffectColorTarget m_blur[2];      // quarter-res ping-pong
+	bool mbOutlineColorInit;
+	bool mbBlurInit;
 
-	iGpuProgram *mpOutlineColorProgram[2];
-	iGpuProgram *mpOutlineStencilProgram;
-	iGpuProgram *mpOutlineStencilAlphaProgram;
-
-	iGpuProgram *mpFlashProgram;
 	cLinearOscillation mFlashOscill;
-
-	iGpuProgram *mpEnemyGlowProgram;
-
-	cMatrixf m_mtxTemp;
 };
 
 //----------------------------------------------

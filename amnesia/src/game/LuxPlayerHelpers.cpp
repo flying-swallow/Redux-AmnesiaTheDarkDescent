@@ -1749,7 +1749,7 @@ void cLuxPlayerLantern::CreateWorldEntities(cLuxMap *apMap)
 
 	mpLight = pWorld->CreateLightPoint("PlayerLantern",msGobo,false);
 	mpLight->SetDiffuseColor(cColor(0,0));
-	mpLight->SetRadius(mfRadius);
+	mpLight->SetIntensity(mfRadius);
 	
 	mpLight->SetIsSaved(false);
 
@@ -2889,7 +2889,7 @@ void cLuxPlayerInDarkness::Update(float afTimeStep)
 		if(mbAmbientLightIsOn)
 		{
 			mbAmbientLightIsOn = false;
-			mpAmbientLight->FadeTo(cColor(0.0f, 0.0f),mpAmbientLight->GetRadius(),mfAmbientLightFadeOutTime);
+			mpAmbientLight->FadeTo(cColor(0.0f, 0.0f),mpAmbientLight->GetIntensity(),mfAmbientLightFadeOutTime);
 		}
 	}
 	////////////////////////////
@@ -2903,9 +2903,9 @@ void cLuxPlayerInDarkness::Update(float afTimeStep)
 			////////////////////////
 			// HARDMODE
 			if (gpBase->mbHardMode)
-				mpAmbientLight->FadeTo(mAmbientLightColor*mfAmbientLightIntensity * 0.75f , mpAmbientLight->GetRadius(), mfAmbientLightFadeInTime * 2.5f);
+				mpAmbientLight->FadeTo(mAmbientLightColor*mfAmbientLightIntensity * 0.75f , mpAmbientLight->GetIntensity(), mfAmbientLightFadeInTime * 2.5f);
 			else
-				mpAmbientLight->FadeTo(mAmbientLightColor*mfAmbientLightIntensity, mpAmbientLight->GetRadius(), mfAmbientLightFadeInTime);
+				mpAmbientLight->FadeTo(mAmbientLightColor*mfAmbientLightIntensity, mpAmbientLight->GetIntensity(), mfAmbientLightFadeInTime);
 
 		}
 
@@ -3001,12 +3001,12 @@ void cLuxPlayerInDarkness::CreateWorldEntities(cLuxMap *apMap)
 	mpAmbientLight = pWorld->CreateLightPoint("PlayerDarknessAmbient","",false);
 	mpAmbientLight->SetDiffuseColor(cColor(0.0f, 0.0f));
 
-	mpAmbientLight->SetRadius(mfAmbientLightRadius);
+	mpAmbientLight->SetIntensity(mfAmbientLightRadius);
 
 	/////////////////////
 	// HARDMODE
 	if(gpBase->mbHardMode)
-		mpAmbientLight->SetRadius(mfAmbientLightRadius*0.5f);
+		mpAmbientLight->SetIntensity(mfAmbientLightRadius*0.5f);
 
 
 	mpAmbientLight->SetCastShadows(false);
@@ -3038,7 +3038,7 @@ void cLuxPlayerInDarkness::SetActive(bool abX)
 		if(mbAmbientLightIsOn)
 		{
 			mbAmbientLightIsOn = false;
-			mpAmbientLight->FadeTo(cColor(0.0f, 0.0f),mpAmbientLight->GetRadius(),mfAmbientLightFadeOutTime);
+			mpAmbientLight->FadeTo(cColor(0.0f, 0.0f),mpAmbientLight->GetIntensity(),mfAmbientLightFadeOutTime);
 		}
         
 		mfLoopSoundCount = 0;

@@ -28,6 +28,8 @@
 class cBodyPicker;
 class cModelEditorWindowPhysicsTest;
 
+namespace hpl { struct WorldDrawCtx; }
+
 
 class cBodyPicker : public iPhysicsRayCallback
 {
@@ -45,7 +47,10 @@ public:
 	float mfDist;
 };
 
-class cPhysicsTestRenderCallback : public iRendererCallback
+// RI path: physics-test overlays enqueue into the DebugDraw batcher from
+// OnPreWorldDraw, hooked onto the cViewport::OnPreWorldDraw() event (the
+// legacy iRendererCallback hooks are never invoked by the Vulkan renderer).
+class cPhysicsTestRenderCallback
 {
 public:
 	cPhysicsTestRenderCallback()
@@ -54,11 +59,9 @@ public:
 		mbDrawSkeleton=false;
 	}
 
-	void OnPostSolidDraw(cRendererCallbackFunctions *apFunctions);
+	void OnPreWorldDraw();
 
-	void OnPostTranslucentDraw(cRendererCallbackFunctions *apFunctions){}
-
-	void DrawSkeletonRec(cRendererCallbackFunctions* apFunctions, cNode3D* apBoneState);
+	void DrawSkeletonRec(DebugDraw* apDebugDraw, cNode3D* apBoneState);
 
 	cModelEditorWindowPhysicsTest* mpWindow;
 	cBodyPicker* mpBodyPicker;
@@ -126,6 +129,7 @@ protected:
 	std::vector<iPhysicsJoint*> mvJoints;
 	cBodyPicker mBodyPicker;
 	cPhysicsTestRenderCallback mRenderCallback;
+	EventHandler<const WorldDrawCtx&> mPreWorldDrawHandler;
 	iPhysicsBody* mpFloorBody;
 
 	iLight* mpMainLight;

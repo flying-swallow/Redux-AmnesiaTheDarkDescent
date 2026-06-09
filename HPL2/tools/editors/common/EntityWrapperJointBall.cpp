@@ -149,7 +149,7 @@ void cEntityWrapperJointBall::SaveToElement(cXmlElement* apElement)
 //-----------------------------------------------------------------------
 
 /*
-void cEntityWrapperJointBall::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected)
+void cEntityWrapperJointBall::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected)
 {
 	cEntityWrapperJoint::Draw(apViewport,apFunctions, apEditMode, abIsSelected);
 }

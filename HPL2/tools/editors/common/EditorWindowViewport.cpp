@@ -19,6 +19,8 @@
 
 #include "EditorWindowViewport.h"
 
+#include "graphics/DebugDraw.h"
+
 #include "EditorBaseClasses.h"
 #include "EditorGrid.h"
 #include "EditorClipPlane.h"
@@ -59,26 +61,33 @@ cViewportCallback::cViewportCallback()
 
 //--------------------------------------------------------------------
 
-void cViewportCallback::OnPostSolidDraw(cRendererCallbackFunctions* apFunctions)
+// RI path: enqueue this pane's whole overlay into the global DebugDraw
+// batcher. Fires from Scene::Render right before the renderer Draw;
+// HybridRenderer flushes the queued requests into the pane's offscreen target
+// against the scene depth (see the offscreen tail in HybridRenderer.cpp).
+// The legacy post-solid/post-translucent split collapses here — on-top
+// behavior rides on DebugDrawOptions::m_depthTest at each call site.
+void cViewportCallback::OnPreWorldDraw()
 {
-	if(mpEditor==NULL)
+	if(mpEditor==NULL || mpViewport==NULL)
 		return;
 
-	apFunctions->SetMatrix(NULL);
-	apFunctions->SetBlendMode(eMaterialBlendMode_Alpha);
-	apFunctions->SetTextureRange(NULL,0);
-	apFunctions->SetProgram(NULL);
-	
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(false);
+	DebugDraw* pDebugDraw = mpEditor->GetEngine()->GetGraphics()->GetDebugDraw();
+	if(pDebugDraw==NULL)
+		return;
 
-	this->mpEditor->GetEditorWorld()->GetSurfacePicker()->DrawDebug(apFunctions);
+	///////////////////////////////////////////
+	// Surface picker debug (placement marker)
+	mpEditor->GetEditorWorld()->GetSurfacePicker()->DrawDebug(pDebugDraw);
 
+	///////////////////////////////////////////
+	// Grid + world axes
 	if(mpViewport->GetDrawGrid())
 	{
 		cEditorGrid* pGrid = mpViewport->GetGrid();
-		if(pGrid) pGrid->Draw(apFunctions,mpViewport->GetGridCenter());
+		if(pGrid) pGrid->Draw(pDebugDraw, mpViewport->GetGridCenter());
 	}
+
 	if(mpViewport->GetDrawAxes())
 	{
 		const cVector3f& vCenter = mpViewport->GetGridCenter();
@@ -91,85 +100,49 @@ void cViewportCallback::OnPostSolidDraw(cRendererCallbackFunctions* apFunctions)
 			cVector3f vAxisEnd = 0;
 			vAxisStart.v[i] = vCenter.v[i] -1000.0f;
 			vAxisEnd.v[i] = vCenter.v[i] +1000.0f;
-			apFunctions->GetLowLevelGfx()->DrawLine(vAxisStart, vAxisEnd, col);
+			pDebugDraw->DebugDrawLine(vAxisStart, vAxisEnd, col);
 		}
 	}
+
+	///////////////////////////////////////////
+	// Clip planes
 	tEditorClipPlaneVec& vClipPlanes = mpEditor->GetEditorWorld()->GetClipPlanes();
 	for(int i=0;i<(int)vClipPlanes.size();++i)
 	{
-		vClipPlanes[i]->Draw(apFunctions, 0);
+		vClipPlanes[i]->Draw(pDebugDraw, 0);
 	}
 
-	apFunctions->GetLowLevelGfx()->DrawSphere(mpViewport->GetVCamera()->GetTargetPosition(),0.1f, cColor(0,1,1,1));
-
-	apFunctions->SetMatrix(NULL);
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-	apFunctions->SetTextureRange(NULL,0);
-	apFunctions->SetProgram(NULL);
-	
-	apFunctions->SetDepthTest(false);
-	apFunctions->SetDepthWrite(false);
-
-	//apFunctions->GetLowLevelGfx()->DrawSphere(mpEditor->,0.1f, cColor(0,1,0,1));
-	const cVector3f& vRefMousePos = mpViewport->GetVCamera()->GetTrackRefMousePos();
-	const cVector3f& vMouseNewPos = mpViewport->GetVCamera()->GetTrackNewMousePos();
-	cVector3f vMousePos = mpViewport->GetMouseWorldPosition();
-	//mpViewport->GetVCamera()->ClampDistanceFromRefTarget(vMousePos, 40);
-	
-	//apFunctions->GetLowLevelGfx()->DrawSphere(vMousePos, 0.1f, cColor(0,1,0,1));
-	
-	//apFunctions->GetLowLevelGfx()->DrawLine(vRefMousePos, vMouseNewPos, cColor(1,0,0,1));
-	//apFunctions->GetLowLevelGfx()->DrawLine(vRefMousePos, 0, cColor(0,0,1,1));
-	//apFunctions->GetLowLevelGfx()->DrawLine(mpViewport->GetVCamera()->GetTrackRefMousePos(), mpViewport->GetVCamera()->GetTrackRefTargetPos()-mpViewport->GetVCamera()->GetTrackRefMousePos(), cColor(1,0,0,1));
-	//apFunctions->GetLowLevelGfx()->DrawLine(mpViewport->GetVCamera()->GetTrackRefTargetPos(), mpViewport->GetVCamera()->GetTrackNewMousePos(), cColor(1,0,0,1));
-	//apFunctions->GetLowLevelGfx()->DrawLine(mpViewport->GetVCamera()->GetTrackRefTargetPos(), vMousePos, cColor(0,1,0,1));
+	// Old HPL2 target-point gizmo — removed (viewport declutter, matches HPL3).
+	//pDebugDraw->DebugDrawSphere(mpViewport->GetVCamera()->GetTargetPosition(), 0.1f, cColor(0,1,1,1));
 
 	if(mpViewport->GetDrawDebug())
 	{
-		apFunctions->SetBlendMode(eMaterialBlendMode_Add);
+		// Quick temp debug code btw (legacy drew this depth-test-off)
+		DebugDraw::DebugDrawOptions overlayOptions;
+		overlayOptions.m_depthTest = DebugDraw::DebugDepthTest::Always;
 
-		// Quick temp debug code btw
 		cVector3f& vPos1 = mpViewport->vDebugLineStart;
 		cVector3f& vPos2 = mpViewport->vDebugLineEnd;
 		cVector3f& vGridPos = mpViewport->vDebugGridPos;
 		cVector3f& vSnapPos = mpViewport->vDebugSnappedGridPos;
 
-		apFunctions->GetLowLevelGfx()->DrawLine(vPos1,vPos2,cColor(0,0,1,1));
-		apFunctions->GetLowLevelGfx()->DrawSphere(vPos1, 0.01f, cColor(0,1,0,1));
-		apFunctions->GetLowLevelGfx()->DrawSphere(vPos2, 0.2f, cColor(0,1,0,1));
-		apFunctions->GetLowLevelGfx()->DrawSphere(vGridPos, 0.3f, cColor(1,0,0,1));
-		apFunctions->GetLowLevelGfx()->DrawSphere(vSnapPos, 0.3f, cColor(1,1,0,1));
-		
-		//apFunctions->GetLowLevelGfx()->DrawSphere(m->GetTarget(),0.1f, cColor(0,1,1,1));
+		pDebugDraw->DebugDrawLine(vPos1, vPos2, cColor(0,0,1,1), overlayOptions);
+		pDebugDraw->DebugDrawSphere(vPos1, 0.01f, cColor(0,1,0,1), overlayOptions);
+		pDebugDraw->DebugDrawSphere(vPos2, 0.2f, cColor(0,1,0,1), overlayOptions);
+		pDebugDraw->DebugDrawSphere(vGridPos, 0.3f, cColor(1,0,0,1), overlayOptions);
+		pDebugDraw->DebugDrawSphere(vSnapPos, 0.3f, cColor(1,1,0,1), overlayOptions);
 	}
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-}
 
-//--------------------------------------------------------------------
-
-void cViewportCallback::OnPostTranslucentDraw(cRendererCallbackFunctions* apFunctions)
-{
-	if(mpViewport==NULL)
-		return;
-
+	///////////////////////////////////////////
+	// Edit mode overlays (entity visuals, gizmos, creators)
 	cVector3f& vMousePos = mpEditor->GetPosOnGridFromMousePos();
-
-	apFunctions->SetMatrix(NULL);
-	apFunctions->SetTextureRange(NULL,0);
-	apFunctions->SetProgram(NULL);
-	
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(false);
-
 	iEditorEditMode* pEditMode = mpEditor->GetCurrentEditMode();
 
 	if(pEditMode)
-		pEditMode->DrawPreGrid(mpViewport, apFunctions, vMousePos);
-
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-
-	if(pEditMode)
-		pEditMode->DrawPostGrid(mpViewport, apFunctions, vMousePos);
+	{
+		pEditMode->DrawPreGrid(mpViewport, pDebugDraw, vMousePos);
+		pEditMode->DrawPostGrid(mpViewport, pDebugDraw, vMousePos);
+	}
 }
 
 //--------------------------------------------------------------------
@@ -204,10 +177,13 @@ cEditorWindowViewport::cEditorWindowViewport(iEditorBase* apEditor,
 	mbAddViewMenu = abAddViewMenu;
 
 	////////////////////////////////////
-	// Init renderer callback (grid,...)
+	// Init renderer callback (grid,...). Hook the overlay enqueue onto the
+	// engine viewport's pre-world-draw event — the RI renderer never runs
+	// iRendererCallback messages. The handler auto-disconnects on destruction.
 	mViewportCallback.mpEditor = apEditor;
 	mViewportCallback.mpViewport = this;
-	AddViewportCallback(&mViewportCallback);
+	mPreWorldDrawHandler = EventHandler<const WorldDrawCtx&>([this](const WorldDrawCtx&) { mViewportCallback.OnPreWorldDraw(); });
+	mPreWorldDrawHandler.Connect(GetEngineViewport()->OnPreWorldDraw());
 
 	vDebugGridPos = 0;
 	vDebugLineEnd = 0;
@@ -384,7 +360,10 @@ void cEditorWindowViewport::SetEnlarged(bool abX)
 		vPos = mvEnlargedPosition;
 		vSize = mvEnlargedSize;
 		vFBPos = cVector2l(0);
-		vFBSize = mpFB->GetSize();		
+		// RI backend: no legacy FB — the offscreen target sizes itself to the
+		// engine viewport, so the enlarged pane just uses its GUI pixel size.
+		vFBSize = mpFB ? mpFB->GetSize()
+					   : cVector2l((int)mvEnlargedSize.x, (int)mvEnlargedSize.y);
 	}
 	else
 	{
@@ -501,7 +480,7 @@ void cEditorWindowViewport::UpdateMenu()
 	else
 		mpMainMenuRenderModes[0]->SetEnabled(true);
 
-	for(int i=0;i<2;++i)
+	for(int i=0;i<eRenderer_LastEnum;++i)
 		mpMainMenuRenderModes[i]->SetChecked(mRenderMode==i);
 
     mpMainMenuShowGrid->SetChecked(GetDrawGrid());
@@ -717,8 +696,9 @@ void cEditorWindowViewport::OnInitLayout()
 		pSubItem1 = pItem->AddMenuItem(_W("Render mode"));
 		mpMainMenuRenderModes[0] = pSubItem1->AddMenuItem(_W("Shaded"));
 		mpMainMenuRenderModes[1] = pSubItem1->AddMenuItem(_W("Wireframe"));
+		mpMainMenuRenderModes[2] = pSubItem1->AddMenuItem(_W("Simple"));
 
-		for(int i=0;i<2;++i)
+		for(int i=0;i<eRenderer_LastEnum;++i)
 			mpMainMenuRenderModes[i]->AddCallback(eGuiMessage_ButtonPressed, this, kGuiCallback(MenuView_Rendering));
 
 		

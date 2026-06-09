@@ -425,6 +425,11 @@ namespace hpl {
 	{
 		mpWorld->RenderShapeDebugGeometry(mpShape,GetLocalMatrix(),apLowLevel, aColor);
 	}
+
+	void cPhysicsBodyNewton::RenderDebugGeometry(DebugDraw *apDebugDraw,const cColor &aColor)
+	{
+		mpWorld->RenderShapeDebugGeometry(mpShape,GetLocalMatrix(),apDebugDraw, aColor);
+	}
 	
 	//-----------------------------------------------------------------------
 

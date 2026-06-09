@@ -28,9 +28,6 @@ namespace hpl {
 
 	class iPhysicsJointSlider : public iPhysicsJoint
 	{
-	#ifdef __GNUC__
-		typedef iPhysicsJoint __super;
-	#endif
 	public:
 		iPhysicsJointSlider(const tString &asName, iPhysicsBody *apParentBody, iPhysicsBody *apChildBody,
 			iPhysicsWorld *apWorld,const cVector3f &avPivotPoint,const cVector3f &avPinDir)

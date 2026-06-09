@@ -103,50 +103,6 @@ void cMapHandlerSoundCallback::OnStart(cSoundEntity *apSoundEntity)
 
 
 //////////////////////////////////////////////////////////////////////////
-// RENDER CALLBACK
-//////////////////////////////////////////////////////////////////////////
-
-//-----------------------------------------------------------------------
-
-cLuxDebugRenderCallback::cLuxDebugRenderCallback()
-{
-}
-
-//-----------------------------------------------------------------------
-
-void cLuxDebugRenderCallback::OnPostSolidDraw(cRendererCallbackFunctions* apFunctions)
-{
-	if(mpPhysicsWorld)
-	{
-		apFunctions->SetMatrix(NULL);
-		apFunctions->SetBlendMode(eMaterialBlendMode_Alpha);
-		apFunctions->SetTextureRange(NULL,0);
-		apFunctions->SetProgram(NULL);
-		
-		apFunctions->SetDepthTest(true);
-		apFunctions->SetDepthWrite(false);
-
-		//mpPhysicsWorld->RenderDebugGeometry(apFunctions->GetLowLevelGfx(), cColor(1,1,1,1));
-	}
-
-	gpBase->mpDebugHandler->RenderSolid(apFunctions);
-	gpBase->mpMapHandler->RenderSolid(apFunctions);
-	gpBase->mpPlayer->RenderSolid(apFunctions);
-	gpBase->mpEffectRenderer->RenderSolid(apFunctions);
-}
-
-//-----------------------------------------------------------------------
-
-void cLuxDebugRenderCallback::OnPostTranslucentDraw(cRendererCallbackFunctions* apFunctions)
-{
-	gpBase->mpPlayer->RenderTrans(apFunctions);
-	gpBase->mpEffectRenderer->RenderTrans(apFunctions);
-}
-
-//-----------------------------------------------------------------------
-
-
-//////////////////////////////////////////////////////////////////////////
 // CONSTRUCTORS
 //////////////////////////////////////////////////////////////////////////
 
@@ -181,6 +137,7 @@ cLuxMapHandler::cLuxMapHandler() : iLuxUpdateable("LuxMapHandler")
 	cPostEffectParams_ToneMap tonemapParams;
 	tonemapParams.mfExposure = 1.0f;
 	tonemapParams.mfShadowLift = 1.0f;
+	tonemapParams.mfGamma = gpBase->mpConfigHandler->GetGamma();
 	mpPostEffect_ToneMap = pGraphics->CreatePostEffect(&tonemapParams);
 	pPostEffectComp->AddPostEffect(mpPostEffect_ToneMap, 0);
 
@@ -258,9 +215,31 @@ void cLuxMapHandler::OnStart()
 	mpViewport->AddGuiSet(gpBase->mpGameDebugSet);
 	mpViewport->AddGuiSet(gpBase->mpGameHudSet);
 
-    
-	mpViewport->AddRendererCallback(&mRenderCallback);
+	// RI path: enqueue all game debug overlays into the global DebugDraw
+	// batcher right before the renderer Draw — the Hybrid renderer never
+	// runs iRendererCallback messages.
+	mPreWorldDrawHandler = EventHandler<const WorldDrawCtx&>([this](const WorldDrawCtx&){ OnPreWorldDraw(); });
+	mPreWorldDrawHandler.Connect(mpViewport->OnPreWorldDraw());
+
+	// cLuxEffectRenderer composites the hover outline / pickup flash / enemy
+	// glow over the final lit image via its own OnPostWorldDraw handler.
+	gpBase->mpEffectRenderer->AttachViewport(mpViewport);
+
 	UpdateViewportRenderProperties();
+}
+
+//-----------------------------------------------------------------------
+
+void cLuxMapHandler::OnPreWorldDraw()
+{
+	DebugDraw* pDebugDraw = gpBase->mpEngine->GetGraphics()->GetDebugDraw();
+	if(pDebugDraw==NULL) return;
+
+	gpBase->mpDebugHandler->RenderSolid(pDebugDraw);
+	RenderSolid(pDebugDraw);
+	gpBase->mpPlayer->RenderSolid(pDebugDraw);
+	// NOTE: cLuxEffectRenderer (flash/glow/outline) is a real translucent
+	// effects pass, not debug shapes — ported separately.
 }
 
 //-----------------------------------------------------------------------
@@ -270,6 +249,21 @@ void cLuxMapHandler::UpdateViewportRenderProperties()
 	cRenderSettings *pRenderSettings = mpViewport->GetRenderSettings();
 	pRenderSettings->mbRenderWorldReflection = gpBase->mpConfigHandler->mbWorldReflection;
 	pRenderSettings->mbRenderShadows = gpBase->mpConfigHandler->mbShadowsActive;
+}
+
+//-----------------------------------------------------------------------
+
+void cLuxMapHandler::RefreshToneMapGamma()
+{
+	if(mpPostEffect_ToneMap == NULL) return;
+
+	// Rebuild with the constants used at creation (exposure/shadowLift = 1) plus
+	// the current config gamma, then re-apply.
+	cPostEffectParams_ToneMap tonemapParams;
+	tonemapParams.mfExposure = 1.0f;
+	tonemapParams.mfShadowLift = 1.0f;
+	tonemapParams.mfGamma = gpBase->mpConfigHandler->GetGamma();
+	mpPostEffect_ToneMap->SetParams(&tonemapParams);
 }
 
 //-----------------------------------------------------------------------
@@ -379,10 +373,10 @@ void cLuxMapHandler::SetUpdateActive(bool abX)
 
 //-----------------------------------------------------------------------
 
-void cLuxMapHandler::RenderSolid(cRendererCallbackFunctions* apFunctions)
+void cLuxMapHandler::RenderSolid(DebugDraw* apDebugDraw)
 {
 	//mpViewport->GetRenderSettings()->mbLog = false;
-	if(mpCurrentMap) mpCurrentMap->OnRenderSolid(apFunctions);
+	if(mpCurrentMap) mpCurrentMap->OnRenderSolid(apDebugDraw);
 }
 
 //-----------------------------------------------------------------------
@@ -483,9 +477,6 @@ void cLuxMapHandler::SetCurrentMap(cLuxMap* apMap, bool abRunScript, bool abFirs
 
 		//Set this as world in viewport
 		mpViewport->SetWorld(mpCurrentMap->GetWorld());
-
-		mRenderCallback.mpPhysicsWorld = mpCurrentMap->GetPhysicsWorld();
-		mRenderCallback.mpLowLevelGfx = gpBase->mpEngine->GetGraphics()->GetLowLevel();
 	}
 	else
 	{

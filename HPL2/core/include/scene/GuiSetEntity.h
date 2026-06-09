@@ -39,9 +39,6 @@ namespace hpl {
 
 	class cGuiSetEntity : public iRenderable
 	{
-	#ifdef __GNUC__
-		typedef iRenderable __super;
-	#endif
 	public:
 		cGuiSetEntity(const tString asName,cGuiSet *apSet);
 		~cGuiSetEntity();

@@ -272,32 +272,29 @@ void cEntityWrapperBone::RemoveChildBone(cEntityWrapperBone* apBone)
 
 //----------------------------------------------------------------------
 
-void cEntityWrapperBone::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, 
+void cEntityWrapperBone::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, 
 							  iEditorEditMode* apEditMode, bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol)
 {
 	iEntityWrapper::Draw(apViewport, apFunctions, apEditMode, abIsSelected);
 	cColor colJoint = abIsSelected?cColor(0,1,0,1):cColor(1,0,0,1);
 
-	apFunctions->SetDepthTest(false);
-	apFunctions->SetDepthWrite(false);
-	apFunctions->GetLowLevelGfx()->DrawSphere(mvPosition, 0.01f, colJoint);
+	DebugDraw::DebugDrawOptions overlayOptions;
+	overlayOptions.m_depthTest = DebugDraw::DebugDepthTest::Always;
+	apFunctions->DebugDrawSphere(mvPosition, 0.01f, colJoint, overlayOptions);
 	DrawBone(apViewport, apFunctions, apEditMode, abIsSelected);
 	for(int i=0;i<(int)mvChildBones.size();++i)
 		mvChildBones[i]->DrawBone(apViewport, apFunctions, apEditMode, abIsSelected);
 }
 
-void cEntityWrapperBone::DrawBone(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected)
+void cEntityWrapperBone::DrawBone(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected)
 {
 	if(mpVBBone)
 	{
-		apFunctions->SetProgram(NULL);
-		apFunctions->SetTextureRange(NULL,0);
-		apFunctions->SetMatrix(NULL);
-
-		apFunctions->SetTexture(0, NULL);
-			
-		apFunctions->SetVertexBuffer(mpVBBone);
-		apFunctions->DrawCurrent();
+		// Bones always render on top of the mesh (legacy drew with depth
+		// test off, set in cEntityWrapperBone::Draw).
+		DebugDraw::DebugDrawOptions overlayOptions;
+		overlayOptions.m_depthTest = DebugDraw::DebugDepthTest::Always;
+		apFunctions->DebugSolidFromVertexBuffer(mpVBBone, mBoneColor, overlayOptions);
 	}
 }
 
@@ -321,6 +318,8 @@ void cEntityWrapperBone::OnSetSelected(bool abX)
 
 void cEntityWrapperBone::SetBoneVBColor(const cColor& aCol)
 {
+	mBoneColor = aCol;
+
 	if(mpVBBone==NULL)
 		return;
 

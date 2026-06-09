@@ -22,4 +22,8 @@
 
 #include "hpl.h"
 
+// Editor overlays draw through the RI DebugDraw batcher (grids, gizmos,
+// selection wireframes) — every editor TU takes DebugDraw* in its Draw chain.
+#include "graphics/DebugDraw.h"
+
 #endif // EDITOR_STDAFX_H

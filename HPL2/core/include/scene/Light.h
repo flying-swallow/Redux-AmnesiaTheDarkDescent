@@ -82,9 +82,6 @@ namespace hpl {
 
 	class iLight : public iRenderable
 	{
-	#ifdef __GNUC__
-		typedef iRenderable __super;
-	#endif
 	public:
 		iLight(tString asName, cResources *apResources);
 		virtual ~iLight();
@@ -138,6 +135,10 @@ namespace hpl {
 
 		void AttachBillboard(cBillboard *apBillboard, const cColor &aBaseColor);
 		void RemoveBillboard(cBillboard *apBillboard);
+		// Re-sync one connected billboard's colour (base × this light's diffuse)
+		// and visibility — used by the editor when the connection's colour
+		// updates so the billboard tracks the light instead of desyncing.
+		void UpdateBillboard(cBillboard* apBillboard, const cColor& aBaseColor);
 		std::vector<cLightBillboardConnection>* GetBillboardVec(){ return &mvBillboards;}
 
 		//////////////////////////
@@ -150,11 +151,11 @@ namespace hpl {
 
         //////////////////////////
 		//Fading
-		void FadeTo(const cColor& aCol, float afRadius, float afTime);
+		void FadeTo(const cColor& aCol, float afIntensity, float afTime);
 		void StopFading();
 		bool IsFading();
 		cColor GetDestColor(){ return mDestCol;}
-		float GetDestRadius(){ return mfDestRadius;}
+		float GetDestIntensity(){ return mfDestIntensity;}
 
 
 		//////////////////////////
@@ -162,7 +163,7 @@ namespace hpl {
 		void SetFlickerActive(bool abX);
 		bool GetFlickerActive(){return mbFlickering;}
 
-		void SetFlicker(const cColor& aOffCol, float afOffRadius,
+		void SetFlicker(const cColor& aOffCol, float afOffIntensity,
 			float afOnMinLength, float afOnMaxLength,const tString &asOnSound,const tString &asOnPS,
 			float afOffMinLength, float afOffMaxLength,const tString &asOffSound,const tString &asOffPS,
 			bool abFade,	float afOnFadeMinLength, float afOnFadeMaxLength, 
@@ -177,7 +178,7 @@ namespace hpl {
 		float GetFlickerOnMaxLength(){ return mfFlickerOnMaxLength;}
 		float GetFlickerOffMaxLength(){ return mfFlickerOffMaxLength;}
 		cColor GetFlickerOffColor(){ return mFlickerOffColor;}
-		float GetFlickerOffRadius(){ return mfFlickerOffRadius;}
+		float GetFlickerOffIntensity(){ return mfFlickerOffIntensity;}
 		bool GetFlickerFade(){ return mbFlickerFade;}
 		float GetFlickerOnFadeMinLength(){ return mfFlickerOnFadeMinLength;}
 		float GetFlickerOnFadeMaxLength(){ return mfFlickerOnFadeMaxLength;}
@@ -185,7 +186,7 @@ namespace hpl {
 		float GetFlickerOffFadeMaxLength(){ return mfFlickerOnFadeMaxLength;}
 
 		cColor GetFlickerOnColor(){ return mFlickerOnColor;}
-		float GetFlickerOnRadius(){ return mfFlickerOnRadius;}
+		float GetFlickerOnIntensity(){ return mfFlickerOnIntensity;}
 
 		//////////////////////////
 		//Properties
@@ -220,12 +221,14 @@ namespace hpl {
 		void SetShadowMapBiasMul(float afX){ mfShadowMapBiasMul = afX;}
 		void SetShadowMapSlopeScaleBiasMul(float afX){ mfShadowMapSlopeScaleBiasMul = afX;}
 		
+		virtual void SetIntensity(float afX);
+		float GetIntensity(){return mfIntensity;}
+
 		virtual void SetRadius(float afX);
-		float GetRadius(){return mfRadius;}
+		float GetRadius() { return mfRadius; }
 
-
-		float GetSourceRadius(){ return mfSourceRadius;}
-		void SetSourceRadius(float afX){ mfSourceRadius = afX;}
+		void SetSourceRadius(float afX);
+		float GetSourceRadius(){ return mfSourceRadius; }
 
 		void UpdateLight(float afTimeStep);
 
@@ -266,8 +269,9 @@ namespace hpl {
 		cColor mDefaultDiffuseColor;
 
 		cColor mSpecularColor;
-		float mfSourceRadius;
+		float mfIntensity;
 		float mfRadius;
+		float mfSourceRadius;
 
 		bool mbCastShadows;
 		tObjectVariabilityFlag mlShadowCastersAffected;
@@ -280,9 +284,9 @@ namespace hpl {
 		///////////////////////////
 		//Fading.
 		cColor mColAdd;
-		float mfRadiusAdd;
+		float mfIntensityAdd;
 		cColor mDestCol;
-		float mfDestRadius;
+		float mfDestIntensity;
 		float mfFadeTime;
 
 		///////////////////////////
@@ -297,7 +301,7 @@ namespace hpl {
 		float mfFlickerOnMaxLength;
 		float mfFlickerOffMaxLength;
 		cColor mFlickerOffColor;
-		float mfFlickerOffRadius;
+		float mfFlickerOffIntensity;
 		bool mbFlickerFade;
 		float mfFlickerOnFadeMinLength;
 		float mfFlickerOnFadeMaxLength;
@@ -305,7 +309,7 @@ namespace hpl {
 		float mfFlickerOffFadeMaxLength;
 
 		cColor mFlickerOnColor;
-		float mfFlickerOnRadius;
+		float mfFlickerOnIntensity;
 
 		bool mbFlickerOn;
 		float mfFlickerTime;

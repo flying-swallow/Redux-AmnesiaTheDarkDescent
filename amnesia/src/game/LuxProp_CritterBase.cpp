@@ -19,6 +19,8 @@
 
 #include "LuxProp_CritterBase.h"
 
+#include "graphics/DebugDraw.h"
+
 #include "LuxPlayer.h"
 #include "LuxPlayerState.h"
 #include "LuxMap.h"
@@ -242,21 +244,21 @@ eLuxFocusCrosshair iLuxProp_CritterBase::GetFocusCrosshair(iPhysicsBody *apBody,
 
 //-----------------------------------------------------------------------
 
-void iLuxProp_CritterBase::OnRenderSolid(cRendererCallbackFunctions* apFunctions)
+void iLuxProp_CritterBase::OnRenderSolid(DebugDraw* apDebugDraw)
 {
 	return;
 	iPhysicsWorld *pPhysicsWorld = mpWorld->GetPhysicsWorld();
 
-	pPhysicsWorld->RenderShapeDebugGeometry(mpBody->GetShape(), mpBody->GetLocalMatrix(), apFunctions->GetLowLevelGfx(), cColor(1,1));
-	
-	apFunctions->GetLowLevelGfx()->DrawLine(mpBody->GetLocalPosition(), mpBody->GetLocalPosition()+mvGroundNormal*0.5f,cColor(1,0,0,1));
+	pPhysicsWorld->RenderShapeDebugGeometry(mpBody->GetShape(), mpBody->GetLocalMatrix(), apDebugDraw, cColor(1,1));
+
+	apDebugDraw->DebugDrawLine(mpBody->GetLocalPosition(), mpBody->GetLocalPosition()+mvGroundNormal*0.5f,cColor(1,0,0,1));
 	cVector3f vFwdDir = cMath::Vector3Normalize(mvVel==0 ? mlstFwdDirs.back() : mvVel);
-	apFunctions->GetLowLevelGfx()->DrawLine(mpBody->GetLocalPosition(), mpBody->GetLocalPosition()+vFwdDir*0.5f,cColor(0,1,0,1));
+	apDebugDraw->DebugDrawLine(mpBody->GetLocalPosition(), mpBody->GetLocalPosition()+vFwdDir*0.5f,cColor(0,1,0,1));
 
 	if(mpDamageShape)
 	{
 		//cVector3f vDir = cMath::Vector3Normalize(gpBase->mpPlayer->GetCharacterBody()->GetPosition() - mpBody->GetLocalPosition());
-		//pPhysicsWorld->RenderShapeDebugGeometry(mpDamageShape, GetAttackMatrix(vDir),apFunctions->GetLowLevelGfx(), cColor(1,1));
+		//pPhysicsWorld->RenderShapeDebugGeometry(mpDamageShape, GetAttackMatrix(vDir), apDebugDraw, cColor(1,1));
 	}
 
 
@@ -264,7 +266,7 @@ void iLuxProp_CritterBase::OnRenderSolid(cRendererCallbackFunctions* apFunctions
 	{
 		cSubMeshEntity *pSubEnt = mpMeshEntity->GetSubMeshEntity(i);
 		cBoundingVolume *pBV =  pSubEnt->GetBoundingVolume();
-		apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),cColor(1,1));
+		apDebugDraw->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),cColor(1,1));
 	}*/
 }
 

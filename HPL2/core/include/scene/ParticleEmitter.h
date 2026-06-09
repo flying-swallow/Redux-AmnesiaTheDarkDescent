@@ -198,7 +198,33 @@ namespace hpl {
 		bool IsVisible();
 		
 		//Renderable implementation
-		bool UpdateGraphicsForViewport(cFrustum *apFrustum,float afFrameTime);
+		// No UpdateGraphicsForViewport override — particles have no persistent
+		// VB; renderers call BuildScratchGeometry into the shared per-frame
+		// scratch buffers (one copy per viewport, billboarded to its camera).
+
+		// Placement of one frame/viewport's particle geometry inside the shared
+		// scratch buffers (RI.translucentVtx/IdxBuffer). All offsets are bytes.
+		struct ParticleScratchGeometry {
+			bool     valid = false;        // false ⇒ skip the draw (0 particles / faded / OOM)
+			uint32_t vertexCount = 0;      // numParticles * 4
+			uint32_t indexCount  = 0;      // numParticles * 6
+			size_t   posByteOffset = 0;    // into RI.translucentVtxBuffer
+			size_t   colByteOffset = 0;
+			size_t   uvByteOffset  = 0;    // valid only when abWithUv
+			size_t   idxByteOffset = 0;    // into RI.translucentIdxBuffer
+		};
+
+		/**
+		 * Build this frame/viewport's camera-facing quads + quad indices into
+		 * the shared per-frame scratch buffers (RI.translucentVtx/IdxBuffer) —
+		 * the single producer for all renderers (wireframe/simple panes bind
+		 * the returned offsets; the hybrid resolves them to BDAs). abWithUv
+		 * builds the uv stream too (8 vs 11 floats/vertex). Returns
+		 * {valid=false} when there's nothing to draw (no particles, distance-
+		 * faded, or scratch exhausted).
+		 */
+		ParticleScratchGeometry BuildScratchGeometry(cFrustum *apFrustum,
+													 float afFrameTime, bool abWithUv);
 
 		cMaterial *GetMaterial();
 		iVertexBuffer* GetVertexBuffer();
@@ -211,6 +237,15 @@ namespace hpl {
 		eRenderableType GetRenderType(){ return eRenderableType_ParticleEmitter;}
 
 	protected:
+		// Inner builder for BuildScratchGeometry: writes the camera-facing quads
+		// for apFrustum into caller memory (apPosArray: alPosStrideFloats floats/
+		// vertex; apColArray: 4 floats/vertex; apUvArray: 3 floats/vertex, NULL
+		// to skip — when given it is always filled). Returns false when
+		// distance-faded out.
+		bool BuildViewportVertices(cFrustum *apFrustum, float afFrameTime,
+								   float *apPosArray, int alPosStrideFloats,
+								   float *apColArray, float *apUvArray);
+
 		void SwapRemove(unsigned int alIndex);
 		cParticle* CreateParticle();
 
@@ -239,8 +274,6 @@ namespace hpl {
 
 		bool mbUpdateGfx;
 		bool mbUpdateBV;
-
-		iVertexBuffer *mpVtxBuffer;
 
 		std::vector<cPESubDivision> mvSubDivUV;
 

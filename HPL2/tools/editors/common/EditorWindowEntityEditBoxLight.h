@@ -43,6 +43,8 @@ protected:
 	void AddPropertyGobo(cWidgetTab* apParentTab);
 	void AddPropertyFalloffMap(cWidgetTab* apParentTab);
 	void AddPropertyRadius(cWidgetTab* apParentTab);
+	void AddPropertyCullingRadius(cWidgetTab* apParentTab);
+	void AddPropertySourceRadius(cWidgetTab* apParentTab);
 	void AddPropertyDiffuseColor(cWidgetTab* apParentTab);
 	void AddPropertyCastShadows(cWidgetTab* apParentTab);
 
@@ -77,6 +79,10 @@ protected:
 
 	cWidgetDummy* mpGroupRadius;
 	cEditorInputNumber* mpInpRadius;
+	cWidgetDummy* mpGroupCullingRadius;
+	cEditorInputNumber* mpInpCullingRadius;
+	cWidgetDummy* mpGroupSourceRadius;
+	cEditorInputNumber* mpInpSourceRadius;
 
 	cWidgetDummy* mpGroupGobo;
 	cEditorInputFile* mpInpGobo;

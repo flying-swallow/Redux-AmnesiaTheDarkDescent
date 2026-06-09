@@ -355,7 +355,7 @@ public:
 	cEditorWindowEntityEditBox* CreateEditBox(cEditorEditModeSelect* apEditMode) { return NULL; }
 	//iEntityWrapperData* CreateSpecificEntityWrapperData() { return CreateData(); }
 
-	//void Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected) {}
+	//void Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected) {}
 
 	//bool IsSaveable();
 	//void SaveToElement(cXmlElement* apElement);

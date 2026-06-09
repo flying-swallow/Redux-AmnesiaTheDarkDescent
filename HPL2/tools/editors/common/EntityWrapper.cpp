@@ -1354,7 +1354,7 @@ void iEntityWrapper::SetWorldMatrix(const cMatrixf& amtxX)
 
 //------------------------------------------------------------------
 
-void iEntityWrapper::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol)
+void iEntityWrapper::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol)
 {
 	if(mpIcon)
 		mpIcon->DrawIcon(apViewport, apFunctions, apEditMode, mbSelected, mvPosition, mbActive && mpType->IsActive(), aDisabledCol);
@@ -1370,21 +1370,21 @@ void iEntityWrapper::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFu
 		//const cVector3f& vPos = mpParent->GetPosition();
 		//cVector3f vHalfSize = pBV->GetSize()*0.5f;
 
-		//apFunctions->GetLowLevelGfx()->DrawBoxMinMax(vPos-vHalfSize, vPos+vHalfSize, cColor(1,0,0,1));
-		apFunctions->GetLowLevelGfx()->DrawLine(mvPosition, mpParent->GetPosition(), cColor(1,0,0,1));
+		//apFunctions->DebugDrawBoxMinMax(vPos-vHalfSize, vPos+vHalfSize, cColor(1,0,0,1));
+		apFunctions->DebugDrawLine(mvPosition, mpParent->GetPosition(), cColor(1,0,0,1));
 	}
 
 	tEntityWrapperListIt itChildren = mlstChildren.begin();
 	for(;itChildren!=mlstChildren.end();++itChildren)
 	{
 		iEntityWrapper* pEnt = *itChildren;
-		apFunctions->GetLowLevelGfx()->DrawLine(mvPosition, pEnt->GetPosition(), cColor(0,1,0,1));
+		apFunctions->DebugDrawLine(mvPosition, pEnt->GetPosition(), cColor(0,1,0,1));
 	}
 }
 
 //------------------------------------------------------------------
 
-void iEntityWrapper::DrawProgram(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iGpuProgram* apProg, const cColor& aCol)
+void iEntityWrapper::DrawProgram(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iGpuProgram* apProg, const cColor& aCol)
 {
 	if(mpEngineEntity)
 		mpEngineEntity->DrawProgram(apViewport, apFunctions, apProg, aCol);
@@ -2027,7 +2027,7 @@ iEditorAction* iEntityWrapper::SetUpAction(iEditorAction* apAction)
 
 //------------------------------------------------------------------
 
-void iEntityWrapper::DrawArrow(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, const cMatrixf& amtxTransform, float afLength, bool abKeepConstantSize, const cVector2f& avHeadSizeRatio, const cColor& aCol,float afOrthoConstant, float afPerspConstant)
+void iEntityWrapper::DrawArrow(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, const cMatrixf& amtxTransform, float afLength, bool abKeepConstantSize, const cVector2f& avHeadSizeRatio, const cColor& aCol,float afOrthoConstant, float afPerspConstant)
 {
 	if(abKeepConstantSize)
 	{
@@ -2071,13 +2071,15 @@ void iEntityWrapper::DrawArrow(cEditorWindowViewport* apViewport, cRendererCallb
 	mvArrowQuads[3][3].pos = cVector3f(-fXZ,-fY,fXZ);
 
 	cMatrixf mtxWorld = cMath::MatrixMul(amtxTransform, cMath::MatrixTranslate(cVector3f(0,afLength,0)));;
-	apFunctions->SetMatrix(&mtxWorld);
-	
-	apFunctions->GetLowLevelGfx()->DrawLine(cVector3f(0,-afLength,0), 0, aCol);
-	for(int i=0; i<4;++i)
-		apFunctions->GetLowLevelGfx()->DrawQuad(mvArrowQuads[i],aCol);
 
-	apFunctions->SetMatrix(NULL);
+	DebugDraw::DebugDrawOptions options;
+	options.m_transform = mtxWorld;
+
+	apFunctions->DebugDrawLine(cVector3f(0,-afLength,0), 0, aCol, options);
+	// Legacy GL_QUADS took perimeter order [0][1][2][3]; DebugDraw::DrawQuad
+	// expects strip order, so pass [0][1][3][2].
+	for(int i=0; i<4;++i)
+		apFunctions->DrawQuad(mvArrowQuads[i][0].pos, mvArrowQuads[i][1].pos, mvArrowQuads[i][3].pos, mvArrowQuads[i][2].pos, aCol, options);
 }
 
 //------------------------------------------------------------------
@@ -2692,7 +2694,7 @@ void iEntityWrapperAggregate::UpdateEntity()
 //-------------------------------------------------------------------
 
 /*
-void iEntityWrapperAggregate::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected)
+void iEntityWrapperAggregate::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected)
 {
 	if(abIsSelected==false)
 		return;
@@ -2702,7 +2704,7 @@ void iEntityWrapperAggregate::Draw(cEditorWindowViewport* apViewport, cRendererC
 		iEntityWrapper* pEnt = *it;
 		cBoundingVolume* pBV = pEnt->GetPickBV(NULL);
 
-		apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(), pBV->GetMax(), cColor(1,0,0,1));
+		apFunctions->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(), cColor(1,0,0,1));
 	}
 
 }

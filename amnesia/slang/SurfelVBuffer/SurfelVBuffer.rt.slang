@@ -24,6 +24,8 @@ import bindless;
 import HitInfo;
 import PerFrame.resource;
 import Brdf;
+import BindlessTriangle;               // BindlessTriangleVtx (raw tri UVs for POM)
+import Parallax;                       // parallaxOcclusionUV (height-map relief march)
 import TranslucentPass.WaterCommon;   // waterWaveNormalTangent (shared with Water.frag)
 
 // Resolution comes from DispatchRaysDimensions() — no per-pass CB.
@@ -96,6 +98,66 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
     triangleHit.primitiveIndex = PrimitiveIndex();
     triangleHit.barycentrics   = attribs.barycentrics;
 
+    uint materialID = gScene.getMaterialID(triangleHit.instanceID);
+
+    // Parallax occlusion mapping for primary hits on height-mapped opaque
+    // diffuse surfaces. The V-buffer stores only barycentrics, so we express the
+    // parallax UV shift as a barycentric perturbation: getVertexData downstream
+    // then reconstructs the occluded point (UV + position + normal) everywhere
+    // with no consumer changes. Water/glass refract instead (handled below) and
+    // are deliberately skipped.
+    if (payload.length == 0u
+        && materialID < kSolidMaterialCapacity
+        && !gScene.materials.isWater(materialID)
+        && !gScene.materials.isRefractive(materialID))
+    {
+        DiffuseMaterial m = gScene.getDiffuseMaterial(materialID);
+        if ((m.materialConfig & kMaterialFlagEnableHeight) != 0u
+            && m.tex[4] != kInvalidTextureIndex)
+        {
+            BindlessTriangleVtx vtx;
+            VertexData v = gScene.getVertexDataAndTri(triangleHit, vtx);
+
+            // World TBN. The bitangent must match the convention the height-map
+            // UVs were authored against — the legacy parallax basis
+            // (deferred_base_vtx.glsl gvBinormal): cross(normal, tangent) *
+            // handedness. (Note this is the OPPOSITE sign from the new
+            // renderer's normal-map bitangent in Translucent.vert.slang; using
+            // that one parallaxes the wrong way along V.) Handedness is constant
+            // across a triangle, so vtx.tangentL[0].w is representative.
+            float3 N = normalize(v.normalW);
+            float3 T = normalize(v.tangentW - N * dot(N, v.tangentW));
+            float3 B = normalize(cross(N, T)) * vtx.tangentL[0].w;
+
+            bool single = (m.materialConfig & kMaterialFlagIsHeightMapSingleChannel) != 0u;
+            float2 newUv = parallaxOcclusionUV(
+                m.tex[4], m.heightMapScale * kParalaxScale, single,
+                normalize(payload.direction), N, T, B, v.texC);
+            float2 duv = newUv - v.texC;
+
+            // Invert the UV delta into a barycentric delta using the triangle's
+            // UV edge vectors (UV is affine in barycentrics within a triangle).
+            float2 E1 = vtx.uv[1] - vtx.uv[0];
+            float2 E2 = vtx.uv[2] - vtx.uv[0];
+            float det = E1.x * E2.y - E2.x * E1.y;
+            if (abs(det) >= 1.0e-12f)
+            {
+                float invDet = 1.0f / det;
+                float db1 = invDet * ( E2.y * duv.x - E2.x * duv.y);
+                float db2 = invDet * (-E1.y * duv.x + E1.x * duv.y);
+
+                float nb1 = triangleHit.barycentrics.x + db1;
+                float nb2 = triangleHit.barycentrics.y + db2;
+                float nb0 = 1.0f - nb1 - nb2;
+                // Only commit when the occluded point stays on this triangle;
+                // otherwise keep the flat hit (avoids sampling off-triangle and
+                // the resulting seam swimming).
+                if (nb0 >= 0.0f && nb1 >= 0.0f && nb2 >= 0.0f)
+                    triangleHit.barycentrics = float2(nb1, nb2);
+            }
+        }
+    }
+
     // All hits write the primary V-buffer. Water/glass refraction re-traces as a
     // kind-0 bounce (length 1) that clobbers gPackedHitInfo with the refracted
     // background — there are no separate bounce buffers anymore (reflection moved
@@ -106,8 +168,6 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
     // just keep the closest hit recorded above.
     if (payload.length != 0u)
         return;
-
-    uint materialID = gScene.getMaterialID(triangleHit.instanceID);
 
     // Water surface: re-trace the refraction ray as a kind-0 bounce (length 1)
     // that clobbers gPackedHitInfo with the underwater background — exactly the

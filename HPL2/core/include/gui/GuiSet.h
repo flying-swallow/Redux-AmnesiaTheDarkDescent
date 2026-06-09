@@ -33,6 +33,7 @@ namespace hpl {
 	class cGraphics;
 	class cSound;
 	class cScene;
+	class cViewport;
 
 	class cFrustum;
 	class iFontData;
@@ -54,6 +55,8 @@ namespace hpl {
 	class cWidgetListBox;
 	class cWidgetMultiPropertyListBox;
 	class cWidgetComboBox;
+	class cWidgetNodeTree;
+	class cWidgetMeshObjectList;
 	class cWidgetMenuItem;
 	class cWidgetContextMenu;
 	class cWidgetMainMenu;
@@ -186,7 +189,14 @@ namespace hpl {
 
 		////////////////////////////////////
 		// Rendering
-		void Render(cFrustum *apFrustum);
+		// apViewport tells the set whether the rendering instance it draws
+		// inside has a depth attachment (viewport->GetDepthView() — whoever
+		// opened the instance attached the same view). The cached pipelines
+		// key on it so their depthAttachmentFormat matches the actual
+		// attachments; nullptr (or a viewport with no depth — GUI-only menu
+		// frames) renders the no-depth variant, and 3D-GUI depth testing only
+		// applies when a depth view exists.
+		void Render(cFrustum *apFrustum, cViewport *apViewport = nullptr);
 
 		void ClearRenderObjects();
 
@@ -263,6 +273,15 @@ namespace hpl {
 											float afNumericAdd=1.0f,
 											bool abShowButtons=true,
 											const tString& asName = "" );
+
+		cWidgetNodeTree* CreateWidgetNodeTree(float afContainerWidth=0,
+											iWidget *apParent=NULL,
+											const tString& asName = "");
+
+		cWidgetMeshObjectList* CreateWidgetMeshObjectList(const cVector3f& avLocalPos=0,
+											const cVector2f& avSize=0,
+											iWidget* apParent=NULL,
+											const tString& asName = "");
 
 		cWidgetCheckBox* CreateWidgetCheckBox(const cVector3f &avLocalPos=0,
 											const cVector2f &avSize=0,

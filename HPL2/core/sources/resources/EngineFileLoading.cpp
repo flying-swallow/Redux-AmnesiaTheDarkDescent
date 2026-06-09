@@ -304,7 +304,46 @@ namespace hpl {
 		pLight->SetCastShadows(apElement->GetAttributeBool("CastShadows", false));
 		pLight->SetDiffuseColor(apElement->GetAttributeColor("DiffuseColor", cColor(1)));
 		pLight->SetDefaultDiffuseColor(pLight->GetDiffuseColor());
-		pLight->SetRadius(apElement->GetAttributeFloat("Radius", 1));
+		// Light brightness = "Intensity", reach = "Radius". Two input shapes:
+		//   - new map: authors "Intensity" + "Radius" (reach) explicitly.
+		//   - original/old map: only "Radius", which the PBR model uses directly
+		//     AS the intensity (matches the shipped renderer). The cull reach is
+		//     derived from intensity: the distance where the brightest channel's
+		//     radiance dims to kLightRadianceFloor. Constants mirror
+		//     amnesia/slang/Constants.h.
+		{
+			const float kLightRadianceFloor       = 0.005f;
+			const float kPointLightSourceRadiusSq = 0.25f;
+			auto sRGBToLinear = [](float c){
+				return c <= 0.04045f ? c/12.92f : powf((c+0.055f)/1.055f, 2.4f); };
+			// reach where color·intensity·1/(d²+srcSq) falls to the radiance floor.
+			auto deriveReach = [&](float afIntensity){
+				const cColor c = pLight->GetDiffuseColor();
+				const float maxC = std::max(sRGBToLinear(c.r),
+									std::max(sRGBToLinear(c.g), sRGBToLinear(c.b)));
+				const float reachSq = maxC > 0.f
+					? maxC * afIntensity / kLightRadianceFloor - kPointLightSourceRadiusSq
+					: 0.f;
+				return reachSq > 0.f ? sqrtf(reachSq) : afIntensity;
+			};
+
+			float fIntensity, fReach;
+			if(apElement->GetAttribute("Intensity"))
+			{
+				fIntensity = apElement->GetAttributeFloat("Intensity", 1);
+				fReach     = apElement->GetAttributeFloat("Radius", deriveReach(fIntensity));
+			}
+			else
+			{
+				// Old map: "Radius" is the value the PBR renderer treats as
+				// intensity; reach is derived so existing maps look unchanged.
+				fIntensity = apElement->GetAttributeFloat("Radius", 1);
+				fReach     = deriveReach(fIntensity);
+			}
+			pLight->SetIntensity(fIntensity);
+			pLight->SetRadius(fReach);
+			pLight->SetSourceRadius(apElement->GetAttributeFloat("SourceRadius", 0.f));
+		}
 
 		pLight->SetShadowMapResolution( ToShadowMapResolution(apElement->GetAttributeString("ShadowResolution", "High")) );
 		

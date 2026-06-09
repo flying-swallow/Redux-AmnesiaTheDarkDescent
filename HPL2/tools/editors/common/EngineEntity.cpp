@@ -109,6 +109,7 @@ float iEngineEntityMesh::mfDisabledCoverage = 0.5f;
 
 iEngineEntityMesh::iEngineEntityMesh(iEntityWrapper* apParent) : iEngineEntity(apParent), mpMesh(NULL)
 {
+	mbShowMesh = true;
 }
 
 iEngineEntityMesh::~iEngineEntityMesh()
@@ -178,55 +179,51 @@ void iEngineEntityMesh::Update()
 void iEngineEntityMesh::UpdateVisibility()
 {
 	Update();
-	((cMeshEntity*)mpEntity)->SetVisible(mpParent->IsVisible() && mpParent->IsCulledByClipPlanes()==false);
+	// Blocker meshes (ShowMesh=false in the loader) follow the Blockers
+	// visibility toggle; normal meshes are always allowed.
+	bool bBlockerVis = true;
+	if(!mbShowMesh)
+		bBlockerVis = cEditorHelper::GetVisibilityTypeState(eEditorVisibilityType_Blockers);
+	((cMeshEntity*)mpEntity)->SetVisible(mpParent->IsVisible() && mpParent->IsCulledByClipPlanes()==false && bBlockerVis);
 }
 
 //-----------------------------------------------------------------------
 
-void iEngineEntityMesh::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, bool abIsSelected,	bool abIsActive, const cColor& aHighlightCol)
+void iEngineEntityMesh::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, bool abIsSelected,	bool abIsActive, const cColor& aHighlightCol)
 {
 	if(abIsSelected==false)
 		return;
 
-	apFunctions->SetBlendMode(eMaterialBlendMode_Alpha);
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(false);
-
 	cMeshEntity* pMeshEntity = GetMeshEntity();
 	for(int i=0;i<pMeshEntity->GetSubMeshEntityNum();++i)
 	{
 		cSubMeshEntity* pSubMeshEntity = pMeshEntity->GetSubMeshEntity(i);
-		apFunctions->SetMatrix(pSubMeshEntity->GetModelMatrix(NULL));
-		apFunctions->DrawWireFrame(pSubMeshEntity->GetVertexBuffer(), aHighlightCol);
+
+		DebugDraw::DebugDrawOptions options;
+		cMatrixf* pModelMtx = pSubMeshEntity->GetModelMatrix(NULL);
+		if(pModelMtx) options.m_transform = *pModelMtx;
+
+		apFunctions->DebugWireFrameFromVertexBuffer(pSubMeshEntity->GetVertexBuffer(), aHighlightCol, options);
 	}
-	apFunctions->SetMatrix(NULL);
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-	apFunctions->SetDepthTest(false);
 }
 
 //-----------------------------------------------------------------------
 
-void iEngineEntityMesh::DrawProgram(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iGpuProgram* apProg, const cColor& aCol)
+void iEngineEntityMesh::DrawProgram(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iGpuProgram* apProg, const cColor& aCol)
 {
-	apFunctions->SetBlendMode(eMaterialBlendMode_Alpha);
-	apFunctions->SetDepthTest(true);
-	apFunctions->SetDepthWrite(false);
-	apFunctions->SetProgram(apProg);
-	apFunctions->SetTextureRange(NULL, 0);
-
+	// Legacy drew the submeshes through a flat-color GPU program; the batcher
+	// equivalent is a solid tinted triangle walk over the vertex buffers.
 	cMeshEntity* pMeshEntity = GetMeshEntity();
 	for(int i=0;i<pMeshEntity->GetSubMeshEntityNum();++i)
 	{
 		cSubMeshEntity* pSubMeshEntity = pMeshEntity->GetSubMeshEntity(i);
-		apFunctions->SetMatrix(pSubMeshEntity->GetModelMatrix(NULL));
-		apFunctions->SetVertexBuffer(pSubMeshEntity->GetVertexBuffer());
-		apFunctions->GetLowLevelGfx()->SetColor(aCol);
-		
-		apFunctions->DrawCurrent();
+
+		DebugDraw::DebugDrawOptions options;
+		cMatrixf* pModelMtx = pSubMeshEntity->GetModelMatrix(NULL);
+		if(pModelMtx) options.m_transform = *pModelMtx;
+
+		apFunctions->DebugSolidFromVertexBuffer(pSubMeshEntity->GetVertexBuffer(), aCol, options);
 	}
-	apFunctions->SetMatrix(NULL);
-	apFunctions->SetBlendMode(eMaterialBlendMode_None);
-	apFunctions->SetDepthTest(false);
 }
 
 //-----------------------------------------------------------------------
@@ -373,6 +370,10 @@ bool cEngineEntityLoadedMeshAggregate::Create(const tString& asName)
 	mvParticleSystems = pLoader->GetParticleSystems();
 	mvSounds = pLoader->GetSounds();
 
+	// "ShowMesh"=false marks a blocker entity — its mesh follows the Blockers
+	// visibility toggle (iEngineEntityMesh::UpdateVisibility).
+	mbShowMesh = pLoader->GetVarBool("ShowMesh", true);
+
 	for(int i=0;i<(int)mvLights.size();++i)
 		mpEntity->AddChild(mvLights[i]);
 	for(int i=0;i<(int)mvBillboards.size();++i)
@@ -399,10 +400,25 @@ void cEngineEntityLoadedMeshAggregate::Update()
 	bool bLightsVisible = pWorld->GetTypeVisibility(eEditorEntityType_Light);
 	bool bPSVisible = pWorld->GetTypeVisibility(eEditorEntityType_ParticleSystem);
 
+	bool bLit = mbLightsActive && bLightsVisible && bActive && bVisible;
 	for(int i=0;i<(int)mvLights.size();++i)
-		mvLights[i]->SetVisible(mbLightsActive && bLightsVisible && bActive && bVisible);
+		mvLights[i]->SetVisible(bLit);
+
+	// Preview-only illumination toggle: when the lamp's own lights are hidden,
+	// drop the mesh's illumination maps too so the geometry shows unlit (HPL3
+	// editor behavior). Mirrors the per-submesh glow scalar the renderer reads.
+	cMeshEntity* pMeshEntity = GetMeshEntity();
+	for(int i=0;i<pMeshEntity->GetSubMeshEntityNum();++i)
+		pMeshEntity->GetSubMeshEntity(i)->SetIlluminationAmount(bLit ? 1.0f : 0.0f);
+
 	for(int i=0;i<(int)mvParticleSystems.size();++i)
 		mvParticleSystems[i]->SetVisible(mbParticleSystemsActive && bPSVisible && bActive && bVisible);
+
+	// Connected billboards follow the Billboard type-visibility toggle (HPL3
+	// editor; the billboards were previously left always-visible). (7dc1fc5)
+	bool bBillboardsVisible = pWorld->GetTypeVisibility(eEditorEntityType_Billboard);
+	for(int i=0;i<(int)mvBillboards.size();++i)
+		mvBillboards[i]->SetVisible(mbBillboardsActive && bBillboardsVisible && bActive && bVisible);
 }
 
 //-----------------------------------------------------------------------
@@ -483,7 +499,7 @@ bool iIconEntity::CheckRayIntersect(cEditorWindowViewport* apViewport, cVector3f
 }
 
 void iIconEntity::Draw(cEditorWindowViewport* apViewport, 
-					  cRendererCallbackFunctions* apFunctions, 
+					  DebugDraw* apFunctions, 
 					  bool abIsSelected,
 					  bool abIsActive,
 					  const cColor& aHighlightCol)

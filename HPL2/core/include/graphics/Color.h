@@ -20,6 +20,7 @@
 #ifndef HPL_COLOR_H
 #define HPL_COLOR_H
 
+#include <cmath>
 #include <list>
 #include <vector>
 
@@ -59,6 +60,24 @@ namespace hpl {
 
 		void FromVec(float *apV);
 	};
+
+	// sRGB → linear transfer (IEC 61966-2-1). Inverse of the swapchain's write
+	// encode; brings an artist-authored / display-space channel into the
+	// shaders' linear lighting space (and the linear HDR pogo target that
+	// additive effects blend into). Used by HybridRenderer for light/fog
+	// colours and by cLuxEffectRenderer for its glow colours.
+	inline float sRGBToLinear(float afC)
+	{
+		if (afC <= 0.04045f) return afC / 12.92f;
+		return std::pow((afC + 0.055f) / 1.055f, 2.4f);
+	}
+
+	// Per-channel sRGB → linear; alpha is a linear weight and is left untouched.
+	inline cColor sRGBToLinear(const cColor &aCol)
+	{
+		return cColor(sRGBToLinear(aCol.r), sRGBToLinear(aCol.g),
+					  sRGBToLinear(aCol.b), aCol.a);
+	}
 
 	typedef std::list<cColor> tColorList;
 	typedef tColorList::iterator tColorListIt;

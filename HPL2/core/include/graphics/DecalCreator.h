@@ -35,6 +35,7 @@ namespace hpl {
 	class cSubMeshEntity;
 	class cRendererCallbackFunctions;
 	class cBoundingVolume;
+	class DebugDraw;
 
 	class cDecalCreator
 	{
@@ -78,7 +79,12 @@ namespace hpl {
 		iVertexBuffer* GetVB() { return mpDecalVB; }
 		cMaterial* GetMaterial() { return mpDecalMaterial; }
 
+		// Legacy-renderer-only: kept for the un-built NewEditors tree; the RI
+		// editors use the DebugDraw overload below.
 		void DrawDebug(cRendererCallbackFunctions* apFunctions, bool abDrawAxes, bool abDrawWireframe);
+		// RI path: preview through the DebugDraw batcher. The decal mesh draws
+		// as a solid tinted shape (the batcher has no textured-mesh path).
+		void DrawDebug(DebugDraw* apDebugDraw, bool abDrawAxes, bool abDrawWireframe);
 
 		cBoundingVolume* GetDecalBoundingVolume();
 

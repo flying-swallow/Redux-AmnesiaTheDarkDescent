@@ -19,6 +19,8 @@
 
 #include "LuxDebugHandler.h"
 
+#include "graphics/DebugDraw.h"
+
 #include "LuxMap.h"
 #include "LuxPlayer.h"
 #include "LuxPlayerHands.h"
@@ -108,7 +110,6 @@ void cLuxDebugHandler::LoadUserConfig()
 {
 	////////////////////
 	// DEBUG!!!
-	//cRendererDeferred::SetOcclusionTest(false);
 
 	//////////////////////
 	//Load from config
@@ -635,22 +636,20 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 
 //-----------------------------------------------------------------------
 
-void cLuxDebugHandler::RenderSolid(cRendererCallbackFunctions* apFunctions)
+void cLuxDebugHandler::RenderSolid(DebugDraw* apDebugDraw)
 {
 	if(mbInspectionMode && mpInspectMeshEntity)
 	{
-		apFunctions->SetBlendMode(eMaterialBlendMode_None);
-		apFunctions->SetDepthTest(true);
-		apFunctions->SetDepthWrite(false);
+		DebugDraw::DebugDrawOptions options;
+		cMatrixf* pModelMtx = mpInspectMeshEntity->GetModelMatrix(NULL);
+		if(pModelMtx) options.m_transform = *pModelMtx;
 
-		apFunctions->SetMatrix(mpInspectMeshEntity->GetModelMatrix(NULL));
-		apFunctions->DrawWireFrame(mpInspectMeshEntity->GetVertexBuffer(), cColor(1,1,1,1));
-		apFunctions->SetMatrix(NULL);
+		apDebugDraw->DebugWireFrameFromVertexBuffer(mpInspectMeshEntity->GetVertexBuffer(), cColor(1,1,1,1), options);
 	}
 
 	if(mbDrawPhysics)
 	{
-		gpBase->mpMapHandler->GetCurrentMap()->GetPhysicsWorld()->RenderDebugGeometry(apFunctions->GetLowLevelGfx(), cColor(0.5f));
+		gpBase->mpMapHandler->GetCurrentMap()->GetPhysicsWorld()->RenderDebugGeometry(apDebugDraw, cColor(0.5f));
 	}
 }
 

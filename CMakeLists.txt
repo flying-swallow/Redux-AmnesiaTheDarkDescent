@@ -54,9 +54,14 @@ execute_process(
         OUTPUT_STRIP_TRAILING_WHITESPACE
         )
 
-# option(WITH_TOOLS "build HPL2 with tools" ON)
+option(WITH_TOOLS "build HPL2 with tools" ON)
 
 add_subdirectory(extern)
 add_subdirectory(HPL2)
 add_subdirectory(amnesia)
+if(WITH_TOOLS)
+    # After HPL2 so the HPL2 target, the global GenerateBuildID function and
+    # the cached BUILDID_SUFFIX/BUILDID_BIN are available to the tool targets.
+    add_subdirectory(HPL2/tools)
+endif()
 

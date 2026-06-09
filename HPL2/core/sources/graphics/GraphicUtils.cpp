@@ -81,7 +81,8 @@ namespace hpl {
 		}
 
 		void WalkAndPrepareRenderList(iRenderableContainer* container, cFrustum* frustum,
-			std::function<void(iRenderable*)> handler, tRenderableFlag renderableFlag) {
+			std::function<void(iRenderable*)> handler, tRenderableFlag renderableFlag,
+			bool abIgnoreFrustumCull) {
 
 			std::function<void(iRenderableContainerNode * childNode)> walkRenderables;
 			walkRenderables = [&](iRenderableContainerNode* parentNode) {
@@ -89,7 +90,7 @@ namespace hpl {
 				for (auto& childNode : parentNode->GetChildNodes()) {
 					childNode->UpdateBeforeUse();
 					eCollision frustumCollision = frustum->CollideNode(childNode);
-					if (frustumCollision == eCollision_Outside) {
+					if (frustumCollision == eCollision_Outside && abIgnoreFrustumCull==false) {
 						continue;
 					}
 					if (frustum->CheckAABBNearPlaneIntersection(childNode->GetMin(), childNode->GetMax())) {

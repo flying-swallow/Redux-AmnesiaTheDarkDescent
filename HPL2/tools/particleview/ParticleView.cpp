@@ -19,6 +19,8 @@
 
 #include <hpl.h>
 
+#include "graphics/DebugDraw.h"
+
 #include "../../tests/Common/SimpleCamera.h"
 
 using namespace hpl;
@@ -52,7 +54,10 @@ cPostEffectComposite *gpPostEffectComp=NULL;
 
 //--------------------------------------------------------------------------------
 
-class cSimpleRenderCallback : public iRendererCallback
+// RI path: enqueue the overlay into the global DebugDraw batcher right
+// before the renderer Draw — the Hybrid renderer never runs
+// iRendererCallback messages.
+class cSimpleRenderCallback
 {
 public:
 	cSimpleRenderCallback()
@@ -60,27 +65,22 @@ public:
 
 	};
 
-	void OnPostSolidDraw(cRendererCallbackFunctions *apFunctions)
+	void OnPreWorldDraw()
 	{
-		apFunctions->SetDepthTest(true);
-		apFunctions->SetDepthWrite(false);
-		apFunctions->SetBlendMode(eMaterialBlendMode_None);
-
-		apFunctions->SetProgram(NULL);
-		apFunctions->SetTextureRange(NULL, 0);
-		apFunctions->SetMatrix(NULL);
+		DebugDraw* pDebugDraw = gpEngine->GetGraphics()->GetDebugDraw();
+		if(pDebugDraw==NULL) return;
 
 		/*for(size_t i=0; i<gvLights.size(); ++i)
 		{
 			cLightSpot *pLight = gvLights[i];
 
-            pLight->GetFrustum()->Draw(apFunctions->GetLowLevelGfx());
+            pLight->GetFrustum()->Draw(...);
 		}*/
 
 		if(gbDrawBoundingBox && gpParticleSystem)
 		{
 			cBoundingVolume *pBV = gpParticleSystem->GetBoundingVolume();
-			apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(),pBV->GetMax(), cColor(1,1));
+			pDebugDraw->DebugDrawBoxMinMax(pBV->GetMin(),pBV->GetMax(), cColor(1,1));
 		}
 
 		if(gbDrawGrid)
@@ -90,32 +90,29 @@ public:
 			float fStart = fSize *0.5f * (float)lNum + fSize;
 			float fEnd = fSize *0.5f* (float)-lNum - fSize;
 			float fY = -0.1;//gpFloor->GetWorldPosition().y + 0.05f;
-			
+
 			for(int i=-lNum/2; i<lNum/2+1;++i)
 			{
 				float fPos = fSize * (float)i;
-				apFunctions->GetLowLevelGfx()->DrawLine(cVector3f(fPos,fY,fStart),cVector3f(fPos,fY,fEnd),cColor(0.5f,1));
-				apFunctions->GetLowLevelGfx()->DrawLine(cVector3f(fStart,fY,fPos),cVector3f(fEnd,fY,fPos),cColor(0.5f,1));
+				pDebugDraw->DebugDrawLine(cVector3f(fPos,fY,fStart),cVector3f(fPos,fY,fEnd),cColor(0.5f,1));
+				pDebugDraw->DebugDrawLine(cVector3f(fStart,fY,fPos),cVector3f(fEnd,fY,fPos),cColor(0.5f,1));
 			}
-			
+
 		}
 
 		if(gbDrawAxes)
 		{
+			// Legacy drew the axes depth-test-off (always on top).
+			DebugDraw::DebugDrawOptions overlayOptions;
+			overlayOptions.m_depthTest = DebugDraw::DebugDepthTest::Always;
+
 			cVector3f vPosAdd = cVector3f(0, 0.01f, 0);
-			apFunctions->SetDepthTest(false);
-			apFunctions->GetLowLevelGfx()->DrawLine(0,cVector3f(1,0,0)+vPosAdd,cColor(1,0,0,1));
-			apFunctions->GetLowLevelGfx()->DrawLine(0,cVector3f(0,1,0)+vPosAdd,cColor(0,1,0,1));
-			apFunctions->GetLowLevelGfx()->DrawLine(0,cVector3f(0,0,1)+vPosAdd,cColor(0,0,1,1));
-			apFunctions->SetDepthTest(true);
+			pDebugDraw->DebugDrawLine(0,cVector3f(1,0,0)+vPosAdd,cColor(1,0,0,1), overlayOptions);
+			pDebugDraw->DebugDrawLine(0,cVector3f(0,1,0)+vPosAdd,cColor(0,1,0,1), overlayOptions);
+			pDebugDraw->DebugDrawLine(0,cVector3f(0,0,1)+vPosAdd,cColor(0,0,1,1), overlayOptions);
 		}
    	}
-	
-	void OnPostTranslucentDraw(cRendererCallbackFunctions *apFunctions)
-	{
 
-	}
-	
 	cWorld *mpWorld;
 	iPhysicsWorld *mpPhysicsWorld;
 	cVector3f mvDragPos;
@@ -304,7 +301,8 @@ public:
 		gpEngine->GetInput()->GetLowLevel()->LockInput(false);
 
 		cRenderSettings *pSettings = gpSimpleCamera->GetViewport()->GetRenderSettings();
-		gpSimpleCamera->GetViewport()->AddRendererCallback(&renderCallback);
+		mPreWorldDrawHandler = EventHandler<const WorldDrawCtx&>([this](const WorldDrawCtx&){ renderCallback.OnPreWorldDraw(); });
+		mPreWorldDrawHandler.Connect(gpSimpleCamera->GetViewport()->OnPreWorldDraw());
 		
 		gpSimpleCamera->SetMouseMode(true);
 
@@ -672,7 +670,8 @@ public:
 	iPhysicsWorld *mpPhysicsWorld;
 	
 	cSimpleRenderCallback renderCallback;
-		
+	EventHandler<const WorldDrawCtx&> mPreWorldDrawHandler;
+
 	cWidgetWindow *mpOptionWindow;
 
 	tWStringVec mvPickedFiles;
@@ -698,9 +697,6 @@ int hplMain(const tString &asCommandline)
 
 	//iResourceBase::SetLogCreateAndDelete(true);
 	//iGpuProgram::SetLogDebugInformation(true); 
-	cRendererDeferred::SetGBufferType(eDeferredGBuffer_32Bit);
-	cRendererDeferred::SetNumOfGBufferTextures(3);
-	cRendererDeferred::SetSSAOLoaded(true);
 
 	SetLogFile(_W("particleview.log"));
 	

@@ -36,6 +36,8 @@ class cDrawGridCallback;
 class cEditorWindowViewport;
 class cEditorWindowViewportCamera;
 
+namespace hpl { struct WorldDrawCtx; }
+
 
 
 enum eEditorWindowViewportPreset
@@ -56,13 +58,19 @@ enum eEditorWindowViewportPreset
 
 //--------------------------------------------------------------------
 
-class cViewportCallback : public iRendererCallback
+// The draw path on the RI backend is the cViewport::OnPreWorldDraw() event —
+// OnPreWorldDraw enqueues the whole editor overlay (grid, clip planes,
+// surface picker, edit modes, entity visuals) into the global DebugDraw
+// batcher, which HybridRenderer flushes into the pane's offscreen target
+// right before the delivery blit. The legacy iRendererCallback
+// post-solid/post-translucent hooks are gone; depth behavior rides on
+// DebugDrawOptions::m_depthTest.
+class cViewportCallback
 {
 public:
 	cViewportCallback();
 
-	void OnPostSolidDraw(cRendererCallbackFunctions* apFunctions);
-	void OnPostTranslucentDraw(cRendererCallbackFunctions* apFunctions);
+	void OnPreWorldDraw();
 
 	iEditorBase* mpEditor;
 	cEditorWindowViewport* mpViewport;
@@ -166,6 +174,7 @@ protected:
 	eEditorWindowViewportPreset mPreset;
 	iWidget* mpPrevAttention;
 	cViewportCallback mViewportCallback;
+	EventHandler<const WorldDrawCtx&> mPreWorldDrawHandler;
 
 	bool mbDrawGrid;
 	bool mbDrawDebug;
@@ -176,7 +185,7 @@ protected:
 	// Menu Items
 	cWidgetMainMenu* mpMainMenu;
 	cWidgetMenuItem* mpMainMenuView;
-	cWidgetMenuItem* mpMainMenuRenderModes[2];
+	cWidgetMenuItem* mpMainMenuRenderModes[eRenderer_LastEnum];
 	cWidgetMenuItem* mpMainMenuShowGrid;
 	cWidgetMenuItem* mpMainMenuShowAxes;
 

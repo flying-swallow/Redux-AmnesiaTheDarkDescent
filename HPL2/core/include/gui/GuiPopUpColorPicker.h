@@ -41,6 +41,7 @@ namespace hpl {
 
 	class cXmlElement;
 	class cGraphics;
+	class Image;
 
 	//---------------------------------------------------------------
 
@@ -97,9 +98,9 @@ namespace hpl {
 		tWString msName;
 		 
 		cBitmap* mpBoxBmp;
-		iTexture* mpBoxTex;
+		Image* mpBoxImage;
 		cBitmap* mpSliderBmp;
-		iTexture* mpSliderTex;
+		Image* mpSliderImage;
 
 		cVector2f mvColorMapPos;
 		float mfColorSliderPos;
@@ -287,16 +288,22 @@ namespace hpl {
 		cWidgetFrame* mpFPreviousColor;
 
 		cWidgetImage* mpImgColorBox;
-		iTexture*	  mpColorBoxTexture;
+		Image*        mpColorBoxImage;
 		cBitmap*      mpColorBoxBitmap;
 
 
 		cWidgetImage* mpImgColorSlider;
-		iTexture*	  mpColorSliderTexture;
+		Image*        mpColorSliderImage;
 		cBitmap*      mpColorSliderBitmap;
 
 		cWidgetImage* mpImgAlphaSliderBG;
 		cWidgetImage* mpImgAlphaSlider;
+
+		// Picker-owned procedural Images (the attached gfx elements use
+		// SetDestroyTexture(false) — auto-destroy routes through the
+		// TextureManager, which never owned these).
+		Image* mpVMarkerImage;
+		Image* mpAlphaSliderImage;
 		
 		cGuiGfxElement* mpGfxBGPattern;
 		cGuiGfxElement* mpGfxColorPointer;

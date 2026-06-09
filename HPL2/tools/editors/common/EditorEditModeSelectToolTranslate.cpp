@@ -229,7 +229,7 @@ void cEditorEditModeSelectToolTranslate::UpdateToolBoundingVolume()
 
 //----------------------------------------------------------------
 
-void cEditorEditModeSelectToolTranslate::DrawAxes(cEditorWindowViewport* apViewport, cRendererCallbackFunctions *apFunctions, float afAxisLength)
+void cEditorEditModeSelectToolTranslate::DrawAxes(cEditorWindowViewport* apViewport, DebugDraw *apFunctions, float afAxisLength)
 {
 	cVector3f vAxes[3];
 	cColor col[3];
@@ -259,7 +259,11 @@ void cEditorEditModeSelectToolTranslate::DrawAxes(cEditorWindowViewport* apViewp
 
 	
 	cMatrixf mtxTransform = cMath::MatrixTranslate(mpSelection->GetCenterTranslation());
-	apFunctions->SetMatrix(&mtxTransform);
+
+	// Gizmos always render on top of the scene (legacy drew with depth test off).
+	DebugDraw::DebugDrawOptions gizmoOptions;
+	gizmoOptions.m_depthTest = DebugDraw::DebugDepthTest::Always;
+	gizmoOptions.m_transform = mtxTransform;
 
 	for(int i=eSelectToolAxis_X; i<eSelectToolAxis_LastEnum; ++i)
 	{
@@ -267,16 +271,16 @@ void cEditorEditModeSelectToolTranslate::DrawAxes(cEditorWindowViewport* apViewp
 		vAxes[i] = 0;
 		vAxes[i].v[i] = afAxisLength;
 
-		apFunctions->GetLowLevelGfx()->DrawLine(0, vAxes[i], col[i]);
+		apFunctions->DebugDrawLine(0, vAxes[i], col[i], gizmoOptions);
 
 		// DEBUG: Draw axes bounding boxes
-		//apFunctions->GetLowLevelGfx()->DrawBoxMinMax(mvAxisMin[i], mvAxisMax[i], cColor(1,1));
-		//apFunctions->GetLowLevelGfx()->DrawBoxMinMax(mvHeadMin[i], mvHeadMax[i], cColor(1,1));
+		//apFunctions->DebugDrawBoxMinMax(mvAxisMin[i], mvAxisMax[i], cColor(1,1), gizmoOptions);
+		//apFunctions->DebugDrawBoxMinMax(mvHeadMin[i], mvHeadMax[i], cColor(1,1), gizmoOptions);
 	}
 
-	apFunctions->GetLowLevelGfx()->DrawBoxMinMax(0, (vAxes[0]+vAxes[1])*.2f, col[0] + col[1]);
-	apFunctions->GetLowLevelGfx()->DrawBoxMinMax(0, (vAxes[0]+vAxes[2])*.2f, col[0] + col[2]);
-	apFunctions->GetLowLevelGfx()->DrawBoxMinMax(0, (vAxes[1]+vAxes[2])*.2f, col[1] + col[2]);
+	apFunctions->DebugDrawBoxMinMax(0, (vAxes[0]+vAxes[1])*.2f, col[0] + col[1], gizmoOptions);
+	apFunctions->DebugDrawBoxMinMax(0, (vAxes[0]+vAxes[2])*.2f, col[0] + col[2], gizmoOptions);
+	apFunctions->DebugDrawBoxMinMax(0, (vAxes[1]+vAxes[2])*.2f, col[1] + col[2], gizmoOptions);
 
 	cMatrixf mtxXAxisHeadTransform = cMath::MatrixMul(cMath::MatrixTranslate(cVector3f(afAxisLength,0,0)),mtxTransform);
 	cMatrixf mtxYAxisHeadTransform = cMath::MatrixMul(cMath::MatrixTranslate(cVector3f(0,afAxisLength,0)),
@@ -284,19 +288,21 @@ void cEditorEditModeSelectToolTranslate::DrawAxes(cEditorWindowViewport* apViewp
 	cMatrixf mtxZAxisHeadTransform = cMath::MatrixMul(cMath::MatrixTranslate(cVector3f(0,0,afAxisLength)),
 													  cMath::MatrixMul(mtxTransform, cMath::MatrixRotate(cVector3f(0,-kPi2f,0),eEulerRotationOrder_XYZ)));
 
-	// TODO: Fixed
-	apFunctions->SetMatrix(&mtxXAxisHeadTransform);
-	for(int i=0; i<4;++i)
-		apFunctions->GetLowLevelGfx()->DrawQuad(mvArrowQuads[i],col[0]);
+	// Arrow head quads: legacy GL_QUADS took perimeter order [0][1][2][3];
+	// DebugDraw::DrawQuad expects strip order, so pass [0][1][3][2].
+	DebugDraw::DebugDrawOptions headOptions = gizmoOptions;
 
-	apFunctions->SetMatrix(&mtxYAxisHeadTransform);
+	headOptions.m_transform = mtxXAxisHeadTransform;
 	for(int i=0; i<4;++i)
-		apFunctions->GetLowLevelGfx()->DrawQuad(mvArrowQuads[i],col[1]);
+		apFunctions->DrawQuad(mvArrowQuads[i][0].pos, mvArrowQuads[i][1].pos, mvArrowQuads[i][3].pos, mvArrowQuads[i][2].pos, col[0], headOptions);
 
-	apFunctions->SetMatrix(&mtxZAxisHeadTransform);
+	headOptions.m_transform = mtxYAxisHeadTransform;
 	for(int i=0; i<4;++i)
-		apFunctions->GetLowLevelGfx()->DrawQuad(mvArrowQuads[i],col[2]);
+		apFunctions->DrawQuad(mvArrowQuads[i][0].pos, mvArrowQuads[i][1].pos, mvArrowQuads[i][3].pos, mvArrowQuads[i][2].pos, col[1], headOptions);
 
+	headOptions.m_transform = mtxZAxisHeadTransform;
+	for(int i=0; i<4;++i)
+		apFunctions->DrawQuad(mvArrowQuads[i][0].pos, mvArrowQuads[i][1].pos, mvArrowQuads[i][3].pos, mvArrowQuads[i][2].pos, col[2], headOptions);
 }
 
 //-----------------------------------------------------------------------------------

@@ -69,10 +69,6 @@ namespace hpl {
 		virtual void UpdateGraphicsForFrame(float afFrameTime){}
 		virtual bool UpdateGraphicsForViewport(cFrustum *apFrustum,float afFrameTime){ return true;}
 
-		virtual bool UsesOcclusionQuery(){ return false; }
-		virtual void AssignOcclusionQuery(iRenderer *apRenderer){}
-		virtual bool RetrieveOcculsionQuery(iRenderer *apRenderer){ return true;}
-
 		virtual void SetRenderFlagBit(tRenderableFlag alFlagBit, bool abSet);
 		bool GetRenderFlagBit(tRenderableFlag alFlagBit){ return (mlRenderFlags & alFlagBit)!=0;} 
 		inline tRenderableFlag GetRenderFlags() const { return mlRenderFlags;}

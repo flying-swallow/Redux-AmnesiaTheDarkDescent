@@ -18,6 +18,9 @@
  */
 
 #include "EntityIcon.h"
+
+#include "graphics/DebugDraw.h"
+
 #include "EntityWrapper.h"
 #include "EditorWorld.h"
 #include "EditorHelper.h"
@@ -37,9 +40,11 @@ cEntityIcon::cEntityIcon(iEntityWrapper* apParent, const tString& asIconGfxName)
 	for(int i=0;i<2;++i)
 		mvIconGfx[i] = NULL;
 
+	// RI path: icons are Image resources (drawn as DebugDraw billboards) —
+	// the legacy iTexture/GL upload chain is dead on the Vulkan backend.
 	cTextureManager* pTexMgr = apParent->GetEditorWorld()->GetEditor()->GetEngine()->GetResources()->GetTextureManager();
-	mvIconGfx[0] = pTexMgr->Create2D("Billboard" + asIconGfxName + ".tga", true);
-	mvIconGfx[1] = pTexMgr->Create2D("Billboard" + asIconGfxName + "Selected.tga", true);
+	mvIconGfx[0] = pTexMgr->Create2DImage("Billboard" + asIconGfxName + ".tga", true);
+	mvIconGfx[1] = pTexMgr->Create2DImage("Billboard" + asIconGfxName + "Selected.tga", true);
 }
 
 //------------------------------------------------------------------
@@ -79,21 +84,33 @@ bool cEntityIcon::CheckRayIntersect(cEditorWindowViewport* apViewport, cVector3f
 //------------------------------------------------------------------
 
 void cEntityIcon::DrawIcon(cEditorWindowViewport* apViewport, 
-						   cRendererCallbackFunctions* apFunctions, 
+						   DebugDraw* apFunctions, 
 						   iEditorEditMode* apEditMode,
 						   bool abIsSelected,
 						   const cVector3f& avPos,
 						   bool abIsActive,
 						   const cColor& aDisabledCol)
 {
+	if(cEditorHelper::GetVisibilityTypeState(eEditorVisibilityType_Icons) == false)
+		return;
+
 	if(mbVisible==false)
 		return;
 
 	if(mvIconGfx[abIsSelected])
 	{
 		cColor bbColor = abIsSelected ? cColor(1,1) : (abIsActive ? cColor(0.5f,1) : aDisabledCol);
-	
-		cEditorHelper::DrawBillboard(mvIconGfx[abIsSelected], avPos, 0.1f,bbColor, apViewport, apFunctions);
+
+		// RI path: enqueue a camera-facing billboard into the DebugDraw
+		// batcher (flushed into the pane's offscreen target). The legacy
+		// apFunctions param stays until the Phase-3 signature sweep.
+		DebugDraw* pDebugDraw = mpParent->GetEditorWorld()->GetEditor()->GetEngine()->GetGraphics()->GetDebugDraw();
+		if(pDebugDraw)
+		{
+			const float fScale = DebugDraw::BillboardScale(apViewport->GetCamera(), avPos);
+			pDebugDraw->DrawBillboard(avPos, cVector2f(0.2f) * fScale, cVector2f(1,0), cVector2f(0,1),
+									  mvIconGfx[abIsSelected], bbColor);
+		}
 	}
 }
 

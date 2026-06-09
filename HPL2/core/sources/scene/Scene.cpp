@@ -33,6 +33,7 @@
 #include "resources/FileSearcher.h"
 #include "resources/WorldLoaderHandler.h"
 
+#include "graphics/DebugDraw.h"
 #include "graphics/Graphics.h"
 #include "graphics/Renderer.h"
 #include "graphics/PostEffectComposite.h"
@@ -40,7 +41,6 @@
 #include "graphics/RIPogoBuffer.h"
 #include "system/Hasher.h"
 #include "graphics/LowLevelGraphics.h"
-#include "graphics/RenderList2.h"
 
 #include "sound/Sound.h"
 #include "sound/LowLevelSound.h"
@@ -105,7 +105,6 @@ namespace hpl {
 
 		pViewport->SetCamera(apCamera);
 		pViewport->SetWorld(apWorld);
-		pViewport->SetSize(-1);
 		pViewport->SetRenderer(mpGraphics->GetRenderer(eRenderer_Main));
 
 		if (abPushFront) {
@@ -134,6 +133,30 @@ namespace hpl {
 		}
 
 		return false;
+	}
+
+	//-----------------------------------------------------------------------
+
+	cViewport* cScene::GetPrimaryViewport()
+	{
+		// The viewport whose backbuffer is composited to the swapchain: the
+		// single visible viewport whose Target is TargetSwapchain (the
+		// CreateViewport default). TargetView viewports (editor panes /
+		// previews) are standalone — delivered/sampled per their target.
+		cViewport *pPrimary = NULL;
+		for(cViewport *pViewPort : mlstViewports)
+		{
+			if(pViewPort->IsVisible()==false) continue;
+			if(std::holds_alternative<cViewport::TargetSwapchain>(pViewPort->GetTarget())==false) continue;
+
+			assert(pPrimary == NULL &&
+				   "multiple visible swapchain-compositing viewports");
+			pPrimary = pViewPort;
+#ifdef NDEBUG
+			break;
+#endif
+		}
+		return pPrimary;
 	}
 
 	//-----------------------------------------------------------------------
@@ -185,236 +208,72 @@ namespace hpl {
 	{
 		//Increase the frame count (do this at top, so render count is valid until this Render is called again!)
 		iRenderer::IncRenderFrameCount();
+
+		RIBootstrap::FrameContext* cntx = RI.GetActiveSet();
+
+		for(cViewport *pViewPort : mlstViewports)
 		{
-			RIBootstrap::FrameContext* cntx = RI.GetActiveSet();
-			tViewportListIt viewIt = mlstViewports.begin();
-			
-			// Rendering-instance contract:
-			//   * pRenderer->Draw is called with NO active rendering instance and
-			//     leaves none active. The renderer owns its own begin/end pairs
-			//     for whatever passes it needs (e.g. HybridRenderer's MRT pass).
-			//   * Scene opens its own rendering instance here to host the GUI
-			//     passes (Render3DGui + RenderScreenGui), then closes it.
-			for(; viewIt != mlstViewports.end(); ++viewIt)
+			if(pViewPort->IsVisible()==false) continue;
+
+			// WORLD DRAW + FEED + POST + DELIVERY — see cViewport::Evaluate.
+			const bool worldRendered = pViewPort->Evaluate(cntx, afFrameTime, alFlags);
+
+			// At most one visible viewport may target the swapchain; its GUI
+			// block runs here (needs the scene's gui sets / Render3DGui).
+			if(std::holds_alternative<cViewport::TargetSwapchain>(pViewPort->GetTarget()))
 			{
-					cViewport *pViewPort = *viewIt;
-					if(pViewPort->IsVisible()==false) continue;
+				assert(pViewPort == GetPrimaryViewport());
 
-					iRenderer* pRenderer = pViewPort->GetRenderer();
-					cCamera* pCamera = pViewPort->GetCamera();
-					cFrustum* pFrustum = pCamera ? pCamera->GetFrustum() : NULL;
+				cCamera* pCamera = pViewPort->GetCamera();
+				cFrustum* pFrustum = pCamera ? pCamera->GetFrustum() : NULL;
 
-					const bool worldRendered =
-							(alFlags & tSceneRenderFlag_World) &&
-							pRenderer && pViewPort->GetWorld() && pFrustum;
+				// GUI block: open a rendering instance with color (+ depth when the
+				// viewport has one), render the GUIs, close it. When the world render
+				// ran, the tail draw left the swapchain in COLOR_ATTACHMENT_OPTIMAL
+				// with the composite inside — LOAD so the GUI overlays on top.
+				// Otherwise CLEAR (also establishes UNDEFINED → COLOR transition).
+				// Depth LOADs when present (the viewport's renderer populated it
+				// earlier); GUI-only frames (menus) have no viewport depth and the
+				// sets render the no-depth pipeline variant (they derive it from the
+				// viewport passed into cGuiSet::Render).
+				struct RITextureView_s *pGuiDepthView = pViewPort->GetDepthView();
 
-					if(alFlags & tSceneRenderFlag_World)
-					{
-						pViewPort->RunViewportCallbackMessage(eViewportMessage_OnPreWorldDraw);
-						if (worldRendered) {
-							pRenderer->Draw(
-									cntx,
-									pViewPort,
-									afFrameTime,
-									pFrustum,
-									pViewPort->GetWorld(),
-									pViewPort->GetRenderSettings(),
-									false);
-						}
-						pViewPort->RunViewportCallbackMessage(eViewportMessage_OnPostWorldDraw);
-					}
+				VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+				RI_VK_FillColorAttachmentView( &colorAttachment, &RI.swapchainView[RI.swapchainIndex] , !worldRendered );
+				VkRenderingAttachmentInfo depthStencil = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+				if(pGuiDepthView)
+				{
+					RI_VK_FillDepthAttachment( &depthStencil, pGuiDepthView, false );
+				}
+				VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
+				renderingInfo.renderArea = VkRect2D{ { 0, 0 }, { RI.swapchain.width, RI.swapchain.height } };
+				renderingInfo.layerCount = 1;
+				renderingInfo.colorAttachmentCount = 1;
+				renderingInfo.pColorAttachments = &colorAttachment;
+				renderingInfo.pDepthAttachment = pGuiDepthView ? &depthStencil : NULL;
 
-					// Apply the viewport's post-effect composite to the renderer's pogo
-					// output, then blit it to the swapchain — BEFORE the GUI overlays. The
-					// renderer's Draw leaves the finished scene (incl. particles) in the pogo
-					// "read" half; this mirrors the old Scene::Render post-effect step.
-					if(worldRendered)
-					{
-						RI_PogoBuffer *pogo = &RI.pogoBuffer[RI.swapchainIndex];
+				// GuiSet builds its pipelines for RI.swapchain.format / RIBootstrap::DepthFormat
+				// (see GuiSet.cpp). If the attachments here ever change, update GuiSet to match.
+				assert(colorAttachment.imageView == RI.swapchainView[RI.swapchainIndex].vk.image);
 
-						cPostEffectComposite *pComposite = pViewPort->GetPostEffectComposite();
-						if(pComposite && (alFlags & tSceneRenderFlag_PostEffects) && pComposite->HasActiveEffects())
-						{
-							pComposite->Render(afFrameTime, &RI.primary.cmds[0], pogo,
-							                   RI.swapchain.width, RI.swapchain.height, RI.frameIndex);
-						}
+				vkCmdBeginRendering( RI.primary.cmds[0].vk.cmd , &renderingInfo );
 
-						// Tail blit: pogo "read" half -> swapchain (UNDEFINED -> COLOR first).
-						{
-							VkImageMemoryBarrier2 swapBarrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-							swapBarrier.srcStageMask  = VK_PIPELINE_STAGE_2_NONE;
-							swapBarrier.srcAccessMask = 0;
-							swapBarrier.dstStageMask  = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-							swapBarrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-							swapBarrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-							swapBarrier.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-							swapBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-							swapBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-							swapBarrier.image = RI.swapchain.vk.images[RI.swapchainIndex];
-							swapBarrier.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-							VkDependencyInfo dep = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-							dep.imageMemoryBarrierCount = 1;
-							dep.pImageMemoryBarriers    = &swapBarrier;
-							vkCmdPipelineBarrier2(RI.primary.cmds[0].vk.cmd, &dep);
-						}
-						{
-							VkRenderingAttachmentInfo colorAttach = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-							colorAttach.imageView   = RI.swapchainView[RI.swapchainIndex].vk.image;
-							colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-							colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-							colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
-							VkRenderingInfo renderInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-							renderInfo.renderArea = { { 0, 0 }, { RI.swapchain.width, RI.swapchain.height } };
-							renderInfo.layerCount = 1;
-							renderInfo.colorAttachmentCount = 1;
-							renderInfo.pColorAttachments    = &colorAttach;
+				if(alFlags & tSceneRenderFlag_World)
+				{
+					START_TIMING(Render3DGui)
+					Render3DGui(pViewPort, pFrustum, afFrameTime);
+					STOP_TIMING(Render3DGui)
+				}
+				if(alFlags & tSceneRenderFlag_Gui)
+				{
+					START_TIMING(RenderGUI)
+					RenderScreenGui(pViewPort, afFrameTime);
+					STOP_TIMING(RenderGUI)
+				}
 
-							vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
-
-							VkViewport vp = { 0.0f, 0.0f, (float)RI.swapchain.width, (float)RI.swapchain.height, 0.0f, 1.0f };
-							vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
-							VkRect2D scr = { { 0, 0 }, { RI.swapchain.width, RI.swapchain.height } };
-							vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &scr);
-
-							PostEffectPipelineState blitState{};
-							InitPostEffectPipelineState(blitState, RIFormatToVK((RI_Format_e)RI.swapchain.format), false);
-							const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, 1u);
-							RI.postEffectBlit.bindPipeline(&RI.device, &RI.primary.cmds[0], kHash,
-							                               "PostEffect.tailBlit", &blitState.createInfo);
-
-							RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
-							    eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
-							    eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
-							RIProgram::DescriptorBinding bindings[2] = {};
-							bindings[0].descriptor = *samplerDesc;
-							bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
-							bindings[1].descriptor = *RI_PogoBufferShaderResource(pogo);
-							bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-							RI.postEffectBlit.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, bindings, 2);
-
-							vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3, 1, 0, 0);
-							vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
-						}
-					}
-
-					// GUI block: open a rendering instance with color + depth, render the
-					// GUIs, close it. When the world render ran, Draw left the swapchain in
-					// COLOR_ATTACHMENT_OPTIMAL with the composite inside — LOAD so the GUI
-					// overlays on top. Otherwise CLEAR (also establishes UNDEFINED → COLOR
-					// transition). Depth always LOADs (gbuffer pass populated it earlier).
-					VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-					RI_VK_FillColorAttachmentView( &colorAttachment, &RI.swapchainView[RI.swapchainIndex] , !worldRendered );
-					VkRenderingAttachmentInfo depthStencil = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-					RI_VK_FillDepthAttachment( &depthStencil, &RI.depthView[RI.swapchainIndex], false );
-					VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-					renderingInfo.renderArea = VkRect2D{ { 0, 0 }, { RI.swapchain.width, RI.swapchain.height } };
-					renderingInfo.layerCount = 1;
-					renderingInfo.colorAttachmentCount = 1;
-					renderingInfo.pColorAttachments = &colorAttachment;
-					renderingInfo.pDepthAttachment = &depthStencil;
-
-					// GuiSet builds its pipelines for RI.swapchain.format / RIBootstrap::DepthFormat
-					// (see GuiSet.cpp). If the attachments here ever change, update GuiSet to match.
-					assert(colorAttachment.imageView == RI.swapchainView[RI.swapchainIndex].vk.image);
-
-					vkCmdBeginRendering( RI.primary.cmds[0].vk.cmd , &renderingInfo );
-
-					if(alFlags & tSceneRenderFlag_World)
-					{
-						START_TIMING(Render3DGui)
-						Render3DGui(pViewPort, pFrustum, afFrameTime);
-						STOP_TIMING(Render3DGui)
-					}
-					if(alFlags & tSceneRenderFlag_Gui)
-					{
-						START_TIMING(RenderGUI)
-						RenderScreenGui(pViewPort, afFrameTime);
-						STOP_TIMING(RenderGUI)
-					}
-
-					vkCmdEndRendering( RI.primary.cmds[0].vk.cmd );
+				vkCmdEndRendering( RI.primary.cmds[0].vk.cmd );
 			}
 		}
-
-
-		/////////////////////////////////////////////
-		//// Iterate all viewports and render
-		//tViewportListIt viewIt = mlstViewports.begin();
-		//for(; viewIt != mlstViewports.end(); ++viewIt)
-		//{
-		//	cViewport *pViewPort = *viewIt;
-		//	if(pViewPort->IsVisible()==false) continue;
-
-		//	//////////////////////////////////////////////
-		//	//Init vars
-		//	cPostEffectComposite *pPostEffectComposite = pViewPort->GetPostEffectComposite();
-		//	bool bPostEffects = false;
-		//	iRenderer *pRenderer = pViewPort->GetRenderer();
-		//	cCamera *pCamera = pViewPort->GetCamera();
-		//	cFrustum *pFrustum = pCamera ? pCamera->GetFrustum() : NULL;
-
-		//	//////////////////////////////////////////////
-		//	//Render world and call callbacks
-		//	if(alFlags & tSceneRenderFlag_World)
-		//	{
-		//		pViewPort->RunViewportCallbackMessage(eViewportMessage_OnPreWorldDraw);
-		//		
-		//		if(pPostEffectComposite && (alFlags & tSceneRenderFlag_PostEffects)) 
-		//		{
-		//			bPostEffects = pPostEffectComposite->HasActiveEffects();
-		//		}
-		//		
-		//		if(pRenderer && pViewPort->GetWorld() && pFrustum)
-		//		{
-		//			START_TIMING(RenderWorld)
-		//			pRenderer->Render(	afFrameTime,pFrustum,
-		//								pViewPort->GetWorld(),pViewPort->GetRenderSettings(), 
-		//								pViewPort->GetRenderTarget(),
-		//								bPostEffects,
-		//								pViewPort->GetRendererCallbackList());
-		//			STOP_TIMING(RenderWorld)
-		//		}
-		//		else
-		//		{
-		//			//If no renderer sets up viewport do that by our selves.
-		//			cRenderTarget* pRenderTarget = pViewPort->GetRenderTarget();
-		//			mpGraphics->GetLowLevel()->SetCurrentFrameBuffer(	pRenderTarget->mpFrameBuffer,
-		//																pRenderTarget->mvPos,
-		//																pRenderTarget->mvSize);
-		//		}
-		//		pViewPort->RunViewportCallbackMessage(eViewportMessage_OnPostWorldDraw);
-
-		//		//////////////////////////////////////////////
-		//		//Render 3D GuiSets
-		//		// Should this really be here? Or perhaps send in a frame buffer depending on the renderer.
-		//		START_TIMING(Render3DGui)
-		//		Render3DGui(pViewPort,pFrustum, afFrameTime);
-		//		STOP_TIMING(Render3DGui)
-		//	}
-
-		//	//////////////////////////////////////////////
-		//	//Render Post effects
-		//	if(bPostEffects)
-		//	{
-		//		//TODO: If renderer is null get texture from frame buffer and if frame buffer is NULL, then copy to a texture.
-		//		//		Or this is solved?
-		//		iTexture *pInputTexture = pRenderer->GetPostEffectTexture();
-
-		//		START_TIMING(RenderPostEffects)
-		//		pPostEffectComposite->Render(afFrameTime, pFrustum, pInputTexture,pViewPort->GetRenderTarget());
-		//		STOP_TIMING(RenderPostEffects)
-		//	}
-		//	
-		//	//////////////////////////////////////////////
-		//	//Render Screen GUI
-		//	if(alFlags & tSceneRenderFlag_Gui)
-		//	{
-		//		START_TIMING(RenderGUI)
-		//		RenderScreenGui(pViewPort, afFrameTime);
-		//		STOP_TIMING(RenderGUI)
-		//	}
-		//}
-
 	}
 
 	//-----------------------------------------------------------------------
@@ -451,10 +310,6 @@ namespace hpl {
 
 	cWorld* cScene::LoadWorld(const tString& asFile, tWorldLoadFlag aFlags)
 	{
-		cHybridRenderer* pHybridRenderer = static_cast<cHybridRenderer*>(mpGraphics->GetRenderer(eRenderer_Main));
-		cRenderList2* pRenderList = pHybridRenderer->GetRenderList();
-		pRenderList->ClearPersistentObjectsForMapChange();
-
 		///////////////////////////////////
 		// Load the map file
 		tWString asPath = mpResources->GetFileSearcher()->GetFilePath(asFile);
@@ -522,13 +377,11 @@ namespace hpl {
 	{
 		if(apViewPort->GetCamera()==NULL) return;
 
-		cGuiSetListIterator it = apViewPort->GetGuiSetIterator();	
-		while(it.HasNext())
+		for(cGuiSet *pSet : apViewPort->GetGuiSets())
 		{
-			cGuiSet *pSet = it.Next();
 			if(pSet->Is3D())
 			{
-				pSet->Render(apFrustum);
+				pSet->Render(apFrustum, apViewPort);
 			}
 		}
 	}
@@ -540,11 +393,8 @@ namespace hpl {
 		typedef std::multimap<int, cGuiSet*> tPrioMap;
 		tPrioMap mapSortedSets;
 
-    cGuiSetListIterator it = apViewPort->GetGuiSetIterator();	
-		while(it.HasNext())
+		for(cGuiSet *pSet : apViewPort->GetGuiSets())
 		{
-			cGuiSet *pSet = it.Next();
-			
 			if(pSet->Is3D()==false)
 				mapSortedSets.insert(tPrioMap::value_type(pSet->GetDrawPriority(),pSet));
 		}
@@ -559,7 +409,7 @@ namespace hpl {
 			
 			//Log("Rendering gui '%s'\n", pSet->GetName().c_str());
 
-			pSet->Render(NULL);
+			pSet->Render(NULL, apViewPort);
 		}
 	}
 

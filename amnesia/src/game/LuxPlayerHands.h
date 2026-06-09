@@ -80,7 +80,7 @@ public:
 	void CreateWorldEntities(cLuxMap *apMap);
 	void DestroyWorldEntities(cLuxMap *apMap);
 
-	void RenderSolid(cRendererCallbackFunctions* apFunctions);
+	void RenderSolid(DebugDraw* apDebugDraw);
 	void RenderTrans(cRendererCallbackFunctions* apFunctions);
 
 	///////////////////////////////

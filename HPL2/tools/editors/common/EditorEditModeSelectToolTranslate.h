@@ -50,7 +50,7 @@ public:
 	iEditorAction* CreateAction();
 
 
-	void DrawAxes(cEditorWindowViewport* apViewport, cRendererCallbackFunctions *apFunctions, float afAxisLength);
+	void DrawAxes(cEditorWindowViewport* apViewport, DebugDraw *apFunctions, float afAxisLength);
 
 	void UpdateToolBoundingVolume();
 

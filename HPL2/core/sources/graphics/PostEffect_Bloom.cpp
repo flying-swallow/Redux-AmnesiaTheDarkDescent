@@ -41,29 +41,16 @@ struct BloomAddPushConstants {
     float _pad;
 };
 
-void EmitImageBarrier(VkCommandBuffer cmd, VkImage image,
-                      VkImageLayout oldLayout, VkImageLayout newLayout,
-                      VkPipelineStageFlags2 srcStage,
-                      VkAccessFlags2 srcAccess,
-                      VkPipelineStageFlags2 dstStage,
-                      VkAccessFlags2 dstAccess) {
-    VkImageMemoryBarrier2 barrier = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
-    barrier.srcStageMask  = srcStage;
-    barrier.srcAccessMask = srcAccess;
-    barrier.dstStageMask  = dstStage;
-    barrier.dstAccessMask = dstAccess;
-    barrier.oldLayout     = oldLayout;
-    barrier.newLayout     = newLayout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image         = image;
-    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0,
-                                VK_REMAINING_MIP_LEVELS, 0,
-                                VK_REMAINING_ARRAY_LAYERS};
-    VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
-    dep.imageMemoryBarrierCount = 1;
-    dep.pImageMemoryBarriers    = &barrier;
-    vkCmdPipelineBarrier2(cmd, &dep);
+void EmitImageBarrier(RICmd_s *cmd, RITexture_s *texture,
+                      enum RIResourceState_e before, uint32_t beforeStages,
+                      enum RIResourceState_e after, uint32_t afterStages) {
+    RITextureBarrier_s barrier = {};
+    barrier.texture = texture;
+    barrier.before = before;
+    barrier.beforeStages = beforeStages;
+    barrier.after = after;
+    barrier.afterStages = afterStages;
+    cmd->textureBarrier(barrier);
 }
 } // namespace
 
@@ -122,22 +109,16 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
         // First-time transitions out of UNDEFINED — set the "rest state":
         // blur[0] = SHADER_READ_ONLY (will flip to ATTACH on first H blur),
         // blur[1] = COLOR_ATTACHMENT  (will flip to READ on first H blur).
-        EmitImageBarrier(cmd, m_blur[0].texture.vk.image,
-                         VK_IMAGE_LAYOUT_UNDEFINED,
-                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_NONE, VkAccessFlags2{},
-                         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
-        EmitImageBarrier(cmd, m_blur[1].texture.vk.image,
-                         VK_IMAGE_LAYOUT_UNDEFINED,
-                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_NONE, VkAccessFlags2{},
-                         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+        EmitImageBarrier(ctx.cmd, &m_blur[0].texture,
+                         RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_NONE,
+                         RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
+        EmitImageBarrier(ctx.cmd, &m_blur[1].texture,
+                         RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_NONE,
+                         RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
         m_blurInitialized = true;
     }
 
-    RIDescriptor_s *samplerDesc = RI.resolve_filter_descriptor(
+    auto samplerDesc = RI.resolve_filter_descriptor(
         eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
         eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 
@@ -163,25 +144,17 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
             &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
     };
 
-    auto blurPass = [&](VkImageView destView, VkImage destImage,
-                        VkImage prevDestImage, const RIDescriptor_s &inputDesc,
+    auto blurPass = [&](VkImageView destView, RITexture_s *destTexture,
+                        RITexture_s *prevDestTexture, const RIDescriptor_s &inputDesc,
                         float dirX, float dirY) {
         // Layout flip: dest SHADER_READ → COLOR_ATTACH ; prev dest
         // (which we'll sample next time) COLOR_ATTACH → SHADER_READ.
-        EmitImageBarrier(cmd, destImage,
-                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-                         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
-        EmitImageBarrier(cmd, prevDestImage,
-                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                         VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                         VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                         VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+        EmitImageBarrier(ctx.cmd, destTexture,
+                         RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT,
+                         RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
+        EmitImageBarrier(ctx.cmd, prevDestTexture,
+                         RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
+                         RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
 
         VkRenderingAttachmentInfo attach = {
             VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -224,23 +197,19 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
 
         // Pass H: dest = blur[0], read = firstInput, prevDest = blur[1].
         blurPass(m_blur[0].descriptor.vk.image.imageView,
-                 m_blur[0].texture.vk.image, m_blur[1].texture.vk.image,
+                 &m_blur[0].texture, &m_blur[1].texture,
                  firstInput, mParams.mfBlurSize, 0.0f);
 
         // Pass V: dest = blur[1], read = blur[0], prevDest = blur[0].
         blurPass(m_blur[1].descriptor.vk.image.imageView,
-                 m_blur[1].texture.vk.image, m_blur[0].texture.vk.image,
+                 &m_blur[1].texture, &m_blur[0].texture,
                  m_blur[0].descriptor, 0.0f, mParams.mfBlurSize);
     }
 
     // Flip blur[1] COLOR_ATTACH → SHADER_READ for the add pass to sample.
-    EmitImageBarrier(cmd, m_blur[1].texture.vk.image,
-                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                     VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                     VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-                     VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                     VK_ACCESS_2_SHADER_SAMPLED_READ_BIT);
+    EmitImageBarrier(ctx.cmd, &m_blur[1].texture,
+                     RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
+                     RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
 
     // ----- Add pass: sample source + blur, write pogo output -----
     VkRenderingAttachmentInfo outAttach = {
@@ -299,13 +268,9 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
 
     // Restore the rest state: blur[1] back to COLOR_ATTACH for the next
     // call's swap-and-write pass. blur[0] is already in SHADER_READ_ONLY.
-    EmitImageBarrier(cmd, m_blur[1].texture.vk.image,
-                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                     VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-                     VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
-                     VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-                     VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
-                     VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+    EmitImageBarrier(ctx.cmd, &m_blur[1].texture,
+                     RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT,
+                     RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
 }
 
 } // namespace hpl

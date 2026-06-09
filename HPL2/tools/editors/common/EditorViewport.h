@@ -24,6 +24,8 @@
 
 #include "EditorGrid.h"
 
+#include <memory>
+
 using namespace hpl;
 
 //--------------------------------------------
@@ -272,8 +274,6 @@ public:
 	cBoundingVolume* GetRayBV();
 	float GetRayEndDistance() { return mfRayEndDistance; }
 
-	void AddViewportCallback(iRendererCallback* apCallback);
-
 	void UpdateCameraPlanes();
 
 	void SetClearColor(const cColor& aX);
@@ -336,6 +336,11 @@ protected:
 	cGraphics* mpGfx;
 	cGuiSet* mpGuiSet;
 	cViewport* mpEngineViewport;
+	// Per-viewport post chain: the hybrid renderer outputs linear HDR; the
+	// tonemap effect carries the mandatory display encode (active only in
+	// eRenderer_Main mode — wireframe/simple draw display-range colors).
+	cPostEffectComposite* mpPostEffectComposite;
+	iPostEffect* mpPostEffectToneMap;
 	cEditorViewportCamera mCamera;
 
 	bool mbViewportNeedsUpdate;
@@ -345,6 +350,13 @@ protected:
 
 	//////////////////////////////
 	// Render to texture stuff
+	// Editor-owned pane surface: cScene's delivery draws the engine
+	// viewport's finished pogo into it (TargetView) and the GUI widget
+	// displays its Image (see UpdateViewport). Legacy FB members kept until
+	// the Phase-5 cleanup.
+	std::shared_ptr<HPLTexture> mpPaneTexture;
+	std::shared_ptr<Image> mpPaneImage;
+	cVector2l mvPaneSize = cVector2l(0, 0);
 	iFrameBuffer* mpFB;
 	iTexture* mpRenderTarget;
 	cVector2f mvUVStart;
@@ -373,8 +385,6 @@ protected:
 	eRenderer mRenderMode;
 
 	cEditorGrid* mpGrid;
-
-	iRendererCallback* mpViewportCallback;
 
 	static int mlViewportCount;
 

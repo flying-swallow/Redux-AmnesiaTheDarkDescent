@@ -59,7 +59,7 @@
 #include "graphics/PostEffect_ImageTrail.h"
 #include "graphics/PostEffect_RadialBlur.h"
 
-#include "graphics/RendererDeferred.h"
+#include "graphics/DebugDraw.h"
 #include "graphics/RendererWireFrame.h"
 #include "graphics/RendererSimple.h"
 #include "graphics/RIScratchAlloc.h"
@@ -84,6 +84,7 @@ namespace hpl {
 		mpMeshCreator = NULL;
 		mpTextureCreator = NULL;
 		mpDecalCreator = NULL;
+		mpDebugDraw = NULL;
 	}
 
 	cGraphics::~cGraphics()
@@ -122,6 +123,7 @@ namespace hpl {
 		hplDelete(mpMeshCreator);
 		hplDelete(mpTextureCreator);
 		hplDelete(mpDecalCreator);
+		if(mpDebugDraw) hplDelete(mpDebugDraw);
 
 		Log("--------------------------------------------------------\n\n");
 	}
@@ -168,18 +170,18 @@ namespace hpl {
 		backendInit.vk.enableValidationLayer = false;
 #endif
 
-		if(InitRIRenderer(&backendInit, &RI.renderer) != RI_SUCCESS) {
+		if(RI.renderer.init(&backendInit) != RI_SUCCESS) {
 			return false;
 		}
 
 		uint32_t numAdapters = 0;
-		if( EnumerateRIAdapters( &RI.renderer, NULL, &numAdapters ) != RI_SUCCESS ) {
+		if( RI.renderer.enumerateAdapters( NULL, &numAdapters ) != RI_SUCCESS ) {
 			return false;
 		}
 		assert(numAdapters > 0);
 		std::vector<RIPhysicalAdapter_s> physicalAdapters(numAdapters);
 
-		if(EnumerateRIAdapters(&RI.renderer, physicalAdapters.data(), &numAdapters) != RI_SUCCESS) {
+		if(RI.renderer.enumerateAdapters(physicalAdapters.data(), &numAdapters) != RI_SUCCESS) {
 			return false;
 		}
 		uint32_t selectedAdapterIdx = 0;
@@ -199,7 +201,7 @@ namespace hpl {
 		}
 		struct RIDeviceDesc_s deviceInit = { 0 };
 		deviceInit.physicalAdapter = &physicalAdapters[selectedAdapterIdx];
-		InitRIDevice(&RI.renderer, &deviceInit, &RI.device );
+		RI.device.init(&RI.renderer, &deviceInit );
 		RI_InitResourceUploader(&RI.device, &RI.uploader);
 		struct RIWindowHandle_s windowHandle = mpLowLevelGraphics->GetWindowHandle(); 
 		if(windowHandle.type == RI_WINDOW_UNKNOWN) {
@@ -215,125 +217,32 @@ namespace hpl {
 		swapchainInit.format = RI_SWAPCHAIN_BT709_G22_8BIT;
 		InitRISwapchain(&RI.device, &swapchainInit, &RI.swapchain);
 
-		// Guard-band overscan render resolution (single source of truth). The
-		// gbuffer / GI / composite / forward targets size to this; the present
-		// crops the center to the authored swapchain size.
-		RI.renderWidth  = overscanExtent(RI.swapchain.width);
-		RI.renderHeight = overscanExtent(RI.swapchain.height);
-
+		// Per-viewport render targets (backbuffer, overscan render target,
+		// depth, visibility) are created lazily by each renderer's Draw on its
+		// cViewport (see scene/Viewport.h) — only the swapchain views
+		// remain global.
 		{
-			uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
 			assert( RI.swapchain.imageCount > 0 );
 			for( uint32_t i = 0; i < RI.swapchain.imageCount; i++ ) {
-				VmaAllocationCreateInfo mem_reqs = { 0 };
-				mem_reqs.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-				{
-					VkImageViewUsageCreateInfo usageInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO };
-					VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-					createInfo.pNext = &usageInfo;
-					createInfo.subresourceRange = VkImageSubresourceRange{
-						VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
-					};
-					// Mirrors the swapchain's image-level usage. The SurfelGI
-					// composite + post-effect chain now write into the pogo
-					// buffer, so the swapchain view only needs COLOR_ATTACHMENT.
-					usageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-					createInfo.image = RI.swapchain.vk.images[i];
-					createInfo.format = RIFormatToVK( RI.swapchain.format );
-					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D; // | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-					//RI.colorAttachment[i].flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-					//RI.colorAttachment[i].texture = &RI.swapchain.textures[i];
-					//RI.colorAttachment[i].vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-					//RI.colorAttachment[i].vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.swapchainView[i].vk.image) );
-
-					//VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.colorAttachment[i].vk.image.imageView ) );
-					//RIFinalizeDescriptor( &RI.device, &RI.colorAttachment[i] );
-				}
-				{
-					VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-					info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
-					info.imageType = VK_IMAGE_TYPE_2D;
-					// Overscan: gbuffer depth backs the GI + forward passes, all of which
-					// render the guard-band frame.
-					info.extent.width = RI.renderWidth;
-					info.extent.height = RI.renderHeight;
-					info.extent.depth = 1;
-					info.mipLevels = 1;
-					info.arrayLayers = 1;
-					info.samples = VK_SAMPLE_COUNT_1_BIT;
-					info.tiling = VK_IMAGE_TILING_OPTIMAL;
-					info.pQueueFamilyIndices = queueFamilies;
-					VK_ConfigureImageQueueFamilies( &info, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
-					info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-					info.format = RIFormatToVK( RIBootstrap::DepthFormat);
-					// SAMPLED_BIT lets surfel_generate / surfel_raytrace bind the
-					// depth as `sampler2D depthMap` after the gbuffer pass
-					// transitions it to SHADER_READ_ONLY_OPTIMAL.
-					info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
-								 VK_IMAGE_USAGE_SAMPLED_BIT;
-					VK_WrapResult( vmaCreateImage( RI.device.vk.vmaAllocator, &info, &mem_reqs, &RI.depthTextures[i].vk.image, &RI.depthTextures[i].vk.allocation, NULL ) );
-				}
-				{
-					VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-					createInfo.format = RIFormatToVK( RIBootstrap::DepthFormat );
-					createInfo.subresourceRange = VkImageSubresourceRange{
-						VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1,
-					};
-					createInfo.image = RI.depthTextures[i].vk.image;
-					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.depthView[i].vk.image ) );
-				}
-				{
-
-					VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-					info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
-					info.imageType = VK_IMAGE_TYPE_2D;
-					// Overscan to match the depth target + the guard-band frame.
-					info.extent.width = RI.renderWidth;
-					info.extent.height = RI.renderHeight;
-					info.extent.depth = 1;
-					info.mipLevels = 1;
-					info.arrayLayers = 1;
-					info.samples = VK_SAMPLE_COUNT_1_BIT;
-					info.tiling = VK_IMAGE_TILING_OPTIMAL;
-					info.pQueueFamilyIndices = queueFamilies;
-					VK_ConfigureImageQueueFamilies( &info, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
-					info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-					info.format = RIFormatToVK( RIBootstrap::VisibilityFormat);
-					info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-					VK_WrapResult( vmaCreateImage( RI.device.vk.vmaAllocator, &info, &mem_reqs, &RI.visibilityTexture[i].vk.image, &RI.visibilityTexture[i].vk.allocation, NULL ) );
-				}
-				{
-					VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-					createInfo.format = RIFormatToVK( RIBootstrap::VisibilityFormat);
-					createInfo.subresourceRange = VkImageSubresourceRange{
-						VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
-					};
-					createInfo.image = RI.visibilityTexture[i].vk.image;
-					createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-					VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.visibilityView[i].vk.image ) );
-				}
-				// The separate normal MRT target was retired when the gbuffer
-				// switched to the packed-TriangleHit (RGBA32_UINT visibility)
-				// format — instId/primId/barycentrics now encode everything the
-				// surfel and lighting passes need, so RIBootstrap::NormalFormat /
-				// normalTexture / normalView no longer exist.
-				// HDR pogo (RIBootstrap::PogoColorFormat) so the GI composite +
-				// post-effect chain keep linear values >1 (the swapchain is
-				// 16-bit linear scRGB); RGBA8_UNORM here clamped to [0,1] + banded.
-				// Pogo + post-effect chain run at the AUTHORED size; the overscan
-				// render-pogo (backbuffer) is cropped into the pogo before this chain.
-				RI_PogoBufferInit( &RI.device, &RI.pogoBuffer[i], RI.swapchain.width, RI.swapchain.height, RIBootstrap::PogoColorFormat );
-				// Overscan render-pogo: the gbuffer/GI/composite/forward passes render
-				// here (guard-band frame); cropped 1:1 center → pogoBuffer afterwards.
-				RI_PogoBufferInit( &RI.device, &RI.renderPogo[i], RI.renderWidth, RI.renderHeight, RIBootstrap::PogoColorFormat );
+				VkImageViewUsageCreateInfo usageInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO };
+				VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
+				createInfo.pNext = &usageInfo;
+				createInfo.subresourceRange = VkImageSubresourceRange{
+					VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
+				};
+				// Mirrors the swapchain's image-level usage. The SurfelGI
+				// composite + post-effect chain write into the viewport
+				// backbuffer, so the swapchain view only needs COLOR_ATTACHMENT.
+				usageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+				createInfo.image = RI.swapchain.vk.images[i];
+				createInfo.format = RIFormatToVK( RI.swapchain.format );
+				createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+				VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.swapchainView[i].vk.image) );
 			}
 		}
 
 		struct RIQueue_s *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
-		InitRICommandRingBuffer( &RI.device, graphicsQueue, &RI.graphicsCmdRing,
+		RI.graphicsCmdRing.init( &RI.device, graphicsQueue,
 		                         RI_NUMBER_FRAMES_FLIGHT, RI_NUMBER_SUB_COMMANDS, true );
 		for(auto& set: RI.frameSets) {
 			struct RIScratchAllocDesc_s uboDesc = {
@@ -353,9 +262,9 @@ namespace hpl {
 		}
 		}
 		{
-			struct RICommandRingElement_s initElem = GetRICommandRingElement( &RI.device, &RI.graphicsCmdRing, 1 );
-			ResetRIPool( &RI.device, initElem.pool );
-			BeginRICmd( &RI.device, &initElem.cmds[0] );
+			struct RICommandRingElement_s initElem = RI.graphicsCmdRing.acquire( &RI.device, 1 );
+			initElem.pool->reset( &RI.device );
+			initElem.cmds[0].begin( &RI.device );
 
 			VkBuffer whiteUploadStaging = VK_NULL_HANDLE;
 			VmaAllocation whiteUploadStagingAlloc = VK_NULL_HANDLE;
@@ -407,21 +316,14 @@ namespace hpl {
 
 				VkImageSubresourceRange colorRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-				VkImageMemoryBarrier2 toTransfer = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-				toTransfer.srcStageMask = VK_PIPELINE_STAGE_2_NONE;
-				toTransfer.srcAccessMask = 0;
-				toTransfer.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-				toTransfer.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-				toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-				toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-				toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				toTransfer.image = RI.whiteTexture2D.vk.image;
-				toTransfer.subresourceRange = colorRange;
-				VkDependencyInfo depToTransfer = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-				depToTransfer.imageMemoryBarrierCount = 1;
-				depToTransfer.pImageMemoryBarriers = &toTransfer;
-				vkCmdPipelineBarrier2(initElem.cmds[0].vk.cmd, &depToTransfer);
+				RITextureBarrier_s toTransfer = {};
+				toTransfer.texture = &RI.whiteTexture2D;
+				toTransfer.before = RI_RESOURCE_STATE_UNDEFINED;
+				toTransfer.after = RI_RESOURCE_STATE_COPY_DST;
+				toTransfer.afterStages = RI_STAGE_COPY;
+				toTransfer.mipCount = 1;
+				toTransfer.layerCount = 1;
+				initElem.cmds[0].textureBarrier(toTransfer);
 
 				VkBufferImageCopy copyRegion = {};
 				copyRegion.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
@@ -429,21 +331,16 @@ namespace hpl {
 				vkCmdCopyBufferToImage(initElem.cmds[0].vk.cmd, whiteUploadStaging, RI.whiteTexture2D.vk.image,
 				                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
-				VkImageMemoryBarrier2 toShaderRead = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
-				toShaderRead.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT;
-				toShaderRead.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
-				toShaderRead.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-				toShaderRead.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
-				toShaderRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-				toShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				toShaderRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				toShaderRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				toShaderRead.image = RI.whiteTexture2D.vk.image;
-				toShaderRead.subresourceRange = colorRange;
-				VkDependencyInfo depToShaderRead = { VK_STRUCTURE_TYPE_DEPENDENCY_INFO };
-				depToShaderRead.imageMemoryBarrierCount = 1;
-				depToShaderRead.pImageMemoryBarriers = &toShaderRead;
-				vkCmdPipelineBarrier2(initElem.cmds[0].vk.cmd, &depToShaderRead);
+				// afterStages 0 derives the all-shader mask — sampled reads can
+				// only happen in shader stages.
+				RITextureBarrier_s toShaderRead = {};
+				toShaderRead.texture = &RI.whiteTexture2D;
+				toShaderRead.before = RI_RESOURCE_STATE_COPY_DST;
+				toShaderRead.beforeStages = RI_STAGE_COPY;
+				toShaderRead.after = RI_RESOURCE_STATE_SHADER_RESOURCE;
+				toShaderRead.mipCount = 1;
+				toShaderRead.layerCount = 1;
+				initElem.cmds[0].textureBarrier(toShaderRead);
 
 				VkImageViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 				viewInfo.image = RI.whiteTexture2D.vk.image;
@@ -459,7 +356,7 @@ namespace hpl {
 				RI.whiteTexture2DBinding.texture = &RI.whiteTexture2D;
 				RI.whiteTexture2DBinding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 				RI.whiteTexture2DBinding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				RIFinalizeDescriptor(&RI.device, &RI.whiteTexture2DBinding);
+				RI.whiteTexture2DBinding.finalize(&RI.device);
 			}
 
 			// Zero-filled vertex buffer — small mapped buffer, never modified after init.
@@ -531,7 +428,7 @@ namespace hpl {
 				}
 			}
 
-			EndRICmd( &RI.device, &initElem.cmds[0] );
+			initElem.cmds[0].end( &RI.device );
 
 			VkCommandBufferSubmitInfo cmdSubmitInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
 			cmdSubmitInfo.commandBuffer = initElem.cmds[0].vk.cmd;
@@ -542,7 +439,7 @@ namespace hpl {
 
 			VK_WrapResult( vkResetFences( RI.device.vk.device, 1, &initElem.vk.fence ) );
 			VK_WrapResult( vkQueueSubmit2( RI.device.queues[RI_QUEUE_GRAPHICS].vk.queue, 1, &submitInfo, initElem.vk.fence ) );
-			WaitRIQueueIdle(&RI.device, &RI.device.queues[RI_QUEUE_GRAPHICS]);
+			RI.device.queues[RI_QUEUE_GRAPHICS].waitIdle(&RI.device);
 
 			if (whiteUploadStaging != VK_NULL_HANDLE) {
 				vmaDestroyBuffer(RI.device.vk.vmaAllocator, whiteUploadStaging, whiteUploadStagingAlloc);
@@ -585,8 +482,13 @@ namespace hpl {
 
 			mvRenderers.resize(eRenderer_LastEnum, NULL);
 			mvRenderers[eRenderer_Main] = hplNew(cHybridRenderer, (this, apResources));
-			//mvRenderers[eRenderer_WireFrame] = hplNew(cRendererWireFrame, (this, apResources));
-			//mvRenderers[eRenderer_Simple] = hplNew(cRendererSimple, (this, apResources));
+			mvRenderers[eRenderer_WireFrame] = hplNew(cRendererWireFrame, (this, apResources));
+			mvRenderers[eRenderer_Simple] = hplNew(cRendererSimple, (this, apResources));
+
+			// Editor / debug overlay batcher — flushed by HybridRenderer's
+			// offscreen tail (and reusable for thumbnails / previews).
+			mpDebugDraw = hplNew(DebugDraw, ());
+			mpDebugDraw->Init(apResources);
 
 			//for(size_t i=0; i<mvRenderers.size(); ++i)
 			//{

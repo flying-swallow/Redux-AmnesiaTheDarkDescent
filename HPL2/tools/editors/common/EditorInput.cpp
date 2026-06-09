@@ -901,6 +901,7 @@ cEditorInputColorFrame::cEditorInputColorFrame(iEditorWindow* apWindow,
 	mpFColor->AddCallback(eGuiMessage_MouseUp, this, kGuiCallback(Frame_OnClick));
 	mpFColor->SetDrawBackground(true);
 	mpFColor->SetBackgroundZ(0);
+	mpFColor->ChangeBackgroundForColorPicking();
 	mpFColor->SetBackGroundColor(mCol);
 }
 

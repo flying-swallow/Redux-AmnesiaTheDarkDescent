@@ -3,7 +3,10 @@
 
 
 void RIAccelStructure_s::dispose(struct RIDevice_s *device) {
-  vkDestroyAccelerationStructureKHR(device->vk.device, vk.handle, NULL);
+  if (vk.handle != VK_NULL_HANDLE) {
+    vkDestroyAccelerationStructureKHR(device->vk.device, vk.handle, NULL);
+    vk.handle = VK_NULL_HANDLE;
+  }
 }
 
 void RIAccelStructure_s::setDebugObjectName(struct RIDevice_s *device,

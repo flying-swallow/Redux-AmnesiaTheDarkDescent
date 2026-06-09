@@ -1,18 +1,18 @@
 /*
  * Copyright © 2009-2020 Frictional Games
- * 
+ *
  * This file is part of Amnesia: The Dark Descent.
- * 
+ *
  * Amnesia: The Dark Descent is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version. 
+ * (at your option) any later version.
 
  * Amnesia: The Dark Descent is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with Amnesia: The Dark Descent.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -22,6 +22,15 @@
 
 #include "EditorWindow.h"
 #include "EditorIndex.h"
+
+#include "gui/WidgetNodeTree.h"
+#include "gui/WidgetMeshObjectList.h"
+
+#include <memory>
+
+namespace hpl {
+	class Image;
+}
 
 //----------------------------------------------------------
 
@@ -57,6 +66,10 @@ public:
 	void Save(cXmlElement* apElement);
 
 	virtual cMeshEntity* CreateTempEntity(cWorld* apWorld);
+
+	// The entry OWNS its GPU-resident thumbnail — delivered by the builder's
+	// callback, released when the entry dies (GPU frees are deferred).
+	Image* GetThumbnailImage() { return mpThumbnailImage.get(); }
 protected:
 	void BuildThumbnail();
 
@@ -67,8 +80,32 @@ protected:
 	tString msTempFileName;
 
 	tWString msMeshFileName;
+
+	std::shared_ptr<Image> mpThumbnailImage;
 };
 
+
+//----------------------------------------------------------
+
+////////////////////////////////////////////////////////////
+// THUMBNAIL GRID ITEM
+////////////////////////////////////////////////////////////
+
+//----------------------------------------------------------
+
+class cWidgetMeshObjectBrowserItem : public iWidgetMeshObjectItem
+{
+public:
+	cWidgetMeshObjectBrowserItem(const tWString& asName, iEditorObjectIndexEntry* apObject, iEditorBase* apEditor);
+	~cWidgetMeshObjectBrowserItem();
+
+	void LoadThumbnail();
+	void DisposeThumbnail();
+
+protected:
+	iEditorObjectIndexEntry* mpObject;
+	iEditorBase* mpEditor;
+};
 
 //----------------------------------------------------------
 
@@ -99,26 +136,23 @@ protected:
 	bool ObjectList_OnChangeSelection(iWidget* apWidget, const cGuiMessageData& aData);
 	kGuiCallbackDeclarationEnd(ObjectList_OnChangeSelection);
 
-	bool Input_OnTextBoxEnter(iWidget* apWidget, const cGuiMessageData& aData);
-	kGuiCallbackDeclarationEnd(Input_OnTextBoxEnter);
+	bool Input_OnFilterTextChanged(iWidget* apWidget, const cGuiMessageData& aData);
+	kGuiCallbackDeclarationEnd(Input_OnFilterTextChanged);
 
 	bool Refresh_OnPressed(iWidget* apWidget, const cGuiMessageData& aData);
 	kGuiCallbackDeclarationEnd(Refresh_OnPressed);
 
 	void BuildObjectSetList();
-	void BuildObjectSetListHelper(const tWString& asFolder, int alLevel);
+	void BuildObjectSetListHelper(const tWString& asFolder, int alLevel, cWidgetTreeNode* apNode);
 
 	void BuildObjectList();
-	void BuildObjectListHelper(const tWString& asBaseFolder, const tWString& asCurrentFolder, tWStringList& alstInvalidFiles);
 	void ClearObjectList();
 	virtual void UpdateObjectList();
-
-	void WriteInvalidFileListToFile(tWString& asFolder, tWStringList& alstInvalidFiles);
 
 	void UpdateObjectInfo();
 	void AddEntriesInDirToList(iEditorObjectIndexDir* apDir,std::vector<iEditorObjectIndexEntryMeshObject*>& avEntries);
 
-	iEditorObjectIndex* CreateIndex(const tWString& asFolder);
+	iEditorObjectIndex* CreateIndex(cWidgetTreeNode* apNode);
 	virtual iEditorObjectIndex* CreateSpecificIndex(iEditorBase* apEditorBase, const tWString& asFolder)=0;
 
 	virtual cMeshEntity* CreatePreviewEntity(iEditorObjectIndexEntryMeshObject* apEntry)=0;
@@ -126,20 +160,17 @@ protected:
 	////////////////////////////////////////////////////
 	// Data
 	tWStringVec mvBaseDirs;
-	
-	tWStringVec mvDirectories;
 
 	// Layout stuff
-	cWidgetGroup* mpSelectionGroup;
-	cWidgetComboBox* mpObjectSets;
-	cWidgetListBox* mpObjectList;
-	cWidgetButton* mpButtonRefresh;
+	cWidgetFrame* mpDirectoryFrame;
+	cWidgetNodeTree* mpDirectoryTree;
+	cWidgetTreeNode* mpRootDirectory;
 
-	cWidgetGroup* mpInfoGroup;
-	cWidgetLabel* mvLabelBVSize[2];
-	cWidgetLabel* mvLabelPolyCount[2];
-	cWidgetLabel* mpLabelThumbnail;
-	cWidgetImage* mpThumbnail;
+	cWidgetTextBox* mpObjectFilter;
+	cWidgetLabel* mpObjectFilterTempText;
+
+	cWidgetFrame* mpObjectSelectGroup;
+	cWidgetMeshObjectList* mpObjectList;
 
 	tWStringVec mvCategoryStrings;
 

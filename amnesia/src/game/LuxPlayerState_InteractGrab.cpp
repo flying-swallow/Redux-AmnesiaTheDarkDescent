@@ -19,6 +19,8 @@
 
 #include "LuxPlayerState_InteractGrab.h"
 
+#include "graphics/DebugDraw.h"
+
 #include "LuxPlayer.h"
 #include "LuxMapHandler.h"
 #include "LuxMap.h"
@@ -563,11 +565,9 @@ float cLuxPlayerState_InteractGrab::DrawDebug(cGuiSet *apSet,iFontData *apFont, 
 	return afStartY;
 }
 
-void cLuxPlayerState_InteractGrab::RenderSolid(cRendererCallbackFunctions* apFunctions)
+void cLuxPlayerState_InteractGrab::RenderSolid(DebugDraw* apDebugDraw)
 {
 	return;
-	apFunctions->SetMatrix(NULL);
-
 	cCamera *pCam = mpPlayer->GetCamera();
 
 	cVector3f vCamRotation( pCam->GetPitch(), pCam->GetYaw(), pCam->GetRoll());
@@ -588,11 +588,11 @@ void cLuxPlayerState_InteractGrab::RenderSolid(cRendererCallbackFunctions* apFun
 	cVector3f vRight = mtxBodyInv.GetRight();
 
 	cVector3f vPos = mpCurrentBody->GetLocalPosition();
-	apFunctions->GetLowLevelGfx()->DrawLine(vPos, vPos+vWantedUp, cColor(0,1,0,1));
-	apFunctions->GetLowLevelGfx()->DrawLine(vPos, vPos+vUp, cColor(0,1,1,1));
+	apDebugDraw->DebugDrawLine(vPos, vPos+vWantedUp, cColor(0,1,0,1));
+	apDebugDraw->DebugDrawLine(vPos, vPos+vUp, cColor(0,1,1,1));
 
-	apFunctions->GetLowLevelGfx()->DrawLine(vPos, vPos+vWantedRight, cColor(1,0,0,1));
-	apFunctions->GetLowLevelGfx()->DrawLine(vPos, vPos+vRight, cColor(1,0,1,1));
+	apDebugDraw->DebugDrawLine(vPos, vPos+vWantedRight, cColor(1,0,0,1));
+	apDebugDraw->DebugDrawLine(vPos, vPos+vRight, cColor(1,0,1,1));
 
 }
 

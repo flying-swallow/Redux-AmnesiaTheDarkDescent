@@ -73,7 +73,9 @@ enum eLightCol
 
 enum eLightFloat
 {
-	eLightFloat_Radius = LightPropIdStart,
+	eLightFloat_Intensity = LightPropIdStart, // light brightness
+	eLightFloat_Radius,                       // light reach
+	eLightFloat_SourceRadius,
 
 	eLightFloat_GoboAnimFrameTime, 
 	eLightFloat_FlickerOnMinLength,
@@ -113,6 +115,8 @@ public:
 	void CopyFromEntity(iEntityWrapper* apEntity);
 	void CopyToEntity(iEntityWrapper* apEntity, int alCopyFlags);
 
+	bool Load(cXmlElement* apElement);
+
 	const tIntList& GetConnectedBBIDS();
 protected:
 	tIntList mlstConnectedBBIds;
@@ -131,7 +135,9 @@ public:
 		AddBool(eLightBool_ShadowsAffectStatic, "ShadowsAffectStatic");
 		AddBool(eLightBool_ShadowsAffectDynamic, "ShadowsAffectDynamic");
 
+		AddFloat(eLightFloat_Intensity, "Intensity", 1.0f);
 		AddFloat(eLightFloat_Radius, "Radius", 1.0f);
+		AddFloat(eLightFloat_SourceRadius, "SourceRadius", 1.0f);
 		AddString(eLightStr_FalloffMap, "FalloffMap");
 		AddString(eLightStr_Gobo, "Gobo");
 		AddString(eLightStr_GoboAnimMode, "GoboAnimMode", "None");
@@ -220,8 +226,14 @@ public:
 	float GetGoboAnimFrameTime() { return mfGoboAnimFrameTime; }
 	void SetGoboAnimFrameTime(float afX);
 
+	virtual void SetIntensity(float afIntensity);
+	float GetIntensity() { return mfIntensity; }
+
 	virtual void SetRadius(float afRadius);
 	float GetRadius() { return mfRadius; }
+
+	virtual void SetSourceRadius(float afSourceRadius);
+	float GetSourceRadius() { return mfSourceRadius; }
 
 	void SetFalloffMap(const tString& asFalloffMap);
 	const tString& GetFalloffMap() { return msFalloffMap; }
@@ -285,7 +297,7 @@ public:
 	std::list<cEntityWrapperBillboard*>& GetConnectedBillboards() { return mlstConnectedBBs; }
 	
 
-	void Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol);
+	void Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol);
 
 	void SaveToElement(cXmlElement* apElement);
 
@@ -297,7 +309,7 @@ protected:
 	void OnSetActive(bool abX);
 	///////////////////////////
 	// To be implemented
-	virtual void DrawLightTypeSpecific(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iEditorEditMode* apEditMode, bool abIsSelectedc)=0;
+	virtual void DrawLightTypeSpecific(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelectedc)=0;
 	
 
 	//////////////////////
@@ -312,7 +324,9 @@ protected:
 	tString msGoboAnimMode;
 	float mfGoboAnimFrameTime;
 
+	float mfIntensity;
 	float mfRadius;
+	float mfSourceRadius;
 
 	cColor mcolDiffuseColor;
 

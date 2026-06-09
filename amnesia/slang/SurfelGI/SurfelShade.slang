@@ -3,10 +3,10 @@
 //
 // Extracted from MainCompositePass.cs.slang so both the final composite
 // pass and the reflection-resolve pass shade a resolved TriangleHit the same
-// way: albedo + emission prep, NEE-over-all-lights direct lighting, and a
+// way: albedo + emission prep, NEE-over-all-lights direct lighting (standard
+// diffuse lobe, kDiffuseBrdf — demodulated, π-compensated knobs), and a
 // world-space surfel-cache indirect gather. Keeping one copy avoids the two
-// passes drifting on the deliberately non-PBR lighting convention (no 1/π on
-// direct — see evalAnalyticLight).
+// passes drifting on the lighting convention.
 
 #include "../HostDefinitions.h"
 #include "../Constants.h"
@@ -14,6 +14,7 @@
 import SceneTypes;
 import Scene;
 import bindless;
+import Brdf;                    // decodeMaterialRoughness (diffuse-lobe roughness)
 import ILight;
 import PerFrame.resource;
 import SurfelGI.SurfelTypes;
@@ -29,6 +30,7 @@ struct DiffuseShading
     float3 normalW;
     float3 albedo;
     float3 emission;
+    float  rough;    // perceptual diffuse-lobe roughness (decodeMaterialRoughness)
 };
 
 // emission = illumination-map texel (DiffuseMaterial slot 5) * per-object glow
@@ -54,20 +56,24 @@ DiffuseShading prepareDiffuseShading(VertexData v, uint materialID, float illumi
         sd.emission = gTextures2D[NonUniformResourceIndex(illumTex)]
                           .SampleLevel(gMaterialSampler, v.texC, 0.0f).rgb
                       * illuminationAmount;
+
+    sd.rough = kDefaultDiffuseRoughness; // decodeMaterialRoughness(m, v.texC);
     return sd;
 }
 
-// The per-light shade (sample → NdotL-cull → ray-traced shadow → Li·NdotL,
-// no 1/π to match the base game) now lives in Scene.slang as
+// The per-light shade (sample → NdotL-cull → ray-traced shadow →
+// Li·NdotL·f_d/albedo with the standard diffuse lobe) lives in Scene.slang as
 // gScene.shadeAnalyticLight, shared with the surfel NEE pass. Demodulated:
-// returns pure irradiance — the caller applies albedo where outgoing radiance
-// is needed.
+// returns albedo-free radiance — the caller applies albedo where outgoing
+// radiance is needed. V here is toward the camera (these wrappers shade
+// camera-visible points: composite, water, direct pass).
 float3 evalAnalyticLight(DiffuseShading sd)
 {
     uint lightCount = gScene.getLightCount();   // unified point+spot count
 
     float3 Lr = float3(0.f);
     float3 origin = sd.posW + sd.normalW * kShadeRayEps;
+    float3 V = normalize(gScene.camera.getPosition() - sd.posW);
 
     // Walk only the point/spot lights binned to this point's cell in the coarse
     // world light grid (built each frame by LightGridBuildPass). Conservative
@@ -83,7 +89,7 @@ float3 evalAnalyticLight(DiffuseShading sd)
         uint flat = gridFlattenCellIndex(cell, kLightGridDim);
         uint n    = min(gLightGridCount[flat], kLightsPerCellMax);
         for (uint k = 0u; k < n; ++k)
-            Lr += gScene.shadeAnalyticLight(sd.posW, sd.normalW,
+            Lr += gScene.shadeAnalyticLight(sd.posW, sd.normalW, V, sd.rough,
                                             gLightGridList[flat * kLightsPerCellMax + k], origin);
     }
 
@@ -101,6 +107,7 @@ float3 evalAnalyticLightSoft(DiffuseShading sd, inout RNG rng)
 
     float3 Lr = float3(0.f);
     float3 origin = sd.posW + sd.normalW * kShadeRayEps;
+    float3 V = normalize(gScene.camera.getPosition() - sd.posW);
 
     int3 cell = gridCellPos(sd.posW, gScene.camera.getPosition(), kLightGridUnit);
     if (lightCount > 0u && gridCellValid(cell, kLightGridDim))
@@ -108,7 +115,7 @@ float3 evalAnalyticLightSoft(DiffuseShading sd, inout RNG rng)
         uint flat = gridFlattenCellIndex(cell, kLightGridDim);
         uint n    = min(gLightGridCount[flat], kLightsPerCellMax);
         for (uint k = 0u; k < n; ++k)
-            Lr += gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW,
+            Lr += gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW, V, sd.rough,
                                                 gLightGridList[flat * kLightsPerCellMax + k],
                                                 origin, rng);
     }
@@ -126,6 +133,7 @@ float3 evalAnalyticLightStochastic(DiffuseShading sd, inout RNG rng)
 {
     uint lightCount = gScene.getLightCount();
     float3 origin = sd.posW + sd.normalW * kShadeRayEps;
+    float3 V = normalize(gScene.camera.getPosition() - sd.posW);
 
     int3 cell = gridCellPos(sd.posW, gScene.camera.getPosition(), kLightGridUnit);
     if (lightCount == 0u || !gridCellValid(cell, kLightGridDim))
@@ -140,7 +148,7 @@ float3 evalAnalyticLightStochastic(DiffuseShading sd, inout RNG rng)
     {
         float3 Lr = float3(0.f);
         for (uint k = 0u; k < n; ++k)
-            Lr += gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW,
+            Lr += gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW, V, sd.rough,
                                                 gLightGridList[flat * kLightsPerCellMax + k],
                                                 origin, rng);
         return Lr;
@@ -155,7 +163,8 @@ float3 evalAnalyticLightStochastic(DiffuseShading sd, inout RNG rng)
     for (uint k = 0u; k < n; ++k)
     {
         uint li = gLightGridList[flat * kLightsPerCellMax + k];
-        float wk = dot(gScene.unshadowedAnalyticLight(sd.posW, sd.normalW, li),
+        float wk = dot(gScene.unshadowedAnalyticLight(sd.posW, sd.normalW, V,
+                                                      sd.rough, li),
                        kLum);
         if (wk <= 0.f) continue;
         wsum += wk;
@@ -167,8 +176,8 @@ float3 evalAnalyticLightStochastic(DiffuseShading sd, inout RNG rng)
     if (!haveSel || wsum <= 0.f) return float3(0.f);
 
     // One soft shadow ray for the chosen light; reweight by the RIS factor.
-    float3 shaded = gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW,
-                                                  selLight, origin, rng);
+    float3 shaded = gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW, V,
+                                                  sd.rough, selLight, origin, rng);
     return shaded * (wsum / selW);
 }
 

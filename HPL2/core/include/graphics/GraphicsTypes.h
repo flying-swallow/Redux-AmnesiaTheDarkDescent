@@ -66,9 +66,9 @@ namespace hpl {
 	enum eRenderer
 	{
 		eRenderer_Main,
-		eRenderer_LastEnum, // disable wireframe and simple
 		eRenderer_WireFrame,
 		eRenderer_Simple,
+		eRenderer_LastEnum,
 	};
 	
 	//-----------------------------------------
@@ -812,22 +812,6 @@ namespace hpl {
 	typedef tVertexVec::iterator tVertexVecIt;
 
 	//---------------------------------------
-
-	class iOcclusionQuery;
-	class iVertexBuffer;
-	
-	class cOcclusionQueryObject
-	{
-	public:
-		cOcclusionQueryObject() : mpQuery(NULL), mpVtxBuffer(NULL),mpMatrix(NULL), mbDepthTest(false), mlSampleResults(0) {}
-
-		int mlCustomID;
-		iOcclusionQuery *mpQuery;
-		iVertexBuffer *mpVtxBuffer;
-		cMatrixf *mpMatrix;
-		bool mbDepthTest;
-		int mlSampleResults;
-	};
 
 	//---------------------------------------
 	class iTexture;

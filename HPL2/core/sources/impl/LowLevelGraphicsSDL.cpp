@@ -37,7 +37,6 @@
 #include "impl/FrameBufferGL.h"
 #include "impl/GLSLProgram.h"
 #include "impl/GLSLShader.h"
-#include "impl/OcclusionQueryOGL.h"
 #include "impl/VertexBufferOGL_Array.h"
 #include "impl/VertexBufferOGL_VBO.h"
 
@@ -271,9 +270,6 @@ bool cLowLevelGraphicsSDL::Init(int alWidth, int alHeight, int alDisplay,
   // Turn off cursor as default
   ShowCursor(false);
 
-  // Gamma
-  mfGammaCorrection = 1.0f;
-  SDL_SetWindowBrightness(mpScreen, mfGammaCorrection);
   mbInitHasBeenRun = true;
 
 
@@ -646,25 +642,6 @@ void cLowLevelGraphicsSDL::SetMultisamplingActive(bool abX) {
 
 //-----------------------------------------------------------------------
 
-void cLowLevelGraphicsSDL::SetGammaCorrection(float afX) {
-  ;
-
-  mfGammaCorrection = afX;
-#if SDL_VERSION_ATLEAST(2, 0, 0)
-  SDL_SetWindowBrightness(mpScreen, mfGammaCorrection);
-#else
-  SDL_SetGamma(mfGammaCorrection, mfGammaCorrection, mfGammaCorrection);
-#endif
-}
-
-float cLowLevelGraphicsSDL::GetGammaCorrection() {
-  ;
-
-  return mfGammaCorrection;
-}
-
-//-----------------------------------------------------------------------
-
 cVector2f cLowLevelGraphicsSDL::GetScreenSizeFloat() {
   ;
 
@@ -766,14 +743,6 @@ iDepthStencilBuffer *cLowLevelGraphicsSDL::CreateDepthStencilBuffer(
     return NULL;
 
   return hplNew(cDepthStencilBufferGL, (avSize, alDepthBits, alStencilBits));
-}
-
-//-----------------------------------------------------------------------
-
-iOcclusionQuery *cLowLevelGraphicsSDL::CreateOcclusionQuery() {
-  ;
-
-  return hplNew(cOcclusionQueryOGL, ());
 }
 
 //-----------------------------------------------------------------------

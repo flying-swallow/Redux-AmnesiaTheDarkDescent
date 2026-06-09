@@ -178,17 +178,12 @@ bool cEditorEditModeSelectToolRotate::PointIntersectsAxis(eSelectToolAxis aAxis,
 
 //----------------------------------------------------------------
 
-void cEditorEditModeSelectToolRotate::DrawAxes(cEditorWindowViewport* apViewport, cRendererCallbackFunctions *apFunctions, float afAxisLength)
+void cEditorEditModeSelectToolRotate::DrawAxes(cEditorWindowViewport* apViewport, DebugDraw *apFunctions, float afAxisLength)
 {
-	apFunctions->SetDepthTest(false);
-	apFunctions->SetTextureRange(NULL,0);
-
 	cCamera *pCam = apViewport->GetCamera();
 	cMatrixf mtxCam = pCam->GetViewMatrix();
 	cVector3f vNormal = pCam->GetForward()*-1;
 	mClipPlane.FromNormalPoint(vNormal, mpSelection->GetCenterTranslation()-vNormal*0.1f);
-
-	apFunctions->GetLowLevelGfx()->SetClipPlane(0,mClipPlane);
 
 	cColor col[3];
 
@@ -199,21 +194,19 @@ void cEditorEditModeSelectToolRotate::DrawAxes(cEditorWindowViewport* apViewport
 	cMatrixf mtxTransform = cMath::MatrixMul(cMath::MatrixTranslate(mpSelection->GetCenterTranslation()),
 											 cMath::MatrixRotate(mpSelection->GetCenterRotation(),eEulerRotationOrder_XYZ));
 
+	// Gizmos always render on top of the scene (legacy drew with depth test
+	// off). Legacy also clipped the rings to the camera-facing hemisphere via
+	// a GL user clip plane (mClipPlane) — DebugDraw has no clip planes, so the
+	// full rings draw now; the ring-pick math is unaffected.
+	DebugDraw::DebugDrawOptions gizmoOptions;
+	gizmoOptions.m_depthTest = DebugDraw::DebugDepthTest::Always;
+	gizmoOptions.m_transform = mtxTransform;
 
-	apFunctions->SetMatrix(&mtxTransform);
-
-
-	apFunctions->GetLowLevelGfx()->SetClipPlaneActive(0,true);
-	
-	apFunctions->GetLowLevelGfx()->DrawSphere(0, afAxisLength, 
+	apFunctions->DebugDrawSphere(0, afAxisLength,
 											  col[0],
-											  col[1], 
-											  col[2]);
-	
-	apFunctions->GetLowLevelGfx()->SetClipPlaneActive(0,false);
-
-
-	apFunctions->SetMatrix(NULL);
+											  col[1],
+											  col[2],
+											  gizmoOptions);
 }
 
 //----------------------------------------------------------------

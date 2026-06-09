@@ -39,6 +39,10 @@ public:
   cHybridRenderer(cGraphics *apGraphics, cResources *apResources);
   ~cHybridRenderer();
 
+  // Per-viewport internals live in HybridViewportState (pure data — see
+  // scene/Viewport.h), held by cViewport; this renderer owns its
+  // creation/sizing (file-local helper in HybridRenderer.cpp).
+
   // kObjectSlotCapacity / kTextureSlotCapacity / kSolidMaterialCapacity and
   // kTotalSurfelLimit / kRayBudget come from amnesia/glsl/forward_shared.h.
 
@@ -49,11 +53,6 @@ public:
 
   virtual bool LoadData() override { return true; };
   virtual void DestroyData() override {};
-  virtual void CopyToFrameBuffer() override {};
-  virtual void SetupRenderList() override {};
-  virtual void RenderObjects() override {};
-
-  cRenderList2* GetRenderList() { return &m_rendererList; };
 
 private:
   // Owns set 0 — the global bindless descriptor set and every buffer bound to
@@ -81,47 +80,14 @@ private:
   uint32_t m_tlasCapacity = 0;
   uint32_t m_tlasStorageCapacity = 0;
 
-  // Surfel-generation output — full-res HDR storage image written by
-  // surfel_generation_pass.comp (set=3, binding=1). One per swapchain image.
-  struct RITexture_s     m_surfelResultTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-  struct RITextureView_s m_surfelResultView[RI_MAX_SWAPCHAIN_IMAGES] = {};
-
-
-  // Stage B packed visibility — RGBA32UI storage image written by the
-  // surfel_vbuffer RT pipeline, sampled by the Stage D / F surfel update
-  // and generation passes. One per swapchain image; per-frame layout is
-  // UNDEFINED → GENERAL → SHADER_READ_ONLY, like the gbuffer outputs.
-  struct RITexture_s     m_packedHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-  struct RITextureView_s m_packedHitInfoView[RI_MAX_SWAPCHAIN_IMAGES] = {};
-
-  // Screen-space velocity (motion vectors), RG16F. Written as the gbuffer's 2nd
-  // color target; sampled by temporal passes. One per swapchain image.
-  struct RITexture_s     m_velocityTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-  struct RITextureView_s m_velocityView[RI_MAX_SWAPCHAIN_IMAGES] = {};
-
-  // Direct-lighting accumulation history (RGBA16F ping-pong, kept in GENERAL).
-  // [m_directLightingIndex] is this frame's write target; [^1] is the history
-  // the direct pass reprojects. NOT swapchain-indexed (history spans frames).
-  // m_directLightingInit: one-time UNDEFINED→GENERAL + clear on first use.
-  struct RITexture_s     m_directLightingTexture[2] = {};
-  struct RITextureView_s m_directLightingView[2] = {};
-  // Parallel surface-key ping-pong (viewZ, normal.xyz) for disocclusion
-  // rejection; shares m_directLightingIndex with the colour history above.
-  struct RITexture_s     m_directKeyTexture[2] = {};
-  struct RITextureView_s m_directKeyView[2] = {};
-  uint32_t               m_directLightingIndex = 0;
-  bool                   m_directLightingInit = false;
-
-  // Previous-frame camera matrices for motion vectors (raw float4x4 storage;
-  // staged into SceneConstants.prevViewMat/prevProjMat each frame, then updated
-  // to this frame's). m_hasPrevCamera seeds prev = current on the first frame.
-  float m_prevViewMat[16] = {};
-  float m_prevProjMat[16] = {};
-  bool  m_hasPrevCamera = false;
+  // (The per-viewport frame textures — surfel result, packed hit info,
+  // velocity, direct-lighting history + ping-pong index/init, prev-frame
+  // camera — live on cViewport::HybridViewportState; their Update/Dispose
+  // are defined in HybridRenderer.cpp.)
 
   // Per-bounce V-buffers written by SurfelVBuffer.rt.slang's closeHit when
   // the primary surface is refractive / reflective. Same format + dims as
-  // m_packedHitInfoTexture; cleared to uint4(0) host-side each frame so
+  // the viewport state's packedHitInfoTexture; cleared to uint4(0) host-side each frame so
   // consumers detect "no bounce here" via the valid bit in .w. .w high
   // bits also stamp the source instanceID (the glass / mirror that bent
   // the ray) so consumers can look up its DiffuseMaterial for blending.
@@ -134,7 +100,7 @@ private:
   // reads vec3(0) indirect — direct lighting still renders correctly.
 
   // Stage B: primary-ray VBuffer. RT pipeline (rgen + chit + ahit + miss)
-  // that writes a packed uvec4 TriangleHit into m_packedHitInfoTexture.
+  // that writes a packed uvec4 TriangleHit into the viewport state's packedHitInfoTexture.
   // Same hit-pack convention as the Slang reference's TriangleHit.pack(),
   // so Stage D update / Stage F generation+composite can consume the
   // resulting visibility data.
@@ -163,7 +129,7 @@ private:
   // into per-surfel radiance via MSME; the generation pass walks the
   // visibility buffer per pixel, scores cell coverage, spawns / recycles
   // surfels, and writes the indirect-lighting term into
-  // m_surfelResultTexture which visibility_shade.frag samples.
+  // the viewport state's surfelResultTexture which visibility_shade.frag samples.
   RIProgram m_surfelIntegrate;
   RIProgram m_surfelGenerate;
 
@@ -226,11 +192,6 @@ private:
 	// transition once on its first appearance; after that the atlas data
 	// must persist (integrate EMA-blends with the prior frame's values).
 	std::array<bool, RI_MAX_SWAPCHAIN_IMAGES> m_surfelAtlasesInitialized = {};
-
-	// One-shot UNDEFINED transition tracker for the pogo halves. Per
-	// swapchain image, since each backing image needs the initial
-	// transitions emitted once on its first appearance.
-	std::array<bool, RI_MAX_SWAPCHAIN_IMAGES> m_pogoInitialized = {};
 };
 
 } // namespace hpl

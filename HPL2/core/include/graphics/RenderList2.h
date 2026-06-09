@@ -23,7 +23,6 @@
 #include <array>
 #include <span>
 #include <vector>
-#include <unordered_set>
 
 #include "graphics/GraphicsTypes.h"
 
@@ -46,14 +45,12 @@ namespace hpl {
 		void Setup(float afFrameTime, cFrustum *apFrustum);
 		[[deprecated("Use BeginAndReset")]]
 		void Clear();
-		void ClearPersistentObjectsForMapChange();
 
 		void AddObject(iRenderable *apObject);
 
 		bool ArrayHasObjects(eRenderListType aType);
 
 		std::span<iRenderable*> GetRenderableItems(eRenderListType aType);
-		std::span<iRenderable*> GetOcclusionQueryItems();
 		std::span<iRenderable*> GetTransObjects();
 		std::span<iRenderable*> GetSolidObjects();
 		std::span<cFogArea*> GetFogAreas();
@@ -61,10 +58,6 @@ namespace hpl {
 
 		void BeginAndReset(float frameTime, cFrustum* frustum);
 		void End(tRenderListCompileFlag aFlags);
-
-		void ForgetObject(iRenderable* obj);
-		void ForgetLight(iLight* light);
-		void ForgetFogArea(cFogArea* fog);
 
 		iLight* GetLight(int alIdx){ return m_lights[alIdx];}
 		int GetLightNum(){ return(int)m_lights.size();}
@@ -85,7 +78,6 @@ namespace hpl {
 		float m_frameTime = 0.0f;
 		cFrustum* m_frustum = nullptr;
 
-		std::vector<iRenderable*> m_occlusionQueryObjects;
 		std::vector<iRenderable*> m_solidObjects;
 		std::vector<iRenderable*> m_transObjects;
 		std::vector<iRenderable*> m_decalObjects;
@@ -93,14 +85,6 @@ namespace hpl {
 		std::vector<iLight*> m_lights;
 		std::vector<cFogArea*> m_fogAreas;
 		std::array<std::vector<iRenderable*>,eRenderListType_LastEnum> m_sortedArrays;
-
-		std::unordered_set<iRenderable*> m_occlusionQueryObjectsSet;
-		std::unordered_set<iRenderable*> m_solidObjectsSet;
-		std::unordered_set<iRenderable*> m_transObjectsSet;
-		std::unordered_set<iRenderable*> m_decalObjectsSet;
-		std::unordered_set<iRenderable*> m_illumObjectsSet;
-		std::unordered_set<iLight*> m_lightsSet;
-		std::unordered_set<cFogArea*> m_fogAreasSet;
 	};
 
 	//---------------------------------------------

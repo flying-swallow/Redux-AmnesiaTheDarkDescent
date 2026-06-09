@@ -407,10 +407,10 @@ bool VertexBuffer_RI::Compile(tVertexCompileFlag aFlags) {
   //  trans.target = *buf;
   //  trans.size = size;
   //  trans.offset = 0;
-  //  trans.vk.current_stage = VK_PIPELINE_STAGE_2_NONE;
-  //  trans.vk.current_access = VK_ACCESS_2_NONE;
-  //  trans.vk.post_stage = postStage;
-  //  trans.vk.post_access = postAccess;
+  //  trans.currentState = RI_RESOURCE_STATE_UNDEFINED;
+  //  trans.currentStages = RI_STAGE_NONE;
+  //  trans.postState = postState;
+  //  trans.postStages = postStages;
   //  RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
   //  std::memcpy(trans.mapped.data, src, size);
   //  RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
@@ -456,13 +456,12 @@ bool VertexBuffer_RI::Compile(tVertexCompileFlag aFlags) {
 }
 
 void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
-                                    RIBootstrap::FrameContext *cntx,
-                                    bool abBuildBlas) {
+                                    RIBootstrap::FrameContext *cntx) {
   assert(cmd);
   assert(device);
   assert(cntx);
 
-  if(m_generation == m_lastSubmitted) {
+  if (m_generation == m_lastSubmitted) {
     return;
   }
 
@@ -499,16 +498,16 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
   // copy of the RIBuffer_s, but the underlying VkBuffer / VmaAllocation handles
   // are shared, so the upload lands in the same GPU memory.
   auto stageUpload = [&](RIBuffer_s *target, VkDeviceSize size, const void *src,
-                         VkPipelineStageFlags2 postStage,
-                         VkAccessFlags2 postAccess) {
+                         enum RIResourceState_e postState,
+                         uint32_t postStages) {
     RIResourceBufferTransaction_s trans = {};
     trans.target = *target;
     trans.size = size;
     trans.offset = 0;
-    trans.vk.current_stage = VK_PIPELINE_STAGE_2_NONE;
-    trans.vk.current_access = VK_ACCESS_2_NONE;
-    trans.vk.post_stage = postStage;
-    trans.vk.post_access = postAccess;
+    trans.currentState = RI_RESOURCE_STATE_UNDEFINED;
+    trans.currentStages = RI_STAGE_NONE;
+    trans.postState = postState;
+    trans.postStages = postStages;
     RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
     std::memcpy(trans.mapped.data, src, size);
     RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
@@ -545,8 +544,7 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
     // stream dirty via UpdateData().
     if (needsAlloc || (m_updateFlags & element.flag)) {
       stageUpload(element.buffer.get(), needed, element.m_shadowData.data(),
-                  VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-                  VK_ACCESS_2_SHADER_READ_BIT);
+                  RI_RESOURCE_STATE_UNORDERED_ACCESS, RI_STAGE_VERTEX);
     }
   }
 
@@ -563,24 +561,29 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
     }
     if (needsAlloc || m_updateIndices) {
       stageUpload(m_indexBuffer.get(), needed, m_indices.data(),
-                  VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT,
-                  VK_ACCESS_2_SHADER_READ_BIT);
+                  RI_RESOURCE_STATE_UNORDERED_ACCESS, RI_STAGE_VERTEX);
     }
   }
-  // A realloc already moved the BDAs above, so notify regardless of whether the
-  // BLAS rebuild below proceeds — surfels anchored to the old address must be
+  // A realloc moved the BDAs above, so notify regardless of whether a BLAS
+  // rebuild follows (BuildBlas) — surfels anchored to the old address must be
   // invalidated either way.
   if (reallocated)
     m_onGeometryChanged.Signal();
 
-  // Streams are uploaded; for renderables that are never TLAS instances
-  // (particles/billboards/beams/ropes/decals) skip the dead BLAS build. Finalise
-  // the same bookkeeping the BLAS tail does so the next submit re-uploads only on
-  // a real change. m_blas stays null, so AttachResourceToCntx skips it.
-  if (!abBuildBlas) {
-    m_updateFlags = 0;
-    m_updateIndices = false;
-    m_lastSubmitted = m_generation;
+  // Dirty flags only drive the *partial* upload path above; clear them so the
+  // next submit (after a future UpdateData) re-uploads only the touched streams.
+  m_updateFlags = 0;
+  m_updateIndices = false;
+  m_lastSubmitted = m_generation;
+}
+
+void VertexBuffer_RI::BuildBlas(RICmd_s *cmd, RIDevice_s *device,
+                                RIBootstrap::FrameContext *cntx) {
+  // Streams must be current before any build — no-op if a prior submit (e.g.
+  // the translucent/decal prepare) already uploaded this generation.
+  SubmitToGPU(cmd, device, cntx);
+
+  if (m_blas && m_blasGeneration == m_generation) {
     return;
   }
 
@@ -628,7 +631,7 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
 
   uint64_t storageSize = 0;
   uint64_t buildScratchSize = 0;
-  GetRIAccelStructureMemoryReqs(device, &asDesc, &storageSize, &buildScratchSize, NULL );
+  asDesc.getMemoryReqs(device, &storageSize, &buildScratchSize, NULL );
 
   m_blasStorage = std::shared_ptr<RIBuffer_s>(
       new RIBuffer_s(),
@@ -674,7 +677,7 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
         a->dispose(&RI.device);
         delete a;
       });
-  if (InitRIAccelStructure(device, &asDesc, m_blas.get()) != RI_SUCCESS) {
+  if (m_blas->init(device, &asDesc) != RI_SUCCESS) {
     Error("failed to construct acceel structure");
   }
   // Distinct name for the AS itself (was reusing the storage buffer's name).
@@ -695,30 +698,24 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
   buildDesc.geometryNum = 1;
   buildDesc.scratchOffset = scratchReq.bufferOffset;
   buildDesc.scratchBuffer = &scratchReq.block.buffer;
-  CmdBuildRIBlas(device, cmd, &buildDesc, 1);
+  cmd->buildBlas(device, &buildDesc, 1);
 
-  // Dirty flags only drive the *partial* upload path above; once we've fully
-  // re-uploaded and rebuilt the BLAS, clear them so the next submit (after a
-  // future UpdateData) doesn't re-upload streams that weren't touched.
-  m_updateFlags = 0;
-  m_updateIndices = false;
-  m_lastSubmitted = m_generation;
-  return;
+  m_blasGeneration = m_generation;
 }
 
 void VertexBuffer_RI::AttachResourceToCntx(RIBootstrap::FrameContext *cntx) {
 
   for (auto &element : m_vertexElements) {
     if(element.buffer) {
-      cntx->bufferLink.push_back(element.buffer);
+      cntx->resourceLink.push_back(element.buffer);
     }
   }
   if(m_indexBuffer) {
-    cntx->bufferLink.push_back(m_indexBuffer);
+    cntx->resourceLink.push_back(m_indexBuffer);
   }
   if(m_blas) {
-    cntx->accelLink.push_back(m_blas);
-    cntx->bufferLink.push_back(m_blasStorage);
+    cntx->resourceLink.push_back(m_blas);
+    cntx->resourceLink.push_back(m_blasStorage);
   }
 }
 
@@ -790,121 +787,6 @@ VertexBuffer_RI::GetElement(eVertexBufferElement elementType) {
     return &(*element);
   }
   return nullptr;
-}
-
-RIAccelStructure_s *VertexBuffer_RI::GetOrBuildBlas(RIDevice_s *device,
-                                                    RICmd_s *cmd) {
-  //if (m_blasValid)
-  //  return &m_blas;
-  //if (!device || !cmd)
-  //  return nullptr;
-
-  //const VertexElement *position = GetElement(eVertexBufferElement_Position);
-  //if (!position || !position->buffer || !m_indexBuffer)
-  //  return nullptr;
-  //if (position->buffer->vk.buffer == VK_NULL_HANDLE ||
-  //    m_indexBuffer->vk.buffer == VK_NULL_HANDLE)
-  //  return nullptr;
-
-  //const uint32_t vertexNum = static_cast<uint32_t>(position->NumElements());
-  //const uint32_t indexNum = static_cast<uint32_t>(m_indices.size());
-  //if (vertexNum == 0 || indexNum < 3)
-  //  return nullptr;
-
-  //// 1. Describe geometry. RGB32 sfloat is HPL's only position format; index buffer is
-  ////    always uint32_t (see Compile()).
-  //RIAccelGeometryDesc_s geom = {};
-  //geom.type = RI_ACCEL_GEOMETRY_TYPE_TRIANGLES;
-  //geom.flags = RI_ACCEL_GEOMETRY_OPAQUE;
-  //geom.triangles.vertexBuffer = position->buffer.get();
-  //geom.triangles.vertexOffset = 0;
-  //geom.triangles.vertexNum = vertexNum;
-  //geom.triangles.vertexStride = static_cast<uint16_t>(position->Stride());
-  //geom.triangles.vertexFormat = RI_FORMAT_RGB32_SFLOAT;
-  //geom.triangles.indexBuffer = m_indexBuffer.get();
-  //geom.triangles.indexOffset = 0;
-  //geom.triangles.indexNum = indexNum;
-  //geom.triangles.indexType = RI_INDEX_TYPE_32;
-  //geom.triangles.transformBuffer = nullptr;
-  //geom.triangles.transformOffset = 0;
-
-  //RIAccelStructureDesc_s asDesc = {};
-  //asDesc.type = RI_ACCEL_STRUCTURE_TYPE_BOTTOM_LEVEL;
-  //asDesc.flags = RI_ACCEL_BUILD_PREFER_FAST_TRACE;
-  //asDesc.geometryOrInstanceNum = 1;
-  //asDesc.geometries = &geom;
-
-  //uint64_t storageSize = 0;
-  //uint64_t buildScratchSize = 0;
-  //GetRIAccelStructureMemoryReqs(device, &asDesc, &storageSize, &buildScratchSize,
-  //                              nullptr);
-  //if (storageSize == 0 || buildScratchSize == 0)
-  //  return nullptr;
-
-  //// 2. Allocate AS storage and scratch buffers. Both share the deferred-free deleter so
-  ////    they outlive any in-flight cmd that still references them.
-  //auto destroyBuffer = [](RIBuffer_s *b) {
-  //  if (b->vk.buffer) {
-  //    auto *cntx = RI.GetActiveSet();
-  //    cntx->freelist.push_back(RIFree(b->vk.buffer));
-  //    cntx->freelist.push_back(RIFree(b->vk.allocation));
-  //  }
-  //  delete b;
-  //};
-
-  //auto createDeviceBuffer = [&](VkDeviceSize size, VkBufferUsageFlags usage,
-  //                              const char *label) -> std::shared_ptr<RIBuffer_s> {
-  //  std::shared_ptr<RIBuffer_s> buf(new RIBuffer_s(), destroyBuffer);
-  //  uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-  //  VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-  //  VK_ConfigureBufferQueueFamilies(&bci, device->queues, RI_QUEUE_LEN,
-  //                                  queueFamilies, RI_QUEUE_LEN);
-  //  bci.size = size;
-  //  bci.usage = usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-  //  VmaAllocationCreateInfo aci = {};
-  //  aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  //  VK_WrapResult(vmaCreateBuffer(device->vk.vmaAllocator, &bci, &aci,
-  //                                &buf->vk.buffer, &buf->vk.allocation, nullptr));
-  //  
-  //  char dbg[128];
-  //  std::snprintf(dbg, sizeof(dbg), "VB[%p]:%s", static_cast<void *>(this),
-  //                label);
-  //  buf->setDebugObjectName(&RI.device, dbg);
-  //  return buf;
-  //};
-
-  //m_blasStorage = createDeviceBuffer(
-  //    storageSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR,
-  //    "BlasStorage");
-
-  //std::shared_ptr<RIBuffer_s> scratch = createDeviceBuffer(
-  //    buildScratchSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, "BlasScratch");
-
-  //// 3. Create the BLAS object on top of the storage buffer.
-  //asDesc.storage = m_blasStorage.get();
-  //asDesc.storageOffset = 0;
-  //asDesc.storageSize = storageSize;
-  //if (InitRIAccelStructure(device, &asDesc, &m_blas) != RI_SUCCESS) {
-  //  m_blasStorage.reset();
-  //  return nullptr;
-  //}
-
-  //// 4. Record the build. The scratch buffer's lifetime is extended by capturing it on the
-  ////    active frame's freelist via its deleter — it'll be destroyed once frames-in-flight
-  ////    rotate past this submission.
-  //RIBuildBlasDesc_s buildDesc = {};
-  //buildDesc.dst = &m_blas;
-  //buildDesc.src = nullptr;
-  //buildDesc.mode = RI_ACCEL_BUILD_MODE_BUILD;
-  //buildDesc.geometries = &geom;
-  //buildDesc.geometryNum = 1;
-  //buildDesc.scratchBuffer = scratch.get();
-  //buildDesc.scratchOffset = 0;
-  //CmdBuildRIBlas(device, cmd, &buildDesc, 1);
-
-  //// scratch ref-count drops here; the shared_ptr deleter queues it for deferred free.
-  //m_blasValid = true;
-  return NULL;
 }
 
 void VertexBuffer_RI::CreateElementArray(eVertexBufferElement aType,

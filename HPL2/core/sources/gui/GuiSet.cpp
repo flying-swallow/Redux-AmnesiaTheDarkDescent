@@ -43,6 +43,7 @@
 #include "graphics/HPLTexture.h"
 
 #include "scene/Scene.h"
+#include "scene/Viewport.h"
 #include "scene/Camera.h"
 
 #include "input/Input.h"
@@ -71,6 +72,8 @@
 #include "gui/WidgetListBox.h"
 #include "gui/WidgetMultiPropertyListBox.h"
 #include "gui/WidgetComboBox.h"
+#include "gui/WidgetNodeTree.h"
+#include "gui/WidgetMeshObjectList.h"
 #include "gui/WidgetMenuItem.h"
 #include "gui/WidgetContextMenu.h"
 #include "gui/WidgetMainMenu.h"
@@ -86,6 +89,7 @@
 #include <vulkan/vulkan_core.h>
 
 namespace hpl {
+
 	struct GuiPass {
 		float mvp[4 * 4];
 		float clipPlanes[4][4];
@@ -526,7 +530,7 @@ namespace hpl {
 		}
 	}
 
-	void cGuiSet::Render(cFrustum *apFrustum)
+	void cGuiSet::Render(cFrustum *apFrustum, cViewport *apViewport)
 	{
 		if(m_setRenderObjects.empty()) {
 			return;
@@ -534,8 +538,8 @@ namespace hpl {
 
 		RIBootstrap::FrameContext* cntx = RI.GetActiveSet();
 
-		const size_t numVerts = m_setRenderObjects.size() * 4;;
-		const size_t numIndecies = m_setRenderObjects.size() * 6;;
+		const size_t numVerts = m_setRenderObjects.size() * 4;
+		const size_t numIndecies = m_setRenderObjects.size() * 6;
 		RISegmentReq_s vtxReq = {};
 		RISegmentReq_s idxReq = {};
 		if(!IsRIBufferValid(&RI.renderer, &RI.guiVertexBuffer) || !RI.guiVertexAlloc.request(RI.frameIndex, numVerts, &vtxReq)) {
@@ -555,7 +559,7 @@ namespace hpl {
 		  VK_ConfigureBufferQueueFamilies( &vertexBufferCreateInfo , RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
 		  vertexBufferCreateInfo.pNext = NULL;
 		  vertexBufferCreateInfo.flags = 0;
-		  vertexBufferCreateInfo.size = segmentAllocDesc.maxElements * segmentAllocDesc.elementStride; 
+		  vertexBufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
 		  vertexBufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 
 		  VmaAllocationInfo allocationInfo = { 0 };
@@ -564,8 +568,7 @@ namespace hpl {
 		  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 		  
 			if( RI.guiVertexBuffer.vk.buffer) {
-				cntx->freelist.push_back(RIFree(RI.guiVertexBuffer.vk.buffer));
-				cntx->freelist.push_back(RIFree(RI.guiVertexBuffer.vk.allocation));
+				cntx->freelist.push_back(RI.guiVertexBuffer);
 			}
 			VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &vertexBufferCreateInfo, &allocInfo, &RI.guiVertexBuffer.vk.buffer, &RI.guiVertexBuffer.vk.allocation, &allocationInfo ) );
 			RI.guiVertexBuffer.mappedAddress = allocationInfo.pMappedData;
@@ -586,7 +589,7 @@ namespace hpl {
 		  VK_ConfigureBufferQueueFamilies( &indexBufferCreateInfo , RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
 		  indexBufferCreateInfo.pNext = NULL;
 		  indexBufferCreateInfo.flags = 0;
-		  indexBufferCreateInfo.size = segmentAllocDesc.maxElements * segmentAllocDesc.elementStride; 
+		  indexBufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
 		  indexBufferCreateInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
 		  
 			VmaAllocationInfo allocationInfo = { 0 };
@@ -595,8 +598,7 @@ namespace hpl {
 		  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 			
 			if( RI.guiIndexBuffer.vk.buffer) {
-				cntx->freelist.push_back(RIFree(RI.guiIndexBuffer.vk.buffer));
-				cntx->freelist.push_back(RIFree(RI.guiIndexBuffer.vk.allocation));
+				cntx->freelist.push_back(RI.guiIndexBuffer);
 			}
 
 			VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &indexBufferCreateInfo, &allocInfo, &RI.guiIndexBuffer.vk.buffer, &RI.guiIndexBuffer.vk.allocation, &allocationInfo ) );
@@ -715,7 +717,7 @@ namespace hpl {
 			struct RIProgram::DescriptorBinding bindings[6] = {};
 			size_t numBindings = 0;
 			// Resolve the diffuse texture, pin its lifetime to this frame
-			// slot BEFORE we touch any of its Vulkan handles. textureLink
+			// slot BEFORE we touch any of its Vulkan handles. resourceLink
 			// holds the shared_ptr until next reuse of this frame slot
 			// (after the fence wait in BeginActiveSet), so the VkImage
 			// stays alive past the submit that references it.
@@ -724,7 +726,7 @@ namespace hpl {
 				diffuseTexture = pTexture->GetTexture();
 			}
 			if (diffuseTexture) {
-				cntx->textureLink.push_back(diffuseTexture);
+				cntx->resourceLink.push_back(diffuseTexture);
 				uniformBlock.textureCfg |= (1 << 0); // Has texture
 				bindings[numBindings].descriptor = diffuseTexture->binding;
 			} else {
@@ -736,13 +738,22 @@ namespace hpl {
 			RI.UpdateFrameUBO(&bindings[numBindings].descriptor, (void*)&uniformBlock, sizeof(GuiPass));		
 			bindings[numBindings++].handle = DescriptorBindingID::Create("pass");
 
-			RIDescriptor_s* desc = 	RI.resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
+			auto desc = 	RI.resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 			assert(desc);
 			bindings[numBindings].descriptor = *desc;
 			bindings[numBindings++].handle = DescriptorBindingID::Create("diffuseSampler");
 
+			// Whether the rendering instance has a depth attachment — viewport
+			// state: whoever opened the instance attached the same
+			// GetDepthView(). No-depth variant for GUI-only frames (menus) and
+			// viewport-less renders: the pipeline's depth format must be
+			// UNDEFINED to match the attachment-less instance.
+			const bool bRenderPassHasDepth =
+				apViewport != nullptr && apViewport->GetDepthView() != nullptr;
+
 			hash_t hash = hash_u32(HASH_INITIAL_VALUE, materialType);
-			hash = hash_u32(hash, RIBootstrap::DepthFormat);
+			hash = hash_u32(hash, bRenderPassHasDepth ? RIBootstrap::DepthFormat
+			                                          : RI_FORMAT_UNKNOWN);
 			hash = hash_u32(hash, RI.swapchain.format);
 			hash = hash_u32(hash, mbIs3D);
 			VkPipelineVertexInputStateCreateInfo vertexInputState = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
@@ -782,8 +793,9 @@ namespace hpl {
 			// target, this needs to take the actual attachment's format instead.
 			VkFormat colorFormats[1] = { RIFormatToVK((RI_Format_e)RI.swapchain.format) };
 			pipelineRenderingCreateInfo.pColorAttachmentFormats = colorFormats;
-			pipelineRenderingCreateInfo.depthAttachmentFormat = RIFormatToVK( RIBootstrap::DepthFormat );
-			pipelineRenderingCreateInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED; 
+			pipelineRenderingCreateInfo.depthAttachmentFormat =
+				bRenderPassHasDepth ? RIFormatToVK( RIBootstrap::DepthFormat ) : VK_FORMAT_UNDEFINED;
+			pipelineRenderingCreateInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
 
 			VkPipelineViewportStateCreateInfo viewportState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
 			viewportState.viewportCount = 1;
@@ -795,7 +807,7 @@ namespace hpl {
 			VkPipelineDepthStencilStateCreateInfo depthStencilState = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
 			depthStencilState.minDepthBounds = 0.0f;
 			depthStencilState.maxDepthBounds = 1.0f;
-			if (mbIs3D) {
+			if (mbIs3D && bRenderPassHasDepth) {
 				depthStencilState.depthTestEnable = VK_TRUE;
 				depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 			}
@@ -990,7 +1002,7 @@ namespace hpl {
 			uint64_t ibOffset = idxOffset + indexBufferOffset * sizeof(uint32_t);
 			vkCmdBindVertexBuffers(RI.primary.cmds[0].vk.cmd, 0, 1, &RI.guiVertexBuffer.vk.buffer, &vbOffset);
 			vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, RI.guiIndexBuffer.vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
-			CmdDrawIndexed(&RI.primary.cmds[0], indexBufferIndex, 1, 0, 0, 0);
+			RI.primary.cmds[0].drawIndexed(indexBufferIndex, 1, 0, 0, 0);
 
 			vertexBufferOffset += vertexBufferIndex;
 			indexBufferOffset += indexBufferIndex;
@@ -1244,6 +1256,32 @@ namespace hpl {
 		pTextBox->SetName(asName);
 		AddWidget(pTextBox,apParent);
 		return pTextBox;
+	}
+
+	cWidgetNodeTree* cGuiSet::CreateWidgetNodeTree( float afContainerWidth,
+													iWidget *apParent,
+													const tString &asName)
+	{
+		cWidgetNodeTree* pNodeTree = hplNew(cWidgetNodeTree, (this, mpSkin));
+		pNodeTree->SetSize(cVector2f(afContainerWidth, 16));
+		pNodeTree->SetName(asName);
+		AddWidget(pNodeTree, apParent);
+		return pNodeTree;
+	}
+
+	//-----------------------------------------------------------------------
+
+	cWidgetMeshObjectList* cGuiSet::CreateWidgetMeshObjectList( const cVector3f& avLocalPos,
+													const cVector2f& avSize,
+													iWidget* apParent,
+													const tString& asName)
+	{
+		cWidgetMeshObjectList* pMeshObjectList = hplNew(cWidgetMeshObjectList, (this, mpSkin));
+		pMeshObjectList->SetPosition(avLocalPos);
+		pMeshObjectList->SetSize(avSize);
+		pMeshObjectList->SetName(asName);
+		AddWidget(pMeshObjectList, apParent);
+		return pMeshObjectList;
 	}
 
 	cWidgetCheckBox* cGuiSet::CreateWidgetCheckBox(	const cVector3f &avLocalPos,

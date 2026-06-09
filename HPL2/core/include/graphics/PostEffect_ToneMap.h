@@ -30,7 +30,8 @@ namespace hpl {
 class cPostEffectParams_ToneMap : public iPostEffectParams {
 public:
     cPostEffectParams_ToneMap()
-        : iPostEffectParams("ToneMap"), mfExposure(1.0f), mfShadowLift(0.0f) {}
+        : iPostEffectParams("ToneMap"), mfExposure(1.0f), mfShadowLift(0.0f),
+          mfGamma(1.0f) {}
 
     kPostEffectParamsClassInit(cPostEffectParams_ToneMap)
 
@@ -40,6 +41,9 @@ public:
     // Post black-point lift applied after the curve (0 = none); raises pitch-
     // blacks back into the visible range so deep shadows aren't crushed.
     float mfShadowLift;
+    // User display-gamma (1.0 = no-op) applied as the final encode step;
+    // authored game-side in cLuxConfigHandler.
+    float mfGamma;
 };
 
 class cPostEffectType_ToneMap : public iPostEffectType {

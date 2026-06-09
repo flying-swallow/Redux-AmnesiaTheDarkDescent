@@ -30,6 +30,8 @@ class cLuxMap;
 class cLuxSavedGameMapCollection;
 class cLuxModelCache;
 
+namespace hpl { struct WorldDrawCtx; }
+
 typedef std::list<cLuxMap*> tLuxMapList;
 typedef tLuxMapList::iterator tLuxMapListIt;
 
@@ -45,22 +47,6 @@ public:
 private:
 	tStringVec mvEnemyHearableSounds;
 };
-
-//----------------------------------------------
-
-class cLuxDebugRenderCallback : public iRendererCallback
-{
-public:
-	cLuxDebugRenderCallback();
-
-	void OnPostSolidDraw(cRendererCallbackFunctions* apFunctions);
-
-	void OnPostTranslucentDraw(cRendererCallbackFunctions* apFunctions);
-
-	iPhysicsWorld* mpPhysicsWorld;
-	iLowLevelGraphics* mpLowLevelGfx;
-};
-
 
 //----------------------------------------------
 
@@ -99,7 +85,7 @@ public:
 
 	void SetUpdateActive(bool abX);
 	
-	void RenderSolid(cRendererCallbackFunctions* apFunctions);
+	void RenderSolid(DebugDraw* apDebugDraw);
 
 	void OnEnterContainer(const tString& asOldContainer);
 	void OnLeaveContainer(const tString& asNewContainer);
@@ -115,6 +101,9 @@ public:
 	cLuxMap* GetCurrentMap(){ return mpCurrentMap;}
 
 	cViewport* GetViewport(){ return mpViewport;}
+
+	// Re-push the config gamma (cLuxConfigHandler) onto the live tonemap effect.
+	void RefreshToneMapGamma();
 
 	const tString& GetMapFolder(){ return msMapFolder;}
 	void SetMapFolder(const tString& asFolder){ msMapFolder = asFolder;}
@@ -148,7 +137,11 @@ private:
 
 	void CheckMapChange(float afTimeStep);
 
-	cLuxDebugRenderCallback mRenderCallback;
+	// RI path: debug overlays are enqueued into the global DebugDraw batcher
+	// right before the renderer Draw — the Hybrid renderer never runs
+	// iRendererCallback messages. Handler auto-disconnects on destruction.
+	void OnPreWorldDraw();
+	EventHandler<const WorldDrawCtx&> mPreWorldDrawHandler;
 
 	tString msMapFolder;
 

@@ -474,13 +474,9 @@ namespace hpl {
 		{
 			Image::SingleImage singleImage = {};
 			singleImage.image = std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete);
-			RIBarrierImageHandle_s barrierHandle = {};
-			barrierHandle.vk.layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			barrierHandle.vk.stage = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-			barrierHandle.vk.access = VK_ACCESS_2_SHADER_READ_BIT;
 			hpl::HPLTexture::BitmapLoadOptions opts = {0};
 			opts.use_mipmaps = true;
-			if(!singleImage.image->LoadBitmap(barrierHandle, *mpBitmap, opts)) {
+			if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *mpBitmap, opts)) {
 				Error("Failed to load bitmap");
 				return false;
 			}

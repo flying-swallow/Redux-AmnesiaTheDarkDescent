@@ -131,9 +131,6 @@ namespace hpl {
 
 		void SetMultisamplingActive(bool abX);
 
-		void SetGammaCorrection(float afX);
-		float GetGammaCorrection();
-
 		int GetMultisampling(){ return mlMultisampling;}
 
 		cVector2f GetScreenSizeFloat();
@@ -159,7 +156,6 @@ namespace hpl {
 		iFrameBuffer* CreateFrameBuffer(const tString& asName);
 		iDepthStencilBuffer* CreateDepthStencilBuffer(const cVector2l& avSize, int alDepthBits, int alStencilBits);
 
-		iOcclusionQuery* CreateOcclusionQuery();
 		
 		/////////////////////////////////////////////////////
 		/////////// FRAME BUFFER OPERATIONS ///////
@@ -359,9 +355,10 @@ namespace hpl {
 
 		
 		//////////////////////////////////////
-		//Gamma
+		//Gamma — original ramp saved at init, restored on shutdown
+		//(SDL_SetGammaRamp). The user gamma setting moved to cLuxConfigHandler
+		//(consumed by the tonemap post-effect).
 		Uint16 mvStartGammaArray[3][256];
-		float mfGammaCorrection;
 
 		//////////////////////////////////////
 		//Clipping

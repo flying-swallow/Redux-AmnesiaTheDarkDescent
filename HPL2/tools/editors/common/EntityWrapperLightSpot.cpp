@@ -245,7 +245,7 @@ void cEntityWrapperLightSpot::SetNearClipPlane(float afX)
 
 void cEntityWrapperLightSpot::SetSpotFalloffMap(const tString& asFalloffMap)
 {
-	iTexture* pTex = NULL;
+	Image* pTex = NULL;
 	if(cEditorHelper::LoadTextureResource(eEditorTextureResourceType_1D, asFalloffMap, &pTex))
 	{
 		msSpotFalloffMap = cString::To8Char(GetEditorWorld()->GetEditor()->GetPathRelToWD(asFalloffMap));
@@ -261,10 +261,19 @@ void cEntityWrapperLightSpot::SetSpotFalloffMap(const tString& asFalloffMap)
 
 //---------------------------------------------------------------------------
 
-void cEntityWrapperLightSpot::DrawLightTypeSpecific(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, 
+void cEntityWrapperLightSpot::DrawLightTypeSpecific(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, 
 													iEditorEditMode* apEditMode, bool abIsSelected)
 {
-	((cLightSpot*)mpEngineEntity->GetEntity())->GetFrustum()->Draw(apFunctions->GetLowLevelGfx(), cColor(1,1));
+	// Frustum edge wireframe (cFrustum::Draw needs the legacy GL path; walk
+	// the corner vertices directly instead).
+	cFrustum* pFrustum = ((cLightSpot*)mpEngineEntity->GetEntity())->GetFrustum();
+	const cColor frustumCol = cColor(1,1);
+	for(int i=0; i<4; ++i)
+		apFunctions->DebugDrawLine(pFrustum->GetVertex(i==0?3:i-1), pFrustum->GetVertex(i), frustumCol);
+	for(int i=4; i<8; ++i)
+		apFunctions->DebugDrawLine(pFrustum->GetVertex(i==4?7:i-1), pFrustum->GetVertex(i), frustumCol);
+	for(int i=0; i<4; ++i)
+		apFunctions->DebugDrawLine(pFrustum->GetVertex(i), pFrustum->GetVertex(i+4), frustumCol);
 }
 
 //---------------------------------------------------------------------------

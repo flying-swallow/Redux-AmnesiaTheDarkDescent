@@ -130,6 +130,39 @@ void iEntityWrapperDataLight::CopyToEntity(iEntityWrapper* apEntity, int alCopyF
 }
 
 //------------------------------------------------------------------------------
+
+bool iEntityWrapperDataLight::Load(cXmlElement* apElement)
+{
+	bool bRet = iEntityWrapperData::Load(apElement);
+
+	// Legacy map (no "Intensity" attribute): the base Load read "Radius" into
+	// the reach property, but in old maps "Radius" is the value the PBR model
+	// uses as intensity. Remap to intensity + derive the reach. Mirrors the
+	// runtime path in cEngineFileLoading.
+	if(apElement->GetAttribute("Intensity")==NULL)
+	{
+		const float kLightRadianceFloor       = 0.005f;
+		const float kPointLightSourceRadiusSq = 0.25f;
+		auto sRGBToLinear = [](float c){
+			return c <= 0.04045f ? c/12.92f : powf((c+0.055f)/1.055f, 2.4f); };
+
+		const float fIntensity = GetFloat(eLightFloat_Radius); // base read XML "Radius" here
+		const cColor c = GetColor(eLightCol_Diffuse);
+		const float maxC = std::max(sRGBToLinear(c.r),
+							std::max(sRGBToLinear(c.g), sRGBToLinear(c.b)));
+		const float reachSq = maxC > 0.f
+			? maxC * fIntensity / kLightRadianceFloor - kPointLightSourceRadiusSq
+			: 0.f;
+		const float fReach = reachSq > 0.f ? sqrtf(reachSq) : fIntensity;
+
+		SetFloat(eLightFloat_Intensity, fIntensity);
+		SetFloat(eLightFloat_Radius, fReach);
+	}
+
+	return bRet;
+}
+
+//------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
 //------------------------------------------------------------------------------
@@ -200,8 +233,14 @@ bool iEntityWrapperLight::GetProperty(int alPropID, float& afX)
 
 	switch(alPropID)
 	{
+	case eLightFloat_Intensity:
+		afX = GetIntensity();
+		break;
 	case eLightFloat_Radius:
 		afX = GetRadius();
+		break;
+	case eLightFloat_SourceRadius:
+		afX = GetSourceRadius();
 		break;
 	case eLightFloat_GoboAnimFrameTime:
 		afX = GetGoboAnimFrameTime();
@@ -330,8 +369,14 @@ bool iEntityWrapperLight::SetProperty(int alPropID, const float& afX)
 {
 	switch(alPropID)
 	{
+	case eLightFloat_Intensity:
+		SetIntensity(afX);
+		break;
 	case eLightFloat_Radius:
 		SetRadius(afX);
+		break;
+	case eLightFloat_SourceRadius:
+		SetSourceRadius(afX);
 		break;
 	case eLightFloat_GoboAnimFrameTime:
 		SetGoboAnimFrameTime(afX);
@@ -465,6 +510,15 @@ void iEntityWrapperLight::SetShadowsAffectDynamic(bool abX)
 
 //------------------------------------------------------------------------------
 
+void iEntityWrapperLight::SetIntensity(float afIntensity)
+{
+	mfIntensity = afIntensity;
+
+	((iLight*)mpEngineEntity->GetEntity())->SetIntensity(mfIntensity);
+}
+
+//------------------------------------------------------------------------------
+
 void iEntityWrapperLight::SetRadius(float afRadius)
 {
 	mfRadius = afRadius;
@@ -472,6 +526,14 @@ void iEntityWrapperLight::SetRadius(float afRadius)
 	((iLight*)mpEngineEntity->GetEntity())->SetRadius(mfRadius);
 }
 
+//------------------------------------------------------------------------------
+
+void iEntityWrapperLight::SetSourceRadius(float afSourceRadius)
+{
+	mfSourceRadius = afSourceRadius;
+
+	((iLight*)mpEngineEntity->GetEntity())->SetSourceRadius(mfSourceRadius);
+}
 
 //------------------------------------------------------------------------------
 
@@ -625,7 +687,7 @@ void iEntityWrapperLight::UpdateFlickerParams()
 	mbFlickerUpdated = false;
 	/////////////////////////////////////////////
 	// Reset radius and color to normal values
-	SetRadius(mfRadius);
+	SetIntensity(mfIntensity);
 	SetDiffuseColor(mcolDiffuseColor);
 
 	iLight* pLight = (iLight*)mpEngineEntity->GetEntity();
@@ -666,7 +728,7 @@ void iEntityWrapperLight::RemoveConnectedBillboard(cEntityWrapperBillboard* apBB
 
 void iEntityWrapperLight::SetFalloffMap(const tString& asFalloffMap)
 {
-	iTexture* pTex = NULL;
+	Image* pTex = NULL;
 
 	cEditorHelper::LoadTextureResource(eEditorTextureResourceType_1D, asFalloffMap, &pTex);
 	if(pTex)
@@ -684,7 +746,7 @@ void iEntityWrapperLight::SetFalloffMap(const tString& asFalloffMap)
 
 void iEntityWrapperLight::SetGobo(const tString& asGoboFilename)
 {
-	iTexture* pTex = NULL;
+	Image* pTex = NULL;
 
 	cEditorHelper::LoadTextureResource(eEditorTextureResourceType_2D, asGoboFilename, &pTex, msGoboAnimMode, mfGoboAnimFrameTime);
 	if(pTex)
@@ -724,14 +786,12 @@ bool iEntityWrapperLight::EntitySpecificCheckCulled(cEditorClipPlane* apPlane)
 
 //------------------------------------------------------------------------------
 
-void iEntityWrapperLight::Draw(cEditorWindowViewport* apViewport, cRendererCallbackFunctions* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol)
+void iEntityWrapperLight::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol)
 {
 	iEntityWrapper::Draw(apViewport, apFunctions, apEditMode, abIsSelected, aHighlightCol);
 
 	if(IsActive() && abIsSelected)
 	{
-		apFunctions->SetDepthTest(true);
-		apFunctions->SetDepthWrite(false);
 		DrawLightTypeSpecific(apViewport, apFunctions, apEditMode, abIsSelected);
 	}
 }

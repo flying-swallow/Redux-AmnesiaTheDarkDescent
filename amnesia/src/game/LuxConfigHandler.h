@@ -35,6 +35,12 @@ public:
 	void LoadMainConfig();
 	void SaveMainConfig();
 
+	// Display gamma (1.0 = no-op). Stored here (was cLowLevelGraphicsSDL);
+	// consumed by the tonemap post-effect. SetGamma live-applies to the active
+	// map's tonemap via cLuxMapHandler.
+	float GetGamma() { return mfGamma; }
+	void SetGamma(float afX);
+
 	bool ShowRestartWarning(cGuiSet* apSet, void* apObject, tGuiCallbackFunc apCallback);
 
 	void SetGameNeedsRestart() { mbGameNeedsRestart=true; mbRestartDialogShown=false; }
@@ -57,6 +63,7 @@ public:
 	int mlTextureQuality;
 	int mlTextureFilter;
 	float mfTextureAnisotropy;
+	float mfGamma;
 	int mlShadowQuality;
 	int mlShadowRes;
 

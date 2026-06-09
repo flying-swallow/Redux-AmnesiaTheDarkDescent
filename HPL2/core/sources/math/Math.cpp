@@ -1916,7 +1916,7 @@ namespace hpl {
 		cVector3f vNormalized;
 		vNormalized.x =  ((avVec.x - aScreenRect.x)*2.0f / aScreenRect.w) - 1.0f;
 		vNormalized.y = -(((avVec.y - aScreenRect.y)*2.0f / aScreenRect.h) - 1.0f);
-		vNormalized.z = 2.0f*avVec.z - 1.0f;
+		vNormalized.z = avVec.z; // Vulkan clip convention: depth IS NDC z
 
 		//Log("Normalized: %s\n",vNormalized.ToString().c_str());
 		
@@ -2907,6 +2907,10 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
+	// NOTE: still the GL-convention (z_ndc ∈ [-1,1]) form of Lengyel's oblique
+	// near-plane trick — currently UNUSED (legacy planar water reflections).
+	// The engine's projection matrices are Vulkan-convention (z_ndc ∈ [0,1])
+	// since 2026-06; rederive the q-point/scale terms before reviving this.
 	cMatrixf cMath::ProjectionMatrixObliqueNearClipPlane(const cMatrixf &a_mtxProjMatrix, const cPlanef& aClipPlane)
 	{
 		cMatrixf mtxOutput = a_mtxProjMatrix;
@@ -2941,16 +2945,19 @@ namespace hpl {
 		float fA = (2.0f*fNear) / (fRight - fLeft);
 		float fB = (2.0f*fNear) / (fTop - fBottom);
 		float fD = -1.0f;
-		
+
+		// Vulkan clip convention: z_ndc ∈ [0,1] (Vulkan clips NDC z < 0). The
+		// old GL form (z_ndc ∈ [-1,1]) clipped everything nearer than ~2·near
+		// and wasted half the depth-buffer precision.
 		float fC,fZ;
 		if(abInfFarPlane)
 		{
-			fC= -2.0f * fNear;
+			fC= -fNear;
 			fZ= -1.0f;
 		}
 		else {
-			fC = -(2.0f*fFar*fNear) / (fFar - fNear);
-			fZ = -(fFar + fNear)/(fFar - fNear);
+			fC = -(fFar*fNear) / (fFar - fNear);
+			fZ = -fFar/(fFar - fNear);
 		}
 
 		return cMatrixf(
@@ -2969,9 +2976,12 @@ namespace hpl {
 
 		float fA = 2.0f / avViewSize.x;
 		float fB = 2.0f / avViewSize.y;
-		float fC = -2.0f / (fFar - fNear);
 
-		float fZ = -(fFar + fNear)/(fFar - fNear);
+		// Vulkan clip convention: z_ndc ∈ [0,1]. The old GL form ([-1,1])
+		// mapped the near half of the slab below 0, which Vulkan clips — the
+		// editor's ortho panes lost half their scene depth.
+		float fC = -1.0f / (fFar - fNear);
+		float fZ = -fNear/(fFar - fNear);
 
 		return cMatrixf(
 			fA,0, 0, 0,

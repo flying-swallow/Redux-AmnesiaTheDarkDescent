@@ -162,6 +162,7 @@
     <ClInclude Include="..\..\extern\volk\volk.h" />
     <ClInclude Include="include\graphics\AnimatedImage.h" />
     <ClInclude Include="include\graphics\BindlessPool.h" />
+    <ClInclude Include="include\graphics\DebugDraw.h" />
     <ClInclude Include="include\graphics\DecalPipelineDesc.h" />
     <ClInclude Include="include\graphics\DrawPacket.h" />
     <ClInclude Include="include\graphics\GBufferMRTPipelineDesc.h" />
@@ -178,6 +179,7 @@
     <ClInclude Include="include\graphics\PostEffectHelpers.h" />
     <ClInclude Include="include\graphics\PostEffect_ToneMap.h" />
     <ClInclude Include="include\graphics\RenderList2.h" />
+    <ClInclude Include="include\graphics\RIBarrier.h" />
     <ClInclude Include="include\graphics\RIBootstrap.h" />
     <ClInclude Include="include\graphics\RIConversion.h" />
     <ClInclude Include="include\graphics\RIDefines.h" />
@@ -198,6 +200,8 @@
     <ClInclude Include="include\graphics\spirv_reflect.h" />
     <ClInclude Include="include\graphics\TranslucentMeshPipelineDesc.h" />
     <ClInclude Include="include\graphics\VertexBuffer_RI.h" />
+    <ClInclude Include="include\gui\WidgetMeshObjectList.h" />
+    <ClInclude Include="include\gui\WidgetNodeTree.h" />
     <ClInclude Include="include\impl\GamepadSDL2.h" />
     <ClInclude Include="include\impl\MeshLoaderFBX.h" />
     <ClInclude Include="include\gui\GuiPopUpUIKeyboard.h" />
@@ -269,13 +273,11 @@
     <ClInclude Include="include\graphics\MaterialType.h" />
     <ClInclude Include="include\graphics\Mesh.h" />
     <ClInclude Include="include\graphics\MeshCreator.h" />
-    <ClInclude Include="include\graphics\OcclusionQuery.h" />
     <ClInclude Include="include\graphics\PostEffect.h" />
     <ClInclude Include="include\graphics\PostEffectComposite.h" />
     <ClInclude Include="include\graphics\ProgramComboManager.h" />
     <ClInclude Include="include\graphics\Renderable.h" />
     <ClInclude Include="include\graphics\Renderer.h" />
-    <ClInclude Include="include\graphics\RendererDeferred.h" />
     <ClInclude Include="include\graphics\RendererSimple.h" />
     <ClInclude Include="include\graphics\RendererWireFrame.h" />
     <ClInclude Include="include\graphics\RenderFunctions.h" />
@@ -356,7 +358,6 @@
     <ClInclude Include="include\impl\GLSLProgram.h" />
     <ClInclude Include="include\impl\GLSLShader.h" />
     <ClInclude Include="include\impl\LowLevelGraphicsSDL.h" />
-    <ClInclude Include="include\impl\OcclusionQueryOGL.h" />
     <ClInclude Include="include\impl\PBuffer.h" />
     <ClInclude Include="include\impl\SDLFontData.h" />
     <ClInclude Include="include\impl\SDLTexture.h" />
@@ -538,6 +539,7 @@
   <ItemGroup>
     <ClCompile Include="..\..\extern\volk\volk.c" />
     <ClCompile Include="sources\graphics\BindlessPool.cpp" />
+    <ClCompile Include="sources\graphics\DebugDraw.cpp" />
     <ClCompile Include="sources\graphics\DecalPipelineDesc.cpp" />
     <ClCompile Include="sources\graphics\GBufferMRTPipelineDesc.cpp" />
     <ClCompile Include="sources\graphics\GraphicUtils.cpp" />
@@ -567,6 +569,8 @@
     <ClCompile Include="sources\graphics\RIVK.cpp" />
     <ClCompile Include="sources\graphics\spirv_reflect.c" />
     <ClCompile Include="sources\graphics\TranslucentMeshPipelineDesc.cpp" />
+    <ClCompile Include="sources\gui\WidgetMeshObjectList.cpp" />
+    <ClCompile Include="sources\gui\WidgetNodeTree.cpp" />
     <ClCompile Include="sources\impl\GamepadSDL2.cpp" />
     <ClCompile Include="sources\impl\MeshLoaderFBX.cpp" />
     <ClCompile Include="sources\gui\GuiPopUpUIKeyboard.cpp" />
@@ -629,7 +633,6 @@
     <ClCompile Include="sources\graphics\ProgramComboManager.cpp" />
     <ClCompile Include="sources\graphics\Renderable.cpp" />
     <ClCompile Include="sources\graphics\Renderer.cpp" />
-    <ClCompile Include="sources\graphics\RendererDeferred.cpp" />
     <ClCompile Include="sources\graphics\RendererSimple.cpp" />
     <ClCompile Include="sources\graphics\RendererWireFrame.cpp" />
     <ClCompile Include="sources\graphics\RenderFunctions.cpp" />
@@ -700,7 +703,6 @@
     <ClCompile Include="sources\impl\GLSLProgram.cpp" />
     <ClCompile Include="sources\impl\GLSLShader.cpp" />
     <ClCompile Include="sources\impl\LowLevelGraphicsSDL.cpp" />
-    <ClCompile Include="sources\impl\OcclusionQueryOGL.cpp" />
     <ClCompile Include="sources\impl\PBuffer.cpp" />
     <ClCompile Include="sources\impl\SDLFontData.cpp" />
     <ClCompile Include="sources\impl\SDLTexture.cpp" />
