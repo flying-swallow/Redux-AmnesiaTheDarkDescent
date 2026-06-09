@@ -1195,6 +1195,15 @@
     <ClInclude Include="include\graphics\DebugDraw.h">
       <Filter>Graphics</Filter>
     </ClInclude>
+    <ClInclude Include="include\gui\WidgetNodeTree.h">
+      <Filter>Gui</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIBarrier.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\gui\WidgetMeshObjectList.h">
+      <Filter>Gui</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="sources\system\Container.cpp">
@@ -2165,6 +2174,12 @@
     </ClCompile>
     <ClCompile Include="sources\graphics\DebugDraw.cpp">
       <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\gui\WidgetNodeTree.cpp">
+      <Filter>Gui</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\gui\WidgetMeshObjectList.cpp">
+      <Filter>Gui</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>
