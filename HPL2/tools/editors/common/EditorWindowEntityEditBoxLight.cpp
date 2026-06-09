@@ -368,6 +368,14 @@ void cEditorWindowEntityEditBoxLight::AddPropertySetSpot(cWidgetTab* apParentTab
 
 	vPos.y += mpGroupRadius->GetSize().y +5;
 
+	AddPropertyCullingRadius(apParentTab);
+	mpGroupCullingRadius->SetPosition(vPos);
+	vPos.y += mpInpCullingRadius->GetSize().y + 10;
+
+	AddPropertySourceRadius(apParentTab);
+	mpGroupSourceRadius->SetPosition(vPos);
+	vPos.y += mpInpSourceRadius->GetSize().y + 10;
+
 	mpInpSpotFOV = CreateInputNumber(vPos, _W("FOV"), "", apParentTab, 50, 15);
 	mpInpSpotFOV->SetDecimals(3);
 
