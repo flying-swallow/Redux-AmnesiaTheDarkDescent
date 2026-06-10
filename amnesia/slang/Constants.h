@@ -306,13 +306,21 @@ SHARED_CONST uint  kDefaultOverlayMode          = 0u;
 // to A/B direct vs. indirect.
 SHARED_CONST uint  kDefaultRenderDirectLighting    = 1u;
 SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
-// Direct-lighting temporal accumulation. The pass keeps a running mean weighted
-// by history length: alpha = max(1/count, kDirectTemporalAlpha), count capped at
-// kDirectMaxAccum. The 1/count term gives exact, fast early convergence (1, ½,
-// ⅓ …); the floor keeps it adaptive once the cap is reached. Lower floor / higher
-// cap = smoother but laggier on changing lighting.
+// Direct-lighting temporal accumulation (SVGF temporal stage, in the resolve
+// pass). Running mean weighted by history length: alpha = max(1/count,
+// kDirectTemporalAlpha), count capped at kDirectMaxAccum. The 1/count term gives
+// an exact average for the first ~1/floor frames; the floor then keeps it
+// adaptive so changing lighting isn't permanently lagged.
+//
+// Steady-state residual noise ≈ sqrt(alpha/(2-alpha)) × per-frame noise, so the
+// FLOOR is the main grain knob on a static view: 0.05 → ~0.16×, 0.02 → ~0.10×,
+// 0.01 → ~0.07×. Lower floor / higher cap = smoother but laggier on lighting
+// changes (disocclusion still resets count=1, so newly-revealed areas recover
+// cleanly regardless). Tuned down from 0.05/16 to settle a grainy static image;
+// drop the floor further (toward 0.01) if it's still grainy, raise it (toward
+// 0.05) if dynamic lights start to smear.
 SHARED_CONST float kDirectTemporalAlpha            = 0.05f;
-SHARED_CONST float kDirectMaxAccum                 = 16.0f;
+SHARED_CONST float kDirectMaxAccum                 = 32.0f;
 // Disocclusion rejection for the direct pass: reproject the surface key (view
 // depth + normal) and reject history (restart accumulation) when the reprojected
 // surface differs — kills camera-motion smear at silhouettes.
@@ -322,6 +330,33 @@ SHARED_CONST float kReprojNormalCos                = 0.9f;    // ≈25° normal 
 // same-surface neighbors in the previous accumulation, searching a
 // (2R+1)² window (no shadow rays). Larger = more reuse, more taps.
 SHARED_CONST int   kDisoccSearchRadius             = 3;       // 7×7 spatial reuse window
+// SVGF-lite spatial denoise for the direct pass. After temporal accumulation, an
+// edge-aware à-trous wavelet filter (5×5, step doubling each iteration) shares the
+// 1-spp estimate across same-surface neighbors — the spatial half the temporal-only
+// accumulation was missing, and the thing that hides the per-frame speckle / the
+// disocclusion noise spike. Edge-stopping weights gate on view depth (σZ), world
+// normal (σN exponent), and luminance (σL, scaled by a local variance estimate).
+// kDirectVarianceBoost widens the luminance gate while the history is short
+// (count low) so fresh pixels blur harder before they've converged.
+SHARED_CONST int   kAtrousIterations               = 3;       // edge-aware à-trous passes (host loop count)
+SHARED_CONST float kSvgfSigmaZ                      = 4.0f;    // depth edge-stop
+SHARED_CONST float kSvgfSigmaN                      = 64.0f;   // normal edge-stop exponent
+SHARED_CONST float kSvgfSigmaL                      = 4.0f;    // luminance edge-stop
+SHARED_CONST float kDirectVarianceBoost            = 4.0f;    // early-frame (low count) variance scale
+// ReSTIR DI (Bitterli 2020, biased reuse). The direct pass keeps a per-pixel
+// light-selection reservoir instead of a radiance running-mean: a streaming RIS
+// build over the cell lights, then temporal reuse (reproject + merge previous
+// frame's reservoir) and spatial reuse (merge a few same-surface neighbours).
+// Effective candidate count grows into the hundreds at one shadow ray/pixel/
+// frame, which is the root-cause fix for many-light noise.
+//   kReservoirMClamp — cap the reprojected previous M at N× the current build M
+//     so stale lighting can't dominate (responsiveness vs. variance).
+//   kSpatialSamples / kSpatialRadius — neighbour count + pixel search radius for
+//     the spatial-reuse pass; neighbours are geometry-rejected on the depth/
+//     normal key (kReproj* tolerances) to stop light leaking across surfaces.
+SHARED_CONST float kReservoirMClamp                = 20.0f;   // temporal staleness cap (× current M)
+SHARED_CONST int   kSpatialSamples                 = 4;       // spatial neighbours resampled
+SHARED_CONST float kSpatialRadius                  = 16.0f;   // spatial search radius (px)
 // Guard band / overscan: the whole frame renders at (1 + 2·kGuardBandFraction)
 // the display size with a correspondingly wider FOV, and the present blit crops
 // the center back to the display. Gives temporal reprojection valid history just

@@ -210,6 +210,24 @@ public:
     uint32_t directLightingIndex = 0;
     bool directLightingInit = false;
 
+    // SVGF-lite à-trous scratch (RGBA16F ping-pong, GENERAL). NOT history — each
+    // iteration is fully written before it is read, so these only need a one-time
+    // UNDEFINED→GENERAL transition (folded into the directLighting init). The
+    // composite samples the final iteration's output instead of directLighting.
+    struct RITexture_s directAtrousTexture[2] = {};
+    struct RITextureView_s directAtrousView[2] = {};
+
+    // ReSTIR DI reservoirs (RGBA32F = packed light index + W + M; exact uint
+    // index needs full-float storage). [reservoirHistory] ping-pongs across
+    // frames (shares directLightingIndex): DirectLightingPass reads [^1] as the
+    // temporal history and DirectSpatialReusePass writes [cur] as next frame's
+    // history. [reservoirTemporal] is the intra-frame hand-off from the temporal
+    // pass to the spatial pass. All GENERAL, one-time clear with the others.
+    struct RITexture_s reservoirTexture[2] = {};
+    struct RITextureView_s reservoirView[2] = {};
+    struct RITexture_s reservoirTemporalTexture = {};
+    struct RITextureView_s reservoirTemporalView = {};
+
     // Previous-frame camera for velocity / history reprojection —
     // per-viewport camera state. hasPrevCamera seeds prev = current on the
     // first frame (and after resize, when the histories were invalidated).

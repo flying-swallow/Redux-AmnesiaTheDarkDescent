@@ -190,6 +190,9 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     // to COLOR_ATTACHMENT_OPTIMAL afterwards.
     loadSlangCompute(m_mainComposite, "MainCompositePass.cs.spv", "csMain");
     loadSlangCompute(m_directLighting, "DirectLightingPass.cs.spv", "csMain");
+    loadSlangCompute(m_directSpatialReuse, "DirectSpatialReusePass.cs.spv",
+                     "csMain");
+    loadSlangCompute(m_directAtrous, "DirectAtrousPass.cs.spv", "csMain");
     {
       // Particle pass (amnesia/slang/ParticlePass).
       auto p_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
@@ -403,7 +406,27 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
             VK_IMAGE_USAGE_TRANSFER_DST_BIT,
         VK_IMAGE_ASPECT_COLOR_BIT, &directKeyTexture[i], &directKeyView[i],
         "HybridViewportState.directKey");
+    CreateViewportAttachmentTexture(
+        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT, &directAtrousTexture[i],
+        &directAtrousView[i], "HybridViewportState.directAtrous");
+    // ReSTIR reservoir history ping-pong (RGBA32F: asfloat(lightIndex), W, M).
+    CreateViewportAttachmentTexture(
+        &RI.device, renderW, renderH, RI_FORMAT_RGBA32_SFLOAT,
+        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+            VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        VK_IMAGE_ASPECT_COLOR_BIT, &reservoirTexture[i], &reservoirView[i],
+        "HybridViewportState.reservoir");
   }
+  // Intra-frame reservoir hand-off (temporal pass → spatial pass), RGBA32F.
+  CreateViewportAttachmentTexture(
+      &RI.device, renderW, renderH, RI_FORMAT_RGBA32_SFLOAT,
+      VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+          VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+      VK_IMAGE_ASPECT_COLOR_BIT, &reservoirTemporalTexture,
+      &reservoirTemporalView, "HybridViewportState.reservoirTemporal");
 
   // Recreation invalidated every history: re-arm the one-time direct-lighting
   // init/clear and re-seed prev-camera = current on the next Draw.
@@ -432,7 +455,13 @@ void cViewport::HybridViewportState::Dispose(RIBootstrap::FrameContext *cntx) {
                                      &directLightingView[i]);
     ReleaseViewportAttachmentTexture(cntx->freelist, &directKeyTexture[i],
                                      &directKeyView[i]);
+    ReleaseViewportAttachmentTexture(cntx->freelist, &directAtrousTexture[i],
+                                     &directAtrousView[i]);
+    ReleaseViewportAttachmentTexture(cntx->freelist, &reservoirTexture[i],
+                                     &reservoirView[i]);
   }
+  ReleaseViewportAttachmentTexture(cntx->freelist, &reservoirTemporalTexture,
+                                   &reservoirTemporalView);
   width = height = 0;
   targetWidth = targetHeight = 0;
   directLightingIndex = 0;
@@ -1968,6 +1997,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // the composite samples. The V-buffer (gPackedHitInfo), raster fallback, and
   // velocity are all ready by here.
   // --------------------------------------------------------------------
+  // The image the composite samples for direct lighting: the raw accumulation
+  // when à-trous is disabled, else the final à-trous iteration's output.
+  VkImageView directResultView = VK_NULL_HANDLE;
   {
     const uint32_t dlCur  = state.directLightingIndex;
     const uint32_t dlPrev = dlCur ^ 1u;
@@ -1975,10 +2007,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     if (!state.directLightingInit) {
       // First use: the colour + key ping-pong textures UNDEFINED -> GENERAL +
       // cleared so the history reads are defined; they stay GENERAL thereafter.
-      VkImage dirImgs[4] = {
+      VkImage dirImgs[9] = {
           state.directLightingTexture[0].vk.image, state.directLightingTexture[1].vk.image,
-          state.directKeyTexture[0].vk.image,      state.directKeyTexture[1].vk.image};
-      RITextureBarrier_s toGen[4] = {
+          state.directKeyTexture[0].vk.image,      state.directKeyTexture[1].vk.image,
+          state.directAtrousTexture[0].vk.image,   state.directAtrousTexture[1].vk.image,
+          state.reservoirTexture[0].vk.image,      state.reservoirTexture[1].vk.image,
+          state.reservoirTemporalTexture.vk.image};
+      RITextureBarrier_s toGen[9] = {
           {&state.directLightingTexture[0], RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE},
           {&state.directLightingTexture[1], RI_RESOURCE_STATE_UNDEFINED,
@@ -1986,12 +2021,22 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           {&state.directKeyTexture[0], RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE},
           {&state.directKeyTexture[1], RI_RESOURCE_STATE_UNDEFINED,
+           RI_RESOURCE_STATE_CLEAR_STORAGE},
+          {&state.directAtrousTexture[0], RI_RESOURCE_STATE_UNDEFINED,
+           RI_RESOURCE_STATE_CLEAR_STORAGE},
+          {&state.directAtrousTexture[1], RI_RESOURCE_STATE_UNDEFINED,
+           RI_RESOURCE_STATE_CLEAR_STORAGE},
+          {&state.reservoirTexture[0], RI_RESOURCE_STATE_UNDEFINED,
+           RI_RESOURCE_STATE_CLEAR_STORAGE},
+          {&state.reservoirTexture[1], RI_RESOURCE_STATE_UNDEFINED,
+           RI_RESOURCE_STATE_CLEAR_STORAGE},
+          {&state.reservoirTemporalTexture, RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE}};
-      RI.primary.cmds[0].textureBarriers<4>(4, toGen);
+      RI.primary.cmds[0].textureBarriers<9>(9, toGen);
 
       VkClearColorValue clr = {};
       VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      for (uint32_t i = 0; i < 4; ++i)
+      for (uint32_t i = 0; i < 9; ++i)
         vkCmdClearColorImage(cmd, dirImgs[i], VK_IMAGE_LAYOUT_GENERAL, &clr, 1,
                              &range);
 
@@ -2038,23 +2083,23 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
       bnd.push_back(b);
     }
+    // Temporal pass traces no rays — only builds + reprojects reservoirs.
     pushSurfelStorageImage(bnd, "gPackedHitInfo",
                            state.packedHitInfoView[RI.swapchainIndex].vk.image);
-    pushTlas(bnd);
     bnd.push_back(pushSampled("gPackedHitInfoRaster",
                               state.visibilityView[RI.swapchainIndex].vk.image,
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
     bnd.push_back(pushSampled("gVelocity",
                               state.velocityView[RI.swapchainIndex].vk.image,
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
-    bnd.push_back(pushSampled("gDirectHistory",
-                              state.directLightingView[dlPrev].vk.image,
+    bnd.push_back(pushSampled("gReservoirHistory",
+                              state.reservoirView[dlPrev].vk.image,
                               VK_IMAGE_LAYOUT_GENERAL));
     bnd.push_back(pushSampled("gDirectKeyHistory",
                               state.directKeyView[dlPrev].vk.image,
                               VK_IMAGE_LAYOUT_GENERAL));
-    pushSurfelStorageImage(bnd, "gDirectLighting",
-                           state.directLightingView[dlCur].vk.image);
+    pushSurfelStorageImage(bnd, "gReservoirOut",
+                           state.reservoirTemporalView.vk.image);
     pushSurfelStorageImage(bnd, "gDirectKeyOut",
                            state.directKeyView[dlCur].vk.image);
 
@@ -2064,10 +2109,125 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     RI.primary.cmds[0].dispatch((renderWidth + 15u) / 16u,
                                 (renderHeight + 15u) / 16u, 1u);
 
-    // Current direct texture write -> composite sampled read (stays GENERAL).
+    // Temporal reservoir + current key writes -> spatial pass sampled reads.
     RI.primary.cmds[0].memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
          RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
+
+    // ----------------------------------------------------------------
+    // DirectSpatialReusePass — ReSTIR DI spatial reuse + resolve. Merges a few
+    // same-surface neighbours' reservoirs, then traces ONE soft shadow ray for
+    // the chosen light to demodulated irradiance. Writes reservoir[dlCur] (next
+    // frame's temporal history) and directLighting[dlCur] (the à-trous input).
+    // ----------------------------------------------------------------
+    {
+      m_directSpatialReuse.bindComputePipeline(
+          &RI.device, &RI.primary.cmds[0], kHash, "DirectSpatialReusePass.cs",
+          &ci);
+      m_directSpatialReuse.bindBindlessDescriptorSet(
+          &RI.primary.cmds[0], &m_global.m_bindlessSet, 0,
+          VK_PIPELINE_BIND_POINT_COMPUTE);
+
+      std::vector<RIProgram::DescriptorBinding> sb;
+      sb.reserve(8);
+      {
+        RIProgram::DescriptorBinding b;
+        b.handle = DescriptorBindingID::Create("gPerFrame");
+        RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+        sb.push_back(b);
+      }
+      pushSurfelStorageImage(sb, "gPackedHitInfo",
+                             state.packedHitInfoView[RI.swapchainIndex].vk.image);
+      pushTlas(sb);  // resolve shadow ray
+      sb.push_back(pushSampled("gPackedHitInfoRaster",
+                               state.visibilityView[RI.swapchainIndex].vk.image,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
+      sb.push_back(pushSampled("gReservoirIn",
+                               state.reservoirTemporalView.vk.image,
+                               VK_IMAGE_LAYOUT_GENERAL));
+      sb.push_back(pushSampled("gDirectKey",
+                               state.directKeyView[dlCur].vk.image,
+                               VK_IMAGE_LAYOUT_GENERAL));
+      sb.push_back(pushSampled("gVelocity",
+                               state.velocityView[RI.swapchainIndex].vk.image,
+                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
+      sb.push_back(pushSampled("gDirectHistory",
+                               state.directLightingView[dlPrev].vk.image,
+                               VK_IMAGE_LAYOUT_GENERAL));
+      sb.push_back(pushSampled("gDirectKeyHistory",
+                               state.directKeyView[dlPrev].vk.image,
+                               VK_IMAGE_LAYOUT_GENERAL));
+      pushSurfelStorageImage(sb, "gReservoirOut",
+                             state.reservoirView[dlCur].vk.image);
+      pushSurfelStorageImage(sb, "gDirectLighting",
+                             state.directLightingView[dlCur].vk.image);
+
+      m_directSpatialReuse.bindDescriptors(&RI.device, &RI.primary.cmds[0],
+                                           RI.frameIndex, sb.data(), sb.size(),
+                                           VK_PIPELINE_BIND_POINT_COMPUTE);
+      RI.primary.cmds[0].dispatch((renderWidth + 15u) / 16u,
+                                  (renderHeight + 15u) / 16u, 1u);
+    }
+
+    // Resolved direct + final reservoir writes -> à-trous / composite reads
+    // (stays GENERAL).
+    RI.primary.cmds[0].memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
+         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
+
+    // ----------------------------------------------------------------
+    // DirectAtrousPass — SVGF-lite edge-aware à-trous spatial denoise. The
+    // spatial half of the direct denoiser: share the 1-spp estimate across
+    // same-surface neighbours, tap spacing doubling each iteration. Iteration 0
+    // reads the accumulation (directLighting[dlCur]); later iterations ping-pong
+    // the directAtrous scratch. All textures stay GENERAL.
+    // ----------------------------------------------------------------
+    directResultView = state.directLightingView[dlCur].vk.image;
+    for (int it = 0; it < kAtrousIterations; ++it) {
+      VkImageView inView = (it == 0)
+          ? state.directLightingView[dlCur].vk.image
+          : state.directAtrousView[(it - 1) & 1].vk.image;
+      const uint32_t outIdx  = static_cast<uint32_t>(it) & 1u;
+      VkImageView     outView = state.directAtrousView[outIdx].vk.image;
+
+      m_directAtrous.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
+                                         "DirectAtrousPass.cs", &ci);
+      m_directAtrous.bindBindlessDescriptorSet(
+          &RI.primary.cmds[0], &m_global.m_bindlessSet, 0,
+          VK_PIPELINE_BIND_POINT_COMPUTE);
+
+      // Per-iteration tap spacing (1, 2, 4 …). Padded to 16 bytes (std140 UBO).
+      struct AtrousParamsHost {
+        uint32_t stepSize;
+        uint32_t pad[3];
+      } ap = {};
+      ap.stepSize = 1u << it;
+
+      std::vector<RIProgram::DescriptorBinding> ab;
+      ab.reserve(4);
+      {
+        RIProgram::DescriptorBinding b;
+        b.handle = DescriptorBindingID::Create("gAtrous");
+        RI.UpdateFrameUBO(&b.descriptor, &ap, sizeof(ap));
+        ab.push_back(b);
+      }
+      pushSurfelSampledImage(ab, "gAtrousIn", inView);
+      pushSurfelSampledImage(ab, "gDirectKey",
+                             state.directKeyView[dlCur].vk.image);
+      pushSurfelStorageImage(ab, "gAtrousOut", outView);
+
+      m_directAtrous.bindDescriptors(&RI.device, &RI.primary.cmds[0],
+                                     RI.frameIndex, ab.data(), ab.size(),
+                                     VK_PIPELINE_BIND_POINT_COMPUTE);
+      RI.primary.cmds[0].dispatch((renderWidth + 15u) / 16u,
+                                  (renderHeight + 15u) / 16u, 1u);
+
+      // This iteration's write -> next iteration's / composite's sampled read.
+      RI.primary.cmds[0].memoryBarrier(
+          {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
+           RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
+      directResultView = outView;
+    }
   }
 
   // --------------------------------------------------------------------
@@ -2181,10 +2341,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       b.descriptor.finalize(&RI.device);
       bnd.push_back(b);
     }
-    // gDirectLighting — this frame's accumulated direct (sampled, GENERAL).
-    pushSurfelSampledImage(
-        bnd, "gDirectLighting",
-        state.directLightingView[state.directLightingIndex].vk.image);
+    // gDirectLighting — this frame's direct irradiance the composite multiplies
+    // albedo into: the SVGF-lite à-trous output (or the raw accumulation if the
+    // filter is disabled), sampled, GENERAL.
+    pushSurfelSampledImage(bnd, "gDirectLighting", directResultView);
     // gOutput — the viewport render target bound as a storage image (GENERAL).
     pushSurfelStorageImage(
         bnd, "gOutput",

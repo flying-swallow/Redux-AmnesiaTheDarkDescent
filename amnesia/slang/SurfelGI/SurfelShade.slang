@@ -21,6 +21,7 @@ import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
 import Grid;                    // gridCellPos / gridFlattenCellIndex / gridCellValid (light grid cull)
 import Random;                  // RNG for soft-shadow disk sampling
+import Reservoir;               // ReSTIR DI light-selection reservoir
 
 static const float kShadeRayEps = 1.0e-3f;
 
@@ -179,6 +180,64 @@ float3 evalAnalyticLightStochastic(DiffuseShading sd, inout RNG rng)
     float3 shaded = gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW, V,
                                                   sd.rough, selLight, origin, rng);
     return shaded * (wsum / selW);
+}
+
+static const float3 kReservoirLum = float3(0.2126f, 0.7152f, 0.0722f);
+
+// --- ReSTIR DI helpers ----------------------------------------------------
+// The direct pass is split into a reservoir build + temporal reuse (the
+// reworked DirectLightingPass) and a spatial reuse + resolve
+// (DirectSpatialReusePass). These three helpers are the shared shading core.
+
+// Target function (luminance of the unshadowed demodulated contribution) of one
+// light at a shading point — the RIS / reuse weight. Re-evaluated at the
+// receiving pixel whenever a neighbour's or previous frame's sample is reused.
+float directTargetPdf(DiffuseShading sd, uint lightIndex)
+{
+    float3 V = normalize(gScene.camera.getPosition() - sd.posW);
+    return dot(gScene.unshadowedAnalyticLight(sd.posW, sd.normalW, V, sd.rough,
+                                              lightIndex),
+               kReservoirLum);
+}
+
+// Build a light-selection reservoir: streaming RIS over the cell's lights with
+// the unshadowed-luminance target. No shadow ray — visibility is resolved later
+// with a single ray. Empty cells return an empty reservoir.
+Reservoir buildDirectReservoir(DiffuseShading sd, inout RNG rng)
+{
+    Reservoir r; r.init();
+
+    uint lightCount = gScene.getLightCount();
+    int3 cell = gridCellPos(sd.posW, gScene.camera.getPosition(), kLightGridUnit);
+    if (lightCount == 0u || !gridCellValid(cell, kLightGridDim))
+        return r;
+
+    uint flat = gridFlattenCellIndex(cell, kLightGridDim);
+    uint n    = min(gLightGridCount[flat], kLightsPerCellMax);
+    float3 V  = normalize(gScene.camera.getPosition() - sd.posW);
+    for (uint k = 0u; k < n; ++k)
+    {
+        uint li = gLightGridList[flat * kLightsPerCellMax + k];
+        float pHat = dot(gScene.unshadowedAnalyticLight(sd.posW, sd.normalW, V,
+                                                        sd.rough, li),
+                         kReservoirLum);
+        r.streamCandidate(li, pHat, rng);
+    }
+    r.finalizeBuild();
+    return r;
+}
+
+// Resolve a reservoir to demodulated irradiance: one soft (blue-noise disk)
+// shadow ray for the selected light, weighted by the UCW.
+float3 resolveDirectReservoir(DiffuseShading sd, Reservoir r, inout RNG rng)
+{
+    if (r.isEmpty())
+        return float3(0.f);
+    float3 V = normalize(gScene.camera.getPosition() - sd.posW);
+    float3 origin = sd.posW + sd.normalW * kShadeRayEps;
+    float3 shaded = gScene.shadeAnalyticLightSoft(sd.posW, sd.normalW, V, sd.rough,
+                                                  r.y, origin, rng);
+    return shaded * r.W;
 }
 
 // World-space surfel-cache indirect gather. Mirrors the per-pixel gather in
