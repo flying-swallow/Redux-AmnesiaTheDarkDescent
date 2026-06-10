@@ -328,7 +328,7 @@ cLuxJournal::cLuxJournal() : iLuxUpdateable("LuxJournal")
 	//Load Data
 	mpWhiteGfx = mpGui->CreateGfxFilledRect(cColor(1,1), eGuiMaterial_Alpha);
 
-	mScreenCapture.Init(mpGui);
+	mScreenEffect.Init(mpGui);
 
 	mpFontDefault = NULL;
 	mpFontMenu = NULL;
@@ -592,13 +592,13 @@ void cLuxJournal::OnDraw(float afFrameTime)
 	// Suppress the snapshot quads until the deferred OnPostRender capture has
 	// run at least once — otherwise we'd sample texture memory that's still
 	// in its initial UNDEFINED layout.
-	if(mScreenCapture.IsCaptured())
+	if(mScreenEffect.IsCaptured())
 	{
-		if(mScreenCapture.GetScreenGfx() && mfAlpha<1)
-			mpGuiSet->DrawGfx(mScreenCapture.GetScreenGfx(),mvGuiSetStartPos,mvGuiSetSize);
+		if(mScreenEffect.GetScreenGfx() && mfAlpha<1)
+			mpGuiSet->DrawGfx(mScreenEffect.GetScreenGfx(),mvGuiSetStartPos,mvGuiSetSize);
 
-		if(mScreenCapture.GetScreenBgGfx())
-			mpGuiSet->DrawGfx(mScreenCapture.GetScreenBgGfx(),mvGuiSetStartPos+cVector3f(0,0,0.2f),mvGuiSetSize,cColor(1, mfAlpha));
+		if(mScreenEffect.GetScreenBgGfx())
+			mpGuiSet->DrawGfx(mScreenEffect.GetScreenBgGfx(),mvGuiSetStartPos+cVector3f(0,0,0.2f),mvGuiSetSize,cColor(1, mfAlpha));
 	}
 
 
@@ -1843,22 +1843,22 @@ void cLuxJournal::CreateOpenNoteGui()
 
 void cLuxJournal::CreateBackground()
 {
-	mScreenCapture.CreateTextures();
-	mScreenCapture.RequestCapture();
+	mScreenEffect.CreateTextures();
+	mScreenEffect.RequestCapture();
 }
 
 //-----------------------------------------------------------------------
 
 void cLuxJournal::DestroyBackground()
 {
-	mScreenCapture.Destroy();
+	mScreenEffect.Destroy();
 }
 
 //-----------------------------------------------------------------------
 
 void cLuxJournal::OnPostRender(float afFrameTime)
 {
-	mScreenCapture.OnPostRender();
+	mScreenEffect.OnPostRender();
 }
 
 //-----------------------------------------------------------------------

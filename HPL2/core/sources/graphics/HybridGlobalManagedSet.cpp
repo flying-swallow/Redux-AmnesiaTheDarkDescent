@@ -542,8 +542,9 @@ uint32_t HybridGlobalManagedSet::resolveTextureSlot(
   auto texture = img->GetTexture();
   if (!texture)
     return kInvalidTextureIndex;
-  const hash_t texture_cookie =
+  hash_t texture_cookie =
       hash_u64(HASH_INITIAL_VALUE, img->GetUniqueCookie());
+  texture_cookie = hash_u64(texture_cookie, texture->binding.cookie);
   auto req = m_textureBindless.request(texture_cookie, frameIndex);
   if (req.exhausted)
     return kInvalidTextureIndex;
@@ -574,8 +575,11 @@ uint32_t HybridGlobalManagedSet::resolveCubeTextureSlot(
   if (!texture)
     return kInvalidTextureIndex;
 
-  const hash_t texture_cookie =
+  // Same view-identity fold as resolveTextureSlot: keep animated cube Images from
+  // freezing on their first frame's imageView (binding.cookie tracks the view).
+  hash_t texture_cookie =
       hash_u64(HASH_INITIAL_VALUE, img->GetUniqueCookie());
+  texture_cookie = hash_u64(texture_cookie, texture->binding.cookie);
   auto req = m_textureCubeBindless.request(texture_cookie, frameIndex);
   if (req.exhausted)
     return kInvalidTextureIndex;

@@ -28,32 +28,6 @@
 #define kDiffuseBrdf kDiffuseBrdfFrostbite
 #endif
 
-// Static surfel feature toggles. The Falcor reference set these via host
-// addDefine; here we #define them directly. They MUST live outside the
-// shared-const guard below — the SurfelGI shaders include Constants.h raw
-// (no HPL_DEFINE_SHARED_CONSTS), and a guarded #define is invisible to their
-// #ifdef blocks (they sat inside the guard until 2026-06-06, silently
-// compiling every USE_* feature out). Comment a line out to disable.
-//   USE_SURFEL_RADIANCE   - multi-bounce surfel feedback in the ray trace.
-//                           (the port's `finalize` runs unconditionally, so
-//                           this define is informational — kept for parity.)
-//   USE_IRRADIANCE_SHARING- SurfelIntegratePass blends each surfel's radiance
-//                           with its cell neighbours' — smooths the splotchy
-//                           look of sparse coverage.
-//   USE_SURFEL_DEPTH      - Chebyshev visibility weighting (reduces light leak)
-//                           + writes the surfel-depth atlas. Reference default
-//                           ON; left OFF here deliberately: the weighting
-//                           SUPPRESSES contributions until the depth atlas
-//                           converges (~100 frames), and the atlas has never
-//                           been written in a live build (the guard bug above)
-//                           — enable separately to A/B leak-prevention against
-//                           GI brightness.
-//   USE_RAY_GUIDING       - reference default OFF; leave off.
-#define USE_SURFEL_RADIANCE    1
-#define USE_IRRADIANCE_SHARING 1
-#define USE_SURFEL_DEPTH    1
-// #define USE_RAY_GUIDING     1
-
 // The typed constants below are emitted in:
 //   - every C++ TU (`static const` at namespace scope = internal linkage, no ODR worry), and
 //   - exactly one Slang module: SceneTypes, gated by HPL_DEFINE_SHARED_CONSTS.
@@ -100,7 +74,6 @@ SHARED_CONST uint kBindingSurfelRefCounter          = 27u;
 SHARED_CONST uint kBindingSurfelReservation          = 28u;
 SHARED_CONST uint kBindingSpotLights                 = 29u;
 SHARED_CONST uint kBindingPackedHitInfo             = 31u;  // RGBA32UI storage image
-SHARED_CONST uint kBindingIrradianceMap              = 32u;  // R32F storage image
 SHARED_CONST uint kBindingSurfelDepthMap            = 33u;  // RG32F storage image
 SHARED_CONST uint kBindingSurfelDepthSampled        = 34u;  // RG32F sampled image (filtered reads)
 SHARED_CONST uint kBindingSurfelDepthSampler        = 35u;  // SamplerState paired with above
@@ -222,8 +195,7 @@ SHARED_CONST float kPerceptualBlendExp = 2.2f;
 //   kSurfelTargetArea:    surfel-radius target area used by collectCellInfo.
 //   kPerCellSurfelLimit:  per-cell surfel cap (debug + sanity bound).
 //   k{Ref,Max,SleepingMax}*Life / kRefCountThreshold: surfel lifecycle.
-//   kIrradianceMap{Width,Height,Unit}: atlas geometry (4096×4096, 7×7 tile).
-//   kSurfelDepth{Width,Height,Unit}:   depth atlas (same geometry).
+//   kSurfelDepth{Width,Height,Unit}:   depth atlas geometry (4096×4096, 7×7 tile).
 // -----------------------------------------------------------------------------
 SHARED_CONST uint  kTotalSurfelLimit    = 150000u;
 SHARED_CONST uint  kRayBudget           = kTotalSurfelLimit * 64u;
@@ -238,13 +210,11 @@ SHARED_CONST uint  kMaxLife             = 240u;
 SHARED_CONST uint  kSleepingMaxLife     = kMaxLife / 4u;
 SHARED_CONST uint2 kTileSize            = uint2(16, 16);
 // uint2 atlas geometry — surfel utility math uses `.x` / `.y` accessors.
-SHARED_CONST uint2 kIrradianceMapRes       = uint2(4096, 4096);
-SHARED_CONST uint2 kIrradianceMapUnit      = uint2(7, 7);
 SHARED_CONST uint2 kSurfelDepthTextureRes  = uint2(4096, 4096);
 SHARED_CONST uint2 kSurfelDepthTextureUnit = uint2(7, 7);
 // Half-extent of one depth-atlas tile (Falcor SurfelTypes.slang:
 // kSurfelDepthTextureUnit / 2). Used by SurfelIntegratePass's octahedral
-// depth-write offset math (USE_SURFEL_DEPTH).
+// depth-write offset math.
 SHARED_CONST uint2 kSurfelDepthTextureHalfUnit = uint2(3, 3);
 
 // World-space light grid (coarse, camera-centered) for surfel NEE importance

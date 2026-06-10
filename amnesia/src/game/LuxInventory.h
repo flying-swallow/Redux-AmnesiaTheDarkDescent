@@ -23,7 +23,7 @@
 //----------------------------------------------
 
 #include "LuxBase.h"
-#include "LuxScreenCapture.h"
+#include "LuxScreenEffect.h"
 
 //----------------------------------------------
 
@@ -427,7 +427,7 @@ private:
 	cVector3f mvGuiSetStartPos;
 
 	// Screen-snapshot pipeline drawn behind the inventory GUI (RI backend).
-	cLuxScreenCapture mScreenCapture;
+	cLuxScreenEffect mScreenEffect;
 
 	cGuiGfxElement* mpFrameHealthCorners[4];
 	cGuiGfxElement* mpFrameHealthBorders[4];

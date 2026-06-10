@@ -172,18 +172,11 @@ private:
 	RIProgram m_decal;
 	RIProgram m_water;
 
-	// Surfel-ray irradiance map sampled by surfel_raytrace.comp's ray-guiding
-	// branch and written by surfel_integrate.comp. Lives at VK_IMAGE_LAYOUT_GENERAL
-	// across all surfel passes so the same view can be bound as both
-	// combined-image-sampler (for reads) and storage-image (for writes) within
-	// the integrate dispatch.
-	struct RITexture_s     m_surfelIrradianceTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-	struct RITextureView_s m_surfelIrradianceView[RI_MAX_SWAPCHAIN_IMAGES]    = {};
-
 	// Surfel-ray depth map — RG16F atlas storing (depth, depth^2) per
-	// octahedral tile texel for each surfel. Written by surfel_integrate.comp
-	// alongside the irradiance atlas; sampled by future shading passes for
-	// visibility-aware GI gather. Lives at GENERAL like the irradiance atlas.
+	// octahedral tile texel for each surfel. Written by surfel_integrate.comp;
+	// sampled by the surfel shading passes for visibility-aware GI gather.
+	// Lives at VK_IMAGE_LAYOUT_GENERAL across all surfel passes so the same
+	// view can be bound as both storage image (writes) and sampled image.
 	struct RITexture_s     m_surfelDepthTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
 	struct RITextureView_s m_surfelDepthView[RI_MAX_SWAPCHAIN_IMAGES]    = {};
 

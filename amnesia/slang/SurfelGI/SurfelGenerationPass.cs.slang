@@ -14,7 +14,6 @@ import PerFrame.resource;
 import HitInfo;
 import Scene;
 import Random;
-import HashUtils;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
 
@@ -161,7 +160,6 @@ void csMain(
 
                         coverage += contribution;
 
-                        #ifdef USE_SURFEL_DEPTH
                         {
                             float2 uv = getSurfelDepthUV(surfelIndex, bias / dist, sb.normal);
                             float2 surfelDepth = gSurfelDepth.SampleLevel(gSurfelDepthSampler, uv, 0u);
@@ -173,7 +171,6 @@ void csMain(
                                 contribution *= variance / (variance + pow(dist - mean, 2));
                             }
                         }
-                        #endif
 
                         indirectLighting += float4(surfel.radiance, 1.f) * contribution
                                             * smoothstep(0, kDefaultBlendingDelay, surfelRecycleInfo.frame);

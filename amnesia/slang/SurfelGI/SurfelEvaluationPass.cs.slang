@@ -18,7 +18,6 @@ import bindless;
 import HitInfo;
 import PerFrame.resource;
 import Random;
-import HashUtils;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
 
@@ -88,7 +87,6 @@ void csMain(
 
         coverage += contribution;
 
-#ifdef USE_SURFEL_DEPTH
         {
             float2 uv = getSurfelDepthUV(surfelIndex, bias / dist, normal);
             float2 surfelDepth = gSurfelDepth.SampleLevel(gSurfelDepthSampler, uv, 0u);
@@ -102,7 +100,6 @@ void csMain(
                 contribution *= variance / (variance + pow(dist - mean, 2));
             }
         }
-#endif
 
         SurfelRecycleInfo recycleInfo = gSurfelRecycleInfoBuffer[surfelIndex];
 
