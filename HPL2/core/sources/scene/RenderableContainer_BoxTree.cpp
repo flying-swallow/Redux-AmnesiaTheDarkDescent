@@ -143,33 +143,6 @@ namespace hpl {
 		//Build the actual node tree from temp nodes
 		BuildNodeFromTemp(&tempRoot, mpRoot,0);
 	}
-
-	//-----------------------------------------------------------------------
-
-	int glCount =0;
-	int glDrawLevel=0;
-
-	void cRenderableContainer_BoxTree::RenderDebug(cRendererCallbackFunctions *apFunctions)
-	{
-		glCount++;
-		if(glCount > 300)
-		{
-			glCount =0;
-			glDrawLevel++;
-			if(glDrawLevel > 5) glDrawLevel =0;
-		}
-		
-		apFunctions->SetDepthTest(true);
-		apFunctions->SetDepthWrite(false);
-		apFunctions->SetBlendMode(eMaterialBlendMode_None);
-
-		// apFunctions->SetProgram(NULL);
-		apFunctions->SetTextureRange(NULL, 0);
-		apFunctions->SetMatrix(NULL);
-
-
-		RenderDebugNode(apFunctions, mpRoot,0);
-	}
 	
 	//-----------------------------------------------------------------------
 

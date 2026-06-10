@@ -103,7 +103,7 @@ namespace hpl {
 
 		void RebuildNodes();
 
-		void RenderDebug(cRendererCallbackFunctions *apFunctions);
+		void RenderDebug(cRendererCallbackFunctions* apFunctions) {} // STUB
 	
 	private:
 		void AddNodeObjectsToRoot(cRCNode_DynBoxTree *apNode);

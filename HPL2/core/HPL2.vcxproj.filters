@@ -1099,12 +1099,6 @@
     <ClInclude Include="include\gui\WidgetMeshObjectList.h">
       <Filter>Gui</Filter>
     </ClInclude>
-    <ClInclude Include="include\graphics\RenderFunctions.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\Renderer.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
     <ClInclude Include="include\graphics\MaterialType_BasicSolid.h">
       <Filter>Graphics\Materials</Filter>
     </ClInclude>
@@ -1143,6 +1137,9 @@
     </ClInclude>
     <ClInclude Include="include\impl\SDLTexture.h">
       <Filter>Impl\Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\Renderer.h">
+      <Filter>Graphics</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -2033,9 +2030,6 @@
     </ClCompile>
     <ClCompile Include="sources\gui\WidgetMeshObjectList.cpp">
       <Filter>Gui</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\RenderFunctions.cpp">
-      <Filter>Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\graphics\Renderer.cpp">
       <Filter>Graphics</Filter>

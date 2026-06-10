@@ -73,7 +73,7 @@ namespace hpl {
 
         void Compile();	
 
-		void RenderDebug(cRendererCallbackFunctions *apFunctions);
+		void RenderDebug(cRendererCallbackFunctions* apFunctions) {} // STUB
 
 		void SetMinLeafObjects(int alX){mlMinLeafObjects = alX;}
 		int GetMinLeafObjects(){ return mlMinLeafObjects;}

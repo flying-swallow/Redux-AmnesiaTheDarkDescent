@@ -24,7 +24,6 @@
 #include "math/MathTypes.h"
 #include "scene/SceneTypes.h"
 
-#include "graphics/RenderFunctions.h"
 #include "graphics/RIBootstrap.h"
 
 namespace hpl {
@@ -46,6 +45,7 @@ namespace hpl {
 	class iRenderableContainerNode;
 	class cVisibleRCNodeTracker;
 	class cViewport;
+	class cFrustum;
 
 	//---------------------------------------------
 
@@ -56,73 +56,58 @@ namespace hpl {
 		~cRenderSettings();
 
 		////////////////////////////
-		//Helper methods
+		// Helper methods
 		void ResetVariables();
-
 		void SetupReflectionSettings();
-
 		void AddOcclusionPlane(const cPlanef &aPlane);
 		void ResetOcclusionPlanes();
 
 		////////////////////////////
-		//Data
+		// Data
 		cRenderList *mpRenderList;
-
 		cVisibleRCNodeTracker *mpVisibleNodeTracker;
-
 		cRenderSettings *mpReflectionSettings;
 
         ////////////////////////////
-		//General settings
+		// General settings
 		bool mbLog;
-
 		cColor mClearColor;
 
 		////////////////////////////
-		//Render settings
+		// Render settings
 		int mlMinimumObjectsBeforeOcclusionTesting;
 		int mlSampleVisiblilityLimit;
 		bool mbIsReflection;
 		bool mbClipReflectionScreenRect;
-
 		bool mbUseOcclusionCulling;
-
 		bool mbUseEdgeSmooth;
-
 		tPlanefVec mvOcclusionPlanes;
-
 		bool mbUseCallbacks;
-
 		eShadowMapResolution mMaxShadowMapResolution;
-
 		bool mbUseScissorRect;
 		cVector2l mvScissorRectPos;
 		cVector2l mvScissorRectSize;
-
 		bool mbRenderWorldReflection;
 
 		////////////////////////////
-		//Shadow settings
+		// Shadow settings
 		bool mbRenderShadows;
 		float mfShadowMapBias;
 		float mfShadowMapSlopeScaleBias;
 
 		////////////////////////////
-		//Light settings
+		// Light settings
 		bool mbSSAOActive;
 
 		////////////////////////////
-		//Output
+		// Output
 		int mlNumberOfLightsRendered;
 		int mlNumberOfOcclusionQueries;
-
-	private:
-
 	};
 
 	//---------------------------------------------
 
-	class iRenderer : public iRenderFunctions
+	class iRenderer
 	{
 	friend class cRendererCallbackFunctions;
 	friend class cRenderSettings;
@@ -132,70 +117,61 @@ namespace hpl {
 
 		void Update(float afTimeStep);
 
-    virtual void Draw(
-    		RIBootstrap::FrameContext* cntx,
-        cViewport* viewport,
-        float afFrameTime,
-        cFrustum* apFrustum,
-        cWorld* apWorld,
-        cRenderSettings* apSettings,
-        bool abSendFrameBufferToPostEffects) {}
+		virtual void Draw(RIBootstrap::FrameContext* cntx, cViewport* viewport, float afFrameTime, cFrustum* apFrustum, cWorld* apWorld, cRenderSettings* apSettings, bool abSendFrameBufferToPostEffects) {}
 
-		inline static int GetRenderFrameCount()  { return mlRenderFrameCount;}
-		inline static void IncRenderFrameCount() { ++mlRenderFrameCount;}
+		inline static int GetRenderFrameCount()  { return mlRenderFrameCount; }
+		inline static void IncRenderFrameCount() { ++mlRenderFrameCount; }
 
 		float GetTimeCount(){ return mfTimeCount;}
 
-		virtual bool LoadData()=0;
-		virtual void DestroyData()=0;
+		virtual bool LoadData() = 0;
+		virtual void DestroyData() = 0;
 
-		virtual iTexture* GetRefractionTexture(){ return NULL;}
-		virtual iTexture* GetReflectionTexture(){ return NULL;}
+		virtual iTexture* GetRefractionTexture() { return NULL; }
+		virtual iTexture* GetReflectionTexture() { return NULL; }
 
 		// Legacy material-path accessors — still referenced by the
 		// MaterialType_* program setup code; never populated by the Vulkan
 		// Draw() path.
-		cWorld *GetCurrentWorld(){ return mpCurrentWorld;}
-		cFrustum *GetCurrentFrustum(){ return mpCurrentFrustum;}
-		cRenderList *GetCurrentRenderList(){ return mpCurrentRenderList;}
+		cWorld *GetCurrentWorld() { return mpCurrentWorld; }
+		cFrustum *GetCurrentFrustum() { return NULL; } // IMPORTANT: CHECK IF THIS IS PROBLEMATIC
+		cRenderList *GetCurrentRenderList() { return mpCurrentRenderList; }
 
-		//Temp variables used by material.
-		float GetTempAlpha(){ return mfTempAlpha; }
+		// Temp variables used by material.
+		float GetTempAlpha() { return mfTempAlpha; }
 
-		//Static settings. Must be set before renderer data load.
-		static void SetShadowMapQuality(eShadowMapQuality aQuality) { mShadowMapQuality = aQuality;}
-		static eShadowMapQuality GetShadowMapQuality(){ return mShadowMapQuality;}
+		// Static settings. Must be set before renderer data load.
+		static void SetShadowMapQuality(eShadowMapQuality aQuality) { mShadowMapQuality = aQuality; }
+		static eShadowMapQuality GetShadowMapQuality() { return mShadowMapQuality; }
 
-		static void SetShadowMapResolution(eShadowMapResolution aResolution) { mShadowMapResolution = aResolution;}
-		static eShadowMapResolution GetShadowMapResolution(){ return mShadowMapResolution;}
+		static void SetShadowMapResolution(eShadowMapResolution aResolution) { mShadowMapResolution = aResolution; }
+		static eShadowMapResolution GetShadowMapResolution() { return mShadowMapResolution; }
 
-		static void SetParallaxQuality(eParallaxQuality aQuality) { mParallaxQuality = aQuality;}
-		static eParallaxQuality GetParallaxQuality(){ return mParallaxQuality;}
+		static void SetParallaxQuality(eParallaxQuality aQuality) { mParallaxQuality = aQuality; }
+		static eParallaxQuality GetParallaxQuality() { return mParallaxQuality; }
 
-		static void SetParallaxEnabled(bool abX) { mbParallaxEnabled = abX;}
-		static bool GetParallaxEnabled(){ return mbParallaxEnabled;}
+		static void SetParallaxEnabled(bool abX) { mbParallaxEnabled = abX; }
+		static bool GetParallaxEnabled() { return mbParallaxEnabled; }
 
-		static void SetReflectionSizeDiv(int alX) { mlReflectionSizeDiv = alX;}
-		static int GetReflectionSizeDiv(){ return mlReflectionSizeDiv;}
+		static void SetReflectionSizeDiv(int alX) { mlReflectionSizeDiv = alX; }
+		static int GetReflectionSizeDiv() { return mlReflectionSizeDiv; }
 
-		static void SetRefractionEnabled(bool abX) { mbRefractionEnabled = abX;}
-		static bool GetRefractionEnabled(){ return mbRefractionEnabled;}
+		static void SetRefractionEnabled(bool abX) { mbRefractionEnabled = abX; }
+		static bool GetRefractionEnabled() { return mbRefractionEnabled; }
 
 	protected:
         cResources* mpResources;
+		cGraphics* mpGraphics;
 
 		tString msName;
-
 		cWorld *mpCurrentWorld;
 		cRenderSettings *mpCurrentSettings;
 		cRenderList *mpCurrentRenderList;
-
 		float mfTempAlpha;
-
 		static int mlRenderFrameCount;
 		float mfTimeCount;
 
-        //Static variables
+        // Static variables
 		static eShadowMapQuality mShadowMapQuality;
 		static eShadowMapResolution mShadowMapResolution;
 		static eParallaxQuality mParallaxQuality;
@@ -203,51 +179,5 @@ namespace hpl {
 		static int mlReflectionSizeDiv;
 		static bool mbRefractionEnabled;
 	};
-
-	//---------------------------------------------
-
-	class cRendererCallbackFunctions
-	{
-	public:
-		cRendererCallbackFunctions(iRenderer *apRenderer) : mpRenderer(apRenderer) {}
-
-		cRenderSettings* GetSettings(){ return mpRenderer->mpCurrentSettings;}
-		cFrustum* GetFrustum(){ return mpRenderer->mpCurrentFrustum;}
-
-		inline void SetFlatProjection(const cVector2f &avSize=1,float afMin=-100,float afMax=100) { mpRenderer->SetFlatProjection(avSize, afMin,afMax); }
-		inline void SetFlatProjectionMinMax(const cVector3f &avMin,const cVector3f &avMax) { mpRenderer->SetFlatProjectionMinMax(avMin,avMax);}
-		inline void SetNormalFrustumProjection() { mpRenderer->SetNormalFrustumProjection(); }
-
-		inline void DrawQuad(	const cVector3f& aPos, const cVector2f& avSize, const cVector2f& avMinUV=0, const cVector2f& avMaxUV=1,
-								bool abInvertY=false, const cColor& aColor=cColor(1,1) )
-							{ mpRenderer->DrawQuad(aPos,avSize,avMinUV,avMaxUV,abInvertY,aColor); }
-
-		inline bool SetDepthTest(bool abX){ return mpRenderer->SetDepthTest(abX); }
-		inline bool SetDepthWrite(bool abX){ return mpRenderer->SetDepthWrite(abX); }
-		inline bool SetDepthTestFunc(eDepthTestFunc aFunc){ return mpRenderer->SetDepthTestFunc(aFunc); }
-		inline bool SetCullActive(bool abX){ return mpRenderer->SetCullActive(abX); }
-		inline bool SetCullMode(eCullMode aMode){ return mpRenderer->SetCullMode(aMode); }
-		inline bool SetStencilActive(bool abX){ return mpRenderer->SetStencilActive(abX); }
-		inline bool SetChannelMode(eMaterialChannelMode aMode){ return mpRenderer->SetChannelMode(aMode); }
-		inline bool SetAlphaMode(eMaterialAlphaMode aMode){ return mpRenderer->SetAlphaMode(aMode); }
-		inline bool SetBlendMode(eMaterialBlendMode aMode){ return mpRenderer->SetBlendMode(aMode); }
-		inline void SetTexture(int alUnit, iTexture *apTexture){ mpRenderer->SetTexture(alUnit, apTexture); }
-		inline void SetTextureRange(iTexture *apTexture, int alFirstUnit, int alLastUnit = kMaxTextureUnits-1){ mpRenderer->SetTextureRange(apTexture,alFirstUnit,alLastUnit); }
-		inline void SetVertexBuffer(iVertexBuffer *apVtxBuffer){ mpRenderer->SetVertexBuffer(apVtxBuffer); }
-		inline void SetMatrix(cMatrixf *apMatrix){ mpRenderer->SetMatrix(apMatrix); }
-		inline void SetModelViewMatrix(const cMatrixf& a_mtxModelView){ mpRenderer->SetModelViewMatrix(a_mtxModelView); }
-
-		inline void DrawCurrent(eVertexBufferDrawType aDrawType = eVertexBufferDrawType_LastEnum){ mpRenderer->DrawCurrent(aDrawType); }
-
-		void DrawWireFrame(iVertexBuffer *apVtxBuffer, const cColor &aColor){ mpRenderer->DrawWireFrame(apVtxBuffer, aColor);}
-
-		iLowLevelGraphics *GetLowLevelGfx(){ return mpRenderer->mpLowLevelGraphics;}
-
-	private:
-		iRenderer *mpRenderer;
-	};
-
-	//---------------------------------------------
-
 };
 #endif // HPL_RENDERER_H

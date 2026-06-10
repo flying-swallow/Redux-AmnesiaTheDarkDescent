@@ -18,16 +18,14 @@
  */
 
 #include "graphics/Renderer.h"
-
 #include "system/LowLevelSystem.h"
-
 #include "graphics/Graphics.h"
-
 #include "resources/Resources.h"
-
 #include "scene/RenderableContainer.h"
 
 namespace hpl {
+
+	//-----------------------------------------------------------------------
 
 	//////////////////////////////////////////////////////////////////////////
 	// STATIC VARAIBLES
@@ -35,16 +33,16 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	eShadowMapQuality iRenderer::mShadowMapQuality	=		eShadowMapQuality_Medium;
-	eShadowMapResolution iRenderer::mShadowMapResolution	=	eShadowMapResolution_High;
+	eShadowMapQuality iRenderer::mShadowMapQuality = eShadowMapQuality_Medium;
+	eShadowMapResolution iRenderer::mShadowMapResolution = eShadowMapResolution_High;
 	eParallaxQuality iRenderer::mParallaxQuality = eParallaxQuality_Low;
-	bool iRenderer::mbParallaxEnabled=true;
+	bool iRenderer::mbParallaxEnabled = true;
 	int iRenderer::mlReflectionSizeDiv = 2;
-	bool iRenderer::mbRefractionEnabled=true;
+	bool iRenderer::mbRefractionEnabled = true;
 
 	//-----------------------------------------------------------------------
 
-	int iRenderer::mlRenderFrameCount =0;
+	int iRenderer::mlRenderFrameCount = 0;
 	
 	//-----------------------------------------------------------------------
 	
@@ -61,22 +59,18 @@ namespace hpl {
 		mpVisibleNodeTracker = hplNew( cVisibleRCNodeTracker, () );
 
 		////////////////////////
-		// Set up General Variables
+		// Setup general variables
 		mbIsReflection = abIsReflection;
 		mbLog = false;
-
 		mClearColor = cColor(0,0);
 
 		////////////////////////
-		// Set up Render Variables
-		//Change this later I assume:
-		mlMinimumObjectsBeforeOcclusionTesting = 0;//8;//8 should be good default, giving a good amount of colliders, or? Clarifiction: Minium num of object rendered until node visibility tests start!
+		// Setup render variables
+		// Change this later I assume:
+		mlMinimumObjectsBeforeOcclusionTesting = 0; //8;//8 should be good default, giving a good amount of colliders, or? Clarifiction: Minium num of object rendered until node visibility tests start!
 		mlSampleVisiblilityLimit = 3;
-
 		mbUseCallbacks = true;
-
 		mbUseEdgeSmooth = false;
-
 		mbUseOcclusionCulling = true;
 
 		mMaxShadowMapResolution = eShadowMapResolution_High;
@@ -84,108 +78,82 @@ namespace hpl {
 			mMaxShadowMapResolution = eShadowMapResolution_Medium;
 
 		mbClipReflectionScreenRect = true;
-
 		mbUseScissorRect = false;
-
 		mbRenderWorldReflection = true;
 
 		////////////////////////
-		// Set up Shadow Variables
+		// Setup shadow variables
 		mbRenderShadows = true;
-		mfShadowMapBias = 4;			//The constant bias
-		mfShadowMapSlopeScaleBias = 2;	//The bias based on sloping of depth.
+		mfShadowMapBias = 4;			// The constant bias
+		mfShadowMapSlopeScaleBias = 2;	// The bias based on sloping of depth.
 
 		////////////////////////////
-		//Light settings
+		// Light settings
 		mbSSAOActive = mbIsReflection ? false : true;
 		
 		////////////////////////
-		// Set up Output Variables
+		// Setup output variables
 		mlNumberOfLightsRendered =0;
 		mlNumberOfOcclusionQueries =0;
 
 		////////////////////////
-		// Set up Private Variables
-
-
-		////////////////////////
-		// Create Reflection settings
+		// Create reflection settings
 		mpReflectionSettings = NULL;
 		if(mbIsReflection == false)
 		{
 			mpReflectionSettings = hplNew(cRenderSettings, (true) );
 		}
-
 	}
 
 	cRenderSettings::~cRenderSettings()
 	{
 		hplDelete(mpVisibleNodeTracker);
-
 		if(mpReflectionSettings) hplDelete(mpReflectionSettings);
 	}
 
-	//-----------------------------------------------------------------------
-
 	void cRenderSettings::ResetVariables()
 	{
-		//return;
 		mpVisibleNodeTracker->Reset();
-
         if(mpReflectionSettings) mpReflectionSettings->ResetVariables();		
 	}
 
-	//-----------------------------------------------------------------------
-
 	//////////////////////////////////////////////////
-	//The render settings will use the default setup, except for the variables below
+	// The render settings will use the default setup, except for the variables below
 	// This means SSAO, edgesmooth, etc are always off for reflections.
 	#define RenderSettingsCopy(aVar) mpReflectionSettings->aVar = aVar
 	void cRenderSettings::SetupReflectionSettings()
 	{
 		if(mpReflectionSettings==NULL) return;
 		RenderSettingsCopy(mbLog);
-
 		RenderSettingsCopy(mClearColor);
 
 		////////////////////////////
-		//Render settings
+		// Render settings
 		RenderSettingsCopy(mlMinimumObjectsBeforeOcclusionTesting);
 		RenderSettingsCopy(mlSampleVisiblilityLimit);
-
 		mpReflectionSettings->mbUseScissorRect = false;
 		
 		////////////////////////////
-		//Shadow settings
+		// Shadow settings
 		RenderSettingsCopy(mbRenderShadows);
 		RenderSettingsCopy(mfShadowMapBias);
 		RenderSettingsCopy(mfShadowMapSlopeScaleBias);
 
 		////////////////////////////
-		//Light settings
-		//RenderSettingsCopy(mbSSAOActive);
-
-		////////////////////////////
-		//Output
+		// Output
 		RenderSettingsCopy(mlNumberOfLightsRendered);
 		RenderSettingsCopy(mlNumberOfOcclusionQueries);
 	}
-
-	//-----------------------------------------------------------------------
 
 	void cRenderSettings::AddOcclusionPlane(const cPlanef &aPlane)
 	{
 		mvOcclusionPlanes.push_back(aPlane);
 	}
-	
-	//-----------------------------------------------------------------------
 
 	void cRenderSettings::ResetOcclusionPlanes()
 	{
 		mvOcclusionPlanes.clear();
 	}
-
-
 
 	//-----------------------------------------------------------------------
 
@@ -201,24 +169,17 @@ namespace hpl {
 		mpResources = apResources;
 
 		//////////////
-		//Set variables from arguments
+		// Set variables from arguments
 		msName = asName;
 
-		/////////////////////////////////
-		//Set up the render functions
-		SetupRenderFunctions(mpGraphics->GetLowLevel());
-
 		//////////////
-		//Init variables
+		// Init variables
 		mpCurrentWorld = NULL;
 		mpCurrentSettings = NULL;
 		mpCurrentRenderList = NULL;
 		mfTempAlpha = 0;
-
-		mfTimeCount =0;
+		mfTimeCount = 0;
 	}
-
-	//-----------------------------------------------------------------------
 
 	iRenderer::~iRenderer() {}
 
@@ -234,7 +195,4 @@ namespace hpl {
 	{
 		mfTimeCount += afTimeStep;
 	}
-
-	//-----------------------------------------------------------------------
-
 }

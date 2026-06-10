@@ -188,7 +188,6 @@
     <ClInclude Include="include\graphics\PostEffectHelpers.h" />
     <ClInclude Include="include\graphics\PostEffect_ToneMap.h" />
     <ClInclude Include="include\graphics\Renderer.h" />
-    <ClInclude Include="include\graphics\RenderFunctions.h" />
     <ClInclude Include="include\graphics\RenderList.h" />
     <ClInclude Include="include\graphics\RIBarrier.h" />
     <ClInclude Include="include\graphics\RIBootstrap.h" />
@@ -542,7 +541,6 @@
     <ClCompile Include="sources\graphics\PostEffectHelpers.cpp" />
     <ClCompile Include="sources\graphics\PostEffect_ToneMap.cpp" />
     <ClCompile Include="sources\graphics\Renderer.cpp" />
-    <ClCompile Include="sources\graphics\RenderFunctions.cpp" />
     <ClCompile Include="sources\graphics\RenderList.cpp" />
     <ClCompile Include="sources\graphics\RIAccelStructure.cpp" />
     <ClCompile Include="sources\graphics\RIBootstrap.cpp" />
