@@ -21,7 +21,6 @@
 
 #include <cmath>
 
-#include "graphics/RenderList.h"
 #include "graphics/Renderable.h"
 #include "math/BoundingVolume.h"
 #include "math/Frustum.h"
@@ -161,7 +160,8 @@ namespace hpl {
 					}
 
 					if (frustumCollision == eCollision_Inside || object->CollidesWithFrustum(frustum)) {
-						apRenderList->AddObject(object);
+						// IMPORTANT: CHECK IF THIS IS PROBLEMATIC
+						// apRenderList->AddObject(object);
 					}
 				}
 			}

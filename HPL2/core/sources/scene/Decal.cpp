@@ -21,7 +21,7 @@
 
 #include "scene/Scene.h"
 #include "graphics/HybridRenderer.h"
-#include "graphics/RenderList2.h"
+#include "graphics/RenderList.h"
 
 namespace hpl {
 

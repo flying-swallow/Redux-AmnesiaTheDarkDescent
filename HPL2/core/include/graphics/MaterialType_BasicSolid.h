@@ -39,30 +39,25 @@ namespace hpl {
 	public:
 		iMaterialType_SolidBase(cGraphics *apGraphics, cResources *apResources);
 		~iMaterialType_SolidBase();
-
-		void DestroyProgram(cMaterial *apMaterial, eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, char alSkeleton);
-			
-		bool SupportsHWSkinning(){ return true; }
 		
-		void CreateGlobalPrograms();
+		bool SupportsHWSkinning() { return true; }
 
 		iMaterialVars* CreateSpecificVariables() { return NULL; }
-		void LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars);
-		void GetVariableValues(cMaterial *apMaterial, cResourceVarsObject* apVars);
+		void LoadVariables(cMaterial* apMaterial, cResourceVarsObject* apVars) {} // STUB
+		void GetVariableValues(cMaterial* apMaterial, cResourceVarsObject* apVars) {} // STUB
 
 		void CompileMaterialSpecifics(cMaterial *apMaterial);
 		
 	protected:
-		virtual void CompileSolidSpecifics(cMaterial *apMaterial){}
+		virtual void CompileSolidSpecifics(cMaterial *apMaterial) {}
 
-		virtual void LoadSpecificData()=0;
+		virtual void LoadSpecificData() = 0;
 
 		void LoadData();
-		void DestroyData();
+		void DestroyData() {} // STUB
 
 		bool mbIsGlobalDataCreator;
 		static bool mbGlobalDataCreated;
-		static cProgramComboManager* mpGlobalProgramManager;
 		//[skeleton][uv animation]
 
 		Image* mpDissolveTexture;
@@ -78,7 +73,7 @@ namespace hpl {
 	{
 	public:
 		cMaterialType_SolidDiffuse_Vars() : mfHeightMapScale(0.05f), mfHeightMapBias(0.0f), mbAlphaDissolveFilter(false) {}
-		~cMaterialType_SolidDiffuse_Vars(){}
+		~cMaterialType_SolidDiffuse_Vars() {}
 
 		float mfHeightMapScale;
 		float mfHeightMapBias;
@@ -95,18 +90,10 @@ namespace hpl {
 		cMaterialType_SolidDiffuse(cGraphics *apGraphics, cResources *apResources);
 		~cMaterialType_SolidDiffuse();
 
-		bool SupportsHWSkinning(){ return true; }
+		bool SupportsHWSkinning() { return true; }
 
 		iTexture* GetTextureForUnit(cMaterial *apMaterial,eMaterialRenderMode aRenderMode, int alUnit);
-		iTexture* GetSpecialTexture(cMaterial *apMaterial, eMaterialRenderMode aRenderMode,iRenderer *apRenderer, int alUnit);
-		
-		iGpuProgram* GetGpuProgram(cMaterial *apMaterial, eMaterialRenderMode aRenderMode, char alSkeleton);
-
-		void SetupTypeSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, iRenderer *apRenderer);
-		void SetupMaterialSpecificData(	eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, cMaterial *apMaterial,
-										iRenderer *apRenderer);
-		void SetupObjectSpecificData(	eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, iRenderable *apObject,
-										iRenderer *apRenderer);
+		iTexture* GetSpecialTexture(cMaterial* apMaterial, eMaterialRenderMode aRenderMode, iRenderer* apRenderer, int alUnit) { return NULL; } // STUB
 
 		iMaterialVars* CreateSpecificVariables();
 		void LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars);
@@ -114,8 +101,7 @@ namespace hpl {
 	
 	private:
 		void CompileSolidSpecifics(cMaterial *apMaterial);
-
-		void LoadSpecificData();
+		void LoadSpecificData() {} // STUB
 	};
 
 	//---------------------------------------------------

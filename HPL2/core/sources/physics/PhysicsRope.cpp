@@ -244,29 +244,6 @@ namespace hpl {
 		BuildRopeParticles();
 		SetSleeping(false);
 	}
-	
-	//-----------------------------------------------------------------------
-
-	void iPhysicsRope::RenderDebug(iLowLevelGraphics *apLowLevel)
-	{
-		cVector3f vPrevPos =0;
-		bool bFirst=true;
-		int lCount =0;
-		for(tVerletParticleListIt it = mlstParticles.begin(); it != mlstParticles.end(); ++it, ++lCount)
-		{
-			cVerletParticle *pPart = *it;
-
-			apLowLevel->DrawSphere(pPart->GetPosition(), mfParticleRadius,cColor(1,0,0,1));
-
-			if(bFirst==false)
-			{
-				apLowLevel->DrawLine(vPrevPos,pPart->GetPosition(),cColor(1,1));
-			}
-
-			bFirst=false;
-			vPrevPos = pPart->GetPosition();
-		}
-	}
 
 	//-----------------------------------------------------------------------
 

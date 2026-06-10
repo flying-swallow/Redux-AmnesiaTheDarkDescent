@@ -50,7 +50,7 @@ namespace hpl {
 		void SetTextureFilter(eTextureFilter aFilter);
 		eTextureFilter GetTextureFilter(){ return mTextureFilter;}
 
-		void SetTextureAnisotropy(float afX);
+		void SetTextureAnisotropy(float afX) {} // STUB
 		float GetTextureAnisotropy(){ return mfTextureAnisotropy;}
 
 		tString GetPhysicsMaterialName(const tString& asName);

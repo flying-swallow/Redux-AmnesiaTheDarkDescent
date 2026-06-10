@@ -502,7 +502,7 @@ namespace hpl {
 									eFontAlign aAlign);
 								
 
-		void RenderClipRegion();
+		void RenderClipRegion() {} // STUB
 
 		void AddWidget(iWidget *apWidget,iWidget *apParent);
 

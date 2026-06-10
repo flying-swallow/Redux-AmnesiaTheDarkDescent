@@ -29,214 +29,42 @@
 #include "math/Math.h"
 
 #include "graphics/Graphics.h"
-#include "graphics/GPUShader.h"
-#include "graphics/GPUProgram.h"
 #include "graphics/LowLevelGraphics.h"
 #include "graphics/Renderer.h"
 #include "graphics/Material.h"
-#include "graphics/ProgramComboManager.h"
 #include "graphics/Renderable.h"
 
-
 namespace hpl {
-
-	//////////////////////////////////////////////////////////////////////////
-	// DEFINES
-	//////////////////////////////////////////////////////////////////////////
-	
-	//------------------------------
-	// Variables
-	//------------------------------
-	#define kVar_afInvFarPlane					0
-	#define kVar_avHeightMapScaleAndBias		1
-	#define kVar_a_mtxUV						2	
-	#define kVar_afColorMul						3
-	#define kVar_afDissolveAmount				4
-	#define kVar_avFrenselBiasPow				5
-	#define kVar_a_mtxInvViewRotation			6
-
-
-	//------------------------------
-	//Diffuse Features and data
-	//------------------------------
-	#define eFeature_Diffuse_NormalMaps		eFlagBit_0
-	#define eFeature_Diffuse_Specular		eFlagBit_1
-	#define eFeature_Diffuse_Parallax		eFlagBit_2
-	#define eFeature_Diffuse_UvAnimation	eFlagBit_3
-	#define eFeature_Diffuse_Skeleton		eFlagBit_4
-	#define eFeature_Diffuse_EnvMap			eFlagBit_5
-	#define eFeature_Diffuse_CubeMapAlpha	eFlagBit_6
-		
-	#define kDiffuseFeatureNum 7
-
-	static cProgramComboFeature vDiffuseFeatureVec[] =
-	{
-		cProgramComboFeature("UseNormalMapping", kPC_VertexBit | kPC_FragmentBit),
-		cProgramComboFeature("UseSpecular", kPC_FragmentBit),		
-		cProgramComboFeature("UseParallax", kPC_VertexBit | kPC_FragmentBit, eFeature_Diffuse_NormalMaps),							
-		cProgramComboFeature("UseUvAnimation", kPC_VertexBit),							
-		cProgramComboFeature("UseSkeleton",	kPC_VertexBit),	
-		cProgramComboFeature("UseEnvMap", kPC_VertexBit | kPC_FragmentBit),
-		cProgramComboFeature("UseCubeMapAlpha", kPC_FragmentBit),
-	};
-
-	//------------------------------
-	//Illumination Features and data
-	//------------------------------
-	#define eFeature_Illum_UvAnimation	eFlagBit_0
-	#define eFeature_Illum_Skeleton		eFlagBit_1
-
-	#define kIllumFeatureNum 2
-
-	cProgramComboFeature vIllumFeatureVec[] =
-	{
-		cProgramComboFeature("UseUvAnimation", kPC_VertexBit),							
-		cProgramComboFeature("UseSkeleton",	kPC_VertexBit),							
-	};
-
-	//------------------------------
-	//Z Features and data
-	//------------------------------
-	#define eFeature_Z_UseAlpha					eFlagBit_0
-	#define eFeature_Z_UvAnimation				eFlagBit_1
-	#define eFeature_Z_Dissolve					eFlagBit_2
-	#define eFeature_Z_DissolveAlpha			eFlagBit_3
-	#define eFeature_Z_UseAlphaDissolveFilter	eFlagBit_4
-	
-	#define kZFeatureNum 5
-
-	cProgramComboFeature vZFeatureVec[] =
-	{
-			cProgramComboFeature("UseAlphaMap",					kPC_FragmentBit),
-			cProgramComboFeature("UseUvAnimation",				kPC_VertexBit),
-			cProgramComboFeature("UseDissolve",					kPC_FragmentBit),
-			cProgramComboFeature("UseDissolveAlphaMap",			kPC_FragmentBit),
-			cProgramComboFeature("UseAlphaUseDissolveFilter",	kPC_FragmentBit)
-	};
-
-	//------------------------------
 	
 	//////////////////////////////////////////////////////////////////////////
 	// STATIC OBJECTS
 	//////////////////////////////////////////////////////////////////////////
 
-	//--------------------------------------------------------------------------
-
 	bool iMaterialType_SolidBase::mbGlobalDataCreated = false;
-	cProgramComboManager* iMaterialType_SolidBase::mpGlobalProgramManager;
-
 	float iMaterialType_SolidBase::mfVirtualPositionAddScale = 0.03f;
-
-	//--------------------------------------------------------------------------
 
 	//////////////////////////////////////////////////////////////////////////
 	// SOLID BASE
 	//////////////////////////////////////////////////////////////////////////
-
-	//--------------------------------------------------------------------------
 
 	iMaterialType_SolidBase::iMaterialType_SolidBase(cGraphics *apGraphics, cResources *apResources) : iMaterialType(apGraphics,apResources)
 	{
 		mbIsGlobalDataCreator = false;
 	}
 
-	//--------------------------------------------------------------------------
-
-	iMaterialType_SolidBase::~iMaterialType_SolidBase()
-	{
-
-	}
-
-	//--------------------------------------------------------------------------
-
-	void iMaterialType_SolidBase::DestroyProgram(cMaterial *apMaterial, eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, char alSkeleton)
-	{
-		/////////////////////////////
-		// Remove from global manager
-		if(aRenderMode == eMaterialRenderMode_Z || aRenderMode ==  eMaterialRenderMode_Z_Dissolve)
-		{
-			mpGlobalProgramManager->DestroyGeneratedProgram(eMaterialRenderMode_Z, apProgram);
-		}
-		/////////////////////////////
-		// Remove from normal manager
-		else
-		{
-			mpProgramManager->DestroyGeneratedProgram(aRenderMode, apProgram);
-		}
-	}
-	
-	//--------------------------------------------------------------------------
-
-	void iMaterialType_SolidBase::CreateGlobalPrograms()
-	{
-		if(mbGlobalDataCreated) return;
-
-		mbGlobalDataCreated = true;
-		mbIsGlobalDataCreator = true;
-
-		/////////////////////////////
-		//Load programs
-		//This makes this material's program manager responsible for managing the global programs!
-		cParserVarContainer defaultVars;
-		defaultVars.Add("UseUv");
-		
-		mpProgramManager->SetupGenerateProgramData(	eMaterialRenderMode_Z,"Z","deferred_base_vtx.glsl", "deferred_base_frag.glsl", 
-													vZFeatureVec,kZFeatureNum, defaultVars);
-		
-		mpProgramManager->AddGenerateProgramVariableId("a_mtxUV",kVar_a_mtxUV,eMaterialRenderMode_Z);
-		mpProgramManager->AddGenerateProgramVariableId("afDissolveAmount",kVar_afDissolveAmount,eMaterialRenderMode_Z);
-
-		mpGlobalProgramManager = mpProgramManager;
-	}
-
-	//--------------------------------------------------------------------------
+	iMaterialType_SolidBase::~iMaterialType_SolidBase() {}
 
 	void iMaterialType_SolidBase::LoadData()
 	{
-		/////////////////////////////
-		//Global data init (that is shared between Solid materials)
-		CreateGlobalPrograms();
-
 		//////////////
 		// Create textures
 		mpDissolveTexture = mpResources->GetTextureManager()->Create2DImage("core_dissolve.tga",true);
-
-
-		LoadSpecificData();
 	}
-
-	//--------------------------------------------------------------------------
-
-	void iMaterialType_SolidBase::DestroyData()
-	{
-		if(mpDissolveTexture) mpResources->GetTextureManager()->Destroy(mpDissolveTexture);
-
-		//If this instace was global data creator, then it needs to be recreated.
-		if(mbIsGlobalDataCreator)
-		{
-			mbGlobalDataCreated = false;
-		}
-		mpProgramManager->DestroyShadersAndPrograms();
-	}
-
-	//--------------------------------------------------------------------------
-
-	void iMaterialType_SolidBase::LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars)
-	{
-
-	}
-
-	void iMaterialType_SolidBase::GetVariableValues(cMaterial *apMaterial, cResourceVarsObject *apVars)
-	{
-
-	}
-
-	//--------------------------------------------------------------------------
 
 	void iMaterialType_SolidBase::CompileMaterialSpecifics(cMaterial *apMaterial)
 	{
 		////////////////////////
-		//If there is an alpha texture, set alpha mode to trans, else solid.
+		// If there is an alpha texture, set alpha mode to trans, else solid.
 		if(apMaterial->GetImage(eMaterialTexture_Alpha))
 		{
 			apMaterial->SetAlphaMode(eMaterialAlphaMode_Trans);
@@ -249,14 +77,9 @@ namespace hpl {
 		CompileSolidSpecifics(apMaterial);
 	}
 
-	//--------------------------------------------------------------------------
-
-
 	//////////////////////////////////////////////////////////////////////////
 	// SOLID DIFFUSE
 	//////////////////////////////////////////////////////////////////////////
-	
-	//--------------------------------------------------------------------------
 	
 	cMaterialType_SolidDiffuse::cMaterialType_SolidDiffuse(cGraphics *apGraphics, cResources *apResources) : iMaterialType_SolidBase(apGraphics, apResources)
 	{
@@ -278,75 +101,20 @@ namespace hpl {
 		AddVarFloat("FrenselPow", 8.0f, "The higher the 'sharper' the reflection is, meaning that it is only clearly seen at sharp angles.");
 		AddVarBool("AlphaDissolveFilter", false, "If alpha values between 0 and 1 should be used and dissolve the texture. This can be useful for things like hair.");
 	}
-	
-	//--------------------------------------------------------------------------
 
-	cMaterialType_SolidDiffuse::~cMaterialType_SolidDiffuse()
-	{
-	}
-
-	//--------------------------------------------------------------------------
-
-
-	void cMaterialType_SolidDiffuse::LoadSpecificData()
-	{
-		/////////////////////////////
-		//Load Diffuse programs
-		cParserVarContainer defaultVars;
-		defaultVars.Add("UseUv");
-		defaultVars.Add("UseNormals");
-		defaultVars.Add("UseDepth");
-		defaultVars.Add("VirtualPositionAddScale",mfVirtualPositionAddScale);
-
-		//Set up relief mapping method
-		if(	iRenderer::GetParallaxQuality() != eParallaxQuality_Low &&
-			mpGraphics->GetLowLevel()->GetCaps(eGraphicCaps_ShaderModel_3)!=0) 
-		{
-			defaultVars.Add("ParallaxMethod_Relief");
-		}
-		else														
-		{
-			defaultVars.Add("ParallaxMethod_Simple");
-		}
-
-		
-		
-		mpProgramManager->SetupGenerateProgramData(	eMaterialRenderMode_Diffuse,"Diffuse","deferred_base_vtx.glsl", "deferred_gbuffer_solid_frag.glsl", 
-													vDiffuseFeatureVec,kDiffuseFeatureNum, defaultVars);
-
-		/////////////////////////////
-		//Load Illumination programs
-		defaultVars.Clear();
-		defaultVars.Add("UseUv");
-		mpProgramManager->SetupGenerateProgramData(	eMaterialRenderMode_Illumination,"Illum","deferred_base_vtx.glsl", "deferred_illumination_frag.glsl", 
-													vIllumFeatureVec,kIllumFeatureNum, defaultVars);
-
-		
-		////////////////////////////////
-		//Set up variable ids
-		mpProgramManager->AddGenerateProgramVariableId("afInvFarPlane",kVar_afInvFarPlane,eMaterialRenderMode_Diffuse);
-		mpProgramManager->AddGenerateProgramVariableId("avHeightMapScaleAndBias",kVar_avHeightMapScaleAndBias, eMaterialRenderMode_Diffuse);
-		mpProgramManager->AddGenerateProgramVariableId("a_mtxUV",kVar_a_mtxUV,eMaterialRenderMode_Diffuse);
-		mpProgramManager->AddGenerateProgramVariableId("avFrenselBiasPow", kVar_avFrenselBiasPow,eMaterialRenderMode_Diffuse);
-		mpProgramManager->AddGenerateProgramVariableId("a_mtxInvViewRotation", kVar_a_mtxInvViewRotation,eMaterialRenderMode_Diffuse);
-
-		mpProgramManager->AddGenerateProgramVariableId("a_mtxUV",kVar_a_mtxUV,eMaterialRenderMode_Illumination);
-		mpProgramManager->AddGenerateProgramVariableId("afColorMul",kVar_afColorMul,eMaterialRenderMode_Illumination);
-	}
-
-	//--------------------------------------------------------------------------
+	cMaterialType_SolidDiffuse::~cMaterialType_SolidDiffuse() {}
 
 	void cMaterialType_SolidDiffuse::CompileSolidSpecifics(cMaterial *apMaterial)
 	{
 		cMaterialType_SolidDiffuse_Vars *pVars = (cMaterialType_SolidDiffuse_Vars*)apMaterial->GetVars();
 
 		//////////////////////////////////
-		//Z specifics
+		// Z specifics
 		apMaterial->SetHasObjectSpecificsSettings(eMaterialRenderMode_Z_Dissolve,true);
 		apMaterial->SetUseAlphaDissolveFilter(pVars->mbAlphaDissolveFilter);
 		
 		//////////////////////////////////
-		//Normal map and height specifics
+		// Normal map and height specifics
 		if(apMaterial->GetTexture(eMaterialTexture_NMap))
 		{
 			if(apMaterial->GetTexture(eMaterialTexture_Height))
@@ -356,7 +124,7 @@ namespace hpl {
 		}
 
 		//////////////////////////////////
-		//Uv animation specifics
+		// UV animation specifics
 		if(apMaterial->HasUvAnimation())
 		{
 			apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Z,true);
@@ -365,14 +133,14 @@ namespace hpl {
 		}
 
 		//////////////////////////////////
-		//Cubemap
+		// Cubemap
 		if(apMaterial->GetTexture(eMaterialTexture_CubeMap))
 		{
 			apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Diffuse,true);
 		}
 
 		//////////////////////////////////
-		//Illuminations specifics
+		// Illuminations specifics
 		if(apMaterial->GetTexture(eMaterialTexture_Illumination))
 		{
 			apMaterial->SetHasObjectSpecificsSettings(eMaterialRenderMode_Illumination,true);
@@ -390,25 +158,23 @@ namespace hpl {
 		apMaterial->SetDescriptor(desc);
 	}
 
-	//--------------------------------------------------------------------------
-
-
 	iTexture* cMaterialType_SolidDiffuse::GetTextureForUnit(cMaterial *apMaterial,eMaterialRenderMode aRenderMode, int alUnit)
 	{
 		cMaterialType_SolidDiffuse_Vars *pVars = (cMaterialType_SolidDiffuse_Vars*)apMaterial->GetVars();
 
 		////////////////////////////
-		//Z
+		// Z
 		if(aRenderMode == eMaterialRenderMode_Z)
 		{
 			switch(alUnit)
 			{
 			case 0: return apMaterial->GetTexture(eMaterialTexture_Alpha);
-			//case 1: return mpDissolveTexture;
+			// case 1: return mpDissolveTexture;
 			}
 		}
+
 		////////////////////////////
-		//Z Dissolve
+		// Z Dissolve
 		else if(aRenderMode == eMaterialRenderMode_Z_Dissolve)
 		{
 			switch(alUnit)
@@ -418,8 +184,9 @@ namespace hpl {
 			case 2: return apMaterial->GetTexture(eMaterialTexture_DissolveAlpha);
 			}
 		}
+
 		////////////////////////////
-		//Diffuse
+		// Diffuse
 		else if(aRenderMode == eMaterialRenderMode_Diffuse)
 		{
 			switch(alUnit)
@@ -432,8 +199,9 @@ namespace hpl {
 			case 5: return apMaterial->GetTexture(eMaterialTexture_CubeMapAlpha);
 			}
 		}
+
 		////////////////////////////
-		//Illumination
+		// Illumination
 		else if(aRenderMode == eMaterialRenderMode_Illumination)
 		{
 			switch(alUnit)
@@ -444,160 +212,11 @@ namespace hpl {
 
 		return NULL;
 	}
-	//--------------------------------------------------------------------------
-
-	iTexture* cMaterialType_SolidDiffuse::GetSpecialTexture(cMaterial *apMaterial, eMaterialRenderMode aRenderMode,iRenderer *apRenderer, int alUnit)
-	{
-		return NULL;
-	}
-	
-	//--------------------------------------------------------------------------
-	
-	iGpuProgram* cMaterialType_SolidDiffuse::GetGpuProgram(cMaterial *apMaterial, eMaterialRenderMode aRenderMode, char alSkeleton)
-	{
-		cMaterialType_SolidDiffuse_Vars *pVars = (cMaterialType_SolidDiffuse_Vars*)apMaterial->GetVars();
-
-		////////////////////////////
-		//Z
-		if(aRenderMode == eMaterialRenderMode_Z)
-		{
-			tFlag lFlags =0;
-			if(apMaterial->GetImage(eMaterialTexture_Alpha))	lFlags |= eFeature_Z_UseAlpha;
-			if(apMaterial->HasUvAnimation())					lFlags |= eFeature_Z_UvAnimation;
-			if(pVars->mbAlphaDissolveFilter)					lFlags |= eFeature_Z_UseAlphaDissolveFilter;
-
-			return mpGlobalProgramManager->GenerateProgram(eMaterialRenderMode_Z, lFlags);
-		}
-		////////////////////////////
-		//Z Dissolve
-		else if(aRenderMode == eMaterialRenderMode_Z_Dissolve)
-		{
-			tFlag lFlags =0;
-			lFlags |= eFeature_Z_Dissolve;
-			if(apMaterial->GetImage(eMaterialTexture_Alpha))			lFlags |= eFeature_Z_UseAlpha;
-			if(apMaterial->GetImage(eMaterialTexture_DissolveAlpha))	lFlags |= eFeature_Z_DissolveAlpha;
-			if(apMaterial->HasUvAnimation())							lFlags |= eFeature_Z_UvAnimation;
-			if(pVars->mbAlphaDissolveFilter)							lFlags |= eFeature_Z_UseAlphaDissolveFilter;
-
-			return mpGlobalProgramManager->GenerateProgram(eMaterialRenderMode_Z, lFlags);
-		}
-		////////////////////////////
-		//Diffuse
-		else if(aRenderMode == eMaterialRenderMode_Diffuse)
-		{
-			tFlag lFlags =0;
-			if(apMaterial->GetImage(eMaterialTexture_NMap))			lFlags |= eFeature_Diffuse_NormalMaps;
-			if(apMaterial->GetImage(eMaterialTexture_Specular))		lFlags |= eFeature_Diffuse_Specular;
-			if(	apMaterial->GetImage(eMaterialTexture_Height) && 
-				iRenderer::GetParallaxEnabled())			    		lFlags |= eFeature_Diffuse_Parallax;
-			if(apMaterial->GetImage(eMaterialTexture_CubeMap))
-			{	
-				lFlags |= eFeature_Diffuse_EnvMap;
-				if(apMaterial->GetImage(eMaterialTexture_CubeMapAlpha))	lFlags |= eFeature_Diffuse_CubeMapAlpha;
-			}
-			if(apMaterial->HasUvAnimation())							lFlags |= eFeature_Diffuse_UvAnimation;
-			
-
-			return mpProgramManager->GenerateProgram(aRenderMode,lFlags);
-		}
-		////////////////////////////
-		//Illumination
-		else if(aRenderMode == eMaterialRenderMode_Illumination)
-		{
-			tFlag lFlags =0;
-			if(apMaterial->HasUvAnimation())	lFlags |= eFeature_Illum_UvAnimation;
-
-			return mpProgramManager->GenerateProgram(aRenderMode,lFlags);
-		}
-
-		return NULL;
-	}
-
-	//--------------------------------------------------------------------------
-
-	void cMaterialType_SolidDiffuse::SetupTypeSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, iRenderer *apRenderer)
-	{
-		////////////////////////////
-		//Diffuse
-		if(aRenderMode == eMaterialRenderMode_Diffuse)
-		{
-			cFrustum *pFrustum = apRenderer->GetCurrentFrustum();
-
-			apProgram->SetFloat(kVar_afInvFarPlane, 1.0f/pFrustum->GetFarPlane());
-		}
-		
-	}
-
-	//--------------------------------------------------------------------------
-
-	void cMaterialType_SolidDiffuse::SetupMaterialSpecificData(	eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, cMaterial *apMaterial,
-																iRenderer *apRenderer)
-	{
-		if(	aRenderMode == eMaterialRenderMode_Diffuse || 
-			aRenderMode == eMaterialRenderMode_Z || 
-			aRenderMode == eMaterialRenderMode_Z_Dissolve || 
-			aRenderMode == eMaterialRenderMode_Illumination)
-		{
-			/////////////////////////
-			//UV Animation
-			if(apMaterial->HasUvAnimation())
-			{
-				apProgram->SetMatrixf(kVar_a_mtxUV, apMaterial->GetUvMatrix());
-			}
-			
-			if(aRenderMode == eMaterialRenderMode_Diffuse)
-			{
-				/////////////////////////
-				//Parallax
-				cMaterialType_SolidDiffuse_Vars* pVars = (cMaterialType_SolidDiffuse_Vars*)apMaterial->GetVars();
-				if(apMaterial->GetTexture(eMaterialTexture_Height) && iRenderer::GetParallaxEnabled())
-				{
-					apProgram->SetVec2f(kVar_avHeightMapScaleAndBias, pVars->mfHeightMapScale, pVars->mfHeightMapBias);
-				}
-
-				/////////////////////////
-				//Cube Map
-				if(apMaterial->GetTexture(eMaterialTexture_CubeMap))
-				{
-					apProgram->SetVec2f(kVar_avFrenselBiasPow, pVars->mfFrenselBias, pVars->mfFrenselPow);
-					
-					cMatrixf mtxInvView = apRenderer->GetCurrentFrustum()->GetViewMatrix().GetTranspose();
-					apProgram->SetMatrixf(kVar_a_mtxInvViewRotation, mtxInvView.GetRotation());
-				}
-			}
-		}
-	}
-	
-	//--------------------------------------------------------------------------
-
-	void cMaterialType_SolidDiffuse::SetupObjectSpecificData(	eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, iRenderable *apObject,
-																iRenderer *apRenderer)
-	{
-		
-		////////////////////////////
-		//Z Dissolve
-		if(aRenderMode == eMaterialRenderMode_Z_Dissolve)
-		{
-			bool bRet = apProgram->SetFloat(kVar_afDissolveAmount, apObject->GetCoverageAmount());
-			if(bRet==false)Error("Could not set variable!\n");
-		}
-		////////////////////////////
-		//Illumination
-		else if(aRenderMode == eMaterialRenderMode_Illumination)
-		{
-			bool bRet = apProgram->SetFloat(kVar_afColorMul, apObject->GetIlluminationAmount());
-		}
-	}
-
-
-	//--------------------------------------------------------------------------
 
 	iMaterialVars* cMaterialType_SolidDiffuse::CreateSpecificVariables()
 	{
 		return hplNew(cMaterialType_SolidDiffuse_Vars,());
 	}
-
-	//--------------------------------------------------------------------------
 
 	void cMaterialType_SolidDiffuse::LoadVariables(cMaterial* apMaterial, cResourceVarsObject *apVars)
 	{
@@ -613,10 +232,7 @@ namespace hpl {
 		pVars->mfFrenselBias = apVars->GetVarFloat("FrenselBias", 0.2f);
 		pVars->mfFrenselPow = apVars->GetVarFloat("FrenselPow", 8.0f);
 		pVars->mbAlphaDissolveFilter = apVars->GetVarBool("AlphaDissolveFilter", false);
-
 	}
-
-	//--------------------------------------------------------------------------
 
 	void cMaterialType_SolidDiffuse::GetVariableValues(cMaterial* apMaterial, cResourceVarsObject* apVars)
 	{
@@ -628,6 +244,4 @@ namespace hpl {
 		apVars->AddVarFloat("FrenselPow", pVars->mfFrenselPow);
 		apVars->AddVarBool("AlphaDissolveFilter", pVars->mbAlphaDissolveFilter);
 	}
-
-	//--------------------------------------------------------------------------
 }

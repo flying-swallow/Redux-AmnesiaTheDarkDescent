@@ -5,7 +5,7 @@
 #include "graphics/HybridGlobalManagedSet.h"
 #include "graphics/HPLGraphicsConfig.h"
 #include "graphics/Material.h"
-#include "graphics/RenderList2.h"
+#include "graphics/RenderList.h"
 #include "graphics/Renderer.h"
 #include "graphics/RISegmentAlloc.h"
 #include "graphics/RITypes.h"

@@ -682,22 +682,6 @@ namespace hpl {
 	{
 		return cMeshEntityIterator(&mlstStaticMeshEntities);
 	}
-	
-	//-----------------------------------------------------------------------
-
-	void cWorld::DrawMeshBoundingBoxes(const cColor &aColor, bool abStatic)
-	{
-		tMeshEntityListIt It=mlstDynamicMeshEntities.begin();
-		for(;It != mlstDynamicMeshEntities.end();++It)
-		{
-			cMeshEntity *pEntity = *It;
-
-			if(abStatic==false && pEntity->IsStatic()) continue;
-
-			cBoundingVolume *pBV = pEntity->GetBoundingVolume();
-			mpGraphics->GetLowLevel()->DrawBoxMinMax(pBV->GetMin(), pBV->GetMax(), aColor);
-		}
-	}
 
 	//-----------------------------------------------------------------------
 

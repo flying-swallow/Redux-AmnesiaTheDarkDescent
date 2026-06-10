@@ -733,10 +733,6 @@ void cLuxInputHandler::UpdateGlobalInput()
 		while(cPlatform::FileExists(sFileName));
 		
 		cEngine *pEngine = gpBase->mpEngine;
-		
-		cBitmap *pBmp = pEngine->GetGraphics()->GetLowLevel()->CopyFrameBufferToBitmap();
-		pEngine->GetResources()->GetBitmapLoaderHandler()->SaveBitmap(pBmp,sFileName,0);
-		hplDelete(pBmp);
 	}
 
 	/////////////////

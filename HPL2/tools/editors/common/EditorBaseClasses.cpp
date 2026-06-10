@@ -1554,7 +1554,7 @@ void iEditorBase::InitRenderTarget(const cVector2f& avSize)
 	pRenderTexture->SetWrapS(eTextureWrap_ClampToEdge);
 	pRenderTexture->CreateFromRawData(cVector3l(lTexW, lTexH, 0), ePixelFormat_RGBA, 0);
 
-	mpFrameBuffer = pGfx->CreateFrameBuffer("MainRenderTarget");
+	/* mpFrameBuffer = pGfx->CreateFrameBuffer("MainRenderTarget");
 	if(mpFrameBuffer)
 	{
 		mpFrameBuffer->SetTexture2D(0, pRenderTexture);
@@ -1563,7 +1563,7 @@ void iEditorBase::InitRenderTarget(const cVector2f& avSize)
 
 		mpFrameBuffer->SetDepthStencilBuffer(pDepthBuffer);
 		mpFrameBuffer->CompileAndValidate();
-	}
+	} */
 }
 
 //----------------------------------------------------------------------------

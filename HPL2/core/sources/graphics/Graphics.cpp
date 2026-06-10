@@ -36,7 +36,6 @@
 #include "graphics/PostEffect.h"
 #include "graphics/MaterialType.h"
 #include "graphics/Texture.h"
-#include "graphics/GPUProgram.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIResourceUploader.h"
 #include "graphics/RITypes.h"
@@ -45,7 +44,6 @@
 
 #include "resources/LowLevelResources.h"
 #include "resources/Resources.h"
-#include "resources/GpuShaderManager.h"
 #include "resources/FileSearcher.h"
 
 #include "graphics/MaterialType_BasicSolid.h"
@@ -117,7 +115,6 @@ namespace hpl {
 		STLDeleteAll(mlstPostEffects);
 		STLDeleteAll(mlstFrameBuffers);
 		STLDeleteAll(mlstDepthStencilBuffers);
-		STLDeleteAll(mlstGpuPrograms);
 		STLDeleteAll(mlstTextures);
 
 		hplDelete(mpMeshCreator);
@@ -128,11 +125,7 @@ namespace hpl {
 		Log("--------------------------------------------------------\n\n");
 	}
 
-	bool cGraphics::Init(	int alWidth, int alHeight, int alDisplay, int alBpp, int abFullscreen, 
-							int alMultisampling,eGpuProgramFormat aGpuProgramFormat,
-							const tString &asWindowCaption, const cVector2l &avWindowPos,
-							cResources* apResources,
-							tFlag alHplSetupFlags)
+	bool cGraphics::Init(int alWidth, int alHeight, int alDisplay, int alBpp, int abFullscreen, const tString &asWindowCaption, const cVector2l &avWindowPos, cResources* apResources, tFlag alHplSetupFlags)
 	{
 		Log("Initializing Graphics Module\n");
 		Log("--------------------------------------------------------\n");
@@ -151,9 +144,8 @@ namespace hpl {
 		// LowLevel Init
 		if(alHplSetupFlags & eHplSetup_Screen)
 		{
-			Log("Init lowlevel graphics: %dx%d disp:%d bpp:%d fs:%d ms:%d gpufmt:%d cap:'%s' pos:(%dx%d)\n",alWidth,alHeight,alDisplay,alBpp,abFullscreen,alMultisampling,aGpuProgramFormat, asWindowCaption.c_str(), avWindowPos.x,avWindowPos.y);
-			mpLowLevelGraphics->Init(alWidth,alHeight,alDisplay,alBpp,abFullscreen,alMultisampling,aGpuProgramFormat,asWindowCaption,
-									avWindowPos);
+			Log("Init lowlevel graphics: %dx%d disp:%d bpp:%d fs:%d cap:'%s' pos:(%dx%d)\n",alWidth,alHeight,alDisplay,alBpp,abFullscreen, asWindowCaption.c_str(), avWindowPos.x,avWindowPos.y);
+			mpLowLevelGraphics->Init(alWidth, alHeight, alDisplay, alBpp, abFullscreen, asWindowCaption, avWindowPos);
 			mbScreenIsSetup = true;
 		}
 		else
@@ -477,8 +469,6 @@ namespace hpl {
 		// Create Renderers
 		if(alHplSetupFlags & eHplSetup_Screen)
 		{
-      // Check feature support
-      apResources->GetGpuShaderManager()->CheckFeatureSupport();
 
 			mvRenderers.resize(eRenderer_LastEnum, NULL);
 			mvRenderers[eRenderer_Main] = hplNew(cHybridRenderer, (this, apResources));
@@ -567,136 +557,6 @@ namespace hpl {
 	}
 
 	//-----------------------------------------------------------------------
-	
-	iFrameBuffer* cGraphics::CreateFrameBuffer(const tString& asName)
-	{
-		iFrameBuffer* pFrameBuffer = mpLowLevelGraphics->CreateFrameBuffer(asName);
-		if(pFrameBuffer == NULL)
-		{
-			Error("Could not create a frame buffer!\n");
-			return NULL;
-		}
-
-		mlstFrameBuffers.push_back(pFrameBuffer);
-
-		return pFrameBuffer;
-	}
-	
-	void cGraphics::DestroyFrameBuffer(iFrameBuffer* apFrameBuffer)
-	{
-		STLFindAndDelete(mlstFrameBuffers,apFrameBuffer);
-	}
-
-	//-----------------------------------------------------------------------
-
-	iFrameBuffer* cGraphics::GetTempFrameBuffer(const cVector2l& avSize, ePixelFormat aPixelFormat, int alIndex)
-	{
-		/////////////////////////
-		// Try and find existing frame buffer
-		for(size_t i=0; i<mvTempFrameBuffers.size(); ++i)
-		{
-			cTempFrameBuffer &tempBuffer = mvTempFrameBuffers[i];
-			if(	tempBuffer.mvSize == avSize && tempBuffer.mPixelFormat == aPixelFormat && 
-				tempBuffer.mlIndex == alIndex)
-			{
-				return tempBuffer.mpFrameBuffer;
-			}
-		}
-
-		/////////////////////////
-		// Create new buffer
-		cTempFrameBuffer tempBuffer;
-		tempBuffer.mvSize = avSize;
-		tempBuffer.mPixelFormat = aPixelFormat;
-		tempBuffer.mlIndex = alIndex;
-
-		//Create texture
-		tString sNameSuffix = cString::ToString(avSize.x)+"x"+cString::ToString(avSize.y)+":"+cString::ToString((int)aPixelFormat);
-		iTexture *pTexture = CreateTexture("TempBufferTexture"+sNameSuffix, eTextureType_Rect, eTextureUsage_RenderTarget);
-		pTexture->CreateFromRawData(cVector3l(avSize.x, avSize.y,0),aPixelFormat,NULL);
-		pTexture->SetWrapSTR(eTextureWrap_ClampToEdge);
-
-		//Create frame buffer
-    iFrameBuffer *pFrameBuffer = CreateFrameBuffer("TempBuffer"+sNameSuffix);
-		pFrameBuffer->SetTexture2D(0, pTexture);
-		if(pFrameBuffer->CompileAndValidate()==false)
-		{
-			DestroyFrameBuffer(pFrameBuffer);
-			DestroyTexture(pTexture);
-			return NULL;
-		}
-		tempBuffer.mpFrameBuffer = pFrameBuffer;
-
-		mvTempFrameBuffers.push_back(tempBuffer);
-
-		return pFrameBuffer;
-	}
-
-	//-----------------------------------------------------------------------
-
-	iDepthStencilBuffer* cGraphics::CreateDepthStencilBuffer(const cVector2l& avSize, int alDepthBits, int alStencilBits, bool abLookForMatchingFirst)
-	{
-		iDepthStencilBuffer* pBuffer = NULL;
-		
-		//////////////////////////////////////////
-		// Check for matching
-		if(abLookForMatchingFirst)
-		{
-			pBuffer = FindDepthStencilBuffer(avSize, alDepthBits, alStencilBits);
-		}
-		//////////////////////////////////////////
-		// Create frame buffer and add to list
-		if(pBuffer == NULL)
-		{
-			pBuffer = mpLowLevelGraphics->CreateDepthStencilBuffer(avSize,alDepthBits,alStencilBits);
-			if(pBuffer == NULL)
-			{
-				Error("Could not create a depth stencil buffer size %dx%d, depthbits: %d stencilbits: %d\n",avSize.x, avSize.y,alDepthBits,alStencilBits);
-				return NULL;
-			}
-
-			mlstDepthStencilBuffers.push_back(pBuffer);
-		}
-		
-		//////////////////////////////////////////
-		// Increase user count and return
-		pBuffer->IncUserCount();
-
-		return pBuffer;
-	}
-
-	//-----------------------------------------------------------------------
-
-	iDepthStencilBuffer* cGraphics::FindDepthStencilBuffer(const cVector2l& avSize, int alMinDepthBits, int alMinStencilBits)
-	{
-		tDepthStencilBufferListIt it = mlstDepthStencilBuffers.begin();
-		for(; it != mlstDepthStencilBuffers.end(); ++it)
-		{
-			iDepthStencilBuffer *pBuffer = *it;
-            
-			if(	pBuffer->GetSize() == avSize && 
-				pBuffer->GetDepthBits() >= alMinDepthBits && 
-				pBuffer->GetStencilBits() >= alMinStencilBits)
-			{
-				return pBuffer;
-			}
-		}
-		return NULL;
-	}
-
-	//-----------------------------------------------------------------------
-
-	void cGraphics::DestoroyDepthStencilBuffer(iDepthStencilBuffer* apBuffer)
-	{
-		apBuffer->DecUserCount();
-		
-		if(apBuffer->HasUsers()==false)
-		{
-			STLFindAndDelete(mlstDepthStencilBuffers,apBuffer);
-		}
-	}
-
-	//-----------------------------------------------------------------------
 
 	iTexture* cGraphics::CreateTexture(const tString &asName,eTextureType aType,   eTextureUsage aUsage)
 	{	
@@ -755,41 +615,6 @@ namespace hpl {
 	void cGraphics::DestroyPostEffect(iPostEffect* apPostEffect)
 	{
 		STLFindAndDelete(mlstPostEffects,apPostEffect);
-	}
-
-	//-----------------------------------------------------------------------
-
-	iGpuProgram* cGraphics::CreateGpuProgram(const tString& asName)
-	{
-		iGpuProgram *pProgram = mpLowLevelGraphics->CreateGpuProgram(asName);
-		pProgram->SetResources(mpResources);
-		mlstGpuPrograms.push_back(pProgram);
-
-		return pProgram;
-	}
-
-	iGpuProgram* cGraphics::CreateGpuProgramFromShaders(const tString& asName, const tString& asVtxShader,const tString& asFragShader,
-														cParserVarContainer *apVarContainer)
-	{
-		iGpuShader *pVtxShader = mpResources->GetGpuShaderManager()->CreateShader(asVtxShader,eGpuShaderType_Vertex,apVarContainer);
-		if(pVtxShader==NULL) return NULL;
-		iGpuShader *pFragShader = mpResources->GetGpuShaderManager()->CreateShader(asFragShader,eGpuShaderType_Fragment,apVarContainer);
-		if(pFragShader==NULL){
-			mpResources->GetGpuShaderManager()->Destroy(pVtxShader);
-			return NULL;
-		}
-
-		iGpuProgram *pProgram = CreateGpuProgram(asName);
-		pProgram->SetShader(eGpuShaderType_Vertex, pVtxShader);
-		pProgram->SetShader(eGpuShaderType_Fragment, pFragShader);
-		pProgram->Link();
-
-    return pProgram;		
-	}
-	
-	void cGraphics::DestroyGpuProgram(iGpuProgram* apProgram)
-	{
-		STLFindAndDelete(mlstGpuPrograms, apProgram);
 	}
 
 	//-----------------------------------------------------------------------

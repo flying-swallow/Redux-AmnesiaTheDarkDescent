@@ -104,7 +104,7 @@ static bool renderableNeedsBlas(iRenderable *apObject) {
 }
 
 cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
-    : iRenderer("Hybrid", apGraphics, apResources, 0) {
+    : iRenderer("Hybrid", apGraphics, apResources) {
   {
     // Build the global bindless descriptor set (set 0) and create + seed every
     // buffer bound to it. All set-0 state now lives in m_global.

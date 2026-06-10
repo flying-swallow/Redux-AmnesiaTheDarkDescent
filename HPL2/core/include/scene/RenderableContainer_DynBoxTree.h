@@ -109,7 +109,7 @@ namespace hpl {
 		void AddNodeObjectsToRoot(cRCNode_DynBoxTree *apNode);
 		void SpecificUpdateBeforeRendering();
 
-		void RenderDebugNode(cRendererCallbackFunctions *apFunctions, cRCNode_DynBoxTree *apNode, int alLevel);
+		void RenderDebugNode(cRendererCallbackFunctions* apFunctions, cRCNode_DynBoxTree* apNode, int alLevel) {} // STUB
 
 		void RemoveNode(cRCNode_DynBoxTree *apNode);
 		void CheckNodeAABBNeedsUpdateIterative(cRCNode_DynBoxTree *apNode, iRenderable *apObject);

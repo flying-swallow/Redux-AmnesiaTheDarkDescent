@@ -25,10 +25,7 @@
 #include "resources/Resources.h"
 #include "resources/TextureManager.h"
 #include "resources/ImageManager.h"
-#include "resources/GpuShaderManager.h"
 
-#include "graphics/GPUShader.h"
-#include "graphics/GPUProgram.h"
 #include "graphics/Graphics.h"
 #include "graphics/MaterialType.h"
 
@@ -92,11 +89,6 @@ namespace hpl {
 		{
 			mvTextures[i] = NULL;
 		}
-		for(int j=0; j<2; ++j)
-		for(int i=0;i<eMaterialRenderMode_LastEnum; ++i) 
-		{
-			mvPrograms[j][i] = NULL;
-		}
 		for(int i=0; i<eMaterialRenderMode_LastEnum;++i)
 		for(int j=0; j<kMaxTextureUnits; ++j)
 		{
@@ -123,19 +115,6 @@ namespace hpl {
 	cMaterial::~cMaterial()
 	{
 		if(mpVars) hplDelete(mpVars);
-
-		if(mbDestroyTypeSpecifics && mpType)
-		{
-			// Destroy all programs
-			for(int i=0;i<eMaterialRenderMode_LastEnum; ++i) 
-			for(int j=0;j<2; ++j)
-			{
-				if(mvPrograms[j][i])
-				{
-					mpType->DestroyProgram(this, (eMaterialRenderMode)i,mvPrograms[j][i], j);
-				}
-			}
-		}
 
 		////////////////////////
 		// Destroy all textures
@@ -176,18 +155,6 @@ namespace hpl {
 		{
 			mbHasSpecificSettings[i] = false;
 			mbHasObjectSpecificsSettings[i] = false;
-		}
-
-		///////////////////
-		// Get the programs
-		for(int i=0;i<eMaterialRenderMode_LastEnum; ++i) 
-		for(int j=0;j<2; ++j)
-		{
-			iGpuProgram *pPrevProg = mvPrograms[j][i];
-			mvPrograms[j][i] = mpType->GetGpuProgram(this, (eMaterialRenderMode)i, j);
-
-			//Destroy any previous program (this is so recompilations work with program count!)
-			if(pPrevProg) mpType->DestroyProgram(this, (eMaterialRenderMode)i,pPrevProg, j);
 		}
 
 		///////////////////

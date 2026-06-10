@@ -98,7 +98,7 @@ namespace hpl {
 		void CompileTempNode(cBoxTreeTempNode *apNode, int alLevel, int alSplitAxis);
 		void BuildNodeFromTemp(cBoxTreeTempNode *apTempNode, cRCNode_BoxTree *apNode, int alLevel);
 
-		void RenderDebugNode(cRendererCallbackFunctions *apFunctions, cRCNode_BoxTree *apNode, int alLevel);
+		void RenderDebugNode(cRendererCallbackFunctions* apFunctions, cRCNode_BoxTree* apNode, int alLevel) {} // STUB
 
 		void CalculateMinMax(tRenderableList *apObjectList, cVector3f& avMin, cVector3f& avMax);
 		cVector3f CalculateSize(tRenderableList *apObjectList);

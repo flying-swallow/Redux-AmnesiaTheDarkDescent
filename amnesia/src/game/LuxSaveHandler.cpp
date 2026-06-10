@@ -215,20 +215,6 @@ void cLuxSaveHandler::SaveGameToFile(const tWString& asFile, bool abSaveSnapshot
 		hplDelete(pData);
 	}
 
-
-	// Save snapshot?
-	if(abSaveSnapshot)
-	{
-		tWString sFileExt = cString::GetFileExtW(asFile);
-		tWString sFileName = cString::SubW(asFile,0, (int)asFile.size()-((int)sFileExt.size()+1)) +  _W(".jpg");
-		
-		cEngine *pEngine = gpBase->mpEngine;
-		
-		cBitmap *pBmp = pEngine->GetGraphics()->GetLowLevel()->CopyFrameBufferToBitmap();
-		pEngine->GetResources()->GetBitmapLoaderHandler()->SaveBitmap(pBmp,sFileName,0);
-		hplDelete(pBmp);
-	}
-
 	Log("-------- END SAVE ---------\n");
 
 }

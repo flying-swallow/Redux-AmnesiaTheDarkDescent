@@ -52,7 +52,6 @@ namespace hpl {
 	class iTexture;
 	class iMaterialType;
 	class cPostEffectComposite;
-	class iGpuProgram;
 	class cParserVarContainer;
 
 	class cTempFrameBuffer
@@ -90,9 +89,7 @@ namespace hpl {
 		cGraphics(iLowLevelGraphics *apLowLevelGraphics,iLowLevelResources *apLowLevelResources);
 		~cGraphics();
 
-		bool Init(int alWidth, int alHeight, int alDisplay, int alBpp, int abFullscreen, int alMultisampling,
-					eGpuProgramFormat aGpuProgramFormat,const tString &asWindowCaption, const cVector2l &avWindowPos,
-					cResources* apResources, tFlag alHplSetupFlags);
+		bool Init(int alWidth, int alHeight, int alDisplay, int alBpp, int abFullscreen, const tString &asWindowCaption, const cVector2l &avWindowPos, cResources* apResources, tFlag alHplSetupFlags);
 
 		void Update(float afTimeStep);
 
@@ -102,16 +99,6 @@ namespace hpl {
 
 		iRenderer* GetRenderer(eRenderer aType);
 		void ReloadRendererData();
-		
-		iFrameBuffer* CreateFrameBuffer(const tString& asName);
-		void DestroyFrameBuffer(iFrameBuffer* apFrameBuffer);
-
-		iFrameBuffer* GetTempFrameBuffer(const cVector2l& avSize, ePixelFormat aPixelFormat, int alIndex);
-
-		iDepthStencilBuffer* CreateDepthStencilBuffer(	const cVector2l& avSize, int alDepthBits, int alStencilBits,
-														bool abLookForMatchingFirst);
-		iDepthStencilBuffer* FindDepthStencilBuffer(const cVector2l& avSize, int alMinDepthBits, int alMinStencilBits);
-		void DestoroyDepthStencilBuffer(iDepthStencilBuffer* apBuffer);
 		
 		iTexture* CreateTexture(const tString &asName,eTextureType aType,   eTextureUsage aUsage);
 		void DestroyTexture(iTexture *apTexture);
@@ -123,11 +110,6 @@ namespace hpl {
 		
 		iPostEffect* CreatePostEffect(iPostEffectParams *apParams);
 		void DestroyPostEffect(iPostEffect* apPostEffect);
-
-		iGpuProgram* CreateGpuProgram(const tString& asName);
-		iGpuProgram* CreateGpuProgramFromShaders(	const tString& asName, const tString& asVtxShader,const tString& asFragShader,
-													cParserVarContainer *apVarContainer);
-		void DestroyGpuProgram(iGpuProgram* apProgram);
             
 		void AddMaterialType(iMaterialType *apType, const tString& asName);
 		iMaterialType *GetMaterialType(const tString& asName);
@@ -161,7 +143,6 @@ namespace hpl {
 		tDepthStencilBufferList mlstDepthStencilBuffers;
 		tTextureList mlstTextures;
 		tPostEffectCompositeList mlstPostEffectComposites;
-		tGpuProgramList mlstGpuPrograms;
 		tMaterialTypeMap m_mapMaterialTypes;
 		tPostEffectList mlstPostEffects;
 

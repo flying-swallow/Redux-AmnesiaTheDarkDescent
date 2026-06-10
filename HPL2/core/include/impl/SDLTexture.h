@@ -23,13 +23,6 @@
 #include "graphics/Texture.h"
 #include "impl/LowLevelGraphicsSDL.h"
 
-#include <GL/glew.h>
-#if defined(__APPLE__)&&defined(__MACH__)
-#include <OpenGL/glu.h>
-#else
-#include <GL/glu.h>
-#endif
-
 namespace hpl {
 
 	class cBitmapData;
@@ -40,26 +33,25 @@ namespace hpl {
 		cSDLTexture(const tString& asName, eTextureType aType, eTextureUsage aUsage, iLowLevelGraphics* apLowLevelGraphics);
 		~cSDLTexture();
 
-		bool CreateFromBitmap(cBitmap* pBmp);
-		bool CreateAnimFromBitmapVec(std::vector<cBitmap*> *avBitmaps);
-		bool CreateCubeFromBitmapVec(std::vector<cBitmap*> *avBitmaps);
-		bool CreateFromRawData(const cVector3l &avSize,ePixelFormat aPixelFormat, unsigned char *apData);
+		bool CreateFromBitmap(cBitmap* pBmp) { return true; } // STUB
+		bool CreateAnimFromBitmapVec(std::vector<cBitmap*>* avBitmaps) { return true; } // STUB
+		bool CreateCubeFromBitmapVec(std::vector<cBitmap*> *avBitmaps) { return true; } // STUB
+		bool CreateFromRawData(const cVector3l &avSize,ePixelFormat aPixelFormat, unsigned char *apData) { return true; } // STUB
 
-		virtual void SetRawData(	int alLevel, const cVector3l& avOffset, const cVector3l& avSize, 
-									ePixelFormat aPixelFormat, void *apData);
+		virtual void SetRawData(int alLevel, const cVector3l& avOffset, const cVector3l& avSize, ePixelFormat aPixelFormat, void* apData) {} // STUB
 		
-		void SetFilter(eTextureFilter aFilter);
-		void SetAnisotropyDegree(float afX);
+		void SetFilter(eTextureFilter aFilter) {} // STUB
+		void SetAnisotropyDegree(float afX) {} // STUB
 
-		void SetWrapS(eTextureWrap aMode);
-		void SetWrapT(eTextureWrap aMode);
-		void SetWrapR(eTextureWrap aMode);
-		void SetWrapSTR(eTextureWrap aMode);
+		void SetWrapS(eTextureWrap aMode) {} // STUB
+		void SetWrapT(eTextureWrap aMode) {} // STUB
+		void SetWrapR(eTextureWrap aMode) {} // STUB
+		void SetWrapSTR(eTextureWrap aMode) {} // STUB
 
-		void SetCompareMode(eTextureCompareMode aMode);
-		void SetCompareFunc(eTextureCompareFunc aFunc);
+		void SetCompareMode(eTextureCompareMode aMode) {} // STUB
+		void SetCompareFunc(eTextureCompareFunc aFunc) {} // STUB
 
-		void AutoGenerateMipmaps();
+		void AutoGenerateMipmaps() {} // STUB
 
 		void Update(float afTimeStep);
 
@@ -69,33 +61,18 @@ namespace hpl {
 		float GetT();
 		float GetTimeCount();
 		void SetTimeCount(float afX);
-		int GetCurrentLowlevelHandle();
+		int GetCurrentLowlevelHandle() { return NULL; } // STUB
 
 		/// SDL / OGL Specific ///////////
 
-		unsigned int GetTextureHandle();
+		unsigned int GetTextureHandle() { return NULL; } // STUB
 	private:
-		void GenerateHandles(int alNumOfHandles);
-
-		bool CreateFromBitmapToIndex(cBitmap* apBmp, int alIdx);
-
-		bool CreateTexture(	int alTextureHandle,
-							cBitmapData* apBitmapImage, int alNumOfMipMaps,
-							const cVector3l avSize, ePixelFormat aPixelFormat, 
-							int alFaceNum,bool abGenerateMipMaps,
-							bool abCheckForResize);
-
-		bool CopyTextureDataToGL(	int alTextureHandle, int alLevel,unsigned char *apData,int alDataSize,
-									const cVector3l avSize, ePixelFormat aPixelFormat,int alFaceNum);
-
-		void GenerateMipMaps(	GLenum aGLTarget, ePixelFormat aPixelFormat,const cVector3l avSize, 
-								unsigned char *apData,int alDataSize, int alFaceNum);
-		
-		void SetupProperties(int alTextureHandle);
-
-
-		unsigned char* ResizePixelData(unsigned char *apData, int alBytesPerPixel);
-
+		void GenerateHandles(int alNumOfHandles) {} // STUB
+		bool CreateFromBitmapToIndex(cBitmap* apBmp, int alIdx) { return true; } // STUB
+		bool CreateTexture(int alTextureHandle, cBitmapData* apBitmapImage, int alNumOfMipMaps, const cVector3l avSize, ePixelFormat aPixelFormat, int alFaceNum,bool abGenerateMipMaps, bool abCheckForResize) { return true; } // STUB
+		bool CopyTextureDataToGL(int alTextureHandle, int alLevel,unsigned char *apData,int alDataSize, const cVector3l avSize, ePixelFormat aPixelFormat,int alFaceNum) { return true; } // STUB
+		void SetupProperties(int alTextureHandle) {} // STUB
+		unsigned char* ResizePixelData(unsigned char* apData, int alBytesPerPixel) { return NULL; } // STUB
 		
 		tUIntVec mvTextureHandles;
 		bool mbContainsData;

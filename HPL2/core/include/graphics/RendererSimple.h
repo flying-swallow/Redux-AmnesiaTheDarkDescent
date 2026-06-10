@@ -21,7 +21,7 @@
 #define HPL_RENDERER_SIMPLE_H
 
 #include "graphics/Renderer.h"
-#include "graphics/RenderList2.h"
+#include "graphics/RenderList.h"
 #include "graphics/RIProgram.h"
 
 namespace hpl {

@@ -30,7 +30,6 @@ namespace hpl {
 	class iLowLevelGraphics;
 	class iVertexBuffer;
 	class iTexture;
-	class iGpuProgram;
 	class cFrustum;
 	class cMaterial;
 	class iMaterialType;
@@ -41,85 +40,53 @@ namespace hpl {
 	class iRenderFunctions
 	{
 	public:
-		virtual ~iRenderFunctions() { }
+		virtual ~iRenderFunctions() {}
 
 		/*
 		 * This function must be set before the render functions can be used!
 	     */
 		void SetupRenderFunctions(iLowLevelGraphics *apLowLevelGraphics);
 		
-		
 		/**
 		 * This must be called every frame before any render function is called
 		 */
-		void InitAndResetRenderFunctions(	cFrustum *apFrustum, cRenderTarget *apRenderTarget, bool abLog,
-											bool abUseGlobalScissorRect=false, 
-											const cVector2l& avGlobalScissorRectPos=0, const cVector2l& avGlobalScissorRectSize=0);
-		void ExitAndCleanUpRenderFunctions();
+		void InitAndResetRenderFunctions(cFrustum* apFrustum, cRenderTarget* apRenderTarget, bool abLog, bool abUseGlobalScissorRect = false, const cVector2l& avGlobalScissorRectPos = 0, const cVector2l& avGlobalScissorRectSize = 0);
 
-		void SetFlatProjection(const cVector2f &avSize=1,float afMin=-100,float afMax=100);
-		void SetFlatProjectionMinMax(const cVector3f &avMin,const cVector3f &avMax);
-		void SetNormalFrustumProjection();
-		void SetFrustumProjection(cFrustum *apFrustum);
-		void SetProjectionMatrix(const cMatrixf *apProjMatrix);
-				
-		bool SetDepthTest(bool abX);
-		bool SetDepthWrite(bool abX);
-		bool SetDepthTestFunc(eDepthTestFunc aFunc);
-		bool SetCullActive(bool abX);
-		bool SetCullMode(eCullMode aMode, bool abCheckIfInverted=true);
-		bool SetStencilActive(bool abX);
-		void SetStencilWriteMask(unsigned int alMask);
-		void SetStencil(eStencilFunc aFunc,int alRef, unsigned int aMask,
-						eStencilOp aFailOp,eStencilOp aZFailOp,eStencilOp aZPassOp);
-		void SetStencilTwoSide(	eStencilFunc aFrontFunc,eStencilFunc aBackFunc,
-								int alRef, unsigned int aMask,
-								eStencilOp aFrontFailOp,eStencilOp aFrontZFailOp,eStencilOp aFrontZPassOp,
-								eStencilOp aBackFailOp,eStencilOp aBackZFailOp,eStencilOp aBackZPassOp);
-		bool SetScissorActive(bool abX);
-		/**
-		 * When abAutoEnabling is true, it will also set to false if size = render target and pos=0
-		 */
-		bool SetScissorRect(const cVector2l& avPos, const cVector2l& avSize, bool abAutoEnabling);
-		bool SetScissorRect(const cRect2l& aClipRect, bool abAutoEnabling);
-		bool SetChannelMode(eMaterialChannelMode aMode);
-		bool SetAlphaMode(eMaterialAlphaMode aMode);
-		bool SetAlphaLimit(float afLimit);
-		bool SetBlendMode(eMaterialBlendMode aMode);
-		bool SetProgram(iGpuProgram *apProgram);
-		void SetTexture(int alUnit, iTexture *apTexture);
-		void SetTextureRange(iTexture *apTexture, int alFirstUnit, int alLastUnit = kMaxTextureUnits-1);
-		void SetVertexBuffer(iVertexBuffer *apVtxBuffer);
-		void SetMatrix(cMatrixf *apMatrix);
-		void SetModelViewMatrix(const cMatrixf& a_mtxModelView);
+		iTexture* CreateRenderTexture(const tString& asName, const cVector2l& avSize, ePixelFormat aPixelFormat, eTextureFilter aFilter = eTextureFilter_Bilinear, eTextureType aType = eTextureType_Rect);
+		cRenderTarget* GetCurrentRenderTarget() { return mpCurrentRenderTarget; }
+		const cVector2l& GetCurrentFrameBufferSize() { return mvCurrentFrameBufferSize; }
+		const cVector2l& GetRenderTargetSize() { return mvRenderTargetSize; }
+		void SetVertexBuffer(iVertexBuffer* apVtxBuffer);
 
-		void SetInvertCullMode(bool abX);
+		void ExitAndCleanUpRenderFunctions() {} // STUB
+		void SetFlatProjection(const cVector2f& avSize = 1, float afMin = -100, float afMax = 100) {} // STUB
+		void SetFlatProjectionMinMax(const cVector3f& avMin, const cVector3f& avMax) {} // STUB
+		void SetNormalFrustumProjection() {} // STUB
+		void SetFrustumProjection(cFrustum* apFrustum) {} // STUB
+		void SetProjectionMatrix(const cMatrixf* apProjMatrix) {} // STUB
+		void SetStencilWriteMask(unsigned int alMask) {} // STUB
+		void SetStencil(eStencilFunc aFunc, int alRef, unsigned int aMask, eStencilOp aFailOp, eStencilOp aZFailOp, eStencilOp aZPassOp) {} // STUB
+		void SetStencilTwoSide(eStencilFunc aFrontFunc, eStencilFunc aBackFunc, int alRef, unsigned int aMask, eStencilOp aFrontFailOp, eStencilOp aFrontZFailOp, eStencilOp aFrontZPassOp, eStencilOp aBackFailOp, eStencilOp aBackZFailOp, eStencilOp aBackZPassOp) {} // STUB
+		void SetTexture(int alUnit, iTexture* apTexture) {} // STUB
+		void SetTextureRange(iTexture* apTexture, int alFirstUnit, int alLastUnit = kMaxTextureUnits - 1) {} // STUB
+		void SetMatrix(cMatrixf* apMatrix) {} // STUB
+		void SetModelViewMatrix(const cMatrixf& a_mtxModelView) {} // STUB
+		void SetInvertCullMode(bool abX) {} // STUB
+		void DrawQuad(const cVector3f& aPos, const cVector2f& avSize, const cVector2f& avMinUV = 0, const cVector2f& avMaxUV = 1, bool abInvertY = false, const cColor& aColor = cColor(1, 1)) {} // STUB
+		void DrawQuad(const cVector3f& aPos, const cVector2f& avSize, const cVector2f& avMinUV0, const cVector2f& avMaxUV0, const cVector2f& avMinUV1, const cVector2f& avMaxUV1, bool abInvertY0 = false, bool abInvertY1 = false, const cColor& aColor = cColor(1, 1)) {} // STUB
+		void DrawCurrent(eVertexBufferDrawType aDrawType = eVertexBufferDrawType_LastEnum) {} // STUB
+		void DrawWireFrame(iVertexBuffer* apVtxBuffer, const cColor& aColor) {} // STUB
 
-		void SetFrameBuffer(iFrameBuffer *apFrameBuffer, bool abUsePosAndSize=false, bool abUseGlobalScissor=true);
-		void ClearFrameBuffer(tClearFrameBufferFlag aFlags, bool abUsePosAndSize);
-
-		void DrawQuad(	const cVector3f& aPos, const cVector2f& avSize, const cVector2f& avMinUV=0, const cVector2f& avMaxUV=1,
-						bool abInvertY=false, const cColor& aColor=cColor(1,1) );
-
-		void DrawQuad(	const cVector3f& aPos, const cVector2f& avSize, 
-						const cVector2f& avMinUV0, const cVector2f& avMaxUV0,
-						const cVector2f& avMinUV1, const cVector2f& avMaxUV1,
-						bool abInvertY0=false,bool abInvertY1=false, const cColor& aColor=cColor(1,1) );
-
-
-		void DrawCurrent(eVertexBufferDrawType aDrawType = eVertexBufferDrawType_LastEnum);
-
-		void DrawWireFrame(iVertexBuffer *apVtxBuffer, const cColor &aColor);
-		
-		iTexture* CreateRenderTexture(	const tString& asName, const cVector2l& avSize, ePixelFormat aPixelFormat,
-										eTextureFilter aFilter = eTextureFilter_Bilinear, eTextureType aType= eTextureType_Rect);
-
-		void CopyFrameBufferToTexure(	iTexture *apTexture, const cVector2l& avPos, const cVector2l& avSize, const cVector2l& avTextureOffset,
-										bool abTextureOffsetUsesRenderTargetPos);
-
-		cRenderTarget* GetCurrentRenderTarget(){return mpCurrentRenderTarget;}
-		const cVector2l& GetCurrentFrameBufferSize(){ return mvCurrentFrameBufferSize;}
-		const cVector2l& GetRenderTargetSize(){ return mvRenderTargetSize;}
+		bool SetDepthTest(bool abX) { return true; } // STUB
+		bool SetDepthWrite(bool abX) { return true; } // STUB
+		bool SetDepthTestFunc(eDepthTestFunc aFunc) { return true; } // STUB
+		bool SetCullActive(bool abX) { return true; } // STUB
+		bool SetCullMode(eCullMode aMode, bool abCheckIfInverted = true) { return true; } // STUB
+		bool SetStencilActive(bool abX) { return true; } // STUB
+		bool SetChannelMode(eMaterialChannelMode aMode) { return true; } // STUB
+		bool SetAlphaMode(eMaterialAlphaMode aMode) { return true; } // STUB
+		bool SetAlphaLimit(float afLimit) { return true; } // STUB
+		bool SetBlendMode(eMaterialBlendMode aMode) { return true; } // STUB
 
 	protected:
 		cGraphics *mpGraphics;
@@ -129,8 +96,8 @@ namespace hpl {
 		cRenderTarget *mpCurrentRenderTarget;
 		const cMatrixf *mpCurrentProjectionMatrix;
 
-		cVector2l mvRenderTargetSize;		//Use this when ever some calculations involving the size of rendertarget is involved!
-		cVector2l mvCurrentFrameBufferSize;	//This shall NOT be used in calculations and is simply as a helper
+		cVector2l mvRenderTargetSize;		// Use this when ever some calculations involving the size of rendertarget is involved!
+		cVector2l mvCurrentFrameBufferSize;	// This shall NOT be used in calculations and is simply as a helper
 
 		cVector2l mvScreenSize;
 		cVector2f mvScreenSizeFloat;
@@ -157,17 +124,13 @@ namespace hpl {
 		float mfCurrentAlphaLimit;
 		eMaterialBlendMode mCurrentBlendMode;
 		iTexture *mvCurrentTexture[kMaxTextureUnits];
-		iGpuProgram* mpCurrentProgram;
 		iVertexBuffer *mpCurrentVtxBuffer;
 		cMatrixf *mpCurrentMatrix;
 
 		cMaterial *mpCurrentMaterial;
 		iMaterialType *mpCurrentMaterialType;
 		
-		cMatrixf m_mtxNULL; //used to reset current matrix pointer.
+		cMatrixf m_mtxNULL; // Used to reset current matrix pointer.
 	};
-	
-	//---------------------------------------------
-
 };
 #endif // HPL_RENDER_FUNCTIONS_H

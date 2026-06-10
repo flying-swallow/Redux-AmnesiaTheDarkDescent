@@ -22,7 +22,6 @@
 #include "resources/LowLevelResources.h"
 #include "resources/FileSearcher.h"
 #include "resources/ImageManager.h"
-#include "resources/GpuShaderManager.h"
 #include "resources/ParticleManager.h"
 #include "resources/SoundManager.h"
 #include "resources/FontManager.h"
@@ -39,7 +38,6 @@
 #include "resources/XmlDocument.h"
 #include "resources/BitmapLoaderHandler.h"
 #include "resources/WorldLoaderHandler.h"
-#include "resources/VideoLoaderHandler.h"
 #include "resources/BinaryBuffer.h"
 
 #include "resources/WorldLoaderHplMap.h"
@@ -97,7 +95,6 @@ namespace hpl {
 		hplDelete(mpSoundManager);
 		hplDelete(mpMeshManager);
 		hplDelete(mpMaterialManager);
-		hplDelete(mpGpuShaderManager);
 		hplDelete(mpImageManager);
 		hplDelete(mpTextureManager);
 		hplDelete(mpSoundEntityManager);
@@ -111,7 +108,6 @@ namespace hpl {
 		hplDelete(mpMeshLoaderHandler);
 		hplDelete(mpBitmapLoaderHandler);
 		hplDelete(mpWorldLoaderHandler);
-		hplDelete(mpVideoLoaderHandler);
 
 		if(mpLanguageFile) hplDelete(mpLanguageFile);
 		
@@ -276,14 +272,11 @@ namespace hpl {
 		mpMeshLoaderHandler = hplNew( cMeshLoaderHandler,(this, apScene) );
 		mpBitmapLoaderHandler = hplNew( cBitmapLoaderHandler,(this, apGraphics) );
 		mpWorldLoaderHandler = hplNew( cWorldLoaderHandler,(this, apGraphics,apScene,apPhysics) );
-		mpVideoLoaderHandler = hplNew( cVideoLoaderHandler,(this, apGraphics) );
 
 		Log(" Creating resource managers\n");
 
 		mpImageManager = hplNew( cImageManager,(this,mpLowLevelGraphics,mpLowLevelSystem) );
 		mlstManagers.push_back(mpImageManager);
-		mpGpuShaderManager = hplNew( cGpuShaderManager,(mpFileSearcher,mpLowLevelGraphics,mpLowLevelResources,mpLowLevelSystem) );
-		mlstManagers.push_back(mpGpuShaderManager);
 		mpParticleManager = hplNew( cParticleManager,(apGraphics, this) );
 		mlstManagers.push_back(mpParticleManager);
 		mpSoundManager = hplNew( cSoundManager,(apSound, this) );
@@ -310,7 +303,6 @@ namespace hpl {
 		//Low level resources will load non-propitary formats.
 		mpLowLevelResources->AddBitmapLoaders(mpBitmapLoaderHandler);
 		mpLowLevelResources->AddMeshLoaders(mpMeshLoaderHandler);
-		mpLowLevelResources->AddVideoLoaders(mpVideoLoaderHandler);
 		
 		//Add properitary formats directly
         mpWorldLoaderHandler->AddLoader(hplNew(cWorldLoaderHplMap, () ));		

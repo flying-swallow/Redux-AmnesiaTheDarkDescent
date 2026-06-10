@@ -699,7 +699,7 @@ namespace hpl {
 		{
 			cVector3f vP1 (apFaceArray[i * 3 + 0], apFaceArray[i * 3 + 1], apFaceArray[i * 3 + 2]);
 
-			gpLowLevelGraphics->DrawLine(vP0, vP1,gDebugColor);
+			// gpLowLevelGraphics->DrawLine(vP0, vP1,gDebugColor); // IMPORTANT: CHECK IF THIS IS PROBLEMATIC
 
 			vP0 = vP1;
 		}

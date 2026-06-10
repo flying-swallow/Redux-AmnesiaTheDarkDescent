@@ -232,7 +232,7 @@ namespace hpl {
 		tCollidePointVec* GetContactPoints(){ return &mvContactPoints;}
 		void SetSaveContactPoints(bool abX){ mbSaveContactPoints = abX;}
 		bool GetSaveContactPoints(){ return mbSaveContactPoints;}
-		void RenderContactPoints(iLowLevelGraphics *apLowLevel, const cColor& aPointColor, const cColor& aLineColor);
+		void RenderContactPoints(iLowLevelGraphics* apLowLevel, const cColor& aPointColor, const cColor& aLineColor) {} // STUB
 
 		virtual void CastRay(iPhysicsRayCallback *apCallback, 
 							const cVector3f &avOrigin, const cVector3f& avEnd, 

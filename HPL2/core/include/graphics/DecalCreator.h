@@ -81,7 +81,7 @@ namespace hpl {
 
 		// Legacy-renderer-only: kept for the un-built NewEditors tree; the RI
 		// editors use the DebugDraw overload below.
-		void DrawDebug(cRendererCallbackFunctions* apFunctions, bool abDrawAxes, bool abDrawWireframe);
+		void DrawDebug(cRendererCallbackFunctions* apFunctions, bool abDrawAxes, bool abDrawWireframe) {} // STUB
 		// RI path: preview through the DebugDraw batcher. The decal mesh draws
 		// as a solid tinted shape (the batcher has no textured-mesh path).
 		void DrawDebug(DebugDraw* apDebugDraw, bool abDrawAxes, bool abDrawWireframe);

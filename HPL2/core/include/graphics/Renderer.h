@@ -36,12 +36,10 @@ namespace hpl {
 	class cEngine;
 	class iLowLevelResources;
 	class cMeshCreator;
-	class cGpuShaderManager;
 	class iRenderable;
 	class cWorld;
 	class cRenderSettings;
 	class cRenderList;
-	class cProgramComboManager;
 	class iLight;
 	class cBoundingVolume;
 	class iRenderableContainer;
@@ -129,7 +127,7 @@ namespace hpl {
 	friend class cRendererCallbackFunctions;
 	friend class cRenderSettings;
 	public:
-		iRenderer(const tString& asName, cGraphics *apGraphics,cResources* apResources, int alNumOfProgramComboModes);
+		iRenderer(const tString& asName, cGraphics *apGraphics,cResources* apResources);
 		virtual ~iRenderer();
 
 		void Update(float afTimeStep);
@@ -185,9 +183,6 @@ namespace hpl {
 
 	protected:
         cResources* mpResources;
-		cGpuShaderManager *mpShaderManager;
-
-		cProgramComboManager* mpProgramManager;
 
 		tString msName;
 
@@ -223,9 +218,6 @@ namespace hpl {
 		inline void SetFlatProjectionMinMax(const cVector3f &avMin,const cVector3f &avMax) { mpRenderer->SetFlatProjectionMinMax(avMin,avMax);}
 		inline void SetNormalFrustumProjection() { mpRenderer->SetNormalFrustumProjection(); }
 
-		inline void SetFrameBuffer(iFrameBuffer *apFrameBuffer, bool abUsePosAndSize=false){ mpRenderer->SetFrameBuffer(apFrameBuffer,abUsePosAndSize); }
-		inline void ClearFrameBuffer(tClearFrameBufferFlag aFlags, bool abUsePosAndSize){ mpRenderer->ClearFrameBuffer(aFlags, abUsePosAndSize); }
-
 		inline void DrawQuad(	const cVector3f& aPos, const cVector2f& avSize, const cVector2f& avMinUV=0, const cVector2f& avMaxUV=1,
 								bool abInvertY=false, const cColor& aColor=cColor(1,1) )
 							{ mpRenderer->DrawQuad(aPos,avSize,avMinUV,avMaxUV,abInvertY,aColor); }
@@ -236,13 +228,9 @@ namespace hpl {
 		inline bool SetCullActive(bool abX){ return mpRenderer->SetCullActive(abX); }
 		inline bool SetCullMode(eCullMode aMode){ return mpRenderer->SetCullMode(aMode); }
 		inline bool SetStencilActive(bool abX){ return mpRenderer->SetStencilActive(abX); }
-		inline bool SetScissorActive(bool abX){ return mpRenderer->SetScissorActive(abX); }
-		inline bool SetScissorRect(const cVector2l& avPos, const cVector2l& avSize, bool abAutoEnabling){return mpRenderer->SetScissorRect(avPos, avSize, abAutoEnabling);}
-		inline bool SetScissorRect(const cRect2l& aClipRect, bool abAutoEnabling){return mpRenderer->SetScissorRect(aClipRect,abAutoEnabling);}
 		inline bool SetChannelMode(eMaterialChannelMode aMode){ return mpRenderer->SetChannelMode(aMode); }
 		inline bool SetAlphaMode(eMaterialAlphaMode aMode){ return mpRenderer->SetAlphaMode(aMode); }
 		inline bool SetBlendMode(eMaterialBlendMode aMode){ return mpRenderer->SetBlendMode(aMode); }
-		inline bool SetProgram(iGpuProgram *apProgram){ return mpRenderer->SetProgram(apProgram); }
 		inline void SetTexture(int alUnit, iTexture *apTexture){ mpRenderer->SetTexture(alUnit, apTexture); }
 		inline void SetTextureRange(iTexture *apTexture, int alFirstUnit, int alLastUnit = kMaxTextureUnits-1){ mpRenderer->SetTextureRange(apTexture,alFirstUnit,alLastUnit); }
 		inline void SetVertexBuffer(iVertexBuffer *apVtxBuffer){ mpRenderer->SetVertexBuffer(apVtxBuffer); }

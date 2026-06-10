@@ -802,11 +802,11 @@ iEditorViewport::~iEditorViewport()
 
 	hplDelete(mpGrid);
 
-	if(mbDestroyFBOnExit)
+	/* if (mbDestroyFBOnExit)
 	{
 		mpEngine->GetGraphics()->GetLowLevel()->SetCurrentFrameBuffer(NULL);
 		mpEngine->GetGraphics()->DestroyFrameBuffer(mpFB);
-	}
+	} */
 }
 
 //-------------------------------------------------------------

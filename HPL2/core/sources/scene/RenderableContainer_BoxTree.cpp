@@ -163,7 +163,7 @@ namespace hpl {
 		apFunctions->SetDepthWrite(false);
 		apFunctions->SetBlendMode(eMaterialBlendMode_None);
 
-		apFunctions->SetProgram(NULL);
+		// apFunctions->SetProgram(NULL);
 		apFunctions->SetTextureRange(NULL, 0);
 		apFunctions->SetMatrix(NULL);
 
@@ -698,32 +698,6 @@ namespace hpl {
 			
             BuildNodeFromTemp(pTempChildNode, pChildNode,alLevel+1);
 	   }
-	}
-
-	//-----------------------------------------------------------------------
-	static cColor LevelColor[10] = {cColor(1,1,1),cColor(1,0,1),cColor(1,1,0),cColor(0,1,1),cColor(0,0,1),cColor(0,1,0),cColor(1,0,0),cColor(1,0.5f,1),
-									cColor(1,1,0.5f), cColor(1,0.5f,0.5f)};
-	void cRenderableContainer_BoxTree::RenderDebugNode(cRendererCallbackFunctions *apFunctions, cRCNode_BoxTree *apNode, int alLevel)
-	{
-		//if(apNode->GetNodeList()->empty())
-		if(glDrawLevel==alLevel || (glDrawLevel > alLevel && apNode->GetChildNodeList()->empty()))
-			apFunctions->GetLowLevelGfx()->DrawBoxMinMax(apNode->GetMin(),apNode->GetMax(),LevelColor[alLevel % 10]);
-
-		tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-		for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
-		{
-			cRCNode_BoxTree *pChildNode = static_cast<cRCNode_BoxTree*>(*childIt);
-			RenderDebugNode(apFunctions,pChildNode , alLevel+1);
-		}
-
-
-		tRenderableListIt objIt = apNode->GetObjectList()->begin();
-		for(; objIt != apNode->GetObjectList()->end(); ++objIt)
-		{
-			iRenderable *pObj = *objIt;
-			//cBoundingVolume *pBV = pObj->GetBoundingVolume();
-			//apFunctions->GetLowLevelGfx()->DrawBoxMinMax(pBV->GetMin(),pBV->GetMax(),LevelColor[alLevel % 10]);	
-		}
 	}
 
 	//-----------------------------------------------------------------------

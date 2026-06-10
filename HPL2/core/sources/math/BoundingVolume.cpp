@@ -379,41 +379,6 @@ namespace hpl {
 
 		return &mShadowVolume;
 	}
-	
-	//-----------------------------------------------------------------------
-
-	void cBoundingVolume::DrawEdges(const cVector3f& avLightPos,float afLightRange, iLowLevelGraphics *apLowLevelGraphics)
-	{
-		cShadowVolumeBV *pVolume = GetShadowVolume(avLightPos, afLightRange, false);
-		
-		apLowLevelGraphics->SetBlendActive(true);
-		apLowLevelGraphics->SetBlendFunc(eBlendFunc_One,eBlendFunc_One);
-		apLowLevelGraphics->SetDepthWriteActive(false);
-		tVertexVec vVtx;
-		vVtx.resize(4);
-		
-		for(int capplane=0; capplane<mShadowVolume.mlCapPlanes; capplane++)
-		{
-			apLowLevelGraphics->DrawLine(GetWorldCenter(),GetWorldCenter() + mShadowVolume.mvPlanes[capplane].GetNormal()*-0.5f, cColor(1,1,1,1));
-		}
-
-		int lPlane = mShadowVolume.mlCapPlanes;
-		for(int quad = 0; quad < (int)pVolume->mvPoints.size(); quad+=4)
-		{
-			
-			for(int i=0; i<4; i++)
-				vVtx[i].pos = pVolume->mvPoints[quad+i];
-			
-			apLowLevelGraphics->DrawQuad(vVtx,cColor(0.2f,0,0.2f));
-
-			cVector3f vCenter = (vVtx[1].pos + vVtx[0].pos)*0.5f;
-			apLowLevelGraphics->DrawLine(vCenter,vCenter + mShadowVolume.mvPlanes[lPlane].GetNormal()*-0.5f, cColor(1,1,1,1));
-			lPlane++;
-		}
-
-		apLowLevelGraphics->SetBlendActive(false);
-		apLowLevelGraphics->SetDepthWriteActive(true);
-	}
 
 	//-----------------------------------------------------------------------
 	

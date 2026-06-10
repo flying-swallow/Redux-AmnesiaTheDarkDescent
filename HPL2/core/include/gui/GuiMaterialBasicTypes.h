@@ -30,10 +30,10 @@ namespace hpl {
 	{
 	public:
 		cGuiMaterial_Diffuse(iLowLevelGraphics *apLowLevelGraphics):iGuiMaterial("Diffuse",apLowLevelGraphics){}
-		~cGuiMaterial_Diffuse(){}
+		~cGuiMaterial_Diffuse() {}
 
-		void BeforeRender();
-		void AfterRender();
+		void BeforeRender() {} // STUB
+		void AfterRender() {} // STUB
 	};
 
 	//-----------------------------------------
@@ -42,10 +42,10 @@ namespace hpl {
 	{
 	public:
 		cGuiMaterial_Alpha(iLowLevelGraphics *apLowLevelGraphics):iGuiMaterial("Alpha",apLowLevelGraphics){}
-		~cGuiMaterial_Alpha(){}
+		~cGuiMaterial_Alpha() {}
 
-		void BeforeRender();
-		void AfterRender();
+		void BeforeRender() {} // STUB
+		void AfterRender() {} // STUB
 	};
 
 	//-----------------------------------------
@@ -54,10 +54,10 @@ namespace hpl {
 	{
 	public:
 		cGuiMaterial_FontNormal(iLowLevelGraphics *apLowLevelGraphics):iGuiMaterial("FontNormal",apLowLevelGraphics){}
-		~cGuiMaterial_FontNormal(){}
+		~cGuiMaterial_FontNormal() {}
 
-		void BeforeRender();
-		void AfterRender();
+		void BeforeRender() {} // STUB
+		void AfterRender() {} // STUB
 	};
 
 	//-----------------------------------------
@@ -66,10 +66,10 @@ namespace hpl {
 	{
 	public:
 		cGuiMaterial_Additive(iLowLevelGraphics *apLowLevelGraphics):iGuiMaterial("Additive",apLowLevelGraphics){}
-		~cGuiMaterial_Additive(){}
+		~cGuiMaterial_Additive() {}
 
-		void BeforeRender();
-		void AfterRender();
+		void BeforeRender() {} // STUB
+		void AfterRender() {} // STUB
 	};
 
 	//-----------------------------------------
@@ -78,10 +78,10 @@ namespace hpl {
 	{
 	public:
 		cGuiMaterial_Modulative(iLowLevelGraphics *apLowLevelGraphics):iGuiMaterial("Modulative",apLowLevelGraphics){}
-		~cGuiMaterial_Modulative(){}
+		~cGuiMaterial_Modulative() {}
 
-		void BeforeRender();
-		void AfterRender();
+		void BeforeRender() {} // STUB
+		void AfterRender() {} // STUB
 	};
 
 	//-----------------------------------------
@@ -90,10 +90,10 @@ namespace hpl {
 	{
 	public:
 		cGuiMaterial_PremulAlpha(iLowLevelGraphics *apLowLevelGraphics):iGuiMaterial("Alpha",apLowLevelGraphics){}
-		~cGuiMaterial_PremulAlpha(){}
+		~cGuiMaterial_PremulAlpha() {}
 
-		void BeforeRender();
-		void AfterRender();
+		void BeforeRender() {} // STUB
+		void AfterRender() {} // STUB
 	};
 
 	//-----------------------------------------

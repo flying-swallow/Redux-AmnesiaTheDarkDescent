@@ -93,7 +93,7 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 	cRendererSimple::cRendererSimple(cGraphics *apGraphics,cResources* apResources)
-		: iRenderer("Simple",apGraphics, apResources,0)
+		: iRenderer("Simple",apGraphics, apResources)
 	{
 		// Standalone program (no bindless set) — mirrors cRendererWireFrame;
 		// per-draw state arrives via a frame-scratch UBO ("pass") plus a

@@ -21,7 +21,6 @@
 #include "impl/MeshLoaderMSH.h"
 #include "impl/MeshLoaderFBX.h"
 #include "impl/MeshLoaderCollada.h"
-#include "impl/VideoStreamTheora.h"
 #include "impl/XmlDocumentTiny.h"
 #include "impl/BitmapLoaderDevilDDS.h"
 #include "impl/BitmapLoaderDevilMisc.h"
@@ -29,7 +28,6 @@
 #include "system/String.h"
 
 #include "resources/MeshLoaderHandler.h"
-#include "resources/VideoLoaderHandler.h"
 #include "resources/BitmapLoaderHandler.h"
 
 namespace hpl {

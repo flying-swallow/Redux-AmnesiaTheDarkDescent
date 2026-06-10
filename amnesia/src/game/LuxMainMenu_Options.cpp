@@ -1471,7 +1471,7 @@ void cLuxMainMenu_Options::ApplyChanges()
 		pCfgHdr->mbFullscreen = mpChBFullScreen->IsChecked();
 		pCfgHdr->mbVSync = mpChBVSync->IsChecked();
 //		pCfgHdr->mbAdaptiveVSync = mpChBAdaptiveVSync->IsChecked();
-		pGfx->GetLowLevel()->SetVsyncActive(pCfgHdr->mbVSync, pCfgHdr->mbAdaptiveVSync);
+		// pGfx->GetLowLevel()->SetVsyncActive(pCfgHdr->mbVSync, pCfgHdr->mbAdaptiveVSync);
 		gpBase->mpConfigHandler->SetGamma(GetGamma());
 
 		// Parallax

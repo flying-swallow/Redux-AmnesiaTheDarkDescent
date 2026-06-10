@@ -98,7 +98,7 @@ namespace hpl {
 		cShadowVolumeBV* GetShadowVolume(const cVector3f& avLightPos,float afLightRange, bool abForceUpdate);
 
 		//Debug:
-		void DrawEdges(const cVector3f& avLightPos,float afLightRange, iLowLevelGraphics *apLowLevelGraphics);
+		void DrawEdges(const cVector3f& avLightPos, float afLightRange, iLowLevelGraphics* apLowLevelGraphics) {} // STUB
 		void UpdateSize();
 		
 		cMatrixf m_mtxTransform;

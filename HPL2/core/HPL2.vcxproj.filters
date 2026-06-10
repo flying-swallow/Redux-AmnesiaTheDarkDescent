@@ -13,9 +13,6 @@
     <Filter Include="Graphics">
       <UniqueIdentifier>{fe57e422-d72a-4d23-85cd-8b1781e1e5ea}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Graphics\MaterialTypes">
-      <UniqueIdentifier>{3aa80aa4-5b16-4727-aaa6-a60c163517e5}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Graphics\PostEffectTypes">
       <UniqueIdentifier>{8f4abef0-8b23-4055-bfd4-d4edd9df8c6f}</UniqueIdentifier>
     </Filter>
@@ -67,14 +64,14 @@
     <Filter Include="Gui">
       <UniqueIdentifier>{05283990-9741-4bb4-9141-d13b6fe901c6}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Generate">
-      <UniqueIdentifier>{6e6c57d1-fe7f-452e-8127-cc99fc7480c8}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Resources">
       <UniqueIdentifier>{0276fcca-4f7b-4ed6-9450-82896f0b1ffc}</UniqueIdentifier>
     </Filter>
     <Filter Include="Impl\Volk">
       <UniqueIdentifier>{af03d49d-1dbf-4419-9c6a-e2c9c21ad878}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Graphics\Materials">
+      <UniqueIdentifier>{963a062e-1da6-448f-a10b-999821489d73}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -204,27 +201,6 @@
     <ClInclude Include="include\graphics\FontData.h">
       <Filter>Graphics</Filter>
     </ClInclude>
-    <ClInclude Include="include\graphics\FrameBase.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\FrameBitmap.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\FrameBuffer.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\FrameSubImage.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\FrameTexture.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\GPUProgram.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\GPUShader.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
     <ClInclude Include="include\graphics\Graphics.h">
       <Filter>Graphics</Filter>
     </ClInclude>
@@ -252,25 +228,13 @@
     <ClInclude Include="include\graphics\PostEffectComposite.h">
       <Filter>Graphics</Filter>
     </ClInclude>
-    <ClInclude Include="include\graphics\ProgramComboManager.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
     <ClInclude Include="include\graphics\Renderable.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\Renderer.h">
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\RendererSimple.h">
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\RendererWireFrame.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\RenderFunctions.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\RenderList.h">
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\Skeleton.h">
@@ -284,24 +248,6 @@
     </ClInclude>
     <ClInclude Include="include\graphics\TextureCreator.h">
       <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\VertexBuffer.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\VideoStream.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\MaterialType_BasicSolid.h">
-      <Filter>Graphics\MaterialTypes</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\MaterialType_BasicTranslucent.h">
-      <Filter>Graphics\MaterialTypes</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\MaterialType_Decal.h">
-      <Filter>Graphics\MaterialTypes</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\MaterialType_Water.h">
-      <Filter>Graphics\MaterialTypes</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\PostEffect_Bloom.h">
       <Filter>Graphics\PostEffectTypes</Filter>
@@ -489,37 +435,10 @@
     <ClInclude Include="include\impl\tinyXML\tinyxml.h">
       <Filter>Impl\TinyXml</Filter>
     </ClInclude>
-    <ClInclude Include="include\impl\FrameBufferGL.h">
-      <Filter>Impl\Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\impl\GLSLProgram.h">
-      <Filter>Impl\Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\impl\GLSLShader.h">
-      <Filter>Impl\Graphics</Filter>
-    </ClInclude>
     <ClInclude Include="include\impl\LowLevelGraphicsSDL.h">
       <Filter>Impl\Graphics</Filter>
     </ClInclude>
-    <ClInclude Include="include\impl\PBuffer.h">
-      <Filter>Impl\Graphics</Filter>
-    </ClInclude>
     <ClInclude Include="include\impl\SDLFontData.h">
-      <Filter>Impl\Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\impl\SDLTexture.h">
-      <Filter>Impl\Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\impl\VertexBufferOGL_Array.h">
-      <Filter>Impl\Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\impl\VertexBufferOGL_VBO.h">
-      <Filter>Impl\Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\impl\VertexBufferOpenGL.h">
-      <Filter>Impl\Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\impl\VideoStreamTheora.h">
       <Filter>Impl\Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\impl\BitmapLoaderDevil.h">
@@ -777,9 +696,6 @@
     <ClInclude Include="include\resources\FontManager.h">
       <Filter>Resources</Filter>
     </ClInclude>
-    <ClInclude Include="include\resources\GpuShaderManager.h">
-      <Filter>Resources</Filter>
-    </ClInclude>
     <ClInclude Include="include\resources\ImageManager.h">
       <Filter>Resources</Filter>
     </ClInclude>
@@ -832,12 +748,6 @@
       <Filter>Resources</Filter>
     </ClInclude>
     <ClInclude Include="include\resources\TextureManager.h">
-      <Filter>Resources</Filter>
-    </ClInclude>
-    <ClInclude Include="include\resources\VideoLoader.h">
-      <Filter>Resources</Filter>
-    </ClInclude>
-    <ClInclude Include="include\resources\VideoLoaderHandler.h">
       <Filter>Resources</Filter>
     </ClInclude>
     <ClInclude Include="include\resources\WorldLoader.h">
@@ -922,9 +832,6 @@
       <Filter>Impl\Haptic</Filter>
     </ClInclude>
     <ClInclude Include="include\gui\Gui.h">
-      <Filter>Gui</Filter>
-    </ClInclude>
-    <ClInclude Include="include\gui\GuiGfxElement.h">
       <Filter>Gui</Filter>
     </ClInclude>
     <ClInclude Include="include\gui\GuiMaterial.h">
@@ -1016,15 +923,6 @@
     </ClInclude>
     <ClInclude Include="include\gui\WidgetWindow.h">
       <Filter>Gui</Filter>
-    </ClInclude>
-    <ClInclude Include="include\generate\Generate.h">
-      <Filter>Generate</Filter>
-    </ClInclude>
-    <ClInclude Include="include\generate\GenerateTypes.h">
-      <Filter>Generate</Filter>
-    </ClInclude>
-    <ClInclude Include="include\generate\VoxelMap.h">
-      <Filter>Generate</Filter>
     </ClInclude>
     <ClInclude Include="include\HPL.h" />
     <ClInclude Include="include\input\Gamepad.h">
@@ -1153,16 +1051,13 @@
     <ClInclude Include="..\..\extern\volk\volk.h">
       <Filter>Impl\Volk</Filter>
     </ClInclude>
-    <ClInclude Include="include\graphics\GraphicUtils.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
     <ClInclude Include="include\graphics\HPLGraphicsConfig.h">
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\ImageResourceWrapper.h">
       <Filter>Graphics</Filter>
     </ClInclude>
-    <ClInclude Include="include\graphics\RenderList2.h">
+    <ClInclude Include="include\graphics\RenderList.h">
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\PostEffectHelpers.h">
@@ -1203,6 +1098,51 @@
     </ClInclude>
     <ClInclude Include="include\gui\WidgetMeshObjectList.h">
       <Filter>Gui</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RenderFunctions.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\Renderer.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\MaterialType_BasicSolid.h">
+      <Filter>Graphics\Materials</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\MaterialType_BasicTranslucent.h">
+      <Filter>Graphics\Materials</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\MaterialType_Decal.h">
+      <Filter>Graphics\Materials</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\MaterialType_Water.h">
+      <Filter>Graphics\Materials</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\VertexBuffer.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\GraphicUtils.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\FrameBase.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\FrameBitmap.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\FrameBuffer.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\FrameSubImage.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\FrameTexture.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\gui\GuiGfxElement.h">
+      <Filter>Gui</Filter>
+    </ClInclude>
+    <ClInclude Include="include\impl\SDLTexture.h">
+      <Filter>Impl\Graphics</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -1302,21 +1242,6 @@
     <ClCompile Include="sources\graphics\FontData.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
-    <ClCompile Include="sources\graphics\FrameBitmap.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\FrameSubImage.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\FrameTexture.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\GPUProgram.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\GPUShader.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
     <ClCompile Include="sources\graphics\Graphics.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
@@ -1344,25 +1269,13 @@
     <ClCompile Include="sources\graphics\PostEffectComposite.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
-    <ClCompile Include="sources\graphics\ProgramComboManager.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
     <ClCompile Include="sources\graphics\Renderable.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\Renderer.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\graphics\RendererSimple.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\graphics\RendererWireFrame.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\RenderFunctions.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\RenderList.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\graphics\Skeleton.cpp">
@@ -1373,18 +1286,6 @@
     </ClCompile>
     <ClCompile Include="sources\graphics\TextureCreator.cpp">
       <Filter>Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\MaterialType_BasicSolid.cpp">
-      <Filter>Graphics\MaterialTypes</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\MaterialType_BasicTranslucent.cpp">
-      <Filter>Graphics\MaterialTypes</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\MaterialType_Decal.cpp">
-      <Filter>Graphics\MaterialTypes</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\MaterialType_Water.cpp">
-      <Filter>Graphics\MaterialTypes</Filter>
     </ClCompile>
     <ClCompile Include="sources\graphics\PostEffect_Bloom.cpp">
       <Filter>Graphics\PostEffectTypes</Filter>
@@ -1551,34 +1452,10 @@
     <ClCompile Include="sources\impl\tinyXml\tinyxmlparser.cpp">
       <Filter>Impl\TinyXml</Filter>
     </ClCompile>
-    <ClCompile Include="sources\impl\FrameBufferGL.cpp">
-      <Filter>Impl\Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\impl\GLSLProgram.cpp">
-      <Filter>Impl\Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\impl\GLSLShader.cpp">
-      <Filter>Impl\Graphics</Filter>
-    </ClCompile>
     <ClCompile Include="sources\impl\LowLevelGraphicsSDL.cpp">
       <Filter>Impl\Graphics</Filter>
     </ClCompile>
-    <ClCompile Include="sources\impl\PBuffer.cpp">
-      <Filter>Impl\Graphics</Filter>
-    </ClCompile>
     <ClCompile Include="sources\impl\SDLFontData.cpp">
-      <Filter>Impl\Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\impl\SDLTexture.cpp">
-      <Filter>Impl\Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\impl\VertexBufferOGL_Array.cpp">
-      <Filter>Impl\Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\impl\VertexBufferOGL_VBO.cpp">
-      <Filter>Impl\Graphics</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\impl\VertexBufferOpenGL.cpp">
       <Filter>Impl\Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\impl\BitmapLoaderDevil.cpp">
@@ -1836,9 +1713,6 @@
     <ClCompile Include="sources\resources\FontManager.cpp">
       <Filter>Resources</Filter>
     </ClCompile>
-    <ClCompile Include="sources\resources\GpuShaderManager.cpp">
-      <Filter>Resources</Filter>
-    </ClCompile>
     <ClCompile Include="sources\resources\ImageManager.cpp">
       <Filter>Resources</Filter>
     </ClCompile>
@@ -1882,9 +1756,6 @@
       <Filter>Resources</Filter>
     </ClCompile>
     <ClCompile Include="sources\resources\TextureManager.cpp">
-      <Filter>Resources</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\resources\VideoLoaderHandler.cpp">
       <Filter>Resources</Filter>
     </ClCompile>
     <ClCompile Include="sources\resources\WorldLoaderHandler.cpp">
@@ -1942,12 +1813,6 @@
       <Filter>Impl\Haptic</Filter>
     </ClCompile>
     <ClCompile Include="sources\gui\Gui.cpp">
-      <Filter>Gui</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\gui\GuiGfxElement.cpp">
-      <Filter>Gui</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\gui\GuiMaterialBasicTypes.cpp">
       <Filter>Gui</Filter>
     </ClCompile>
     <ClCompile Include="sources\gui\GuiPopUp.cpp">
@@ -2030,15 +1895,6 @@
     </ClCompile>
     <ClCompile Include="sources\gui\WidgetWindow.cpp">
       <Filter>Gui</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\generate\Generate.cpp">
-      <Filter>Generate</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\generate\GenerateTypes.cpp">
-      <Filter>Generate</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\generate\VoxelMap.cpp">
-      <Filter>Generate</Filter>
     </ClCompile>
     <ClCompile Include="sources\input\Gamepad.cpp">
       <Filter>Input</Filter>
@@ -2124,13 +1980,10 @@
     <ClCompile Include="..\..\extern\volk\volk.c">
       <Filter>Impl\Volk</Filter>
     </ClCompile>
-    <ClCompile Include="sources\graphics\GraphicUtils.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
     <ClCompile Include="sources\graphics\ImageResourceWrapper.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
-    <ClCompile Include="sources\graphics\RenderList2.cpp">
+    <ClCompile Include="sources\graphics\RenderList.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\graphics\RIAccelStructure.cpp">
@@ -2180,6 +2033,42 @@
     </ClCompile>
     <ClCompile Include="sources\gui\WidgetMeshObjectList.cpp">
       <Filter>Gui</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\RenderFunctions.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\Renderer.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\MaterialType_BasicSolid.cpp">
+      <Filter>Graphics\Materials</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\MaterialType_BasicTranslucent.cpp">
+      <Filter>Graphics\Materials</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\MaterialType_Decal.cpp">
+      <Filter>Graphics\Materials</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\MaterialType_Water.cpp">
+      <Filter>Graphics\Materials</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\GraphicUtils.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\FrameBitmap.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\FrameSubImage.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\FrameTexture.cpp">
+      <Filter>Graphics</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\gui\GuiGfxElement.cpp">
+      <Filter>Gui</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\impl\SDLTexture.cpp">
+      <Filter>Impl\Graphics</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

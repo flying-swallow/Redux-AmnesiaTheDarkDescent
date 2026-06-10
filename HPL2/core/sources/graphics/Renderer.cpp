@@ -22,11 +22,8 @@
 #include "system/LowLevelSystem.h"
 
 #include "graphics/Graphics.h"
-#include "graphics/RenderList.h"
-#include "graphics/ProgramComboManager.h"
 
 #include "resources/Resources.h"
-#include "resources/GpuShaderManager.h"
 
 #include "scene/RenderableContainer.h"
 
@@ -61,8 +58,6 @@ namespace hpl {
 	{
 		////////////////////////
 		// Create data
-		mpRenderList = hplNew( cRenderList, () );
-	
 		mpVisibleNodeTracker = hplNew( cVisibleRCNodeTracker, () );
 
 		////////////////////////
@@ -125,7 +120,6 @@ namespace hpl {
 
 	cRenderSettings::~cRenderSettings()
 	{
-		hplDelete(mpRenderList);
 		hplDelete(mpVisibleNodeTracker);
 
 		if(mpReflectionSettings) hplDelete(mpReflectionSettings);
@@ -201,7 +195,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	iRenderer::iRenderer(const tString& asName, cGraphics *apGraphics,cResources* apResources, int alNumOfProgramComboModes)
+	iRenderer::iRenderer(const tString& asName, cGraphics *apGraphics,cResources* apResources)
 	{
 		mpGraphics = apGraphics;
 		mpResources = apResources;
@@ -210,15 +204,9 @@ namespace hpl {
 		//Set variables from arguments
 		msName = asName;
 
-		mpShaderManager = mpResources->GetGpuShaderManager();
-
 		/////////////////////////////////
 		//Set up the render functions
 		SetupRenderFunctions(mpGraphics->GetLowLevel());
-
-		//////////////
-		//Create data classes
-		mpProgramManager  = hplNew(	cProgramComboManager, (msName, mpGraphics, mpResources, alNumOfProgramComboModes));
 
 		//////////////
 		//Init variables
@@ -232,10 +220,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	iRenderer::~iRenderer()
-	{
-		hplDelete(mpProgramManager);
-	}
+	iRenderer::~iRenderer() {}
 
 	//-----------------------------------------------------------------------
 

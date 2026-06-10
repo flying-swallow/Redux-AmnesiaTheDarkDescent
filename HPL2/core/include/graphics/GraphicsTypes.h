@@ -456,43 +456,6 @@ namespace hpl {
 	};
 
 	//-----------------------------------------
-
-	enum eGpuProgramFormat
-	{
-		eGpuProgramFormat_CG,
-		eGpuProgramFormat_GLSL,
-		eGpuProgramFormat_LastEnum
-	};
-
-	//-----------------------------------------
-
-	enum eGpuShaderType
-	{
-		eGpuShaderType_Vertex,
-		eGpuShaderType_Fragment,
-		eGpuShaderType_LastEnum
-	};
-	
-	enum eGpuShaderMatrix
-	{
-		eGpuShaderMatrix_View,
-		eGpuShaderMatrix_Projection,
-		eGpuShaderMatrix_Texture,
-		eGpuShaderMatrix_ViewProjection,
-		eGpuShaderMatrix_LastEnum
-	};
-
-	enum eGpuShaderMatrixOp
-	{
-		eGpuShaderMatrixOp_Identity,
-		eGpuShaderMatrixOp_Inverse,
-		eGpuShaderMatrixOp_Transpose,
-		eGpuShaderMatrixOp_InverseTranspose,
-		eGpuShaderMatrixOp_LastEnum
-	};
-
-	//-----------------------------------------
-
 	
 	enum ePixelFormat
 	{
@@ -648,21 +611,6 @@ namespace hpl {
 		eParallaxQuality_High,
 		eParallaxQuality_LastEnum,
 	};
-
-	//---------------------------------------
-
-	struct cProgramComboFeature
-	{
-		cProgramComboFeature(){}
-		cProgramComboFeature(const tString& asVar, tFlag alShaders) : msVariable(asVar), mlShaders(alShaders), mlNeededFlags(0){}
-		cProgramComboFeature(const tString& asVar, tFlag alShaders, tFlag alNeededFlags) : msVariable(asVar), mlShaders(alShaders),
-																						   mlNeededFlags(alNeededFlags){}
-
-		tString msVariable;
-		tFlag mlShaders;
-		tFlag mlNeededFlags;
-	};
-
 
 	//---------------------------------------
 
@@ -848,20 +796,6 @@ namespace hpl {
 		cVector2l mvPos;
 		cVector2l mvSize;
 	};
-
-	//---------------------------------------
-	
-	class iGpuShader;
-	class iGpuProgram;
-
-	typedef std::list<iGpuShader*> tGpuShaderList;
-	typedef tGpuShaderList::iterator tGpuShaderListIt;
-
-	typedef std::list<iGpuProgram*> tGpuProgramList;
-	typedef tGpuProgramList::iterator tGpuProgramListIt;
-
-	//---------------------------------------
-
 
 	class cBoneState;
 

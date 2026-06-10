@@ -54,20 +54,16 @@ namespace hpl {
 				mlDisplay(0),
 				mlScreenBpp(32),
 				mbFullscreen(false),
-				mlMultisampling(0),
 				msWindowCaption(""),
-				mvWindowPosition(-1),
-				mGpuProgramFormat(eGpuProgramFormat_LastEnum)
+				mvWindowPosition(-1)
 			{}
 		
 			cVector2l mvScreenSize;
 			int mlDisplay;
 			int mlScreenBpp;
 			bool mbFullscreen;
-			int mlMultisampling;
 			tString msWindowCaption;
 			cVector2l mvWindowPosition;
-			eGpuProgramFormat mGpuProgramFormat;
 		};
 		cGraphicsVars mGraphics;
 		

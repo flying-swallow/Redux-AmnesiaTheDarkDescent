@@ -261,7 +261,7 @@ namespace hpl {
 		cMeshEntityIterator GetDynamicMeshEntityIterator();
 		cMeshEntityIterator GetStaticMeshEntityIterator();
 		
-		void DrawMeshBoundingBoxes(const cColor &aColor, bool abStatic);
+		void DrawMeshBoundingBoxes(const cColor& aColor, bool abStatic) {} // STUB
 		
 		///// LIGHT METHODS ////////////////////
 

@@ -685,42 +685,6 @@ namespace hpl {
 	{
 		return m_mtxView.GetForward();
 	}
-	//-----------------------------------------------------------------------
-	
-	void cFrustum::Draw(iLowLevelGraphics *apLowLevelGraphics, const cColor &aColor)
-	{
-		if(mbObliqueNearPlane)
-		{
-			//for(int i=0; i<4; ++i)
-			//	apLowLevelGraphics->DrawSphere(mvVertices[i],0.05f, cColor(1,0,0));
-
-			//for(int i=4; i<8; ++i)
-			//	apLowLevelGraphics->DrawSphere(mvVertices[i],0.05f, cColor(0,1,0));
-		}
-
-		for(int i=0; i<4; ++i)
-			apLowLevelGraphics->DrawLine(mvVertices[i==0?3:i-1], mvVertices[i],aColor);
-		
-		for(int i=4; i<8; ++i)
-			apLowLevelGraphics->DrawLine(mvVertices[i==4?7:i-1], mvVertices[i],aColor);
-		
-		for(int i=0; i<4; ++i)
-			apLowLevelGraphics->DrawLine(mvVertices[i], mvVertices[i+4],aColor);
-		
-		if(mbInvertsCullMode==false) return;
-
-		//////////////////7
-		//Planes
-		/*for(int i=0; i<6; ++i)
-		{
-			cPlanef plane = mPlane[i];
-
-			cVector3f vP = plane.GetNormal() * -plane.d;
-			apLowLevelGraphics->DrawSphere(vP,0.05f, cColor(1,0,1));
-			apLowLevelGraphics->DrawLine(vP,vP+plane.GetNormal(), cColor(0,1,1));
-
-		}*/
-	}
 
 	//-----------------------------------------------------------------------
 }

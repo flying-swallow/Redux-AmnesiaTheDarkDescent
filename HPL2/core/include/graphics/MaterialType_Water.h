@@ -33,7 +33,7 @@ namespace hpl {
 	{
 	public:
 		cMaterialType_Water_Vars() : mbHasReflection(true), mfRefractionScale(0.1f), mfFrenselBias(0.2f), mfFrenselPow(8.0f){}
-		~cMaterialType_Water_Vars(){}
+		~cMaterialType_Water_Vars() {}
 
         bool mbHasReflection;
 		float mfRefractionScale;
@@ -54,18 +54,10 @@ namespace hpl {
 		cMaterialType_Water(cGraphics *apGraphics, cResources *apResources);
 		~cMaterialType_Water();
 
-		void DestroyProgram(cMaterial *apMaterial, eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, char alSkeleton);
-
-		bool SupportsHWSkinning(){ return false; }
+		bool SupportsHWSkinning() { return false; }
 
 		iTexture* GetTextureForUnit(cMaterial *apMaterial,eMaterialRenderMode aRenderMode, int alUnit);
-		iTexture* GetSpecialTexture(cMaterial *apMaterial, eMaterialRenderMode aRenderMode,iRenderer *apRenderer, int alUnit);
-
-		iGpuProgram* GetGpuProgram(cMaterial *apMaterial, eMaterialRenderMode aRenderMode, char alSkeleton);
-
-		void SetupTypeSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram,iRenderer *apRenderer);
-		void SetupMaterialSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, cMaterial *apMaterial,iRenderer *apRenderer);
-		void SetupObjectSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, iRenderable *apObject,iRenderer *apRenderer);
+		iTexture* GetSpecialTexture(cMaterial* apMaterial, eMaterialRenderMode aRenderMode, iRenderer* apRenderer, int alUnit) { return NULL; } // STUB
 
 		iMaterialVars* CreateSpecificVariables();
 		void LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars);
@@ -74,8 +66,8 @@ namespace hpl {
 		void CompileMaterialSpecifics(cMaterial *apMaterial);
 	
 	private:
-		void LoadData();
-		void DestroyData();
+		void LoadData() {} // STUB
+		void DestroyData() {} // STUB
 	};
 
 	//---------------------------------------------------

@@ -1596,13 +1596,13 @@ void cEditorWindowMaterialEditor::OnInitLayout()
 		pTex->SetWrapS(eTextureWrap_ClampToEdge);
 		pTex->CreateFromRawData(cVector3l(512,512,0), ePixelFormat_RGB, 0);
 
-		iFrameBuffer* pFB = mpEditor->GetEngine()->GetGraphics()->CreateFrameBuffer("MaterialEditor");
+		/* iFrameBuffer* pFB = mpEditor->GetEngine()->GetGraphics()->CreateFrameBuffer("MaterialEditor");
 		if(pFB)
 		{
 			pFB->SetTexture2D(0, pTex);
 			pFB->CompileAndValidate();
 			SetFrameBuffer(pFB);
-		}
+		} */
 
 		SetEngineViewportPositionAndSize(0, 512);
 		UpdateViewport();

@@ -140,7 +140,7 @@ namespace hpl {
 
 		/////////////////////////////
 		// Debug
-		void RenderDebug(iLowLevelGraphics *apLowLevel);
+		void RenderDebug(iLowLevelGraphics* apLowLevel) {} // STUB
 
 	protected:
 		bool CheckParticleBodyCollision(iPhysicsBody *apBody);

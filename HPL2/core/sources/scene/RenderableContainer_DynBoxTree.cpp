@@ -783,7 +783,7 @@ namespace hpl {
 		apFunctions->SetDepthWrite(false);
 		apFunctions->SetBlendMode(eMaterialBlendMode_None);
 
-		apFunctions->SetProgram(NULL);
+		// apFunctions->SetProgram(NULL);
 		apFunctions->SetTextureRange(NULL, 0);
 		apFunctions->SetMatrix(NULL);
 
@@ -858,37 +858,6 @@ namespace hpl {
 		mRoot.mbRecalculateAABB = true;
 		mRoot.mbRecalculateSplitAxis = true;
 		mRoot.mbRecalculateSplit = true;
-	}
-
-	//-----------------------------------------------------------------------
-
-	static cColor LevelColor[10] = {cColor(1,1,1),cColor(1,0,1),cColor(1,1,0),cColor(0,1,1),cColor(0,0,1),cColor(0,1,0),cColor(1,0,0),cColor(1,0.5f,1),
-									cColor(1,1,0.5f), cColor(1,0.5f,0.5f)};
-
-	void cRenderableContainer_DynBoxTree::RenderDebugNode(cRendererCallbackFunctions *apFunctions, cRCNode_DynBoxTree *apNode, int alLevel)
-	{
-		//AABB
-		apFunctions->GetLowLevelGfx()->DrawBoxMinMax(apNode->GetMin(),apNode->GetMax(),LevelColor[alLevel % 10]);
-
-		//Split plane
-		if(apNode->HasChildNodes())
-		{
-			cVector3f vMin = apNode->GetMin();
-			cVector3f vMax = apNode->GetMax();
-			vMin.v[apNode->mlSplitAxis] = apNode->mfSplitPlane;
-			vMax.v[apNode->mlSplitAxis] = apNode->mfSplitPlane;
-
-			apFunctions->GetLowLevelGfx()->DrawBoxMinMax(vMin, vMax,LevelColor[alLevel % 10]);
-
-		}
-				
-
-		tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-		for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
-		{
-			cRCNode_DynBoxTree *pChildNode = static_cast<cRCNode_DynBoxTree*>(*childIt);
-			RenderDebugNode(apFunctions,pChildNode , alLevel+1);
-		}
 	}
 
 	//-----------------------------------------------------------------------

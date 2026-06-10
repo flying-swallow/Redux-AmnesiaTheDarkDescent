@@ -31,59 +31,15 @@
 
 #include "graphics/Graphics.h"
 #include "graphics/Material.h"
-#include "graphics/GPUShader.h"
-#include "graphics/GPUProgram.h"
 #include "graphics/LowLevelGraphics.h"
-#include "graphics/ProgramComboManager.h"
 #include "graphics/Renderable.h"
 #include "graphics/Renderer.h"
-
-
 
 namespace hpl {
 
 	//////////////////////////////////////////////////////////////////////////
-	// DEFINES
-	//////////////////////////////////////////////////////////////////////////
-	
-	//------------------------------
-	// Variables
-	//------------------------------
-	#define kVar_afT								0
-	#define kVar_afRefractionScale					1
-	#define kVar_a_mtxInvViewRotation				2
-	#define kVar_avReflectionMapSizeMul				3
-	#define kVar_avFrenselBiasPow					4
-	#define kVar_avReflectionFadeStartAndLength		5
-	#define kVar_afWaveAmplitude					6
-	#define kVar_afWaveFreq							7
-	#define kVar_avFogStartAndLength				8
-	#define kVar_avFogColor							9
-	#define kVar_afFalloffExp						10
-
-	//------------------------------
-	//Diffuse Features and data
-	//------------------------------
-	#define eFeature_Diffuse_Reflection				eFlagBit_0
-	#define eFeature_Diffuse_CubeMapReflection		eFlagBit_1
-	#define eFeature_Diffuse_ReflectionFading		eFlagBit_2
-	#define eFeature_Diffuse_Fog					eFlagBit_3
-	
-	#define kDiffuseFeatureNum 4
-
-	static cProgramComboFeature vDiffuseFeatureVec[] =
-	{
-		cProgramComboFeature("UseReflection", kPC_FragmentBit),
-		cProgramComboFeature("UseCubeMapReflection", kPC_FragmentBit, eFeature_Diffuse_Reflection),
-		cProgramComboFeature("UseReflectionFading", kPC_FragmentBit, eFeature_Diffuse_Reflection),
-		cProgramComboFeature("UseFog", kPC_FragmentBit | kPC_VertexBit),
-	};
-
-	//////////////////////////////////////////////////////////////////////////
 	// TRANSLUCENT
 	//////////////////////////////////////////////////////////////////////////
-	
-	//--------------------------------------------------------------------------
 	
 	cMaterialType_Water::cMaterialType_Water(cGraphics *apGraphics, cResources *apResources) : iMaterialType(apGraphics, apResources)
 	{
@@ -111,63 +67,12 @@ namespace hpl {
 		mbHasTypeSpecifics[eMaterialRenderMode_DiffuseFog] = true;
 	}
 
-	cMaterialType_Water::~cMaterialType_Water()
-	{
-	}
-
-	//--------------------------------------------------------------------------
-
-	void cMaterialType_Water::DestroyProgram(cMaterial *apMaterial, eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, char alSkeleton)
-	{
-		mpProgramManager->DestroyGeneratedProgram(eMaterialRenderMode_Diffuse, apProgram);
-	}
-
-	//--------------------------------------------------------------------------
-
-	void cMaterialType_Water::LoadData()
-	{
-		/////////////////////////////
-		// Load Diffuse programs
-		cParserVarContainer defaultVars;
-		defaultVars.Add("UseUv");
-		defaultVars.Add("UseNormals");
-		defaultVars.Add("UseVertexPosition");
-		defaultVars.Add("UseRefractionEdgeCheck");
-		defaultVars.Add("UseNormals");
-		defaultVars.Add("UseNormalMapping");
-		if(iRenderer::GetRefractionEnabled())	defaultVars.Add("UseRefraction");
-        				
-		mpProgramManager->SetupGenerateProgramData(	eMaterialRenderMode_Diffuse,"Diffuse","deferred_base_vtx.glsl", "water_surface_frag.glsl", 
-											vDiffuseFeatureVec,kDiffuseFeatureNum, defaultVars);
-		
-
-		////////////////////////////////
-		//Set up variable ids
-		mpProgramManager->AddGenerateProgramVariableId("afT",kVar_afT,eMaterialRenderMode_Diffuse);
-		mpProgramManager->AddGenerateProgramVariableId("afRefractionScale",kVar_afRefractionScale,eMaterialRenderMode_Diffuse);
-		mpProgramManager->AddGenerateProgramVariableId("a_mtxInvViewRotation",kVar_a_mtxInvViewRotation, eMaterialRenderMode_Diffuse);
-		mpProgramManager->AddGenerateProgramVariableId("avReflectionMapSizeMul", kVar_avReflectionMapSizeMul, eMaterialRenderMode_Diffuse);
-		mpProgramManager->AddGenerateProgramVariableId("avFrenselBiasPow", kVar_avFrenselBiasPow, eMaterialRenderMode_Diffuse);
-		mpProgramManager->AddGenerateProgramVariableId("avReflectionFadeStartAndLength", kVar_avReflectionFadeStartAndLength, eMaterialRenderMode_Diffuse);
-		mpProgramManager->AddGenerateProgramVariableId("afWaveAmplitude", kVar_afWaveAmplitude, eMaterialRenderMode_Diffuse);
-		mpProgramManager->AddGenerateProgramVariableId("afWaveFreq", kVar_afWaveFreq, eMaterialRenderMode_Diffuse);
-
-		mpProgramManager->AddGenerateProgramVariableId("avFogStartAndLength",kVar_avFogStartAndLength, eMaterialRenderMode_Diffuse);
-		mpProgramManager->AddGenerateProgramVariableId("avFogColor",kVar_avFogColor, eMaterialRenderMode_Diffuse);
-		mpProgramManager->AddGenerateProgramVariableId("afFalloffExp",kVar_afFalloffExp	, eMaterialRenderMode_Diffuse);
-
-	}
-	void cMaterialType_Water::DestroyData()
-	{
-		mpProgramManager->DestroyShadersAndPrograms();
-	}
-
-	//--------------------------------------------------------------------------
+	cMaterialType_Water::~cMaterialType_Water() {}
 
 	iTexture* cMaterialType_Water::GetTextureForUnit(cMaterial *apMaterial,eMaterialRenderMode aRenderMode, int alUnit)
 	{
 		////////////////////////////
-		//Z
+		// Z
 		if(aRenderMode == eMaterialRenderMode_Z)
 		{
 			switch(alUnit)
@@ -176,7 +81,7 @@ namespace hpl {
 			}
 		}
 		////////////////////////////
-		//Diffuse
+		// Diffuse
 		else if(aRenderMode == eMaterialRenderMode_Diffuse || aRenderMode == eMaterialRenderMode_DiffuseFog)
 		{
 			cMaterialType_Water_Vars *pVars = static_cast<cMaterialType_Water_Vars*>(apMaterial->GetVars());
@@ -208,123 +113,6 @@ namespace hpl {
 		return NULL;
 	}
 
-	//--------------------------------------------------------------------------
-
-	iTexture* cMaterialType_Water::GetSpecialTexture(cMaterial *apMaterial, eMaterialRenderMode aRenderMode,iRenderer *apRenderer, int alUnit)
-	{
-		return NULL;
-	}
-	
-	//--------------------------------------------------------------------------
-	
-	iGpuProgram* cMaterialType_Water::GetGpuProgram(cMaterial *apMaterial, eMaterialRenderMode aRenderMode, char alSkeleton)
-	{
-		////////////////////////////
-		//Z
-		if(aRenderMode == eMaterialRenderMode_Z)
-		{
-			return NULL;
-		}
-		////////////////////////////
-		//Diffuse
-		else if(aRenderMode == eMaterialRenderMode_Diffuse || aRenderMode == eMaterialRenderMode_DiffuseFog)
-		{
-			cMaterialType_Water_Vars *pVars = static_cast<cMaterialType_Water_Vars*>(apMaterial->GetVars());
-
-			tFlag lFlags =0;
-			
-			if(iRenderer::GetRefractionEnabled())
-			{
-				if(pVars->mbHasReflection)								lFlags |= eFeature_Diffuse_Reflection;
-				if(apMaterial->GetTexture(eMaterialTexture_CubeMap))	lFlags |= eFeature_Diffuse_CubeMapReflection;
-			}
-
-			if(pVars->mfReflectionFadeEnd>0)						lFlags |= eFeature_Diffuse_ReflectionFading;
-			if(aRenderMode == eMaterialRenderMode_DiffuseFog)		lFlags |= eFeature_Diffuse_Fog;
-			
-			return mpProgramManager->GenerateProgram(eMaterialRenderMode_Diffuse,lFlags);
-		}
-
-		return NULL;
-	}
-
-	//--------------------------------------------------------------------------
-
-	void cMaterialType_Water::SetupTypeSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram,iRenderer *apRenderer)
-	{
-		////////////////////////////
-		//Diffuse
-		if(aRenderMode == eMaterialRenderMode_Diffuse)
-		{
-			
-		}
-	}
-	
-	//--------------------------------------------------------------------------
-
-	void cMaterialType_Water::SetupMaterialSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, cMaterial *apMaterial,iRenderer *apRenderer)
-	{
-		////////////////////////////
-		//Diffuse
-		if(aRenderMode == eMaterialRenderMode_Diffuse || aRenderMode == eMaterialRenderMode_DiffuseFog)
-		{
-			cMaterialType_Water_Vars *pVars = static_cast<cMaterialType_Water_Vars*>(apMaterial->GetVars());
-
-			////////////////////////////
-			// General
-			apProgram->SetFloat(kVar_afT, apRenderer->GetTimeCount() * pVars->mfWaveSpeed);
-			apProgram->SetFloat(kVar_afRefractionScale, pVars->mfRefractionScale * (float)apRenderer->GetRenderTargetSize().x);
-			apProgram->SetFloat(kVar_afWaveAmplitude, pVars->mfWaveAmplitude * 0.04f);
-			apProgram->SetFloat(kVar_afWaveFreq	, pVars->mfWaveFreq * 10.0f);
-
-			////////////////////////////
-			// Fog
-			cWorld *pWorld = apRenderer->GetCurrentWorld();
-
-			apProgram->SetVec2f(kVar_avFogStartAndLength, cVector2f(pWorld->GetFogStart(), pWorld->GetFogEnd() - pWorld->GetFogStart()));
-			apProgram->SetColor4f(kVar_avFogColor, pWorld->GetFogColor());
-			apProgram->SetFloat(kVar_afFalloffExp, pWorld->GetFogFalloffExp());
-
-			//////////////////////////////
-			//Reflection
-			if(pVars->mbHasReflection && iRenderer::GetRefractionEnabled())
-			{
-				apProgram->SetVec2f(kVar_avFrenselBiasPow, cVector2f(pVars->mfFrenselBias, pVars->mfFrenselPow));
-
-				//////////////////////////////
-				//Cube map reflection
-				if(apMaterial->GetTexture(eMaterialTexture_CubeMap))
-				{
-					cMatrixf mtxInvView = apRenderer->GetCurrentFrustum()->GetViewMatrix().GetTranspose();
-					apProgram->SetMatrixf(kVar_a_mtxInvViewRotation, mtxInvView.GetRotation());
-				}
-				//////////////////////////////
-				//World reflection
-				else
-				{
-					apProgram->SetVec2f(kVar_avReflectionMapSizeMul, cVector2f(1.0f / (float)iRenderer::GetReflectionSizeDiv()) );
-				}
-				
-				//////////////////////////////
-				//Reflection fading
-				if(pVars->mfReflectionFadeEnd > 0)
-				{
-					float fLength = pVars->mfReflectionFadeEnd - pVars->mfReflectionFadeStart;
-					apProgram->SetVec2f(kVar_avReflectionFadeStartAndLength, cVector2f(-pVars->mfReflectionFadeStart, -fLength) );
-				}
-			}
-		}
-	}
-	
-	//--------------------------------------------------------------------------
-
-	void cMaterialType_Water::SetupObjectSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, iRenderable *apObject,iRenderer *apRenderer)
-	{
-	}
-
-
-	//--------------------------------------------------------------------------
-
 	iMaterialVars* cMaterialType_Water::CreateSpecificVariables()
 	{
 		cMaterialType_Water_Vars* pVars = hplNew(cMaterialType_Water_Vars,());
@@ -336,8 +124,6 @@ namespace hpl {
 
 		return pVars;
 	}
-
-	//--------------------------------------------------------------------------
 
 	void cMaterialType_Water::LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars)
 	{
@@ -363,8 +149,6 @@ namespace hpl {
 		apMaterial->SetLargeTransperantSurface( apVars->GetVarBool("LargeSurface", false));
 	}
 
-	//--------------------------------------------------------------------------
-
 	void cMaterialType_Water::GetVariableValues(cMaterial* apMaterial, cResourceVarsObject* apVars)
 	{
 		cMaterialType_Water_Vars* pVars = (cMaterialType_Water_Vars*)apMaterial->GetVars();
@@ -383,27 +167,25 @@ namespace hpl {
 		apVars->AddVarBool("LargeSurface", apMaterial->GetLargeTransperantSurface());
 	}
 
-	//--------------------------------------------------------------------------
-
 	void cMaterialType_Water::CompileMaterialSpecifics(cMaterial *apMaterial)
 	{
 		cMaterialType_Water_Vars *pVars = static_cast<cMaterialType_Water_Vars*>(apMaterial->GetVars());
 
 		/////////////////////////////////////
-		//Set if has specific variables
+		// Set if has specific variables
 		apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Diffuse, true);
 		apMaterial->SetHasSpecificSettings(eMaterialRenderMode_DiffuseFog, true);
 		
 		
 		/////////////////////////////////////
-		//Set up the blend mode
+		// Set up the blend mode
 		if(iRenderer::GetRefractionEnabled())
 			apMaterial->SetBlendMode(eMaterialBlendMode_None);
 		else
 			apMaterial->SetBlendMode(eMaterialBlendMode_Mul);
 
 		/////////////////////////////////////
-		//Set up the refraction
+		// Set up the refraction
 		if(iRenderer::GetRefractionEnabled())
 		{
 			apMaterial->SetHasRefraction(true);
@@ -411,7 +193,7 @@ namespace hpl {
 		}
 
 		///////////////////////////
-		//Set up reflection
+		// Set up reflection
 		if(pVars->mbHasReflection && iRenderer::GetRefractionEnabled())
 		{
 			if(apMaterial->GetTexture(eMaterialTexture_CubeMap)==NULL)
@@ -437,8 +219,4 @@ namespace hpl {
 		desc.m_water.m_waveFreq = pVars->mfWaveFreq;
 		apMaterial->SetDescriptor(desc);
 	}
-	
-	//--------------------------------------------------------------------------
-
-
 }

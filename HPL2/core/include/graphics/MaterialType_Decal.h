@@ -32,8 +32,8 @@ namespace hpl {
 	class cMaterialType_Decal_Vars : public iMaterialVars
 	{
 	public:
-		cMaterialType_Decal_Vars(){}
-		~cMaterialType_Decal_Vars(){}
+		cMaterialType_Decal_Vars() {}
+		~cMaterialType_Decal_Vars() {}
    	};
 
 	//-----------------------------------------------------
@@ -44,18 +44,10 @@ namespace hpl {
 		cMaterialType_Decal(cGraphics *apGraphics, cResources *apResources);
 		~cMaterialType_Decal();
 
-		void DestroyProgram(cMaterial *apMaterial, eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, char alSkeleton);
-
-		bool SupportsHWSkinning(){ return false; }
+		bool SupportsHWSkinning() { return false; }
 
 		iTexture* GetTextureForUnit(cMaterial *apMaterial,eMaterialRenderMode aRenderMode, int alUnit);
-		iTexture* GetSpecialTexture(cMaterial *apMaterial, eMaterialRenderMode aRenderMode,iRenderer *apRenderer, int alUnit);
-		
-		iGpuProgram* GetGpuProgram(cMaterial *apMaterial, eMaterialRenderMode aRenderMode, char alSkeleton);
-
-		void SetupTypeSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram,iRenderer *apRenderer);
-		void SetupMaterialSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, cMaterial *apMaterial,iRenderer *apRenderer);
-		void SetupObjectSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, iRenderable *apObject,iRenderer *apRenderer);
+		iTexture* GetSpecialTexture(cMaterial* apMaterial, eMaterialRenderMode aRenderMode, iRenderer* apRenderer, int alUnit) { return NULL; } // STUB
 
 		iMaterialVars* CreateSpecificVariables();
 		void LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars);
@@ -64,8 +56,8 @@ namespace hpl {
 		void CompileMaterialSpecifics(cMaterial *apMaterial);
 	
 	private:
-		void LoadData();
-		void DestroyData();
+		void LoadData() {} // STUB
+		void DestroyData() {} // STUB
 	};
 
 	//---------------------------------------------------

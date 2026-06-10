@@ -41,7 +41,6 @@ namespace hpl {
 	class iResourceManager;
 	class cFileSearcher;
 	class cImageManager;
-	class cGpuShaderManager;
 	class cParticleManager;
 	class cSoundManager;
 	class cFontManager;
@@ -210,10 +209,8 @@ namespace hpl {
 		cMeshLoaderHandler* GetMeshLoaderHandler(){ return mpMeshLoaderHandler;}
 		cBitmapLoaderHandler* GetBitmapLoaderHandler(){ return mpBitmapLoaderHandler;}
 		cWorldLoaderHandler* GetWorldLoaderHandler(){ return mpWorldLoaderHandler;}
-		cVideoLoaderHandler* GetVideoLoaderHandler(){ return mpVideoLoaderHandler;}
 
 		cImageManager* GetImageManager(){return mpImageManager;}
-		cGpuShaderManager* GetGpuShaderManager(){return mpGpuShaderManager;}
 		cParticleManager* GetParticleManager(){ return mpParticleManager;}
 		cSoundManager* GetSoundManager(){ return mpSoundManager;}
 		cFontManager* GetFontManager(){ return mpFontManager;}
@@ -241,7 +238,6 @@ namespace hpl {
 
         tResourceManagerList mlstManagers;
 		cImageManager *mpImageManager;
-		cGpuShaderManager *mpGpuShaderManager;
 		cParticleManager* mpParticleManager;
 		cSoundManager* mpSoundManager;
 		cFontManager* mpFontManager;
@@ -259,7 +255,6 @@ namespace hpl {
 		cMeshLoaderHandler* mpMeshLoaderHandler;
 		cBitmapLoaderHandler* mpBitmapLoaderHandler;
 		cWorldLoaderHandler *mpWorldLoaderHandler;
-		cVideoLoaderHandler *mpVideoLoaderHandler;
 				
 		tEntityLoaderMap m_mEntityLoaders;
 		iEntityLoader* mpDefaultEntityLoader;

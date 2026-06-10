@@ -40,7 +40,6 @@ namespace hpl {
 	class cAI;
 	class cHaptic;
 	class cGui;
-	class cGenerate;
 	class cEngine;
 	class cEngineInitVars;
 	class iTimer;
@@ -126,7 +125,6 @@ namespace hpl {
 		cAI* GetAI(){ return mpAI;}
 		cGui* GetGui(){ return mpGui;}
 		cHaptic* GetHaptic(){ return mpHaptic;}
-		cGenerate* GetGenerate(){ return mpGenerate;}
 		
 		void ResetLogicTimer();
 		void SetUpdatesPerSec(int alUpdatesPerSec);
@@ -235,7 +233,6 @@ namespace hpl {
 		cAI *mpAI;
 		cHaptic *mpHaptic;
 		cGui *mpGui;
-		cGenerate* mpGenerate;
 	};
 
 };

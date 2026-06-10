@@ -63,7 +63,7 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 	cRendererWireFrame::cRendererWireFrame(cGraphics *apGraphics,cResources* apResources)
-		: iRenderer("WireFrame",apGraphics, apResources,0)
+		: iRenderer("WireFrame",apGraphics, apResources)
 	{
 		// Standalone program (no bindless set) — mirrors the RI.gui load in
 		// cGraphics::Init; per-draw state arrives via a frame-scratch UBO

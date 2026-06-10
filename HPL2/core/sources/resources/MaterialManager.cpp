@@ -59,18 +59,10 @@ namespace hpl {
 		void LoadData(){}
 		void DestroyData(){}
 
-		void DestroyProgram(cMaterial *apMaterial, eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, char alSkeleton){}
-
 		bool SupportsHWSkinning(){ return false; }
 
 		iTexture* GetTextureForUnit(cMaterial *apMaterial,eMaterialRenderMode aRenderMode, int alUnit){ return NULL;}
 		iTexture* GetSpecialTexture(cMaterial *apMaterial, eMaterialRenderMode aRenderMode,iRenderer *apRenderer, int alUnit){ return NULL; }
-
-		iGpuProgram* GetGpuProgram(cMaterial *apMaterial, eMaterialRenderMode aRenderMode, char alSkeleton){return NULL;}
-
-		void SetupTypeSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram,iRenderer *apRenderer){ }
-		void SetupMaterialSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, cMaterial *apMaterial,iRenderer *apRenderer){ }
-		void SetupObjectSpecificData(eMaterialRenderMode aRenderMode, iGpuProgram* apProgram, iRenderable *apObject,iRenderer *apRenderer){ }
 
 		iMaterialVars* CreateSpecificVariables(){ return hplNew(cMaterialManagerBlankMaterialType_Vars,());}
 		void LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars){ }
@@ -193,30 +185,6 @@ namespace hpl {
 		{
 			cMaterial *pMat = static_cast<cMaterial*>(it->second);
 			pMat->setTextureFilter(aFilter);
-		}
-	}
-
-	//-----------------------------------------------------------------------
-	
-	void cMaterialManager::SetTextureAnisotropy(float afX)
-	{
-		if(afX <1.0 || mpGraphics->GetLowLevel()->GetCaps(eGraphicCaps_AnisotropicFiltering)==0)
-		{
-			return;
-		}
-		if(afX > (float) mpGraphics->GetLowLevel()->GetCaps(eGraphicCaps_MaxAnisotropicFiltering))
-		{
-			return;
-		}
-
-		if(mfTextureAnisotropy == afX) return;
-		mfTextureAnisotropy = afX;
-
-		tResourceBaseMapIt it = m_mapResources.begin();
-		for(; it != m_mapResources.end(); ++it)
-		{
-			cMaterial *pMat = static_cast<cMaterial*>(it->second);
-			pMat->SetTextureAnisotropy(mfTextureAnisotropy);
 		}
 	}
 

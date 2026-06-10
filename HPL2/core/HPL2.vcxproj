@@ -165,6 +165,11 @@
     <ClInclude Include="include\graphics\DebugDraw.h" />
     <ClInclude Include="include\graphics\DecalPipelineDesc.h" />
     <ClInclude Include="include\graphics\DrawPacket.h" />
+    <ClInclude Include="include\graphics\FrameBase.h" />
+    <ClInclude Include="include\graphics\FrameBitmap.h" />
+    <ClInclude Include="include\graphics\FrameBuffer.h" />
+    <ClInclude Include="include\graphics\FrameSubImage.h" />
+    <ClInclude Include="include\graphics\FrameTexture.h" />
     <ClInclude Include="include\graphics\GBufferMRTPipelineDesc.h" />
     <ClInclude Include="include\graphics\GraphicUtils.h" />
     <ClInclude Include="include\graphics\HPLGraphicsConfig.h" />
@@ -175,10 +180,16 @@
     <ClInclude Include="include\graphics\ImageResourceWrapper.h" />
     <ClInclude Include="include\graphics\IndexPool.h" />
     <ClInclude Include="include\graphics\MaterialResource.h" />
+    <ClInclude Include="include\graphics\MaterialType_BasicSolid.h" />
+    <ClInclude Include="include\graphics\MaterialType_BasicTranslucent.h" />
+    <ClInclude Include="include\graphics\MaterialType_Decal.h" />
+    <ClInclude Include="include\graphics\MaterialType_Water.h" />
     <ClInclude Include="include\graphics\ObjectPool.h" />
     <ClInclude Include="include\graphics\PostEffectHelpers.h" />
     <ClInclude Include="include\graphics\PostEffect_ToneMap.h" />
-    <ClInclude Include="include\graphics\RenderList2.h" />
+    <ClInclude Include="include\graphics\Renderer.h" />
+    <ClInclude Include="include\graphics\RenderFunctions.h" />
+    <ClInclude Include="include\graphics\RenderList.h" />
     <ClInclude Include="include\graphics\RIBarrier.h" />
     <ClInclude Include="include\graphics\RIBootstrap.h" />
     <ClInclude Include="include\graphics\RIConversion.h" />
@@ -199,7 +210,9 @@
     <ClInclude Include="include\graphics\spirv.h" />
     <ClInclude Include="include\graphics\spirv_reflect.h" />
     <ClInclude Include="include\graphics\TranslucentMeshPipelineDesc.h" />
+    <ClInclude Include="include\graphics\VertexBuffer.h" />
     <ClInclude Include="include\graphics\VertexBuffer_RI.h" />
+    <ClInclude Include="include\gui\GuiGfxElement.h" />
     <ClInclude Include="include\gui\WidgetMeshObjectList.h" />
     <ClInclude Include="include\gui\WidgetNodeTree.h" />
     <ClInclude Include="include\impl\GamepadSDL2.h" />
@@ -207,6 +220,7 @@
     <ClInclude Include="include\gui\GuiPopUpUIKeyboard.h" />
     <ClInclude Include="include\impl\GamepadSDL.h" />
     <ClInclude Include="include\impl\GamepadXInput.h" />
+    <ClInclude Include="include\impl\SDLTexture.h" />
     <ClInclude Include="include\input\ActionGamepadAxis.h" />
     <ClInclude Include="include\input\ActionGamepadButton.h" />
     <ClInclude Include="include\input\ActionGamepadHat.h" />
@@ -259,13 +273,6 @@
     <ClInclude Include="include\graphics\Color.h" />
     <ClInclude Include="include\graphics\DecalCreator.h" />
     <ClInclude Include="include\graphics\FontData.h" />
-    <ClInclude Include="include\graphics\FrameBase.h" />
-    <ClInclude Include="include\graphics\FrameBitmap.h" />
-    <ClInclude Include="include\graphics\FrameBuffer.h" />
-    <ClInclude Include="include\graphics\FrameSubImage.h" />
-    <ClInclude Include="include\graphics\FrameTexture.h" />
-    <ClInclude Include="include\graphics\GPUProgram.h" />
-    <ClInclude Include="include\graphics\GPUShader.h" />
     <ClInclude Include="include\graphics\Graphics.h" />
     <ClInclude Include="include\graphics\GraphicsTypes.h" />
     <ClInclude Include="include\graphics\LowLevelGraphics.h" />
@@ -275,23 +282,13 @@
     <ClInclude Include="include\graphics\MeshCreator.h" />
     <ClInclude Include="include\graphics\PostEffect.h" />
     <ClInclude Include="include\graphics\PostEffectComposite.h" />
-    <ClInclude Include="include\graphics\ProgramComboManager.h" />
     <ClInclude Include="include\graphics\Renderable.h" />
-    <ClInclude Include="include\graphics\Renderer.h" />
     <ClInclude Include="include\graphics\RendererSimple.h" />
     <ClInclude Include="include\graphics\RendererWireFrame.h" />
-    <ClInclude Include="include\graphics\RenderFunctions.h" />
-    <ClInclude Include="include\graphics\RenderList.h" />
     <ClInclude Include="include\graphics\Skeleton.h" />
     <ClInclude Include="include\graphics\SubMesh.h" />
     <ClInclude Include="include\graphics\Texture.h" />
     <ClInclude Include="include\graphics\TextureCreator.h" />
-    <ClInclude Include="include\graphics\VertexBuffer.h" />
-    <ClInclude Include="include\graphics\VideoStream.h" />
-    <ClInclude Include="include\graphics\MaterialType_BasicSolid.h" />
-    <ClInclude Include="include\graphics\MaterialType_BasicTranslucent.h" />
-    <ClInclude Include="include\graphics\MaterialType_Decal.h" />
-    <ClInclude Include="include\graphics\MaterialType_Water.h" />
     <ClInclude Include="include\graphics\PostEffect_Bloom.h" />
     <ClInclude Include="include\graphics\PostEffect_ColorConvTex.h" />
     <ClInclude Include="include\graphics\PostEffect_ImageTrail.h" />
@@ -354,17 +351,8 @@
     <ClInclude Include="include\physics\VerletParticle.h" />
     <ClInclude Include="include\impl\tinyXML\tinystr.h" />
     <ClInclude Include="include\impl\tinyXML\tinyxml.h" />
-    <ClInclude Include="include\impl\FrameBufferGL.h" />
-    <ClInclude Include="include\impl\GLSLProgram.h" />
-    <ClInclude Include="include\impl\GLSLShader.h" />
     <ClInclude Include="include\impl\LowLevelGraphicsSDL.h" />
-    <ClInclude Include="include\impl\PBuffer.h" />
     <ClInclude Include="include\impl\SDLFontData.h" />
-    <ClInclude Include="include\impl\SDLTexture.h" />
-    <ClInclude Include="include\impl\VertexBufferOGL_Array.h" />
-    <ClInclude Include="include\impl\VertexBufferOGL_VBO.h" />
-    <ClInclude Include="include\impl\VertexBufferOpenGL.h" />
-    <ClInclude Include="include\impl\VideoStreamTheora.h" />
     <ClInclude Include="include\impl\BitmapLoaderDevil.h" />
     <ClInclude Include="include\impl\BitmapLoaderDevilDDS.h" />
     <ClInclude Include="include\impl\BitmapLoaderDevilMisc.h" />
@@ -450,7 +438,6 @@
     <ClInclude Include="include\resources\EntityLoader_Object.h" />
     <ClInclude Include="include\resources\FileSearcher.h" />
     <ClInclude Include="include\resources\FontManager.h" />
-    <ClInclude Include="include\resources\GpuShaderManager.h" />
     <ClInclude Include="include\resources\ImageManager.h" />
     <ClInclude Include="include\resources\LanguageFile.h" />
     <ClInclude Include="include\resources\LowLevelResources.h" />
@@ -469,8 +456,6 @@
     <ClInclude Include="include\resources\SoundEntityManager.h" />
     <ClInclude Include="include\resources\SoundManager.h" />
     <ClInclude Include="include\resources\TextureManager.h" />
-    <ClInclude Include="include\resources\VideoLoader.h" />
-    <ClInclude Include="include\resources\VideoLoaderHandler.h" />
     <ClInclude Include="include\resources\WorldLoader.h" />
     <ClInclude Include="include\resources\WorldLoaderHandler.h" />
     <ClInclude Include="include\resources\WorldLoaderHplMap.h" />
@@ -499,7 +484,6 @@
     <ClInclude Include="include\haptic\HapticTypes.h" />
     <ClInclude Include="include\haptic\LowLevelHaptic.h" />
     <ClInclude Include="include\gui\Gui.h" />
-    <ClInclude Include="include\gui\GuiGfxElement.h" />
     <ClInclude Include="include\gui\GuiMaterial.h" />
     <ClInclude Include="include\gui\GuiMaterialBasicTypes.h" />
     <ClInclude Include="include\gui\GuiPopUp.h" />
@@ -530,9 +514,6 @@
     <ClInclude Include="include\gui\WidgetTabFrame.h" />
     <ClInclude Include="include\gui\WidgetTextBox.h" />
     <ClInclude Include="include\gui\WidgetWindow.h" />
-    <ClInclude Include="include\generate\Generate.h" />
-    <ClInclude Include="include\generate\GenerateTypes.h" />
-    <ClInclude Include="include\generate\VoxelMap.h" />
     <ClInclude Include="include\HPL.h" />
     <ClInclude Include="include\system\Types.h" />
   </ItemGroup>
@@ -541,6 +522,9 @@
     <ClCompile Include="sources\graphics\BindlessPool.cpp" />
     <ClCompile Include="sources\graphics\DebugDraw.cpp" />
     <ClCompile Include="sources\graphics\DecalPipelineDesc.cpp" />
+    <ClCompile Include="sources\graphics\FrameBitmap.cpp" />
+    <ClCompile Include="sources\graphics\FrameSubImage.cpp" />
+    <ClCompile Include="sources\graphics\FrameTexture.cpp" />
     <ClCompile Include="sources\graphics\GBufferMRTPipelineDesc.cpp" />
     <ClCompile Include="sources\graphics\GraphicUtils.cpp" />
     <ClCompile Include="sources\graphics\HPLTexture.cpp" />
@@ -550,10 +534,16 @@
     <ClCompile Include="sources\graphics\ImageResourceWrapper.cpp" />
     <ClCompile Include="sources\graphics\IndexPool.cpp" />
     <ClCompile Include="sources\graphics\MaterialResource.cpp" />
+    <ClCompile Include="sources\graphics\MaterialType_BasicSolid.cpp" />
+    <ClCompile Include="sources\graphics\MaterialType_BasicTranslucent.cpp" />
+    <ClCompile Include="sources\graphics\MaterialType_Decal.cpp" />
+    <ClCompile Include="sources\graphics\MaterialType_Water.cpp" />
     <ClCompile Include="sources\graphics\ParticlePipelineDesc.cpp" />
     <ClCompile Include="sources\graphics\PostEffectHelpers.cpp" />
     <ClCompile Include="sources\graphics\PostEffect_ToneMap.cpp" />
-    <ClCompile Include="sources\graphics\RenderList2.cpp" />
+    <ClCompile Include="sources\graphics\Renderer.cpp" />
+    <ClCompile Include="sources\graphics\RenderFunctions.cpp" />
+    <ClCompile Include="sources\graphics\RenderList.cpp" />
     <ClCompile Include="sources\graphics\RIAccelStructure.cpp" />
     <ClCompile Include="sources\graphics\RIBootstrap.cpp" />
     <ClCompile Include="sources\graphics\RIBuffer.cpp" />
@@ -569,6 +559,7 @@
     <ClCompile Include="sources\graphics\RIVK.cpp" />
     <ClCompile Include="sources\graphics\spirv_reflect.c" />
     <ClCompile Include="sources\graphics\TranslucentMeshPipelineDesc.cpp" />
+    <ClCompile Include="sources\gui\GuiGfxElement.cpp" />
     <ClCompile Include="sources\gui\WidgetMeshObjectList.cpp" />
     <ClCompile Include="sources\gui\WidgetNodeTree.cpp" />
     <ClCompile Include="sources\impl\GamepadSDL2.cpp" />
@@ -576,6 +567,7 @@
     <ClCompile Include="sources\gui\GuiPopUpUIKeyboard.cpp" />
     <ClCompile Include="sources\impl\GamepadSDL.cpp" />
     <ClCompile Include="sources\impl\GamepadXInput.cpp" />
+    <ClCompile Include="sources\impl\SDLTexture.cpp" />
     <ClCompile Include="sources\impl\VertexBuffer_RI.cpp" />
     <ClCompile Include="sources\input\ActionGamepadAxis.cpp" />
     <ClCompile Include="sources\input\ActionGamepadButton.cpp" />
@@ -616,11 +608,6 @@
     <ClCompile Include="sources\graphics\Color.cpp" />
     <ClCompile Include="sources\graphics\DecalCreator.cpp" />
     <ClCompile Include="sources\graphics\FontData.cpp" />
-    <ClCompile Include="sources\graphics\FrameBitmap.cpp" />
-    <ClCompile Include="sources\graphics\FrameSubImage.cpp" />
-    <ClCompile Include="sources\graphics\FrameTexture.cpp" />
-    <ClCompile Include="sources\graphics\GPUProgram.cpp" />
-    <ClCompile Include="sources\graphics\GPUShader.cpp" />
     <ClCompile Include="sources\graphics\Graphics.cpp" />
     <ClCompile Include="sources\graphics\GraphicsTypes.cpp" />
     <ClCompile Include="sources\graphics\LowLevelGraphics.cpp" />
@@ -630,20 +617,12 @@
     <ClCompile Include="sources\graphics\MeshCreator.cpp" />
     <ClCompile Include="sources\graphics\PostEffect.cpp" />
     <ClCompile Include="sources\graphics\PostEffectComposite.cpp" />
-    <ClCompile Include="sources\graphics\ProgramComboManager.cpp" />
     <ClCompile Include="sources\graphics\Renderable.cpp" />
-    <ClCompile Include="sources\graphics\Renderer.cpp" />
     <ClCompile Include="sources\graphics\RendererSimple.cpp" />
     <ClCompile Include="sources\graphics\RendererWireFrame.cpp" />
-    <ClCompile Include="sources\graphics\RenderFunctions.cpp" />
-    <ClCompile Include="sources\graphics\RenderList.cpp" />
     <ClCompile Include="sources\graphics\Skeleton.cpp" />
     <ClCompile Include="sources\graphics\SubMesh.cpp" />
     <ClCompile Include="sources\graphics\TextureCreator.cpp" />
-    <ClCompile Include="sources\graphics\MaterialType_BasicSolid.cpp" />
-    <ClCompile Include="sources\graphics\MaterialType_BasicTranslucent.cpp" />
-    <ClCompile Include="sources\graphics\MaterialType_Decal.cpp" />
-    <ClCompile Include="sources\graphics\MaterialType_Water.cpp" />
     <ClCompile Include="sources\graphics\PostEffect_Bloom.cpp" />
     <ClCompile Include="sources\graphics\PostEffect_ColorConvTex.cpp" />
     <ClCompile Include="sources\graphics\PostEffect_ImageTrail.cpp" />
@@ -699,16 +678,8 @@
     <ClCompile Include="sources\impl\tinyXml\tinyxml.cpp" />
     <ClCompile Include="sources\impl\tinyXml\tinyxmlerror.cpp" />
     <ClCompile Include="sources\impl\tinyXml\tinyxmlparser.cpp" />
-    <ClCompile Include="sources\impl\FrameBufferGL.cpp" />
-    <ClCompile Include="sources\impl\GLSLProgram.cpp" />
-    <ClCompile Include="sources\impl\GLSLShader.cpp" />
     <ClCompile Include="sources\impl\LowLevelGraphicsSDL.cpp" />
-    <ClCompile Include="sources\impl\PBuffer.cpp" />
     <ClCompile Include="sources\impl\SDLFontData.cpp" />
-    <ClCompile Include="sources\impl\SDLTexture.cpp" />
-    <ClCompile Include="sources\impl\VertexBufferOGL_Array.cpp" />
-    <ClCompile Include="sources\impl\VertexBufferOGL_VBO.cpp" />
-    <ClCompile Include="sources\impl\VertexBufferOpenGL.cpp" />
     <ClCompile Include="sources\impl\BitmapLoaderDevil.cpp" />
     <ClCompile Include="sources\impl\BitmapLoaderDevilDDS.cpp" />
     <ClCompile Include="sources\impl\BitmapLoaderDevilMisc.cpp" />
@@ -794,7 +765,6 @@
     <ClCompile Include="sources\resources\EntityLoader_Object.cpp" />
     <ClCompile Include="sources\resources\FileSearcher.cpp" />
     <ClCompile Include="sources\resources\FontManager.cpp" />
-    <ClCompile Include="sources\resources\GpuShaderManager.cpp" />
     <ClCompile Include="sources\resources\ImageManager.cpp" />
     <ClCompile Include="sources\resources\LanguageFile.cpp" />
     <ClCompile Include="sources\resources\MaterialManager.cpp" />
@@ -810,7 +780,6 @@
     <ClCompile Include="sources\resources\SoundEntityManager.cpp" />
     <ClCompile Include="sources\resources\SoundManager.cpp" />
     <ClCompile Include="sources\resources\TextureManager.cpp" />
-    <ClCompile Include="sources\resources\VideoLoaderHandler.cpp" />
     <ClCompile Include="sources\resources\WorldLoaderHandler.cpp" />
     <ClCompile Include="sources\resources\WorldLoaderHplMap.cpp" />
     <ClCompile Include="sources\resources\XmlDocument.cpp" />
@@ -830,8 +799,6 @@
     <ClCompile Include="sources\haptic\Haptic.cpp" />
     <ClCompile Include="sources\haptic\LowLevelHaptic.cpp" />
     <ClCompile Include="sources\gui\Gui.cpp" />
-    <ClCompile Include="sources\gui\GuiGfxElement.cpp" />
-    <ClCompile Include="sources\gui\GuiMaterialBasicTypes.cpp" />
     <ClCompile Include="sources\gui\GuiPopUp.cpp" />
     <ClCompile Include="sources\gui\GuiPopUpColorPicker.cpp" />
     <ClCompile Include="sources\gui\GuiPopUpFilePicker.cpp" />
@@ -859,9 +826,6 @@
     <ClCompile Include="sources\gui\WidgetTabFrame.cpp" />
     <ClCompile Include="sources\gui\WidgetTextBox.cpp" />
     <ClCompile Include="sources\gui\WidgetWindow.cpp" />
-    <ClCompile Include="sources\generate\Generate.cpp" />
-    <ClCompile Include="sources\generate\GenerateTypes.cpp" />
-    <ClCompile Include="sources\generate\VoxelMap.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\dependencies\sources\AngelScript\AngelScript.vcxproj">
@@ -872,9 +836,6 @@
     </ProjectReference>
     <ProjectReference Include="..\dependencies\sources\freealut\freealut.vcxproj">
       <Project>{34d09609-96aa-4d99-a3a7-a404b7ca24f8}</Project>
-    </ProjectReference>
-    <ProjectReference Include="..\dependencies\sources\GLEW\GLEW.vcxproj">
-      <Project>{69d24cff-31f6-4530-ac45-fb324aab5713}</Project>
     </ProjectReference>
     <ProjectReference Include="..\dependencies\sources\Newton\Newton.vcxproj">
       <Project>{bfb0e28b-c289-4982-a6f0-c19cb3a57141}</Project>

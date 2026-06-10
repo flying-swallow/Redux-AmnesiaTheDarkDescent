@@ -38,7 +38,6 @@ namespace hpl {
 	class cResources;
 	class Image;
 	class iTexture;
-	class iGpuProgram;
 	class iMaterialType;
 	class cResourceVarsObject;
 
@@ -221,7 +220,6 @@ namespace hpl {
 		bool GetAffectedByFog(){ return mbAffectedByFog;}
 		
 		inline iTexture* GetTextureInUnit(eMaterialRenderMode aRenderMode, int alUnit) const { return mvTextureInUnit[aRenderMode][alUnit];}
-		inline iGpuProgram* GetProgram(char alSkeleton,eMaterialRenderMode aRenderMode) const { return mvPrograms[alSkeleton][aRenderMode];}
 		inline eMaterialBlendMode GetBlendMode() const { return mBlendMode; }
 		inline eMaterialAlphaMode GetAlphaMode() const { return mAlphaMode; }
 		inline bool GetDepthTest() const { return mbDepthTest; }
@@ -296,7 +294,6 @@ namespace hpl {
 
 		bool mbUseAlphaDissolveFilter;
 
-		iGpuProgram *mvPrograms[2][eMaterialRenderMode_LastEnum]; //[2] == If it has skeleton or not.
 		iTexture* mvTextures[eMaterialTexture_LastEnum];
 		iTexture* mvTextureInUnit[eMaterialRenderMode_LastEnum][kMaxTextureUnits];
 
