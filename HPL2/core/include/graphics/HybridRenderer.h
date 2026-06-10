@@ -141,6 +141,10 @@ private:
   // direct lighting, temporally accumulated via the velocity texture. Writes the
   // ping-pong direct texture the composite then samples.
   RIProgram m_directLighting;
+  // ReSTIR DI spatial reuse + resolve (DirectSpatialReusePass.cs).
+  RIProgram m_directSpatialReuse;
+  // SVGF-lite à-trous spatial denoise for the direct pass (DirectAtrousPass.cs).
+  RIProgram m_directAtrous;
 
 
 	// Particle (translucent) pass — port of legacy RendererDeferred's

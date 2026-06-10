@@ -2,9 +2,42 @@
 
 #include "HostDefinitions.h"
 
+// --- Spatiotemporal blue noise (asset-free) -------------------------------
+// Used to draw the dominant per-frame sample dimensions (e.g. the soft-shadow
+// disk sample) so the residual error is high-frequency in screen space and
+// low-discrepancy in time — both the temporal accumulation and the SVGF-lite
+// à-trous filter remove it far better than the white xoshiro stream, and raw
+// frames look less clumpy. Spatial term: Jimenez interleaved-gradient noise
+// (blue over the pixel grid). Temporal term: the R2 plastic-constant additive
+// recurrence (Cranley-Patterson rotation per frame). A precomputed STBN texture
+// would be slightly better and can be swapped in behind blueNoise2() later.
+public float interleavedGradientNoise(uint2 p)
+{
+    return frac(52.9829189f * frac(0.06711056f * float(p.x) + 0.00583715f * float(p.y)));
+}
+
+// `dim` selects a decorrelated pair of sample dimensions for callers that need
+// more than one 2D sample per pixel/frame.
+public float2 blueNoise2(uint2 pixel, uint frame, uint dim)
+{
+    // 1/g, 1/g^2 of the plastic number g — the R2 low-discrepancy recurrence.
+    const float a1 = 0.7548776662466927f;
+    const float a2 = 0.5698402909980532f;
+    uint2 dimOffset = uint2(dim * 59u, dim * 37u);
+    float s0 = interleavedGradientNoise(pixel + dimOffset);
+    float s1 = interleavedGradientNoise(pixel + dimOffset + uint2(101u, 71u));
+    float2 r = float2(frac(float(frame) * a1), frac(float(frame) * a2));
+    return frac(float2(s0, s1) + r);
+}
+
 public struct RNG
 {
     public uint2 s;
+    // Blue-noise sampling context (set by init): the originating pixel, the
+    // frame index, and a running dimension counter advanced by next_blue2().
+    public uint2 pixel;
+    public uint  frame;
+    public uint  dim;
 
     public uint rotl(uint x, uint k)
     {
@@ -36,12 +69,26 @@ public struct RNG
     [mutating]
     public void init(uint2 id, uint frameIndex)
     {
+        pixel = id;
+        frame = frameIndex;
+        dim   = 0u;
         id += uint2(frameIndex, frameIndex);
         uint s0 = (id.x << 16) | id.y;
         uint s1 = frameIndex;
         s.x = hash(s0);
         s.y = hash(s1);
         next();
+    }
+
+    // Spatiotemporal blue-noise 2D sample. Each call advances to a fresh,
+    // decorrelated dimension pair so multiple soft-shadow disks per pixel don't
+    // share the same offset.
+    [mutating]
+    public float2 next_blue2()
+    {
+        float2 bn = blueNoise2(pixel, frame, dim);
+        dim += 1u;
+        return bn;
     }
 
     [mutating]
