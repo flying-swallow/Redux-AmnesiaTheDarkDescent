@@ -109,6 +109,7 @@
     <ClCompile Include="LuxPlayerState_Normal.cpp" />
     <ClCompile Include="LuxPlayerState_UseItem.cpp" />
     <ClCompile Include="LuxScreenCapture.cpp" />
+    <ClCompile Include="LuxScreenEffect.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="LuxAchievementHandler.h" />
@@ -224,6 +225,7 @@
       <Filter>slang</Filter>
     </ClInclude>
     <ClInclude Include="LuxScreenCapture.h" />
+    <ClInclude Include="LuxScreenEffect.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="Lux.rc" />

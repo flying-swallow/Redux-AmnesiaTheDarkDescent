@@ -172,6 +172,7 @@
     <ClCompile Include="LuxHelpFuncs.cpp" />
     <ClCompile Include="LuxMainMenu_StartGame.cpp" />
     <ClCompile Include="LuxScreenCapture.cpp" />
+    <ClCompile Include="LuxScreenEffect.cpp" />
     <ClCompile Include="LuxTypes.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="StdAfx.cpp" />
@@ -285,6 +286,7 @@
     <ClInclude Include="LuxIdleBehavior_ManPig.h" />
     <ClInclude Include="LuxMainMenu_StartGame.h" />
     <ClInclude Include="LuxScreenCapture.h" />
+    <ClInclude Include="LuxScreenEffect.h" />
     <ClInclude Include="LuxTypes.h" />
     <ClInclude Include="StdAfx.h" />
     <ClInclude Include="LuxKeyEntry.h" />
