@@ -31,6 +31,7 @@
 class cLuxMapHandler;
 class cLuxMapHelper;
 class cLuxInputHandler;
+class cLuxScreenCapture;
 
 class cLuxEffectHandler;
 
@@ -179,6 +180,10 @@ public:
 	bool LoadLanguage(const tString& asName, bool abForceReload=false);
 	tString GetCurrentLanguage() const { return msCurrentLanguage; }
 
+	// The shared menu-backdrop capture (a global module). Reused by the
+	// inventory, journal and escape-menu backdrops.
+	cLuxScreenCapture* GetScreenCapture() { return mpScreenCapture; }
+
 	iLuxUpdateable *AddModule(iLuxUpdateable *apModule, const tString& asContainer);
 	iLuxUpdateable *AddGlobalModule(iLuxUpdateable *apModule);
 
@@ -242,6 +247,7 @@ public:
 	cLuxCredits *mpCredits;
 	cLuxDemoEnd* mpDemoEnd;
 	iLuxAchievementHandler* mpAchievementHandler;
+	cLuxScreenCapture *mpScreenCapture;
 
 	tString msGameName;
 	tWString msErrorMessage;

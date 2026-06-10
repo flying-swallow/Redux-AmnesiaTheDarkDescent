@@ -181,7 +181,7 @@ public RWStructuredBuffer<SpotLight> gSpotLights;
 public RWStructuredBuffer<FogAreaParams> gFogAreas;
 
 // -----------------------------------------------------------------------------
-// Surfel V-buffer + irradiance / depth atlases. Written by SurfelVBuffer,
+// Surfel V-buffer + depth atlas. Written by SurfelVBuffer,
 // consumed by SurfelGI integrate / evaluation / generation passes.
 //
 // These four images and the TLAS live on **set 1** (not the persistent
@@ -194,7 +194,6 @@ public RWStructuredBuffer<FogAreaParams> gFogAreas;
 // mechanism `gPerFrame` uses.
 //
 //   gPackedHitInfo   : full-resolution V-buffer; uint4 = HitInfo.packed
-//   gIrradianceMap   : 4K atlas, per-surfel 7×7 octahedral tile (R32F)
 //   gSurfelDepthMap  : 4K atlas of (mean, sqr-mean) depth per surfel tile,
 //                      RW storage view used for atomic / unfiltered writes.
 //   gSurfelDepth     : same image as gSurfelDepthMap, sampled view paired
@@ -210,9 +209,6 @@ public RWTexture2D<uint4> gPackedHitInfo;
 // (Per-bounce refraction/reflection V-buffers removed: water refraction now
 // clobbers gPackedHitInfo like glass, and water reflection moved to the raster
 // water pass.)
-
-[vk::binding(kBindingIrradianceMap, 1)]
-public RWTexture2D<float> gIrradianceMap;
 
 [vk::binding(kBindingSurfelDepthMap, 1)]
 public RWTexture2D<float2> gSurfelDepthMap;

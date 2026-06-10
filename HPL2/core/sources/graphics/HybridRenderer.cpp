@@ -258,52 +258,10 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     // clobbers the primary gPackedHitInfo like glass; water reflection is drawn
     // in the raster water pass.)
 
-    // Surfel-ray irradiance atlas — single-channel R16F, 4096x4096 fits
-    // kTotalSurfelLimit surfels at 6x6 cells each (the shader computes
-    // tile pos as `surfelIndex % (W/6), surfelIndex / (W/6)`). SAMPLED so the
-    // raytrace shader's ray-guiding branch can read it; STORAGE so a future
-    // accumulation pass can write into it. Untouched here — stays at the
-    // SHADER_READ_ONLY_OPTIMAL layout after the first transition below.
-    for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
-      uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-      VkImageCreateInfo imgInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-      imgInfo.imageType = VK_IMAGE_TYPE_2D;
-      imgInfo.format = VK_FORMAT_R16_SFLOAT;
-      imgInfo.extent = {4096u, 4096u, 1u};
-      imgInfo.mipLevels = 1;
-      imgInfo.arrayLayers = 1;
-      imgInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-      imgInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-      // TRANSFER_DST: this atlas is seeded once via vkCmdClearColorImage.
-      imgInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-                      VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-      imgInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-      VK_ConfigureImageQueueFamilies(&imgInfo, RI.device.queues, RI_QUEUE_LEN,
-                                     queueFamilies, RI_QUEUE_LEN);
-      imgInfo.pQueueFamilyIndices = queueFamilies;
-
-      VmaAllocationCreateInfo alloc = {};
-      alloc.usage = VMA_MEMORY_USAGE_AUTO;
-      VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imgInfo, &alloc,
-                                   &m_surfelIrradianceTexture[i].vk.image,
-                                   &m_surfelIrradianceTexture[i].vk.allocation,
-                                   NULL));
-
-      VkImageViewCreateInfo viewInfo = {
-          VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-      viewInfo.image = m_surfelIrradianceTexture[i].vk.image;
-      viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-      viewInfo.format = VK_FORMAT_R16_SFLOAT;
-      viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
-                                      &m_surfelIrradianceView[i].vk.image));
-    }
-
     // Surfel-ray depth atlas — RGBA16F storing the (E[z], E[z^2]) Chebyshev
     // pair per octahedral tile texel for each surfel (only .rg are populated;
-    // .ba left zero). Same 4096x4096 footprint as the irradiance atlas so the
-    // integrate shader's tile-index math (surfelIndex % (W/6), surfelIndex /
-    // (W/6)) resolves identically for both atlases. STORAGE for integrate
+    // .ba left zero). 4096x4096 footprint; the integrate shader's tile-index
+    // math is `surfelIndex % (W/6), surfelIndex / (W/6)`. STORAGE for integrate
     // writes, SAMPLED for integrate's own readback.
     for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
       uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
@@ -824,13 +782,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     sl.position[0] = pos.x;
     sl.position[1] = pos.y;
     sl.position[2] = pos.z;
-    // HPL2 lights shine down -Z in world space. World matrix is column-major
-    // with the 3rd column = +Z basis; negate it to get the outward forward.
     const cMatrixf &world = pLight->GetWorldMatrix();
     sl.direction[0] = -world.m[0][2];
     sl.direction[1] = -world.m[1][2];
     sl.direction[2] = -world.m[2][2];
-    // Normalize defensively — the spot may carry non-unit scale.
     {
       float len = std::sqrt(sl.direction[0] * sl.direction[0] +
                             sl.direction[1] * sl.direction[1] +
@@ -843,22 +798,15 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
     sl.cosOuterAngle = std::cos(pSpot->GetFOV() * 0.5f);
     const cColor c = pLight->GetDiffuseColor();
-    // Linear-throughout pipeline: see point-light upload above for rationale.
-    // sRGB authored → linear (same as point lights).
     sl.color[0] = hpl::sRGBToLinear(c.r);
     sl.color[1] = hpl::sRGBToLinear(c.g);
     sl.color[2] = hpl::sRGBToLinear(c.b);
-    // Falcor LightData semantics, same as the point loop: `intensity` IS the
-    // light's radiance — the authored engine radius uploads verbatim, no scale
-    // knobs.
     sl.intensity = pLight->GetIntensity();
     sl.radius = pLight->GetRadius();
     sl.sourceRadius = pLight->GetSourceRadius();
     sl.goboTextureIndex = m_global.resolveTextureSlot(cntx, pLight->GetGoboImage(),
                                              (uint32_t)RI.frameIndex);
     sl.shadowEnabled = pLight->GetCastShadows() ? 1u : 0u;
-    // Light-space ViewProj for projecting gobo UVs (and any future shadow UV)
-    // into the cone. Transposed to match the GLSL mat4 column-major upload.
     const ml::float4x4 vpF4 =
         cMath::ToFloatTranspose4x4(pSpot->GetViewProjMatrix());
     std::memcpy(sl.viewProjection, vpF4.a, sizeof(sl.viewProjection));
@@ -1343,7 +1291,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
   }
 
-  // state.packedHitInfoView / m_surfelIrradianceView / m_surfelDepthView and the
+  // state.packedHitInfoView / m_surfelDepthView and the
   // freshly built TLAS now live on set 1 and are pushed per-dispatch via
   // RIProgram::bindDescriptors below (see the m_surfelVBuffer / m_surfelRT
   // / m_surfelIntegrate / m_surfelGenerate / m_mainComposite call sites).
@@ -1363,7 +1311,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   };
 
   // Per-dispatch helpers for the set-1 surfel image / TLAS pushes —
-  // `gPackedHitInfo` / `gIrradianceMap` / `gSurfelDepthMap` are
+  // `gPackedHitInfo` / `gSurfelDepthMap` are
   // RWTexture2D (GENERAL layout, storage image), `gSurfelDepth` is the
   // sampled view of the same depth image (still GENERAL since the
   // image stays GENERAL across the frame and GENERAL satisfies both
@@ -1739,38 +1687,29 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
          RI_STAGE_RAY_TRACING | RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT});
   }
 
-  // One-shot UNDEFINED -> GENERAL transition for both surfel atlases the
+  // One-shot UNDEFINED -> GENERAL transition for the surfel depth atlas the
   // first time each swapchain image appears. Subsequent frames skip this —
   // the atlas stays in GENERAL for life so integrate's EMA-blend reads keep
   // working and cross-frame sync goes through the engine frame fence.
-  // Must run before Stage E because surfel_rt.rgen's ray-guiding branch
-  // imageLoads gSurfelIrradianceMap; the dst stage mask covers both the
-  // rgen read and the later integrate read/write.
   if (!m_surfelAtlasesInitialized[RI.swapchainIndex]) {
-    // First touch of this swapchain image's atlases: UNDEFINED -> GENERAL and
-    // *seed their contents*. SurfelIntegratePass accumulates into both via an
-    // EMA read-modify-write (gIrradianceMap / gSurfelDepthMap), so the starting
-    // value must be defined — UNDEFINED discards it, leaving uninitialized /
-    // NaN reads that poison the EMA and the generation pass's Chebyshev weight.
-    // Irradiance (ray-guiding) seeds to 0. The depth atlas stores (E[z], E[z^2])
-    // per octahedral texel; seed E[z^2] high so the generation pass's weight
+    // First touch of this swapchain image's atlas: UNDEFINED -> GENERAL and
+    // *seed its contents*. SurfelIntegratePass accumulates into it via an EMA
+    // read-modify-write (gSurfelDepthMap), so the starting value must be
+    // defined — UNDEFINED discards it, leaving uninitialized / NaN reads that
+    // poison the EMA and the generation pass's Chebyshev weight. The depth
+    // atlas stores (E[z], E[z^2]) per octahedral texel; seed E[z^2] high so
+    // the generation pass's weight
     //   variance / (variance + (dist - mean)^2),  variance = E[z^2] - E[z]^2
     // starts ~1 (no visibility suppression) and tightens only as real
     // first-bounce depths converge. Clearing to 0 instead would make variance=0
     // => weight 0 => every surfel contribution zeroed until the atlas fills in
     // (~hundreds of frames), i.e. a multi-second indirect black-out on enable.
-    RITextureBarrier_s toClear[2] = {
-        {&m_surfelIrradianceTexture[RI.swapchainIndex],
-         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
+    RITextureBarrier_s toClear[1] = {
         {&m_surfelDepthTexture[RI.swapchainIndex],
          RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE}};
-    RI.primary.cmds[0].textureBarriers<2>(2, toClear);
+    RI.primary.cmds[0].textureBarriers<1>(1, toClear);
 
     VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    VkClearColorValue irrClear = {}; // 0
-    vkCmdClearColorImage(RI.primary.cmds[0].vk.cmd,
-                         m_surfelIrradianceTexture[RI.swapchainIndex].vk.image,
-                         VK_IMAGE_LAYOUT_GENERAL, &irrClear, 1, &range);
     VkClearColorValue depthClear = {};
     depthClear.float32[0] = 0.0f;     // E[z]
     depthClear.float32[1] = 60000.0f; // E[z^2] seeded high (half-float safe)
@@ -1780,16 +1719,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     // Clear (transfer) -> integrate's storage RW + ray-trace / generation reads
     // (sampled). Same GENERAL layout, availability/visibility only.
-    RITextureBarrier_s toShader[2] = {
-        {&m_surfelIrradianceTexture[RI.swapchainIndex],
-         RI_RESOURCE_STATE_CLEAR_STORAGE,
-         RI_RESOURCE_STATE_UNORDERED_ACCESS | RI_RESOURCE_STATE_SHADER_RESOURCE,
-         RI_STAGE_NONE, RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING},
+    RITextureBarrier_s toShader[1] = {
         {&m_surfelDepthTexture[RI.swapchainIndex],
          RI_RESOURCE_STATE_CLEAR_STORAGE,
          RI_RESOURCE_STATE_UNORDERED_ACCESS | RI_RESOURCE_STATE_SHADER_RESOURCE,
          RI_STAGE_NONE, RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING}};
-    RI.primary.cmds[0].textureBarriers<2>(2, toShader);
+    RI.primary.cmds[0].textureBarriers<1>(1, toShader);
     m_surfelAtlasesInitialized[RI.swapchainIndex] = true;
   }
 
@@ -1820,7 +1755,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
 
     std::vector<RIProgram::DescriptorBinding> rtBnd;
-    rtBnd.reserve(3);
+    rtBnd.reserve(2);
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
@@ -1828,13 +1763,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       rtBnd.push_back(b);
     }
     pushTlas(rtBnd);
-    // Ray-guiding read of the surfel irradiance map. The atlas was
-    // transitioned to GENERAL once at first appearance (see
-    // m_surfelAtlasesInitialized above) and stays GENERAL across the
-    // frame so the integrate pass's prior-frame store is read-visible
-    // through the engine frame fence.
-    pushSurfelStorageImage(rtBnd, "gIrradianceMap",
-                           m_surfelIrradianceView[RI.swapchainIndex].vk.image);
     m_surfelRT.bindDescriptors(
         &RI.device, &RI.primary.cmds[0], RI.frameIndex, rtBnd.data(),
         rtBnd.size(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
@@ -1959,19 +1887,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         VK_PIPELINE_BIND_POINT_COMPUTE);
 
     // gSurfelDepthSampler is bindless (set 0). The image views and the
-    // CB are gone — params come from Constants.h. gPerFrame, the
-    // irradiance atlas, and the depth atlas (RW + sampled views of the
-    // same image) push into set 1.
+    // CB are gone — params come from Constants.h. gPerFrame and the depth
+    // atlas (RW + sampled views of the same image) push into set 1.
     std::vector<RIProgram::DescriptorBinding> bnd;
-    bnd.reserve(4);
+    bnd.reserve(3);
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
       RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
       bnd.push_back(b);
     }
-    pushSurfelStorageImage(bnd, "gIrradianceMap",
-                           m_surfelIrradianceView[RI.swapchainIndex].vk.image);
     pushSurfelStorageImage(bnd, "gSurfelDepthMap",
                            m_surfelDepthView[RI.swapchainIndex].vk.image);
     pushSurfelSampledImage(bnd, "gSurfelDepth",
@@ -3154,14 +3079,6 @@ cHybridRenderer::~cHybridRenderer() {
   // Fallback vertex streams are RIBootstrap globals (process-lifetime, like
   // RI.nulVertexBuffer); not freed here.
   for (uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; ++i) {
-    if (m_surfelIrradianceView[i].vk.image != VK_NULL_HANDLE) {
-      vkDestroyImageView(RI.device.vk.device, m_surfelIrradianceView[i].vk.image, NULL);
-      m_surfelIrradianceView[i] = {};
-    }
-    if (m_surfelIrradianceTexture[i].vk.image != VK_NULL_HANDLE) {
-      vmaDestroyImage(RI.device.vk.vmaAllocator, m_surfelIrradianceTexture[i].vk.image, m_surfelIrradianceTexture[i].vk.allocation);
-      m_surfelIrradianceTexture[i] = {};
-    }
     if (m_surfelDepthView[i].vk.image != VK_NULL_HANDLE) {
       vkDestroyImageView(RI.device.vk.device, m_surfelDepthView[i].vk.image,
                          NULL);

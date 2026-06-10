@@ -42,6 +42,7 @@
 #include "LuxInsanityHandler.h"
 #include "LuxProgressLogHandler.h"
 #include "LuxLoadScreenHandler.h"
+#include "LuxScreenCapture.h"
 
 #include "LuxInventory.h"
 
@@ -1234,6 +1235,7 @@ bool cLuxBase::InitGame()
 	mpSaveHandler = CreateGlobalModule( cLuxSaveHandler);
 	mpScriptHandler = CreateGlobalModule( cLuxScriptHandler);
 	mpProgressLogHandler = CreateGlobalModule( cLuxProgressLogHandler);
+	mpScreenCapture = CreateGlobalModule( cLuxScreenCapture);
 	
 	//Default
 	mpMapHandler = CreateModule( cLuxMapHandler, "Default");

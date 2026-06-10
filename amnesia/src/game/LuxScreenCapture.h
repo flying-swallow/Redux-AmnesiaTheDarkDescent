@@ -20,10 +20,11 @@
 #ifndef LUX_SCREEN_CAPTURE_H
 #define LUX_SCREEN_CAPTURE_H
 
+#include "LuxTypes.h"
+
 #include "graphics/Image.h"
 #include "graphics/HPLTexture.h"
 #include "graphics/RIBootstrap.h"
-#include "graphics/RIProgram.h"
 #include "graphics/RITypes.h"
 
 #include <memory>
@@ -33,71 +34,78 @@ namespace hpl {
 	class cGuiGfxElement;
 }
 
+// Allocate `outTex` as a screen-sized color attachment that is also sampleable
+// as a 2D texture (and a TRANSFER_DST for the capture copy), wired up for
+// cGui::CreateGfxTexture / RIProgram::bindDescriptors. Shared by the capture
+// (R16G16B16A16_SFLOAT) and the per-state effect (R8G8B8A8_UNORM).
+bool LuxCreateScreenRenderTarget(std::shared_ptr<hpl::HPLTexture> &outTex,
+		uint32_t width, uint32_t height, VkFormat format, const char *debugName);
+
 //////////////////////////////////////////////////////////////////////////
-// Screen-snapshot pipeline shared by the inventory and journal screens.
+// Shared "primary capture" of the gameplay scene, owned at game scope (as a
+// global module) and reused by every menu backdrop — inventory, journal and
+// the escape menu. There is ONE captured frame, and the per-state effect
+// (cLuxScreenEffect) reads it.
 //
-// Both states draw a frozen copy of the rendered scene behind their GUI:
-//   GetScreenGfx()   — an unmodified copy of the captured frame, drawn while
-//                      the state fades in.
-//   GetScreenBgGfx() — a post-effect (desaturated/darkened) version of that
-//                      copy, drawn at full alpha once the fade completes.
+// The capture is a straight vkCmdCopyImage of the gameplay viewport's RETAINED
+// pogo "read" half — the clean, post-processed scene with no GUI (the same
+// image the renderer's tail blit writes to the swapchain). The pogo is retained
+// while the gameplay viewport is hidden behind a menu, so it still holds the
+// last real gameplay frame, and the renderer leaves it SHADER_RESOURCE, so it
+// is unambiguous to read.
 //
-// The GPU work (blit swapchain -> color texture, then the fullscreen
-// post-effect) must run while a command buffer is recording and after the
-// scene has rendered, so RequestCapture() only flags the work and OnPostRender()
-// performs it on the next post-render hook. See LuxScreenCapture.cpp.
+// The copy is recorded on the frame's PRIMARY command buffer in OnPostRender.
+// This is a global module, so its OnPostRender runs before the active menu
+// state's cLuxScreenEffect::OnPostRender (see cUpdater::RunMessage) — the copy
+// is recorded before the effect samples it, on the same command buffer, in the
+// same frame. Both source and destination are R16G16B16A16_SFLOAT.
+//
+// GetScreenGfx() draws the sharp copy; cLuxScreenEffect reads PrimaryDescriptor()
+// to build its desaturated/blurred backdrop.
 //////////////////////////////////////////////////////////////////////////
 
-class cLuxScreenCapture
+class cLuxScreenCapture : public iLuxUpdateable
 {
 public:
-	cLuxScreenCapture() = default;
-	~cLuxScreenCapture() = default;
+	cLuxScreenCapture();
+	~cLuxScreenCapture();
 
 	cLuxScreenCapture(const cLuxScreenCapture&) = delete;
 	cLuxScreenCapture& operator=(const cLuxScreenCapture&) = delete;
 
-	// Post-effect applied to the captured frame for the "blurred backdrop"
-	// quad (GetScreenBgGfx). DesaturateDarken is a single fullscreen pass
-	// (inventory/journal); Blur is a separable gaussian ping-pong (escape menu).
-	enum class Effect { DesaturateDarken, Blur };
+	// iLuxUpdateable: records the deferred copy on the primary command buffer.
+	void OnPostRender(float afFrameTime) override;
 
-	// Load the (slang-compiled) post-effect program. Call once at construction.
-	void Init(hpl::cGui *apGui, Effect effect = Effect::DesaturateDarken);
-
-	// Allocate the screen-sized textures and their GUI gfx elements.
-	void CreateTextures();
-
-	// Flag a capture to run on the next OnPostRender().
+	// Flag a capture to run on the next OnPostRender.
 	void RequestCapture();
 
-	// Perform the deferred capture if one is pending and a frame is recording.
-	void OnPostRender();
+	// True once the requested capture has landed in m_primaryColor.
+	bool IsCaptured() const { return mbCaptured; }
 
-	// Release the GUI gfx and textures.
+	// The sharp backdrop quad (an unmodified copy of the captured frame).
+	hpl::cGuiGfxElement* GetScreenGfx() { return mpScreenGfx; }
+
+	// The captured color, for the per-state effect passes (cLuxScreenEffect).
+	RIDescriptor_s* PrimaryDescriptor();
+	cVector2l GetSize() const { return cVector2l(mlWidth, mlHeight); }
+
+	// Release the gfx and texture.
 	void Destroy();
 
-	hpl::cGuiGfxElement* GetScreenGfx()   { return mpScreenGfx; }
-	hpl::cGuiGfxElement* GetScreenBgGfx() { return mpScreenBgGfx; }
-	bool IsCaptured() const               { return mbCaptured; }
-
 private:
-	hpl::cGui            *mpGui        = nullptr;
-	hpl::cGuiGfxElement  *mpScreenGfx   = nullptr;
-	hpl::cGuiGfxElement  *mpScreenBgGfx = nullptr;
+	void EnsureTextures();
 
-	std::shared_ptr<hpl::HPLTexture> m_screenColor;
-	std::shared_ptr<hpl::HPLTexture> m_screenBgColor;
-	std::shared_ptr<hpl::HPLTexture> m_screenScratch; // Blur ping-pong only.
-	std::shared_ptr<hpl::Image>      m_screenImage;
-	std::shared_ptr<hpl::Image>      m_screenBgImage;
+	hpl::cGui            *mpGui       = nullptr;
+	hpl::cGuiGfxElement  *mpScreenGfx = nullptr;
 
-	hpl::RIProgram m_copyProgram; // pogo scene-color -> m_screenColor passthrough
-	hpl::RIProgram m_postProgram; // desaturate/darken or blur post-effect
-	Effect mEffect = Effect::DesaturateDarken;
+	std::shared_ptr<hpl::HPLTexture> m_primaryColor;
+	std::shared_ptr<hpl::Image>      m_primaryImage;
+	uint32_t mlWidth  = 0;
+	uint32_t mlHeight = 0;
 
-	bool mbPending  = false;
-	bool mbCaptured = false;
+	bool mbPending            = false;
+	bool mbCaptured           = false; // the REQUESTED capture has landed
+	bool mbPrimaryEverWritten = false; // m_primaryColor has valid prior contents
 };
 
 #endif // LUX_SCREEN_CAPTURE_H

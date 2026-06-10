@@ -208,7 +208,7 @@ cLuxMainMenu::cLuxMainMenu() : iLuxUpdateable("LuxDebugHandler")
 	mpBlackFade = mpGui->CreateGfxFilledRect(cColor(0,1),eGuiMaterial_Alpha);
 
 	// Snapshot-blur pipeline for the in-game (escape) menu backdrop.
-	mScreenCapture.Init(mpGui, cLuxScreenCapture::Effect::Blur);
+	mScreenEffect.Init(mpGui, cLuxScreenEffect::Effect::Blur);
 
 	mpBgCamera = NULL;
 	mpBgWorld = NULL;
@@ -473,17 +473,17 @@ void cLuxMainMenu::OnDraw(float afFrameTime)
 {
 	/////////////////////////////////
 	//Screen background (in-game escape menu: blurred snapshot)
-	if(mScreenCapture.GetScreenGfx())
+	if(mScreenEffect.GetScreenGfx())
 	{
 		// Suppress the snapshot quads until the deferred OnPostRender capture
 		// has run once — otherwise we'd sample still-UNDEFINED texture memory.
-		if(mScreenCapture.IsCaptured())
+		if(mScreenEffect.IsCaptured())
 		{
 			if(mfMenuFadeAlpha>0)
-				mpGuiSet->DrawGfx(mScreenCapture.GetScreenGfx(),cVector3f(0,0,0),mvScreenSize);
+				mpGuiSet->DrawGfx(mScreenEffect.GetScreenGfx(),cVector3f(0,0,0),mvScreenSize);
 
-			if(mScreenCapture.GetScreenBgGfx())
-				mpGuiSet->DrawGfx(mScreenCapture.GetScreenBgGfx(),cVector3f(0,0,0.2f),mvScreenSize,cColor(1, 1-mfMenuFadeAlpha));
+			if(mScreenEffect.GetScreenBgGfx())
+				mpGuiSet->DrawGfx(mScreenEffect.GetScreenBgGfx(),cVector3f(0,0,0.2f),mvScreenSize,cColor(1, 1-mfMenuFadeAlpha));
 		}
 
 		if(	mfMenuFadeAlpha > 0 && mbExiting && mExitMessage != eLuxMainMenuExit_ReturnToGame )
@@ -513,7 +513,7 @@ void cLuxMainMenu::OnDraw(float afFrameTime)
 void cLuxMainMenu::OnPostRender(float afFrameTime)
 {
 	// Deferred screen-snapshot capture for the in-game (escape) menu backdrop.
-	mScreenCapture.OnPostRender();
+	mScreenEffect.OnPostRender();
 }
 
 //-----------------------------------------------------------------------
@@ -1268,8 +1268,8 @@ void cLuxMainMenu::CreateBackground()
 	// A map is loaded, use a screen shot as background.
 	if(gpBase->mpMapHandler->MapIsLoaded())
 	{
-		mScreenCapture.CreateTextures();
-		mScreenCapture.RequestCapture();
+		mScreenEffect.CreateTextures();
+		mScreenEffect.RequestCapture();
 	}
 	////////////////////////////
 	// No map is loaded, create scene.
@@ -1343,7 +1343,7 @@ void cLuxMainMenu::DestroyBackground()
 	//No background world — the in-game menu used a screen snapshot instead.
 	else
 	{
-		mScreenCapture.Destroy();
+		mScreenEffect.Destroy();
 	}
 }
 

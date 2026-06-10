@@ -23,7 +23,7 @@
 //----------------------------------------------
 
 #include "LuxBase.h"
-#include "LuxScreenCapture.h"
+#include "LuxScreenEffect.h"
 
 
 enum eLuxMainMenuWindow
@@ -270,7 +270,7 @@ private:
 	iPostEffect *mpPostEffect_ToneMap;
 
 	// In-game (escape) menu backdrop: blurred snapshot of the game screen.
-	cLuxScreenCapture mScreenCapture;
+	cLuxScreenEffect mScreenEffect;
 
 	cGuiGfxElement *mpLogoGfx;
 	

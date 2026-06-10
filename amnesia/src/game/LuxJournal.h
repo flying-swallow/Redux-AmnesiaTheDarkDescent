@@ -23,7 +23,7 @@
 //----------------------------------------------
 
 #include "LuxBase.h"
-#include "LuxScreenCapture.h"
+#include "LuxScreenEffect.h"
 
 //----------------------------------------
 
@@ -314,7 +314,7 @@ private:
 	cWidgetImage *mpImageBackward[eLuxJournalState_LastEnum];
 	
 	// Screen-snapshot pipeline drawn behind the note/diary GUI (RI backend).
-	cLuxScreenCapture mScreenCapture;
+	cLuxScreenEffect mScreenEffect;
 
 	cGuiGfxElement *mpWhiteGfx;
 

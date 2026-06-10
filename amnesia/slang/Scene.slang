@@ -299,9 +299,9 @@ public struct SceneMaterials
     // gives correct mirrored geometry (right object in the right pixel),
     // but the reflection colour is just the hit material's albedo rather
     // than fully GI-shaded. Promote to a full evaluation when the visual
-    // gap shows; the surfel-irradiance atlas (gIrradianceMap on set 1) is
-    // the next step but its weighting / cell-hash lookup pulls in the
-    // SurfelEvaluation chain.
+    // gap shows; the surfel radiance gather (the SurfelEvaluation chain)
+    // is the next step but its weighting / cell-hash lookup pulls in the
+    // full evaluation path.
     public float3 traceReflection(float3 origin, float3 dir, float tMax,
                                   out bool hit)
     {

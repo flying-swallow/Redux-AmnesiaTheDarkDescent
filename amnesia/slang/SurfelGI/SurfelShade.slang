@@ -217,7 +217,6 @@ float3 gatherSurfelIndirect(float3 posW, float3 normalW)
         contribution *= saturate(1.0f - dist / surfel.radius);
         contribution  = smoothstep(0.f, 1.f, contribution);
 
-#ifdef USE_SURFEL_DEPTH
         {
             float2 uv = getSurfelDepthUV(surfelIndex, bias / dist, sNormal);
             float2 surfelDepth = gSurfelDepth.SampleLevel(gSurfelDepthSampler, uv, 0u);
@@ -229,7 +228,6 @@ float3 gatherSurfelIndirect(float3 posW, float3 normalW)
                 contribution *= variance / (variance + pow(dist - mean, 2));
             }
         }
-#endif
 
         SurfelRecycleInfo recycleInfo = gSurfelRecycleInfoBuffer[surfelIndex];
         float blendDelayT = smoothstep(0.f, float(kDefaultBlendingDelay), float(recycleInfo.frame));
