@@ -16,6 +16,8 @@ import Scene;
 import Random;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
+import SurfelGI.SurfelGather;
+import SurfelGI.SurfelLifecycle;
 
 // CB fields (placement / removal / blending / variance / chance) now come
 // from Constants.h as `kDefault*`, matching the SurfelEvaluationPass /
@@ -135,64 +137,49 @@ void csMain(
             uint         surfelIndex = gCellToSurfelBuffer[cellInfo.cellToSurfelBufferOffset + i];
             SurfelBounds sb          = gSurfelBoundsBuffer[surfelIndex];
 
-            float3 bias  = v.posW - sb.position;
-            float  dist2 = dot(bias, bias);
-            if (dist2 < sb.radius * sb.radius)
+            // sb.normal is pre-normalized (collectCellInfo writes it that way),
+            // so the coverage test dots it directly — no per-iteration rsqrt.
+            SurfelHit hit;
+            if (testSurfelCoverage(v.posW, v.normalW, sb.position, sb.normal,
+                                   sb.radius, hit))
             {
-                float dotN = dot(v.normalW, sb.normal);
-                if (dotN > 0)
+                const SurfelRecycleInfo surfelRecycleInfo = gSurfelRecycleInfoBuffer[surfelIndex];
+                bool isSleeping = surfelRecycleInfo.status & 0x0001;
+                bool lastSeen   = surfelRecycleInfo.status & 0x0002;
+
+                if (!isSleeping)
                 {
-                    const SurfelRecycleInfo surfelRecycleInfo = gSurfelRecycleInfoBuffer[surfelIndex];
-                    bool isSleeping = surfelRecycleInfo.status & 0x0001;
-                    bool lastSeen   = surfelRecycleInfo.status & 0x0002;
+                    // Survivor: only now pull the full surfel for the data the
+                    // accumulation needs (radiance / variance / rayCount).
+                    Surfel surfel = gSurfelBuffer[surfelIndex];
 
-                    if (!isSleeping)
+                    float contribution = surfelKernelWeight(hit.dotN, hit.dist, sb.radius);
+                    coverage += contribution;
+                    contribution *= surfelDepthWeight(surfelIndex, hit.dirUnit,
+                                                      sb.normal, hit.dist);
+
+                    indirectLighting += float4(surfel.radiance, 1.f) * contribution
+                                        * smoothstep(0, kDefaultBlendingDelay, surfelRecycleInfo.frame);
+
+                    float varLen = length(surfel.msmeData.variance);
+                    varianceEx += varLen * contribution;
+                    rayCountEx += surfel.rayCount * contribution;
+
+                    refCount = max(refCount, gSurfelRefCounter[surfelIndex]);
+                    life     = max(life, surfelRecycleInfo.life);
+
+                    if (maxContribution < contribution)
                     {
-                        // Survivor: only now pull the full surfel for the data the
-                        // accumulation needs (radiance / variance / rayCount).
-                        Surfel surfel = gSurfelBuffer[surfelIndex];
-
-                        float dist = sqrt(dist2);
-                        float contribution = 1.f;
-                        contribution *= saturate(dotN);
-                        contribution *= saturate(1 - dist / sb.radius);
-                        contribution  = smoothstep(0, 1, contribution);
-
-                        coverage += contribution;
-
-                        {
-                            float2 uv = getSurfelDepthUV(surfelIndex, bias / dist, sb.normal);
-                            float2 surfelDepth = gSurfelDepth.SampleLevel(gSurfelDepthSampler, uv, 0u);
-                            float mean    = surfelDepth.x;
-                            float sqrMean = surfelDepth.y;
-                            if (dist > mean)
-                            {
-                                float variance = sqrMean - pow(mean, 2);
-                                contribution *= variance / (variance + pow(dist - mean, 2));
-                            }
-                        }
-
-                        indirectLighting += float4(surfel.radiance, 1.f) * contribution
-                                            * smoothstep(0, kDefaultBlendingDelay, surfelRecycleInfo.frame);
-
-                        float varLen = length(surfel.msmeData.variance);
-                        varianceEx += varLen * contribution;
-                        rayCountEx += surfel.rayCount * contribution;
-
-                        refCount = max(refCount, gSurfelRefCounter[surfelIndex]);
-                        life     = max(life, surfelRecycleInfo.life);
-
-                        if (maxContribution < contribution)
-                        {
-                            maxContribution = contribution;
-                            maxContributionSurfelIndex = i;
-                        }
-                        maxVariance = max(maxVariance, varLen);
+                        maxContribution = contribution;
+                        maxContributionSurfelIndex = i;
                     }
-
-                    if (!lastSeen)
-                        gSurfelRecycleInfoBuffer[surfelIndex].status |= 0x0002;
+                    maxVariance = max(maxVariance, varLen);
                 }
+
+                // Runs for ALL covering surfels (sleeping included): seen-this-
+                // frame marking is what wakes / extends them in collectCellInfo.
+                if (!lastSeen)
+                    gSurfelRecycleInfoBuffer[surfelIndex].status |= 0x0002;
             }
         }
 
@@ -251,39 +238,28 @@ void csMain(
                 const float chance = pow(depth, kDefaultChancePower);
                 if (randomState.next_float() < chance * kDefaultChanceMultiply)
                 {
-                    uint freeSurfelCount;
-                    InterlockedAdd(gSurfelCounter[kSurfelCounterFree], (uint)-1, freeSurfelCount);
-                    if (0 < freeSurfelCount && freeSurfelCount <= kTotalSurfelLimit)
+                    uint newIndex, validSlot;
+                    if (tryAllocateSurfelSlot(newIndex, validSlot))
                     {
-                        uint validSurfelCount;
-                        InterlockedAdd(gSurfelCounter[kSurfelCounterValid], 1u, validSurfelCount);
-                        if (validSurfelCount < kTotalSurfelLimit)
-                        {
-                            uint newIndex = gSurfelFreeIndexBuffer[freeSurfelCount - 1];
+                        float varRadius = calcSurfelRadius(
+                            distance(cameraPos, v.posW),
+                            fovy,
+                            resolution,
+                            kSurfelTargetArea,
+                            kCellUnit);
 
-                            float varRadius = calcSurfelRadius(
-                                distance(cameraPos, v.posW),
-                                fovy,
-                                resolution,
-                                kSurfelTargetArea,
-                                kCellUnit);
+                        Surfel newSurfel = Surfel(v.posW, v.normalW, varRadius);
+                        newSurfel.radiance           = indirectLighting.xyz;
+                        newSurfel.msmeData.mean      = indirectLighting.xyz;
+                        newSurfel.msmeData.shortMean = indirectLighting.xyz;
 
-                            Surfel newSurfel = Surfel(v.posW, v.normalW, varRadius);
-                            newSurfel.radiance          = indirectLighting.xyz;
-                            newSurfel.msmeData.mean     = indirectLighting.xyz;
-                            newSurfel.msmeData.shortMean = indirectLighting.xyz;
-
-                            gSurfelValidIndexBuffer[validSurfelCount] = newIndex;
-                            gSurfelBuffer[newIndex] = newSurfel;
-                            gSurfelRecycleInfoBuffer[newIndex] = { kMaxLife, 0u, 0u };
-                            gSurfelGeometryBuffer[newIndex] = hitInfo.packed;
-                            // Capture the anchor slot's current generation (packed.x is the
-                            // instanceID, already bounded above). collectCellInfo invalidates
-                            // this surfel if the slot is later reassigned to different
-                            // geometry.
-                            gSurfelSlotGeneration[newIndex] = gBindlessSlotGeneration[hitInfo.packed.x];
-                            gSurfelRefCounter[newIndex] = 0u;
-                        }
+                        // packed.x is the instanceID (already bounded above) —
+                        // publishNewSurfel captures the anchor slot's generation
+                        // from it.
+                        SurfelRecycleInfo recycle = { kMaxLife, 0u, 0u };
+                        publishNewSurfel(newIndex, validSlot, newSurfel, recycle,
+                                         hitInfo.packed, hitInfo.packed.x,
+                                         /*initialRefCount=*/0u);
                     }
                 }
             }

@@ -6,7 +6,7 @@
 // AnalyticLightSample / sampleLight / envMap.eval / prepareShadingData /
 // getMaterialInstance) is replaced with a hand-rolled diffuse-only
 // shading path: albedo = diffuse texture sample, BSDF = albedo / π,
-// sampling = cosine-weighted hemisphere, NEE via gScene.sampleLightByIndex.
+// sampling = cosine-weighted hemisphere, NEE via getLight().sample.
 // No specular, no transmission, no env-map evaluation (miss returns
 // zero). Surfel-radiance termination (`finalize`) keeps its original
 // behavior. Inputs / outputs match the Falcor port — same SurfelRayResult
@@ -24,8 +24,11 @@ import ILight;
 import PerFrame.resource;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
+import SurfelGI.SurfelGather;    // cell lookup + coverage / kernel weight
+import SurfelGI.SurfelLifecycle; // sleeping-surfel spawn ladder
 import Grid;                    // gridCellPos / gridFlattenCellIndex / gridCellValid (light grid lookup)
 import Random;
+import DiffuseShading;          // shared DiffuseShading + prepareDiffuseShading
 
 // Ray-step / max-step come from `Constants.h` (kDefaultRayStep / kDefaultMaxStep),
 // and the per-frame counter is sourced from PerFrame.totalFrames — matches the
@@ -72,44 +75,9 @@ struct ScatterPayload
 // pipeline build with one ray type.
 
 // Plain POD for the diffuse shading state we hand-roll from VertexData +
-// DiffuseMaterial. Replaces Falcor's `ShadingData` / `IMaterialInstance`
-// pair for the diffuse-only case.
-struct DiffuseShading
-{
-    float3 posW;
-    float3 normalW;
-    float  rough;    // perceptual diffuse-lobe roughness (decodeMaterialRoughness)
-    float3 albedo;
-    float3 emission;
-};
-
-// `illuminationAmount` is the per-object glow scalar (UniformObject); emission =
-// illumination-map texel (DiffuseMaterial slot 5) * that scalar. Objects with no
-// illumination map (slot 5 invalid) or amount 0 emit nothing.
-DiffuseShading prepareDiffuseShading(VertexData v, uint materialID, float illuminationAmount)
-{
-    DiffuseShading sd;
-    sd.posW    = v.posW;
-    sd.normalW = normalize(v.normalW);
-    DiffuseMaterial m = gScene.getDiffuseMaterial(materialID);
-    uint diffuseTex = m.tex[0];
-    if (diffuseTex == kInvalidTextureIndex)
-        sd.albedo = float3(0.5f);
-    else
-        sd.albedo = gTextures2D[NonUniformResourceIndex(diffuseTex)]
-                        .SampleLevel(gMaterialSampler, v.texC, 0.0f).rgb;
-
-    uint illumTex = m.tex[5];
-    if (illumTex == kInvalidTextureIndex || illuminationAmount <= 0.f)
-        sd.emission = float3(0.f);
-    else
-        sd.emission = gTextures2D[NonUniformResourceIndex(illumTex)]
-                          .SampleLevel(gMaterialSampler, v.texC, 0.0f).rgb
-                      * illuminationAmount;
-
-    sd.rough = decodeMaterialRoughness(m, v.texC);
-    return sd;
-}
+// DiffuseShading + prepareDiffuseShading are shared with the composite stack via
+// DiffuseShading (imported above). The path tracer wants per-texel
+// roughness, so it calls prepareDiffuseShading(..., decodeRoughness=true).
 
 // Cosine-weighted hemisphere sample in local-frame coords (z = up).
 float3 sampleCosineHemisphere(float u1, float u2, out float pdf)
@@ -161,63 +129,99 @@ void traceScatterRay(inout ScatterPayload scatterPayload)
     );
 }
 
-// Single-light NEE. Picks a light uniformly, evaluates BSDF * Li / pdf.
-// `V` is the outgoing direction at the hit (back along the scatter ray) —
-// the diffuse lobe (kDiffuseBrdf) is view-dependent. `rng` is the call-site
-// RNG (used for light index + sample randomness); no payload mutation here.
-float3 evalAnalyticLight(DiffuseShading sd, float3 V, inout RNG rng)
+// finalize() tuning — named from the reference's inline literals (value-identical).
+static const uint  kFinalizeCellBudget   = 64u;   // skip the cache when the cell is this crowded
+static const float kFinalizeBouncePr     = 0.2f;  // chance to bounce through instead of finalizing
+static const uint  kSleepingSpawnCellCap = 8u;    // per-cell sleeping reservation cap
+static const float kSleepingCullCoverage = 4.0f;  // sleeping coverage budget before culling
+
+// Result of one surfel-cache gather at a path vertex.
+struct SurfelCacheGather
 {
-    uint lightCount = gScene.getLightCount();
-    if (lightCount == 0) return float3(0.f);
+    float4 Lr;                      // weighted radiance + total weight
+    float  sleepingCoverage;        // kernel sum over sleeping surfels only
+    int    loudestSleepingSurfel;   // cull candidate, -1 if none
+};
 
-    // Importance-sample lights from the world-space light grid: pick uniformly
-    // among only the lights whose radius reaches this shading point's cell
-    // (pdf = 1/listLen). Falls back to uniform-over-all when the cell is
-    // out-of-grid or empty — both unbiased, and the fallback stops a missed bin
-    // from dimming a lit region. next_uint(N) covers [0,N) (the old `N-1` form
-    // dropped the last light).
-    uint  lightIdx;
-    float invPdf;
-    int3  lcell = gridCellPos(sd.posW, gScene.camera.getPosition(), kLightGridUnit);
-    if (gridCellValid(lcell, kLightGridDim))
+// The gather loop — kernel weight only. The reference finalize never applied
+// the depth-function or blend-delay refinements (adding the atlas sample here
+// would change termination radiance and cost in the RT hot loop), so this
+// stays kernel-only; the screen passes' refined gather lives in
+// SurfelGather.slang. Bumps each covering surfel's ref counter as a side
+// effect.
+SurfelCacheGather gatherCellRadiance(CellInfo cellInfo, float3 posW, float3 normalW)
+{
+    SurfelCacheGather g;
+    g.Lr = float4(0.f);
+    g.sleepingCoverage = 0.f;
+    g.loudestSleepingSurfel = -1;
+    float maxContribution = 0.f;
+
+    for (uint i = 0; i < cellInfo.surfelCount; ++i)
     {
-        uint flat = gridFlattenCellIndex(lcell, kLightGridDim);
-        uint L    = min(gLightGridCount[flat], kLightsPerCellMax);
-        if (L > 0u)
-        {
-            uint pick = rng.next_uint(L);
-            lightIdx  = gLightGridList[flat * kLightsPerCellMax + pick];
-            invPdf    = float(L);
-        }
-        else
-        {
-            return float3(0, 0, 0);
-        }
-    }
-    else
-    {
-        return float3(0, 0, 0);
-    }
+        uint surfelIndex = gCellToSurfelBuffer[cellInfo.cellToSurfelBufferOffset + i];
+        Surfel surfel = gSurfelBuffer[surfelIndex];
 
-    // Type-aware shade shared with the direct path (gScene.shadeAnalyticLight:
-    // sample → NdotL-cull → shadow ray → Li·NdotL, demodulated). Point lights use
-    // their full sampler (incl. gobo cube); spot lights use the same
-    // cone-restricted SpotLight.sample() as the direct path — matching the
-    // reference Falcor SurfelGI, where a spot's analytic GI contribution is
-    // cone-shaped too. Box lights aren't NEE-sampled (and aren't binned into the
-    // grid). The bounce needs outgoing radiance at the hit surface, so albedo is
-    // applied here.
-    float3 origin   = sd.posW + sd.normalW * kRayEps;
-    float3 perLight = sd.albedo * gScene.shadeAnalyticLight(sd.posW, sd.normalW,
-                                                            V, sd.rough,
-                                                            lightIdx, origin);
+        SurfelHit hit;
+        if (!testSurfelCoverage(posW, normalW, surfel.position,
+                                normalize(surfel.normal), surfel.radius, hit))
+            continue;
 
-    // shadeAnalyticLight evaluates the standard diffuse lobe (with its 1/π);
-    // albedo re-modulates it into outgoing radiance for the bounce. No scale
-    // knobs (Falcor parity): the NEE shares shadeAnalyticLight and the same Li
-    // units as the direct pass, so indirect lands in direct's units by
-    // construction.
-    return perLight * invPdf;
+        float contribution = surfelKernelWeight(hit.dotN, hit.dist, surfel.radius);
+        g.Lr += float4(surfel.radiance, 1.f) * contribution;
+
+        SurfelRecycleInfo info = gSurfelRecycleInfoBuffer[surfelIndex];
+        if ((info.status & 0x0001u) != 0u)  // sleeping
+        {
+            g.sleepingCoverage += contribution;
+            if (maxContribution < contribution)
+            {
+                maxContribution = contribution;
+                g.loudestSleepingSurfel = int(surfelIndex);
+            }
+        }
+
+        uint prevRef;
+        InterlockedAdd(gSurfelRefCounter[surfelIndex], 1u, prevRef);
+    }
+    return g;
+}
+
+// Empty-gather path: reserve a sleeping surfel in this cell when below the
+// spawn cap. Bail before any atomic counter touches if the committed hit's
+// instanceID is out of the bindless slot table — capturing
+// gBindlessSlotGeneration[triangleHit.instanceID] in publishNewSurfel would
+// feed collectCellInfo an anchor that GPUVM-faults next frame.
+void trySpawnSleepingSurfel(uint flattenIndex, CellInfo cellInfo,
+                            const VertexData v, const TriangleHit triangleHit)
+{
+    if (cellInfo.surfelCount >= kSleepingSpawnCellCap ||
+        triangleHit.instanceID >= kObjectSlotCapacity)
+        return;
+
+    uint reservedCount;
+    InterlockedAdd(gSurfelReservationBuffer[flattenIndex], 1u, reservedCount);
+    if (reservedCount >= kSleepingSpawnCellCap)
+        return;
+
+    uint newIndex, validSlot;
+    if (!tryAllocateSurfelSlot(newIndex, validSlot))
+        return;
+
+    Surfel newSurfel = Surfel(v.posW, v.normalW, 1e-6f);
+    SurfelRecycleInfo recycle;
+    recycle.life   = 1;
+    recycle.frame  = 0;
+    recycle.status = 1; // sleeping
+    publishNewSurfel(newIndex, validSlot, newSurfel, recycle,
+                     triangleHit.pack(), triangleHit.instanceID,
+                     /*initialRefCount=*/1u);
+}
+
+void countMissBounce()
+{
+    uint prev;
+    InterlockedAdd(gSurfelCounter[kSurfelCounterMissBounce], 1u, prev);
 }
 
 // Try to terminate the path early by sampling the surfel cache instead of
@@ -226,124 +230,37 @@ float3 evalAnalyticLight(DiffuseShading sd, float3 V, inout RNG rng)
 // bounce one more step.
 bool finalize(inout ScatterPayload scatterPayload, const VertexData v, const TriangleHit triangleHit, inout RNG rng)
 {
-    float4 Lr = float4(0.f);
+    uint flattenIndex;
+    CellInfo cellInfo;
+    if (!lookupSurfelCell(v.posW, gScene.camera.getPosition(), flattenIndex, cellInfo))
+        return false;
 
-    int3 cellPos = getCellPos(v.posW, gScene.camera.getPosition(), kCellUnit);
-    if (!isCellValid(cellPos)) return false;
-
-    uint flattenIndex = getFlattenCellIndex(cellPos);
-    CellInfo cellInfo = gCellInfoBuffer[flattenIndex];
-
-    if (cellInfo.surfelCount > 64u || rng.next_float() < 0.2f)
+    // Crowded cell, or randomly bounce through to keep paths exploring (the
+    // RNG draw short-circuits when the budget check already bails).
+    if (cellInfo.surfelCount > kFinalizeCellBudget || rng.next_float() < kFinalizeBouncePr)
     {
-        uint prev;
-        InterlockedAdd(gSurfelCounter[kSurfelCounterMissBounce], 1u, prev);
+        countMissBounce();
         return false;
     }
 
-    float sleepingCoverage = 0.f;
-    float maxContribution = 0.f;
-    int   maxContributionSleepingSurfelIndex = -1;
+    SurfelCacheGather g = gatherCellRadiance(cellInfo, v.posW, v.normalW);
 
-    for (uint i = 0; i < cellInfo.surfelCount; ++i)
+    if (g.Lr.w <= 0.f)
     {
-        uint surfelIndex = gCellToSurfelBuffer[cellInfo.cellToSurfelBufferOffset + i];
-        Surfel surfel = gSurfelBuffer[surfelIndex];
-        SurfelRecycleInfo info = gSurfelRecycleInfoBuffer[surfelIndex];
-        bool isSleeping = (info.status & 0x0001u) != 0u;
-
-        float3 bias = v.posW - surfel.position;
-        float  dist2 = dot(bias, bias);
-        if (dist2 >= surfel.radius * surfel.radius) continue;
-
-        float3 normal = normalize(surfel.normal);
-        float  dotN   = dot(v.normalW, normal);
-        if (dotN <= 0.0f) continue;
-
-        float dist = sqrt(dist2);
-        float contribution = 1.f;
-        contribution *= saturate(dotN);
-        contribution *= saturate(1.0f - dist / surfel.radius);
-        contribution = smoothstep(0.f, 1.f, contribution);
-
-        Lr += float4(surfel.radiance, 1.f) * contribution;
-
-        if (isSleeping)
-        {
-            sleepingCoverage += contribution;
-            if (maxContribution < contribution)
-            {
-                maxContribution = contribution;
-                maxContributionSleepingSurfelIndex = int(surfelIndex);
-            }
-        }
-
-        uint prevRef;
-        InterlockedAdd(gSurfelRefCounter[surfelIndex], 1u, prevRef);
-    }
-
-    if (Lr.w <= 0.f)
-    {
-        // Reserve a sleeping surfel in this cell when below the spawn cap.
-        // Bail before any atomic counter touches if the committed hit's
-        // instanceID is out of the bindless slot table — capturing
-        // gBindlessSlotGeneration[triangleHit.instanceID] below would feed
-        // collectCellInfo an anchor that GPUVM-faults next frame.
-        if (cellInfo.surfelCount < 8u &&
-            triangleHit.instanceID < kObjectSlotCapacity)
-        {
-            uint reservedCount;
-            InterlockedAdd(gSurfelReservationBuffer[flattenIndex], 1u, reservedCount);
-
-            if (reservedCount < 8u)
-            {
-                uint freeSurfelCount;
-                InterlockedAdd(gSurfelCounter[kSurfelCounterFree], (uint)-1, freeSurfelCount);
-
-                if (0u < freeSurfelCount && freeSurfelCount <= kTotalSurfelLimit)
-                {
-                    uint validSurfelCount;
-                    InterlockedAdd(gSurfelCounter[kSurfelCounterValid], 1u, validSurfelCount);
-
-                    if (validSurfelCount < kTotalSurfelLimit)
-                    {
-                        uint newIndex = gSurfelFreeIndexBuffer[freeSurfelCount - 1u];
-                        Surfel newSurfel = Surfel(v.posW, v.normalW, 1e-6f);
-                        gSurfelValidIndexBuffer[validSurfelCount] = newIndex;
-                        gSurfelBuffer[newIndex] = newSurfel;
-                        SurfelRecycleInfo recycle;
-                        recycle.life   = 1;
-                        recycle.frame  = 0;
-                        recycle.status = 1; // sleeping
-                        gSurfelRecycleInfoBuffer[newIndex] = recycle;
-                        gSurfelGeometryBuffer[newIndex] = triangleHit.pack();
-                        // Capture the anchor slot's current generation
-                        // (instanceID bounded above) so collectCellInfo can
-                        // invalidate this surfel if the slot is later
-                        // reassigned to different geometry.
-                        gSurfelSlotGeneration[newIndex] = gBindlessSlotGeneration[triangleHit.instanceID];
-                        gSurfelRefCounter[newIndex] = 1u;
-                    }
-                }
-            }
-        }
-
-        uint prev;
-        InterlockedAdd(gSurfelCounter[kSurfelCounterMissBounce], 1u, prev);
+        trySpawnSleepingSurfel(flattenIndex, cellInfo, v, triangleHit);
+        countMissBounce();
         return false;
     }
 
     // Cull the loudest sleeping surfel when sleeping coverage is over-budget.
-    if (sleepingCoverage >= 4.0f && maxContributionSleepingSurfelIndex != -1)
+    if (g.sleepingCoverage >= kSleepingCullCoverage && g.loudestSleepingSurfel != -1)
     {
-        Surfel s = gSurfelBuffer[maxContributionSleepingSurfelIndex];
+        Surfel s = gSurfelBuffer[g.loudestSleepingSurfel];
         s.radius = 0;
-        gSurfelBuffer[maxContributionSleepingSurfelIndex] = s;
+        gSurfelBuffer[g.loudestSleepingSurfel] = s;
     }
 
-    Lr.xyz /= Lr.w;
-    scatterPayload.radiance += scatterPayload.thp * Lr.xyz;
-
+    scatterPayload.radiance += scatterPayload.thp * (g.Lr.xyz / g.Lr.w);
     return true;
 }
 
@@ -352,7 +269,8 @@ void handleHit(TriangleHit triangleHit, inout ScatterPayload scatterPayload)
     VertexData v = gScene.getVertexData(triangleHit);
     uint materialID = gScene.getMaterialID(triangleHit.instanceID);
     float illuminationAmount = gScene.getObject(triangleHit.instanceID).illuminationAmount;
-    DiffuseShading sd = prepareDiffuseShading(v, materialID, illuminationAmount);
+    DiffuseShading sd = prepareDiffuseShading(v, materialID, illuminationAmount,
+                                              /*decodeRoughness=*/true);
 
     if (scatterPayload.currStep == 1u)
         scatterPayload.firstRayLength = distance(scatterPayload.origin, v.posW);
@@ -366,11 +284,44 @@ void handleHit(TriangleHit triangleHit, inout ScatterPayload scatterPayload)
     RNG rng;
     rng.s = uint2(scatterPayload.rngHi, scatterPayload.rngLo);
 
+    // Art-directed bounce albedo (kSurfelGIAlbedoBoostExp): Amnesia's dark
+    // diffuse content (~0.04 linear at GI hits) makes a physically-correct
+    // bounce nearly black; the boost applies to the GI ray path only.
+    float3 giAlbedo = pow(sd.albedo, kSurfelGIAlbedoBoostExp);
+
     // Direct lighting (one-sample NEE). scatterPayload.direction still holds
     // the incoming ray direction here (overwritten below for the next bounce),
-    // so the outgoing/"view" direction at the hit is its negation.
-    float3 Lr = evalAnalyticLight(sd, -scatterPayload.direction, rng);
-    scatterPayload.radiance += scatterPayload.thp * Lr;
+    // so the outgoing/"view" direction ("V") at the hit is its negation; the
+    // diffuse lobe (kDiffuseBrdf) is view-dependent.
+    //
+    // Importance-sample lights from the world-space light grid: pick uniformly
+    // among only the lights whose radius reaches this shading point's cell
+    // (pdf = 1/count). Empty / out-of-grid cell → no contribution.
+    // next_uint(N) covers [0,N) (the old `N-1` form dropped the last light).
+    CellLights cl = gScene.getCellLights(sd.posW);
+    if (cl.count != 0u)
+    {
+        float3 V        = -scatterPayload.direction;
+        uint   pick     = rng.next_uint(cl.count);
+        uint   lightIdx = gScene.cellLightAt(cl, pick);
+        float  invPdf   = float(cl.count);
+
+        // Type-aware shade shared with the direct path (shadeAnalyticLight:
+        // sample → NdotL-cull → shadow ray → Li·NdotL, demodulated). Point lights
+        // use their full sampler (incl. gobo cube); spot lights use the same
+        // cone-restricted SpotLight.sample() as the direct path — matching the
+        // reference Falcor SurfelGI, where a spot's analytic GI contribution is
+        // cone-shaped too. Box lights aren't NEE-sampled (and aren't binned into
+        // the grid). The bounce needs outgoing radiance at the hit surface, so
+        // albedo re-modulates the standard diffuse lobe's 1/π here. No scale knobs
+        // (Falcor parity): the NEE shares shadeAnalyticLight and the same Li units
+        // as the direct pass, so indirect lands in direct's units by construction.
+        float3 origin   = sd.posW + sd.normalW * kRayEps;
+        float3 perLight = giAlbedo * shadeAnalyticLight(sd.posW, sd.normalW,
+                                                        V, sd.rough,
+                                                        lightIdx, origin);
+        scatterPayload.radiance += scatterPayload.thp * (perLight * invPdf);
+    }
 
     // Sample the next bounce direction (cosine-hemisphere, local frame
     // around sd.normalW). BSDF * cosθ / pdf for cosine sampling =
@@ -398,7 +349,7 @@ void handleHit(TriangleHit triangleHit, inout ScatterPayload scatterPayload)
 
     scatterPayload.origin    = sd.posW + sd.normalW * kRayEps;
     scatterPayload.direction = worldDir;
-    scatterPayload.thp      *= sd.albedo * bounceW;
+    scatterPayload.thp      *= giAlbedo * bounceW;
 
     // Last step / Russian roulette / surfel-cache finalize, same as the
     // Falcor port — the russian-roulette probability uses luminance(thp).
@@ -484,11 +435,13 @@ void rayGen()
     RNG rng;
     rng.init(uint2(rayIndex, rayIndex), gPerFrame.totalFrames);
 
-    // Uniform-hemisphere first ray (matches the reference rayGen, pdf = 1/(16π);
-    // SurfelIntegratePass divides by this pdf). Ray-guiding path stays out
-    // (USE_RAY_GUIDING is off by default).
+    // Uniform-hemisphere first ray. pdf is the TRUE uniform-hemisphere density
+    // 1/(2π) — SurfelIntegratePass divides by it to form the irradiance/π
+    // estimator. (The old 1/(16π) here was a bogus constant that cancelled
+    // against a matching 1/(16π) in the integrator, leaving the cache 2× dark.)
+    // Ray-guiding path stays out (USE_RAY_GUIDING is off by default).
     float3 dirLocal = normalize(hemispherepoint_uniform(rng.next_float(), rng.next_float()));
-    float  pdfLocal = kInvPi / 16.f;
+    float  pdfLocal = kInvPi * 0.5f; // 1/(2π)
     float3 dirWorld = normalize(mul(dirLocal, get_tangentspace(surfel.normal)));
 
     ScatterPayload payload = ScatterPayload(rng.s, isSleeping);

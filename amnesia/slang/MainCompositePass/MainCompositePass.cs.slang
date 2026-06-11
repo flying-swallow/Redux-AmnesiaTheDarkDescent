@@ -29,6 +29,7 @@ import Fog;
 import SurfelGI.SurfelShade;        // DiffuseShading / prepareDiffuseShading / evalAnalyticLight / gatherSurfelIndirect
 import Grid;                         // gridCellPos / gridFlattenCellIndex / gridCellValid (decal grid lookup)
 import Utils.Color.ColorHelpers;     // linearToSRGB / sRGBToLinear (legacy display-space decal blend)
+import BlendModes;                   // blendDisplaySpaceExact (raw eMaterialBlendMode numbering)
 
 [vk::binding(0, 2)]
 Texture2D<float4> gIndirectLighting;
@@ -62,23 +63,10 @@ RWTexture2D<float4> gOutput;
 // Clustered OOB decals are composited directly onto the base albedo here, before
 // lighting, so they get lit like the surface — no separate albedo buffer/pass.
 
-// Blend one decal texel onto the albedo, replicating the legacy hardware
-// blend factors (src = decal texel*tint, dst = albedo). Mode is eMaterialBlendMode
-// (1=Add, 2=Mul, 3=MulX2, 4=Alpha, 5=PremulAlpha). Operands are DISPLAY-space
-// values (projectDecal encodes both sides and decodes the result), so the math
-// is bit-for-bit the legacy gbuffer blend.
-float3 applyDecalBlend(uint mode, float3 dst, float4 src)
-{
-    switch (mode)
-    {
-    case 1u: return dst + src.rgb;                  // Add
-    case 2u: return dst * src.rgb;                  // Mul
-    case 3u: return 2.0f * dst * src.rgb;           // MulX2
-    case 4u: return lerp(dst, src.rgb, src.a);      // Alpha
-    case 5u: return src.rgb + dst * (1.0f - src.a); // PremulAlpha
-    default: return dst;                            // None
-    }
-}
+// The per-texel decal blend is blendDisplaySpaceExact (BlendModes.slang):
+// software blend with dst in hand, replicating the legacy hardware blend
+// factors bit-for-bit in display space. Takes the RAW eMaterialBlendMode
+// numbering GpuDecal.blendMode stores (None=0 … PremulAlpha=5).
 
 // Reject surfaces that are near-perpendicular to the decal's projection axis
 // (the bleed artifact: a decal box catching side walls / edges). Two-sided and
@@ -140,7 +128,7 @@ float3 projectDecal(uint di, float3 albedo, float3 posW, float3 normalW)
     if (srcD.a < 0.01f)                                       // legacy ALPHA_REJECT
         return albedo;
 
-    return sRGBToLinear(applyDecalBlend(d.blendMode, linearToSRGB(albedo), srcD));
+    return sRGBToLinear(blendDisplaySpaceExact(d.blendMode, linearToSRGB(albedo), srcD));
 }
 
 // Composite the decals precomputed for this object (the static association the

@@ -183,6 +183,27 @@ SHARED_CONST uint kMaterialFlagAffectedByLightLevel     = 1u << 17;
 // (toward the plain-linear look). Tune against the base game.
 SHARED_CONST float kPerceptualBlendExp = 2.2f;
 
+// Blend-mode value families (see BlendModes.slang for the shared math).
+// Two DIFFERENT encodings of the same modes — do not mix them up:
+//   1. kBlendMode*: the push-constant / pipeline scheme. Mirrors the
+//      BlendMode enums in Decal/Particle/TranslucentMeshPipelineDesc.h and
+//      the remapBlend writes at the HybridRenderer.cpp draw sites.
+//   2. kMaterialBlendMode*: raw hpl::eMaterialBlendMode (GraphicsTypes.h,
+//      None first), stored verbatim into GpuDecal.blendMode and consumed by
+//      the composite's exact decal blend.
+SHARED_CONST uint kBlendModeAdd         = 0u;
+SHARED_CONST uint kBlendModeMul         = 1u;
+SHARED_CONST uint kBlendModeMulX2       = 2u;
+SHARED_CONST uint kBlendModeAlpha       = 3u;
+SHARED_CONST uint kBlendModePremulAlpha = 4u;
+
+SHARED_CONST uint kMaterialBlendModeNone        = 0u;
+SHARED_CONST uint kMaterialBlendModeAdd         = 1u;
+SHARED_CONST uint kMaterialBlendModeMul         = 2u;
+SHARED_CONST uint kMaterialBlendModeMulX2       = 3u;
+SHARED_CONST uint kMaterialBlendModeAlpha       = 4u;
+SHARED_CONST uint kMaterialBlendModePremulAlpha = 5u;
+
 // -----------------------------------------------------------------------------
 // Surfel-GI capacities + cell-grid sizing.
 //   kTotalSurfelLimit:    surfel buffer head count.
@@ -230,6 +251,18 @@ SHARED_CONST uint  kLightsPerCellMax   = 128u;                                  
 // gObjectDecalIndices), not a spatial grid — see SceneTypes.UniformObject and
 // World::Compile. kMaxObjectDecalIndices caps the flat association pool.
 SHARED_CONST uint  kMaxObjectDecalIndices = 1u << 20;   // 1M (offset is 24-bit; cap well under that)
+
+// -----------------------------------------------------------------------------
+// GI bounce-albedo boost — art-directed, applied in the surfel RAY PATH only
+// (SurfelRayTrace NEE + bounce throughput); the direct pass and the composite's
+// albedo multiply stay physically correct. Amnesia's diffuse sets are dark
+// (measured mean GI-hit albedo ≈ 0.04 linear), so a physically-correct bounce
+// keeps ~4% of the light's energy and indirect reads as black. Bounce albedo
+// becomes pow(albedo, exp): 1.0 = physically correct, 0.5 (sqrt) lifts 0.04 →
+// 0.2 (~5× indirect on this content) — the same knob as Lumen's Diffuse Color
+// Boost. Per-channel pow slightly desaturates dark hues; expected.
+// -----------------------------------------------------------------------------
+SHARED_CONST float kSurfelGIAlbedoBoostExp = 1.0f;
 
 // -----------------------------------------------------------------------------
 // gSurfelCounter slot indices. The counter is a flat

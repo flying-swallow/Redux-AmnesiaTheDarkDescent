@@ -15,6 +15,7 @@ import Scene;
 import Utils.Color.ColorHelpers;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
+import SurfelGI.SurfelGather;
 import SurfelGI.MultiscaleMeanEstimator;
 
 // gVarianceSensitivity / gShortMeanWindow used to live in SurfelIntegrateCB
@@ -69,10 +70,12 @@ void csMain(uint3 dispatchThreadId: SV_DispatchThreadID)
         float2 delta2 = float2(surfelDepth, pow(surfelDepth, 2)) - gSurfelDepthMap[surfelDepthTextureCoord];
         gSurfelDepthMap[surfelDepthTextureCoord] = gSurfelDepthMap[surfelDepthTextureCoord] + k2 * delta2 * depthWeight;
 
-        // Monte Carlo estimator, matching the reference SurfelIntegratePass:
-        // rays are uniform-hemisphere (pdf = 1/(16π) from rayGen), so the
-        // weight cosθ·(1/(16π))/pdf collapses to cosθ.
-        surfelRadiance += Lr * dot(dirWorld, surfel.normal) * ((1.f / (16.f * M_PI)) / max(1e-12f, pdf));
+        // Monte Carlo estimator for irradiance/π (= what the composite's
+        // albedo·indirect convention expects, matching the direct term's
+        // evalDiffuseDemodulated 1/π). Weight = cosθ/(π·pdf); with the true
+        // uniform-hemisphere pdf 1/(2π) from rayGen this is 2·cosθ, so the
+        // accumulated mean = (1/N)·Σ 2·Lᵣ·cosθ = E/π.
+        surfelRadiance += Lr * dot(dirWorld, surfel.normal) / (M_PI * max(1e-12f, pdf));
     }
 
     surfelRadiance /= surfel.rayCount;
@@ -107,50 +110,35 @@ void csMain(uint3 dispatchThreadId: SV_DispatchThreadID)
         gSurfelDepthMap[surfelDepthLT + uint2(kSurfelDepthTextureUnit.x - 2, 0)]) / 2.f;
 
     float4 sharedRadiance = float4(0.f);
-    float3 cameraPos = gScene.camera.getPosition();
-    int3 cellPos = getCellPos(surfel.position, cameraPos, kCellUnit);
-    if (isCellValid(cellPos))
+    uint flattenIndex;
+    CellInfo cellInfo;
+    if (lookupSurfelCell(surfel.position, gScene.camera.getPosition(), flattenIndex, cellInfo))
     {
         const float3 centerPos    = surfel.position;
         const float3 centerNormal = surfel.normal;
-
-        uint flattenIndex = getFlattenCellIndex(cellPos);
-        CellInfo cellInfo = gCellInfoBuffer[flattenIndex];
+        const float  affectRadius = kCellUnit * sqrt(2);
 
         for (uint i = 0; i < cellInfo.surfelCount; ++i)
         {
             uint neiSurfelIndex = gCellToSurfelBuffer[cellInfo.cellToSurfelBufferOffset + i];
             Surfel neiSurfel = gSurfelBuffer[neiSurfelIndex];
 
-            float3 bias = centerPos - neiSurfel.position;
-            float dist2 = dot(bias, bias);
-            float affectRadius = kCellUnit * sqrt(2);
-            if (dist2 < pow(affectRadius, 2))
-            {
-                float dotN = dot(neiSurfel.normal, centerNormal);
-                if (dotN > 0)
-                {
-                    float dist = sqrt(dist2);
-                    float contribution = 1.f;
-                    contribution *= saturate(dotN);
-                    contribution *= saturate(1 - dist / affectRadius);
-                    contribution  = smoothstep(0, 1, contribution);
+            // The share weight intentionally dots RAW (unnormalized) normals,
+            // uses the fixed cell-diagonal affect radius (not the neighbour's
+            // own radius), and weights by the CENTER surfel's depth function
+            // (surfelIndex + centerNormal, not the neighbour's) — reference
+            // behavior: the center's own depth occludes sharing from behind
+            // it. Not copy-paste bugs to "fix".
+            SurfelHit hit;
+            if (!testSurfelCoverage(centerPos, centerNormal, neiSurfel.position,
+                                    neiSurfel.normal, affectRadius, hit))
+                continue;
 
-                    {
-                        float2 uv = getSurfelDepthUV(surfelIndex, bias / dist, centerNormal);
-                        float2 surfelDepth = gSurfelDepth.SampleLevel(gSurfelDepthSampler, uv, 0u);
-                        float mean    = surfelDepth.x;
-                        float sqrMean = surfelDepth.y;
-                        if (dist > mean)
-                        {
-                            float variance = sqrMean - pow(mean, 2);
-                            contribution *= variance / (variance + pow(dist - mean, 2));
-                        }
-                    }
+            float contribution = surfelKernelWeight(hit.dotN, hit.dist, affectRadius);
+            contribution *= surfelDepthWeight(surfelIndex, hit.dirUnit,
+                                              centerNormal, hit.dist);
 
-                    sharedRadiance += float4(neiSurfel.radiance, 1.f) * contribution;
-                }
-            }
+            sharedRadiance += float4(neiSurfel.radiance, 1.f) * contribution;
         }
 
         if (sharedRadiance.w > 0)

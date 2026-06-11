@@ -15,13 +15,8 @@ import bindless;
 import SceneTypes;
 import PerFrame.resource;
 import Scene;
-import Utils.Color.ColorHelpers;   // linearToSRGB / sRGBToLinear (display-space source math)
-
-#define BLEND_MODE_ADD          0u
-#define BLEND_MODE_MUL          1u
-#define BLEND_MODE_MULX2        2u
-#define BLEND_MODE_ALPHA        3u
-#define BLEND_MODE_PREMUL_ALPHA 4u
+import Fog;          // computeFog — shared world + fog-area visibility
+import BlendModes;   // displaySpaceSample / applyBlendModulation / encodeBlendOutputLinear
 
 // Mirrors the `PushBlock` written from cHybridRenderer::Draw at the per-
 // particle-draw site (uint blendMode, float sceneAlpha). Fragment-only push
@@ -66,87 +61,38 @@ float4 psMain(ParticleVSOut psIn) : SV_TARGET
     {
         float4 s = gTextures2D[NonUniformResourceIndex(diffuseTex)]
                        .Sample(gMaterialSampler, psIn.uv);
-        diffuseColor = float4(linearToSRGB(s.rgb), s.a);
+        diffuseColor = displaySpaceSample(s);
     }
     diffuseColor *= psIn.color;
 
-    float finalAlpha = pc.sceneAlpha;
-    if (gPerFrame.worldFogLength > 0.0f)
-    {
-        float fogAmount = pow(
-            saturate((-psIn.viewPos.z - gPerFrame.worldFogStart)
-                     / gPerFrame.worldFogLength),
-            gPerFrame.fogFalloffExp);
-        finalAlpha = (gPerFrame.oneMinusFogAlpha * fogAmount
-                      + (1.0f - fogAmount)) * pc.sceneAlpha;
-    }
+    // Per-pixel fog via the shared helper (world + fog areas), matching
+    // Translucent.frag: the visibility scalar folds into the per-pixel alpha.
+    // The world position is reconstructed from the interpolated view-space
+    // position — one reconstruction shared with the lightLevel path below.
+    // (Replaces an inline view-depth world-fog variant that ignored
+    // gFogAreas; world-distance fog is slightly radial vs the old planar
+    // falloff, and particles now fade inside fog areas like mesh
+    // translucents — restoring legacy parity.)
+    float3 surfacePosW = mul(gPerFrame.invViewMat, float4(psIn.viewPos, 1.0f)).xyz;
+    FogResult fog = computeFog(surfacePosW, gPerFrame.posW);
+    float finalAlpha = pc.sceneAlpha * fog.visibility;
 
     // AffectedByLightLevel materials dim with the surrounding analytic light
-    // (base-game afLightLevel behavior — see gScene.lightLevelAt). Per-pixel:
-    // the world position is reconstructed from the interpolated view-space
-    // position, so large billboards get an exact gradient across the quad.
+    // (base-game afLightLevel behavior — see gScene.lightLevelAt). Per-pixel,
+    // so large billboards get an exact gradient across the quad.
     float lightLevel = 1.0f;
     if ((mat.materialConfig & kMaterialFlagAffectedByLightLevel) != 0u)
     {
-        float3 surfacePosW = mul(gPerFrame.invViewMat, float4(psIn.viewPos, 1.0f)).xyz;
         lightLevel = gScene.lightLevelAt(surfacePosW);
     }
 
-    // Per-blend-mode legacy source math in display space, then one decode to
-    // linear. The blend-with-dst sum can't be decoded exactly (toLin doesn't
-    // distribute over sums and dst is unknown), so ALPHA/PREMUL distribute the
-    // decode over the blend weights instead: src·pow(α,k) + dst·pow(1−α,k)
-    // via premultiplied factors. Endpoint-exact; k = kPerceptualBlendExp
-    // (2.2 = pure power-law distribution) is the tuning knob.
-    const float k = kPerceptualBlendExp;
-    float4 finalColor = diffuseColor;
-    float displayAlpha = diffuseColor.a;   // legacy discard-threshold operand
-    switch (pc.blendMode)
-    {
-        case BLEND_MODE_ADD:
-        {
-            // Legacy: dst + rgb·α·L. The whole src term is dst-free →
-            // decode the product exactly; the linear add is the approx.
-            finalColor.xyz = sRGBToLinear(finalColor.xyz * (finalAlpha * lightLevel));
-            break;
-        }
-        case BLEND_MODE_MUL:
-        {
-            // Legacy: dst × lerp(1, rgb, α). toLin distributes over the dst
-            // product, so decoding the multiplier is power-law exact.
-            finalColor.xyz = sRGBToLinear(lerp(float3(1.0f), finalColor.xyz, finalAlpha));
-            break;
-        }
-        case BLEND_MODE_MULX2:
-        {
-            // Legacy: 2·dst·lerp(0.5, rgb·L, α); HW factors give 2·src·dst →
-            // src = toLin(2·m)/2.
-            float blendMulAlpha = lightLevel * finalAlpha;
-            float3 m = finalColor.xyz * blendMulAlpha
-                     + float3(0.5f) * (1.0f - blendMulAlpha);
-            finalColor.xyz = sRGBToLinear(2.0f * m) * 0.5f;
-            break;
-        }
-        case BLEND_MODE_ALPHA:
-        {
-            // Legacy: rgb·L·a + dst·(1−a) in display space. Premultiplied
-            // powered weights (pipeline: ONE / 1−srcA).
-            float a = saturate(finalColor.a * finalAlpha);
-            displayAlpha   = a;
-            finalColor.xyz = sRGBToLinear(finalColor.xyz * lightLevel) * pow(a, k);
-            finalColor.a   = 1.0f - pow(1.0f - a, k);
-            break;
-        }
-        case BLEND_MODE_PREMUL_ALPHA:
-        {
-            // Legacy: rgb·α·L + dst·(1−a); rgb already premultiplied content.
-            float a = saturate(finalColor.a * finalAlpha);
-            displayAlpha   = a;
-            finalColor.xyz = sRGBToLinear(finalColor.xyz * (finalAlpha * lightLevel));
-            finalColor.a   = 1.0f - pow(1.0f - a, k);
-            break;
-        }
-    }
+    // Shared legacy blend math (see BlendModes.slang): display-space source
+    // modulation, then one decode to linear. The modulated .a is the legacy
+    // display-alpha discard operand.
+    float4 modulated    = applyBlendModulation(pc.blendMode, diffuseColor,
+                                               finalAlpha, lightLevel);
+    float  displayAlpha = modulated.a;
+    float4 finalColor   = encodeBlendOutputLinear(pc.blendMode, modulated);
 
     if (displayAlpha < 0.01f)
     {

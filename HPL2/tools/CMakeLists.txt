@@ -52,18 +52,21 @@ file(GLOB common_sources RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 ### MapViewer
+# Disabled: legacy viewer never ported off the removed OpenGL APIs
+# (cRenderList / CreateFrameBuffer / SetVsyncActive). Use the LevelEditor instead.
 
-AddToolTarget(MapViewer
-    mapview/MapView.cpp
-    ${common_sources}
-)
+#AddToolTarget(MapViewer
+#    mapview/MapView.cpp
+#    ${common_sources}
+#)
 
 ### ModelViewer
+# Disabled: legacy viewer not ported to the RI backend. Use the ModelEditor instead.
 
-AddToolTarget(ModelViewer
-    modelview/ModelView.cpp
-    ${common_sources}
-)
+#AddToolTarget(ModelViewer
+#    modelview/ModelView.cpp
+#    ${common_sources}
+#)
 
 ### ParticleViewer
 

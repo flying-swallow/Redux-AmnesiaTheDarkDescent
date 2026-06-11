@@ -5,8 +5,8 @@
 // `Scene.Scene` now `import Scene;` instead and call `gScene.foo(...)`.
 //
 // Design choices:
-//   * Lights use a unified dispatcher (getLight returning ILight,
-//     sampleLightByIndex calling .sample() through that). There are no
+//   * Lights use a single dispatcher: getLight returns the ILight interface
+//     for a flat index, and callers invoke .sample() on it. There are no
 //     typed gScene.getPointLight() / etc. accessors — iterate
 //     0..getLightCount().
 //   * Materials remain per-type because each material variant has its own
@@ -35,20 +35,6 @@ import Random;
 import Grid;                    // gridCellPos / gridFlattenCellIndex / gridCellValid (lightLevelAt)
 import Utils.Color.ColorHelpers; // linearToSRGB (lightLevelAt's authored-space max channel)
 
-// Concentric (low-distortion) unit-disk map of two [0,1) samples — used for
-// soft-shadow light-disk sampling. Returns a point in the unit disk.
-float2 concentricDiskSample(float2 u)
-{
-    float2 o = 2.0f * u - 1.0f;
-    if (o.x == 0.0f && o.y == 0.0f) return float2(0.0f);
-    float r, theta;
-    const float kPiOver4 = 0.78539816f;
-    const float kPiOver2 = 1.57079633f;
-    if (abs(o.x) > abs(o.y)) { r = o.x; theta = kPiOver4 * (o.y / o.x); }
-    else                     { r = o.y; theta = kPiOver2 - kPiOver4 * (o.x / o.y); }
-    return r * float2(cos(theta), sin(theta));
-}
-
 // Falcor-compatible Ray struct (used by computeRayPinhole). Local to this
 // module to avoid pulling in a Falcor `Scene` dependency.
 public struct Ray
@@ -62,15 +48,14 @@ public struct Ray
 // Flat-index → ILight resolver. Slices the virtual index across the two
 // typed light SSBOs (point, spot) in the same order documented by
 // amnesia/glsl/surfel_light_nee.glsl. The interface return goes through
-// Slang's existential boxing — fine for the cold paths (UI, debug);
-// performance-critical NEE should call sampleLightByIndex below, which
-// branches directly to the typed PointLight/SpotLight.sample().
+// Slang's existential boxing; callers (incl. surfel NEE) sample lights via
+// getLight(i).sample(...). No upper-bound check — an index past
+// pointCount+spotCount is a caller bug, not a guarded case.
 public ILight getLight(uint ID)
 {
     uint nPoint = gPerFrame.pointLightCount;
     if (ID < nPoint) return gPointLights[ID];
     ID -= nPoint;
-
     return gSpotLights[ID];
 }
 
@@ -395,6 +380,17 @@ public struct SceneMaterials
     }
 };
 
+// One world-space light-grid cell's light list, resolved once by
+// Scene.getCellLights() so the four light-grid walkers (composite eval, reservoir
+// build, surfel NEE, lightLevelAt) share the cell-lookup boilerplate instead of
+// each re-deriving cell → validate → flatten → count.
+public struct CellLights
+{
+    public uint flat;   // flattened cell index into gLightGridCount / gLightGridList
+    public uint count;  // lights in the cell, clamped to kLightsPerCellMax
+    public bool valid;  // false ⇒ no lights / out-of-grid; count is then 0
+};
+
 public struct Scene
 {
     public SceneCamera    camera;
@@ -458,126 +454,37 @@ public struct Scene
              + gPerFrame.spotLightCount;
     }
 
-    // Performance path for surfel NEE: branches directly on the slice
-    // index and calls the typed PointLight/SpotLight.sample() without going
-    // through an interface existential.
-    public bool sampleLightByIndex(uint virtualIndex, float3 shadingPosW, out LightSample ls)
+    // Resolve the world-space light-grid cell at `posW` to its light list once.
+    // Shared by every light-grid walker so the cell-lookup boilerplate lives in
+    // one place; callers loop 0..count and fetch indices via cellLightAt.
+    public CellLights getCellLights(float3 posW)
     {
-        ls.Li       = float3(0.0f);
-        ls.pdf      = 1.0f;
-        ls.dir      = float3(0.0f, 1.0f, 0.0f);
-        ls.distance = 0.0f;
-
-        uint nPoint = gPerFrame.pointLightCount;
-        if (virtualIndex < nPoint)
+        CellLights c;
+        int3 cell = gridCellPos(posW, camera.getPosition(), kLightGridUnit);
+        c.valid = (getLightCount() > 0u) && gridCellValid(cell, kLightGridDim);
+        if (!c.valid)
         {
-            return gPointLights[virtualIndex].sample(shadingPosW, ls);
+            c.flat  = 0u;
+            c.count = 0u;
+            return c;
         }
-        virtualIndex -= nPoint;
-
-        uint nSpot = gPerFrame.spotLightCount;
-        if (virtualIndex < nSpot)
-        {
-            return gSpotLights[virtualIndex].sample(shadingPosW, ls);
-        }
-        return false;
+        c.flat  = gridFlattenCellIndex(cell, kLightGridDim);
+        c.count = min(gLightGridCount[c.flat], kLightsPerCellMax);
+        return c;
     }
 
-    // Shade one analytic light at a surface point: sample it, NdotL-cull,
-    // shadow-ray test, return Li·NdotL·f_d/albedo where f_d is the standard
-    // diffuse lobe (kDiffuseBrdf, carries its 1/π — the intensity knobs are
-    // π-compensated; no albedo — demodulated, the caller applies albedo where
-    // outgoing radiance is needed). Shared by the direct composite
-    // (SurfelShade.evalAnalyticLight, V = toward camera) and the surfel NEE
-    // pass (SurfelRayTrace, V = back along the scatter ray), which scales the
-    // result by its albedo·invPdf·indirect factors. `origin` is the
-    // (epsilon-offset) shadow-ray origin the caller already computes; `rough`
-    // is the perceptual diffuse-lobe roughness (decodeMaterialRoughness).
-    public float3 shadeAnalyticLight(float3 posW, float3 normalW, float3 V,
-                                     float rough, uint lightIndex, float3 origin)
+    // The global (unified point+spot) light index of the k-th light in a cell.
+    public uint cellLightAt(CellLights c, uint k)
     {
-        LightSample ls;
-        if (!sampleLightByIndex(lightIndex, posW, ls)) return float3(0.f);
-
-        float NdotL = dot(normalW, ls.dir);
-        if (NdotL <= 0.f) return float3(0.f);
-
-        if (!materials.traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
-
-        return ls.Li * NdotL * evalDiffuseDemodulated(normalW, V, ls.dir, rough);
+        return gLightGridList[c.flat * kLightsPerCellMax + k];
     }
 
-    // Soft-shadow variant: for point or spot lights with a non-zero sourceRadius,
-    // aim the shadow ray at a jittered point on the light disk (radius =
-    // sourceRadius, facing the shading point) so one noisy sample per frame,
-    // accumulated temporally, resolves to a penumbra. Energy still uses the
-    // light centre — only occlusion is softened. sourceRadius == 0 falls back
-    // to the hard centre ray, matching shadeAnalyticLight. Demodulated like
-    // shadeAnalyticLight: Li·NdotL·f_d/albedo, no albedo.
-    public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW, float3 V,
-                                         float rough, uint lightIndex,
-                                         float3 origin, inout RNG rng)
-    {
-        LightSample ls;
-        if (!sampleLightByIndex(lightIndex, posW, ls)) return float3(0.f);
-
-        float NdotL = dot(normalW, ls.dir);
-        if (NdotL <= 0.f) return float3(0.f);
-
-        float3 sDir = ls.dir;
-        float  sMax = ls.distance;
-        // Pick the source radius + light centre from whichever array this virtual
-        // index lands in: [0, nPoint) are point lights, [nPoint, nPoint+nSpot) spots.
-        float  r    = 0.f;
-        float3 lpos = float3(0.f);
-        uint nPoint = gPerFrame.pointLightCount;
-        if (lightIndex < nPoint)
-        {
-            r    = gPointLights[lightIndex].sourceRadius;
-            lpos = gPointLights[lightIndex].position;
-        }
-        else
-        {
-            uint si = lightIndex - nPoint;
-            if (si < gPerFrame.spotLightCount)
-            {
-                r    = gSpotLights[si].sourceRadius;
-                lpos = gSpotLights[si].position;
-            }
-        }
-        if (r > 0.f)
-        {
-            // Tangent basis perpendicular to the light direction.
-            float3 t = normalize(abs(ls.dir.y) < 0.99f
-                                 ? cross(float3(0.f, 1.f, 0.f), ls.dir)
-                                 : cross(float3(1.f, 0.f, 0.f), ls.dir));
-            float3 b = cross(ls.dir, t);
-            float2 d = concentricDiskSample(rng.next_float2()) * r;
-            float3 target = lpos + d.x * t + d.y * b;
-            float3 toT = target - origin;
-            sMax = length(toT);
-            sDir = toT / max(sMax, 1.0e-6f);
-        }
-
-        if (!materials.traceShadowRay(origin, sDir, sMax)) return float3(0.f);
-
-        return ls.Li * NdotL * evalDiffuseDemodulated(normalW, V, ls.dir, rough);
-    }
-
-    // Unshadowed analytic contribution of one light: Li·NdotL·f_d/albedo with
-    // no shadow ray (0 if back-facing / sample fails). Used as the RIS target
-    // weight for stochastic light selection in the direct pass (pick a light
-    // ∝ this, then trace one shadow ray for it) — including the lobe keeps the
-    // target proportional to the true integrand.
-    public float3 unshadowedAnalyticLight(float3 posW, float3 normalW, float3 V,
-                                          float rough, uint lightIndex)
-    {
-        LightSample ls;
-        if (!sampleLightByIndex(lightIndex, posW, ls)) return float3(0.f);
-        float NdotL = dot(normalW, ls.dir);
-        if (NdotL <= 0.f) return float3(0.f);
-        return ls.Li * NdotL * evalDiffuseDemodulated(normalW, V, ls.dir, rough);
-    }
+    // The per-light diffuse shade helpers — shadeAnalyticLight (hard),
+    // shadeAnalyticLightSoft (jittered disk), unshadowedAnalyticLight (no ray) —
+    // are lighting-evaluation utilities, not scene-data accessors, so they live
+    // as free functions in DiffuseShading.slang alongside the eval / reservoir
+    // helpers that use them. They compose Scene's data primitives
+    // (getLight().sample / getSourceRadius / getPosition, materials.traceShadowRay).
 
     // Scalar "surrounding light" heuristic for AffectedByLightLevel
     // translucents — base-game afLightLevel semantics (the legacy CPU loop in
@@ -599,18 +506,18 @@ public struct Scene
     //     beyond the camera-centered grid shouldn't fade to black.
     public float lightLevelAt(float3 posW)
     {
-        int3 cell = gridCellPos(posW, camera.getPosition(), kLightGridUnit);
-        if (getLightCount() == 0u || !gridCellValid(cell, kLightGridDim))
+        // Out-of-grid points return 1.0 (don't darken) — note this differs from
+        // the shaded walkers, which treat an invalid cell as no contribution.
+        CellLights cl = getCellLights(posW);
+        if (!cl.valid)
             return 1.0f;
 
-        uint flat = gridFlattenCellIndex(cell, kLightGridDim);
-        uint n    = min(gLightGridCount[flat], kLightsPerCellMax);
         uint nPoint = gPerFrame.pointLightCount;
 
         float sum = 0.0f;
-        for (uint k = 0u; k < n; ++k)
+        for (uint k = 0u; k < cl.count; ++k)
         {
-            uint li = gLightGridList[flat * kLightsPerCellMax + k];
+            uint li = cellLightAt(cl, k);
             float3 lpos;
             float3 lcolor;
             float  lintensity;

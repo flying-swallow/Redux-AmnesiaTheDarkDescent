@@ -164,12 +164,6 @@ else()
   set(IL_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/DevIL/DevIL/include" CACHE PATH "" FORCE)
 endif()
 
-if(USE_SYSTEM_GLEW)
-  find_package(GLEW REQUIRED GLOBAL)
-else()
-  add_subdirectory(glew)
-endif()
-
 add_subdirectory(MathLib)
 
 # MathLib uses SSE3+ intrinsics that GCC/Clang gate behind -msse* flags (MSVC

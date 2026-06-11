@@ -31,6 +31,8 @@ public interface ILight
     public uint getType();
     public float3 getColor();
     public float3 getPosition();
+    public float getSourceRadius();   // physical source radius (penumbra); 0 => hard shadow
+    public float getRadius();         // light-grid bin reach (world units); 0 => skip
     public bool sample(float3 shadingPosW, out LightSample ls);
 };
 
@@ -39,6 +41,8 @@ public extension PointLight : ILight
     public uint getType()     { return type; }
     public float3 getColor()    { return color; }
     public float3 getPosition() { return position; }
+    public float getSourceRadius() { return sourceRadius; }
+    public float getRadius()       { return radius; }
 
     // Radiance = color · intensity · softened inverse-square. The attenuation is a
     // plain inverse-square (no reach window) so radiance goes HDR (>1) near the
@@ -74,6 +78,8 @@ public extension SpotLight : ILight
     public uint getType()     { return type; }
     public float3 getColor()    { return color; }
     public float3 getPosition() { return position; }
+    public float getSourceRadius() { return sourceRadius; }
+    public float getRadius()       { return radius; }
 
     // Radiance = color · intensity · softened inverse-square (same radial term as
     // PointLight — plain inverse-square, HDR near source, no reach window; the

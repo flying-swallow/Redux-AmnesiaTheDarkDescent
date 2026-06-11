@@ -91,14 +91,7 @@ file(GLOB impl_sources RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
 
     core/sources/impl/ThreadSDL.cpp
     core/sources/impl/MutexSDL.cpp
-    core/sources/impl/GLSLProgram.cpp
-    core/sources/impl/GLSLShader.cpp
-    core/sources/impl/OcclusionQueryOGL.cpp
-    core/sources/impl/FrameBufferGL.cpp
     core/sources/impl/VertexBuffer_RI.cpp
-    core/sources/impl/VertexBufferOGL_VBO.cpp
-    core/sources/impl/VertexBufferOpenGL.cpp
-    core/sources/impl/VertexBufferOGL_Array.cpp
 )
 
 IF(APPLE)
@@ -196,12 +189,6 @@ source_group("Platform" REGULAR_EXPRESSION "\\/impl\\/Platform.+")
 
 # setup libs
 
-set(OpenGL_GL_PREFERENCE LEGACY)
-find_package(OpenGL REQUIRED)
-if(USE_SYSTEM_GLEW)
-    find_package(GLEW REQUIRED)
-endif()
-
 # setup HPL2 compile target
 
 add_library(HPL2 STATIC
@@ -256,9 +243,6 @@ target_link_libraries(HPL2
   Newton
   tinyxml2::tinyxml2
   SDL2::SDL2
-  OpenGL::GL
-  GLEW::GLEW
-  OpenGL::GLU
   MathLib
   zlib
   volk

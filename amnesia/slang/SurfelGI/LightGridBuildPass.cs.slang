@@ -3,7 +3,7 @@
 //
 //   binLights : ONE THREAD PER CELL. Each cell walks the unified light list
 //               (point [0,nPoint), spot [nPoint, nPoint+nSpot) — same index space
-//               as Scene.sampleLightByIndex) and appends the lights whose
+//               as getLight) and appends the lights whose
 //               CPU-precomputed reach-sphere overlaps the cell, capped at
 //               kLightsPerCellMax. The cell owns its count + list slots, so there
 //               are no atomics, no inter-thread contention, and the per-cell count

@@ -30,13 +30,11 @@ import SceneTypes;
 import PerFrame.resource;
 import Fog;
 import Scene;
-import Utils.Color.ColorHelpers;   // linearToSRGB / sRGBToLinear (display-space source math)
-
-#define BLEND_MODE_ADD          0u
-#define BLEND_MODE_MUL          1u
-#define BLEND_MODE_MULX2        2u
-#define BLEND_MODE_ALPHA        3u
-#define BLEND_MODE_PREMUL_ALPHA 4u
+// Shared legacy blend math (kBlendMode* + the display-space modulation /
+// decode stages). This pass keeps the two stages SEPARATE — unlike
+// Particle.frag — because the display-space cube-map reflection + rim add
+// must sit between the source modulation and the single decode to linear.
+import BlendModes;
 
 // Options bitfield mirroring TranslucencyFlags in RendererDeferred.cpp.
 // blendMode stays as a separate uint so the existing switch is cheap; this
@@ -109,7 +107,7 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
         {
             float4 s = gTextures2D[NonUniformResourceIndex(diffuseTex)]
                            .Sample(gMaterialSampler, psIn.uv);
-            diffuseColor = float4(linearToSRGB(s.rgb), s.a);
+            diffuseColor = displaySpaceSample(s);
         }
         diffuseColor *= psIn.color;
     }
@@ -132,39 +130,11 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
         lightLevel = gScene.lightLevelAt(surfacePosW);
     }
 
-    float4 finalColor = diffuseColor;
-    switch (pc.blendMode)
-    {
-        case BLEND_MODE_ADD:
-        {
-            finalColor.xyz *= finalAlpha * lightLevel;
-            break;
-        }
-        case BLEND_MODE_MUL:
-        {
-            finalColor.xyz += (float3(1.0f) - finalColor.xyz) * (1.0f - finalAlpha);
-            break;
-        }
-        case BLEND_MODE_MULX2:
-        {
-            float blendMulAlpha = lightLevel * finalAlpha;
-            finalColor.xyz = finalColor.xyz * blendMulAlpha
-                           + float3(0.5f) * (1.0f - blendMulAlpha);
-            break;
-        }
-        case BLEND_MODE_ALPHA:
-        {
-            finalColor.xyz *= lightLevel;
-            finalColor.a   *= finalAlpha;
-            break;
-        }
-        case BLEND_MODE_PREMUL_ALPHA:
-        {
-            finalColor      *= finalAlpha;
-            finalColor.xyz  *= lightLevel;
-            break;
-        }
-    }
+    // Stage 1 of the shared blend scheme: display-space source modulation
+    // (the legacy per-mode pre-bias). The reflection/rim add below stays in
+    // display space, so the decode (stage 2) runs after it.
+    float4 finalColor = applyBlendModulation(pc.blendMode, diffuseColor,
+                                             finalAlpha, lightLevel);
 
     // Fresnel reflection. Gated on the material carrying a reflection cube map
     // (the "reflective" signal — same gate the legacy used), but the
@@ -258,37 +228,7 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
     }
 
     // Everything above (pre-bias, reflection, rim) is legacy display-space
-    // math. Decode to linear ONCE here, and reshape the dst-blend weights —
-    // toLin distributes over the MUL/MULX2 products with dst exactly (power
-    // law) but not over the ALPHA/PREMUL sums, so those use the powered
-    // premultiplied weights src·pow(α,k) / dst·pow(1−α,k) instead
-    // (pipeline ALPHA factors are ONE / 1−srcA). See Particle.frag.slang.
-    const float k = kPerceptualBlendExp;
-    switch (pc.blendMode)
-    {
-        case BLEND_MODE_ADD:
-        case BLEND_MODE_MUL:
-        {
-            finalColor.xyz = sRGBToLinear(finalColor.xyz);
-            break;
-        }
-        case BLEND_MODE_MULX2:
-        {
-            // Legacy: 2·dst·m; HW factors give 2·src·dst → src = toLin(2·m)/2.
-            finalColor.xyz = sRGBToLinear(2.0f * finalColor.xyz) * 0.5f;
-            break;
-        }
-        case BLEND_MODE_ALPHA:
-        case BLEND_MODE_PREMUL_ALPHA:
-        {
-            float a = saturate(displayAlpha);
-            finalColor.xyz = sRGBToLinear(finalColor.xyz);
-            if (pc.blendMode == BLEND_MODE_ALPHA)
-                finalColor.xyz *= pow(a, k);
-            finalColor.a = 1.0f - pow(1.0f - a, k);
-            break;
-        }
-    }
-
-    return finalColor;
+    // math. Stage 2 of the shared blend scheme decodes to linear ONCE and
+    // reshapes the dst-blend weights (see BlendModes.slang).
+    return encodeBlendOutputLinear(pc.blendMode, finalColor);
 }

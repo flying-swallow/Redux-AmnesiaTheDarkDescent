@@ -20,6 +20,7 @@ import PerFrame.resource;
 import Random;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
+import SurfelGI.SurfelGather;
 
 // Per-pixel evaluation has no runtime-tunable parameters; everything that
 // used to live in SurfelEvaluationCB (placement / removal / blending /
@@ -48,15 +49,11 @@ void csMain(
 
     TriangleHit triangleHit = hitInfo.getTriangleHit();
     VertexData v = gScene.getVertexData(triangleHit);
-    float4 curPosH = mul(gScene.camera.getViewProjNoJitter(), float4(v.posW, 1.f));
-    float depth = curPosH.z / curPosH.w;
 
-    int3 cellPos = getCellPos(v.posW, gScene.camera.getPosition(), kCellUnit);
-    if (!isCellValid(cellPos))
+    uint flattenIndex;
+    CellInfo cellInfo;
+    if (!lookupSurfelCell(v.posW, gScene.camera.getPosition(), flattenIndex, cellInfo))
         return;
-
-    uint flattenIndex = getFlattenCellIndex(cellPos);
-    CellInfo cellInfo = gCellInfoBuffer[flattenIndex];
 
     float4 indirectLighting = float4(0.f);
     float coverage = 0.f;
@@ -71,35 +68,15 @@ void csMain(
         uint surfelIndex = gCellToSurfelBuffer[cellInfo.cellToSurfelBufferOffset + i];
         Surfel surfel = gSurfelBuffer[surfelIndex];
 
-        float3 bias = v.posW - surfel.position;
-        float  dist2 = dot(bias, bias);
-        if (dist2 >= surfel.radius * surfel.radius) continue;
-
         float3 normal = normalize(surfel.normal);
-        float  dotN   = dot(v.normalW, normal);
-        if (dotN <= 0.0f) continue;
+        SurfelHit hit;
+        if (!testSurfelCoverage(v.posW, v.normalW, surfel.position, normal,
+                                surfel.radius, hit))
+            continue;
 
-        float dist = sqrt(dist2);
-        float contribution = 1.f;
-        contribution *= saturate(dotN);
-        contribution *= saturate(1.0f - dist / surfel.radius);
-        contribution = smoothstep(0.f, 1.f, contribution);
-
+        float contribution = surfelKernelWeight(hit.dotN, hit.dist, surfel.radius);
         coverage += contribution;
-
-        {
-            float2 uv = getSurfelDepthUV(surfelIndex, bias / dist, normal);
-            float2 surfelDepth = gSurfelDepth.SampleLevel(gSurfelDepthSampler, uv, 0u);
-
-            float mean = surfelDepth.x;
-            float sqrMean = surfelDepth.y;
-
-            if (dist > mean)
-            {
-                float variance = sqrMean - pow(mean, 2);
-                contribution *= variance / (variance + pow(dist - mean, 2));
-            }
-        }
+        contribution *= surfelDepthWeight(surfelIndex, hit.dirUnit, normal, hit.dist);
 
         SurfelRecycleInfo recycleInfo = gSurfelRecycleInfoBuffer[surfelIndex];
 
