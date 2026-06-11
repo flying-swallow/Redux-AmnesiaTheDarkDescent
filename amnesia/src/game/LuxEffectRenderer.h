@@ -88,8 +88,8 @@ private:
 
 	// Outline: stencil silhouette -> rim color into m_outlineColor, then the
 	// separable blur into m_blur[]. Leaves m_blur[1] SHADER_RESOURCE.
-	void RenderOutline(const hpl::PostWorldDrawCtx& ctx, const RIDescriptor_s& aPassDesc);
-	void BlurOutline(RICmd_s* apCmd, uint32_t alBlurW, uint32_t alBlurH);
+	void RenderOutline(const hpl::PostWorldDrawCtx& ctx, const RIDescriptor& aPassDesc);
+	void BlurOutline(RICmd* apCmd, uint32_t alBlurW, uint32_t alBlurH);
 
 	std::vector<cGlowObject> mvFlashObjects;
 	std::vector<cGlowObject> mvEnemyGlowObjects;

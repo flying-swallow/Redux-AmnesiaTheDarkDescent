@@ -10,7 +10,7 @@
 #include "graphics/spirv_reflect.h"
 
 namespace hpl {
-static void vkDescriptorSetAlloc( struct RIDevice_s *device, struct RIDescriptorSetAlloc *alloc ) {
+static void vkDescriptorSetAlloc( struct RIDevice *device, struct RIDescriptorSetAlloc *alloc ) {
 	assert( device->renderer->api == RI_DEVICE_API_VK );
 	struct RIProgram::DescriptorSetSlot *programDescriptor = hpl_container_of( alloc, &RIProgram::DescriptorSetSlot::alloc );
   VkDescriptorPoolSize descriptorPoolSize[16] = {};
@@ -55,7 +55,7 @@ static void vkDescriptorSetAlloc( struct RIDevice_s *device, struct RIDescriptor
   }
 }
 
-void RIProgram::bindPipeline(struct RIDevice_s *device, struct RICmd_s* cmd, hash_t pipelineHash, const char* debugName, VkGraphicsPipelineCreateInfo* pipelineCreateInfo) {
+void RIProgram::bindPipeline(struct RIDevice *device, struct RICmd* cmd, hash_t pipelineHash, const char* debugName, VkGraphicsPipelineCreateInfo* pipelineCreateInfo) {
   assert(shaderBin[PROGRAM_STAGE_COMPUTE].buf.empty() && "compute-only programs must use bindComputePipeline");
   VkPipeline pipelineHandle = VK_NULL_HANDLE;
   auto it = pipeline.find(pipelineHash);
@@ -121,7 +121,7 @@ void RIProgram::bindPipeline(struct RIDevice_s *device, struct RICmd_s* cmd, has
   vkCmdBindPipeline(cmd->vk.cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineHandle);
 }
 
-void RIProgram::bindComputePipeline(struct RIDevice_s* device, struct RICmd_s* cmd, hash_t pipelineHash, const char* debugName, VkComputePipelineCreateInfo* pipelineCreateInfo) {
+void RIProgram::bindComputePipeline(struct RIDevice* device, struct RICmd* cmd, hash_t pipelineHash, const char* debugName, VkComputePipelineCreateInfo* pipelineCreateInfo) {
   VkPipeline pipelineHandle = VK_NULL_HANDLE;
   auto it = pipeline.find(pipelineHash);
   if (it == pipeline.end()) {
@@ -160,7 +160,7 @@ void RIProgram::bindComputePipeline(struct RIDevice_s* device, struct RICmd_s* c
 }
 
 void RIProgram::bindRayTracingPipeline(
-    struct RIDevice_s *device, struct RICmd_s *cmd, hash_t pipelineHash,
+    struct RIDevice *device, struct RICmd *cmd, hash_t pipelineHash,
     const char *debugName,
     VkRayTracingPipelineCreateInfoKHR *pipelineCreateInfo) {
 #if (DEVICE_IMPL_VULKAN)
@@ -385,7 +385,7 @@ void RIProgram::bindRayTracingPipeline(
 #endif
 }
 
-void RIProgram::traceRays(struct RICmd_s *cmd, hash_t pipelineHash,
+void RIProgram::traceRays(struct RICmd *cmd, hash_t pipelineHash,
                           uint32_t width, uint32_t height, uint32_t depth) {
 #if (DEVICE_IMPL_VULKAN)
   auto it = rtPipeline.find(pipelineHash);
@@ -398,7 +398,7 @@ void RIProgram::traceRays(struct RICmd_s *cmd, hash_t pipelineHash,
 #endif
 }
 
-void RIProgram::bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, uint32_t frameIndex, DescriptorBinding* bindings, size_t bindingCount, VkPipelineBindPoint bindPoint) {
+void RIProgram::bindDescriptors(struct RIDevice* device, struct RICmd* cmd, uint32_t frameIndex, DescriptorBinding* bindings, size_t bindingCount, VkPipelineBindPoint bindPoint) {
 #if ( DEVICE_IMPL_VULKAN )
 	{
 		VkDescriptorSet setsToBind[DESCRIPTOR_SET_MAX] = { VK_NULL_HANDLE };
@@ -501,7 +501,7 @@ void RIProgram::bindDescriptors(struct RIDevice_s* device, struct RICmd_s* cmd, 
 #endif
 }
 
-void RIProgram::bindBindlessDescriptorSet(struct RICmd_s *cmd,
+void RIProgram::bindBindlessDescriptorSet(struct RICmd *cmd,
                                           RIBindlessDescriptorSet *bindless,
                                           uint32_t setIndex,
                                           VkPipelineBindPoint bindPoint) {
@@ -512,7 +512,7 @@ void RIProgram::bindBindlessDescriptorSet(struct RICmd_s *cmd,
 }
 
 void RIBindlessDescriptorSet::initialize(
-    RIDevice_s *device, std::span<const Binding> bindings,
+    RIDevice *device, std::span<const Binding> bindings,
     std::span<const VkDescriptorPoolSize> poolSizes) {
   std::vector<VkDescriptorSetLayoutBinding> lbBindings(bindings.size());
   std::vector<VkDescriptorBindingFlags> lbFlags(bindings.size());
@@ -559,7 +559,7 @@ void RIBindlessDescriptorSet::initialize(
 }
 
 void RIBindlessDescriptorSet::writeDescriptors(
-    RIDevice_s *device, std::span<const WriteBinding> writes) {
+    RIDevice *device, std::span<const WriteBinding> writes) {
 #if (DEVICE_IMPL_VULKAN)
   if (writes.empty())
     return;
@@ -631,7 +631,7 @@ std::vector<char> RIProgram::loadShaderStage(cFileSearcher *searcher, const tStr
   return result;
 }
 
-void RIProgram::initialize(RIDevice_s* device, std::span<ModuleStage> moduleInit,
+void RIProgram::initialize(RIDevice* device, std::span<ModuleStage> moduleInit,
                            std::span<const VkDescriptorSetLayout> externalLayouts) {
   assert(device);
   this->device = device;

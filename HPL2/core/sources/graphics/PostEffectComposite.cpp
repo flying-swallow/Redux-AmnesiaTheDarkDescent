@@ -34,7 +34,7 @@ cPostEffectComposite::~cPostEffectComposite() {}
 
 //-----------------------------------------------------------------------
 
-void cPostEffectComposite::Render(float afFrameTime, struct RICmd_s *cmd,
+void cPostEffectComposite::Render(float afFrameTime, struct RICmd *cmd,
                                   struct RI_PogoBuffer *pogo, uint32_t width,
                                   uint32_t height, uint32_t frameIndex) {
     mfCurrentFrameTime = afFrameTime;

@@ -429,7 +429,7 @@ namespace hpl {
 	
 		//////////////////////////////////
 		// Create vertex buffer
-		iVertexBuffer *pVtxBuffer = apGraphics->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Software, eVertexBufferDrawType_Tri, 
+		cVertexBuffer *pVtxBuffer = apGraphics->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Software, eVertexBufferDrawType_Tri, 
 																					eVertexBufferUsageType_Static,lNumOfVtx, lNumOfIdx);
 
 		//Create arrays	

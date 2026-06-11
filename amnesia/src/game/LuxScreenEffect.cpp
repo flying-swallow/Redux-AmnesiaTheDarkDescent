@@ -31,11 +31,11 @@ using namespace hpl;
 //-----------------------------------------------------------------------
 
 // Lay down a single whole-image color barrier on the active command buffer.
-static void ImageBarrier(RICmd_s *cmd, RITexture_s *texture,
+static void ImageBarrier(RICmd *cmd, RITexture *texture,
 		uint32_t before, uint32_t beforeStages,
 		uint32_t after, uint32_t afterStages)
 {
-	RITextureBarrier_s barrier(texture, before, after, beforeStages, afterStages);
+	RITextureBarrier barrier(texture, before, after, beforeStages, afterStages);
 	barrier.mipCount   = 1;
 	barrier.layerCount = 1;
 	cmd->textureBarrier(barrier);
@@ -128,7 +128,7 @@ void cLuxScreenEffect::OnPostRender()
 	if (!pCapture->IsCaptured()) {
 		return; // The shared capture has not landed yet; try again next frame.
 	}
-	RIDescriptor_s *pSource = pCapture->PrimaryDescriptor();
+	RIDescriptor *pSource = pCapture->PrimaryDescriptor();
 	if (pSource == nullptr) {
 		return;
 	}
@@ -169,7 +169,7 @@ void cLuxScreenEffect::OnPostRender()
 		VkViewport viewport = { 0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f };
 		VkRect2D   scissor   = { { 0, 0 }, { w, h } };
 
-		auto blurPass = [&](HPLTexture *dst, const RIDescriptor_s &srcDesc,
+		auto blurPass = [&](cTexture *dst, const RIDescriptor &srcDesc,
 		                    float dirX, float dirY)
 		{
 			// dst → color attachment (discard old contents; wait on any prior
@@ -223,7 +223,7 @@ void cLuxScreenEffect::OnPostRender()
 		const int   kIterations = 6;    // H+V pairs; more = heavier blur
 		for (int i = 0; i < kIterations; ++i)
 		{
-			const RIDescriptor_s &hIn = (i == 0) ? *pSource
+			const RIDescriptor &hIn = (i == 0) ? *pSource
 			                                     : m_screenBgColor->binding;
 			blurPass(m_screenScratch.get(), hIn,                     kBlurSize, 0.0f);
 			blurPass(m_screenBgColor.get(), m_screenScratch->binding, 0.0f, kBlurSize);

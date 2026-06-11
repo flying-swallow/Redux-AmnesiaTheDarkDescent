@@ -4,9 +4,9 @@
 #include "system/Types.h"
 #include <cassert>
 
-struct RIBlockMem_s RIUniformScratchAllocHandler( struct RIDevice_s *device, struct RIScratchAlloc_s *scratch, size_t size )
+struct RIBlockMem RIUniformScratchAllocHandler( struct RIDevice *device, struct RIScratchAlloc *scratch, size_t size )
 {
-	struct RIBlockMem_s mem = {};
+	struct RIBlockMem mem = {};
 #if ( DEVICE_IMPL_VULKAN )
 	{
 		uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
@@ -40,9 +40,9 @@ struct RIBlockMem_s RIUniformScratchAllocHandler( struct RIDevice_s *device, str
 	return mem;
 }
 
-struct RIBlockMem_s RIAccelScratchAllocHandler( struct RIDevice_s *device, struct RIScratchAlloc_s *scratch, size_t size )
+struct RIBlockMem RIAccelScratchAllocHandler( struct RIDevice *device, struct RIScratchAlloc *scratch, size_t size )
 {
-	struct RIBlockMem_s mem = {};
+	struct RIBlockMem mem = {};
 #if ( DEVICE_IMPL_VULKAN )
 	{
 		uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
@@ -73,14 +73,14 @@ struct RIBlockMem_s RIAccelScratchAllocHandler( struct RIDevice_s *device, struc
 	return mem;
 }
 
-void InitRIScratchAlloc( struct RIDevice_s *device, struct RIScratchAlloc_s *pool, const struct RIScratchAllocDesc_s *desc ) {
-	memset( pool, 0, sizeof( struct RIScratchAlloc_s ) );
+void InitRIScratchAlloc( struct RIDevice *device, struct RIScratchAlloc *pool, const struct RIScratchAllocDesc *desc ) {
+	memset( pool, 0, sizeof( struct RIScratchAlloc ) );
   pool->alignmentReq = desc->alignmentReq;
   pool->blockSize = desc->blockSize;
   pool->alloc = desc->alloc;
 }
 
-static inline bool __isPoolSlotEmpty( struct RIDevice_s *device, struct RIBlockMem_s *block )
+static inline bool __isPoolSlotEmpty( struct RIDevice *device, struct RIBlockMem *block )
 {
 #if ( DEVICE_IMPL_VULKAN )
 	{
@@ -90,7 +90,7 @@ static inline bool __isPoolSlotEmpty( struct RIDevice_s *device, struct RIBlockM
 	return false;
 }
 
-static inline void __FreeRIBlockMem(struct RIDevice_s *device,struct RIBlockMem_s *block ) {
+static inline void __FreeRIBlockMem(struct RIDevice *device,struct RIBlockMem *block ) {
 #if ( DEVICE_IMPL_VULKAN )
 	if( block->buffer.vk.buffer ) {
 		block->buffer.dispose( device );
@@ -98,7 +98,7 @@ static inline void __FreeRIBlockMem(struct RIDevice_s *device,struct RIBlockMem_
 #endif
 }
 
-void FreeRIScratchAlloc( struct RIDevice_s *device, struct RIScratchAlloc_s *pool ) {
+void FreeRIScratchAlloc( struct RIDevice *device, struct RIScratchAlloc *pool ) {
 #if ( DEVICE_IMPL_VULKAN )
 	if( pool->current.buffer.vk.buffer ) {
 		__FreeRIBlockMem( device, &pool->current );
@@ -121,7 +121,7 @@ void FreeRIScratchAlloc( struct RIDevice_s *device, struct RIScratchAlloc_s *poo
 	arrfree( pool->oversized );
 }
 
-void RIResetScratchAlloc( struct RIDevice_s *device, struct RIScratchAlloc_s *pool )
+void RIResetScratchAlloc( struct RIDevice *device, struct RIScratchAlloc *pool )
 {
 	for( size_t i = 0; i < arrlen( pool->recycle ); i++ ) {
 		arrpush( pool->pool, pool->recycle[i] );
@@ -139,7 +139,7 @@ void RIResetScratchAlloc( struct RIDevice_s *device, struct RIScratchAlloc_s *po
 	pool->blockOffset = 0;
 }
 
-size_t RINumberOfUsedBlock(struct RIDevice_s *device,struct RIScratchAlloc_s* pool) {
+size_t RINumberOfUsedBlock(struct RIDevice *device,struct RIScratchAlloc* pool) {
 	size_t numBlock = 0;
 	if( !__isPoolSlotEmpty( device, &pool->current ) ) {
 		numBlock++;
@@ -148,7 +148,7 @@ size_t RINumberOfUsedBlock(struct RIDevice_s *device,struct RIScratchAlloc_s* po
 	numBlock += arrlen(pool->oversized);
 	return numBlock;
 }
-struct RIBlockMem_s *RIGetUsedBlock( struct RIDevice_s *device, struct RIScratchAlloc_s *pool, size_t index )
+struct RIBlockMem *RIGetUsedBlock( struct RIDevice *device, struct RIScratchAlloc *pool, size_t index )
 {
 	// Iteration order: current (if any) → recycle[..] → oversized[..].
 	size_t cursor = 0;
@@ -163,7 +163,7 @@ struct RIBlockMem_s *RIGetUsedBlock( struct RIDevice_s *device, struct RIScratch
 	return &pool->oversized[index - recycleEnd];
 }
 
-struct RIBufferScratchAllocReq_s RIAllocBufferFromScratchAlloc( struct RIDevice_s *device, struct RIScratchAlloc_s *pool, size_t reqSize )
+struct RIBufferScratchAllocReq RIAllocBufferFromScratchAlloc( struct RIDevice *device, struct RIScratchAlloc *pool, size_t reqSize )
 {
 	const size_t alignReqSize = ALIGN_TO( reqSize, pool->alignmentReq );
 	assert(pool->alloc);
@@ -173,10 +173,10 @@ struct RIBufferScratchAllocReq_s RIAllocBufferFromScratchAlloc( struct RIDevice_
 	// thing back. Leaves pool->current untouched so any subsequent normal
 	// allocation keeps filling it at the same offset.
 	if( alignReqSize > pool->blockSize ) {
-		struct RIBlockMem_s oneShot = pool->alloc( device, pool, alignReqSize );
+		struct RIBlockMem oneShot = pool->alloc( device, pool, alignReqSize );
 		arrpush( pool->oversized, oneShot );
 
-		struct RIBufferScratchAllocReq_s req = {};
+		struct RIBufferScratchAllocReq req = {};
 		req.block = oneShot;
 		req.pMappedAddress = oneShot.buffer.mappedAddress;
 		req.deviceAddress = oneShot.deviceAddress;
@@ -206,7 +206,7 @@ struct RIBufferScratchAllocReq_s RIAllocBufferFromScratchAlloc( struct RIDevice_
 		arrpush( pool->recycle, pool->current );
 		const size_t poolSize = arrlen( pool->pool );
 		if( poolSize > 0 ) {
-			memcpy( &( pool->current ), &( pool->pool[poolSize - 1] ), sizeof( struct RIBlockMem_s ) );
+			memcpy( &( pool->current ), &( pool->pool[poolSize - 1] ), sizeof( struct RIBlockMem ) );
 			arrsetlen( pool->pool, poolSize - 1 );
 		} else {
 		  pool->current = pool->alloc( device, pool, pool->blockSize );
@@ -218,7 +218,7 @@ struct RIBufferScratchAllocReq_s RIAllocBufferFromScratchAlloc( struct RIDevice_
 		pool->blockOffset += (size_t)( alignedBda - curBda );
 	}
 
-	struct RIBufferScratchAllocReq_s req = {};
+	struct RIBufferScratchAllocReq req = {};
 	req.block = pool->current;
 	req.pMappedAddress = pool->current.buffer.mappedAddress;
 	req.deviceAddress = pool->current.deviceAddress + pool->blockOffset;
@@ -228,7 +228,7 @@ struct RIBufferScratchAllocReq_s RIAllocBufferFromScratchAlloc( struct RIDevice_
 	return req;
 }
 
-void RIFinishScrachReq( struct RIDevice_s *device, struct RIBufferScratchAllocReq_s *req )
+void RIFinishScrachReq( struct RIDevice *device, struct RIBufferScratchAllocReq *req )
 {
 #if ( DEVICE_IMPL_VULKAN )
 	VK_WrapResult( vmaFlushAllocation( device->vk.vmaAllocator, req->block.buffer.vk.allocation, req->bufferOffset, req->bufferSize ) );

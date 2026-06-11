@@ -16,7 +16,7 @@
 
 #include "graphics/DebugDraw.h"
 
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 #include "graphics/Image.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
@@ -72,7 +72,7 @@ namespace hpl {
 
 		// One cached pipeline per (topology, depth, blend, format) combination —
 		// non-bindless template cloned from GuiSet.cpp / RendererWireFrame.cpp.
-		void bindDebugPipeline(RIProgram& aProgram, struct RICmd_s* cmd,
+		void bindDebugPipeline(RIProgram& aProgram, struct RICmd* cmd,
 							   const DebugPipelineCfg& aCfg, const char* asDebugName)
 		{
 			// Unified DebugVertex stream (stride 36); color-only stages skip uv.
@@ -308,7 +308,7 @@ namespace hpl {
 							 const cVector2f& avUv0, const cVector2f& avUv1, Image* apImage, const cColor& aTint,
 							 const DebugDrawOptions& aOptions)
 	{
-		std::shared_ptr<HPLTexture> texture = apImage ? apImage->GetTexture() : nullptr;
+		std::shared_ptr<cTexture> texture = apImage ? apImage->GetTexture() : nullptr;
 		if(!texture) {
 			DrawQuad(avV1, avV2, avV3, avV4, aTint, aOptions);
 			return;
@@ -351,7 +351,7 @@ namespace hpl {
 								  const cVector2f& avUv1, Image* apImage, const cColor& aTint,
 								  const DebugDrawOptions& aOptions)
 	{
-		std::shared_ptr<HPLTexture> texture = apImage ? apImage->GetTexture() : nullptr;
+		std::shared_ptr<cTexture> texture = apImage ? apImage->GetTexture() : nullptr;
 		if(!texture) {
 			return;
 		}
@@ -369,7 +369,7 @@ namespace hpl {
 		m_uvQuads.push_back(request);
 	}
 
-	void DebugDraw::DebugWireFrameFromVertexBuffer(iVertexBuffer* apVertexBuffer, const cColor& aColor,
+	void DebugDraw::DebugWireFrameFromVertexBuffer(cVertexBuffer* apVertexBuffer, const cColor& aColor,
 												   const DebugDrawOptions& aOptions)
 	{
 		const int lIndexNum = apVertexBuffer->GetIndexNum();
@@ -396,7 +396,7 @@ namespace hpl {
 		}
 	}
 
-	void DebugDraw::DebugSolidFromVertexBuffer(iVertexBuffer* apVertexBuffer, const cColor& aColor,
+	void DebugDraw::DebugSolidFromVertexBuffer(cVertexBuffer* apVertexBuffer, const cColor& aColor,
 											   const DebugDrawOptions& aOptions)
 	{
 		const int lIndexNum = apVertexBuffer->GetIndexNum();
@@ -455,12 +455,12 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 	bool DebugDraw::RequestStream(RIBootstrap::FrameContext* cntx, size_t alNumVertices, size_t alNumIndices,
-								  struct RISegmentReq_s* apVtxReq, struct RISegmentReq_s* apIdxReq)
+								  struct RISegmentReq* apVtxReq, struct RISegmentReq* apIdxReq)
 	{
 		if(!IsRIBufferValid(&RI.renderer, &m_vertexBuffer) ||
 		   !m_vertexAlloc.request(RI.frameIndex, alNumVertices, apVtxReq))
 		{
-			struct RISegmentAllocDesc_s segmentAllocDesc = { 0 };
+			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 			segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 			segmentAllocDesc.elementStride = sizeof(DebugVertex);
 			segmentAllocDesc.maxElements = std::max<size_t>(m_vertexAlloc.maxElements, 1024);
@@ -493,7 +493,7 @@ namespace hpl {
 		if(!IsRIBufferValid(&RI.renderer, &m_indexBuffer) ||
 		   !m_indexAlloc.request(RI.frameIndex, alNumIndices, apIdxReq))
 		{
-			struct RISegmentAllocDesc_s segmentAllocDesc = { 0 };
+			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 			segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 			segmentAllocDesc.elementStride = sizeof(uint32_t);
 			segmentAllocDesc.maxElements = std::max<size_t>(m_indexAlloc.maxElements, 1024);
@@ -527,7 +527,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void DebugDraw::flush(RIBootstrap::FrameContext* cntx, struct RICmd_s* cmd, const cFrustum* apFrustum,
+	void DebugDraw::flush(RIBootstrap::FrameContext* cntx, struct RICmd* cmd, const cFrustum* apFrustum,
 						  uint32_t alTargetWidth, uint32_t alTargetHeight, VkFormat aColorFormat)
 	{
 		if(!HasRequests()) {
@@ -553,7 +553,7 @@ namespace hpl {
 			orthoMtx = clipRemap * orthoMtx;
 			std::memcpy(uniformBlock.viewProj2DMat, orthoMtx.a, sizeof(uniformBlock.viewProj2DMat));
 		}
-		RIDescriptor_s passDescriptor = {};
+		RIDescriptor passDescriptor = {};
 		RI.UpdateFrameUBO(&passDescriptor, (void*)&uniformBlock, sizeof(uniformBlock));
 
 		////////////////////////////////////////////
@@ -576,8 +576,8 @@ namespace hpl {
 		const size_t numIndices = m_lineSegments.size() * 2 + m_colorTriangles.size() * 3 +
 								  m_colorQuads.size() * 6 + m_uvQuads.size() * 6 +
 								  m_line2DSegments.size() * 2;
-		RISegmentReq_s vtxReq = {};
-		RISegmentReq_s idxReq = {};
+		RISegmentReq vtxReq = {};
+		RISegmentReq idxReq = {};
 		if(!RequestStream(cntx, numVertices, numIndices, &vtxReq, &idxReq)) {
 			Reset();
 			return;
@@ -714,7 +714,7 @@ namespace hpl {
 				size_t runVertexCount = 0;
 				size_t runIndexCount = 0;
 				const DebugDepthTest depthTest = it->m_depthTest;
-				const std::shared_ptr<HPLTexture> texture = it->m_texture;
+				const std::shared_ptr<cTexture> texture = it->m_texture;
 				do {
 					const cColor& c = it->m_color;
 					const float color[4] = { c.r, c.g, c.b, c.a };

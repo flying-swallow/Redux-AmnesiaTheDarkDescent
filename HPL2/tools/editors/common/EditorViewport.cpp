@@ -24,7 +24,7 @@
 #include "EditorSelection.h"
 #include "EditorWorld.h"
 
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 #include "graphics/Image.h"
 #include "graphics/RIBootstrap.h"
 #include "graphics/RIRenderer.h"
@@ -741,7 +741,7 @@ bool cEditorViewportCamera::BoundingVolumeFitsInView(const cBoundingVolume &aBV)
 //-------------------------------------------------------------
 //-------------------------------------------------------------
 
-iEditorViewport::iEditorViewport(iEditorBase* apEditor, cWorld* apWorld, iFrameBuffer* apFB, bool abDestroyFBOnExit)
+iEditorViewport::iEditorViewport(iEditorBase* apEditor, cWorld* apWorld)
 {
 	++mlViewportCount;
 	tString sViewportCount = "Viewport" + cString::ToString(mlViewportCount) + "_";
@@ -751,7 +751,6 @@ iEditorViewport::iEditorViewport(iEditorBase* apEditor, cWorld* apWorld, iFrameB
 	mpGfx = mpEngine->GetGraphics();
 	mpGuiSet = apEditor->GetSet();
 
-	mpFB = NULL;
 
 	mCamera = cEditorViewportCamera(this);
 	mpEngineViewport = mpEngine->GetScene()->CreateViewport(mCamera.GetEngineCamera(), apWorld, true);
@@ -784,11 +783,9 @@ iEditorViewport::iEditorViewport(iEditorBase* apEditor, cWorld* apWorld, iFrameB
 	mbMousePositionUpdated = true;
 	mbUnprojectionUpdated = true;
 
-	mbDestroyFBOnExit = abDestroyFBOnExit;
 
 	mpGrid = hplNew(cEditorGrid, (this));
 
-	SetFrameBuffer(apFB);
 }
 
 //-------------------------------------------------------------
@@ -802,11 +799,6 @@ iEditorViewport::~iEditorViewport()
 
 	hplDelete(mpGrid);
 
-	/* if (mbDestroyFBOnExit)
-	{
-		mpEngine->GetGraphics()->GetLowLevel()->SetCurrentFrameBuffer(NULL);
-		mpEngine->GetGraphics()->DestroyFrameBuffer(mpFB);
-	} */
 }
 
 //-------------------------------------------------------------
@@ -868,18 +860,6 @@ void iEditorViewport::SetRenderMode(eRenderer aMode)
 
 //-------------------------------------------------------------
 
-void iEditorViewport::SetFrameBuffer(iFrameBuffer* apFB)
-{
-	if(apFB==NULL || mpFB==apFB) return;
-	
-	mpFB = apFB;
-	iFrameBufferAttachment* pColorBuffer = mpFB->GetColorBuffer(0);
-	if(pColorBuffer) mpRenderTarget = pColorBuffer->ToTexture();
-
-	// Legacy GL only: the engine cViewport no longer carries a framebuffer
-	// (the RI path renders into per-viewport targets / TargetView).
-	mbViewportNeedsUpdate = true;
-}
 
 //-------------------------------------------------------------
 
@@ -888,14 +868,14 @@ void iEditorViewport::SetFrameBuffer(iFrameBuffer* apFB)
 // (Re)creates the editor-owned pane color texture at the given extent: a
 // sampled + color-attachable PogoColorFormat image (cScene's TargetView
 // delivery renders the viewport's finished pogo into it and leaves it
-// SHADER_READ_ONLY for the GUI). Returns false on failure. The HPLTexture
+// SHADER_READ_ONLY for the GUI). Returns false on failure. The cTexture
 // deleter defers the GPU frees onto the frame freelist, so dropping the
 // previous texture mid-flight is safe.
-static bool CreatePaneTexture(std::shared_ptr<HPLTexture> &outTexture,
+static bool CreatePaneTexture(std::shared_ptr<cTexture> &outTexture,
 							  uint32_t alWidth, uint32_t alHeight)
 {
-	std::shared_ptr<HPLTexture> texture(new HPLTexture{},
-										HPLTexture::HPLTexture_Delete);
+	std::shared_ptr<cTexture> texture(new cTexture{},
+										cTexture::cTexture_Delete);
 
 	VkImageCreateInfo imageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
 	imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -972,7 +952,7 @@ void iEditorViewport::UpdateViewport()
 	// viewport's finished pogo into the pane texture each frame and the GUI
 	// samples it. The wrapping Image stays stable across pane resizes, so
 	// existing gfx elements keep working; old textures are freed via the
-	// HPLTexture deleter (frame freelist).
+	// cTexture deleter (frame freelist).
 	const cVector2l vSize = mvEngineViewportSize;
 	if(vSize.x <= 0 || vSize.y <= 0)
 		return;
@@ -1053,24 +1033,6 @@ void iEditorViewport::SetEngineViewportPositionAndSize(const cVector2l& avPos, c
 
 	// Legacy FB sub-rect UV math — dead on the RI backend (offscreen target is
 	// 1:1, mpFB is NULL). Kept for the GL path until the Phase-5 cleanup.
-	if(mpFB)
-	{
-		const cVector2l& vFBSize = mpFB->GetSize();
-		cVector2f vFBSizeFloat = cVector2f((float)vFBSize.x, (float)vFBSize.y);
-
-		cVector2f vPosFloat = cVector2f((float)mvEngineViewportPos.x, (float)mvEngineViewportPos.y);
-		cVector2f vSizeFloat = cVector2f((float)mvEngineViewportSize.x, (float)mvEngineViewportSize.y);
-
-		mvUVStart = (vPosFloat+cVector2f(0,vSizeFloat.y)) /
-					vFBSizeFloat;
-
-		if(mvUVStart.y>=1.0f) mvUVStart.y-=1.0f;
-
-		mvUVSize =  vSizeFloat/
-				   vFBSizeFloat;
-
-		mvUVEnd = mvUVStart + mvUVSize;
-	}
 
 	mbViewportNeedsUpdate = true;
 }
@@ -1083,14 +1045,6 @@ void iEditorViewport::SetEngineViewportSize(const cVector2l& avSize)
 	mvEngineViewportSize = avSize;
 
 	// Legacy FB sub-rect UV math — dead on the RI backend (see above).
-	if(mpFB)
-	{
-		const cVector2l& vFBSize = mpFB->GetSize();
-
-		mvUVSize = cVector2f((float)mvEngineViewportSize.x, (float)mvEngineViewportSize.y) /
-				   cVector2f((float)vFBSize.x, (float)vFBSize.y);
-		mvUVStart = cVector2f(mvUVStart.x, mvUVSize.y-mvUVStart.y);
-	}
 	mbViewportNeedsUpdate = true;
 }
 

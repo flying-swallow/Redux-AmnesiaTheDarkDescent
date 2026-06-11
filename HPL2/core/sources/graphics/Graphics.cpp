@@ -31,11 +31,9 @@
 #include "graphics/MeshCreator.h"
 #include "graphics/TextureCreator.h"
 #include "graphics/DecalCreator.h"
-#include "graphics/FrameBuffer.h"
 #include "graphics/PostEffectComposite.h"
 #include "graphics/PostEffect.h"
 #include "graphics/MaterialType.h"
-#include "graphics/Texture.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIResourceUploader.h"
 #include "graphics/RITypes.h"
@@ -113,9 +111,6 @@ namespace hpl {
 
 		STLDeleteAll(mlstPostEffectComposites);
 		STLDeleteAll(mlstPostEffects);
-		STLDeleteAll(mlstFrameBuffers);
-		STLDeleteAll(mlstDepthStencilBuffers);
-		STLDeleteAll(mlstTextures);
 
 		hplDelete(mpMeshCreator);
 		hplDelete(mpTextureCreator);
@@ -153,7 +148,7 @@ namespace hpl {
 			mbScreenIsSetup = false;
 		}
 		{
-		struct RIBackendInit_s backendInit = {};
+		struct RIBackendInit backendInit = {};
 		backendInit.api = RI_DEVICE_API_VK;
 		backendInit.applicationName = "HPL2";
 #ifndef NDEBUG
@@ -171,7 +166,7 @@ namespace hpl {
 			return false;
 		}
 		assert(numAdapters > 0);
-		std::vector<RIPhysicalAdapter_s> physicalAdapters(numAdapters);
+		std::vector<RIPhysicalAdapter> physicalAdapters(numAdapters);
 
 		if(RI.renderer.enumerateAdapters(physicalAdapters.data(), &numAdapters) != RI_SUCCESS) {
 			return false;
@@ -191,16 +186,16 @@ namespace hpl {
 			if(physicalAdapters[i].videoMemorySize > physicalAdapters[selectedAdapterIdx].videoMemorySize) 
 				selectedAdapterIdx = i;
 		}
-		struct RIDeviceDesc_s deviceInit = { 0 };
+		struct RIDeviceDesc deviceInit = { 0 };
 		deviceInit.physicalAdapter = &physicalAdapters[selectedAdapterIdx];
 		RI.device.init(&RI.renderer, &deviceInit );
 		RI_InitResourceUploader(&RI.device, &RI.uploader);
-		struct RIWindowHandle_s windowHandle = mpLowLevelGraphics->GetWindowHandle(); 
+		struct RIWindowHandle windowHandle = mpLowLevelGraphics->GetWindowHandle(); 
 		if(windowHandle.type == RI_WINDOW_UNKNOWN) {
 			FatalError("Failed to find valid window handle!\n");
 			return false;
 		}
-		struct RISwapchainDesc_s swapchainInit = { 0 };
+		struct RISwapchainDesc swapchainInit = { 0 };
 		swapchainInit.windowHandle = &windowHandle;
 		swapchainInit.requestImageCount = RI_NUMBER_FRAMES_FLIGHT;
 		swapchainInit.queue = &RI.device.queues[RI_QUEUE_GRAPHICS];
@@ -233,11 +228,11 @@ namespace hpl {
 			}
 		}
 
-		struct RIQueue_s *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
+		struct RIQueue *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
 		RI.graphicsCmdRing.init( &RI.device, graphicsQueue,
 		                         RI_NUMBER_FRAMES_FLIGHT, RI_NUMBER_SUB_COMMANDS, true );
 		for(auto& set: RI.frameSets) {
-			struct RIScratchAllocDesc_s uboDesc = {
+			struct RIScratchAllocDesc uboDesc = {
 					.blockSize = 256 * 128,
 					.alignmentReq = RI.device.physicalAdapter.constantBufferOffsetAlignment,
 					.alloc = RIUniformScratchAllocHandler };
@@ -246,7 +241,7 @@ namespace hpl {
 			// AS build scratch pool. 1 MiB blocks fit typical TLAS/BLAS scratch
 			// for moderate scenes; oversized builds spill through the allocator's
 			// one-shot path.
-			struct RIScratchAllocDesc_s accelDesc = {
+			struct RIScratchAllocDesc accelDesc = {
 					.blockSize = 1024 * 1024,
 					.alignmentReq = RI.device.physicalAdapter.accelerationStructureScratchOffsetAlignment,
 					.alloc = RIAccelScratchAllocHandler };
@@ -254,7 +249,7 @@ namespace hpl {
 		}
 		}
 		{
-			struct RICommandRingElement_s initElem = RI.graphicsCmdRing.acquire( &RI.device, 1 );
+			struct RICommandRingElement initElem = RI.graphicsCmdRing.acquire( &RI.device, 1 );
 			initElem.pool->reset( &RI.device );
 			initElem.cmds[0].begin( &RI.device );
 
@@ -308,7 +303,7 @@ namespace hpl {
 
 				VkImageSubresourceRange colorRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
-				RITextureBarrier_s toTransfer = {};
+				RITextureBarrier toTransfer = {};
 				toTransfer.texture = &RI.whiteTexture2D;
 				toTransfer.before = RI_RESOURCE_STATE_UNDEFINED;
 				toTransfer.after = RI_RESOURCE_STATE_COPY_DST;
@@ -325,7 +320,7 @@ namespace hpl {
 
 				// afterStages 0 derives the all-shader mask — sampled reads can
 				// only happen in shader stages.
-				RITextureBarrier_s toShaderRead = {};
+				RITextureBarrier toShaderRead = {};
 				toShaderRead.texture = &RI.whiteTexture2D;
 				toShaderRead.before = RI_RESOURCE_STATE_COPY_DST;
 				toShaderRead.beforeStages = RI_STAGE_COPY;
@@ -384,7 +379,7 @@ namespace hpl {
 			// that binding's stride so this one element feeds every vertex.
 			{
 				struct FallbackSpec {
-					struct RIBuffer_s *target;
+					struct RIBuffer *target;
 					uint32_t size;       // single-vertex byte size (the binding stride)
 					float    value[4];
 				};
@@ -558,20 +553,6 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	iTexture* cGraphics::CreateTexture(const tString &asName,eTextureType aType,   eTextureUsage aUsage)
-	{	
-		iTexture *pTexture = mpLowLevelGraphics->CreateTexture(asName,aType, aUsage);
-		mlstTextures.push_back(pTexture);
-		return pTexture;
-	}
-
-	void cGraphics::DestroyTexture(iTexture *apTexture)
-	{
-		STLFindAndDelete(mlstTextures, apTexture);
-	}
-
-	//-----------------------------------------------------------------------
-	
 	cPostEffectComposite* cGraphics::CreatePostEffectComposite()
 	{
 		cPostEffectComposite *pComposite = hplNew( cPostEffectComposite, (this) );

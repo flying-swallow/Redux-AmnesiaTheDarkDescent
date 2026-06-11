@@ -85,8 +85,7 @@ namespace hpl {
 	
 	cLightSpot::~cLightSpot()
 	{
-		if(mpSpotFalloffMap) mpTextureManager->Destroy(mpSpotFalloffMap);
-
+		// m_spotFalloffMap (ImageResourceWrapper) frees itself.
 		hplDelete(mpFrustum);
 	}
 	
@@ -206,23 +205,6 @@ namespace hpl {
 	}
 
 	//-----------------------------------------------------------------------
-
-	iTexture *cLightSpot::GetSpotFalloffMap()
-	{
-		return mpSpotFalloffMap;
-	}
-
-	void cLightSpot::SetSpotFalloffMap(iTexture* apTexture)
-	{
-		if(mpSpotFalloffMap) mpTextureManager->Destroy(mpSpotFalloffMap);
-
-		mpSpotFalloffMap = apTexture;
-		if(mpSpotFalloffMap)
-		{
-			mpSpotFalloffMap->SetWrapS(eTextureWrap_ClampToEdge);
-			mpSpotFalloffMap->SetWrapT(eTextureWrap_ClampToEdge);
-		}
-	}
 
 	void cLightSpot::SetSpotFalloffMap(Image* apImage)
 	{

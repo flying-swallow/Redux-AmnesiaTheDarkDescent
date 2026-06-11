@@ -164,12 +164,10 @@ void cViewportCallback::OnPreWorldDraw()
 //----------------------------------------------------------------
 
 cEditorWindowViewport::cEditorWindowViewport(iEditorBase* apEditor, 
-											 iFrameBuffer* apFB,
 											 bool abAddViewMenu):	iEditorWindow(apEditor,
 																				  "Viewport Window"),
 																	iEditorViewport(apEditor,
-																					apEditor->GetEditorWorld()->GetWorld(),
-																					apFB)
+																					apEditor->GetEditorWorld()->GetWorld())
 {
 	mbDrawGrid = true;
 	mbDrawDebug = false;
@@ -362,8 +360,7 @@ void cEditorWindowViewport::SetEnlarged(bool abX)
 		vFBPos = cVector2l(0);
 		// RI backend: no legacy FB — the offscreen target sizes itself to the
 		// engine viewport, so the enlarged pane just uses its GUI pixel size.
-		vFBSize = mpFB ? mpFB->GetSize()
-					   : cVector2l((int)mvEnlargedSize.x, (int)mvEnlargedSize.y);
+					   vFBSize = cVector2l((int)mvEnlargedSize.x, (int)mvEnlargedSize.y);
 	}
 	else
 	{

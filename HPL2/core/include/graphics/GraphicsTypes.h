@@ -500,12 +500,6 @@ namespace hpl {
 
 	//---------------------------------------
 
-	enum eFrameBufferAttachment
-	{	
-		eFrameBufferAttachment_RenderBuffer,	
-		eFrameBufferAttachment_Texture,
-		eFrameBufferAttachment_LastEnum
-	};
 
 	//---------------------------------------
 	
@@ -762,17 +756,7 @@ namespace hpl {
 	//---------------------------------------
 
 	//---------------------------------------
-	class iTexture;
-	class iDepthStencilBuffer;
 
-	class iFrameBufferAttachment
-	{
-	public:
-		virtual eFrameBufferAttachment GetFrameBufferAttachmentType()=0;
-
-		iTexture* ToTexture();
-		iDepthStencilBuffer* ToDepthStencilBuffer();
-	};
 
 	//---------------------------------------
 
@@ -785,14 +769,12 @@ namespace hpl {
 
 	//---------------------------------------
 
-	class iFrameBuffer;
 
 	class cRenderTarget
 	{
 	public:
-		cRenderTarget() : mpFrameBuffer(NULL), mvPos(0), mvSize(-1){}
+		cRenderTarget() : mvPos(0), mvSize(-1){}
 
-		iFrameBuffer *mpFrameBuffer;
 		cVector2l mvPos;
 		cVector2l mvSize;
 	};

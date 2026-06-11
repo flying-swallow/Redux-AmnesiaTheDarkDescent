@@ -136,12 +136,12 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	iVertexBuffer* cMeshManager::CreateVertexBufferFromMesh(const tString& asName, tVertexElementFlag alVtxToCopy)
+	cVertexBuffer* cMeshManager::CreateVertexBufferFromMesh(const tString& asName, tVertexElementFlag alVtxToCopy)
 	{
 		cMesh *pMesh = CreateMesh(asName);
 		if(pMesh==NULL) return NULL;
 
-		iVertexBuffer *pVtxBuffer = pMesh->GetSubMesh(0)->GetVertexBuffer()->CreateCopy(eVertexBufferType_Hardware,
+		cVertexBuffer *pVtxBuffer = pMesh->GetSubMesh(0)->GetVertexBuffer()->CreateCopy(eVertexBufferType_Hardware,
 																						eVertexBufferUsageType_Static,
 																						alVtxToCopy);
 		Destroy(pMesh);

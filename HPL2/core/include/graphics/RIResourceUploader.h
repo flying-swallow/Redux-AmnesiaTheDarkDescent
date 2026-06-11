@@ -18,20 +18,20 @@ struct RIMappedMemoryRange {
 };
 
 // One queue + per-set cmd pool / cmd buffer / staging buffer / fence / semaphore.
-struct RITransferCommandGroup_s {
-	struct RIQueue_s *queue;
+struct RITransferCommandGroup {
+	struct RIQueue *queue;
 
 	bool is_recording;
 	size_t active_set;
 
-	struct RIPool_s cmd_pool[RI_RESOURCE_MAX_SETS];
-	struct RICmd_s cmd[RI_RESOURCE_MAX_SETS];
+	struct RIPool cmd_pool[RI_RESOURCE_MAX_SETS];
+	struct RICmd cmd[RI_RESOURCE_MAX_SETS];
 
 	size_t staging_buffer_offset; // running tail in active set's staging buffer
-	struct RIBuffer_s staging_buffer[RI_RESOURCE_MAX_SETS];
+	struct RIBuffer staging_buffer[RI_RESOURCE_MAX_SETS];
 
 	// per-set overflow buffers (stb_ds arrays); freed when the set is reused
-	struct RIBuffer_s *temporary_buffers[RI_RESOURCE_MAX_SETS];
+	struct RIBuffer *temporary_buffers[RI_RESOURCE_MAX_SETS];
 
 	union {
 #if ( DEVICE_IMPL_VULKAN )
@@ -43,13 +43,13 @@ struct RITransferCommandGroup_s {
 	};
 };
 
-struct RIResourceUploader_s {
-	struct RITransferCommandGroup_s upload_resource; // graphics queue
-	struct RITransferCommandGroup_s copy_resource;   // transfer / copy queue
+struct RIResourceUploader {
+	struct RITransferCommandGroup upload_resource; // graphics queue
+	struct RITransferCommandGroup copy_resource;   // transfer / copy queue
 };
 
-struct RIResourceBufferTransaction_s {
-	struct RIBuffer_s target;
+struct RIResourceBufferTransaction {
+	struct RIBuffer target;
 	size_t size;
 	size_t offset; // destination offset inside 'target'
 
@@ -66,8 +66,8 @@ struct RIResourceBufferTransaction_s {
 	struct RIMappedMemoryRange mapped;
 };
 
-struct RIResourceTextureTransaction_s {
-	struct RITexture_s target;
+struct RIResourceTextureTransaction {
+	struct RITexture target;
 
 	// Same semantics as the buffer transaction states above; barriers cover
 	// only the single (mipOffset, arrayOffset) subresource being written.
@@ -96,16 +96,16 @@ struct RIResourceTextureTransaction_s {
 	struct RIMappedMemoryRange mapped;
 };
 
-void RI_InitResourceUploader( struct RIDevice_s *device, struct RIResourceUploader_s *res );
-void RI_FreeResourceUploader( struct RIDevice_s *device, struct RIResourceUploader_s *res );
+void RI_InitResourceUploader( struct RIDevice *device, struct RIResourceUploader *res );
+void RI_FreeResourceUploader( struct RIDevice *device, struct RIResourceUploader *res );
 
-void RI_ResourceBeginCopyBuffer( struct RIDevice_s *device, struct RIResourceUploader_s *res, struct RIResourceBufferTransaction_s *trans );
-void RI_ResourceEndCopyBuffer( struct RIDevice_s *device, struct RIResourceUploader_s *res, struct RIResourceBufferTransaction_s *trans );
+void RI_ResourceBeginCopyBuffer( struct RIDevice *device, struct RIResourceUploader *res, struct RIResourceBufferTransaction *trans );
+void RI_ResourceEndCopyBuffer( struct RIDevice *device, struct RIResourceUploader *res, struct RIResourceBufferTransaction *trans );
 
-void RI_ResourceBeginCopyTexture( struct RIDevice_s *device, struct RIResourceUploader_s *res, struct RIResourceTextureTransaction_s *trans );
-void RI_ResourceEndCopyTexture( struct RIDevice_s *device, struct RIResourceUploader_s *res, struct RIResourceTextureTransaction_s *trans );
+void RI_ResourceBeginCopyTexture( struct RIDevice *device, struct RIResourceUploader *res, struct RIResourceTextureTransaction *trans );
+void RI_ResourceEndCopyTexture( struct RIDevice *device, struct RIResourceUploader *res, struct RIResourceTextureTransaction *trans );
 
-struct RIResourceUploaderVKResult_s {
+struct RIResourceUploaderVKResult {
 	bool signaled;
 
 	union {
@@ -119,7 +119,7 @@ struct RIResourceUploaderVKResult_s {
 };
 
 #if ( DEVICE_IMPL_VULKAN )
-struct RIResourceUploaderVKResult_s RI_VKFlushResourceUpdate( struct RIDevice_s *device, struct RIResourceUploader_s *res, size_t num_semaphores, VkSemaphoreSubmitInfo *wait_semaphore_info );
+struct RIResourceUploaderVKResult RI_VKFlushResourceUpdate( struct RIDevice *device, struct RIResourceUploader *res, size_t num_semaphores, VkSemaphoreSubmitInfo *wait_semaphore_info );
 #endif
 
 #endif

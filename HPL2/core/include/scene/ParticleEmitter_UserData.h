@@ -175,7 +175,7 @@ namespace hpl {
 		cVector3f	mvMinRevVel;
 		cVector3f	mvMaxRevVel;
 	
-//		iVertexBuffer *mVBMeshData;
+//		cVertexBuffer *mVBMeshData;
 //		float *mpfMeshVtxData;
 	
 		// ---

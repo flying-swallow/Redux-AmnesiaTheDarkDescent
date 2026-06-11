@@ -34,7 +34,7 @@
 namespace hpl {
 
 	class cMaterial;
-	class iVertexBuffer;
+	class cVertexBuffer;
 
 	class cMesh;
 	class iPhysicsWorld;
@@ -66,101 +66,15 @@ namespace hpl {
 	friend class cSubMeshEntity;
 	public:
 
-    //// preset traits that are expected throughout the engine
-    //struct PostionTrait {
-    //    using Type = ml::float3;
-    //    static constexpr uint32_t Stride = sizeof(ml::float3);
-    //    //static constexpr ShaderSemantic Semantic = ShaderSemantic::SEMANTIC_POSITION;
-    //};
-    //struct NormalTrait {
-    //    using Type = ml::float3;
-    //    static constexpr uint32_t Stride = sizeof(ml::float3);
-    //    //static constexpr ShaderSemantic Semantic = ShaderSemantic::SEMANTIC_NORMAL;
-    //};
-    //struct ColorTrait {
-    //    using Type = ml::float4;
-    //    static constexpr uint32_t Stride = sizeof(ml::float4);
-    //    //static constexpr ShaderSemantic Semantic = ShaderSemantic::SEMANTIC_COLOR;
-    //};
-    //struct TangentTrait {
-    //    using Type = ml::float3;
-    //    static constexpr uint32_t Stride = sizeof(ml::float3);
-    //    //static constexpr ShaderSemantic Semantic = ShaderSemantic::SEMANTIC_TANGENT;
-    //};
-    //struct TextureTrait {
-    //    using Type = ml::float2;
-    //    static constexpr uint32_t Stride = sizeof(ml::float2);
-    //    //static constexpr ShaderSemantic Semantic = ShaderSemantic::SEMANTIC_TEXCOORD0;
-    //};
-
-    //struct StreamBufferInfo {
-    //public:
-    //    StreamBufferInfo() {
-    //    }
-
-    //    StreamBufferInfo(const StreamBufferInfo& other):
-    //        buffer(other.buffer),
-    //        //m_buffer(other.m_buffer),
-    //        //m_semantic(other.m_semantic),
-    //        stride(other.stride),
-    //        numElements (other.numElements ){
-    //    }
-    //    StreamBufferInfo(StreamBufferInfo&& other):
-    //        buffer(std::move(other.buffer)),
-    //        //m_buffer(std::move(other.m_buffer)),
-    //        //m_semantic(other.m_semantic),
-    //        stride(other.stride),
-    //        numElements(other.numElements){
-    //    }
-
-    //    void operator=(const StreamBufferInfo& other) {
-    //        buffer = other.buffer;
-    //        //m_buffer = other.m_buffer;
-    //        //m_semantic = other.m_semantic;
-    //        stride = other.stride;
-    //        numElements = other.numElements;
-    //    }
-    //    void operator=(StreamBufferInfo&& other) {
-    //        buffer  = std::move(other.buffer);
-    //        //m_buffer = std::move(other.m_buffer);
-    //        //m_semantic = other.m_semantic;
-    //        stride = other.stride;
-    //        numElements = other.numElements ;
-    //    }
-
-    //    //// utility function to create buffers allows for consistancy for these types of buffers in the engine
-    //    //template<typename Trait>
-    //    //static void InitializeBuffer(StreamBufferInfo* info, GraphicsBuffer::BufferStructuredView<typename Trait::Type>* view = nullptr) {
-    //    //    info->m_stride = Trait::Stride;
-    //    //    info->m_semantic = Trait::Semantic;
-    //    //    if(view) {
-    //    //        (*view) = info->GetStructuredView<typename Trait::Type>();
-    //    //    }
-    //    //}
-
-    //    //template<typename T>
-    //    //constexpr GraphicsBuffer::BufferStructuredView<T> GetStructuredView(uint32_t byteOffset = 0) {
-    //    //    return m_buffer.CreateStructuredView<T>(byteOffset, m_stride);
-    //    //}
-    //    //SharedBuffer CommitSharedBuffer();
-
-    //		std::shared_ptr<struct RIBuffer_s> buffer;
-    //    //GraphicsBuffer m_buffer;
-    //    uint32_t stride = 0;
-    //    uint32_t numElements = 0;
-    //    //ShaderSemantic m_semantic = ShaderSemantic::SEMANTIC_UNDEFINED;
-    //};
-		
-
 		cSubMesh(const tString &asName,cMaterialManager* apMaterialManager);
 		~cSubMesh();
 
 		void SetMaterial(cMaterial* apMaterial);
-		void SetVertexBuffer(iVertexBuffer* apVtxBuffer);
+		void SetVertexBuffer(cVertexBuffer* apVtxBuffer);
 
 		//Renderable implementation.
 		cMaterial *GetMaterial();
-		iVertexBuffer* GetVertexBuffer();
+		cVertexBuffer* GetVertexBuffer();
 
 		const tString& GetName(){ return msName;}
 
@@ -214,7 +128,7 @@ namespace hpl {
 		
 		tString msMaterialName;
 		cMaterial* mpMaterial;
-		iVertexBuffer* mpVtxBuffer;
+		cVertexBuffer* mpVtxBuffer;
 
 		cMatrixf m_mtxLocalTransform;
 

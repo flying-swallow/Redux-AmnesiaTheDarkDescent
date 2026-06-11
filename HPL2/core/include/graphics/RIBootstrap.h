@@ -16,7 +16,7 @@
 #include <optional>
 
 namespace hpl {
-struct HPLTexture;
+struct cTexture;
 
 
 //bootstrap implementation
@@ -56,21 +56,21 @@ public:
 
   }
   struct FrameContext {
-    struct RIScratchAlloc_s uboScratchAlloc;
-    struct RIScratchAlloc_s accelScratchAlloc;
+    struct RIScratchAlloc uboScratchAlloc;
+    struct RIScratchAlloc accelScratchAlloc;
     // Keep-alive refs for resources used this frame; cleared after the ring
     // fence wait when the slot is reused, so by then the GPU is done with
     // everything parked here. One vector for all resource kinds.
-    std::vector<std::variant<std::shared_ptr<HPLTexture>,
-                             std::shared_ptr<RIBuffer_s>,
-                             std::shared_ptr<RIAccelStructure_s>>> resourceLink;
+    std::vector<std::variant<std::shared_ptr<cTexture>,
+                             std::shared_ptr<RIBuffer>,
+                             std::shared_ptr<RIAccelStructure>>> resourceLink;
     // Deferred destroys: by-value copies of owned RI structs, disposed when
     // the slot is reused (std::visit -> dispose in BeginActiveSet).
     std::vector<RIFreeHandle> freelist;
   };
 
-  RIRenderer_s renderer;
-  RIDevice_s device;
+  RIRenderer renderer;
+  RIDevice device;
 	RIProgram gui;
 	// Fullscreen passthrough (posteffect_fullscreen.vert + posteffect_blit.frag)
 	// used to blit the renderer's pogo "read" half to the swapchain. Lives here
@@ -79,12 +79,12 @@ public:
 
   // 1x1 white texture used as the default texture binding when no real
   // texture is available.
-  struct RITexture_s whiteTexture2D;
-  struct RIDescriptor_s whiteTexture2DBinding;
+  struct RITexture whiteTexture2D;
+  struct RIDescriptor whiteTexture2DBinding;
 
   // Zero-filled vertex buffer bound into vertex input slots that don't have
   // a real stream — the vertex fetcher reads zeros for those attributes.
-  struct RIBuffer_s nulVertexBuffer;
+  struct RIBuffer nulVertexBuffer;
 
   // Default-value fallback vertex streams bound when a renderable omits an
   // optional stream in the fixed-function raster passes (translucent / water /
@@ -93,62 +93,62 @@ public:
   // absent stream (see TranslucentMeshPipelineDesc / DecalPipelineDesc), so the
   // one element feeds every vertex. Filled once at init (see Graphics.cpp);
   // consumed by detail::BindVertexStreams in HybridRenderer.cpp.
-  struct RIBuffer_s fallbackNormalVertex;
-  struct RIBuffer_s fallbackTangentVertex;
-  struct RIBuffer_s fallbackColorVertex;
-  struct RIBuffer_s fallbackUv0Vertex;
+  struct RIBuffer fallbackNormalVertex;
+  struct RIBuffer fallbackTangentVertex;
+  struct RIBuffer fallbackColorVertex;
+  struct RIBuffer fallbackUv0Vertex;
 
   // Per-viewport render targets (backbuffer, overscan render target, depth,
   // visibility) live on cViewport (scene/Viewport.h),
   // not here — one renderer instance serves every viewport.
-  RISwapchain_s<RI_MAX_SWAPCHAIN_IMAGES> swapchain;
-	struct RITextureView_s swapchainView[RI_MAX_SWAPCHAIN_IMAGES];
+  RISwapchain<RI_MAX_SWAPCHAIN_IMAGES> swapchain;
+	struct RITextureView swapchainView[RI_MAX_SWAPCHAIN_IMAGES];
 
-	RICommandRingBuffer_s<RI_COMMAND_RING_POOL_COUNT, RI_COMMAND_RING_CMD_PER_POOL> graphicsCmdRing;
-	struct RICommandRingElement_s primary;
+	RICommandRingBuffer<RI_COMMAND_RING_POOL_COUNT, RI_COMMAND_RING_CMD_PER_POOL> graphicsCmdRing;
+	struct RICommandRingElement primary;
 	// Dedicated command buffer for BLAS builds, submitted (signalling its own
 	// semaphore) ahead of `primary` so the primary's TLAS build is guaranteed to
 	// see fully-built BLAS without an inline accel-build barrier. Second element
 	// from graphicsCmdRing (its own cmd/fence/semaphore, shares primary's pool).
-	struct RICommandRingElement_s blasSubmit;
+	struct RICommandRingElement blasSubmit;
 
   struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> guiVertexAlloc;
-  RIBuffer_s guiVertexBuffer;
+  RIBuffer guiVertexBuffer;
   struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> guiIndexAlloc;
-  RIBuffer_s guiIndexBuffer;
+  RIBuffer guiIndexBuffer;
 
   // Per-viewport camera-facing translucent geometry (particles): each pane
   // builds its verts/indices straight into its own per-frame segment of these
   // host-mapped buffers and binds them at a byte offset — bypassing the
-  // object's persistent VertexBuffer_RI, whose uploader copies all coalesce
+  // object's persistent cVertexBuffer, whose uploader copies all coalesce
   // into the fenced pre-pass (last pane's copy would win for EVERY pane).
   // Same pattern as the gui*Alloc pair above. The vertex allocator is
   // float-granular (stride 4 bytes) so mixed streams (pos 16B / col 16B /
   // uv 12B) share it; the index allocator is uint32-granular.
   struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> translucentVtxAlloc;
-  RIBuffer_s translucentVtxBuffer;
+  RIBuffer translucentVtxBuffer;
   struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> translucentIdxAlloc;
-  RIBuffer_s translucentIdxBuffer;
+  RIBuffer translucentIdxBuffer;
 
   std::array<FrameContext, RI_NUMBER_FRAMES_FLIGHT> frameSets;
-	std::array<RIDescriptor_s, 1024> cachedFilters; 
+	std::array<RIDescriptor, 1024> cachedFilters; 
   uint32_t swapchainIndex;
   uint32_t frameIndex = 0;
 
-  struct RIResourceUploader_s uploader = {};
+  struct RIResourceUploader uploader = {};
 
   void IncrementFrame();
-  std::optional<RIDescriptor_s> resolve_filter_descriptor(eTextureWrap wrapS, eTextureWrap wrapT, eTextureWrap wrapR, eTextureFilter filter);
+  std::optional<RIDescriptor> resolve_filter_descriptor(eTextureWrap wrapS, eTextureWrap wrapT, eTextureWrap wrapR, eTextureFilter filter);
   FrameContext *GetActiveSet() { return &frameSets[frameIndex % RI_NUMBER_FRAMES_FLIGHT]; }
 
-  void UpdateFrameUBO(RIDescriptor_s* descriptor, void* data, size_t size);
+  void UpdateFrameUBO(RIDescriptor* descriptor, void* data, size_t size);
 
   // Claim per-frame segments of the translucent scratch buffers (grow ×1.5 +
   // recreate on overflow, old buffer parked on the active set's freelist).
   // numFloats / numIndices are element counts; the returned req's
   // elementOffset is in elements (multiply by 4 for the bind byte offset).
-  bool RequestTranslucentVtx(FrameContext* cntx, size_t numFloats, struct RISegmentReq_s* req);
-  bool RequestTranslucentIdx(FrameContext* cntx, size_t numIndices, struct RISegmentReq_s* req);
+  bool RequestTranslucentVtx(FrameContext* cntx, size_t numFloats, struct RISegmentReq* req);
+  bool RequestTranslucentIdx(FrameContext* cntx, size_t numIndices, struct RISegmentReq* req);
 
   void CloseAndSubmitActiveSet();
   void BeginActiveSet();

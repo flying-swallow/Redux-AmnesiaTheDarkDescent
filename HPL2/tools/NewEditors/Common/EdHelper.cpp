@@ -130,7 +130,7 @@ bool cEdHelper::CheckScreenSpaceMouseSubMeshIntersect(const cVector2f& avInvYMou
 	cVector3f vSubMeshIntersectPos;
 
 	//Get Vertex Buffer
-	iVertexBuffer* pVtxBuffer = apSubMesh->GetVertexBuffer();
+	cVertexBuffer* pVtxBuffer = apSubMesh->GetVertexBuffer();
 
 	bIntersect = CheckScreenSpaceMouseVertexBufferIntersect(avInvYMousePos, 
 															avRayStart, avRayEnd, 
@@ -151,7 +151,7 @@ bool cEdHelper::CheckScreenSpaceMouseSubMeshIntersect(const cVector2f& avInvYMou
 
 bool cEdHelper::CheckScreenSpaceMouseVertexBufferIntersect(const cVector2f& avInvYMousePos,
 														   const cVector3f& avRayStart, const cVector3f& avRayEnd,
-														   const cVector2f& avViewportSize, iVertexBuffer* apVtxBuffer,
+														   const cVector2f& avViewportSize, cVertexBuffer* apVtxBuffer,
 														   const cMatrixf& amtxCameraViewMatrix,
 														   const cMatrixf& amtxCameraProjMatrix,
 														   const cMatrixf& amtxVtxBufferWorldMatrix,
@@ -251,7 +251,7 @@ bool cEdHelper::CheckRayMeshEntityIntersect(const cVector3f& avRayStart, const c
 
 bool cEdHelper::CheckRaySubMeshEntityIntersect(const cVector3f& avRayStart, const cVector3f& avRayEnd, cSubMeshEntity* apObject, cVector3f* apIntersection, float *apT,unsigned int* apTriangleIdx, tVector3fVec* apTriangle)
 {
-	iVertexBuffer* pVB = apObject->GetSubMesh()->GetVertexBuffer();
+	cVertexBuffer* pVB = apObject->GetSubMesh()->GetVertexBuffer();
 	cMatrixf mtxInvWorld = cMath::MatrixInverse(apObject->GetWorldMatrix());
 	int lTriIndex = -1;
 
@@ -344,9 +344,9 @@ void cEdHelper::DrawPyramid(cRendererCallbackFunctions* apFunctions, const cVect
 
 //----------------------------------------------------------------------------------
 
-iVertexBuffer* cEdHelper::CreatePyramidVtxBuffer(cGraphics* apGfx, const cVector3f& avBaseCenter, const cVector3f& avTip, float afHalfWidth, const cColor& aColor)
+cVertexBuffer* cEdHelper::CreatePyramidVtxBuffer(cGraphics* apGfx, const cVector3f& avBaseCenter, const cVector3f& avTip, float afHalfWidth, const cColor& aColor)
 {
-	iVertexBuffer* pVB = apGfx->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic);
+	cVertexBuffer* pVB = apGfx->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic);
 
 	cVector3f vNormal = avTip-avBaseCenter;
 	cVector3f vPoint = avBaseCenter+1;

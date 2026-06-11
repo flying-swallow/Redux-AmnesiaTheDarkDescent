@@ -37,7 +37,7 @@ Image::Image(Image &&other)
   value = std::move(other.value);
 }
 
-std::shared_ptr<HPLTexture> Image::GetTexture() const {
+std::shared_ptr<cTexture> Image::GetTexture() const {
   if (const SingleImage *singleImage = std::get_if<SingleImage>(&value)) {
     return singleImage->image;
   } else if (const AnimatedImage *animImage = std::get_if<AnimatedImage>(&value)) {
@@ -105,13 +105,13 @@ float Image::GetFrameTime() const {
 }
 
 uint16_t Image::GetWidth() const {
-  if (const std::shared_ptr<HPLTexture> image = GetTexture()) {
+  if (const std::shared_ptr<cTexture> image = GetTexture()) {
     return image->width;
   }
   return 0;
 }
 uint16_t Image::GetHeight() const {
-  if (const std::shared_ptr<HPLTexture> image = GetTexture()) {
+  if (const std::shared_ptr<cTexture> image = GetTexture()) {
     return image->height;
   }
   return 0;

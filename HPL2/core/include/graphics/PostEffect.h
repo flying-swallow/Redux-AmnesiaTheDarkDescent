@@ -70,8 +70,8 @@ private:
 // pogo half (sampled image); the effect writes either to outputView
 // (color attachment) or to its own owned target before copying back.
 struct PostEffectRenderCtx {
-    struct RICmd_s        *cmd;
-    struct RIDescriptor_s *inputSrv;
+    struct RICmd        *cmd;
+    struct RIDescriptor *inputSrv;
     VkImage                outputImage;
     VkImageView            outputView;
     uint32_t               width;

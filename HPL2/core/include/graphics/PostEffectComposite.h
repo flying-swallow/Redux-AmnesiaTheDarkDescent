@@ -50,7 +50,7 @@ public:
     //
     // When HasActiveEffects() is false this is a no-op — the caller can
     // skip the call entirely or invoke it and pay only the early return.
-    void Render(float afFrameTime, struct RICmd_s *cmd,
+    void Render(float afFrameTime, struct RICmd *cmd,
                 struct RI_PogoBuffer *pogo, uint32_t width, uint32_t height,
                 uint32_t frameIndex);
 

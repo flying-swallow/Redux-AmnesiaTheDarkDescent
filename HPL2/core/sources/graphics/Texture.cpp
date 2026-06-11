@@ -1,6 +1,6 @@
 #include "graphics/GraphicsTypes.h"
 #include "graphics/RIBootstrap.h"
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 #include "graphics/RIFormat.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RITypes.h"
@@ -16,7 +16,7 @@
 #include <vulkan/vulkan_core.h>
 
 namespace hpl {
-HPLTexture::~HPLTexture() {
+cTexture::~cTexture() {
   // Free the GPU resources directly — no freelist deferral needed. Every
   // frame that samples this texture parks a shared_ptr in that frame set's
   // resourceLink, and BeginActiveSet waits the ring fence before clearing it,
@@ -25,7 +25,7 @@ HPLTexture::~HPLTexture() {
   handle.dispose(&RI.device);  // image + VMA allocation
 }
 
-void HPLTexture::HPLTexture_Delete(HPLTexture *texture) { delete texture; }
+void cTexture::cTexture_Delete(cTexture *texture) { delete texture; }
 
 RI_Format from_hpl_format(ePixelFormat format) {
   switch (format) {
@@ -154,7 +154,7 @@ RI_Format to_image_supported_format(ePixelFormat format) {
 static inline bool GetSurfaceInfo(
 	uint32_t width,
 	uint32_t height,
-	const RIFormatProps_s* prop,
+	const RIFormatProps* prop,
 	uint32_t* outNumBytes,
 	uint32_t* outRowBytes,
 	uint32_t* outNumRows)
@@ -214,13 +214,13 @@ static inline bool GetSurfaceInfo(
 	return true;
 }
 
-void HPLTexture::setDebugName(const tWString& name) {
+void cTexture::setDebugName(const tWString& name) {
   std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
   std::string utf8 = converter.to_bytes(name);
   setDebugName(utf8.c_str());
 }
 
-void HPLTexture::setDebugName(const char* name) {
+void cTexture::setDebugName(const char* name) {
   assert(handle.vk.image);
 	if(vkSetDebugUtilsObjectNameEXT){
 		VkDebugUtilsObjectNameInfoEXT debugName = { 
@@ -240,7 +240,7 @@ void HPLTexture::setDebugName(const char* name) {
 // layout (sourceFormat) to destFormat. current/post states parameterize the
 // uploader's barriers: UNDEFINED for the first fill of a fresh image,
 // SHADER_RESOURCE for an in-place re-upload of a fragment-sampled texture.
-static void __UploadBitmapSubresource(struct RITexture_s &target,
+static void __UploadBitmapSubresource(struct RITexture &target,
                                       const unsigned char *srcData,
                                       RI_Format sourceFormat, RI_Format destFormat,
                                       uint32_t arrIndex, uint32_t mipLevel,
@@ -249,8 +249,8 @@ static void __UploadBitmapSubresource(struct RITexture_s &target,
                                       uint32_t currentStages,
                                       enum RIResourceState_e postState,
                                       uint32_t postStages) {
-  const struct RIFormatProps_s *srcProps = GetRIFormatProps(sourceFormat);
-  const struct RIFormatProps_s *destProps = GetRIFormatProps(destFormat);
+  const struct RIFormatProps *srcProps = GetRIFormatProps(sourceFormat);
+  const struct RIFormatProps *destProps = GetRIFormatProps(destFormat);
 
   // Compressed mip levels below blockWidth/blockHeight still occupy one
   // full block. Without the max() clamp small mips give rowPitch == 0,
@@ -258,7 +258,7 @@ static void __UploadBitmapSubresource(struct RITexture_s &target,
   const uint32_t srcSliceNum = std::max<uint32_t>(1u, h / srcProps->blockHeight);
   const uint32_t srcRowPitch = std::max<uint32_t>(1u, w / srcProps->blockWidth) * srcProps->stride;
 
-  struct RIResourceTextureTransaction_s uploadDesc = {};
+  struct RIResourceTextureTransaction uploadDesc = {};
   uploadDesc.target = target;
   uploadDesc.width = w;
   uploadDesc.height = h;
@@ -308,7 +308,7 @@ static void __UploadBitmapSubresource(struct RITexture_s &target,
   RI_ResourceEndCopyTexture(&RI.device, &RI.uploader, &uploadDesc);
 }
 
-bool HPLTexture::LoadBitmap(
+bool cTexture::LoadBitmap(
                           enum RIResourceState_e postState, uint32_t postStages,
                             cBitmap &bitmap,
                             const BitmapLoadOptions &options) {
@@ -321,7 +321,7 @@ bool HPLTexture::LoadBitmap(
   }
   format = destFormat; // remembered so material setup can probe channel count
   VkImageCreateInfo info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-  const struct RIFormatProps_s *formatProps = GetRIFormatProps(destFormat);
+  const struct RIFormatProps *formatProps = GetRIFormatProps(destFormat);
   if (formatProps->blockWidth > 1) {
     info.flags |=
         VK_IMAGE_CREATE_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT; // format can be used
@@ -411,7 +411,7 @@ bool HPLTexture::LoadBitmap(
 
       const auto& input = bitmap.GetData(arrIndex, mipLevel);
       if (input == NULL || input->mpData == NULL) {
-        Warning("HPLTexture::LoadBitmap: missing source data for array %u mip %u\n",
+        Warning("cTexture::LoadBitmap: missing source data for array %u mip %u\n",
                 arrIndex, mipLevel);
         continue;
       }
@@ -425,7 +425,7 @@ bool HPLTexture::LoadBitmap(
   return true;
 }
 
-bool HPLTexture::UpdateBitmap(cBitmap &bitmap) {
+bool cTexture::UpdateBitmap(cBitmap &bitmap) {
   // Size and format must match the original LoadBitmap — this only refreshes
   // the pixels of mip 0 / layer 0 (the SetRawData replacement for procedural
   // textures like the color picker's box/slider).
@@ -436,7 +436,7 @@ bool HPLTexture::UpdateBitmap(cBitmap &bitmap) {
 
   const auto &input = bitmap.GetData(0, 0);
   if (input == NULL || input->mpData == NULL) {
-    Warning("HPLTexture::UpdateBitmap: missing source data\n");
+    Warning("cTexture::UpdateBitmap: missing source data\n");
     return false;
   }
 
@@ -448,14 +448,14 @@ bool HPLTexture::UpdateBitmap(cBitmap &bitmap) {
   return true;
 }
 
-//HPLTexture::HPLTexture() {
+//cTexture::cTexture() {
 //
 //}
 //
-//HPLTexture::HPLTexture(struct RIResourceUploader_s* upload,cBitmap& bitmap, const BitmapLoadOptions& options) {
+//cTexture::cTexture(struct RIResourceUploader* upload,cBitmap& bitmap, const BitmapLoadOptions& options) {
 //	VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
 //	info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT; // typeless
-//	const struct RIFormatProps_s *formatProps = GetRIFormatProps( destFormat );
+//	const struct RIFormatProps *formatProps = GetRIFormatProps( destFormat );
 //	//bitmap.GetPixelFormat()
 //	////if( formatProps->blockWidth > 1 )
 //	////	info.flags |= VK_IMAGE_CREATE_BLOCK_TEXEL_VIEW_COMPATIBLE_BIT; // format can be used to create a view with an uncompressed format (1 texel covers 1 block)

@@ -39,7 +39,7 @@ namespace hpl {
 
 	class cMesh;
 	class cNode3D;
-	class iVertexBuffer;
+	class cVertexBuffer;
 	class cBone;
 	class cSkeleton;
 	class cAnimation;
@@ -51,7 +51,7 @@ namespace hpl {
 	class cSubMeshData
 	{
 	public:
-		iVertexBuffer* mpVtxBuffer;
+		cVertexBuffer* mpVtxBuffer;
         
 		cMatrixf m_mtxGlobal;
 		cMatrixf m_mtxLocal;

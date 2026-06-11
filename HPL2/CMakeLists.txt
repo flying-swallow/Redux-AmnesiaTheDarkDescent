@@ -76,7 +76,6 @@ file(GLOB impl_sources RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     core/sources/impl/LowLevelSystemSDL.cpp
     core/sources/impl/SDLEngineSetup.cpp
     core/sources/impl/SDLFontData.cpp
-    core/sources/impl/SDLTexture.cpp
 
     core/sources/platform/sdl2/*.cpp
     # OpenAL
@@ -91,7 +90,7 @@ file(GLOB impl_sources RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
 
     core/sources/impl/ThreadSDL.cpp
     core/sources/impl/MutexSDL.cpp
-    core/sources/impl/VertexBuffer_RI.cpp
+    core/sources/impl/VertexBuffer.cpp
 )
 
 IF(APPLE)

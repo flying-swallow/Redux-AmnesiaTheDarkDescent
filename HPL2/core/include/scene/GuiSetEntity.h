@@ -53,7 +53,7 @@ namespace hpl {
 		/////////////////////////////////
 		//Renderable implementations
 		cMaterial *GetMaterial(){ return NULL;}
-		iVertexBuffer* GetVertexBuffer(){return NULL;}
+		cVertexBuffer* GetVertexBuffer(){return NULL;}
 
 		eRenderableType GetRenderType(){ return eRenderableType_GuiSet;}
 		cMatrixf* GetModelMatrix(cFrustum *apFrustum);

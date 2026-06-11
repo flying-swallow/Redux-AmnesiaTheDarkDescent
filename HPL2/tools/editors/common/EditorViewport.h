@@ -228,7 +228,7 @@ class iEditorViewport
 {
 	friend class cEditorViewportCamera;
 public:
-	iEditorViewport(iEditorBase* apEditor, cWorld* apWorld, iFrameBuffer* apFB=NULL, bool abDestroyFBOnExit=false);
+	iEditorViewport(iEditorBase* apEditor, cWorld* apWorld);
 	virtual ~iEditorViewport();
 
 	/////////////////////////////////////
@@ -248,10 +248,8 @@ public:
 
 	/////////////////////////////////////
 	// Engine specific funcs
-	iFrameBuffer* GetFrameBuffer() { return mpFB; }
 	cViewport* GetEngineViewport() { return mpEngineViewport; }
 	void SetRenderMode(eRenderer aRenderMode);
-	void SetFrameBuffer(iFrameBuffer* apFB);
 	void SetEngineViewportPositionAndSize(const cVector2l& avPos, const cVector2l& avSize);
 	void SetEngineViewportSize(const cVector2l& avSize);
 	void UpdateViewport();
@@ -326,8 +324,6 @@ protected:
 
 	///////////////////////////////////
 	// Own Funcs
-	void CreateFrameBuffer(const cVector2l& avSize);
-	void SetUpFrameBuffer(iFrameBuffer* apFB);
 	void CreateGuiViewport(iWidget* apParentWidget);
 	void UpdateUnprojection();
 
@@ -346,7 +342,6 @@ protected:
 	bool mbViewportNeedsUpdate;
 	bool mbViewportActive;
 
-	bool mbDestroyFBOnExit;
 
 	//////////////////////////////
 	// Render to texture stuff
@@ -354,11 +349,10 @@ protected:
 	// viewport's finished pogo into it (TargetView) and the GUI widget
 	// displays its Image (see UpdateViewport). Legacy FB members kept until
 	// the Phase-5 cleanup.
-	std::shared_ptr<HPLTexture> mpPaneTexture;
+	std::shared_ptr<cTexture> mpPaneTexture;
 	std::shared_ptr<Image> mpPaneImage;
 	cVector2l mvPaneSize = cVector2l(0, 0);
-	iFrameBuffer* mpFB;
-	iTexture* mpRenderTarget;
+	/* mpRenderTarget removed with iTexture */
 	cVector2f mvUVStart;
 	cVector2f mvUVSize;
 	cVector2f mvUVEnd;

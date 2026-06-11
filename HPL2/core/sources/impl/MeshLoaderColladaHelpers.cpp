@@ -651,7 +651,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	iVertexBuffer * cMeshLoaderCollada::CreateVertexBuffer(cColladaGeometry & aGeometry, 
+	cVertexBuffer * cMeshLoaderCollada::CreateVertexBuffer(cColladaGeometry & aGeometry, 
 		eVertexBufferUsageType aUsageType)
 		//,tColladaExtraVtxListVec &vExtraVtxVec)
 	{
@@ -665,7 +665,7 @@ namespace hpl {
 		//vExtraVtxVec = aGeometry.mvExtraVtxVec;
 
 		//Create vertex buffer and fill it
-		iVertexBuffer *pVtxBuff = mpLowLevelGraphics->CreateVertexBuffer(
+		cVertexBuffer *pVtxBuff = mpLowLevelGraphics->CreateVertexBuffer(
 			eVertexBufferType_Hardware,
 			eVertexBufferDrawType_Tri, aUsageType,
 			(int)aGeometry.mvVertexVec.size(), (int)aGeometry.mvIndexVec.size());

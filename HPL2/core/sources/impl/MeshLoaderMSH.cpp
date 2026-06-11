@@ -237,7 +237,7 @@ namespace hpl {
 						
 			////////////////////
 			// Vertex data
-			iVertexBuffer* pVtxBuff = mpLowLevelGraphics->CreateVertexBuffer(	eVertexBufferType_Hardware, eVertexBufferDrawType_Tri,
+			cVertexBuffer* pVtxBuff = mpLowLevelGraphics->CreateVertexBuffer(	eVertexBufferType_Hardware, eVertexBufferDrawType_Tri,
 																				eVertexBufferUsageType_Static, 0, 0);
 			{
 				int lVtxNum = binBuff.GetInt32();
@@ -372,7 +372,7 @@ namespace hpl {
 		for(int sub=0; sub< apMesh->GetSubMeshNum(); sub++)
 		{
 			cSubMesh* pSubMesh = apMesh->GetSubMesh(sub);
-			iVertexBuffer *pVtxBuff = pSubMesh->GetVertexBuffer();
+			cVertexBuffer *pVtxBuff = pSubMesh->GetVertexBuffer();
 			
 			////////////////////////////
 			//Add variables
@@ -765,7 +765,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void* cMeshLoaderMSH::GetVertexBufferWithFormat(iVertexBuffer *apVtxBuffer, eVertexBufferElement aElement, eVertexBufferElementFormat aFormat)
+	void* cMeshLoaderMSH::GetVertexBufferWithFormat(cVertexBuffer *apVtxBuffer, eVertexBufferElement aElement, eVertexBufferElementFormat aFormat)
 	{
 		switch(aFormat)
 		{

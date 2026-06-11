@@ -71,44 +71,6 @@ namespace hpl {
 
 	cMaterialType_Translucent::~cMaterialType_Translucent() {}
 
-	iTexture* cMaterialType_Translucent::GetTextureForUnit(cMaterial *apMaterial,eMaterialRenderMode aRenderMode, int alUnit)
-	{
-		cMaterialType_Translucent_Vars *pVars = (cMaterialType_Translucent_Vars*)apMaterial->GetVars();
-
-		bool bRefractionEnabled = pVars->mbRefraction && iRenderer::GetRefractionEnabled();
-
-		////////////////////////////
-		// Diffuse
-		if(aRenderMode == eMaterialRenderMode_Diffuse || aRenderMode == eMaterialRenderMode_DiffuseFog)
-		{
-			switch(alUnit)
-			{
-			case 0: return apMaterial->GetTexture(eMaterialTexture_Diffuse);
-			case 1: return apMaterial->GetTexture(eMaterialTexture_NMap);
-			case 2: if(bRefractionEnabled)
-						return mpGraphics->GetRenderer(eRenderer_Main)->GetRefractionTexture();
-					else
-						return NULL;
-			case 3: return apMaterial->GetTexture(eMaterialTexture_CubeMap);
-			case 4: return apMaterial->GetTexture(eMaterialTexture_CubeMapAlpha);
-			}
-		}
-
-		////////////////////////////
-		// Illumination
-		else if(aRenderMode == eMaterialRenderMode_Illumination || aRenderMode == eMaterialRenderMode_IlluminationFog)
-		{
-			switch(alUnit)
-			{
-			case 1: return apMaterial->GetTexture(eMaterialTexture_NMap);
-			case 3: return apMaterial->GetTexture(eMaterialTexture_CubeMap);
-			case 4: return apMaterial->GetTexture(eMaterialTexture_CubeMapAlpha);
-			}
-		}
-
-		return NULL;
-	}
-
 	iMaterialVars* cMaterialType_Translucent::CreateSpecificVariables()
 	{
 		cMaterialType_Translucent_Vars* pVars = hplNew(cMaterialType_Translucent_Vars,());
@@ -183,7 +145,7 @@ namespace hpl {
 
 		/////////////////////////////////////
 		// Setup the reflections
-		if(apMaterial->GetTexture(eMaterialTexture_CubeMap))
+		if(apMaterial->GetImage(eMaterialTexture_CubeMap))
 		{
 			if(bRefractionEnabled==false)
 				apMaterial->SetHasTranslucentIllumination(true);

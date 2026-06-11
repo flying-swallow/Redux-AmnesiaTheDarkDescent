@@ -32,7 +32,6 @@ namespace hpl {
 	class iLowLevelGraphics;
 	class cBitmap;
 	class cBitmapLoaderHandler;
-	class iTexture;
 	class Image;
 
 	typedef std::list<cFrameBitmap*> tFrameBitmapList;

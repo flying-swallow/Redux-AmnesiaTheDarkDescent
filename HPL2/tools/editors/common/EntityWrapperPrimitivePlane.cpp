@@ -424,7 +424,7 @@ void cEntityWrapperPrimitivePlane::UpdateUVMapping()
 	// VERY IMPORTANT TO CLEAR THE CURRENT UVS (for god's sake)
 	mvUVCorners.clear();
 
-	iVertexBuffer* pVB = ((cEngineEntityGeneratedMesh*)mpEngineEntity)->GetVertexBuffer();
+	cVertexBuffer* pVB = ((cEngineEntityGeneratedMesh*)mpEngineEntity)->GetVertexBuffer();
 
 	int lNumVertices = pVB->GetVertexNum();
 	float* pVertexCoords = pVB->GetFloatArray(eVertexBufferElement_Position);

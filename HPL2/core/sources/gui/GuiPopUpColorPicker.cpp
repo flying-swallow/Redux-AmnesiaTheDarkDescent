@@ -33,7 +33,7 @@
 #include "graphics/LowLevelGraphics.h"
 #include "graphics/FontData.h"
 #include "graphics/Bitmap.h"
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 #include "graphics/Image.h"
 #include "graphics/RIBootstrap.h"
 
@@ -60,14 +60,14 @@ namespace hpl {
 	//-------------------------------------------------------------------------------
 
 	// Wrap a procedural cBitmap in a GUI-drawable Image (fragment-sampled
-	// HPLTexture). The returned Image is owned by the caller — attached gfx
+	// cTexture). The returned Image is owned by the caller — attached gfx
 	// elements must use SetDestroyTexture(false), since gfx auto-destroy
 	// routes through the TextureManager which never owned these.
 	static Image* CreateImageFromBitmap(const char* asDebugName, cBitmap* apBmp)
 	{
 		Image::SingleImage singleImage = {};
-		singleImage.image = std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete);
-		HPLTexture::BitmapLoadOptions opts = {0};
+		singleImage.image = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
+		cTexture::BitmapLoadOptions opts = {0};
 		if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *apBmp, opts))
 		{
 			Error("ColorPicker: couldn't create image '%s'\n", asDebugName);

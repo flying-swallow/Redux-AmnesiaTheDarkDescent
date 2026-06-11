@@ -43,7 +43,7 @@ struct RIDescriptorPoolAllocSlot {
 };
 
 struct RIDescriptorSetAlloc;
-typedef void ( *RIDescriptorSetAlloc_Create )( struct RIDevice_s *device, struct RIDescriptorSetAlloc *alloc );
+typedef void ( *RIDescriptorSetAlloc_Create )( struct RIDevice *device, struct RIDescriptorSetAlloc *alloc );
 
 struct RIDescriptorSetAlloc {
 	RIDescriptorSetAlloc_Create descriptor_alloc_handle;
@@ -64,11 +64,11 @@ struct RIDescriptorSetResult {
 	struct RIDescriptorSetSlot *set; // the associated slot
 };
 
-struct RIDescriptorSetResult resolveDescriptorSetAlloc( struct RIDevice_s *device,
+struct RIDescriptorSetResult resolveDescriptorSetAlloc( struct RIDevice *device,
 													 struct RIDescriptorSetAlloc *alloc,
 													 uint32_t frameCount,
 													 hash_t hash);
-void freeDescriptorSetAlloc( struct RIDevice_s *device, struct RIDescriptorSetAlloc *alloc );
+void freeDescriptorSetAlloc( struct RIDevice *device, struct RIDescriptorSetAlloc *alloc );
 
 // utility
 struct RIDescriptorSetSlot *allocDescriptorSetSlot( struct RIDescriptorSetAlloc *alloc );

@@ -512,7 +512,7 @@ void cEdObjPlane::UpdateUVMapping()
 	mvUVCorners.clear();
 	
 
-	iVertexBuffer* pVB = ((cEngineGeneratedMesh*)mpEngObject)->GetVertexBuffer();
+	cVertexBuffer* pVB = ((cEngineGeneratedMesh*)mpEngObject)->GetVertexBuffer();
 
 	int lNumVertices = pVB->GetVertexNum();
 	float* pVertexCoords = pVB->GetFloatArray(eVertexBufferElement_Position);

@@ -148,7 +148,7 @@ namespace hpl {
 
 		for(;it!=mvSubMeshes.end(); ++it)
 		{
-			iVertexBuffer* pVB = (*it)->GetVertexBuffer();
+			cVertexBuffer* pVB = (*it)->GetVertexBuffer();
 
 			if(pVB)
 				lTriangleCount += (int)pVB->GetIndexNum()/3;
@@ -245,7 +245,7 @@ namespace hpl {
 			////////////////////////////
 			//Get the variables
 			cSubMesh *pSubMesh = mvSubMeshes[i];
-			iVertexBuffer *pVtxBuffer = pSubMesh->GetVertexBuffer();
+			cVertexBuffer *pVtxBuffer = pSubMesh->GetVertexBuffer();
 			float* pPosArray = pVtxBuffer->GetFloatArray(eVertexBufferElement_Position);
 			const int lVtxStride = pVtxBuffer->GetElementNum(eVertexBufferElement_Position);
 

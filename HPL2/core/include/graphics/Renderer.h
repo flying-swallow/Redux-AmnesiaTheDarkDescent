@@ -127,9 +127,6 @@ namespace hpl {
 		virtual bool LoadData() = 0;
 		virtual void DestroyData() = 0;
 
-		virtual iTexture* GetRefractionTexture() { return NULL; }
-		virtual iTexture* GetReflectionTexture() { return NULL; }
-
 		// Legacy material-path accessors — still referenced by the
 		// MaterialType_* program setup code; never populated by the Vulkan
 		// Draw() path.

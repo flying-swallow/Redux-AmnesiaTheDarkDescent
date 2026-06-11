@@ -2416,7 +2416,7 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 	bool cMath::CheckLineTriVertexBufferIntersection( const cVector3f& avLineStart, const cVector3f& avLineEnd,
-														const cMatrixf& a_mtxInvMeshMtx, iVertexBuffer *apVtxBuffer,
+														const cMatrixf& a_mtxInvMeshMtx, cVertexBuffer *apVtxBuffer,
 														cVector3f *apIntersectionPos, float *apT, int *apTriIndex, bool abSkipBackfacing)
 	{
 		return CheckLineTriMeshIntersection(avLineStart, avLineEnd, 

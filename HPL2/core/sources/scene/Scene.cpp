@@ -236,7 +236,7 @@ namespace hpl {
 				// earlier); GUI-only frames (menus) have no viewport depth and the
 				// sets render the no-depth pipeline variant (they derive it from the
 				// viewport passed into cGuiSet::Render).
-				struct RITextureView_s *pGuiDepthView = pViewPort->GetDepthView();
+				struct RITextureView *pGuiDepthView = pViewPort->GetDepthView();
 
 				VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
 				RI_VK_FillColorAttachmentView( &colorAttachment, &RI.swapchainView[RI.swapchainIndex] , !worldRendered );

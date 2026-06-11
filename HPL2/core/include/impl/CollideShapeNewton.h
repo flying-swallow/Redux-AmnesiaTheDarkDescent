@@ -30,7 +30,7 @@
 
 namespace hpl {
 
-	class iVertexBuffer;
+	class cVertexBuffer;
 	class iCollideShape;
 	class cBinaryBuffer;
 

@@ -10,7 +10,7 @@ namespace hpl {
 TranslucentMeshPipelineDesc::TranslucentMeshPipelineDesc(
     RI_Format_e colorFormat, RI_Format_e depthFormat, BlendMode mode,
     uint32_t vertexPresentMask) {
-  // Strides match VertexBuffer_RI: position/tangent/color stored as float4
+  // Strides match cVertexBuffer: position/tangent/color stored as float4
   // (16 B), normal as float3 (12 B), texcoord as float3 with only .xy
   // consumed (stride 12 B, R32G32 format reads the first two floats). An
   // optional stream the renderable omits (absent from vertexPresentMask) gets

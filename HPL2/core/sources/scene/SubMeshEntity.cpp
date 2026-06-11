@@ -289,7 +289,7 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 
-	iVertexBuffer* cSubMeshEntity::GetVertexBuffer()
+	cVertexBuffer* cSubMeshEntity::GetVertexBuffer()
 	{
 		if(mpDynVtxBuffer)
 		{

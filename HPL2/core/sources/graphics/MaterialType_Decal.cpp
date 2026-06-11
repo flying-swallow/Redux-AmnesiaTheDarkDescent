@@ -51,21 +51,6 @@ namespace hpl {
 
 	cMaterialType_Decal::~cMaterialType_Decal() {}
 
-	iTexture* cMaterialType_Decal::GetTextureForUnit(cMaterial *apMaterial,eMaterialRenderMode aRenderMode, int alUnit)
-	{
-		////////////////////////////
-		// Diffuse
-		if(aRenderMode == eMaterialRenderMode_Diffuse)
-		{
-			switch(alUnit)
-			{
-			case 0: return apMaterial->GetTexture(eMaterialTexture_Diffuse);
-			}
-		}
-
-		return NULL;
-	}
-
 	iMaterialVars* cMaterialType_Decal::CreateSpecificVariables()
 	{
 		return hplNew(cMaterialType_Decal_Vars,());

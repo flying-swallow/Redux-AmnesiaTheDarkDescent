@@ -1,20 +1,22 @@
 /*
  * Copyright © 2009-2020 Frictional Games
- * 
+ *
  * This file is part of Amnesia: The Dark Descent.
- * 
- * Amnesia: The Dark Descent is free software: you can redistribute it and/or modify
+ *
+ * Amnesia: The Dark Descent is free software: you can redistribute it and/or
+ modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version. 
+ * (at your option) any later version.
 
  * Amnesia: The Dark Descent is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
- * along with Amnesia: The Dark Descent.  If not, see <https://www.gnu.org/licenses/>.
+ * along with Amnesia: The Dark Descent.  If not, see
+ <https://www.gnu.org/licenses/>.
  */
 
 #ifndef HPL_SKELETON_H
@@ -22,44 +24,43 @@
 
 #include <map>
 
-#include "math/MathTypes.h"
 #include "graphics/GraphicsTypes.h"
+#include "math/MathTypes.h"
 #include "system/SystemTypes.h"
 
 namespace hpl {
 
-	class cBone;
+class cBone;
 
-	typedef std::vector<cBone*> tBoneVec;
-	typedef tBoneVec::iterator tBoneVecIt;
-	
-	typedef std::map<tString,int> tBoneIdxNameMap;
-	typedef tBoneIdxNameMap::iterator tBoneIdxNameMapIt;
+typedef std::vector<cBone *> tBoneVec;
+typedef tBoneVec::iterator tBoneVecIt;
 
-	class cSkeleton
-	{
-	public:
-		cSkeleton();
-		~cSkeleton();
+typedef std::map<tString, int> tBoneIdxNameMap;
+typedef tBoneIdxNameMap::iterator tBoneIdxNameMapIt;
 
-		void AddBone(cBone* apBone);
-		void RemoveBone(cBone* apBone);
+class cSkeleton {
+public:
+  cSkeleton();
+  ~cSkeleton();
 
-		cBone* GetRootBone();
-		
-        cBone* GetBoneByIndex(int alIndex);
-		cBone* GetBoneByName(const tString &asName);
-		cBone* GetBoneBySid(const tString &asSid);
-		int GetBoneIndexBySid(const tString &asName);
-		int GetBoneIndexByName(const tString &asName);
-		int GetBoneNum();
-	
-	private:
-		cBone* mpRootBone;
+  void AddBone(cBone *apBone);
+  void RemoveBone(cBone *apBone);
 
-		tBoneVec mvBones;
-		tBoneIdxNameMap m_mapBonesIdxByName;
-	};
+  cBone *GetRootBone();
 
+  cBone *GetBoneByIndex(int alIndex);
+  cBone *GetBoneByName(const tString &asName);
+  cBone *GetBoneBySid(const tString &asSid);
+  int GetBoneIndexBySid(const tString &asName);
+  int GetBoneIndexByName(const tString &asName);
+  int GetBoneNum();
+
+private:
+  cBone *mpRootBone;
+
+  tBoneVec mvBones;
+  tBoneIdxNameMap m_mapBonesIdxByName;
 };
+
+}; // namespace hpl
 #endif // HPL_SKELETON_H

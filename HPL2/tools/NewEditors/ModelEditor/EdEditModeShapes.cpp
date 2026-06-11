@@ -90,7 +90,7 @@ void cEdEditModeShapes::DrawObjectPreview(iEdViewport* apViewport, cRendererCall
 	
 		/////////////////////////////////////////
 		// Draw Textured Mesh
-		//iVertexBuffer* pShapeVtxBuffer = mpEditor->GetBodyShapeVertexBuffer(shapeType);
+		//cVertexBuffer* pShapeVtxBuffer = mpEditor->GetBodyShapeVertexBuffer(shapeType);
 		//if(pShapeVtxBuffer)
 		//{
 		//	apFunctions->SetVertexBuffer(pShapeVtxBuffer);

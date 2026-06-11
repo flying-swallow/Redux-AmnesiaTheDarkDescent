@@ -13,7 +13,7 @@ namespace hpl {
 // resolved through the resource searcher; `entryPoint` is the SPIR-V
 // OpEntryPoint function name (slangc is invoked with
 // -fvk-use-entrypoint-name so Slang function names survive into the SPV).
-void LoadSlangCompute(RIDevice_s *device, RIProgram &prog,
+void LoadSlangCompute(RIDevice *device, RIProgram &prog,
                       cResources *resources, const char *name,
                       const char *entryPoint,
                       std::span<const VkDescriptorSetLayout> externalLayouts = {});
@@ -23,7 +23,7 @@ void LoadSlangCompute(RIDevice_s *device, RIProgram &prog,
 // load). Pass distinct names when the stages are compiled to separate
 // .spv files (the common case for post-effects sharing one fullscreen
 // vert with many frags).
-void LoadSlangGraphics(RIDevice_s *device, RIProgram &prog,
+void LoadSlangGraphics(RIDevice *device, RIProgram &prog,
                        cResources *resources, const char *vertName,
                        const char *fragName,
                        const char *vertEntryPoint = "vsMain",

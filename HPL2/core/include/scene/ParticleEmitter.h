@@ -227,7 +227,7 @@ namespace hpl {
 													 float afFrameTime, bool abWithUv);
 
 		cMaterial *GetMaterial();
-		iVertexBuffer* GetVertexBuffer();
+		cVertexBuffer* GetVertexBuffer();
 
 		cBoundingVolume* GetBoundingVolume();
 

@@ -8,7 +8,7 @@
 #include "graphics/RIResourceUploader.h"
 #include "graphics/RIVK.h"
 #include "graphics/VertexBuffer.h"
-#include "graphics/VertexBuffer_RI.h"
+#include "graphics/VertexBuffer.h"
 #include "math/Math.h"
 #include "resources/Resources.h"
 #include "resources/TextureManager.h"
@@ -28,7 +28,7 @@ HybridGlobalManagedSet::HybridGlobalManagedSet()
       m_textureBindless(kTextureSlotCapacity, RI_NUMBER_FRAMES_FLIGHT),
       m_textureCubeBindless(kTextureSlotCapacity, RI_NUMBER_FRAMES_FLIGHT) {}
 
-void HybridGlobalManagedSet::initialize(RIDevice_s *device,
+void HybridGlobalManagedSet::initialize(RIDevice *device,
                                         cResources *resources) {
   {
     std::vector<RIBindlessDescriptorSet::Binding> bindings = {};
@@ -386,7 +386,7 @@ void HybridGlobalManagedSet::initialize(RIDevice_s *device,
 
   // Default linear/wrap sampler for all bindless texture fetches. The
   // engine's filter cache (RIBootstrap::resolve_filter_descriptor) hands
-  // back a finalized RIDescriptor_s with a non-zero cookie, which is
+  // back a finalized RIDescriptor with a non-zero cookie, which is
   // exactly what bindDescriptors needs.
   m_materialSampler = RI.resolve_filter_descriptor(
       eTextureWrap_Repeat, eTextureWrap_Repeat, eTextureWrap_Repeat,
@@ -397,7 +397,7 @@ void HybridGlobalManagedSet::initialize(RIDevice_s *device,
         kObjectSlotCapacity * sizeof(VkDeviceAddress);
     const struct {
       uint32_t binding;
-      RIBuffer_s *buffer;
+      RIBuffer *buffer;
       VkDeviceSize range;
     } ssbos[] = {
         {kBindingOpaquePositionHandles, &m_opaquePositionHandles,
@@ -667,7 +667,7 @@ HybridGlobalManagedSet::submitMaterial(RIBootstrap::FrameContext *cntx,
       trans.rimLightMul         = desc.m_translucent.m_rimLightMul;
       trans.rimLightPow         = desc.m_translucent.m_rimLightPow;
 
-      RIResourceBufferTransaction_s tx = {};
+      RIResourceBufferTransaction tx = {};
       tx.target = m_translucentMaterialBuffer;
       tx.size = sizeof(TranslucentMaterial);
       tx.offset = (size_t)treq.id * sizeof(TranslucentMaterial);
@@ -706,7 +706,7 @@ HybridGlobalManagedSet::submitMaterial(RIBootstrap::FrameContext *cntx,
       water.waveAmplitude       = desc.m_water.m_waveAmplitude;
       water.waveFreq            = desc.m_water.m_waveFreq;
 
-      RIResourceBufferTransaction_s trans = {};
+      RIResourceBufferTransaction trans = {};
       trans.target = m_waterMaterialBuffer;
       trans.size = sizeof(WaterMaterial);
       trans.offset = (size_t)wreq.id * sizeof(WaterMaterial);
@@ -727,7 +727,7 @@ HybridGlobalManagedSet::submitMaterial(RIBootstrap::FrameContext *cntx,
   if (req.found)
     return {req.id};
   {
-    RIResourceBufferTransaction_s trans = {};
+    RIResourceBufferTransaction trans = {};
     trans.target = m_diffuseMaterialBuffer;
     trans.size = sizeof(DiffuseMaterial);
     trans.offset = (size_t)req.id * sizeof(DiffuseMaterial);
@@ -745,7 +745,7 @@ HybridGlobalManagedSet::submitMaterial(RIBootstrap::FrameContext *cntx,
 
 uint32_t HybridGlobalManagedSet::submitObject(uint64_t objectCookie,
                                               uint32_t frameIndex,
-                                              VertexBuffer_RI *vb,
+                                              cVertexBuffer *vb,
                                               const ObjectSubmitDesc &desc,
                                               uint32_t flags) {
   // Stable slot per object: keyed on the renderable's unique cookie only, so a
@@ -815,7 +815,7 @@ uint32_t HybridGlobalManagedSet::submitObject(uint64_t objectCookie,
     // skipped.
     const bool payloadChanged = !req.found || std::memcmp(&payload, &req.state->lastPayload, sizeof(payload)) != 0;
     if (payloadChanged) {
-      RIResourceBufferTransaction_s trans = {};
+      RIResourceBufferTransaction trans = {};
       trans.target = m_objectBuffer;
       trans.size = sizeof(UniformObject);
       trans.offset = (size_t)slot * sizeof(UniformObject);
@@ -865,9 +865,9 @@ uint32_t HybridGlobalManagedSet::submitObject(uint64_t objectCookie,
   return slot;
 }
 
-void HybridGlobalManagedSet::flushMirrors(RIDevice_s *device) {
+void HybridGlobalManagedSet::flushMirrors(RIDevice *device) {
   struct Item {
-    RIBuffer_s *buf;
+    RIBuffer *buf;
     BindlessShadowMirror *mir;
   };
   const Item items[] = {
@@ -887,7 +887,7 @@ void HybridGlobalManagedSet::flushMirrors(RIDevice_s *device) {
       continue;
     const size_t off = it.mir->dirtyMinByte;
     const size_t sz = it.mir->dirtyMaxByte - off;
-    RIResourceBufferTransaction_s trans = {};
+    RIResourceBufferTransaction trans = {};
     trans.target = *it.buf;
     trans.size = sz;
     trans.offset = off;
@@ -906,7 +906,7 @@ void HybridGlobalManagedSet::flushMirrors(RIDevice_s *device) {
   }
 }
 
-void HybridGlobalManagedSet::destroy(RIDevice_s *device) {
+void HybridGlobalManagedSet::destroy(RIDevice *device) {
   if (m_pointLightBuffer.vk.buffer) {
     vmaDestroyBuffer(device->vk.vmaAllocator, m_pointLightBuffer.vk.buffer,
                      m_pointLightBuffer.vk.allocation);

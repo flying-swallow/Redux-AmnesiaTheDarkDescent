@@ -1,157 +1,61 @@
-/*
- * Copyright © 2009-2020 Frictional Games
- * 
- * This file is part of Amnesia: The Dark Descent.
- * 
- * Amnesia: The Dark Descent is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version. 
 
- * Amnesia: The Dark Descent is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- * 
- * You should have received a copy of the GNU General Public License
- * along with Amnesia: The Dark Descent.  If not, see <https://www.gnu.org/licenses/>.
- */
-
-#ifndef HPL_TEXTURE_H
-#define HPL_TEXTURE_H
+#ifndef HPL_TEXTURE__H__
+#define HPL_TEXTURE__H__
 
 #include "graphics/GraphicsTypes.h"
-#include "resources/ResourceBase.h"
+#include "graphics/RIFormat.h"
+#include "graphics/RITypes.h"
+
+struct RIResourceUploader;
 
 namespace hpl {
+struct RIBootstrap;
+class cBitmap;
 
-	class iLowLevelGraphics;
-	class cBitmap;
+RI_Format to_image_supported_format(ePixelFormat format);
 
-	class iTexture : public iResourceBase, public iFrameBufferAttachment
-	{
-	public:
-		iTexture(const tString& asName, const tWString& asFullPath, eTextureType aType, eTextureUsage aUsage, iLowLevelGraphics* apLowLevelGraphics)
-			: iResourceBase(asName,asFullPath,0),
-				mUsage(aUsage),
-				mType(aType),
-				mpLowLevelGraphics(apLowLevelGraphics),
-				mbUseMipMaps(false), 
-				mbIsCompressed(false),
-				mlMemorySize(0),
-				mPixelFormat(ePixelFormat_Unknown),
-				mWrapS(eTextureWrap_Repeat), mWrapT(eTextureWrap_Repeat),mWrapR(eTextureWrap_Repeat),
-				mfFrameTime(1), mAnimMode(eTextureAnimMode_Loop), mlSizeDownScaleLevel(0), mvMinDownScaleSize(16,16,16),
-				mfAnisotropyDegree(1.0f),mFilter(eTextureFilter_Bilinear),
-				mCompareMode(eTextureCompareMode_None),
-				mCompareFunc(eTextureCompareFunc_LessOrEqual)
-		{}
+struct cTexture {
+public:
+  // Image + its VMA allocation (handle.vk.allocation); handle.dispose()
+  // releases both.
+  struct RITexture handle;
+  RI_Format format = RI_FORMAT_UNKNOWN;
+  struct RIDescriptor binding;
+  uint16_t width;
+  uint16_t height;
+  uint16_t depth;
+  uint8_t mipNum;
+  // RI_Format the image was created with (set by LoadBitmap) — lets
+  // material setup probe channel count (e.g. single-channel alpha maps).
 
-		virtual ~iTexture(){}
+  ~cTexture();
 
-		bool Reload(){ return false;}
-		void Unload(){}
-		void Destroy(){}
+  static void cTexture_Delete(cTexture *tex);
 
-		virtual bool CreateFromBitmap(cBitmap* pBmp)=0;
-		virtual bool CreateAnimFromBitmapVec(std::vector<cBitmap*> *avBitmaps)=0;
-		virtual bool CreateCubeFromBitmapVec(std::vector<cBitmap*> *avBitmaps)=0;
-		virtual bool CreateFromRawData(const cVector3l &avSize,ePixelFormat aPixelFormat, unsigned char *apData)=0;
-		
-		virtual void SetRawData(	int alLevel, const cVector3l& avOffset, const cVector3l& avSize, 
-									ePixelFormat aPixelFormat, void *apData)=0;
-
-		virtual void Update(float afTimeStep)=0;
-
-		inline ePixelFormat GetPixelFormat() const { return mPixelFormat;}
-		
-		inline const cVector3l& GetSize() const { return mvSize;}
-		inline int GetWidth() const { return mvSize.x;}
-		inline int GetHeight() const { return mvSize.y;}
-		inline int GetDepth() const { return mvSize.z;}
-
-		inline cVector2f GetSizeFloat2D() const { return cVector2f((float)mvSize.x, (float)mvSize.y);}
-		inline cVector2l GetSizeInt2D() const { return cVector2l(mvSize.x, mvSize.y);}
-
-		virtual void SetFilter(eTextureFilter aFilter)=0;
-		virtual void SetAnisotropyDegree(float afX)=0;
-		eTextureFilter GetFilter(){ return mFilter;}
-		float GetAnisotropyDegree(float afX){ return mfAnisotropyDegree;}
-		
-		virtual void SetWrapS(eTextureWrap aMode)=0;
-		virtual void SetWrapT(eTextureWrap aMode)=0;
-		virtual void SetWrapR(eTextureWrap aMode)=0;
-		virtual void SetWrapSTR(eTextureWrap aMode)=0;
-
-		eTextureWrap GetWrapS(){ return mWrapS;}
-		eTextureWrap GetWrapT(){ return mWrapT;}
-		eTextureWrap GetWrapR(){ return mWrapR;}
-
-		virtual void SetCompareMode(eTextureCompareMode aMode)=0;
-		virtual void SetCompareFunc(eTextureCompareFunc aFunc)=0;
-
-		eTextureCompareMode GetCompareMode(){ return mCompareMode;}
-		eTextureCompareFunc GetCompareFunc(){ return mCompareFunc;}
-
-
-		virtual void AutoGenerateMipmaps()=0;
-
-		int GetMemorySize(){ return mlMemorySize;}
-
-		void SetFrameTime(float afX){ mfFrameTime = afX;}
-		float GetFrameTime(){ return mfFrameTime;}
-
-		eTextureAnimMode GetAnimMode() { return mAnimMode;}
-		void SetAnimMode(eTextureAnimMode aMode) {mAnimMode = aMode;};
-
-		eTextureUsage GetUsage(){ return mUsage; }
-		eTextureType GetType(){ return mType;}
-		
-		void SetUseMipMaps(bool abX){mbUseMipMaps = abX;} 
-		bool UsesMipMaps(){ return mbUseMipMaps; }
-
-		bool IsCompressed(){ return mbIsCompressed; }
-		
-		void SetSizeDownScaleLevel(unsigned int alLevel){mlSizeDownScaleLevel = alLevel;}
-		void SetMinLevelSize(const cVector2l& avSize){ mvMinDownScaleSize = avSize;}
-
-		eFrameBufferAttachment GetFrameBufferAttachmentType(){ return eFrameBufferAttachment_Texture;}
-		
-		virtual bool HasAnimation()=0;
-		virtual void NextFrame()=0;
-		virtual void PrevFrame()=0;
-		virtual float GetT()=0;
-		virtual float GetTimeCount()=0;
-		virtual void SetTimeCount(float afX)=0;
-		virtual int GetCurrentLowlevelHandle()=0;
-
-	protected:
-		eTextureUsage mUsage;
-		eTextureType mType;
-
-		cVector3l mvSize;
-
-		int mlMemorySize;
-		
-		eTextureWrap mWrapS;
-		eTextureWrap mWrapT;
-		eTextureWrap mWrapR;
-		eTextureFilter mFilter;
-		float mfAnisotropyDegree;
-
-		eTextureCompareMode mCompareMode;
-		eTextureCompareFunc mCompareFunc;
-		
-		bool mbUseMipMaps;
-		bool mbIsCompressed;
-		ePixelFormat mPixelFormat;
-		iLowLevelGraphics* mpLowLevelGraphics;
-		float mfFrameTime;
-		eTextureAnimMode mAnimMode;
-		
-		unsigned int mlSizeDownScaleLevel;
-		cVector3l mvMinDownScaleSize;
-
-	};
+  struct BitmapLoadOptions {
+  public:
+    bool use_cubemap = false;
+    bool use_array = false;
+    bool use_mipmaps = false;
+    // When true, the image view is created with an sRGB format variant so
+    // the hardware decodes sample values from sRGB→linear on read. Set on
+    // perceptual color sources (diffuse, illumination); leave false for
+    // linear data (normals, packed specular, height, attenuation LUTs).
+    bool sRGB = false;
+  };
+  // postState/postStages: resource state the texture is transitioned to once
+  // the upload completes (RIBarrier.h); stages 0 derives from the state.
+  bool LoadBitmap(enum RIResourceState_e postState, uint32_t postStages,
+                  cBitmap &bitmap, const BitmapLoadOptions &options);
+  // Re-upload pixels into the already-created image (mip 0 / layer 0; bitmap
+  // size and format must match the original LoadBitmap). The image is assumed
+  // fragment-sampled and is returned to that state — the uploader emits the
+  // pre/post barriers. SetRawData replacement for procedural textures.
+  bool UpdateBitmap(cBitmap &bitmap);
+  void setDebugName(const tWString &name);
+  void setDebugName(const char *name);
 };
-#endif // HPL_TEXTURE_H
+
+} // namespace hpl
+
+#endif

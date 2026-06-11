@@ -216,7 +216,7 @@ bool cEdObjDecalData::SaveSpecificData(cXmlElement* apElement)
 	}
 
 	cEngineGeneratedMesh* pDecalMesh = static_cast<cEngineGeneratedMesh*>(mpDecal->GetEngObject());
-	iVertexBuffer* pVB = NULL;
+	cVertexBuffer* pVB = NULL;
 
 	//////////////////////////////////////////////////
 	// Fix for meshless decals
@@ -856,7 +856,7 @@ bool cEdObjDecal::OnUpdate(bool abForce)
 
 //-----------------------------------------------------------------------------------------
 
-iVertexBuffer* cEdObjDecal::BuildDecalVertexBuffer(cWorld* apWorld, cDecalCreator* apCreator,
+cVertexBuffer* cEdObjDecal::BuildDecalVertexBuffer(cWorld* apWorld, cDecalCreator* apCreator,
 													  const cVector3f& avPos, const cVector3f& avSize, float afOffset,
 													  const cVector3f& avRight, const cVector3f& avUp, const cVector3f& avFwd,
 													  const tString& asMaterial, const cColor& aCol,
@@ -948,7 +948,7 @@ cMesh* cEdObjDecal::CreateDecalMesh()
 	}
 	//////////////////////////////////////////
 	// Check if current parameters are valid
-	iVertexBuffer* pVB = BuildDecalVertexBuffer(pWorld->GetEngWorld(), pCreator, 
+	cVertexBuffer* pVB = BuildDecalVertexBuffer(pWorld->GetEngWorld(), pCreator, 
 							mvTranslation, mvScale, mfOffset, 
 							mtxOrientation.GetRight(), mtxOrientation.GetUp(), mtxOrientation.GetForward(),
 							mpMatFile->msRelativePath, mColor,	

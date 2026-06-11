@@ -36,11 +36,11 @@
 #include "graphics/RIPogoBuffer.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
-#include "graphics/VertexBuffer_RI.h"
+#include "graphics/VertexBuffer.h"
 
 #include "resources/Resources.h"
 
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 
 #include "scene/ParticleEmitter.h"
 #include "scene/Viewport.h"
@@ -239,10 +239,10 @@ namespace hpl {
 					pObject->UpdateGraphicsForViewport(apFrustum, afFrameTime);
 				}
 
-				iVertexBuffer *pVB = pObject->GetVertexBuffer();
+				cVertexBuffer *pVB = pObject->GetVertexBuffer();
 				if(pVB == NULL) continue;
 
-				auto *vbri = static_cast<VertexBuffer_RI*>(pVB);
+				auto *vbri = static_cast<cVertexBuffer*>(pVB);
 				vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
 				vbri->AttachResourceToCntx(cntx);
 			}
@@ -275,7 +275,7 @@ namespace hpl {
 		// discarded, we clear) and depth UNDEFINED -> DEPTH_ATTACHMENT
 		// (cleared via loadOp).
 		{
-			RITextureBarrier_s barriers[2] = {};
+			RITextureBarrier barriers[2] = {};
 			barriers[0] = RI_PogoAttachmentBarrier(
 				&state.renderTarget[RI.swapchainIndex], /*initial=*/true);
 
@@ -473,10 +473,10 @@ namespace hpl {
 
 				// Draw sources — persistent VB by default; particles use the
 				// per-viewport scratch path below.
-				RIBuffer_s *posBuffer = nullptr;
-				RIBuffer_s *colBuffer = nullptr;
-				RIBuffer_s *uvBuffer = nullptr;
-				RIBuffer_s *idxBuffer = nullptr;
+				RIBuffer *posBuffer = nullptr;
+				RIBuffer *colBuffer = nullptr;
+				RIBuffer *uvBuffer = nullptr;
+				RIBuffer *idxBuffer = nullptr;
 				VkDeviceSize posOffset = 0, colOffset = 0, uvOffset = 0, idxOffset = 0;
 				int indexCount = 0;
 
@@ -506,10 +506,10 @@ namespace hpl {
 				}
 				else
 				{
-					iVertexBuffer *pVB = pObject->GetVertexBuffer();
+					cVertexBuffer *pVB = pObject->GetVertexBuffer();
 					if(pVB == NULL) continue;
 
-					auto *vbri = static_cast<VertexBuffer_RI*>(pVB);
+					auto *vbri = static_cast<cVertexBuffer*>(pVB);
 					const auto *posElement = vbri->GetElement(eVertexBufferElement_Position);
 					const auto *colElement = vbri->GetElement(eVertexBufferElement_Color0);
 					const auto *uvElement = vbri->GetElement(eVertexBufferElement_Texture0);
@@ -557,8 +557,8 @@ namespace hpl {
 				// 1x1 white default. Pin real textures so a mid-frame destroy
 				// can't free the VkImage before this submit retires.
 				Image *pDiffuseImage = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : nullptr;
-				std::shared_ptr<HPLTexture> texture = pDiffuseImage ? pDiffuseImage->GetTexture() : nullptr;
-				RIDescriptor_s textureDescriptor = RI.whiteTexture2DBinding;
+				std::shared_ptr<cTexture> texture = pDiffuseImage ? pDiffuseImage->GetTexture() : nullptr;
+				RIDescriptor textureDescriptor = RI.whiteTexture2DBinding;
 				if(texture) {
 					cntx->resourceLink.push_back(texture);
 					textureDescriptor = texture->binding;
@@ -580,7 +580,7 @@ namespace hpl {
 				bindings[2].handle = DescriptorBindingID::Create("diffuseMap");
 				m_simple.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, bindings, 3);
 
-				RIBuffer_s *vertBufs[3] = {
+				RIBuffer *vertBufs[3] = {
 					posBuffer,
 					colBuffer ? colBuffer : &RI.fallbackColorVertex,
 					uvBuffer ? uvBuffer : &RI.fallbackUv0Vertex,

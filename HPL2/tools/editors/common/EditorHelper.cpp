@@ -202,7 +202,7 @@ bool cEditorHelper::CheckScreenSpaceMouseSubMeshIntersect(const cVector2f& avInv
 	cVector3f vSubMeshIntersectPos;
 
 	//Get Vertex Buffer
-	iVertexBuffer* pVtxBuffer = apSubMesh->GetVertexBuffer();
+	cVertexBuffer* pVtxBuffer = apSubMesh->GetVertexBuffer();
 
 	bIntersect = CheckScreenSpaceMouseVertexBufferIntersect(avInvYMousePos, 
 															avRayStart, avRayEnd, 
@@ -223,7 +223,7 @@ bool cEditorHelper::CheckScreenSpaceMouseSubMeshIntersect(const cVector2f& avInv
 
 bool cEditorHelper::CheckScreenSpaceMouseVertexBufferIntersect(const cVector2f& avInvYMousePos,
 														   const cVector3f& avRayStart, const cVector3f& avRayEnd,
-														   const cVector2f& avViewportSize, iVertexBuffer* apVtxBuffer,
+														   const cVector2f& avViewportSize, cVertexBuffer* apVtxBuffer,
 														   const cMatrixf& amtxCameraViewMatrix,
 														   const cMatrixf& amtxCameraProjMatrix,
 														   const cMatrixf& amtxVtxBufferWorldMatrix,
@@ -323,7 +323,7 @@ bool cEditorHelper::CheckRayMeshEntityIntersect(const cVector3f& avRayStart, con
 
 bool cEditorHelper::CheckRaySubMeshEntityIntersect(const cVector3f& avRayStart, const cVector3f& avRayEnd, cSubMeshEntity* apObject, cVector3f* apIntersection, float *apT,unsigned int* apTriangleIdx, tVector3fVec* apTriangle)
 {
-	iVertexBuffer* pVB = apObject->GetSubMesh()->GetVertexBuffer();
+	cVertexBuffer* pVB = apObject->GetSubMesh()->GetVertexBuffer();
 	cMatrixf mtxInvWorld = cMath::MatrixInverse(apObject->GetWorldMatrix());
 	int lTriIndex = -1;
 
@@ -365,7 +365,7 @@ void cEditorHelper::GetTrianglesInsideClipPlanes(std::vector<cPlanef>& avPlanes,
 		{
 			cSubMeshEntity* pSubMeshEnt = pMeshEnt->GetSubMeshEntity(i);
 			const cMatrixf& mtxWorldMatrix = pSubMeshEnt->GetWorldMatrix();
-			iVertexBuffer* pVBCopy = pSubMeshEnt->GetSubMesh()->GetVertexBuffer()->CreateCopy(eVertexBufferType_Hardware, eVertexBufferUsageType_Static, eVertexElementFlag_Position|eVertexElementFlag_Normal);
+			cVertexBuffer* pVBCopy = pSubMeshEnt->GetSubMesh()->GetVertexBuffer()->CreateCopy(eVertexBufferType_Hardware, eVertexBufferUsageType_Static, eVertexElementFlag_Position|eVertexElementFlag_Normal);
 			pVBCopy->Transform(mtxWorldMatrix);
 			float* pPositions = pVBCopy->GetFloatArray(eVertexBufferElement_Position);
 			float* pNormals = pVBCopy->GetFloatArray(eVertexBufferElement_Normal);
@@ -459,7 +459,7 @@ void cEditorHelper::GetTrianglesIntersectingSphere(const cVector3f& avSphereCent
 		cVector3f vTransSphCenter = cMath::MatrixMul(mtxInvWorldMatrix, avSphereCenter);
 		cVector3f vTransBaseNormal = cMath::MatrixMul(mtxInvWorldMatrix, avBaseNormal);
 
-		iVertexBuffer* pVB = pSubMeshEnt->GetVertexBuffer();
+		cVertexBuffer* pVB = pSubMeshEnt->GetVertexBuffer();
 
 
 		float* pPositions = pVB->GetFloatArray(eVertexBufferElement_Position);
@@ -739,9 +739,9 @@ bool cEditorHelper::LoadResourceFile(eEditorResourceType aResType, const tString
 
 //----------------------------------------------------------------------------------
 
-iVertexBuffer* cEditorHelper::CreatePyramidVtxBuffer(cGraphics* apGfx, const cVector3f& avBaseCenter, const cVector3f& avTip, float afHalfWidth, const cColor& aColor)
+cVertexBuffer* cEditorHelper::CreatePyramidVtxBuffer(cGraphics* apGfx, const cVector3f& avBaseCenter, const cVector3f& avTip, float afHalfWidth, const cColor& aColor)
 {
-	iVertexBuffer* pVB = apGfx->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic);
+	cVertexBuffer* pVB = apGfx->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic);
 
 	cVector3f vNormal = avTip-avBaseCenter;
 	cVector3f vPoint = avBaseCenter+1;

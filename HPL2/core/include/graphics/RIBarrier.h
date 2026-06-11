@@ -11,8 +11,8 @@
 #include "volk.h"
 #endif
 
-struct RITexture_s;
-struct RIBuffer_s;
+struct RITexture;
+struct RIBuffer;
 
 // Combined access+layout resource state (Forge-style). Each bit encodes one
 // (VkAccessFlags2, VkImageLayout) contribution and bits may be OR'd (e.g.
@@ -66,19 +66,19 @@ enum RIBarrierAspect_e {
   RI_BARRIER_ASPECT_DEPTH_STENCIL,
 };
 
-struct RITextureBarrier_s {
-  RITextureBarrier_s() { memset(this, 0, sizeof(*this)); }
+struct RITextureBarrier {
+  RITextureBarrier() { memset(this, 0, sizeof(*this)); }
   // Whole-resource transition (mip/layer count 0 = REMAINING), COLOR aspect
   // by default; stage hints of 0 derive conservatively from the states.
   // Narrow the subresource range via the trailing members afterwards.
-  RITextureBarrier_s(struct RITexture_s *texture, uint32_t before,
+  RITextureBarrier(struct RITexture *texture, uint32_t before,
                      uint32_t after, uint32_t beforeStages = 0,
                      uint32_t afterStages = 0,
                      enum RIBarrierAspect_e aspect = RI_BARRIER_ASPECT_COLOR)
       : texture(texture), before(before), after(after),
         beforeStages(beforeStages), afterStages(afterStages), aspect(aspect),
         baseMip(0), mipCount(0), baseLayer(0), layerCount(0) {}
-  struct RITexture_s *texture;
+  struct RITexture *texture;
   uint32_t before;       // RIResourceState_e bits
   uint32_t after;        // RIResourceState_e bits
   uint32_t beforeStages; // RIStageBits_e; 0 => derive from 'before'
@@ -90,17 +90,17 @@ struct RITextureBarrier_s {
   uint16_t layerCount; // 0 => VK_REMAINING_ARRAY_LAYERS
 };
 
-struct RIBufferBarrier_s {
-  RIBufferBarrier_s() { memset(this, 0, sizeof(*this)); }
+struct RIBufferBarrier {
+  RIBufferBarrier() { memset(this, 0, sizeof(*this)); }
   // Whole-buffer transition (size 0 = WHOLE_SIZE); stage hints of 0 derive
   // conservatively from the states.
-  RIBufferBarrier_s(struct RIBuffer_s *buffer, uint32_t before, uint32_t after,
+  RIBufferBarrier(struct RIBuffer *buffer, uint32_t before, uint32_t after,
                     uint32_t beforeStages = 0, uint32_t afterStages = 0,
                     uint64_t offset = 0, uint64_t size = 0)
       : buffer(buffer), before(before), after(after),
         beforeStages(beforeStages), afterStages(afterStages), offset(offset),
         size(size) {}
-  struct RIBuffer_s *buffer;
+  struct RIBuffer *buffer;
   uint32_t before;       // RIResourceState_e bits
   uint32_t after;        // RIResourceState_e bits
   uint32_t beforeStages; // RIStageBits_e; 0 => derive from 'before'
@@ -110,9 +110,9 @@ struct RIBufferBarrier_s {
 };
 
 // Global execution+memory barrier (no resource handle).
-struct RIMemoryBarrier_s {
-  RIMemoryBarrier_s() { memset(this, 0, sizeof(*this)); }
-  RIMemoryBarrier_s(uint32_t before, uint32_t after, uint32_t beforeStages = 0,
+struct RIMemoryBarrier {
+  RIMemoryBarrier() { memset(this, 0, sizeof(*this)); }
+  RIMemoryBarrier(uint32_t before, uint32_t after, uint32_t beforeStages = 0,
                     uint32_t afterStages = 0)
       : before(before), after(after), beforeStages(beforeStages),
         afterStages(afterStages) {}

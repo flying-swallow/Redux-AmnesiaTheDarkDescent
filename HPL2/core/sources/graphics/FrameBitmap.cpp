@@ -19,7 +19,7 @@
 
 #include "graphics/FrameBitmap.h"
 
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 #include "math/Math.h"
 
 #include "system/LowLevelSystem.h"
@@ -29,7 +29,6 @@
 #include "graphics/FrameTexture.h"
 #include "graphics/FrameSubImage.h"
 #include "graphics/Bitmap.h"
-#include "graphics/Texture.h"
 #include "graphics/Image.h"
 
 
@@ -473,8 +472,8 @@ namespace hpl {
 		if(mbIsUpdated)
 		{
 			Image::SingleImage singleImage = {};
-			singleImage.image = std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete);
-			hpl::HPLTexture::BitmapLoadOptions opts = {0};
+			singleImage.image = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
+			hpl::cTexture::BitmapLoadOptions opts = {0};
 			opts.use_mipmaps = true;
 			if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *mpBitmap, opts)) {
 				Error("Failed to load bitmap");

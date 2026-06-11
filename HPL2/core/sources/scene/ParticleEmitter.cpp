@@ -288,8 +288,8 @@ namespace hpl {
 		const uint32_t lFloatsPerVert = abWithUv ? 11u : 8u;
 
 		RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
-		RISegmentReq_s vtxReq = {};
-		RISegmentReq_s idxReq = {};
+		RISegmentReq vtxReq = {};
+		RISegmentReq idxReq = {};
 		if(!RI.RequestTranslucentVtx(cntx, (size_t)lNumVerts * lFloatsPerVert, &vtxReq))
 			return geom;
 		if(!RI.RequestTranslucentIdx(cntx, (size_t)lNumParticles * 6, &idxReq))
@@ -700,7 +700,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	iVertexBuffer* iParticleEmitter::GetVertexBuffer()
+	cVertexBuffer* iParticleEmitter::GetVertexBuffer()
 	{
 		// No persistent VB — renderers build per-frame scratch geometry via
 		// BuildViewportVertices. NULL is handled by every caller (HybridRenderer

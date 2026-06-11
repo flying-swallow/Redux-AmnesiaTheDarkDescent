@@ -35,7 +35,7 @@ namespace hpl {
 	class DebugDraw;
 
 	class iCollideShape;
-	class iVertexBuffer;
+	class cVertexBuffer;
 	class iPhysicsBody;
 	class iLowLevelGraphics;
 	class iPhysicsMaterial;
@@ -129,7 +129,7 @@ namespace hpl {
 		virtual iCollideShape* CreateCylinderShape(float afRadius, float afHeight, cMatrixf* apOffsetMtx)=0;
 		virtual iCollideShape* CreateCapsuleShape(float afRadius, float afHeight, cMatrixf* apOffsetMtx)=0;
 		
-		virtual iCollideShape* CreateMeshShape(iVertexBuffer *apVtxBuffer)=0;
+		virtual iCollideShape* CreateMeshShape(cVertexBuffer *apVtxBuffer)=0;
 		/**
 		 * The buffer position must be pointing to where the data is saved!
 		 */

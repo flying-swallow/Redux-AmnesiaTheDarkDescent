@@ -34,7 +34,7 @@ namespace hpl {
 	class cGraphics;
 	class iLowLevelGraphics;
 	class cMaterial;
-	class iVertexBuffer;
+	class cVertexBuffer;
 	
 	//------------------------------------------
 
@@ -79,7 +79,7 @@ namespace hpl {
 		
 		//Renderable implementations
 		cMaterial *GetMaterial(){ return mpMaterial;}
-		iVertexBuffer* GetVertexBuffer(){return mpVtxBuffer;}
+		cVertexBuffer* GetVertexBuffer(){return mpVtxBuffer;}
 
 		cMatrixf* GetModelMatrix(cFrustum *apFrustum);
 
@@ -92,7 +92,7 @@ namespace hpl {
 		iLowLevelGraphics* mpLowLevelGraphics;
 		
 		cMaterial *mpMaterial;
-		iVertexBuffer* mpVtxBuffer;
+		cVertexBuffer* mpVtxBuffer;
 
 		cMatrixf m_mtxTempTransform;
 

@@ -416,7 +416,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	iHapticShape* cLowLevelHapticHaptX::CreateMeshShape(const tString &asName, iVertexBuffer *apVtxBuffer)
+	iHapticShape* cLowLevelHapticHaptX::CreateMeshShape(const tString &asName, cVertexBuffer *apVtxBuffer)
 	{
 		cHapticShapeHaptX *pShape = hplNew( cHapticShapeHaptX, (asName,eHapticShapeType_Mesh,1,this) );
 		
@@ -631,7 +631,7 @@ namespace hpl {
 
 	cHaptXShapeModel * cLowLevelHapticHaptX::CreateShapeModelFromMesh(cMesh *apMesh)
 	{
-		iVertexBuffer* pVtxBuff = apMesh->GetSubMesh(0)->GetVertexBuffer();
+		cVertexBuffer* pVtxBuff = apMesh->GetSubMesh(0)->GetVertexBuffer();
 		
 		cHaptXShapeModel *pShapeModel = hplNew( cHaptXShapeModel, () );
 

@@ -57,9 +57,9 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
-	iVertexBuffer* cMeshCreator::CreateWireframeVertexBuffer(iVertexBuffer *apSrc)
+	cVertexBuffer* cMeshCreator::CreateWireframeVertexBuffer(cVertexBuffer *apSrc)
 	{
-		iVertexBuffer *pDest = apSrc->CreateCopy(eVertexBufferType_Hardware, eVertexBufferUsageType_Static, apSrc->GetVertexElementFlags());
+		cVertexBuffer *pDest = apSrc->CreateCopy(eVertexBufferType_Hardware, eVertexBufferUsageType_Static, apSrc->GetVertexElementFlags());
 
         pDest->ResizeIndices(apSrc->GetIndexNum()*4);
 		unsigned int* pDestArray = pDest->GetIndices();
@@ -94,7 +94,7 @@ namespace hpl {
 
 		cMaterial *pMat = mpResources->GetMaterialManager()->CreateMaterial(asMaterial);
 		pSubMesh->SetMaterial(pMat);
-		iVertexBuffer *pVtxBuff = CreateBoxVertexBuffer(avSize);
+		cVertexBuffer *pVtxBuff = CreateBoxVertexBuffer(avSize);
 		pSubMesh->SetVertexBuffer(pVtxBuff);
 
 		return pMesh;
@@ -182,7 +182,7 @@ namespace hpl {
 			vCoords[i]-=vFirstCorner;
 		}
 		
-		iVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(
+		cVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(
 								eVertexBufferType_Hardware,
 								eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic,4,6);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);
@@ -230,7 +230,7 @@ namespace hpl {
 	{
 		//////////////////////////////////////////////////
 		// Create vertex buffer
-		iVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
+		cVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
 																	eVertexBufferUsageType_Static);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Normal,eVertexBufferElementFormat_Float,3);
@@ -322,7 +322,7 @@ namespace hpl {
 
 	cMesh* cMeshCreator::CreateCylinder(const tString& asName, const cVector2f &avSize, int alSections, const tString &asMaterial)
 	{
-		iVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
+		cVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
 																	eVertexBufferUsageType_Static);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Normal,eVertexBufferElementFormat_Float,3);
@@ -398,7 +398,7 @@ namespace hpl {
 
 	cMesh* cMeshCreator::CreateCapsule(const tString &asName, const cVector2f &avSize, int alSections, int alSlices, const tString &asMaterial)
 	{
-		iVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
+		cVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
 																	eVertexBufferUsageType_Static);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Normal,eVertexBufferElementFormat_Float,3);
@@ -526,7 +526,7 @@ namespace hpl {
 	{
 		//////////////////////////////////////////
 		// Create Vertex Buffer
-		iVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
+		cVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
 																	eVertexBufferUsageType_Static);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Normal,eVertexBufferElementFormat_Float,3);
@@ -601,9 +601,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	iVertexBuffer* cMeshCreator::CreateSkyBoxVertexBuffer(float afSize)
+	cVertexBuffer* cMeshCreator::CreateSkyBoxVertexBuffer(float afSize)
 	{
-		iVertexBuffer* pSkyBox = mpLowLevelGraphics->CreateVertexBuffer(
+		cVertexBuffer* pSkyBox = mpLowLevelGraphics->CreateVertexBuffer(
 										eVertexBufferType_Hardware,
 										eVertexBufferDrawType_Quad,eVertexBufferUsageType_Static);
 		pSkyBox->CreateElementArray(eVertexBufferElement_Color0,eVertexBufferElementFormat_Float,4);
@@ -679,9 +679,9 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
-	iVertexBuffer* cMeshCreator::CreateBoxVertexBuffer(cVector3f avSize)
+	cVertexBuffer* cMeshCreator::CreateBoxVertexBuffer(cVector3f avSize)
 	{
-		iVertexBuffer* pBox = mpLowLevelGraphics->CreateVertexBuffer(
+		cVertexBuffer* pBox = mpLowLevelGraphics->CreateVertexBuffer(
 			eVertexBufferType_Hardware,
 			eVertexBufferDrawType_Tri,eVertexBufferUsageType_Static);
 		pBox->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);
@@ -819,7 +819,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cMeshCreator::WrapSides(iVertexBuffer* apVtxBuffer, int alStartVertexIdx,int alSections)
+	void cMeshCreator::WrapSides(cVertexBuffer* apVtxBuffer, int alStartVertexIdx,int alSections)
 	{
 		/////////////////////////////////////////////////
 		// Create indices  like this		0 --- 1 --- 2 --- ... --- 0
@@ -864,7 +864,7 @@ namespace hpl {
 		}
 	}
 
-	void cMeshCreator::WrapUpperCap(iVertexBuffer* apVtxBuffer, int alCenterVertexIdx, int alStartVertexIdx, int alSections)
+	void cMeshCreator::WrapUpperCap(cVertexBuffer* apVtxBuffer, int alCenterVertexIdx, int alStartVertexIdx, int alSections)
 	{
 		for(int i=0;i<alSections-1;++i)
 		{
@@ -878,7 +878,7 @@ namespace hpl {
 		apVtxBuffer->AddIndex(alStartVertexIdx);
 	}
 
-	void cMeshCreator::WrapLowerCap(iVertexBuffer* apVtxBuffer, int alCenterVertexIdx, int alStartVertexIdx, int alSections)
+	void cMeshCreator::WrapLowerCap(cVertexBuffer* apVtxBuffer, int alCenterVertexIdx, int alStartVertexIdx, int alSections)
 	{
 		for(int i=0;i<alSections-1;++i)
 		{

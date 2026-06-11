@@ -64,7 +64,7 @@ public:
 
 protected:
 	cVector3f mvAxis;
-	iVertexBuffer* mpVB;
+	cVertexBuffer* mpVB;
 	cMatrixf mmtxOffset;
 
 	std::vector<cTranslatePlane*> mvPlanes;

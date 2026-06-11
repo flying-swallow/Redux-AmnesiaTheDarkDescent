@@ -31,7 +31,6 @@ namespace hpl {
 
 	class cFrameTexture;
 	class cFrameBitmap;
-	class iTexture;
 	class cFBitmapImage;
 	class Image;
 

@@ -21,7 +21,6 @@
 #define HPL_MATERIAL_MANAGER_H
 
 #include "resources/ResourceManager.h"
-#include "graphics/Texture.h"
 #include "graphics/Material.h"
 
 namespace hpl {

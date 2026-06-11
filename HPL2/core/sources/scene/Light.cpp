@@ -96,11 +96,7 @@ namespace hpl {
 		///////////////////////////////
 		//Data init
 		// Forward+ uses a clamp-to-edge static sampler at the falloff binding.
-		mpFalloffMap = nullptr;
 		SetFalloffMap(mpTextureManager->Create1DImage("core_falloff_linear", false));
-
-		mpGoboTexture = NULL;
-
 
         mpVisibleNodeTracker = hplNew( cVisibleRCNodeTracker, () );
 	}
@@ -110,9 +106,8 @@ namespace hpl {
 	iLight::~iLight()
 	{
 		if(mpVisibleNodeTracker) hplDelete(mpVisibleNodeTracker);
-		if(mpFalloffMap) mpTextureManager->Destroy(mpFalloffMap);
-		if(mpGoboTexture) mpTextureManager->Destroy(mpGoboTexture);
-	}	
+		// m_falloffMap / m_goboImage (ImageResourceWrapper) free themselves.
+	}
 
 	//-----------------------------------------------------------------------
 
@@ -438,39 +433,6 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 	
-	iTexture *iLight::GetFalloffMap()
-	{
-		return mpFalloffMap;
-	}
-
-	void iLight::SetFalloffMap(iTexture* apTexture)
-	{
-		if(mpFalloffMap) mpTextureManager->Destroy(mpFalloffMap);
-
-		mpFalloffMap = apTexture;
-		mpFalloffMap->SetWrapS(eTextureWrap_ClampToEdge);
-		mpFalloffMap->SetWrapT(eTextureWrap_ClampToEdge);
-		
-	}
-
-	//-----------------------------------------------------------------------
-
-	void iLight::SetGoboTexture(iTexture *apTexture)
-	{
-		//Destroy any old texture.
-		if(mpGoboTexture) mpTextureManager->Destroy(mpGoboTexture);
-
-		mpGoboTexture = apTexture;
-		if(mpGoboTexture) mpGoboTexture->SetWrapSTR(eTextureWrap_ClampToEdge);
-	}
-
-	//-----------------------------------------------------------------------
-
-	iTexture* iLight::GetGoboTexture()
-	{
-		return mpGoboTexture;
-	}
-
 	//-----------------------------------------------------------------------
 
 	void iLight::SetFalloffMap(Image* apImage)

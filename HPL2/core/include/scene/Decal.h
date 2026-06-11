@@ -69,7 +69,7 @@ namespace hpl {
 		///////////////////////////////
 		//Renderable implementation:
 		cMaterial *GetMaterial(){ return mpMaterial; }
-		iVertexBuffer* GetVertexBuffer(){ return NULL; }
+		cVertexBuffer* GetVertexBuffer(){ return NULL; }
 
 		eRenderableType GetRenderType(){ return eRenderableType_Decal; }
 

@@ -29,7 +29,6 @@ namespace hpl {
 
 	class cCamera;
 	class cFrustum;
-	class iTexture;
 	class cResources;
 	
 	//------------------------------------------
@@ -50,7 +49,7 @@ namespace hpl {
 		///////////////////////////////
 		//Renderable implementation:
 		cMaterial *GetMaterial(){ return NULL;}
-		iVertexBuffer* GetVertexBuffer(){ return NULL;}
+		cVertexBuffer* GetVertexBuffer(){ return NULL;}
 
 		eRenderableType GetRenderType(){ return eRenderableType_Dummy;}
 

@@ -38,7 +38,7 @@ namespace hpl {
 		cLowLevelGraphicsSDL();
 		~cLowLevelGraphicsSDL();
 
-		struct RIWindowHandle_s GetWindowHandle() override;
+		struct RIWindowHandle GetWindowHandle() override;
 
 		bool Init(int alWidth, int alHeight, int alDisplay, int alBpp, int abFullscreen, const tString& asWindowCaption, const cVector2l& avWindowPos);
 
@@ -58,10 +58,8 @@ namespace hpl {
 		/////////////////////////////////////////////////////
 
 		iFontData* CreateFontData(const tString& asName);
-		iTexture* CreateTexture(const tString& asName, eTextureType aType, eTextureUsage aUsage);
 
-		[[deprecated("will replace with VertexBuffer_RI")]]
-		iVertexBuffer* CreateVertexBuffer(eVertexBufferType aType, eVertexBufferDrawType aDrawType, eVertexBufferUsageType aUsageType, int alReserveVtxSize = 0, int alReserveIdxSize = 0);
+		cVertexBuffer* CreateVertexBuffer(eVertexBufferType aType, eVertexBufferDrawType aDrawType, eVertexBufferUsageType aUsageType, int alReserveVtxSize = 0, int alReserveIdxSize = 0);
 
 		/////////////////////////////////////////////////////
 		/////////// IMPLEMENTION SPECIFICS /////////////////

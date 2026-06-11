@@ -3,7 +3,7 @@
 
 #include "RITypes.h"
 
-struct RIWindowHandle_s {
+struct RIWindowHandle {
 	uint8_t type; // RIWindowType_e
 	union {
 		struct {
@@ -24,19 +24,19 @@ struct RIWindowHandle_s {
 	};
 };
 
-struct RISwapchainDesc_s {
+struct RISwapchainDesc {
 	uint8_t format; // RISwapchainFormat_e
 	uint16_t requestImageCount;
-	struct RIWindowHandle_s* windowHandle;
-	struct RIQueue_s* queue;
+	struct RIWindowHandle* windowHandle;
+	struct RIQueue* queue;
 	uint16_t width, height;
 };
 
-int InitRISwapchain(struct RIDevice_s* dev, struct RISwapchainDesc_s* init, RISwapchain_s<>* swapchain);
-uint32_t RISwapchainAcquireNextTexture(struct RIDevice_s* dev, RISwapchain_s<>* swapchain);
-void RISwapchainPresent(struct RIDevice_s* dev, RISwapchain_s<>* swapchain);
+int InitRISwapchain(struct RIDevice* dev, struct RISwapchainDesc* init, RISwapchain<>* swapchain);
+uint32_t RISwapchainAcquireNextTexture(struct RIDevice* dev, RISwapchain<>* swapchain);
+void RISwapchainPresent(struct RIDevice* dev, RISwapchain<>* swapchain);
 
-static inline bool IsRISwapchainValid( RISwapchain_s<> *swapchain )
+static inline bool IsRISwapchainValid( RISwapchain<> *swapchain )
 {
 	return swapchain->imageCount > 0 && swapchain->width > 0 && swapchain->height > 0;
 }

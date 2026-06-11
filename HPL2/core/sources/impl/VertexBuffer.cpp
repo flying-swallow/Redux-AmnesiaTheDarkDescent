@@ -17,7 +17,7 @@
  * along with Amnesia: The Dark Descent.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "graphics/VertexBuffer_RI.h"
+#include "graphics/VertexBuffer.h"
 #include "graphics/RIBootstrap.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIResourceUploader.h"
@@ -32,7 +32,7 @@
 
 namespace hpl {
 
-size_t VertexBuffer_RI::GetSizeFromHPL(eVertexBufferElementFormat format) {
+size_t cVertexBuffer::GetSizeFromHPL(eVertexBufferElementFormat format) {
   switch (format) {
   case eVertexBufferElementFormat_Float:
     return sizeof(float);
@@ -67,29 +67,32 @@ static const char* elementTypeName(eVertexBufferElement type) {
     }
 }
 
-VertexBuffer_RI::VertexBuffer_RI(iLowLevelGraphics* apLowLevelGraphics,
-			eVertexBufferType aType, 
+cVertexBuffer::cVertexBuffer(iLowLevelGraphics* apLowLevelGraphics,
+			eVertexBufferType aType,
 			eVertexBufferDrawType aDrawType,eVertexBufferUsageType aUsageType,
-			int alReserveVtxSize,int alReserveIdxSize) 
-    : iVertexBuffer(apLowLevelGraphics, aType, aDrawType, aUsageType, alReserveVtxSize, alReserveIdxSize) {
+			int alReserveVtxSize,int alReserveIdxSize)
+    : mpLowLevelGraphics(apLowLevelGraphics), mType(aType), mVertexFlags(0),
+      mDrawType(aDrawType), mUsageType(aUsageType),
+      mlReservedVtxSize(alReserveVtxSize), mlReservedIdxSize(alReserveIdxSize),
+      mlElementNum(-1), mbTangents(false) {
 }
 
-VertexBuffer_RI::~VertexBuffer_RI() {
+cVertexBuffer::~cVertexBuffer() {
   AttachResourceToCntx(RI.GetActiveSet());
   m_onDestroyed.Signal();
 }
-void VertexBuffer_RI::Bind() {
+void cVertexBuffer::Bind() {
 
 } 
 
-void VertexBuffer_RI::DrawIndices(	unsigned int *apIndices, int alCount,
+void cVertexBuffer::DrawIndices(	unsigned int *apIndices, int alCount,
 								eVertexBufferDrawType aDrawType) {} 
 	
-void VertexBuffer_RI::CreateShadowDouble(bool abUpdateData) {}
+void cVertexBuffer::CreateShadowDouble(bool abUpdateData) {}
 
-void VertexBuffer_RI::PushVertexElements(
+void cVertexBuffer::PushVertexElements(
     std::span<const float> values, eVertexBufferElement elementType,
-    std::span<VertexBuffer_RI::VertexElement> elements) {
+    std::span<cVertexBuffer::VertexElement> elements) {
   for (auto &element : elements) {
     if (element.type == elementType) {
       auto &buffer = element.m_shadowData;
@@ -126,15 +129,15 @@ void VertexBuffer_RI::PushVertexElements(
   }
 }
 
-size_t VertexBuffer_RI::VertexElement::Stride() const {
+size_t cVertexBuffer::VertexElement::Stride() const {
   return GetSizeFromHPL(format) * num;
 }
 
-size_t VertexBuffer_RI::VertexElement::NumElements() const {
+size_t cVertexBuffer::VertexElement::NumElements() const {
   return m_shadowData.size() / Stride();
 }
 
-void VertexBuffer_RI::AddVertexVec3f(eVertexBufferElement aElement,
+void cVertexBuffer::AddVertexVec3f(eVertexBufferElement aElement,
                                      const cVector3f &avVtx) {
   m_updateFlags |= GetVertexElementFlagFromEnum(aElement);
   PushVertexElements(
@@ -142,7 +145,7 @@ void VertexBuffer_RI::AddVertexVec3f(eVertexBufferElement aElement,
       std::span(m_vertexElements.begin(), m_vertexElements.end()));
 }
 
-void VertexBuffer_RI::AddVertexVec4f(eVertexBufferElement aElement,
+void cVertexBuffer::AddVertexVec4f(eVertexBufferElement aElement,
                                      const cVector3f &avVtx, float afW) {
   m_updateFlags |= GetVertexElementFlagFromEnum(aElement);
   PushVertexElements(
@@ -150,7 +153,7 @@ void VertexBuffer_RI::AddVertexVec4f(eVertexBufferElement aElement,
       std::span(m_vertexElements.begin(), m_vertexElements.end()));
 }
 
-void VertexBuffer_RI::AddVertexColor(eVertexBufferElement aElement,
+void cVertexBuffer::AddVertexColor(eVertexBufferElement aElement,
                                      const cColor &aColor) {
   m_updateFlags |= GetVertexElementFlagFromEnum(aElement);
   PushVertexElements(
@@ -158,12 +161,12 @@ void VertexBuffer_RI::AddVertexColor(eVertexBufferElement aElement,
       std::span(m_vertexElements.begin(), m_vertexElements.end()));
 }
 
-void VertexBuffer_RI::AddIndex(unsigned int alIndex) {
+void cVertexBuffer::AddIndex(unsigned int alIndex) {
   m_updateIndices = true;
   m_indices.push_back(alIndex);
 }
 
-void VertexBuffer_RI::Transform(const cMatrixf &mtxTransform) {
+void cVertexBuffer::Transform(const cMatrixf &mtxTransform) {
   cMatrixf mtxRot = mtxTransform.GetRotation();
   cMatrixf mtxNormalRot = cMath::MatrixInverse(mtxRot).GetTranspose();
 
@@ -248,7 +251,7 @@ void VertexBuffer_RI::Transform(const cMatrixf &mtxTransform) {
   UpdateData(vtxFlag, false);
 }
 
-int VertexBuffer_RI::GetElementNum(eVertexBufferElement aElement) {
+int cVertexBuffer::GetElementNum(eVertexBufferElement aElement) {
   auto element = std::find_if(
       m_vertexElements.begin(), m_vertexElements.end(),
       [aElement](const auto &element) { return element.type == aElement; });
@@ -259,7 +262,7 @@ int VertexBuffer_RI::GetElementNum(eVertexBufferElement aElement) {
 }
 
 eVertexBufferElementFormat
-VertexBuffer_RI::GetElementFormat(eVertexBufferElement aElement) {
+cVertexBuffer::GetElementFormat(eVertexBufferElement aElement) {
   auto element = std::find_if(
       m_vertexElements.begin(), m_vertexElements.end(),
       [aElement](const auto &element) { return element.type == aElement; });
@@ -269,7 +272,7 @@ VertexBuffer_RI::GetElementFormat(eVertexBufferElement aElement) {
   return eVertexBufferElementFormat_LastEnum;
 }
 
-int VertexBuffer_RI::GetElementProgramVarIndex(eVertexBufferElement aElement) {
+int cVertexBuffer::GetElementProgramVarIndex(eVertexBufferElement aElement) {
   auto element = std::find_if(
       m_vertexElements.begin(), m_vertexElements.end(),
       [aElement](const auto &element) { return element.type == aElement; });
@@ -279,7 +282,7 @@ int VertexBuffer_RI::GetElementProgramVarIndex(eVertexBufferElement aElement) {
   return 0;
 }
 
-bool VertexBuffer_RI::Compile(tVertexCompileFlag aFlags) {
+bool cVertexBuffer::Compile(tVertexCompileFlag aFlags) {
   if (aFlags & eVertexCompileFlag_CreateTangents) {
     CreateElementArray(eVertexBufferElement_Texture1Tangent,
                        eVertexBufferElementFormat_Float, 4);
@@ -340,7 +343,7 @@ bool VertexBuffer_RI::Compile(tVertexCompileFlag aFlags) {
   //// the VkBuffer outlives any in-flight upload / draw command buffer that
   //// still references it. The buffer + allocation get destroyed when the set
   //// rotates back around (i.e. RI_NUMBER_FRAMES_FLIGHT frames later).
-  //auto destroyBuffer = [](RIBuffer_s *b) {
+  //auto destroyBuffer = [](RIBuffer *b) {
   //  if (b->vk.buffer) {
   //    auto *cntx = RI.GetActiveSet();
   //    cntx->freelist.push_back(RIFree(b->vk.buffer));
@@ -376,8 +379,8 @@ bool VertexBuffer_RI::Compile(tVertexCompileFlag aFlags) {
   //                        VkPipelineStageFlags2 postStage,
   //                        VkAccessFlags2 postAccess,
   //                        const char *label)
-  //    -> std::shared_ptr<RIBuffer_s> {
-  //  std::shared_ptr<RIBuffer_s> buf(new RIBuffer_s(), destroyBuffer);
+  //    -> std::shared_ptr<RIBuffer> {
+  //  std::shared_ptr<RIBuffer> buf(new RIBuffer(), destroyBuffer);
 
   //  uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
   //  VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -403,7 +406,7 @@ bool VertexBuffer_RI::Compile(tVertexCompileFlag aFlags) {
   //        vkSetDebugUtilsObjectNameEXT(RI.device.vk.device, &nameInfo));
   //  }
 
-  //  RIResourceBufferTransaction_s trans = {};
+  //  RIResourceBufferTransaction trans = {};
   //  trans.target = *buf;
   //  trans.size = size;
   //  trans.offset = 0;
@@ -455,7 +458,7 @@ bool VertexBuffer_RI::Compile(tVertexCompileFlag aFlags) {
   return true;
 }
 
-void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
+void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
                                     RIBootstrap::FrameContext *cntx) {
   assert(cmd);
   assert(device);
@@ -469,8 +472,8 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
   // growth (ResizeArray / ResizeIndices), or when a CreateCopy'd element still
   // points at its source buffer with a zero capacity tag.
   auto allocBuffer = [&](VkDeviceSize size, VkBufferUsageFlags usage,
-                         const char *label) -> std::shared_ptr<RIBuffer_s> {
-    std::shared_ptr<RIBuffer_s> buf(new RIBuffer_s(), [](RIBuffer_s *b) {
+                         const char *label) -> std::shared_ptr<RIBuffer> {
+    std::shared_ptr<RIBuffer> buf(new RIBuffer(), [](RIBuffer *b) {
       b->dispose(&RI.device);
       delete b;
     });
@@ -485,7 +488,7 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
 
     VmaAllocationCreateInfo aci = {};
     aci.usage = VMA_MEMORY_USAGE_AUTO;
-    *buf = RIBuffer_s::VK_createFromVMA(device, &bci, &aci);
+    *buf = RIBuffer::VK_createFromVMA(device, &bci, &aci);
 
     char debugName[128];
     std::snprintf(debugName, sizeof(debugName), "VB[%p]:%s",
@@ -495,12 +498,12 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
   };
 
   // Stage-copy `src` into an existing buffer. The transaction takes a value
-  // copy of the RIBuffer_s, but the underlying VkBuffer / VmaAllocation handles
+  // copy of the RIBuffer, but the underlying VkBuffer / VmaAllocation handles
   // are shared, so the upload lands in the same GPU memory.
-  auto stageUpload = [&](RIBuffer_s *target, VkDeviceSize size, const void *src,
+  auto stageUpload = [&](RIBuffer *target, VkDeviceSize size, const void *src,
                          enum RIResourceState_e postState,
                          uint32_t postStages) {
-    RIResourceBufferTransaction_s trans = {};
+    RIResourceBufferTransaction trans = {};
     trans.target = *target;
     trans.size = size;
     trans.offset = 0;
@@ -577,7 +580,7 @@ void VertexBuffer_RI::SubmitToGPU(RICmd_s *cmd, RIDevice_s *device,
   m_lastSubmitted = m_generation;
 }
 
-void VertexBuffer_RI::BuildBlas(RICmd_s *cmd, RIDevice_s *device,
+void cVertexBuffer::BuildBlas(RICmd *cmd, RIDevice *device,
                                 RIBootstrap::FrameContext *cntx) {
   // Streams must be current before any build — no-op if a prior submit (e.g.
   // the translucent/decal prepare) already uploaded this generation.
@@ -603,7 +606,7 @@ void VertexBuffer_RI::BuildBlas(RICmd_s *cmd, RIDevice_s *device,
   m_blas.reset();
   m_blasStorage.reset();
 
-  RIAccelGeometryDesc_s geom = {};
+  RIAccelGeometryDesc geom = {};
   geom.type = RI_ACCEL_GEOMETRY_TYPE_TRIANGLES;
   // Non-opaque: candidate triangle hits are reported to the ray-query proceed
   // loop in traceray_rq.glsl, which runs the alpha-reject test that mirrors
@@ -623,7 +626,7 @@ void VertexBuffer_RI::BuildBlas(RICmd_s *cmd, RIDevice_s *device,
   geom.triangles.transformBuffer = nullptr;
   geom.triangles.transformOffset = 0;
 
-  RIAccelStructureDesc_s asDesc = {};
+  RIAccelStructureDesc asDesc = {};
   asDesc.type = RI_ACCEL_STRUCTURE_TYPE_BOTTOM_LEVEL;
   asDesc.flags = RI_ACCEL_BUILD_PREFER_FAST_TRACE;
   asDesc.geometryOrInstanceNum = 1;
@@ -633,9 +636,9 @@ void VertexBuffer_RI::BuildBlas(RICmd_s *cmd, RIDevice_s *device,
   uint64_t buildScratchSize = 0;
   asDesc.getMemoryReqs(device, &storageSize, &buildScratchSize, NULL );
 
-  m_blasStorage = std::shared_ptr<RIBuffer_s>(
-      new RIBuffer_s(),
-      [](RIBuffer_s *b) { b->dispose(&RI.device); delete b; });
+  m_blasStorage = std::shared_ptr<RIBuffer>(
+      new RIBuffer(),
+      [](RIBuffer *b) { b->dispose(&RI.device); delete b; });
   {
     uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
     VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -646,7 +649,7 @@ void VertexBuffer_RI::BuildBlas(RICmd_s *cmd, RIDevice_s *device,
                 VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
     VmaAllocationCreateInfo aci = {};
     aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    *m_blasStorage = RIBuffer_s::VK_createFromVMA(device, &bci, &aci);
+    *m_blasStorage = RIBuffer::VK_createFromVMA(device, &bci, &aci);
   }
 
   // VK_createFromVMA swallows the VkResult — a failed/marginal allocation leaves
@@ -671,9 +674,9 @@ void VertexBuffer_RI::BuildBlas(RICmd_s *cmd, RIDevice_s *device,
   asDesc.storageOffset = 0;
   asDesc.storageSize = storageSize;
 
-  m_blas = std::shared_ptr<RIAccelStructure_s>(
-      new RIAccelStructure_s(),
-      [](RIAccelStructure_s *a) {
+  m_blas = std::shared_ptr<RIAccelStructure>(
+      new RIAccelStructure(),
+      [](RIAccelStructure *a) {
         a->dispose(&RI.device);
         delete a;
       });
@@ -688,9 +691,9 @@ void VertexBuffer_RI::BuildBlas(RICmd_s *cmd, RIDevice_s *device,
   assert(m_blas->vk.handle != VK_NULL_HANDLE);
   assert(m_blas->vk.deviceAddress != 0);
 
-  struct RIBufferScratchAllocReq_s scratchReq = RIAllocBufferFromScratchAlloc(
+  struct RIBufferScratchAllocReq scratchReq = RIAllocBufferFromScratchAlloc(
       device, &cntx->accelScratchAlloc, buildScratchSize);
-  RIBuildBlasDesc_s buildDesc = {};
+  RIBuildBlasDesc buildDesc = {};
   buildDesc.dst = m_blas.get();
   buildDesc.src = nullptr;
   buildDesc.mode = RI_ACCEL_BUILD_MODE_BUILD;
@@ -703,7 +706,7 @@ void VertexBuffer_RI::BuildBlas(RICmd_s *cmd, RIDevice_s *device,
   m_blasGeneration = m_generation;
 }
 
-void VertexBuffer_RI::AttachResourceToCntx(RIBootstrap::FrameContext *cntx) {
+void cVertexBuffer::AttachResourceToCntx(RIBootstrap::FrameContext *cntx) {
 
   for (auto &element : m_vertexElements) {
     if(element.buffer) {
@@ -719,7 +722,7 @@ void VertexBuffer_RI::AttachResourceToCntx(RIBootstrap::FrameContext *cntx) {
   }
 }
 
-void VertexBuffer_RI::UpdateData(tVertexElementFlag aTypes, bool abIndices) {
+void cVertexBuffer::UpdateData(tVertexElementFlag aTypes, bool abIndices) {
   m_updateFlags |= aTypes;
   m_updateIndices |= abIndices;
   // Without this bump, SubmitToGPU short-circuits and the GPU buffers / BLAS
@@ -728,7 +731,7 @@ void VertexBuffer_RI::UpdateData(tVertexElementFlag aTypes, bool abIndices) {
   m_generation++;
 }
 
-float *VertexBuffer_RI::GetFloatArray(eVertexBufferElement aElement) {
+float *cVertexBuffer::GetFloatArray(eVertexBufferElement aElement) {
   auto element = std::find_if(
       m_vertexElements.begin(), m_vertexElements.end(),
       [aElement](const auto &element) { return element.type == aElement; });
@@ -738,7 +741,7 @@ float *VertexBuffer_RI::GetFloatArray(eVertexBufferElement aElement) {
   return nullptr;
 }
 
-int *VertexBuffer_RI::GetIntArray(eVertexBufferElement aElement) {
+int *cVertexBuffer::GetIntArray(eVertexBufferElement aElement) {
   auto element = std::find_if(
       m_vertexElements.begin(), m_vertexElements.end(),
       [aElement](const auto &element) { return element.type == aElement; });
@@ -748,7 +751,7 @@ int *VertexBuffer_RI::GetIntArray(eVertexBufferElement aElement) {
   return nullptr;
 }
 
-unsigned char *VertexBuffer_RI::GetByteArray(eVertexBufferElement aElement) {
+unsigned char *cVertexBuffer::GetByteArray(eVertexBufferElement aElement) {
   auto element = std::find_if(
       m_vertexElements.begin(), m_vertexElements.end(),
       [aElement](const auto &element) { return element.type == aElement; });
@@ -758,9 +761,9 @@ unsigned char *VertexBuffer_RI::GetByteArray(eVertexBufferElement aElement) {
   return nullptr;
 }
 
-unsigned int *VertexBuffer_RI::GetIndices() { return m_indices.data(); }
+unsigned int *cVertexBuffer::GetIndices() { return m_indices.data(); }
 
-void VertexBuffer_RI::ResizeArray(eVertexBufferElement aElement, int alSize) {
+void cVertexBuffer::ResizeArray(eVertexBufferElement aElement, int alSize) {
   auto element = std::find_if(
       m_vertexElements.begin(), m_vertexElements.end(),
       [aElement](const auto &element) { return element.type == aElement; });
@@ -771,14 +774,14 @@ void VertexBuffer_RI::ResizeArray(eVertexBufferElement aElement, int alSize) {
   }
 }
 
-void VertexBuffer_RI::ResizeIndices(int alSize) {
+void cVertexBuffer::ResizeIndices(int alSize) {
   m_updateIndices = true;
   m_indices.resize(alSize);
   m_generation++;
 }
 
-const VertexBuffer_RI::VertexElement *
-VertexBuffer_RI::GetElement(eVertexBufferElement elementType) {
+const cVertexBuffer::VertexElement *
+cVertexBuffer::GetElement(eVertexBufferElement elementType) {
   auto element = std::find_if(m_vertexElements.begin(), m_vertexElements.end(),
                               [elementType](const auto &element) {
                                 return element.type == elementType;
@@ -789,7 +792,7 @@ VertexBuffer_RI::GetElement(eVertexBufferElement elementType) {
   return nullptr;
 }
 
-void VertexBuffer_RI::CreateElementArray(eVertexBufferElement aType,
+void cVertexBuffer::CreateElementArray(eVertexBufferElement aType,
                                          eVertexBufferElementFormat aFormat,
                                          int alElementNum,
                                          int alProgramVarIndex) {
@@ -810,7 +813,7 @@ void VertexBuffer_RI::CreateElementArray(eVertexBufferElement aType,
   m_vertexElements.push_back(std::move(element));
 }
 
-int VertexBuffer_RI::GetVertexNum() {
+int cVertexBuffer::GetVertexNum() {
   auto positionElement =
       std::find_if(m_vertexElements.begin(), m_vertexElements.end(),
                    [](const auto &element) {
@@ -821,9 +824,9 @@ int VertexBuffer_RI::GetVertexNum() {
   return positionElement->NumElements();
 }
 
-int VertexBuffer_RI::GetIndexNum() { return m_indices.size(); }
+int cVertexBuffer::GetIndexNum() { return m_indices.size(); }
 
-cBoundingVolume VertexBuffer_RI::CreateBoundingVolume() {
+cBoundingVolume cVertexBuffer::CreateBoundingVolume() {
   cBoundingVolume bv;
   if ((mVertexFlags & eVertexElementFlag_Position) == 0) {
     Warning("Could not create bounding volume from buffer %d  because no "
@@ -857,9 +860,9 @@ cBoundingVolume VertexBuffer_RI::CreateBoundingVolume() {
   return bv;
 }
 
-void VertexBuffer_RI::Draw(eVertexBufferDrawType aDrawType) {}
+void cVertexBuffer::Draw(eVertexBufferDrawType aDrawType) {}
 
-// DrawPacket VertexBuffer_RI::resolveGeometryBinding(
+// DrawPacket cVertexBuffer::resolveGeometryBinding(
 //     uint32_t frameIndex, std::span<eVertexBufferElement> elements) {
 //     DrawPacket packet;
 //     packet.m_type = DrawPacket::DrawIndvidualBuffers;
@@ -973,13 +976,13 @@ void VertexBuffer_RI::Draw(eVertexBufferDrawType aDrawType) {}
 //    return packet;
 //}
 
-void VertexBuffer_RI::UnBind() { }
+void cVertexBuffer::UnBind() { }
 
-iVertexBuffer *VertexBuffer_RI::CreateCopy(eVertexBufferType aType,
+cVertexBuffer *cVertexBuffer::CreateCopy(eVertexBufferType aType,
                                            eVertexBufferUsageType aUsageType,
                                            tVertexElementFlag alVtxToCopy) {
   auto *vertexBuffer =
-      new VertexBuffer_RI(mpLowLevelGraphics, mType, mDrawType, aUsageType, GetIndexNum(), GetVertexNum());
+      new cVertexBuffer(mpLowLevelGraphics, mType, mDrawType, aUsageType, GetIndexNum(), GetVertexNum());
   vertexBuffer->m_indices = m_indices;
 
   for (auto element : m_vertexElements) {

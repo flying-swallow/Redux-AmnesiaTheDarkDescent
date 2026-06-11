@@ -154,7 +154,7 @@ bool cEntityWrapperDataDecal::SaveSpecific(cXmlElement* apElement)
 		return false;
 
 	cEngineEntityGeneratedMesh* pDecalMesh = (cEngineEntityGeneratedMesh*)mpDecal->GetEngineEntity();
-	iVertexBuffer* pVB = NULL;
+	cVertexBuffer* pVB = NULL;
 
 	//////////////////////////////////////////////////
 	// Fix for meshless decals
@@ -738,7 +738,7 @@ void cEntityWrapperDecal::UpdateEntity()
 
 //-----------------------------------------------------------------------------------------
 
-iVertexBuffer* cEntityWrapperDecal::BuildDecalVertexBuffer(cWorld* apWorld, cDecalCreator* apCreator,
+cVertexBuffer* cEntityWrapperDecal::BuildDecalVertexBuffer(cWorld* apWorld, cDecalCreator* apCreator,
 													  const cVector3f& avPos, const cVector3f& avSize, float afOffset,
 													  const cVector3f& avRight, const cVector3f& avUp, const cVector3f& avFwd,
 													  const tString& asMaterial, const cColor& aCol,
@@ -823,7 +823,7 @@ cMesh* cEntityWrapperDecal::CreateDecalMesh()
 	}
 	//////////////////////////////////////////
 	// Check if current parameters are valid
-	iVertexBuffer* pVB = BuildDecalVertexBuffer(pWorld->GetWorld(), pCreator, 
+	cVertexBuffer* pVB = BuildDecalVertexBuffer(pWorld->GetWorld(), pCreator, 
 							mvPosition, mvScale, mfOffset, 
 							mtxOrientation.GetRight(), mtxOrientation.GetUp(), mtxOrientation.GetForward(),
 							msMaterial, mColor,	

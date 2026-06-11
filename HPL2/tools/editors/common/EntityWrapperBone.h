@@ -108,7 +108,7 @@ public:
 
 	void CreateLinkToParent();
 
-	iVertexBuffer* GetBoneVB() { return mpVBBone; }
+	cVertexBuffer* GetBoneVB() { return mpVBBone; }
 	void SetBoneVBColor(const cColor& aCol);
 
 protected:
@@ -118,7 +118,7 @@ protected:
 	tBoneWrapperVec mvChildBones;
 
 	
-	iVertexBuffer* mpVBBone;
+	cVertexBuffer* mpVBBone;
 	// Current bone tint — the RI DebugDraw path draws the bone VB with a
 	// uniform color instead of per-vertex colors. Defaults to the idle grey
 	// (see SetBoneVBColor callers) so a bone drawn before any explicit tint

@@ -185,7 +185,7 @@ public:
 
 	bool ReCreate(cMesh* apMesh);
 
-	iVertexBuffer* GetVertexBuffer();
+	cVertexBuffer* GetVertexBuffer();
 };
 
 //-----------------------------------------------------------------------

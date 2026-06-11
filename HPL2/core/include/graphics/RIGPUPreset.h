@@ -3,14 +3,14 @@
 
 #include "RITypes.h"
 
-struct RIGPUPreset_s {
+struct RIGPUPreset {
   uint32_t vendorId;
   uint32_t modelId;
   uint32_t preset; // RIPresetLevel 
 };
 
 
-static struct RIGPUPreset_s gpuPCPresets[] = {
+static struct RIGPUPreset gpuPCPresets[] = {
 //#intel
 { 0x8086, 0x0042, RI_GPU_PRESET_VERYLOW}, //Intel; Intel(R) HD Graphics - Core i3/i5 + Pentium G9650 Processors
 { 0x8086, 0x0046, RI_GPU_PRESET_VERYLOW}, //Intel; Intel(R) HD Graphics - Core i3/i5/i7 Mobile Processors

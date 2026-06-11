@@ -450,7 +450,7 @@ bool cEngineEntityGeneratedMesh::ReCreate(cMesh* apMesh)
 	return Create(sName);
 }
 
-iVertexBuffer* cEngineEntityGeneratedMesh::GetVertexBuffer()
+cVertexBuffer* cEngineEntityGeneratedMesh::GetVertexBuffer()
 {
 	return mpMesh->GetSubMesh(0)->GetVertexBuffer();
 }

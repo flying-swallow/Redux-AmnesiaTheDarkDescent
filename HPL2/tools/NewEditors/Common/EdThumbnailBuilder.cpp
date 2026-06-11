@@ -349,7 +349,7 @@ void cEdThumbnailBuilder::FocusCameraOnEntity(cMeshEntity *apEntity)
 		for(int i=0; i<pMesh->GetSubMeshNum(); ++i)
 		{
 			cSubMesh *pSubMesh = pMesh->GetSubMesh(i);
-			iVertexBuffer *pVtxBuffer = pSubMesh->GetVertexBuffer();
+			cVertexBuffer *pVtxBuffer = pSubMesh->GetVertexBuffer();
 
 			meshBV.AddArrayPoints(pVtxBuffer->GetFloatArray(eVertexBufferElement_Position), pVtxBuffer->GetVertexNum());
 		}
@@ -372,7 +372,7 @@ void cEdThumbnailBuilder::FocusCameraOnEntity(cMeshEntity *apEntity)
 		cSubMeshEntity *pSubEnt = apEntity->GetSubMeshEntity(i);
 
 		cMatrixf mtxTransform = pSubEnt->GetWorldMatrix();
-		iVertexBuffer *pVtxBuffer = pSubMesh->GetVertexBuffer();
+		cVertexBuffer *pVtxBuffer = pSubMesh->GetVertexBuffer();
 
 		VtxBufferAddNormals(mtxTransform, pVtxBuffer,vVecSum,fVecCount);
 	}
@@ -450,7 +450,7 @@ void cEdThumbnailBuilder::FocusCameraOnEntity(cMeshEntity *apEntity)
 
 //-------------------------------------------------------------------
 
-void cEdThumbnailBuilder::VtxBufferAddNormals(const cMatrixf a_mtxTransform, iVertexBuffer *apVtxBuffer, cVector3f &avVecSum, float& afCount)
+void cEdThumbnailBuilder::VtxBufferAddNormals(const cMatrixf a_mtxTransform, cVertexBuffer *apVtxBuffer, cVector3f &avVecSum, float& afCount)
 {
 	float *pPosVec = apVtxBuffer->GetFloatArray(eVertexBufferElement_Position);
 	unsigned int *pIdxVec = apVtxBuffer->GetIndices();

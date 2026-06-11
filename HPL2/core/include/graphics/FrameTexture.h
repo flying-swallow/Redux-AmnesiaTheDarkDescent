@@ -25,7 +25,6 @@
 namespace hpl {
 
 	class Image;
-	class iTexture;
 	class cFrameSubImage;
 	class cImageManager;
 

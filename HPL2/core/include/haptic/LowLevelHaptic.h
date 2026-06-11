@@ -29,7 +29,7 @@ namespace hpl {
 	class iHapticForce;
 	class iHapticSurface;
 
-	class iVertexBuffer;
+	class cVertexBuffer;
 	class cCamera;
 	class cResources;
 	class iPhysicsBody;
@@ -142,7 +142,7 @@ namespace hpl {
 		virtual iHapticShape* CreateSphereShape(const tString &asName, const cVector3f &avRadii, cMatrixf* apOffsetMtx)=0;
 		virtual iHapticShape* CreateCylinderShape(const tString &asName, float afRadius, float afHeight, cMatrixf* apOffsetMtx)=0;
 		virtual iHapticShape* CreateCapsuleShape(const tString &asName, float afRadius, float afHeight, cMatrixf* apOffsetMtx)=0;
-		virtual iHapticShape* CreateMeshShape(const tString &asName, iVertexBuffer *apVtxBuffer)=0;
+		virtual iHapticShape* CreateMeshShape(const tString &asName, cVertexBuffer *apVtxBuffer)=0;
 		virtual iHapticShape* CreateCompundShape(const tString &asName, tHapticShapeVec &avShapes)=0;
 
 		virtual iHapticShape* CreateShapeFromPhysicsBody(const tString &asName, iPhysicsBody *apBody)=0;

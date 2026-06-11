@@ -32,11 +32,8 @@
 namespace hpl {
 
 	class iFontData;
-	class iTexture;
-	class iVertexBuffer;
+	class cVertexBuffer;
 	class cBitmap;
-	class iFrameBuffer;
-	class iDepthStencilBuffer;
 	class iMutex;
 
 	//----------------------------------------
@@ -45,7 +42,7 @@ namespace hpl {
 	public:
 		virtual ~iLowLevelGraphics() {}
 
-		virtual struct RIWindowHandle_s GetWindowHandle() = 0;
+		virtual struct RIWindowHandle GetWindowHandle() = 0;
 
 		virtual bool Init(int alWidth, int alHeight, int alDisplay, int alBpp, int abFullscreen, const tString& asWindowCaption, const cVector2l& avWindowPos) = 0;
 
@@ -67,8 +64,7 @@ namespace hpl {
 		/////////////////////////////////////////////////////
 
 		virtual iFontData* CreateFontData(const tString& asName) = 0;
-		virtual iTexture* CreateTexture(const tString& asName, eTextureType aType, eTextureUsage aUsage) = 0;
-		virtual iVertexBuffer* CreateVertexBuffer(eVertexBufferType aType, eVertexBufferDrawType aDrawType, eVertexBufferUsageType aUsageType, int alReserveVtxSize = 0, int alReserveIdxSize = 0) = 0;
+		virtual cVertexBuffer* CreateVertexBuffer(eVertexBufferType aType, eVertexBufferDrawType aDrawType, eVertexBufferUsageType aUsageType, int alReserveVtxSize = 0, int alReserveIdxSize = 0) = 0;
 
 		static void SetForceShaderModel3And4Off(bool abX) { mbForceShaderModel3And4Off = abX; }
 		static bool GetForceShaderModel3And4Off() { return mbForceShaderModel3And4Off; }

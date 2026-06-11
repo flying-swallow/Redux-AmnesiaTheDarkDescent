@@ -20,8 +20,6 @@
 #include "graphics/GraphicsTypes.h"
 
 #include "graphics/RIFormat.h"
-#include "graphics/Texture.h"
-#include "graphics/FrameBuffer.h"
 
 
 namespace hpl {
@@ -311,21 +309,6 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 	
-	iTexture* iFrameBufferAttachment::ToTexture()
-	{
-		if(GetFrameBufferAttachmentType() != eFrameBufferAttachment_Texture) return NULL;
-
-		return static_cast<iTexture*>(this);
-	}
-
-	//-----------------------------------------------------------------------
-
-	iDepthStencilBuffer* iFrameBufferAttachment::ToDepthStencilBuffer()
-	{
-		if(GetFrameBufferAttachmentType() != eFrameBufferAttachment_RenderBuffer) return NULL;
-
-		return static_cast<iDepthStencilBuffer*>(this);
-	}
 	
 	//-----------------------------------------------------------------------
 

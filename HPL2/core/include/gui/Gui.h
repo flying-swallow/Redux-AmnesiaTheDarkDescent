@@ -40,7 +40,6 @@ namespace hpl {
 	class cGuiGfxElement;
 
 	class iGuiMaterial;
-	class iTexture;
 	class Image;
 
 	//------------------------------------------------

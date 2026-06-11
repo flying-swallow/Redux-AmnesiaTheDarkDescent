@@ -882,7 +882,7 @@ void iEditorBase::CreateViewports()
 
 	for(int i=0; i<4; ++i)
 	{
-		cEditorWindowViewport* pViewport = hplNew(cEditorWindowViewport,(this, mpFrameBuffer));
+		cEditorWindowViewport* pViewport = hplNew(cEditorWindowViewport,(this));
 		pViewport->Init();
 		AddWindow(pViewport);
 		
@@ -1389,7 +1389,7 @@ cEditorWindowMaterialEditor* iEditorBase::ShowMaterialEditor(cEditorInputFile* a
 	if(apInput)
 		sMatFile=apInput->GetValue();
 
-	mpMaterialEditor = hplNew( cEditorWindowMaterialEditor,(this, NULL, sMatFile, apInput));
+	mpMaterialEditor = hplNew( cEditorWindowMaterialEditor,(this, sMatFile, apInput));
 	mpMaterialEditor->Init();
 	mpMaterialEditor->SetActive(true);
 
@@ -1534,36 +1534,10 @@ void iEditorBase::InitLayout()
 
 void iEditorBase::InitRenderTarget(const cVector2f& avSize)
 {
-	return;
-
-	//////////////////////////////////////////////
-	// Creates a render target and framebuffer with size avSize
-	cGraphics* pGfx = mpEngine->GetGraphics();
-
-	int lTexW, lTexH;
-	lTexW = (int) avSize.x;
-	lTexH = (int) avSize.y;
-	
-	// TODO(vulkan-port, Phase 5): the legacy iFrameBuffer chain is dead on the
-	// RI backend — CreateFrameBuffer returns NULL. Editor viewports render via
-	// the editor-owned pane surface set as the engine viewport's TargetView
-	// (iEditorViewport::UpdateViewport); this legacy target only remains until
-	// the cleanup phase deletes it.
-	iTexture* pRenderTexture = pGfx->CreateTexture("RenderTexture",eTextureType_Rect, eTextureUsage_RenderTarget);
-	pRenderTexture->SetWrapR(eTextureWrap_ClampToEdge);
-	pRenderTexture->SetWrapS(eTextureWrap_ClampToEdge);
-	pRenderTexture->CreateFromRawData(cVector3l(lTexW, lTexH, 0), ePixelFormat_RGBA, 0);
-
-	/* mpFrameBuffer = pGfx->CreateFrameBuffer("MainRenderTarget");
-	if(mpFrameBuffer)
-	{
-		mpFrameBuffer->SetTexture2D(0, pRenderTexture);
-
-		iDepthStencilBuffer *pDepthBuffer = pGfx->CreateDepthStencilBuffer(mpFrameBuffer->GetSize(),24,8,false);
-
-		mpFrameBuffer->SetDepthStencilBuffer(pDepthBuffer);
-		mpFrameBuffer->CompileAndValidate();
-	} */
+	// Legacy GL render-target/framebuffer path is dead on the RI backend
+	// (CreateFrameBuffer returns NULL). Editor viewports render via the
+	// editor-owned pane surface set as the engine viewport's TargetView
+	// (iEditorViewport::UpdateViewport). Nothing to do here.
 }
 
 //----------------------------------------------------------------------------
@@ -1584,7 +1558,7 @@ void iEditorBase::SetUpViewports()
 	// Create 4 viewports
 	for(int i=0; i<4; ++i)
 	{
-		cEditorWindowViewport* pViewport = hplNew(cEditorWindowViewport,(this, mpFrameBuffer, true));
+		cEditorWindowViewport* pViewport = hplNew(cEditorWindowViewport,(this, true));
 		pViewport->Init();
 		AddWindow(pViewport);
 

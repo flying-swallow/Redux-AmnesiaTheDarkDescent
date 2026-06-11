@@ -36,7 +36,7 @@ using namespace hpl;
 class iEditorBase;
 
 namespace hpl {
-	struct HPLTexture;
+	struct cTexture;
 	struct WorldDrawCtx;
 	class Image;
 }
@@ -66,7 +66,7 @@ public:
 	// dropped. When the render finishes (a frame or two later), aOnReady
 	// receives the finished Image — OWNERSHIP TRANSFERS to the caller, who
 	// releases the resource by dropping the shared_ptr (GPU frees are
-	// deferred via the HPLTexture deleter, so release at any time is safe).
+	// deferred via the cTexture deleter, so release at any time is safe).
 	// The callback may be dropped without ever firing (PreBuild flushes the
 	// queue, builder teardown) — it must not assume delivery.
 	void BuildThumbnailFromMeshEntity(cMeshEntity* apEntity, tThumbnailReadyCallback aOnReady);
@@ -78,7 +78,7 @@ public:
 	tString GetThumbnailNameFromFile(const tWString& asFile);
 	tWString GetThumbnailNameFromFileW(const tWString& asFile);
 
-	void VtxBufferAddNormals(const cMatrixf a_mtxTransform, iVertexBuffer *apVtxBuffer, cVector3f &avVecSum, float& afCount);
+	void VtxBufferAddNormals(const cMatrixf a_mtxTransform, cVertexBuffer *apVtxBuffer, cVector3f &avVecSum, float& afCount);
 	void FocusCameraOnEntity(cMeshEntity* apEntity);
 
 	// Legacy index hooks — the queue manages its own lifecycle now.
@@ -110,8 +110,8 @@ protected:
 	// 128x128 RGBA8_SRGB color target the viewport's TargetView delivers
 	// into (sRGB attachment write = free linear->display encoding;
 	// TRANSFER_SRC backs the cache copy).
-	struct RITexture_s mTargetTexture;
-	struct RIDescriptor_s mTargetDescriptor;
+	struct RITexture mTargetTexture;
+	struct RIDescriptor mTargetDescriptor;
 
 	struct cThumbnailJob
 	{
@@ -122,7 +122,7 @@ protected:
 
 	// Destination for the copy recorded by RecordCacheCopy — armed by Pump
 	// around Evaluate.
-	HPLTexture* mpActiveCopyDst;
+	cTexture* mpActiveCopyDst;
 
 	EventHandler<const WorldDrawCtx&> mPostDeliveryHandler;
 

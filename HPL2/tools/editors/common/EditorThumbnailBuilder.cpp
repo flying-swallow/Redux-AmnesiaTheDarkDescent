@@ -21,7 +21,7 @@
 
 #include "EditorBaseClasses.h"
 
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 #include "graphics/Image.h"
 #include "graphics/RIBootstrap.h"
 #include "graphics/RIRenderer.h"
@@ -37,13 +37,13 @@ static constexpr uint32_t kThumbnailSize = 128;
 
 // Creates one cache texture a finished thumbnail is copied into: a plain
 // sampled RGBA8_SRGB image (TRANSFER_DST for the copy; the GUI samples it
-// like any other Image — the editor-pane pattern). The HPLTexture deleter
+// like any other Image — the editor-pane pattern). The cTexture deleter
 // defers the GPU frees onto the frame freelist, so dropping cache entries
 // mid-flight is safe.
-static bool CreateThumbnailCacheTexture(std::shared_ptr<HPLTexture> &outTexture)
+static bool CreateThumbnailCacheTexture(std::shared_ptr<cTexture> &outTexture)
 {
-	std::shared_ptr<HPLTexture> texture(new HPLTexture{},
-										HPLTexture::HPLTexture_Delete);
+	std::shared_ptr<cTexture> texture(new cTexture{},
+										cTexture::cTexture_Delete);
 
 	VkImageCreateInfo imageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
 	imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -116,8 +116,8 @@ cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 	mpEditor = apEditor;
 	mpViewport = NULL;
 	mpWorld = NULL;
-	mTargetTexture = RITexture_s{};
-	mTargetDescriptor = RIDescriptor_s{};
+	mTargetTexture = RITexture{};
+	mTargetDescriptor = RIDescriptor{};
 	mpActiveCopyDst = NULL;
 
 	cEngine* pEngine = mpEditor->GetEngine();
@@ -333,7 +333,7 @@ void cEditorThumbnailBuilder::Pump(float afFrameTime)
 	////////////////////////////////////////
 	// The job's cache texture — the OnPostDelivery handler copies the
 	// delivered target into it on the main command buffer.
-	std::shared_ptr<HPLTexture> pCacheTexture;
+	std::shared_ptr<cTexture> pCacheTexture;
 	if(CreateThumbnailCacheTexture(pCacheTexture)==false)
 		return; // retry next frame
 
@@ -387,21 +387,21 @@ void cEditorThumbnailBuilder::RecordCacheCopy(const WorldDrawCtx& ctx)
 	// Fired by the viewport's OnPostDelivery for EVERY delivery — only act
 	// when this Pump placed a job.
 	if(mpActiveCopyDst == NULL) return;
-	HPLTexture* pDst = mpActiveCopyDst;
+	cTexture* pDst = mpActiveCopyDst;
 	mpActiveCopyDst = NULL;
 
-	RICmd_s* pCmd = ctx.cmd;
+	RICmd* pCmd = ctx.cmd;
 
 	////////////////////////////////////////
 	// The delivery left the target SHADER_RESOURCE; copy it into the cache
 	// texture and transition both for fragment sampling. The barrier back on
 	// the target also keeps the chain the next delivery's UNDEFINED discard
 	// hangs off intact.
-	const RITextureBarrier_s pre[2] = {
-		RITextureBarrier_s(&mTargetTexture,
+	const RITextureBarrier pre[2] = {
+		RITextureBarrier(&mTargetTexture,
 			RI_RESOURCE_STATE_SHADER_RESOURCE, RI_RESOURCE_STATE_COPY_SRC,
 			RI_STAGE_FRAGMENT, RI_STAGE_COPY),
-		RITextureBarrier_s(&pDst->handle,
+		RITextureBarrier(&pDst->handle,
 			RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_COPY_DST,
 			RI_STAGE_NONE, RI_STAGE_COPY),
 	};
@@ -416,11 +416,11 @@ void cEditorThumbnailBuilder::RecordCacheCopy(const WorldDrawCtx& ctx)
 				   pDst->handle.vk.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 				   1, &region);
 
-	const RITextureBarrier_s post[2] = {
-		RITextureBarrier_s(&mTargetTexture,
+	const RITextureBarrier post[2] = {
+		RITextureBarrier(&mTargetTexture,
 			RI_RESOURCE_STATE_COPY_SRC, RI_RESOURCE_STATE_SHADER_RESOURCE,
 			RI_STAGE_COPY, RI_STAGE_FRAGMENT),
-		RITextureBarrier_s(&pDst->handle,
+		RITextureBarrier(&pDst->handle,
 			RI_RESOURCE_STATE_COPY_DST, RI_RESOURCE_STATE_SHADER_RESOURCE,
 			RI_STAGE_COPY, RI_STAGE_FRAGMENT),
 	};
@@ -492,7 +492,7 @@ void cEditorThumbnailBuilder::FocusCameraOnEntity(cMeshEntity *apEntity)
 		for(int i=0; i<pMesh->GetSubMeshNum(); ++i)
 		{
 			cSubMesh *pSubMesh = pMesh->GetSubMesh(i);
-			iVertexBuffer *pVtxBuffer = pSubMesh->GetVertexBuffer();
+			cVertexBuffer *pVtxBuffer = pSubMesh->GetVertexBuffer();
 
 			meshBV.AddArrayPoints(pVtxBuffer->GetFloatArray(eVertexBufferElement_Position), pVtxBuffer->GetVertexNum());
 		}
@@ -515,7 +515,7 @@ void cEditorThumbnailBuilder::FocusCameraOnEntity(cMeshEntity *apEntity)
 		cSubMeshEntity *pSubEnt = apEntity->GetSubMeshEntity(i);
 
 		cMatrixf mtxTransform = pSubEnt->GetWorldMatrix();
-		iVertexBuffer *pVtxBuffer = pSubMesh->GetVertexBuffer();
+		cVertexBuffer *pVtxBuffer = pSubMesh->GetVertexBuffer();
 
 		VtxBufferAddNormals(mtxTransform, pVtxBuffer,vVecSum,fVecCount);
 	}
@@ -588,7 +588,7 @@ void cEditorThumbnailBuilder::FocusCameraOnEntity(cMeshEntity *apEntity)
 
 //-------------------------------------------------------------------
 
-void cEditorThumbnailBuilder::VtxBufferAddNormals(const cMatrixf a_mtxTransform, iVertexBuffer *apVtxBuffer, cVector3f &avVecSum, float& afCount)
+void cEditorThumbnailBuilder::VtxBufferAddNormals(const cMatrixf a_mtxTransform, cVertexBuffer *apVtxBuffer, cVector3f &avVecSum, float& afCount)
 {
 	float *pPosVec = apVtxBuffer->GetFloatArray(eVertexBufferElement_Position);
 	unsigned int *pIdxVec = apVtxBuffer->GetIndices();

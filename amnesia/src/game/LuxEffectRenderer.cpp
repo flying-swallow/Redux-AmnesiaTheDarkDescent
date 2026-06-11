@@ -21,7 +21,7 @@
 #include "LuxEffectRenderer.h"
 
 #include "graphics/Color.h"
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 #include "graphics/Image.h"
 #include "graphics/Material.h"
 #include "graphics/RIBootstrap.h"
@@ -30,7 +30,7 @@
 #include "graphics/RIPogoBuffer.h"
 #include "graphics/RIProgramHelpers.h"
 #include "graphics/RIVK.h"
-#include "graphics/VertexBuffer_RI.h"
+#include "graphics/VertexBuffer.h"
 #include "scene/Viewport.h"
 #include "system/Hasher.h"
 
@@ -94,10 +94,10 @@ enum eGeomPassMode {
 	                               // fill, additive RGB, cull BACK, pos/uv
 };
 
-void EmitImageBarrier(RICmd_s *apCmd, RITexture_s *apTex,
+void EmitImageBarrier(RICmd *apCmd, RITexture *apTex,
 					  RIResourceState_e aBefore, uint32_t alBeforeStages,
 					  RIResourceState_e aAfter, uint32_t alAfterStages) {
-	RITextureBarrier_s barrier = {};
+	RITextureBarrier barrier = {};
 	barrier.texture = apTex;
 	barrier.before = aBefore;
 	barrier.beforeStages = alBeforeStages;
@@ -110,7 +110,7 @@ void EmitImageBarrier(RICmd_s *apCmd, RITexture_s *apTex,
 // abUvLayout switches binding 1 from normal (float3) to texcoord (float2) —
 // used by the alpha-tested cutout outline AND the Glow pass (both sample a UV
 // instead of a normal). abNormalPresent only applies to the normal layout.
-void BindGeomPipeline(RIProgram &aProgram, RICmd_s *apCmd, eGeomPassMode aMode,
+void BindGeomPipeline(RIProgram &aProgram, RICmd *apCmd, eGeomPassMode aMode,
 					  bool abNormalPresent, bool abUvLayout, const char *asDebugName) {
 	const bool bGlow = (aMode == eGeomPassMode_Glow);
 
@@ -253,7 +253,7 @@ void BindGeomPipeline(RIProgram &aProgram, RICmd_s *apCmd, eGeomPassMode aMode,
 
 // Fullscreen-triangle pipeline (no vertex input, no depth, cull NONE). When
 // abAdditive, blends ONE/ONE RGB-only into the bound color attachment.
-void BindFullscreenPipeline(RIProgram &aProgram, RICmd_s *apCmd, bool abAdditive,
+void BindFullscreenPipeline(RIProgram &aProgram, RICmd *apCmd, bool abAdditive,
 							hash_t aSeed, const char *asDebugName) {
 	VkPipelineVertexInputStateCreateInfo vertexInput = {
 		VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
@@ -339,21 +339,21 @@ void BindFullscreenPipeline(RIProgram &aProgram, RICmd_s *apCmd, bool abAdditive
 // Bind a renderable's position + normal streams (bindings 0/1). Substitutes
 // the global single-vertex fallback normal when the mesh lacks one; the caller
 // zeroes that binding's stride in the pipeline (abNormalPresent=false).
-bool BindGeomStreams(RICmd_s *apCmd, iVertexBuffer *apVB, bool *abNormalPresent) {
-	auto *vbri = static_cast<VertexBuffer_RI *>(apVB);
-	auto bufOf = [&](eVertexBufferElement type) -> RIBuffer_s * {
+bool BindGeomStreams(RICmd *apCmd, cVertexBuffer *apVB, bool *abNormalPresent) {
+	auto *vbri = static_cast<cVertexBuffer *>(apVB);
+	auto bufOf = [&](eVertexBufferElement type) -> RIBuffer * {
 		const auto *element = vbri->GetElement(type);
 		return (element && element->buffer) ? element->buffer.get() : nullptr;
 	};
-	RIBuffer_s *pos = bufOf(eVertexBufferElement_Position);
+	RIBuffer *pos = bufOf(eVertexBufferElement_Position);
 	const auto &idxRI = vbri->GetIndexRIBuffer();
-	RIBuffer_s *idx = idxRI ? idxRI.get() : nullptr;
+	RIBuffer *idx = idxRI ? idxRI.get() : nullptr;
 	if (!pos || !idx)
 		return false;
-	RIBuffer_s *nrm = bufOf(eVertexBufferElement_Normal);
+	RIBuffer *nrm = bufOf(eVertexBufferElement_Normal);
 	if (abNormalPresent)
 		*abNormalPresent = (nrm != nullptr);
-	RIBuffer_s *vertBufs[2] = {pos, nrm ? nrm : &RI.fallbackNormalVertex};
+	RIBuffer *vertBufs[2] = {pos, nrm ? nrm : &RI.fallbackNormalVertex};
 	apCmd->bindVertexBuffers<2>(0, 2, vertBufs);
 	apCmd->bindIndexBuffer(idx, 0, VK_INDEX_TYPE_UINT32);
 	return true;
@@ -362,19 +362,19 @@ bool BindGeomStreams(RICmd_s *apCmd, iVertexBuffer *apVB, bool *abNormalPresent)
 // Bind position (binding 0) + texcoord (binding 1) for the alpha-tested
 // cutout outline. Returns false if the mesh has no UVs (caller falls back to
 // the solid path).
-bool BindGeomStreamsUv(RICmd_s *apCmd, iVertexBuffer *apVB) {
-	auto *vbri = static_cast<VertexBuffer_RI *>(apVB);
-	auto bufOf = [&](eVertexBufferElement type) -> RIBuffer_s * {
+bool BindGeomStreamsUv(RICmd *apCmd, cVertexBuffer *apVB) {
+	auto *vbri = static_cast<cVertexBuffer *>(apVB);
+	auto bufOf = [&](eVertexBufferElement type) -> RIBuffer * {
 		const auto *element = vbri->GetElement(type);
 		return (element && element->buffer) ? element->buffer.get() : nullptr;
 	};
-	RIBuffer_s *pos = bufOf(eVertexBufferElement_Position);
-	RIBuffer_s *uv = bufOf(eVertexBufferElement_Texture0);
+	RIBuffer *pos = bufOf(eVertexBufferElement_Position);
+	RIBuffer *uv = bufOf(eVertexBufferElement_Texture0);
 	const auto &idxRI = vbri->GetIndexRIBuffer();
-	RIBuffer_s *idx = idxRI ? idxRI.get() : nullptr;
+	RIBuffer *idx = idxRI ? idxRI.get() : nullptr;
 	if (!pos || !uv || !idx)
 		return false;
-	RIBuffer_s *vertBufs[2] = {pos, uv};
+	RIBuffer *vertBufs[2] = {pos, uv};
 	apCmd->bindVertexBuffers<2>(0, 2, vertBufs);
 	apCmd->bindIndexBuffer(idx, 0, VK_INDEX_TYPE_UINT32);
 	return true;
@@ -550,7 +550,7 @@ void cLuxEffectRenderer::OnPostWorldDraw(const PostWorldDrawCtx &ctx)
 	cFrustum *pFrustum = ctx.frustum;
 	if (pFrustum == NULL) return;
 
-	RITextureView_s *pDepthView = ctx.depthView;
+	RITextureView *pDepthView = ctx.depthView;
 	if (pDepthView == NULL) return;
 
 	const uint32_t w = ctx.width;
@@ -560,7 +560,7 @@ void cLuxEffectRenderer::OnPostWorldDraw(const PostWorldDrawCtx &ctx)
 	EnsurePrograms();
 	EnsureTargets(w, h);
 
-	RICmd_s *pCmd = ctx.cmd;
+	RICmd *pCmd = ctx.cmd;
 
 	/////////////////////////////
 	// Per-frame view/viewProj UBO
@@ -572,7 +572,7 @@ void cLuxEffectRenderer::OnPostWorldDraw(const PostWorldDrawCtx &ctx)
 		std::memcpy(ubo.viewProj, viewProj.a, sizeof(ubo.viewProj));
 		std::memcpy(ubo.view, view.a, sizeof(ubo.view));
 	}
-	RIDescriptor_s passDesc = {};
+	RIDescriptor passDesc = {};
 	RI.UpdateFrameUBO(&passDesc, (void *)&ubo, sizeof(ubo));
 
 	/////////////////////////////
@@ -582,7 +582,7 @@ void cLuxEffectRenderer::OnPostWorldDraw(const PostWorldDrawCtx &ctx)
 	/////////////////////////////
 	// Composite the blurred outline into the pogo read half (post-tonemap).
 	const uint32_t readIdx = (pPogo->attachmentIndex + 1u) % 2u;
-	RITexture_s *pReadTex = &pPogo->textures[readIdx];
+	RITexture *pReadTex = &pPogo->textures[readIdx];
 	VkImageView readView = RI_PogoBufferShaderResource(pPogo)->vk.image.imageView;
 
 	// Read half: SHADER_RESOURCE -> RENDER_TARGET (composite appends).
@@ -646,7 +646,7 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 	cFrustum *pFrustum = ctx.frustum;
 	if (pFrustum == NULL || ctx.viewport == NULL) return;
 
-	RITextureView_s *pDepthView = ctx.depthView;
+	RITextureView *pDepthView = ctx.depthView;
 	if (pDepthView == NULL) return;
 
 	const uint32_t w = ctx.width;
@@ -655,7 +655,7 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 
 	EnsurePrograms();
 
-	RICmd_s *pCmd = ctx.cmd;
+	RICmd *pCmd = ctx.cmd;
 
 	// The renderer left the linear-HDR scene in the viewport BackBuffer. NOTE:
 	// valid only while the hybrid guard band is disabled (kGuardBandFraction ==
@@ -677,7 +677,7 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 		std::memcpy(ubo.viewProj, viewProj.a, sizeof(ubo.viewProj));
 		std::memcpy(ubo.view, view.a, sizeof(ubo.view));
 	}
-	RIDescriptor_s passDesc = {};
+	RIDescriptor passDesc = {};
 	RI.UpdateFrameUBO(&passDesc, (void *)&ubo, sizeof(ubo));
 
 	// Borrow the BackBuffer: SHADER_RESOURCE -> RENDER_TARGET for the additive
@@ -729,14 +729,14 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 				iRenderable *pObject = avObjects[i].mpObject;
 				if (pObject == NULL) continue;
 				if (pObject->CollidesWithFrustum(pFrustum) == false) continue;
-				iVertexBuffer *pVB = pObject->GetVertexBuffer();
+				cVertexBuffer *pVB = pObject->GetVertexBuffer();
 				if (pVB == NULL) continue;
 
 				// The glow samples the object's diffuse texture, so it needs both
 				// UVs and a diffuse image; skip the object if either is missing.
 				cMaterial *pMat = pObject->GetMaterial();
 				Image *pDiffImage = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : NULL;
-				std::shared_ptr<HPLTexture> diffTex =
+				std::shared_ptr<cTexture> diffTex =
 					pDiffImage ? pDiffImage->GetTexture() : nullptr;
 				if (!diffTex) continue;
 
@@ -794,9 +794,9 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 //-----------------------------------------------------------------------
 
 void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
-									   const RIDescriptor_s &aPassDesc)
+									   const RIDescriptor &aPassDesc)
 {
-	RICmd_s *apCmd = ctx.cmd;
+	RICmd *apCmd = ctx.cmd;
 	cFrustum *apFrustum = ctx.frustum;
 	const uint32_t alWidth = ctx.width;
 	const uint32_t alHeight = ctx.height;
@@ -804,8 +804,8 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 	// Depth view comes from the context; the depth *texture* (for the stencil-
 	// aspect barrier) is reached through the context's viewport — both belong to
 	// the firing viewport, delivered rather than captured.
-	RITexture_s *pDepthTex = ctx.viewport ? ctx.viewport->GetDepthTexture() : NULL;
-	RITextureView_s *pDepthView = ctx.depthView;
+	RITexture *pDepthTex = ctx.viewport ? ctx.viewport->GetDepthTexture() : NULL;
+	RITextureView *pDepthView = ctx.depthView;
 	if (pDepthTex == NULL || pDepthView == NULL) return;
 
 	// Offscreen color: (UNDEFINED on first use) -> RENDER_TARGET.
@@ -892,7 +892,7 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 				(pass == 0) ? eGeomPassMode_OutlineMark : eGeomPassMode_OutlineRim;
 			for (size_t i = 0; i < lstObjects.size(); ++i) {
 				iRenderable *pObject = lstObjects[i];
-				iVertexBuffer *pVB = pObject->GetVertexBuffer();
+				cVertexBuffer *pVB = pObject->GetVertexBuffer();
 				if (pVB == NULL) continue;
 
 				// Model matrix; pass 1 scales the mesh out ~2% about its local
@@ -918,7 +918,7 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 				// back to the solid path if the mesh has no UVs.
 				cMaterial *pMat = pObject->GetMaterial();
 				Image *pAlphaImage = pMat ? pMat->GetImage(eMaterialTexture_Alpha) : NULL;
-				std::shared_ptr<HPLTexture> alphaTex =
+				std::shared_ptr<cTexture> alphaTex =
 					pAlphaImage ? pAlphaImage->GetTexture() : nullptr;
 
 				bool bDrewAlpha = false;
@@ -992,7 +992,7 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 
 //-----------------------------------------------------------------------
 
-void cLuxEffectRenderer::BlurOutline(RICmd_s *apCmd, uint32_t alBlurW, uint32_t alBlurH)
+void cLuxEffectRenderer::BlurOutline(RICmd *apCmd, uint32_t alBlurW, uint32_t alBlurH)
 {
 	// First-use rest states (Bloom pattern): blur[0] SHADER_RESOURCE, blur[1]
 	// RENDER_TARGET.
@@ -1011,8 +1011,8 @@ void cLuxEffectRenderer::BlurOutline(RICmd_s *apCmd, uint32_t alBlurW, uint32_t 
 	const VkViewport viewport = {0.0f, 0.0f, (float)alBlurW, (float)alBlurH, 0.0f, 1.0f};
 	const VkRect2D scissor = {{0, 0}, {alBlurW, alBlurH}};
 
-	auto blurPass = [&](VkImageView destView, RITexture_s *destTexture,
-						RITexture_s *prevDestTexture, const RIDescriptor_s &inputDesc,
+	auto blurPass = [&](VkImageView destView, RITexture *destTexture,
+						RITexture *prevDestTexture, const RIDescriptor &inputDesc,
 						float dirX, float dirY) {
 		EmitImageBarrier(apCmd, destTexture, RI_RESOURCE_STATE_SHADER_RESOURCE,
 						 RI_STAGE_FRAGMENT, RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
@@ -1054,7 +1054,7 @@ void cLuxEffectRenderer::BlurOutline(RICmd_s *apCmd, uint32_t alBlurW, uint32_t 
 
 	const float fBlurSize = 1.0f;
 	for (int iter = 0; iter < 2; ++iter) {
-		const RIDescriptor_s &firstInput =
+		const RIDescriptor &firstInput =
 			(iter == 0) ? m_outlineColor.descriptor : m_blur[1].descriptor;
 		// H: dest blur[0], read firstInput, prevDest blur[1].
 		blurPass(m_blur[0].descriptor.vk.image.imageView, &m_blur[0].texture,

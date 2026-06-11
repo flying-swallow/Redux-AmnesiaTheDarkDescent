@@ -49,7 +49,7 @@ public:
 private:
 	std::list<cMesh*> mlstMeshCache;
 	std::list<cAnimation*> mlstAnimationCache;
-	std::list<iTexture*> mlstTextureCache;
+	std::list<iResourceBase*> mlstTextureCache;
 };
 
 //-------------------------------------

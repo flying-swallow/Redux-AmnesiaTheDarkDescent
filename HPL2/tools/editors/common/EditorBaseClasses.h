@@ -377,7 +377,6 @@ public:
 	cEngine* GetEngine() { return mpEngine; }
 
 	cViewport* GetEngineViewport() { return mpViewport; }
-	iFrameBuffer* GetViewportsFrameBuffer() { return mpFrameBuffer; }
 
 	cEditorEntityLoader* GetEngineEntityLoader() { return mpEntityLoader; }
 
@@ -526,7 +525,6 @@ protected:
 	/////////////////////////
 	// Engine stuff	
 	cEngine* mpEngine;
-	iFrameBuffer* mpFrameBuffer;
 	cGuiSet* mpSet;
 	cGuiSkin* mpSkin;
 	cViewport* mpViewport;

@@ -201,7 +201,7 @@ public:
 			{
 				cSubMeshEntity *pSubEnt = gpEntity->GetSubMeshEntity(i);
 				cSubMesh *pSubMesh = pSubEnt->GetSubMesh();
-				iVertexBuffer *pVtxBuff = pSubMesh->GetVertexBuffer();
+				cVertexBuffer *pVtxBuff = pSubMesh->GetVertexBuffer();
 				
 				tIntVec vVtxBindCount;
 				vVtxBindCount.resize(pVtxBuff->GetVertexNum(), 0);

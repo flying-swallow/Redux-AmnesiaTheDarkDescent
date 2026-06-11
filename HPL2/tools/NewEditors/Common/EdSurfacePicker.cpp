@@ -193,7 +193,7 @@ void cEdSurfacePicker::Iterate()
 	if(mpClosestMeshEntity==NULL || lTriangleIndex==-1)
 		return;
 
-	iVertexBuffer* pVB = mpClosestMeshEntity->GetSubMesh()->GetVertexBuffer();
+	cVertexBuffer* pVB = mpClosestMeshEntity->GetSubMesh()->GetVertexBuffer();
 	float* pVertices = pVB->GetFloatArray(eVertexBufferElement_Position);
 	int lStride = pVB->GetElementNum(eVertexBufferElement_Position);
 	unsigned int* pIndices = pVB->GetIndices();		
@@ -364,7 +364,7 @@ void cEdSurfacePicker::ComputeAverageNormal(const cVector3f& avBaseNormal)
 		mAvgVolume.SetTransform(mtxInvSubMeshMatrix);
 		mAvgVolume.SetPosition(vTransPos);
 
-		iVertexBuffer* pVB = pSubMesh->GetVertexBuffer();
+		cVertexBuffer* pVB = pSubMesh->GetVertexBuffer();
 		float* pVertices = pVB->GetFloatArray(eVertexBufferElement_Position);
 		int lPosStride = pVB->GetElementNum(eVertexBufferElement_Position);
 

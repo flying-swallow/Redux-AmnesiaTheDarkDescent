@@ -152,11 +152,10 @@ void cPhysicsTestRenderCallback::DrawSkeletonRec(DebugDraw* apDebugDraw, cNode3D
 
 //------------------------------------------------------------------------------------
 
-cModelEditorWindowPhysicsTest::cModelEditorWindowPhysicsTest(iEditorBase* apEditor, iFrameBuffer* apFB): iEditorWindow(apEditor, 
+cModelEditorWindowPhysicsTest::cModelEditorWindowPhysicsTest(iEditorBase* apEditor): iEditorWindow(apEditor, 
 																													   "Physics Test Window"),
 																										 iEditorViewport(apEditor, 
-																														 apEditor->GetEngine()->GetScene()->CreateWorld("PhysicsTestWorld"), 
-																														 apFB)
+																														 apEditor->GetEngine()->GetScene()->CreateWorld("PhysicsTestWorld"))
 {
 	mpTestWorld = mpEngineViewport->GetWorld();
 	mpTestEntity = NULL;
@@ -503,7 +502,7 @@ void cModelEditorWindowPhysicsTest::OnInitLayout()
 	mpInpBuoyancyAngularViscosity->SetValue(mfBuoyancyAngularViscosity, false);
 	mpInpBuoyancyLinearViscosity->SetValue(mfBuoyancyLinearViscosity, false);
 
-	SetEngineViewportPositionAndSize(0,mpFB->GetSize());
+	SetEngineViewportPositionAndSize(0, cVector2l((int)(mpBGFrame->GetSize().x - 4), (int)(mpBGFrame->GetSize().y - 58)));
 	CreateGuiViewport(mpBGFrame);
 	SetGuiViewportPos(cVector3f(2,55,0.1f));
 	SetGuiViewportSize(cVector2f(mpBGFrame->GetSize() - cVector2f(4,58)));

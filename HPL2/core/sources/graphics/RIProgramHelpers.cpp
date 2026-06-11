@@ -4,7 +4,7 @@
 
 namespace hpl {
 
-void LoadSlangCompute(RIDevice_s *device, RIProgram &prog,
+void LoadSlangCompute(RIDevice *device, RIProgram &prog,
                       cResources *resources, const char *name,
                       const char *entryPoint,
                       std::span<const VkDescriptorSetLayout> externalLayouts) {
@@ -14,7 +14,7 @@ void LoadSlangCompute(RIDevice_s *device, RIProgram &prog,
   prog.initialize(device, stages, externalLayouts);
 }
 
-void LoadSlangGraphics(RIDevice_s *device, RIProgram &prog,
+void LoadSlangGraphics(RIDevice *device, RIProgram &prog,
                        cResources *resources, const char *vertName,
                        const char *fragName, const char *vertEntryPoint,
                        const char *fragEntryPoint,

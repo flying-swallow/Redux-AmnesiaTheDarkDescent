@@ -59,7 +59,7 @@ public:
 
 	static bool CheckScreenSpaceMouseVertexBufferIntersect(const cVector2f& avInvYMousePos,
 														   const cVector3f& avRayStart, const cVector3f& avRayEnd,
-														   const cVector2f& avViewportSize, iVertexBuffer* apVtxBuffer,
+														   const cVector2f& avViewportSize, cVertexBuffer* apVtxBuffer,
 														   const cMatrixf& amtxCameraViewMatrix,
 														   const cMatrixf& amtxCameraProjMatrix,
 														   const cMatrixf& amtxVtxBufferWorldMatrix,
@@ -83,7 +83,7 @@ public:
 
 	static void DrawPyramid(cRendererCallbackFunctions* apFunctions, const cVector3f& avBaseCenter, const cVector3f& avTop, float afHalfWidth, const cColor& aColor);
 
-	static iVertexBuffer* CreatePyramidVtxBuffer(cGraphics* apGfx, const cVector3f& avBaseCenter, const cVector3f& avTip, float afHalfWidth, const cColor& aColor);
+	static cVertexBuffer* CreatePyramidVtxBuffer(cGraphics* apGfx, const cVector3f& avBaseCenter, const cVector3f& avTip, float afHalfWidth, const cColor& aColor);
 
 	static iEditor* mpEditor;
 };

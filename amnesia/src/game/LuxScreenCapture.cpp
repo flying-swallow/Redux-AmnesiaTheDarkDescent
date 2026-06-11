@@ -33,15 +33,15 @@ using namespace hpl;
 
 // Allocate `outTex` as a screen-sized color attachment that is also sampleable
 // as a 2D texture, and wire up the descriptor binding used by
-// cGui::CreateGfxTexture / RIProgram::bindDescriptors. The HPLTexture_Delete
+// cGui::CreateGfxTexture / RIProgram::bindDescriptors. The cTexture_Delete
 // deleter expects `handle.vk.image` (+ its VMA allocation) and
-// `binding.vk.image.imageView` to be set — see HPLTexture.cpp:19 — so we fill
+// `binding.vk.image.imageView` to be set — see cTexture.cpp:19 — so we fill
 // all three.
 bool LuxCreateScreenRenderTarget(
-		std::shared_ptr<hpl::HPLTexture> &outTex,
+		std::shared_ptr<hpl::cTexture> &outTex,
 		uint32_t width, uint32_t height, VkFormat format, const char *debugName)
 {
-	auto tex = std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete);
+	auto tex = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
 	tex->width  = static_cast<uint16_t>(width);
 	tex->height = static_cast<uint16_t>(height);
 	tex->depth  = 1;
@@ -93,11 +93,11 @@ bool LuxCreateScreenRenderTarget(
 //-----------------------------------------------------------------------
 
 // Lay down a single whole-image color barrier on the given command buffer.
-static void ImageBarrier(RICmd_s *cmd, RITexture_s *texture,
+static void ImageBarrier(RICmd *cmd, RITexture *texture,
 		uint32_t before, uint32_t beforeStages,
 		uint32_t after, uint32_t afterStages)
 {
-	RITextureBarrier_s barrier(texture, before, after, beforeStages, afterStages);
+	RITextureBarrier barrier(texture, before, after, beforeStages, afterStages);
 	barrier.mipCount   = 1;
 	barrier.layerCount = 1;
 	cmd->textureBarrier(barrier);
@@ -151,7 +151,7 @@ void cLuxScreenCapture::RequestCapture()
 
 //-----------------------------------------------------------------------
 
-RIDescriptor_s* cLuxScreenCapture::PrimaryDescriptor()
+RIDescriptor* cLuxScreenCapture::PrimaryDescriptor()
 {
 	return m_primaryColor ? &m_primaryColor->binding : nullptr;
 }
@@ -182,7 +182,7 @@ void cLuxScreenCapture::OnPostRender(float afFrameTime)
 	if (pPogo == nullptr) {
 		return; // No gameplay frame rendered yet; try again next post-render.
 	}
-	RITexture_s *pSource = &pPogo->textures[(pPogo->attachmentIndex + 1) % 2];
+	RITexture *pSource = &pPogo->textures[(pPogo->attachmentIndex + 1) % 2];
 
 	// Record the copy on the primary command buffer. As a global module our
 	// OnPostRender runs before the active state's cLuxScreenEffect::OnPostRender,
@@ -227,7 +227,7 @@ void cLuxScreenCapture::Destroy()
 	}
 	mpScreenGfx = nullptr;
 
-	// The HPLTexture deleter parks the GPU handles on the active frame slot's
+	// The cTexture deleter parks the GPU handles on the active frame slot's
 	// freelist; they're released once that slot's fence has signaled.
 	m_primaryImage.reset();
 	m_primaryColor.reset();

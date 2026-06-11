@@ -28,7 +28,7 @@
 namespace hpl {
 
 	class cMesh2D;
-	class iVertexBuffer;
+	class cVertexBuffer;
 	class iLowLevelGraphics;
 	class cResources;
 	class cMesh;
@@ -76,7 +76,7 @@ namespace hpl {
 		const cVector3f& GetSize() { return mvDecalSize; }
 		int GetCurrentSubDiv() { return mlCurrentSubDiv; }
 
-		iVertexBuffer* GetVB() { return mpDecalVB; }
+		cVertexBuffer* GetVB() { return mpDecalVB; }
 		cMaterial* GetMaterial() { return mpDecalMaterial; }
 
 		// Legacy-renderer-only: kept for the un-built NewEditors tree; the RI
@@ -91,9 +91,9 @@ namespace hpl {
 	private:
 		void ComputeBasis();
 
-		bool AddPolygon(int alVertexCount, const cVector3f* apVertices, const cVector3f* apNormals, iVertexBuffer* apDecalVB, 
+		bool AddPolygon(int alVertexCount, const cVector3f* apVertices, const cVector3f* apNormals, cVertexBuffer* apDecalVB, 
 						const cMatrixf& amtxWorldMatrix,const cMatrixf& amtxWorldNormalRot);
-		void ClipMesh(cSubMeshEntity* apMesh, iVertexBuffer* apDecalVB);
+		void ClipMesh(cSubMeshEntity* apMesh, cVertexBuffer* apDecalVB);
 		int ClipPolygon(int alVertexCount, const cVector3f* apVertices, const cVector3f* apNormals, 
 						cVector3f* apNewVertices, cVector3f* apNewNormals, const std::vector<cPlanef>& avPlanes);
 		int ClipPolygonAgainstPlane(const cPlanef& aPlane, int alVertexCount, 
@@ -137,7 +137,7 @@ namespace hpl {
 		cColor mColor;
 		
 		cMaterial* mpDecalMaterial;
-		iVertexBuffer* mpDecalVB;
+		cVertexBuffer* mpDecalVB;
 
 		tVector3fVec mvTransformedBases;
 		tMatrixfVec mvMatrices;

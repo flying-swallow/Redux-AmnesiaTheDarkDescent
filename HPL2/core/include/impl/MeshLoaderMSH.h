@@ -26,9 +26,9 @@ namespace hpl {
 
 	class cMesh;
 	class cNode3D;
-	class iVertexBuffer;
+	class cVertexBuffer;
 	class cBinaryBuffer;
-	class iVertexBuffer;
+	class cVertexBuffer;
 	class cBone;
 	class cAnimation;
 	class cNode3D;
@@ -64,7 +64,7 @@ namespace hpl {
 		void AddBoneToBuffer(cBone *apBone, cBinaryBuffer* apBuffer, int alLevel);
 		void GetBoneFromBuffer(cBone *apParentBone, cBinaryBuffer* apBuffer, int alLevel);
 
-		void* GetVertexBufferWithFormat(iVertexBuffer *apVtxBuffer, eVertexBufferElement aElement, eVertexBufferElementFormat aFormat);
+		void* GetVertexBufferWithFormat(cVertexBuffer *apVtxBuffer, eVertexBufferElement aElement, eVertexBufferElementFormat aFormat);
 		void AddBinaryBufferDataWithFormat(cBinaryBuffer* apBuffer, void *apSrcData, size_t alSize, eVertexBufferElementFormat aFormat);
 		void GetBinaryBufferDataWithFormat(cBinaryBuffer* apBuffer, void *apDestData, size_t alSize, eVertexBufferElementFormat aFormat);
 	};

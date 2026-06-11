@@ -1,18 +1,18 @@
 /*
  * Copyright © 2009-2020 Frictional Games
- * 
+ *
  * This file is part of Amnesia: The Dark Descent.
- * 
+ *
  * Amnesia: The Dark Descent is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version. 
+ * (at your option) any later version.
 
  * Amnesia: The Dark Descent is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with Amnesia: The Dark Descent.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -25,106 +25,232 @@
 #include "system/SystemTypes.h"
 #include "math/BoundingVolume.h"
 
+#include "graphics/RITypes.h"
+#include "graphics/RIBootstrap.h"
+#include "system/Event.h"
+
+#include <cassert>
+#include <algorithm>
+#include <array>
+#include <memory>
+#include <span>
+#include <vector>
+
 namespace hpl {
-	
-	class cBoundingVolume;
-	class iLowLevelGraphics;
 
-	//-----------------------------------------------------
+class cBoundingVolume;
+class iLowLevelGraphics;
 
-	class iVertexBuffer
-	{
-	public:
-		iVertexBuffer(iLowLevelGraphics* apLowLevelGraphics,
-			eVertexBufferType aType, 
+// The single concrete vertex buffer. CPU-side geometry building + shadow data
+// plus the RI (Vulkan) GPU stream / BLAS management. Formerly split across the
+// abstract iVertexBuffer interface and its sole implementation VertexBuffer_RI;
+// collapsed into one type now that there is only one backend.
+class cVertexBuffer {
+public:
+  static size_t GetSizeFromHPL(eVertexBufferElementFormat format);
+
+  struct VertexElement {
+  public:
+    std::shared_ptr<RIBuffer> buffer;
+    eVertexBufferElementFormat format =
+        eVertexBufferElementFormat::eVertexBufferElementFormat_Float;
+    eVertexBufferElement type =
+        eVertexBufferElement::eVertexBufferElement_Position;
+    tVertexElementFlag flag = 0;
+    size_t num = 0;
+    int programVarIndex = 0; // for legacy behavior
+
+    size_t Stride() const;
+    size_t NumElements() const;
+
+    template <typename TData> std::span<TData> GetElements() {
+      assert(sizeof(TData) == Stride() && "Data must be same size as stride");
+      return std::span<TData *>(reinterpret_cast<TData *>(m_shadowData.data()),
+                                m_shadowData.size() / Stride());
+    }
+
+    std::span<uint8_t> Data() const { return m_shadowData; }
+
+    template <typename TData> TData &GetElement(size_t index) {
+      assert(sizeof(TData) <= Stride() &&
+             "Date must be less than or equal to stride");
+      return *reinterpret_cast<TData *>(m_shadowData.data() + index * Stride());
+    }
+
+    template <typename TData> const TData &GetElement(size_t index) const {
+      assert(sizeof(TData) <= Stride() &&
+             "Date must be less than or equal to stride");
+      return *reinterpret_cast<TData *>(m_shadowData.data() + index * Stride());
+    }
+
+  private:
+    mutable size_t m_activeCopy = 0;         // the active copy of the data
+    mutable size_t m_internalBufferSize = 0; // the size of the internal buffer
+    mutable std::vector<uint8_t> m_shadowData = {};
+    friend class cVertexBuffer;
+  };
+
+  cVertexBuffer(iLowLevelGraphics* apLowLevelGraphics,
+			eVertexBufferType aType,
 			eVertexBufferDrawType aDrawType,eVertexBufferUsageType aUsageType,
-			int alReserveVtxSize,int alReserveIdxSize) :
-			mType(aType), mVertexFlags(0),
-			mpLowLevelGraphics(apLowLevelGraphics),
-			mDrawType(aDrawType), mUsageType(aUsageType), 
-			mlReservedVtxSize(alReserveVtxSize), mlReservedIdxSize(alReserveIdxSize),
-			mlElementNum(-1) {}
-		
-		virtual ~iVertexBuffer(){}
+			int alReserveVtxSize,int alReserveIdxSize);
+  ~cVertexBuffer();
 
-		inline eVertexBufferType GetType() const { return mType; }
+  inline eVertexBufferType GetType() const { return mType; }
 
-		virtual void CreateElementArray(	eVertexBufferElement aType, eVertexBufferElementFormat aFormat,
-											int alElementNum, int alProgramVarIndex=0)=0;
-		
-		virtual void AddVertexVec3f(eVertexBufferElement aElement,const cVector3f& avVtx)=0;
-		virtual void AddVertexVec4f(eVertexBufferElement aElement,const cVector3f& avVtx, float afW)=0;
-		virtual void AddVertexColor(eVertexBufferElement aElement,const cColor& aColor)=0;
-		virtual void AddIndex(unsigned int alIndex)=0;
-		
-		virtual bool Compile(tVertexCompileFlag aFlags)=0;
-		virtual void UpdateData(tVertexElementFlag aTypes, bool abIndices)=0;
-		
-		/**
-		* This creates a double of the vertex array with w=0.
-		* \param abUpdateData if the hardware buffer should be updated as well.
-		*/
-		virtual void CreateShadowDouble(bool abUpdateData)=0;
+  void CreateShadowDouble(bool abUpdateData);
 
-		/**
-		 * Transform the entire buffer with transform.
-		*/
-		virtual void Transform(const cMatrixf &mtxTransform)=0;
+  void CreateElementArray(eVertexBufferElement aType,
+                          eVertexBufferElementFormat aFormat,
+                          int alElementNum,
+                          int alProgramVarIndex = 0);
 
-		virtual void Draw(eVertexBufferDrawType aDrawType = eVertexBufferDrawType_LastEnum)=0;
-		virtual void DrawIndices(	unsigned int *apIndices, int alCount,
-									eVertexBufferDrawType aDrawType = eVertexBufferDrawType_LastEnum)=0;
+  void AddVertexVec3f(eVertexBufferElement aElement, const cVector3f &avVtx);
+  void AddVertexVec4f(eVertexBufferElement aElement, const cVector3f &avVtx,
+                      float afW);
+  void AddVertexColor(eVertexBufferElement aElement, const cColor &aColor);
+  void AddIndex(unsigned int alIndex);
 
-		virtual void Bind()=0;
-		virtual void UnBind()=0;
+  bool Compile(tVertexCompileFlag aFlags);
+  void UpdateData(tVertexElementFlag aTypes, bool abIndices);
 
-    virtual iVertexBuffer* CreateCopy(	eVertexBufferType aType,eVertexBufferUsageType aUsageType,
-									tVertexElementFlag alVtxToCopy)=0;
-	
-    virtual cBoundingVolume CreateBoundingVolume()=0;
+  void Transform(const cMatrixf &mtxTransform);
 
-    virtual int GetElementNum(eVertexBufferElement aElement)=0;		
-		virtual eVertexBufferElementFormat GetElementFormat(eVertexBufferElement aElement)=0;
-		virtual int GetElementProgramVarIndex(eVertexBufferElement aElement)=0;
-		virtual float* GetFloatArray(eVertexBufferElement aElement)=0;
-		virtual int* GetIntArray(eVertexBufferElement aElement)=0;
-		virtual unsigned char* GetByteArray(eVertexBufferElement aElement)=0;
-		
-		virtual unsigned int* GetIndices()=0;
-		
-		virtual int GetVertexNum()=0;
-		virtual int GetIndexNum()=0;
+  void Draw(eVertexBufferDrawType aDrawType = eVertexBufferDrawType_LastEnum);
+  void Bind();
+  void UnBind();
+  void DrawIndices(unsigned int *apIndices, int alCount,
+                   eVertexBufferDrawType aDrawType);
 
-		/**
-		 * Resizes an array to a custom size, the size is number of elements and NOT number of vertices.
-		 */
-		virtual void ResizeArray(eVertexBufferElement aElement, int alSize)=0;
-		virtual void ResizeIndices(int alSize)=0;
-        		
-		/**
-		 * Set the number of of elements to draw.
-		 * \param alNum If < 0, draw all indices.
-		 */
-		void SetElementNum(int alNum){ mlElementNum = alNum;}
-		int GetElementNum(){ return mlElementNum;}
+  struct GeometryBinding {
+    struct VertexGeometryEntry {
+      VertexElement *element;
+      uint64_t offset;
+    };
+    struct VertexIndexEntry {
+      std::shared_ptr<RIBuffer> m_buffer;
+      uint64_t offset;
+      uint32_t numIndicies;
+    };
+    std::array<VertexGeometryEntry, eVertexBufferElement_LastEnum>
+        m_vertexElement; // elements are in the order they are requested
+    VertexIndexEntry m_indexBuffer;
+  };
 
-		tVertexElementFlag GetVertexElementFlags(){ return mVertexFlags;}
-	
-	protected:
-		iLowLevelGraphics* mpLowLevelGraphics;
+  void AttachResourceToCntx(RIBootstrap::FrameContext *cntx);
+  // Uploads dirty vertex/index streams (allocates GPU buffers on first submit /
+  // shadow-data growth). No-op when nothing changed since the last submit.
+  void SubmitToGPU(RICmd *cmd, RIDevice *device,
+                   RIBootstrap::FrameContext *cntx);
+  // Ensures streams are uploaded (calls SubmitToGPU), then (re)builds the BLAS
+  // if it is missing or was built from an older geometry generation. Only call
+  // for renderables that are TLAS instances; particles/billboards/beams/ropes/
+  // decals just use SubmitToGPU. The build is recorded into `cmd`; the caller
+  // must ensure it completes before the BLAS is read (e.g. via the accel-build
+  // barrier before the TLAS build).
+  void BuildBlas(RICmd *cmd, RIDevice *device,
+                 RIBootstrap::FrameContext *cntx);
 
-		eVertexBufferType mType;
-		tVertexElementFlag mVertexFlags;
-		eVertexBufferDrawType mDrawType;
-		eVertexBufferUsageType mUsageType;
-		
-		int mlReservedVtxSize;
-		int mlReservedIdxSize;
+  cVertexBuffer *CreateCopy(eVertexBufferType aType,
+                            eVertexBufferUsageType aUsageType,
+                            tVertexElementFlag alVtxToCopy);
 
-		int mlElementNum;
+  cBoundingVolume CreateBoundingVolume();
 
-		bool mbTangents;
-	};
+  int GetVertexNum();
+  int GetIndexNum();
 
+  int GetElementNum(eVertexBufferElement aElement);
+  eVertexBufferElementFormat GetElementFormat(eVertexBufferElement aElement);
+  int GetElementProgramVarIndex(eVertexBufferElement aElement);
+
+  float *GetFloatArray(eVertexBufferElement aElement);
+  int *GetIntArray(eVertexBufferElement aElement);
+  unsigned char *GetByteArray(eVertexBufferElement aElement);
+
+  unsigned int *GetIndices();
+
+  void ResizeArray(eVertexBufferElement aElement, int alSize);
+  void ResizeIndices(int alSize);
+
+  // Set the number of elements to draw. If < 0, draw all indices.
+  void SetElementNum(int alNum) { mlElementNum = alNum; }
+  int GetElementNum() { return mlElementNum; }
+
+  tVertexElementFlag GetVertexElementFlags() { return mVertexFlags; }
+
+  const cVertexBuffer::VertexElement *GetElement(eVertexBufferElement elementType);
+  const std::shared_ptr<RIAccelStructure> accelStructure() { return m_blas; }
+  const std::shared_ptr<RIBuffer> &GetIndexRIBuffer() const { return m_indexBuffer; }
+
+  // GI surfel-cleanup hook. The surfel renderer binds an EventHandler (stored in
+  // its bindless-slot cache) to this event; on destruction the VB Signals it so
+  // the renderer can retire this VB's bindless slot(s) and clear surfels anchored
+  // to them before the now-freed vertex buffer-device-address is dereferenced ->
+  // GPUVM fault.
+  Event<> &OnDestroyed() { return m_onDestroyed; }
+
+  // GI surfel-invalidation hook. Signaled whenever this VB's GPU geometry is
+  // rebuilt in a way that can move triangles around — Compile() (incl. the
+  // CreateCopy finalize) and the SubmitToGPU realloc path (first submit,
+  // shadow-data growth, CreateCopy sentinel). The surfel renderer binds a
+  // per-slot handler (stored in its bindless-slot cache) that bumps the slot's
+  // reuse generation, so surfels carrying a cached primitiveIndex from the old
+  // layout self-invalidate in collectCellInfo before the now-stale vertex/index
+  // BDA is dereferenced -> OOB read -> GPUVM fault. Plain UpdateData() re-uploads
+  // (same buffer, same triangle count) do NOT signal, so animated meshes are not
+  // over-invalidated.
+  Event<> &OnGeometryChanged() { return m_onGeometryChanged; }
+
+protected:
+  static void
+  PushVertexElements(std::span<const float> values,
+                     eVertexBufferElement elementType,
+                     std::span<cVertexBuffer::VertexElement> elements);
+
+  iLowLevelGraphics* mpLowLevelGraphics;
+
+  eVertexBufferType mType;
+  tVertexElementFlag mVertexFlags;
+  eVertexBufferDrawType mDrawType;
+  eVertexBufferUsageType mUsageType;
+
+  int mlReservedVtxSize;
+  int mlReservedIdxSize;
+
+  int mlElementNum;
+
+  bool mbTangents;
+
+  std::vector<VertexElement> m_vertexElements = {};
+  std::shared_ptr<RIBuffer> m_indexBuffer;
+  std::vector<uint32_t> m_indices = {};
+
+  uint32_t m_generation = 0;
+  uint32_t m_lastSubmitted = 0;
+  uint32_t m_blasGeneration = 0; // m_generation at the last successful BLAS build
+
+  size_t m_indexBufferActiveCopy = 0;
+  size_t m_indexBufferCapacity = 0; // bytes allocated in m_indexBuffer
+  tVertexElementFlag m_updateFlags = 0; // update no need to rebuild buffers
+  bool m_updateIndices = false;
+
+  // Cached BLAS built on first BuildBlas call. Storage shares the deferred-free path
+  // (same shared_ptr deleter as element buffers) so it outlives any in-flight build.
+  std::shared_ptr<RIBuffer> m_blasStorage;
+  std::shared_ptr<RIAccelStructure> m_blas = {};
+
+  // Signaled in the destructor; the surfel renderer connects a per-slot destroy
+  // handler (owned by its bindless-slot cache) to it.
+  Event<> m_onDestroyed;
+
+  // Signaled on geometry rebuild (Compile / SubmitToGPU realloc). See
+  // OnGeometryChanged() above.
+  Event<> m_onGeometryChanged;
+
+  friend struct VertexElement;
 };
-#endif // HPL_RENDERER3D_H
+
+} // namespace hpl
+
+#endif // HPL_VERTEXBUFFER_H

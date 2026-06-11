@@ -36,7 +36,6 @@ namespace hpl {
 	class cCamera;
 	class cFrustum;
 	class iGpuProgram;
-	class iTexture;
 	class Image;
 	class cTextureManager;
 	class cResources;
@@ -92,16 +91,6 @@ namespace hpl {
 		
 		eLightType GetLightType(){ return mLightType;}
 
-		[[deprecated("use GetFalloffImage")]]
-		iTexture *GetFalloffMap();
-		[[deprecated("use SetFalloffMap(Image*)")]]
-		void SetFalloffMap(iTexture* apTexture);
-
-		[[deprecated("use SetGoboTexture(Image*)")]]
-		void SetGoboTexture(iTexture *apTexture);
-		[[deprecated("use GetGoboImage")]]
-		iTexture* GetGoboTexture();
-
 		// Image* binding API.
 		void SetFalloffMap(Image* apImage);
 		Image* GetFalloffImage() const;
@@ -119,7 +108,7 @@ namespace hpl {
 		///////////////////////////////
 		//Renderable implementation:
 		cMaterial *GetMaterial(){ return NULL;}
-		iVertexBuffer* GetVertexBuffer(){ return NULL;}
+		cVertexBuffer* GetVertexBuffer(){ return NULL;}
 
 		eRenderableType GetRenderType(){ return eRenderableType_Light;}
 
@@ -249,11 +238,7 @@ namespace hpl {
 		cFileSearcher *mpFileSearcher;
 		cWorld *mpWorld;
 
-		iTexture *mpFalloffMap;
-
-		iTexture *mpGoboTexture;
-
-		// Image* parallel storage.
+		// Image* texture storage.
 		ImageResourceWrapper m_falloffMap;
 		ImageResourceWrapper m_goboImage;
 

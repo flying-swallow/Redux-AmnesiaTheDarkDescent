@@ -13,7 +13,7 @@
 #if ( DEVICE_IMPL_VULKAN )
 
 static uint32_t __priority_BT709_G22_16BIT(const VkSurfaceFormatKHR* surface)  {
-		const struct RIFormatProps_s* props = GetRIFormatProps(VKToRIFormat(surface->format));
+		const struct RIFormatProps* props = GetRIFormatProps(VKToRIFormat(surface->format));
     return ((surface->format == VK_FORMAT_R16G16B16A16_SFLOAT) << 0) | 
            (props->isSrgb << 1);
 };
@@ -38,7 +38,7 @@ static uint32_t __priority_BT2020_G2084_10BIT( const VkSurfaceFormatKHR *surface
 
 #endif
 
-int InitRISwapchain( struct RIDevice_s *dev, struct RISwapchainDesc_s *init, RISwapchain_s<> *swapchain )
+int InitRISwapchain( struct RIDevice *dev, struct RISwapchainDesc *init, RISwapchain<> *swapchain )
 {
 	assert( init->windowHandle );
 	assert( init );
@@ -236,7 +236,7 @@ int InitRISwapchain( struct RIDevice_s *dev, struct RISwapchainDesc_s *init, RIS
   return RI_SUCCESS;
 }
 
-uint32_t RISwapchainAcquireNextTexture( struct RIDevice_s *dev, RISwapchain_s<> *swapchain )
+uint32_t RISwapchainAcquireNextTexture( struct RIDevice *dev, RISwapchain<> *swapchain )
 {
 	assert( swapchain->imageCount > 0 );
 #if ( DEVICE_IMPL_VULKAN )
@@ -249,7 +249,7 @@ uint32_t RISwapchainAcquireNextTexture( struct RIDevice_s *dev, RISwapchain_s<> 
 	return 0;
 }
 
-void RISwapchainPresent(struct RIDevice_s* dev, RISwapchain_s<>* swapchain) {
+void RISwapchainPresent(struct RIDevice* dev, RISwapchain<>* swapchain) {
 #if ( DEVICE_IMPL_VULKAN )
 	{
 		VkSemaphore renderingFinishedSemaphore = swapchain->vk.finishSem[swapchain->vk.frameIndex];

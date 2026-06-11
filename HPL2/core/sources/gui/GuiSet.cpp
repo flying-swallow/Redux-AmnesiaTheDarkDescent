@@ -40,7 +40,7 @@
 #include "graphics/FrameSubImage.h"
 #include "graphics/FrameBitmap.h"
 #include "resources/FileSearcher.h"
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 
 #include "scene/Scene.h"
 #include "scene/Viewport.h"
@@ -540,10 +540,10 @@ namespace hpl {
 
 		const size_t numVerts = m_setRenderObjects.size() * 4;
 		const size_t numIndecies = m_setRenderObjects.size() * 6;
-		RISegmentReq_s vtxReq = {};
-		RISegmentReq_s idxReq = {};
+		RISegmentReq vtxReq = {};
+		RISegmentReq idxReq = {};
 		if(!IsRIBufferValid(&RI.renderer, &RI.guiVertexBuffer) || !RI.guiVertexAlloc.request(RI.frameIndex, numVerts, &vtxReq)) {
-		  struct RISegmentAllocDesc_s segmentAllocDesc = { 0 };
+		  struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 		  segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 		  segmentAllocDesc.elementStride = sizeof(PositionTexColor);
 		  segmentAllocDesc.maxElements = std::max<size_t>(RI.guiVertexAlloc.maxElements, 1024);
@@ -575,7 +575,7 @@ namespace hpl {
 		}
 
 		if(!IsRIBufferValid(&RI.renderer, &RI.guiIndexBuffer) || !RI.guiIndexAlloc.request(RI.frameIndex, numIndecies, &idxReq)) {
-			struct RISegmentAllocDesc_s segmentAllocDesc = { 0 };
+			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 			segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 			segmentAllocDesc.elementStride = sizeof(uint32_t);
 			segmentAllocDesc.maxElements = std::max<size_t>(RI.guiIndexAlloc.maxElements, 1024);
@@ -721,7 +721,7 @@ namespace hpl {
 			// holds the shared_ptr until next reuse of this frame slot
 			// (after the fence wait in BeginActiveSet), so the VkImage
 			// stays alive past the submit that references it.
-			std::shared_ptr<HPLTexture> diffuseTexture;
+			std::shared_ptr<cTexture> diffuseTexture;
 			if (pTexture) {
 				diffuseTexture = pTexture->GetTexture();
 			}

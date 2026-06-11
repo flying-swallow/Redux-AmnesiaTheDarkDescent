@@ -21,7 +21,7 @@
 #include "graphics/PostEffect_ColorConvTex.h"
 
 #include "graphics/Graphics.h"
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 #include "graphics/PostEffectHelpers.h"
 #include "graphics/RIBootstrap.h"
 #include "graphics/RIProgramHelpers.h"

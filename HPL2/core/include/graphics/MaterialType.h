@@ -31,7 +31,6 @@ namespace hpl {
 	
 	class cGraphics;
 	class cResources;
-	class iTexture;
 	class cMaterial;
 	class iRenderable;
 	class cParserVarContainer;
@@ -85,8 +84,6 @@ namespace hpl {
 		bool IsDecal(){ return mbIsDecal;}
 
 		virtual bool SupportsHWSkinning()=0;
-
-		virtual iTexture* GetTextureForUnit(cMaterial *apMaterial,eMaterialRenderMode aRenderMode, int alUnit)=0;
 
 		int GetUsedTextureNum(){ return (int)mvUsedTextures.size(); }
 		cMaterialUsedTexture* GetUsedTexture(int alIdx){ return &mvUsedTextures[alIdx]; }

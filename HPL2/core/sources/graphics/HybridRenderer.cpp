@@ -22,7 +22,7 @@
 #include "scene/Viewport.h"
 #include "graphics/Renderable.h"
 #include "graphics/VertexBuffer.h"
-#include "graphics/VertexBuffer_RI.h"
+#include "graphics/VertexBuffer.h"
 #include "math/Frustum.h"
 #include "math/Math.h"
 
@@ -50,19 +50,19 @@ namespace hpl {
 
 namespace detail {
 
-static inline bool BindVertexStreams(struct RICmd_s *cmd, iVertexBuffer *pVB,
+static inline bool BindVertexStreams(struct RICmd *cmd, cVertexBuffer *pVB,
                                      const char *passLabel,
                                      uint32_t *outPresentMask) {
-  auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
-  auto bufOf = [&](eVertexBufferElement type) -> RIBuffer_s * {
+  auto *vbri = static_cast<cVertexBuffer *>(pVB);
+  auto bufOf = [&](eVertexBufferElement type) -> RIBuffer * {
     const auto *element = vbri->GetElement(type);
     return (element && element->buffer) ? element->buffer.get() : nullptr;
   };
   // Position + index are the only truly required streams — without geometry
   // there's nothing to draw.
-  RIBuffer_s *pos = bufOf(eVertexBufferElement_Position);
+  RIBuffer *pos = bufOf(eVertexBufferElement_Position);
   const auto &idxRI = vbri->GetIndexRIBuffer();
-  RIBuffer_s *idx = idxRI ? idxRI.get() : nullptr;
+  RIBuffer *idx = idxRI ? idxRI.get() : nullptr;
   if (!pos || !idx) {
     Warning("%s mesh missing position / index — skipping", passLabel);
     return false;
@@ -71,10 +71,10 @@ static inline bool BindVertexStreams(struct RICmd_s *cmd, iVertexBuffer *pVB,
   // single-vertex default (normal = +Z, tangent = +X/handedness, color = white,
   // uv = 0). No capacity limit — the pipeline zeroes the absent binding's
   // stride, so the one fallback element is reread for every vertex.
-  RIBuffer_s *nrm = bufOf(eVertexBufferElement_Normal);
-  RIBuffer_s *tan = bufOf(eVertexBufferElement_Texture1Tangent);
-  RIBuffer_s *col = bufOf(eVertexBufferElement_Color0);
-  RIBuffer_s *uv  = bufOf(eVertexBufferElement_Texture0);
+  RIBuffer *nrm = bufOf(eVertexBufferElement_Normal);
+  RIBuffer *tan = bufOf(eVertexBufferElement_Texture1Tangent);
+  RIBuffer *col = bufOf(eVertexBufferElement_Color0);
+  RIBuffer *uv  = bufOf(eVertexBufferElement_Texture0);
   uint32_t mask = eVertexElementFlag_Position; // required, present per check above
   if (nrm) mask |= eVertexElementFlag_Normal;
   if (tan) mask |= eVertexElementFlag_Texture1;
@@ -82,7 +82,7 @@ static inline bool BindVertexStreams(struct RICmd_s *cmd, iVertexBuffer *pVB,
   if (uv)  mask |= eVertexElementFlag_Texture0;
   if (outPresentMask)
     *outPresentMask = mask;
-  RIBuffer_s *vertBufs[5] = {
+  RIBuffer *vertBufs[5] = {
       pos,
       nrm ? nrm : &RI.fallbackNormalVertex,
       tan ? tan : &RI.fallbackTangentVertex,
@@ -244,7 +244,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       m_water.initialize(&RI.device, stages, externalLayouts);
     }
 
-    RISegmentAllocDesc_s indirectDesc = {};
+    RISegmentAllocDesc indirectDesc = {};
     indirectDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
     indirectDesc.elementStride = sizeof(VkDrawIndirectCommand);
     indirectDesc.maxElements = kObjectSlotCapacity;
@@ -562,7 +562,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
             retainGeometryBlas(child);
           for (auto *pObject : node->GetObjects()) {
             auto *pVB =
-                static_cast<VertexBuffer_RI *>(pObject->GetVertexBuffer());
+                static_cast<cVertexBuffer *>(pObject->GetVertexBuffer());
             if (pVB && pVB->accelStructure())
               pVB->AttachResourceToCntx(cntx);
           }
@@ -588,9 +588,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       continue;
     pObj->UpdateGraphicsForFrame(afFrameTime);
     pObj->UpdateGraphicsForViewport(apFrustum, afFrameTime);
-    iVertexBuffer *pVB = pObj->GetVertexBuffer();
+    cVertexBuffer *pVB = pObj->GetVertexBuffer();
     if (pVB) {
-      auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
+      auto *vbri = static_cast<cVertexBuffer *>(pVB);
       // Particles/billboards/beams/ropes are translucent but never TLAS
       // instances — upload their streams for the raster pass, skip the BLAS.
       vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
@@ -611,9 +611,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     if (!pObj)
       continue;
 
-    iVertexBuffer *pVB = pObj->GetVertexBuffer();
+    cVertexBuffer *pVB = pObj->GetVertexBuffer();
     if (pVB) {
-      auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
+      auto *vbri = static_cast<cVertexBuffer *>(pVB);
       // Decals are never TLAS instances — upload streams, no BLAS.
       vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
       vbri->AttachResourceToCntx(cntx);
@@ -710,7 +710,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   auto solids = m_rendererList.GetSolidObjects();
   auto lights = m_rendererList.GetLights();
-  RISegmentReq_s indirectReq = {};
+  RISegmentReq indirectReq = {};
   const bool indirectOk =
       m_indirectSegment.request(RI.frameIndex, solids.size(), &indirectReq);
   assert(indirectOk);
@@ -776,7 +776,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   if (num_point_lights > 0) {
     const size_t uploadBytes = num_point_lights * sizeof(PointLight);
-    RIResourceBufferTransaction_s trans = {};
+    RIResourceBufferTransaction trans = {};
     trans.target = m_global.m_pointLightBuffer;
     trans.size = uploadBytes;
     trans.offset = 0;
@@ -845,7 +845,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   if (num_spot_lights > 0) {
     const size_t uploadBytes = num_spot_lights * sizeof(SpotLight);
-    RIResourceBufferTransaction_s trans = {};
+    RIResourceBufferTransaction trans = {};
     trans.target = m_global.m_spotLightBuffer;
     trans.size = uploadBytes;
     trans.offset = 0;
@@ -897,7 +897,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   if (num_fog_areas > 0) {
     const size_t uploadBytes = num_fog_areas * sizeof(FogAreaParams);
-    RIResourceBufferTransaction_s trans = {};
+    RIResourceBufferTransaction trans = {};
     trans.target = m_global.m_fogAreaBuffer;
     trans.size = uploadBytes;
     trans.offset = 0;
@@ -962,7 +962,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   if (num_decals > 0) {
     const size_t uploadBytes = num_decals * sizeof(GpuDecal);
-    RIResourceBufferTransaction_s trans = {};
+    RIResourceBufferTransaction trans = {};
     trans.target = m_global.m_decalBuffer;
     trans.size = uploadBytes;
     trans.offset = 0;
@@ -983,7 +983,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         std::min(pool.size(), (size_t)kMaxObjectDecalIndices);
     if (poolCount > 0) {
       const size_t uploadBytes = poolCount * sizeof(uint32_t);
-      RIResourceBufferTransaction_s trans = {};
+      RIResourceBufferTransaction trans = {};
       trans.target = m_global.m_objectDecalIndexBuffer;
       trans.size = uploadBytes;
       trans.offset = 0;
@@ -999,7 +999,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   for (iRenderable *pObject : solids) {
     cMatrixf *pMtx = pObject->GetModelMatrix(apFrustum);
-    iVertexBuffer *pVB = pObject->GetVertexBuffer();
+    cVertexBuffer *pVB = pObject->GetVertexBuffer();
     cMaterial *pMat = pObject->GetMaterial();
     if (!pVB || !pMat)
       continue;
@@ -1028,7 +1028,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       const uint32_t cnt = (uint32_t)pObject->GetDecalListCount();
       d.decalList = (off << 8) | (cnt & 0xFFu);
     }
-    auto *vb = static_cast<VertexBuffer_RI *>(pVB);
+    auto *vb = static_cast<cVertexBuffer *>(pVB);
     // BuildBlas submits the VB geometry first (internal SubmitToGPU), so
     // submitObject below sees the post-realloc index count — an in-loop realloc
     // that changes the triangle count must bump the slot generation this same
@@ -1132,13 +1132,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       continue;
     if (!pMat->HasRefraction())
       continue;
-    iVertexBuffer *pVB = pObj->GetVertexBuffer();
+    cVertexBuffer *pVB = pObj->GetVertexBuffer();
     if (!pVB || pVB->GetIndexNum() <= 0)
       continue;
 
     // VB upload + BLAS build already happened in the consolidated translucent
     // prepare loop near the top of Draw(); just pick up the cached BLAS here.
-    auto *vbri = static_cast<VertexBuffer_RI *>(pVB);
+    auto *vbri = static_cast<cVertexBuffer *>(pVB);
     auto blas = vbri->accelStructure();
     if (!blas || blas->vk.handle == VK_NULL_HANDLE)
       continue;
@@ -1190,7 +1190,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   if (!tlasInstances.empty() || m_tlas.vk.handle == VK_NULL_HANDLE) {
     const uint32_t instanceCount = (uint32_t)tlasInstances.size();
 
-    auto destroyBuffer = [](RIBuffer_s *b) {
+    auto destroyBuffer = [](RIBuffer *b) {
       if (b->vk.buffer) {
         RI.GetActiveSet()->freelist.push_back(*b);
       }
@@ -1235,7 +1235,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // write doesn't clobber the buffer mid-build for frame N. The uploader
     // owns the previous-use ↔ TRANSFER_WRITE ↔ next-use barrier pair.
     if (instanceCount > 0) {
-      RIResourceBufferTransaction_s trans = {};
+      RIResourceBufferTransaction trans = {};
       trans.target = m_tlasInstanceBuffer;
       trans.size = (size_t)instanceCount *
                    sizeof(VkAccelerationStructureInstanceKHR);
@@ -1256,7 +1256,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     // Size the TLAS for the worst-case instance count we've seen. Re-init when
     // the instance count exceeds what the current TLAS storage was sized for.
-    RIAccelStructureDesc_s tlasDesc = {};
+    RIAccelStructureDesc tlasDesc = {};
     tlasDesc.type = RI_ACCEL_STRUCTURE_TYPE_TOP_LEVEL;
     tlasDesc.flags = RI_ACCEL_BUILD_PREFER_FAST_TRACE;
     tlasDesc.geometryOrInstanceNum = instanceCount;
@@ -1282,7 +1282,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                   VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
       VmaAllocationCreateInfo aci = {};
       aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-      m_tlasStorage = RIBuffer_s::VK_createFromVMA(&RI.device, &bci, &aci);
+      m_tlasStorage = RIBuffer::VK_createFromVMA(&RI.device, &bci, &aci);
       tlasDesc.storage = &m_tlasStorage;
       tlasDesc.storageOffset = 0;
       tlasDesc.storageSize = tlasStorageSize;
@@ -1296,12 +1296,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     if (m_tlas.vk.handle != VK_NULL_HANDLE) {
       // Source TLAS build scratch from the per-frame accel pool. The pool
       // recycles its blocks across frames and uses the oversized one-shot
-      // path for builds that exceed blockSize. RIBlockMem_s embeds an
-      // RIBuffer_s, so we hand its address straight to the build desc.
-      RIBufferScratchAllocReq_s scratchReq = RIAllocBufferFromScratchAlloc(
+      // path for builds that exceed blockSize. RIBlockMem embeds an
+      // RIBuffer, so we hand its address straight to the build desc.
+      RIBufferScratchAllocReq scratchReq = RIAllocBufferFromScratchAlloc(
           &RI.device, &cntx->accelScratchAlloc, tlasBuildScratch);
 
-      RIBuildTlasDesc_s build = {};
+      RIBuildTlasDesc build = {};
       build.dst = &m_tlas;
       build.src = nullptr;
       build.mode = RI_ACCEL_BUILD_MODE_BUILD;
@@ -1330,7 +1330,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   VkCommandBuffer cmd = RI.primary.cmds[0].vk.cmd;
   std::vector<RIProgram::DescriptorBinding> bindings;
   bindings.reserve(16);
-  auto pushBinding = [&](const char *name, const RIDescriptor_s &desc,
+  auto pushBinding = [&](const char *name, const RIDescriptor &desc,
                          uint32_t registerOffset = 0) {
     RIProgram::DescriptorBinding b;
     b.handle = DescriptorBindingID::Create(name);
@@ -1397,7 +1397,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // path below, which the gbuffer's expected DEPTH_ATTACHMENT_OPTIMAL
   // wouldn't otherwise match).
   {
-    RITextureBarrier_s attachmentBarriers[3] = {
+    RITextureBarrier attachmentBarriers[3] = {
         {&state.visibilityTexture[RI.swapchainIndex],
          RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_RENDER_TARGET},
         {&state.depthTextures[RI.swapchainIndex], RI_RESOURCE_STATE_UNDEFINED,
@@ -1733,7 +1733,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // first-bounce depths converge. Clearing to 0 instead would make variance=0
     // => weight 0 => every surfel contribution zeroed until the atlas fills in
     // (~hundreds of frames), i.e. a multi-second indirect black-out on enable.
-    RITextureBarrier_s toClear[1] = {
+    RITextureBarrier toClear[1] = {
         {&m_surfelDepthTexture[RI.swapchainIndex],
          RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE}};
     RI.primary.cmds[0].textureBarriers<1>(1, toClear);
@@ -1748,7 +1748,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     // Clear (transfer) -> integrate's storage RW + ray-trace / generation reads
     // (sampled). Same GENERAL layout, availability/visibility only.
-    RITextureBarrier_s toShader[1] = {
+    RITextureBarrier toShader[1] = {
         {&m_surfelDepthTexture[RI.swapchainIndex],
          RI_RESOURCE_STATE_CLEAR_STORAGE,
          RI_RESOURCE_STATE_UNORDERED_ACCESS | RI_RESOURCE_STATE_SHADER_RESOURCE,
@@ -1846,7 +1846,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // gbuffer left in DEPTH_STENCIL_ATTACHMENT_OPTIMAL. The surfel result
   // image transitions UNDEFINED -> GENERAL for its first compute write.
   {
-    RITextureBarrier_s toRead[4] = {};
+    RITextureBarrier toRead[4] = {};
     // Visibility -> SHADER_READ for the fragment + compute consumers.
     toRead[0] = {&state.visibilityTexture[RI.swapchainIndex],
                  RI_RESOURCE_STATE_RENDER_TARGET,
@@ -2013,7 +2013,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           state.directAtrousTexture[0].vk.image,   state.directAtrousTexture[1].vk.image,
           state.reservoirTexture[0].vk.image,      state.reservoirTexture[1].vk.image,
           state.reservoirTemporalTexture.vk.image};
-      RITextureBarrier_s toGen[9] = {
+      RITextureBarrier toGen[9] = {
           {&state.directLightingTexture[0], RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE},
           {&state.directLightingTexture[1], RI_RESOURCE_STATE_UNDEFINED,
@@ -2252,12 +2252,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // the isWater branch's gatherSurfelIndirect can read the surfel-cache SSBOs
     // (gSurfelBuffer / gCellInfoBuffer / gCellToSurfelBuffer), written by the
     // surfel compute passes earlier this frame.
-    RIMemoryBarrier_s mem = {
+    RIMemoryBarrier mem = {
         RI_RESOURCE_STATE_STORAGE_WRITE,
         RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_READ,
         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE};
 
-    RITextureBarrier_s imageBarriers[2] = {
+    RITextureBarrier imageBarriers[2] = {
         // gIndirectLighting GENERAL -> SHADER_READ_ONLY, now consumed by
         // compute.
         {&state.surfelResultTexture[RI.swapchainIndex],
@@ -2407,7 +2407,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       const eMaterialBlendMode mode = pMat->GetBlendMode();
       if (mode == eMaterialBlendMode_None || mode >= eMaterialBlendMode_LastEnum)
         continue;
-      iVertexBuffer *pVB = pObj->GetVertexBuffer();
+      cVertexBuffer *pVB = pObj->GetVertexBuffer();
       if (!pVB || pVB->GetIndexNum() <= 0)
         continue;
       decals.push_back(pObj);
@@ -2474,7 +2474,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       };
 
       for (iRenderable *pObj : decals) {
-        iVertexBuffer *pVB = pObj->GetVertexBuffer();
+        cVertexBuffer *pVB = pObj->GetVertexBuffer();
         cMaterial *pMat = pObj->GetMaterial();
         const int indexCount = pVB->GetIndexNum();
 
@@ -2493,7 +2493,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
         const uint32_t slot = m_global.submitObject(
             pObj->GetUniqueCookie(), (uint32_t)RI.frameIndex,
-            static_cast<VertexBuffer_RI *>(pVB), d);
+            static_cast<cVertexBuffer *>(pVB), d);
         if (slot == UINT32_MAX) {
           Warning("bindless pool exhausted (decal)");
           continue;
@@ -2548,7 +2548,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       cMaterial *pMat = pObj->GetMaterial();
       if (!pMat || pMat->Descriptor().m_id != MaterialID::Water)
         continue;
-      iVertexBuffer *pVB = pObj->GetVertexBuffer();
+      cVertexBuffer *pVB = pObj->GetVertexBuffer();
       if (!pVB || pVB->GetIndexNum() <= 0)
         continue;
       waters.push_back(pObj);
@@ -2614,7 +2614,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       struct WaterPush { uint32_t pass; uint32_t p0, p1, p2; };
 
       for (iRenderable *pObj : waters) {
-        iVertexBuffer *pVB = pObj->GetVertexBuffer();
+        cVertexBuffer *pVB = pObj->GetVertexBuffer();
         cMaterial *pMat = pObj->GetMaterial();
         const int indexCount = pVB->GetIndexNum();
 
@@ -2632,7 +2632,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
         const uint32_t slot = m_global.submitObject(
             pObj->GetUniqueCookie(), (uint32_t)RI.frameIndex,
-            static_cast<VertexBuffer_RI *>(pVB), d);
+            static_cast<cVertexBuffer *>(pVB), d);
         if (slot == UINT32_MAX) {
           Warning("bindless pool exhausted (water)");
           continue;
@@ -2929,7 +2929,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // refraction / reflection bounce V-buffers, so skip it here.
       if (pMat->Descriptor().m_id == MaterialID::Water)
         continue;
-      iVertexBuffer *pVB = pObj->GetVertexBuffer();
+      cVertexBuffer *pVB = pObj->GetVertexBuffer();
       if (!pVB || pVB->GetIndexNum() <= 0)
         continue;
       meshes.push_back(pObj);
@@ -3039,7 +3039,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       constexpr uint32_t kTransOptUseIllumination = 1u << 0;
 
       for (iRenderable *pObj : meshes) {
-        iVertexBuffer *pVB = pObj->GetVertexBuffer();
+        cVertexBuffer *pVB = pObj->GetVertexBuffer();
         cMaterial *pMat = pObj->GetMaterial();
         // Filter above already rejected null pVB / pMat and 0-index VBs.
         const int indexCount = pVB->GetIndexNum();
@@ -3070,7 +3070,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // wrong VB/IB.
         const uint32_t slot = m_global.submitObject(
             pObj->GetUniqueCookie(), (uint32_t)RI.frameIndex,
-            static_cast<VertexBuffer_RI *>(pVB), d);
+            static_cast<cVertexBuffer *>(pVB), d);
         if (slot == UINT32_MAX) {
           Warning("bindless pool exhausted (translucent mesh)");
           continue;

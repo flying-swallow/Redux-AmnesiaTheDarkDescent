@@ -60,7 +60,6 @@ class cEditorWindowFactory
 {
 public:
 	static cEditorWindowViewport* CreateWindowViewport(iEditorBase* apEditor,
-													   iFrameBuffer* apFB,
 													   const cVector2l& avFBViewPos,
 													   const cVector2l& avFBViewSize,
 													   const cVector3f& avPosition,
@@ -119,7 +118,7 @@ public:
 
 	static cEditorWindowLoaderStatus* CreateLoaderStatusWindow(iEditorBase* apEditor);
 
-	static cEditorWindowMaterialEditor* CreateMaterialEditor(iEditorBase* apEditor, iFrameBuffer* apFB);
+	static cEditorWindowMaterialEditor* CreateMaterialEditor(iEditorBase* apEditor);
 
 	static void DestroyEditorWindow(iEditorWindow* apWindow);
 

@@ -2,14 +2,14 @@
 #include <cassert>
 
 
-void RIAccelStructure_s::dispose(struct RIDevice_s *device) {
+void RIAccelStructure::dispose(struct RIDevice *device) {
   if (vk.handle != VK_NULL_HANDLE) {
     vkDestroyAccelerationStructureKHR(device->vk.device, vk.handle, NULL);
     vk.handle = VK_NULL_HANDLE;
   }
 }
 
-void RIAccelStructure_s::setDebugObjectName(struct RIDevice_s *device,
+void RIAccelStructure::setDebugObjectName(struct RIDevice *device,
                                             const char *name) {
   assert(vk.handle);
   if (vkSetDebugUtilsObjectNameEXT && vk.handle) {

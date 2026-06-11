@@ -275,7 +275,7 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
-	iCollideShape* cPhysicsWorldNewton::CreateMeshShape(iVertexBuffer *apVtxBuffer)
+	iCollideShape* cPhysicsWorldNewton::CreateMeshShape(cVertexBuffer *apVtxBuffer)
 	{
 		cCollideShapeNewton *pShape = hplNew( cCollideShapeNewton, (eCollideShapeType_Mesh, 0, NULL, mpNewtonWorld,this) );
 		

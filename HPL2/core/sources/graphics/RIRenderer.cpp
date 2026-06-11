@@ -1,5 +1,4 @@
 #include "graphics/RIRenderer.h"
-#include "graphics/RIConversion.h"
 #include "graphics/RIGPUPreset.h"
 #include "graphics/RITypes.h"
 #include "graphics/RIVK.h"
@@ -16,6 +15,18 @@
 #define VMA_STATIC_VULKAN_FUNCTIONS 0
 #define VMA_DYNAMIC_VULKAN_FUNCTIONS 1
 #include "vk_mem_alloc.h"
+
+static inline enum RIVendor_e VendorFromID(uint32_t vendorID) {
+    switch (vendorID) {
+		case 0x10DE:
+			return RI_NVIDIA;
+		case 0x1002:
+			return RI_AMD;
+		case 0x8086:
+			return RI_INTEL;
+	}
+	return RI_UNKNOWN;
+}
 
 const static char *DefaultDeviceExtension[] = {
     VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -112,7 +123,7 @@ const static char *DefaultDeviceExtension[] = {
 };
 
 void VK_ConfigureBufferQueueFamilies(VkBufferCreateInfo *info,
-                                     struct RIQueue_s *queues, size_t numQueues,
+                                     struct RIQueue *queues, size_t numQueues,
                                      uint32_t *queueFamilies,
                                      size_t reservedLen) {
   uint32_t uniqueQueue = 0;
@@ -134,7 +145,7 @@ void VK_ConfigureBufferQueueFamilies(VkBufferCreateInfo *info,
 }
 
 void VK_ConfigureImageQueueFamilies(VkImageCreateInfo *info,
-                                    struct RIQueue_s *queues, size_t numQueues,
+                                    struct RIQueue *queues, size_t numQueues,
                                     uint32_t *queueFamilies,
                                     size_t reservedLen) {
   uint32_t uniqueQueue = 0;
@@ -155,7 +166,7 @@ void VK_ConfigureImageQueueFamilies(VkImageCreateInfo *info,
                                                   : VK_SHARING_MODE_EXCLUSIVE;
 }
 
-void VK_FillQueueFamilies(struct RIDevice_s *dev, uint32_t *queueFamilies,
+void VK_FillQueueFamilies(struct RIDevice *dev, uint32_t *queueFamilies,
                           uint32_t *queueFamiliesIdx, size_t reservedLen) {
   uint32_t uniqueQueue = 0;
   for (size_t i = 0; i < RI_QUEUE_LEN; i++) {
@@ -230,7 +241,7 @@ static bool __VK_SupportExtension(VkExtensionProperties *properties, size_t len,
 
 #endif
 
-int RIRenderer_s::enumerateAdapters(struct RIPhysicalAdapter_s *adapters,
+int RIRenderer::enumerateAdapters(struct RIPhysicalAdapter *adapters,
                                     uint32_t *numAdapters) {
 #if (DEVICE_IMPL_VULKAN)
   {
@@ -256,8 +267,8 @@ int RIRenderer_s::enumerateAdapters(struct RIPhysicalAdapter_s *adapters,
       }
       assert((*numAdapters) >= deviceGroupNum);
       for (size_t i = 0; i < deviceGroupNum; i++) {
-        struct RIPhysicalAdapter_s *physicalAdapter = &adapters[i];
-        memset(physicalAdapter, 0, sizeof(struct RIPhysicalAdapter_s));
+        struct RIPhysicalAdapter *physicalAdapter = &adapters[i];
+        memset(physicalAdapter, 0, sizeof(struct RIPhysicalAdapter));
         physicalAdapter->vk.physicalDevice =
             physicalDeviceGroupProperties[i].physicalDevices[0];
 
@@ -775,14 +786,14 @@ __VK_findQueueCreateInfo(VkDeviceQueueCreateInfo *queues, size_t numQueues,
   return NULL;
 }
 
-int RIDevice_s::init(struct RIRenderer_s *renderer,
-                     struct RIDeviceDesc_s *init) {
+int RIDevice::init(struct RIRenderer *renderer,
+                     struct RIDeviceDesc *init) {
   assert(init->physicalAdapter);
   memset(this, 0, sizeof(*this));
-  struct RIDevice_s *device = this; // body below predates the method form
+  struct RIDevice *device = this; // body below predates the method form
 
   enum RIResult_e riResult = RI_SUCCESS;
-  struct RIPhysicalAdapter_s *physicalAdapter = init->physicalAdapter;
+  struct RIPhysicalAdapter *physicalAdapter = init->physicalAdapter;
 
   device->renderer = renderer;
   device->physicalAdapter = *init->physicalAdapter;
@@ -920,11 +931,11 @@ int RIDevice_s::init(struct RIRenderer_s *renderer,
       createInfo->pQueuePriorities = priorities;
       createInfo->sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
 
-      struct RIQueue_s *queue =
+      struct RIQueue *queue =
           &device->queues[configureQueue[configureIdx].queueType];
       if (createInfo->queueCount >=
           queueFamilyProps[createInfo->queueFamilyIndex].queueCount) {
-        struct RIQueue_s *dupQueue = NULL;
+        struct RIQueue *dupQueue = NULL;
         minQueueFlag = UINT32_MAX;
         for (size_t i = 0; i < ARRAY_COUNT(device->queues); i++) {
           const uint32_t matchingQueueFlags =
@@ -1010,13 +1021,13 @@ int RIDevice_s::init(struct RIRenderer_s *renderer,
     //	}
 
     //	if( found ) {
-    //		struct RIQueue_s *queue =
+    //		struct RIQueue *queue =
     //&device->queues[configureQueue[initIdx].queueType]; 		queue->vk.queueFlags =
     //queueFamilyProps[selectedQueue->queueFamilyIndex].queueFlags;
     //		queue->vk.slotIdx = selectedQueue->queueCount++;
     //		queue->vk.queueFamilyIdx = selectedQueue->queueFamilyIndex;
     //	} else {
-    //		struct RIQueue_s *dupQueue = NULL;
+    //		struct RIQueue *dupQueue = NULL;
     //		minQueueFlag = UINT32_MAX;
     //		for( size_t i = 0; i < ARRAY_COUNT( device->queues ); i++ ) {
     //			const uint32_t matchingQueueFlags = (
@@ -1334,7 +1345,7 @@ int RIDevice_s::init(struct RIRenderer_s *renderer,
   return riResult;
 }
 
-int RIRenderer_s::init(const struct RIBackendInit_s *init) {
+int RIRenderer::init(const struct RIBackendInit *init) {
   memset(this, 0, sizeof(*this));
   api = init->api;
 #if (DEVICE_IMPL_VULKAN)
@@ -1523,7 +1534,7 @@ int RIRenderer_s::init(const struct RIBackendInit_s *init) {
   return RI_SUCCESS;
 }
 
-void RIDescriptor_s::finalize(struct RIDevice_s *device) {
+void RIDescriptor::finalize(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
     switch (vk.type) {
@@ -1532,7 +1543,7 @@ void RIDescriptor_s::finalize(struct RIDevice_s *device) {
       // For sampled/storage images Vulkan ignores the sampler field of
       // VkDescriptorImageInfo; hashing it wastes entropy and is a foot-gun
       // if any caller leaves it uninitialised. texture is optional:
-      // callers may attach a long-lived RITexture_s, or fill the inline
+      // callers may attach a long-lived RITexture, or fill the inline
       // vk.image.imageView directly (e.g. per-pass compute pushes).
       assert(vk.image.imageView);
       hash_t hash = hash_u64(HASH_INITIAL_VALUE, vk.type);
@@ -1566,7 +1577,7 @@ void RIDescriptor_s::finalize(struct RIDevice_s *device) {
       break;
     case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
       // accelStructure is optional: callers may attach a
-      // long-lived RIAccelStructure_s, or fill the inline
+      // long-lived RIAccelStructure, or fill the inline
       // vk.accelStructure handle directly (per-pass compute pushes).
       if (accelStructure) {
         vk.accelStructure = accelStructure->vk.handle;
@@ -1583,7 +1594,7 @@ void RIDescriptor_s::finalize(struct RIDevice_s *device) {
 #endif
 }
 
-void RIDescriptor_s::dispose(struct RIDevice_s *device) {
+void RIDescriptor::dispose(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
   switch (vk.type) {
   case VK_DESCRIPTOR_TYPE_SAMPLER:
@@ -1606,7 +1617,7 @@ void RIDescriptor_s::dispose(struct RIDevice_s *device) {
   memset(this, 0, sizeof(*this));
 }
 
-void RITexture_s::dispose(struct RIDevice_s *device) {
+void RITexture::dispose(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
     if (vk.image) {
@@ -1622,7 +1633,7 @@ void RITexture_s::dispose(struct RIDevice_s *device) {
 #endif
 }
 
-void RITextureView_s::dispose(struct RIDevice_s *device) {
+void RITextureView::dispose(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
     if (vk.image) {
@@ -1634,8 +1645,8 @@ void RITextureView_s::dispose(struct RIDevice_s *device) {
   memset(this, 0, sizeof(*this));
 }
 
-struct RITextureView_s RIDescriptor_s::textureView() const {
-  struct RITextureView_s res = {};
+struct RITextureView RIDescriptor::textureView() const {
+  struct RITextureView res = {};
 #if (DEVICE_IMPL_VULKAN)
   if (vk.type == VK_DESCRIPTOR_TYPE_SAMPLER ||
       vk.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ||
@@ -1646,7 +1657,7 @@ struct RITextureView_s RIDescriptor_s::textureView() const {
   return res;
 }
 
-void RIPool_s::init(struct RIDevice_s *device, struct RIQueue_s *queue) {
+void RIPool::init(struct RIDevice *device, struct RIQueue *queue) {
 #if (DEVICE_IMPL_VULKAN)
   {
     VkCommandPoolCreateInfo cmdPoolCreateInfo = {
@@ -1662,7 +1673,7 @@ void RIPool_s::init(struct RIDevice_s *device, struct RIQueue_s *queue) {
   assert(false);
 }
 
-void RIPool_s::dispose(struct RIDevice_s *device) {
+void RIPool::dispose(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
     vkDestroyCommandPool(device->vk.device, vk.pool, NULL);
@@ -1673,7 +1684,7 @@ void RIPool_s::dispose(struct RIDevice_s *device) {
   assert(false);
 }
 
-void RIPool_s::reset(struct RIDevice_s *device) {
+void RIPool::reset(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
     VK_WrapResult(vkResetCommandPool(device->vk.device, vk.pool, 0));
@@ -1681,7 +1692,7 @@ void RIPool_s::reset(struct RIDevice_s *device) {
 #endif
 }
 
-void RICmd_s::init(struct RIDevice_s *device, struct RIPool_s *pool) {
+void RICmd::init(struct RIDevice *device, struct RIPool *pool) {
 #if (DEVICE_IMPL_VULKAN)
   {
     VkCommandBufferAllocateInfo command_allocate_info = {
@@ -1697,7 +1708,7 @@ void RICmd_s::init(struct RIDevice_s *device, struct RIPool_s *pool) {
 #endif
 }
 
-void RICmd_s::begin(struct RIDevice_s *device) {
+void RICmd::begin(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
     VkCommandBufferBeginInfo info = {
@@ -1709,7 +1720,7 @@ void RICmd_s::begin(struct RIDevice_s *device) {
 #endif
 }
 
-void RICmd_s::end(struct RIDevice_s *device) {
+void RICmd::end(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
     VK_WrapResult(vkEndCommandBuffer(vk.cmd));
@@ -1718,7 +1729,7 @@ void RICmd_s::end(struct RIDevice_s *device) {
 #endif
 }
 
-void RICommandRingElement_s::wait(struct RIDevice_s *device) {
+void RICommandRingElement::wait(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
   if (vk.fence) {
     VK_WrapResult(
@@ -1727,7 +1738,7 @@ void RICommandRingElement_s::wait(struct RIDevice_s *device) {
 #endif
 }
 
-void RICmd_s::dispose(struct RIDevice_s *device) {
+void RICmd::dispose(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
   {
     if (vk.cmd) {
@@ -1739,7 +1750,7 @@ void RICmd_s::dispose(struct RIDevice_s *device) {
 #endif
 }
 
-void RIRenderer_s::dispose() {
+void RIRenderer::dispose() {
 #if (DEVICE_IMPL_VULKAN)
   if (vk.debugMessageUtils)
     vkDestroyDebugUtilsMessengerEXT(vk.instance, vk.debugMessageUtils, NULL);
@@ -1747,20 +1758,20 @@ void RIRenderer_s::dispose() {
 #endif
 }
 
-void ShutdownRIRenderer(struct RIRenderer_s *renderer) {
+void ShutdownRIRenderer(struct RIRenderer *renderer) {
 #if (DEVICE_IMPL_VULKAN)
   renderer->dispose();
   volkFinalize();
 #endif
 }
 
-void RIQueue_s::waitIdle(struct RIDevice_s *device) {
+void RIQueue::waitIdle(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
   VK_WrapResult(vkQueueWaitIdle(vk.queue));
 #endif
 }
 
-void RIDevice_s::dispose() {
+void RIDevice::dispose() {
 #if (DEVICE_IMPL_VULKAN)
   if (vk.vmaAllocator)
     vmaDestroyAllocator(vk.vmaAllocator);
@@ -1781,8 +1792,8 @@ void RIDevice_s::dispose() {
 // Returns 0 if buffer is NULL. Callers ORing this with an offset get a
 // device-side pointer suitable for VkDeviceOrHostAddressConstKHR /
 // VkDeviceOrHostAddressKHR.
-static VkDeviceAddress RI_VK_BufferDeviceAddress(struct RIDevice_s *dev,
-                                                 struct RIBuffer_s *buf) {
+static VkDeviceAddress RI_VK_BufferDeviceAddress(struct RIDevice *dev,
+                                                 struct RIBuffer *buf) {
   if (!buf || buf->vk.buffer == VK_NULL_HANDLE)
     return 0;
   VkBufferDeviceAddressInfo info = {
@@ -1792,11 +1803,11 @@ static VkDeviceAddress RI_VK_BufferDeviceAddress(struct RIDevice_s *dev,
 }
 
 // Fill VkAccelerationStructureGeometryKHR + maxPrimitiveCount from an
-// RIAccelGeometryDesc_s. resolveAddresses=false skips reading buffer device
+// RIAccelGeometryDesc. resolveAddresses=false skips reading buffer device
 // addresses (used by the size query, which only needs the geometry layout /
 // formats / counts).
-static void RI_VK_FillGeometry(struct RIDevice_s *dev,
-                               const struct RIAccelGeometryDesc_s *src,
+static void RI_VK_FillGeometry(struct RIDevice *dev,
+                               const struct RIAccelGeometryDesc *src,
                                VkAccelerationStructureGeometryKHR *outGeom,
                                uint32_t *outMaxPrimitiveCount,
                                bool resolveAddresses) {
@@ -1806,7 +1817,7 @@ static void RI_VK_FillGeometry(struct RIDevice_s *dev,
 
   switch (src->type) {
   case RI_ACCEL_GEOMETRY_TYPE_TRIANGLES: {
-    const struct RIAccelTrianglesDesc_s *tri = &src->triangles;
+    const struct RIAccelTrianglesDesc *tri = &src->triangles;
     outGeom->geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
     VkAccelerationStructureGeometryTrianglesDataKHR *t =
         &outGeom->geometry.triangles;
@@ -1841,11 +1852,11 @@ static void RI_VK_FillGeometry(struct RIDevice_s *dev,
     break;
   }
   case RI_ACCEL_GEOMETRY_TYPE_AABBS: {
-    const struct RIAccelAabbsDesc_s *aab = &src->aabbs;
+    const struct RIAccelAabbsDesc *aab = &src->aabbs;
     outGeom->geometryType = VK_GEOMETRY_TYPE_AABBS_KHR;
     VkAccelerationStructureGeometryAabbsDataKHR *a = &outGeom->geometry.aabbs;
     a->sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR;
-    a->stride = aab->stride ? aab->stride : sizeof(struct RIAccelAabb_s);
+    a->stride = aab->stride ? aab->stride : sizeof(struct RIAccelAabb);
     if (resolveAddresses) {
       a->data.deviceAddress =
           RI_VK_BufferDeviceAddress(dev, aab->buffer) + aab->offset;
@@ -1858,12 +1869,12 @@ static void RI_VK_FillGeometry(struct RIDevice_s *dev,
 
 #endif // DEVICE_IMPL_VULKAN
 
-void RIAccelStructureDesc_s::getMemoryReqs(
-    struct RIDevice_s *dev, uint64_t *outStorageSize,
+void RIAccelStructureDesc::getMemoryReqs(
+    struct RIDevice *dev, uint64_t *outStorageSize,
     uint64_t *outBuildScratchSize, uint64_t *outUpdateScratchSize) const {
 #if (DEVICE_IMPL_VULKAN)
   assert(dev);
-  const struct RIAccelStructureDesc_s *desc = this;
+  const struct RIAccelStructureDesc *desc = this;
 
   VkAccelerationStructureBuildGeometryInfoKHR buildInfo = {
       VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
@@ -1924,8 +1935,8 @@ void RIAccelStructureDesc_s::getMemoryReqs(
 #endif
 }
 
-int RIAccelStructure_s::init(struct RIDevice_s *device,
-                             const struct RIAccelStructureDesc_s *desc) {
+int RIAccelStructure::init(struct RIDevice *device,
+                             const struct RIAccelStructureDesc *desc) {
 #if (DEVICE_IMPL_VULKAN)
   assert(device);
   assert(desc);
@@ -1961,7 +1972,7 @@ int RIAccelStructure_s::init(struct RIDevice_s *device,
 #endif
 }
 
-uint64_t RIAccelStructure_s::getDeviceAddress(struct RIDevice_s *device) const {
+uint64_t RIAccelStructure::getDeviceAddress(struct RIDevice *device) const {
 #if (DEVICE_IMPL_VULKAN)
   (void)device;
   return vk.deviceAddress;
@@ -1970,8 +1981,8 @@ uint64_t RIAccelStructure_s::getDeviceAddress(struct RIDevice_s *device) const {
 #endif
 }
 
-void RIDescriptor_s::finalize(struct RIDevice_s *device,
-                              struct RIAccelStructure_s *as) {
+void RIDescriptor::finalize(struct RIDevice *device,
+                              struct RIAccelStructure *as) {
 #if (DEVICE_IMPL_VULKAN)
   assert(as);
   accelStructure = as;
@@ -1980,8 +1991,8 @@ void RIDescriptor_s::finalize(struct RIDevice_s *device,
 #endif
 }
 
-void RICmd_s::buildBlas(struct RIDevice_s *dev,
-                        const struct RIBuildBlasDesc_s *descs,
+void RICmd::buildBlas(struct RIDevice *dev,
+                        const struct RIBuildBlasDesc *descs,
                         uint32_t numDescs) {
 #if (DEVICE_IMPL_VULKAN)
   if (numDescs == 0)
@@ -2003,10 +2014,10 @@ void RICmd_s::buildBlas(struct RIDevice_s *dev,
       numDescs);
 
   for (uint32_t i = 0; i < numDescs; ++i) {
-    const struct RIBuildBlasDesc_s *d = &descs[i];
+    const struct RIBuildBlasDesc *d = &descs[i];
     assert(d->dst);
     assert(d->dst->vk.handle !=
-           VK_NULL_HANDLE); // dst BLAS must be created (RIAccelStructure_s::init)
+           VK_NULL_HANDLE); // dst BLAS must be created (RIAccelStructure::init)
     assert(d->scratchBuffer);
     assert(d->geometryNum > 0);
     assert(d->geometries);
@@ -2065,8 +2076,8 @@ void RICmd_s::buildBlas(struct RIDevice_s *dev,
 #endif
 }
 
-void RICmd_s::buildTlas(struct RIDevice_s *dev,
-                        const struct RIBuildTlasDesc_s *descs,
+void RICmd::buildTlas(struct RIDevice *dev,
+                        const struct RIBuildTlasDesc *descs,
                         uint32_t numDescs) {
 #if (DEVICE_IMPL_VULKAN)
   if (numDescs == 0)
@@ -2081,7 +2092,7 @@ void RICmd_s::buildTlas(struct RIDevice_s *dev,
       numDescs);
 
   for (uint32_t i = 0; i < numDescs; ++i) {
-    const struct RIBuildTlasDesc_s *d = &descs[i];
+    const struct RIBuildTlasDesc *d = &descs[i];
     assert(d->dst);
     assert(d->dst->vk.handle != VK_NULL_HANDLE); // dst TLAS must be created
     assert(d->scratchBuffer);
@@ -2144,40 +2155,40 @@ void RICmd_s::buildTlas(struct RIDevice_s *dev,
 #endif
 }
 
-void RICmd_s::dispatch(uint32_t groupCountX, uint32_t groupCountY,
+void RICmd::dispatch(uint32_t groupCountX, uint32_t groupCountY,
                        uint32_t groupCountZ) {
   vkCmdDispatch(vk.cmd, groupCountX, groupCountY, groupCountZ);
 }
 
-void RICmd_s::dispatchIndirect(struct RIBuffer_s *buffer, VkDeviceSize offset) {
+void RICmd::dispatchIndirect(struct RIBuffer *buffer, VkDeviceSize offset) {
   vkCmdDispatchIndirect(vk.cmd, buffer->vk.buffer, offset);
 }
 
-void RICmd_s::draw(uint32_t vertexCount, uint32_t instanceCount,
+void RICmd::draw(uint32_t vertexCount, uint32_t instanceCount,
                    uint32_t firstVertex, uint32_t firstInstance) {
   vkCmdDraw(vk.cmd, vertexCount, instanceCount, firstVertex, firstInstance);
 }
 
-void RICmd_s::drawIndexed(uint32_t indexCount, uint32_t instanceCount,
+void RICmd::drawIndexed(uint32_t indexCount, uint32_t instanceCount,
                           uint32_t firstIndex, int32_t vertexOffset,
                           uint32_t firstInstance) {
   vkCmdDrawIndexed(vk.cmd, indexCount, instanceCount, firstIndex, vertexOffset,
                    firstInstance);
 }
 
-void RICmd_s::drawIndirect(struct RIBuffer_s *buffer, VkDeviceSize offset,
+void RICmd::drawIndirect(struct RIBuffer *buffer, VkDeviceSize offset,
                            uint32_t drawCount, uint32_t stride) {
   vkCmdDrawIndirect(vk.cmd, buffer->vk.buffer, offset, drawCount, stride);
 }
 
-void RICmd_s::drawIndexedIndirect(struct RIBuffer_s *buffer,
+void RICmd::drawIndexedIndirect(struct RIBuffer *buffer,
                                   VkDeviceSize offset, uint32_t drawCount,
                                   uint32_t stride) {
   vkCmdDrawIndexedIndirect(vk.cmd, buffer->vk.buffer, offset, drawCount,
                            stride);
 }
 
-void RICmd_s::bindIndexBuffer(struct RIBuffer_s *buffer, VkDeviceSize offset,
+void RICmd::bindIndexBuffer(struct RIBuffer *buffer, VkDeviceSize offset,
                               VkIndexType indexType) {
   vkCmdBindIndexBuffer(vk.cmd, buffer->vk.buffer, offset, indexType);
 }

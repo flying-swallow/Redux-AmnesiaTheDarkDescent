@@ -115,9 +115,9 @@ namespace hpl {
 		
 		//////////////////////////////////
 		// Normal map and height specifics
-		if(apMaterial->GetTexture(eMaterialTexture_NMap))
+		if(apMaterial->GetImage(eMaterialTexture_NMap))
 		{
-			if(apMaterial->GetTexture(eMaterialTexture_Height))
+			if(apMaterial->GetImage(eMaterialTexture_Height))
 			{
 				apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Diffuse,true);
 			}
@@ -134,14 +134,14 @@ namespace hpl {
 
 		//////////////////////////////////
 		// Cubemap
-		if(apMaterial->GetTexture(eMaterialTexture_CubeMap))
+		if(apMaterial->GetImage(eMaterialTexture_CubeMap))
 		{
 			apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Diffuse,true);
 		}
 
 		//////////////////////////////////
 		// Illuminations specifics
-		if(apMaterial->GetTexture(eMaterialTexture_Illumination))
+		if(apMaterial->GetImage(eMaterialTexture_Illumination))
 		{
 			apMaterial->SetHasObjectSpecificsSettings(eMaterialRenderMode_Illumination,true);
 		}
@@ -156,61 +156,6 @@ namespace hpl {
 		desc.m_solid.m_frenselPow = pVars->mfFrenselPow;
 		desc.m_solid.m_alphaDissolveFilter = pVars->mbAlphaDissolveFilter;
 		apMaterial->SetDescriptor(desc);
-	}
-
-	iTexture* cMaterialType_SolidDiffuse::GetTextureForUnit(cMaterial *apMaterial,eMaterialRenderMode aRenderMode, int alUnit)
-	{
-		cMaterialType_SolidDiffuse_Vars *pVars = (cMaterialType_SolidDiffuse_Vars*)apMaterial->GetVars();
-
-		////////////////////////////
-		// Z
-		if(aRenderMode == eMaterialRenderMode_Z)
-		{
-			switch(alUnit)
-			{
-			case 0: return apMaterial->GetTexture(eMaterialTexture_Alpha);
-			// case 1: return mpDissolveTexture;
-			}
-		}
-
-		////////////////////////////
-		// Z Dissolve
-		else if(aRenderMode == eMaterialRenderMode_Z_Dissolve)
-		{
-			switch(alUnit)
-			{
-			case 0: return apMaterial->GetTexture(eMaterialTexture_Alpha);
-			//case 1: return mpDissolveTexture;
-			case 2: return apMaterial->GetTexture(eMaterialTexture_DissolveAlpha);
-			}
-		}
-
-		////////////////////////////
-		// Diffuse
-		else if(aRenderMode == eMaterialRenderMode_Diffuse)
-		{
-			switch(alUnit)
-			{
-			case 0: return apMaterial->GetTexture(eMaterialTexture_Diffuse);
-			case 1: return apMaterial->GetTexture(eMaterialTexture_NMap);
-			case 2: return apMaterial->GetTexture(eMaterialTexture_Specular);
-			case 3: return apMaterial->GetTexture(eMaterialTexture_Height);
-			case 4: return apMaterial->GetTexture(eMaterialTexture_CubeMap);
-			case 5: return apMaterial->GetTexture(eMaterialTexture_CubeMapAlpha);
-			}
-		}
-
-		////////////////////////////
-		// Illumination
-		else if(aRenderMode == eMaterialRenderMode_Illumination)
-		{
-			switch(alUnit)
-			{
-			case 0: return apMaterial->GetTexture(eMaterialTexture_Illumination);
-			}
-		}
-
-		return NULL;
 	}
 
 	iMaterialVars* cMaterialType_SolidDiffuse::CreateSpecificVariables()

@@ -71,7 +71,7 @@ namespace hpl {
 
 		void UpdateGraphicsForFrame(float afFrameTime);
 
-		iVertexBuffer* GetVertexBuffer();
+		cVertexBuffer* GetVertexBuffer();
 
 		cBoundingVolume* GetBoundingVolume();
 
@@ -116,7 +116,7 @@ namespace hpl {
 
 		cMaterialManager* mpMaterialManager;
 
-		iVertexBuffer* mpDynVtxBuffer;
+		cVertexBuffer* mpDynVtxBuffer;
 		tTriangleDataVec mvDynTriangles;
 
 		cSubMeshEntityBodyUpdate* mpEntityCallback;

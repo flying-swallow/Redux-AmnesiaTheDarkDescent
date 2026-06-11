@@ -47,31 +47,13 @@ namespace hpl {
 	class cTextureCreator;
 	class cDecalCreator;
 	class DebugDraw;
-	class iFrameBuffer;
-	class iDepthStencilBuffer;
-	class iTexture;
 	class iMaterialType;
 	class cPostEffectComposite;
 	class cParserVarContainer;
 
-	class cTempFrameBuffer
-	{
-	public:
-		iFrameBuffer *mpFrameBuffer;
-		cVector2l mvSize;
-		ePixelFormat mPixelFormat;
-		int mlIndex;
-	};
 
-	typedef std::list<iFrameBuffer*> tFrameBufferList;
-	typedef tFrameBufferList::iterator tFrameBufferListIt;
 	
-	typedef std::list<iDepthStencilBuffer*> tDepthStencilBufferList;
-	typedef tDepthStencilBufferList::iterator tDepthStencilBufferListIt;
 	
-	typedef std::list<iTexture*> tTextureList;
-	typedef tTextureList::iterator tTextureListIt;
-
 	typedef std::list<cPostEffectComposite*> tPostEffectCompositeList;
 	typedef tPostEffectCompositeList::iterator tPostEffectCompositeListIt;
 
@@ -100,9 +82,6 @@ namespace hpl {
 		iRenderer* GetRenderer(eRenderer aType);
 		void ReloadRendererData();
 		
-		iTexture* CreateTexture(const tString &asName,eTextureType aType,   eTextureUsage aUsage);
-		void DestroyTexture(iTexture *apTexture);
-
 		cPostEffectComposite* CreatePostEffectComposite();
 		void DestroyPostEffectComposite(cPostEffectComposite* apComposite);
 		
@@ -135,13 +114,9 @@ namespace hpl {
 		DebugDraw* mpDebugDraw;
 		cResources *mpResources;
 
-		std::vector<cTempFrameBuffer> mvTempFrameBuffers;
 		std::vector<iRenderer*> mvRenderers;
 		std::vector<iPostEffectType*> mvPostEffectTypes;
 
-		tFrameBufferList mlstFrameBuffers;
-		tDepthStencilBufferList mlstDepthStencilBuffers;
-		tTextureList mlstTextures;
 		tPostEffectCompositeList mlstPostEffectComposites;
 		tMaterialTypeMap m_mapMaterialTypes;
 		tPostEffectList mlstPostEffects;

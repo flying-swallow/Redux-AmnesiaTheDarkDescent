@@ -1,6 +1,6 @@
 #include "graphics/MaterialResource.h"
 #include "graphics/Material.h"
-#include "graphics/Image.h" // HPLTexture::format + RIFormatChannelCount probe
+#include "graphics/Image.h" // cTexture::format + RIFormatChannelCount probe
 
 // Single source of truth for kMaterialFlag* — these used to be mirrored
 // here as the `TextureConfigFlags` enum but now come from the shared

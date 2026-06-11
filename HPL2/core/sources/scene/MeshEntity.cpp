@@ -115,8 +115,17 @@ namespace hpl {
 			mvSubMeshes.push_back(pSub);
 			m_mapSubMeshes.insert(tSubMeshEntityMap::value_type(mpMesh->GetSubMesh(i)->GetName(), pSub));
 			
-			iVertexBuffer *pVtxBuffer = mpMesh->GetSubMesh(i)->GetVertexBuffer();
-			
+			cVertexBuffer *pVtxBuffer = mpMesh->GetSubMesh(i)->GetVertexBuffer();
+
+			//A vertex buffer without a position stream would assert in GetVertexNum().
+			//Warn and skip its bounding-volume contribution; the render path already
+			//tolerates position-less buffers (HybridRenderer skips the draw).
+			if(pVtxBuffer==NULL || (pVtxBuffer->GetVertexElementFlags() & eVertexElementFlag_Position)==0)
+			{
+				Warning("Mesh entity '%s' submesh '%s' has no position vertex stream — skipping geometry\n", asName.c_str(), pSubMesh->GetName().c_str());
+				continue;
+			}
+
 			pSub->mBoundingVolume.AddArrayPoints(pVtxBuffer->GetFloatArray(eVertexBufferElement_Position), pVtxBuffer->GetVertexNum());
 			pSub->mBoundingVolume.CreateFromPoints(pVtxBuffer->GetElementNum(eVertexBufferElement_Position));
 		}
@@ -1484,9 +1493,13 @@ namespace hpl {
 			{
 				cSubMeshEntity* pSub = GetSubMeshEntity(i);
 
-				iVertexBuffer *pVtxBuffer = pSub->GetVertexBuffer();
+				cVertexBuffer *pVtxBuffer = pSub->GetVertexBuffer();
 
-				mBoundingVolume.AddArrayPoints(pVtxBuffer->GetFloatArray(eVertexBufferElement_Position), 
+				//Skip submeshes without a position stream (GetVertexNum would assert).
+				if(pVtxBuffer==NULL || (pVtxBuffer->GetVertexElementFlags() & eVertexElementFlag_Position)==0)
+					continue;
+
+				mBoundingVolume.AddArrayPoints(pVtxBuffer->GetFloatArray(eVertexBufferElement_Position),
 																pVtxBuffer->GetVertexNum());
 			}
 			if(GetSubMeshEntityNum()>0)

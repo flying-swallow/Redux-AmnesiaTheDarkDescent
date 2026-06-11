@@ -46,7 +46,7 @@ void CreatePostEffectColorTarget(PostEffectColorTarget &out, uint32_t width,
     viewInfo.format   = format;
     viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
 
-    out.descriptor = RIDescriptor_s{};
+    out.descriptor = RIDescriptor{};
     out.descriptor.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
     out.descriptor.texture = &out.texture;
     out.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
@@ -81,8 +81,8 @@ void DestroyPostEffectColorTarget(PostEffectColorTarget &target) {
         vmaDestroyImage(RI.device.vk.vmaAllocator, target.texture.vk.image,
                         target.texture.vk.allocation);
     }
-    target.descriptor = RIDescriptor_s{};
-    target.texture    = RITexture_s{};
+    target.descriptor = RIDescriptor{};
+    target.texture    = RITexture{};
     target.valid      = false;
     target.width = target.height = 0;
 #endif

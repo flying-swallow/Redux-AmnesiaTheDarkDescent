@@ -41,10 +41,10 @@ struct BloomAddPushConstants {
     float _pad;
 };
 
-void EmitImageBarrier(RICmd_s *cmd, RITexture_s *texture,
+void EmitImageBarrier(RICmd *cmd, RITexture *texture,
                       enum RIResourceState_e before, uint32_t beforeStages,
                       enum RIResourceState_e after, uint32_t afterStages) {
-    RITextureBarrier_s barrier = {};
+    RITextureBarrier barrier = {};
     barrier.texture = texture;
     barrier.before = before;
     barrier.beforeStages = beforeStages;
@@ -134,7 +134,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
                                1.0f};
     VkRect2D blurScissor = {{0, 0}, {blurW, blurH}};
 
-    auto bindBlurInput = [&](const RIDescriptor_s &inputDesc) {
+    auto bindBlurInput = [&](const RIDescriptor &inputDesc) {
         RIProgram::DescriptorBinding bindings[2] = {};
         bindings[0].descriptor = *samplerDesc;
         bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
@@ -144,8 +144,8 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
             &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
     };
 
-    auto blurPass = [&](VkImageView destView, RITexture_s *destTexture,
-                        RITexture_s *prevDestTexture, const RIDescriptor_s &inputDesc,
+    auto blurPass = [&](VkImageView destView, RITexture *destTexture,
+                        RITexture *prevDestTexture, const RIDescriptor &inputDesc,
                         float dirX, float dirY) {
         // Layout flip: dest SHADER_READ → COLOR_ATTACH ; prev dest
         // (which we'll sample next time) COLOR_ATTACH → SHADER_READ.
@@ -192,7 +192,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
     // Iterative blur: first iter samples the pogo input, subsequent
     // iterations sample blur[1].
     for (int iter = 0; iter < std::max(mParams.mlBlurIterations, 1); ++iter) {
-        const RIDescriptor_s &firstInput =
+        const RIDescriptor &firstInput =
             (iter == 0) ? *ctx.inputSrv : m_blur[1].descriptor;
 
         // Pass H: dest = blur[0], read = firstInput, prevDest = blur[1].

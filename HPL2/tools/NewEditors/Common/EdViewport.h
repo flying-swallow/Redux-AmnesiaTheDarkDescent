@@ -178,7 +178,7 @@ public:
 
 	void DrawBillboard(iTexture*, const cVector3f&, const cVector2f&, const cColor&, cRendererCallbackFunctions*);
 	void DrawSolidColorMesh(cMeshEntity*, const cColor&, cRendererCallbackFunctions*);
-	void DrawSolidColorVertexBuffer(iVertexBuffer*, cMatrixf*, const cColor&, cRendererCallbackFunctions*, bool abUsePreamble=true);
+	void DrawSolidColorVertexBuffer(cVertexBuffer*, cMatrixf*, const cColor&, cRendererCallbackFunctions*, bool abUsePreamble=true);
 
 	void DrawArrow(cRendererCallbackFunctions* apFunctions, const cMatrixf&, float, bool, const cVector2f&, const cColor&, float afOrthoConstant=0.1f, float afPerspConstant=4);
 
@@ -333,7 +333,7 @@ protected:
 	cVector2l mvNormalFBSize;
 
 	// Helper data for drawing billboards
-	static iVertexBuffer* mpVBBillboard;
+	static cVertexBuffer* mpVBBillboard;
 
 	static tVertexVec mvArrowQuads[4];
 

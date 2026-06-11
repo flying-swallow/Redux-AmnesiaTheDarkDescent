@@ -30,7 +30,7 @@
 #include "graphics/Graphics.h"
 #include "graphics/LowLevelGraphics.h"
 #include "graphics/Renderer.h"
-#include "graphics/VertexBuffer_RI.h"
+#include "graphics/VertexBuffer.h"
 
 #include "scene/Camera.h"
 #include "scene/World.h"

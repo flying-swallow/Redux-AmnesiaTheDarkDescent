@@ -163,7 +163,6 @@ namespace hpl {
 		//////////////////////////////
 		//Sky box
 		mpSkyBoxVtxBuffer = mpGraphics->GetMeshCreator()->CreateSkyBoxVertexBuffer(1);
-		mpSkyBoxTexture = NULL;
 		mbAutoDestroySkybox = false;
 		mbSkyBoxActive = false;
 		mSkyBoxColor = cColor(1,1);
@@ -186,10 +185,6 @@ namespace hpl {
 	cWorld::~cWorld()
 	{
 		if(mpSkyBoxVtxBuffer) hplDelete(mpSkyBoxVtxBuffer);
-		if(mpSkyBoxTexture && mbAutoDestroySkybox)
-		{
-			mpResources->GetTextureManager()->Destroy(mpSkyBoxTexture);
-		}
 		if(mpSkyBoxImage && mbAutoDestroySkybox)
 		{
 			mpResources->GetTextureManager()->Destroy(mpSkyBoxImage);
@@ -478,22 +473,6 @@ namespace hpl {
 	}
 
 	//-----------------------------------------------------------------------
-
-	void cWorld::SetSkyBox(iTexture *apTexture, bool abAutoDestroy)
-	{
-		if(mpSkyBoxTexture && mbAutoDestroySkybox)
-		{
-			mpResources->GetTextureManager()->Destroy(mpSkyBoxTexture);
-		}
-
-		mbAutoDestroySkybox = abAutoDestroy;
-		mpSkyBoxTexture = apTexture;
-		if(mpSkyBoxTexture)
-		{
-			mpSkyBoxTexture->SetWrapS(eTextureWrap_ClampToEdge);
-			mpSkyBoxTexture->SetWrapT(eTextureWrap_ClampToEdge);
-		}
-	}
 
 	void cWorld::SetSkyBox(Image *apImage, bool abAutoDestroy)
 	{

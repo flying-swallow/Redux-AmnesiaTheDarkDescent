@@ -83,19 +83,6 @@ namespace hpl {
 		m_mtxUV = cMatrixf::Identity;
 		mbHasUvAnimation = false;
 
-		////////////////////////
-		// Set up variables
-		for(int i=0;i<eMaterialTexture_LastEnum; ++i) 
-		{
-			mvTextures[i] = NULL;
-		}
-		for(int i=0; i<eMaterialRenderMode_LastEnum;++i)
-		for(int j=0; j<kMaxTextureUnits; ++j)
-		{
-			mvTextureInUnit[i][j] = NULL;
-		}
-		
-
 		///////////////////////
 		//Set up depending in type
 		if(mpType->IsTranslucent())
@@ -116,15 +103,8 @@ namespace hpl {
 	{
 		if(mpVars) hplDelete(mpVars);
 
-		////////////////////////
-		// Destroy all textures
-		if(mbAutoDestroyTextures)
-		{
-			for(int i=0;i<eMaterialTexture_LastEnum; ++i) 
-			{
-				if(mvTextures[i]) mpResources->GetTextureManager()->Destroy(mvTextures[i]);
-			}
-		}
+		// Texture images own their own lifecycle via ImageResourceWrapper (m_image),
+		// which honors mbAutoDestroyTextures captured at SetImage time.
 	}
 
 	//-----------------------------------------------------------------------
@@ -158,34 +138,12 @@ namespace hpl {
 		}
 
 		///////////////////
-		// Compile texture lookup
-		for(int i=0;i<eMaterialRenderMode_LastEnum; ++i) 
-			for(int j=0; j<kMaxTextureUnits; ++j)
-			{
-				mvTextureInUnit[i][j] = mpType->GetTextureForUnit(this, (eMaterialRenderMode)i, j);
-			}
-		
-		///////////////////
 		// Type specifics
 		mpType->CompileMaterialSpecifics(this);
 	}
 	
 	//-----------------------------------------------------------------------
 	
-	void cMaterial::SetTexture(eMaterialTexture aType, iTexture *apTexture)
-	{
-		mvTextures[aType] = apTexture;
-	}
-
-	//-----------------------------------------------------------------------
-
-	iTexture *cMaterial::GetTexture(eMaterialTexture aType)
-	{
-		return mvTextures[aType];
-	}
-
-	//-----------------------------------------------------------------------
-
 	void cMaterial::SetImage(eMaterialTexture aType, Image* apImage)
 	{
 		m_image[aType] = ImageResourceWrapper(mpResources->GetTextureManager(), apImage, mbAutoDestroyTextures);

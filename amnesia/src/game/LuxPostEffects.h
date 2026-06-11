@@ -61,7 +61,7 @@ private:
 
 	hpl::RIProgram m_program;
 	// Vulkan-bindless port: textures load through cTextureManager::Create2DImage
-	// (HPLTexture-backed) instead of the legacy iTexture* GL path that crashed
+	// (cTexture-backed) instead of the legacy iTexture* GL path that crashed
 	// in cSDLTexture::CopyTextureDataToGL with no GL context.
 	std::vector<Image*> mvAmpMaps;
 	Image* mpZoomMap;

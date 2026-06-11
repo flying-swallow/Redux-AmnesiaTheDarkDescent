@@ -32,7 +32,7 @@
 namespace hpl {
 
 	class cMaterial;
-	class iVertexBuffer;
+	class cVertexBuffer;
 	class cBoundingVolume;
 	class cFrustum;
 	class iLight;
@@ -57,7 +57,7 @@ namespace hpl {
 		uint64_t GetUniqueCookie() const { return mUniqueCookie; }
 
 		virtual cMaterial *GetMaterial()=0;
-		virtual iVertexBuffer* GetVertexBuffer()=0;
+		virtual cVertexBuffer* GetVertexBuffer()=0;
 
 		virtual bool CollidesWithBV(cBoundingVolume *apBV);
 		virtual bool CollidesWithFrustum(cFrustum *apFrustum);

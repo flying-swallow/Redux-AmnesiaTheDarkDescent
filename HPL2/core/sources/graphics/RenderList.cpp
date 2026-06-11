@@ -80,8 +80,8 @@ namespace hpl {
         //////////////////////////
         // If alpha, sort by texture (we know alpha is same for both materials, so can just test one)
         if (pMatA->GetAlphaMode() == eMaterialAlphaMode_Trans) {
-            if (pMatA->GetTexture(eMaterialTexture_Diffuse) != pMatB->GetTexture(eMaterialTexture_Diffuse)) {
-                return pMatA->GetTexture(eMaterialTexture_Diffuse) < pMatB->GetTexture(eMaterialTexture_Diffuse);
+            if (pMatA->GetImage(eMaterialTexture_Diffuse) != pMatB->GetImage(eMaterialTexture_Diffuse)) {
+                return pMatA->GetImage(eMaterialTexture_Diffuse) < pMatB->GetImage(eMaterialTexture_Diffuse);
             }
         }
 
@@ -116,8 +116,8 @@ namespace hpl {
         cMaterial* pMatA = apObjectA->GetMaterial();
         cMaterial* pMatB = apObjectB->GetMaterial();
 
-        if (pMatA->GetTexture(eMaterialTexture_Illumination) != pMatB->GetTexture(eMaterialTexture_Illumination)) {
-            return pMatA->GetTexture(eMaterialTexture_Illumination) < pMatB->GetTexture(eMaterialTexture_Illumination);
+        if (pMatA->GetImage(eMaterialTexture_Illumination) != pMatB->GetImage(eMaterialTexture_Illumination)) {
+            return pMatA->GetImage(eMaterialTexture_Illumination) < pMatB->GetImage(eMaterialTexture_Illumination);
         }
 
         if (apObjectA->GetModelMatrixPtr() != apObjectB->GetModelMatrixPtr()) {
@@ -131,8 +131,8 @@ namespace hpl {
         cMaterial* pMatA = apObjectA->GetMaterial();
         cMaterial* pMatB = apObjectB->GetMaterial();
 
-        if (pMatA->GetTexture(eMaterialTexture_Illumination) != pMatB->GetTexture(eMaterialTexture_Illumination)) {
-            return pMatA->GetTexture(eMaterialTexture_Illumination) < pMatB->GetTexture(eMaterialTexture_Illumination);
+        if (pMatA->GetImage(eMaterialTexture_Illumination) != pMatB->GetImage(eMaterialTexture_Illumination)) {
+            return pMatA->GetImage(eMaterialTexture_Illumination) < pMatB->GetImage(eMaterialTexture_Illumination);
         }
 
         if (apObjectA->GetModelMatrixPtr() != apObjectB->GetModelMatrixPtr()) {

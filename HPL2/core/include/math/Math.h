@@ -34,7 +34,7 @@ namespace hpl {
 	//---------------------------------------------
 
 	class cFrustum;
-	class iVertexBuffer;
+	class cVertexBuffer;
 
 	//---------------------------------------------
 	
@@ -915,7 +915,7 @@ namespace hpl {
 		* Checks intersection between line and a mesh. For speed reasons the matrix is INVERSE!
 		*/
 		static bool CheckLineTriVertexBufferIntersection(	const cVector3f& avLineStart, const cVector3f& avLineEnd,
-															const cMatrixf& a_mtxInvMeshMtx, iVertexBuffer *apVtxBuffer,
+															const cMatrixf& a_mtxInvMeshMtx, cVertexBuffer *apVtxBuffer,
 															cVector3f *apIntersectionPos, float *apT, int *apTriIndex, bool abSkipBackfacing=true);
 
 		//////////////////////////////////////////////////////

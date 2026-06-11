@@ -69,50 +69,6 @@ namespace hpl {
 
 	cMaterialType_Water::~cMaterialType_Water() {}
 
-	iTexture* cMaterialType_Water::GetTextureForUnit(cMaterial *apMaterial,eMaterialRenderMode aRenderMode, int alUnit)
-	{
-		////////////////////////////
-		// Z
-		if(aRenderMode == eMaterialRenderMode_Z)
-		{
-			switch(alUnit)
-			{
-			case 0: return apMaterial->GetTexture(eMaterialTexture_Diffuse);
-			}
-		}
-		////////////////////////////
-		// Diffuse
-		else if(aRenderMode == eMaterialRenderMode_Diffuse || aRenderMode == eMaterialRenderMode_DiffuseFog)
-		{
-			cMaterialType_Water_Vars *pVars = static_cast<cMaterialType_Water_Vars*>(apMaterial->GetVars());
-
-			switch(alUnit)
-			{
-			case 0: return apMaterial->GetTexture(eMaterialTexture_Diffuse);
-			case 1: return apMaterial->GetTexture(eMaterialTexture_NMap);
-			case 2: 
-					if(iRenderer::GetRefractionEnabled())
-						return mpGraphics->GetRenderer(eRenderer_Main)->GetRefractionTexture();
-					else
-						return NULL;
-			case 3: 
-					if(iRenderer::GetRefractionEnabled())
-					{
-						if(apMaterial->GetTexture(eMaterialTexture_CubeMap))
-							return apMaterial->GetTexture(eMaterialTexture_CubeMap);
-						else
-							return mpGraphics->GetRenderer(eRenderer_Main)->GetReflectionTexture();
-					}
-					else
-					{
-						return NULL;
-					}
-			}
-		}
-
-		return NULL;
-	}
-
 	iMaterialVars* cMaterialType_Water::CreateSpecificVariables()
 	{
 		cMaterialType_Water_Vars* pVars = hplNew(cMaterialType_Water_Vars,());
@@ -196,7 +152,7 @@ namespace hpl {
 		// Set up reflection
 		if(pVars->mbHasReflection && iRenderer::GetRefractionEnabled())
 		{
-			if(apMaterial->GetTexture(eMaterialTexture_CubeMap)==NULL)
+			if(apMaterial->GetImage(eMaterialTexture_CubeMap)==NULL)
 			{
 				apMaterial->SetHasWorldReflection(true);
 			}

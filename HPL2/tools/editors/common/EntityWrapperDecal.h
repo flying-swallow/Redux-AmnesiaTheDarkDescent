@@ -213,7 +213,7 @@ public:
 	 * Sets up the engine decal creator state for creation and returns a non null value if a decal vertex buffer is output
 	 * \return 
 	 */
-	static iVertexBuffer* BuildDecalVertexBuffer(cWorld* apWorld, cDecalCreator* apCreator,
+	static cVertexBuffer* BuildDecalVertexBuffer(cWorld* apWorld, cDecalCreator* apCreator,
 											const cVector3f& avPos, const cVector3f& avSize, float afOffset, 
 											const cVector3f& avRight, const cVector3f& avUp, const cVector3f& avFwd,
 											const tString& asMaterial, const cColor& aCol,

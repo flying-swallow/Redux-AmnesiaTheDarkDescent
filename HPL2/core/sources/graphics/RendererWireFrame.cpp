@@ -33,11 +33,11 @@
 #include "graphics/RIPogoBuffer.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
-#include "graphics/VertexBuffer_RI.h"
+#include "graphics/VertexBuffer.h"
 
 #include "resources/Resources.h"
 
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 
 #include "scene/ParticleEmitter.h"
 #include "scene/Viewport.h"
@@ -154,10 +154,10 @@ namespace hpl {
 					pObject->UpdateGraphicsForViewport(apFrustum, afFrameTime);
 				}
 
-				iVertexBuffer *pVB = pObject->GetVertexBuffer();
+				cVertexBuffer *pVB = pObject->GetVertexBuffer();
 				if(pVB == NULL) continue;
 
-				auto *vbri = static_cast<VertexBuffer_RI*>(pVB);
+				auto *vbri = static_cast<cVertexBuffer*>(pVB);
 				vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
 				vbri->AttachResourceToCntx(cntx);
 			}
@@ -190,7 +190,7 @@ namespace hpl {
 		// discarded, we clear) and depth UNDEFINED -> DEPTH_ATTACHMENT
 		// (cleared via loadOp).
 		{
-			RITextureBarrier_s barriers[2] = {};
+			RITextureBarrier barriers[2] = {};
 			barriers[0] = RI_PogoAttachmentBarrier(
 				&state.renderTarget[RI.swapchainIndex], /*initial=*/true);
 
@@ -360,7 +360,7 @@ namespace hpl {
 					binding.handle = DescriptorBindingID::Create("pass");
 					m_wireframe.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, &binding, 1);
 
-					RIBuffer_s *vertBufs[1] = { &RI.translucentVtxBuffer };
+					RIBuffer *vertBufs[1] = { &RI.translucentVtxBuffer };
 					const VkDeviceSize vertOffsets[1] = { (VkDeviceSize)geom.posByteOffset };
 					RI.primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
 					RI.primary.cmds[0].bindIndexBuffer(&RI.translucentIdxBuffer,
@@ -370,10 +370,10 @@ namespace hpl {
 					continue;
 				}
 
-				iVertexBuffer *pVB = pObject->GetVertexBuffer();
+				cVertexBuffer *pVB = pObject->GetVertexBuffer();
 				if(pVB == NULL) continue;
 
-				auto *vbri = static_cast<VertexBuffer_RI*>(pVB);
+				auto *vbri = static_cast<cVertexBuffer*>(pVB);
 				const auto *posElement = vbri->GetElement(eVertexBufferElement_Position);
 				const auto &indexBuffer = vbri->GetIndexRIBuffer();
 				const int indexCount = vbri->GetIndexNum();
@@ -397,7 +397,7 @@ namespace hpl {
 				binding.handle = DescriptorBindingID::Create("pass");
 				m_wireframe.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, &binding, 1);
 
-				RIBuffer_s *vertBufs[1] = { posElement->buffer.get() };
+				RIBuffer *vertBufs[1] = { posElement->buffer.get() };
 				const VkDeviceSize vertOffsets[1] = { 0 };
 				RI.primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
 				RI.primary.cmds[0].bindIndexBuffer(indexBuffer.get(), 0, VK_INDEX_TYPE_UINT32);

@@ -24,7 +24,6 @@
 #include "system/String.h"
 #include "graphics/Graphics.h"
 #include "resources/Resources.h"
-#include "graphics/Texture.h"
 #include "graphics/LowLevelGraphics.h"
 #include "resources/LowLevelResources.h"
 #include "system/LowLevelSystem.h"
@@ -33,7 +32,7 @@
 #include "resources/BitmapLoaderHandler.h"
 
 #include "graphics/Image.h"
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 
 
 namespace hpl {
@@ -58,7 +57,6 @@ namespace hpl {
 
 	cTextureManager::~cTextureManager()
 	{
-		STLMapDeleteAll(m_mapAttenuationTextures);
 		DestroyAll();
 		Log(" Destroyed all textures\n");
 	}
@@ -133,10 +131,10 @@ namespace hpl {
 						unsigned int alTextureSizeLevel, bool abSRGB) {
 		return _wrapperImageResource(asName, [&abUseMipMaps, &abSRGB, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
 				Image::SingleImage singleImage = {};
-				hpl::HPLTexture::BitmapLoadOptions opts = {0};
+				hpl::cTexture::BitmapLoadOptions opts = {0};
 				opts.use_mipmaps = abUseMipMaps;
 				opts.sRGB = abSRGB;
-				singleImage.image = std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete);
+				singleImage.image = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
 				if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *pBmp, opts)) {
 					Error("Texture manager Couldn't load bitmap '%s'\n", cString::To8Char(path).c_str());
 					return NULL;
@@ -150,15 +148,15 @@ namespace hpl {
 						eTextureUsage aUsage,unsigned int alTextureSizeLevel, bool abSRGB) {
 		return _wrapperImageResource(asName, [&abUseMipMaps, &abSRGB, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
 				Image::SingleImage singleImage = {};
-				HPLTexture::BitmapLoadOptions opts = {0};
+				cTexture::BitmapLoadOptions opts = {0};
 				opts.use_mipmaps = abUseMipMaps;
 				opts.sRGB = abSRGB;
-				singleImage.image = std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete);
+				singleImage.image = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
 				if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *pBmp, opts)) {
 					Error("Texture manager Couldn't load bitmap '%s'\n", cString::To8Char(path).c_str());
 					return NULL;
 				}
-				return new Image(asName, path, std::move(singleImage));//, &HPLTexture::HPLTexture_Delete);
+				return new Image(asName, path, std::move(singleImage));//, &cTexture::cTexture_Delete);
 		});
 	}
 
@@ -166,15 +164,15 @@ namespace hpl {
 						unsigned int alTextureSizeLevel, bool abSRGB){
 		return _wrapperImageResource(asName, [&abUseMipMaps, &abSRGB, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
 				Image::SingleImage singleImage = {};
-				HPLTexture::BitmapLoadOptions opts = {0};
+				cTexture::BitmapLoadOptions opts = {0};
 				opts.use_mipmaps = abUseMipMaps;
 				opts.sRGB = abSRGB;
-				singleImage.image =  std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete);
+				singleImage.image =  std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
 				if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *pBmp, opts)) {
 					Error("Texture manager Couldn't load bitmap '%s'\n", cString::To8Char(path).c_str());
 					return NULL;
 				}
-				return new Image(asName, path, std::move(singleImage));//, &HPLTexture::HPLTexture_Delete);
+				return new Image(asName, path, std::move(singleImage));//, &cTexture::cTexture_Delete);
 		});
 	}
 
@@ -189,11 +187,11 @@ namespace hpl {
 			return _wrapperImageResource(asPathName,
 				[&abUseMipMaps, &abSRGB](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
 					Image::SingleImage singleImage = {};
-					HPLTexture::BitmapLoadOptions opts = {0};
+					cTexture::BitmapLoadOptions opts = {0};
 					opts.use_mipmaps = abUseMipMaps;
 					opts.use_cubemap = true;
 					opts.sRGB = abSRGB;
-					singleImage.image = std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete);
+					singleImage.image = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
 					if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *pBmp, opts)) {
 						Error("Texture manager Couldn't load cubemap '%s'\n", cString::To8Char(path).c_str());
 						return nullptr;
@@ -249,7 +247,7 @@ namespace hpl {
 			}
 
 			// Aggregate the 6 face bitmaps into a single cBitmap with 6 images so that
-			// HPLTexture::LoadBitmap (use_cubemap = true) sees the expected layout.
+			// cTexture::LoadBitmap (use_cubemap = true) sees the expected layout.
 			cBitmap aggregate;
 			aggregate.SetSize(vBitmaps[0]->GetSize());
 			aggregate.SetPixelFormat(vBitmaps[0]->GetPixelFormat());
@@ -269,11 +267,11 @@ namespace hpl {
 			}
 
 			Image::SingleImage singleImage = {};
-			HPLTexture::BitmapLoadOptions opts = {0};
+			cTexture::BitmapLoadOptions opts = {0};
 			opts.use_mipmaps = abUseMipMaps;
 			opts.use_cubemap = true;
 			opts.sRGB = abSRGB;
-			singleImage.image = std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete);
+			singleImage.image = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
 
 			bool ok = singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, aggregate, opts);
 
@@ -384,11 +382,11 @@ namespace hpl {
 			bool ok = true;
 			for(cBitmap* pBmp : vBitmaps)
 			{
-				HPLTexture::BitmapLoadOptions opts = {0};
+				cTexture::BitmapLoadOptions opts = {0};
 				opts.use_mipmaps = abUseMipMaps;
 				opts.use_cubemap = (aType == eTextureType_CubeMap);
 				opts.sRGB = abSRGB;
-				auto tex = std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete);
+				auto tex = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
 				if(!tex->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *pBmp, opts))
 				{
 					Error("Couldn't load animation frame for '%s'!\n", sBaseName.c_str());
@@ -414,249 +412,6 @@ namespace hpl {
 		if(image) image->IncUserCount();
 		EndLoad();
 		return image;
-	}
-
-	iTexture* cTextureManager::Create1D(const tString& asName,bool abUseMipMaps,
-										eTextureUsage aUsage, unsigned int alTextureSizeLevel)
-	{
-		return CreateSimpleTexture(asName,abUseMipMaps,aUsage, eTextureType_1D,alTextureSizeLevel);
-	}
-
-	//-----------------------------------------------------------------------
-
-	iTexture* cTextureManager::Create2D(const tString& asName,bool abUseMipMaps, eTextureType aType,
-										eTextureUsage aUsage, unsigned int alTextureSizeLevel)
-	{
-		return CreateSimpleTexture(asName,abUseMipMaps,aUsage, aType,alTextureSizeLevel);
-	}
-
-	//-----------------------------------------------------------------------
-
-	iTexture* cTextureManager::Create3D(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage,
-										unsigned int alTextureSizeLevel)
-	{
-		return CreateSimpleTexture(asName,abUseMipMaps,aUsage, eTextureType_3D,alTextureSizeLevel);
-	}
-
-	//-----------------------------------------------------------------------
-
-	iTexture* cTextureManager::CreateAnim(const tString& asFirstFrameName,bool abUseMipMaps,eTextureType aType,
-											eTextureUsage aUsage, unsigned int alTextureSizeLevel)
-	{
-		BeginLoad(asFirstFrameName);
-		
-		///////////////////////////
-		//Check the base name
-		int lPos = cString::GetFirstStringPos(asFirstFrameName, "01");
-		if(lPos <0)
-		{
-			Error("First frame of animation '%s' must contain '01'!\n", asFirstFrameName.c_str());
-			return NULL;
-		}
-
-		//Remove 01 in the string
-		tString sSub1 = cString::Sub(asFirstFrameName, 0,lPos);
-		tString sSub2 = cString::Sub(asFirstFrameName, lPos+2);
-		tString sBaseName = sSub1 + sSub2;
-
-		if(sSub2.size()==0 || sSub2[0]!='.')
-		{
-			Error("First frame of animation '%s' must contain '01' before extension!\n", asFirstFrameName.c_str());
-			return NULL;
-		}
-
-		///////////////////////////
-		//Check if texture exists
-		
-		//Create a fake full path.
-		tWString sFirstFramePath = mpFileSearcher->GetFilePath(asFirstFrameName);
-		if(sFirstFramePath == _W(""))
-		{
-			Error("First frame of animation '%s' could not be found!\n", asFirstFrameName.c_str());
-			return NULL;
-		}
-		tWString sFakeFullPath = cString::GetFilePathW(sFirstFramePath) + cString::To16Char(cString::GetFileName(sBaseName));
-		
-        iTexture* pTexture = static_cast<iTexture*>(GetResource(sFakeFullPath));
-		
-		///////////////////////////
-		//Check if texture exists
-		if(pTexture==NULL)
-		{
-			tString sFileExt = cString::GetFileExt(sBaseName);
-			tString sFileName = cString::SetFileExt(cString::GetFileName(sBaseName),"");
-
-			tStringVec mvFileNames;
-
-			tString sTest = sFileName + "01."+sFileExt;
-			int lNum = 2;
-			tWStringVec vPaths;
-
-			while(true)
-			{
-				tWString sPath = mpFileSearcher->GetFilePath(sTest);
-                
-				if(sPath == _W(""))
-				{
-					break;
-				}
-				else
-				{
-					vPaths.push_back(sPath);
-					if(lNum<10)
-						sTest = sFileName + "0"+cString::ToString(lNum)+"."+sFileExt;
-					else
-						sTest = sFileName + cString::ToString(lNum)+"."+sFileExt;
-					
-					++lNum;
-				}
-			}
-
-			if(vPaths.empty()) 
-			{
-				Error("No textures found for animation %s\n",sBaseName.c_str());
-				EndLoad();
-				return NULL;
-			}
-			
-			std::vector<cBitmap*> vBitmaps;
-			for(size_t i =0; i< vPaths.size(); ++i)
-			{
-				cBitmap* pBmp = mpBitmapLoaderHandler->LoadBitmap(vPaths[i],0);
-				if(pBmp==NULL){
-					Error("Couldn't load bitmap '%s'!\n",cString::To8Char(vPaths[i]).c_str());
-					
-					for(int j=0;j<(int)vBitmaps.size();j++) hplDelete(vBitmaps[j]);
-					
-					EndLoad();
-					return NULL;
-				}
-
-				vBitmaps.push_back(pBmp);
-			}
-			
-			//Create the animated texture
-			pTexture = mpGraphics->GetLowLevel()->CreateTexture(sBaseName, aType, aUsage);
-			pTexture->SetFullPath(sFakeFullPath);
-			
-			pTexture->SetSizeDownScaleLevel(alTextureSizeLevel);
-
-			if(pTexture->CreateAnimFromBitmapVec(&vBitmaps)==false)
-			{
-				Error("Couldn't create animated texture '%s'!\n", sBaseName.c_str());
-				hplDelete(pTexture);
-				for(int j=0;j<(int)vBitmaps.size();j++) hplDelete(vBitmaps[j]);
-				EndLoad();
-				return NULL;
-			}
-
-			//Bitmaps no longer needed.
-			for(int j=0;j<(int)vBitmaps.size();j++) hplDelete(vBitmaps[j]);
-
-			AddResource(pTexture);
-		}
-
-		if(pTexture)pTexture->IncUserCount();
-		else Error("Couldn't texture '%s'\n",asFirstFrameName.c_str());
-		
-		EndLoad();
-		return pTexture;
-	}
-
-	//-----------------------------------------------------------------------
-	
-	iTexture* cTextureManager::CreateCubeMap(const tString& asPathName,bool abUseMipMaps,
-											eTextureUsage aUsage,
-											unsigned int alTextureSizeLevel)
-	{
-		tString sExt = cString::ToLowerCase(cString::GetFileExt(asPathName));
-
-		/////////////////////////////////////////////////////////
-		// Load Cubemap from single file
-		if(sExt == "dds")
-		{
-			return CreateSimpleTexture(asPathName,abUseMipMaps,aUsage,eTextureType_CubeMap,alTextureSizeLevel);	
-		}
-		/////////////////////////////////////////////////////////
-		// Load Cubemap from multiple files
-		else
-		{
-			tString sName = cString::SetFileExt(asPathName,"");
-
-			tWString sFakeFullPath = cString::To16Char(sName);
-			iTexture* pTexture = static_cast<iTexture*>(GetResource(sFakeFullPath));
-
-			BeginLoad(asPathName);
-					
-			if(pTexture==NULL)
-			{
-				//See if files for all faces exist
-				tWStringVec vPaths;
-				tWString sPath=_W("");
-				for(int i=0;i <6 ;i++)
-				{
-					tStringVec *apFileFormatsVec = mpBitmapLoaderHandler->GetSupportedTypes();
-					for(tStringVecIt it = apFileFormatsVec->begin();it!=apFileFormatsVec->end();++it)
-					{
-						tString sNewName = sName + mvCubeSideSuffixes[i] + "." + *it;
-						sPath = mpFileSearcher->GetFilePath(sNewName);
-		               
-						if(sPath!=_W(""))break;
-					}
-					
-					if(sPath==_W(""))
-					{
-						tString sNewName = sName + mvCubeSideSuffixes[i];
-						Error("Couldn't find %d-face '%s', for cubemap '%s' in path: '%s'\n",i,sNewName.c_str(),sName.c_str(), asPathName.c_str());
-						return NULL;
-					}
-
-					vPaths.push_back(sPath);
-				}
-				
-				//Load bitmaps for all faces
-				std::vector<cBitmap*> vBitmaps;
-				for(int i=0;i<6; i++)
-				{
-					cBitmap* pBmp = mpBitmapLoaderHandler->LoadBitmap(vPaths[i],0);
-					if(pBmp==NULL){
-						Error("Couldn't load bitmap '%s'!\n",cString::To8Char(vPaths[i]).c_str());
-						for(int j=0;j<(int)vBitmaps.size();j++) hplDelete(vBitmaps[j]);
-						EndLoad();
-						return NULL;
-					}
-					
-					vBitmaps.push_back(pBmp);
-				}
-
-				//Create the cubemap
-				pTexture = mpGraphics->GetLowLevel()->CreateTexture(sName,eTextureType_CubeMap, aUsage);
-				pTexture->SetFullPath(sFakeFullPath);
-				
-				pTexture->SetUseMipMaps(abUseMipMaps);
-				pTexture->SetSizeDownScaleLevel(alTextureSizeLevel);
-
-				if(pTexture->CreateCubeFromBitmapVec(&vBitmaps)==false)
-				{
-					Error("Couldn't create cubemap '%s'!\n", sName.c_str());
-					hplDelete(pTexture);
-					for(int j=0;j<(int)vBitmaps.size();j++) hplDelete(vBitmaps[j]);
-					EndLoad();
-					return NULL;
-				}
-
-				//Bitmaps no longer needed.
-				for(int j=0;j<(int)vBitmaps.size();j++)	hplDelete(vBitmaps[j]);
-
-				AddResource(pTexture);
-			}
-
-			if(pTexture)pTexture->IncUserCount();
-			else Error("Couldn't texture '%s'\n",sName.c_str());
-			
-			EndLoad();
-			return pTexture;
-		}
 	}
 
 	//-----------------------------------------------------------------------
@@ -686,9 +441,8 @@ namespace hpl {
 
 	void cTextureManager::Update(float afTimeStep)
 	{
-		// Only Create*Image-produced resources advance animation here; legacy
-		// iTexture* entries live in m_mapResources but not in m_imageResources,
-		// so they are correctly skipped.
+		// Only Create*Image-produced resources (tracked in m_imageResources)
+		// advance animation here.
 		for(iResourceBase* pBase : m_imageResources)
 		{
 			static_cast<Image*>(pBase)->Update(afTimeStep);
@@ -704,99 +458,6 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	iTexture* cTextureManager::CreateSimpleTexture(	const tString& asName,bool abUseMipMaps, 
-													eTextureUsage aUsage, eTextureType aType,
-													unsigned int alTextureSizeLevel)
-	{
-		tWString sPath;
-		iTexture* pTexture;
-		
-		BeginLoad(asName);
-
-		pTexture = FindTexture2D(asName,sPath);
-
-		if(pTexture==NULL && sPath!=_W(""))
-		{
-			//Load the bitmap
-			cBitmap *pBmp;
-			pBmp = mpBitmapLoaderHandler->LoadBitmap(sPath,0);
-			if(pBmp==NULL)
-			{
-				Error("Texture manager Couldn't load bitmap '%s'\n", cString::To8Char(sPath).c_str());
-				EndLoad();
-				return NULL;
-			}
-
-			//Create the texture and load from bitmap
-			pTexture = mpGraphics->GetLowLevel()->CreateTexture(asName,aType,aUsage);
-			pTexture->SetFullPath(sPath);
-			
-			pTexture->SetUseMipMaps(abUseMipMaps);
-			pTexture->SetSizeDownScaleLevel(alTextureSizeLevel);
-			
-			if(pTexture->CreateFromBitmap(pBmp)==false)
-			{
-				hplDelete(pTexture);
-				hplDelete(pBmp);
-				EndLoad();
-				return NULL;
-			}
-
-			//Bitmap is no longer needed so delete it.
-			hplDelete(pBmp);
-
-			AddResource(pTexture);
-		}
-
-		if(pTexture)pTexture->IncUserCount();
-		else Error("Couldn't texture '%s'\n",asName.c_str());
-		
-		EndLoad();
-		return pTexture;
-	}
-
-	//-----------------------------------------------------------------------
-	
-	iTexture* cTextureManager::FindTexture2D(const tString &asName, tWString &asFilePath)
-	{
-		iTexture *pTexture=NULL;
-
-		if(cString::GetFileExt(asName)=="")
-		{
-			int lMaxCount =-1;
-
-			///////////////////////
-			//Iterate the different formats
-			tStringVec *apFileFormatsVec = mpBitmapLoaderHandler->GetSupportedTypes();
-			for(tStringVecIt it = apFileFormatsVec->begin();it!= apFileFormatsVec->end();++it)
-			{
-				tWString sTempPath = _W("");
-				iTexture *pTempTex=NULL;
-				int lCount=0;
-
-				tString sNewName = cString::SetFileExt(asName,*it);
-				pTempTex = static_cast<iTexture*> (FindLoadedResource(sNewName, sTempPath, &lCount));
-
-				///////////////////////
-				//Check if the image exists and then check if it has the hightest equal count.
-				if((pTempTex==NULL && sTempPath!=_W("")) || pTempTex!=NULL)
-				{
-					if(lCount > lMaxCount)
-					{
-						lMaxCount = lCount;
-						asFilePath = sTempPath;
-						pTexture = pTempTex;
-					}
-				}
-			}
-		}
-		else
-		{
-			pTexture = static_cast<iTexture*> (FindLoadedResource(asName, asFilePath));
-		}
-
-		return pTexture;
-	}
 
 
 	//-----------------------------------------------------------------------

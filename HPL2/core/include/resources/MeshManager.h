@@ -29,7 +29,7 @@ namespace hpl {
 	class cGraphics;
 	class cResources;
 	class cMesh;
-	class iVertexBuffer;
+	class cVertexBuffer;
 
 	class cMeshManager : public iResourceManager
 	{
@@ -42,7 +42,7 @@ namespace hpl {
 		/**
 		 * Loads only the vertex buffer from the first submesh. Vertexbuffer must be deleted!
 		 */
-		iVertexBuffer* CreateVertexBufferFromMesh(const tString& asName, tVertexElementFlag alVtxToCopy);
+		cVertexBuffer* CreateVertexBufferFromMesh(const tString& asName, tVertexElementFlag alVtxToCopy);
 	
 		void Destroy(iResourceBase* apResource);
 		void Unload(iResourceBase* apResource);

@@ -75,6 +75,17 @@ namespace hpl {
 	static bool gbLog = false;
 	static bool gbLogTiming = true;
 
+	// A vertex buffer is usable in the static-mesh combine only if it actually
+	// advertises a position stream. CreateCopy() selects elements by the source's
+	// flag bits, so a buffer whose position flag is unset (even if a stale
+	// position element lingers) yields a copy with no position element and makes
+	// GetVertexNum() assert. Mirror the guard already in
+	// cVertexBuffer::CreateBoundingVolume().
+	static inline bool HasPositionStream(cVertexBuffer *apVtxBuffer)
+	{
+		return apVtxBuffer && (apVtxBuffer->GetVertexElementFlags() & eVertexElementFlag_Position);
+	}
+
 	#define kEncryptKey 0x4E5F16F0
 
 	//-----------------------------------------------------------------------
@@ -378,7 +389,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void* GetVertexBufferWithFormat(iVertexBuffer *apVtxBuffer, eVertexBufferElement aElement, eVertexBufferElementFormat aFormat)
+	static void* GetVertexBufferWithFormat(cVertexBuffer *apVtxBuffer, eVertexBufferElement aElement, eVertexBufferElementFormat aFormat)
 	{
 		switch(aFormat)
 		{
@@ -580,7 +591,7 @@ namespace hpl {
 			
 			////////////////////
 			// Vertex data
-			iVertexBuffer* pVtxBuff = mpGraphics->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri,
+			cVertexBuffer* pVtxBuff = mpGraphics->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri,
 																					eVertexBufferUsageType_Static, 0, 0);
 			{
 				int lVtxNum = binBuff.GetInt32();
@@ -772,7 +783,7 @@ namespace hpl {
 			cMeshEntity *pEntity = *it;
 			cSubMeshEntity *pSubEnt = pEntity->GetSubMeshEntity(0);
 			cSubMesh *pSubMesh = pSubEnt->GetSubMesh();
-			iVertexBuffer *pVtxBuff = pSubMesh->GetVertexBuffer();
+			cVertexBuffer *pVtxBuff = pSubMesh->GetVertexBuffer();
 
 			////////////////////////////
 			//Add variables
@@ -1330,7 +1341,15 @@ namespace hpl {
 			if(pUserData->mbVisible==false) continue;
 
 			//Check add the vertex num and index num from vertex buffer
-			iVertexBuffer *pVtxBuffer = avObjects[i]->GetVertexBuffer();
+			cVertexBuffer *pVtxBuffer = avObjects[i]->GetVertexBuffer();
+
+			//Discard objects whose vertex buffer has no position stream — they
+			//would produce a position-less CreateCopy() below and assert.
+			if(HasPositionStream(pVtxBuffer)==false)
+			{
+				Warning("Static object '%s' has no position vertex stream — discarding from combined mesh\n", avObjects[i]->GetName().c_str());
+				continue;
+			}
 
 			lTotalVtxAmount += pVtxBuffer->GetVertexNum();
 			lTotalIdxAmount += pVtxBuffer->GetIndexNum();
@@ -1351,7 +1370,7 @@ namespace hpl {
 
 		///////////////////////////////////////////
 		//Create the vertex buffer (skipping color!)
-		iVertexBuffer *pVtxBuffer = mpGraphics->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri,
+		cVertexBuffer *pVtxBuffer = mpGraphics->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri,
 																					eVertexBufferUsageType_Static,lTotalVtxAmount, lTotalIdxAmount);
 
 		//Set up what data arrays to use
@@ -1393,8 +1412,13 @@ namespace hpl {
 
 			/////////////////////////////////////
 			// Create a copy of the vertex buffer and transform it according to object
-			iVertexBuffer *pSubVtxBuffer = pObject->GetVertexBuffer();
-			iVertexBuffer *pTransformedVtxBuffer = pSubVtxBuffer->CreateCopy(	eVertexBufferType_Software, eVertexBufferUsageType_Static,
+			cVertexBuffer *pSubVtxBuffer = pObject->GetVertexBuffer();
+
+			//Skip the same objects discarded in the sizing loop (warned there) so
+			//the buffer fill stays consistent with the allocated size.
+			if(HasPositionStream(pSubVtxBuffer)==false) continue;
+
+			cVertexBuffer *pTransformedVtxBuffer = pSubVtxBuffer->CreateCopy(	eVertexBufferType_Software, eVertexBufferUsageType_Static,
 																				pSubVtxBuffer->GetVertexElementFlags());
 			pTransformedVtxBuffer->Transform(pObject->GetWorldMatrix());
 			
@@ -1479,8 +1503,16 @@ namespace hpl {
 		{
 			if(avObjects[i].mpUserData->mbCollides==false) continue;
 
-			iVertexBuffer *pVtxBuffer = avObjects[i].mpObject->GetVertexBuffer();
-			
+			cVertexBuffer *pVtxBuffer = avObjects[i].mpObject->GetVertexBuffer();
+
+			//Discard objects whose vertex buffer has no position stream (see
+			//HasPositionStream) — a position-less CreateCopy() below would assert.
+			if(HasPositionStream(pVtxBuffer)==false)
+			{
+				Warning("Static physics object '%s' has no position vertex stream — discarding from combined body\n", avObjects[i].mpObject->GetName().c_str());
+				continue;
+			}
+
 			//Do a special debug test and skip highpoly entities, loading the map faster.
             if((mlCurrentFlags & eWorldLoadFlag_FastPhysicsLoad) && pVtxBuffer->GetIndexNum() > lMaxIndices)	continue;
 			
@@ -1503,7 +1535,7 @@ namespace hpl {
 
 		///////////////////////////////////////////
 		//Create the vertex buffer (skipping color!)
-		iVertexBuffer *pVtxBuffer = mpGraphics->GetLowLevel()->CreateVertexBuffer(	eVertexBufferType_Software, eVertexBufferDrawType_Tri,
+		cVertexBuffer *pVtxBuffer = mpGraphics->GetLowLevel()->CreateVertexBuffer(	eVertexBufferType_Software, eVertexBufferDrawType_Tri,
 																					eVertexBufferUsageType_Dynamic,lTotalVtxAmount, lTotalIdxAmount);
 
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float, 4);
@@ -1534,8 +1566,12 @@ namespace hpl {
 
 			////////////////////////
 			//Get vertex copy and transform
-			iVertexBuffer *pSubVtxBuffer = pObject->GetVertexBuffer();
-			iVertexBuffer *pTransformedVtxBuffer = pSubVtxBuffer->CreateCopy(	eVertexBufferType_Software, eVertexBufferUsageType_Static,
+			cVertexBuffer *pSubVtxBuffer = pObject->GetVertexBuffer();
+
+			//Skip the same objects discarded in the sizing loop (warned there).
+			if(HasPositionStream(pSubVtxBuffer)==false) continue;
+
+			cVertexBuffer *pTransformedVtxBuffer = pSubVtxBuffer->CreateCopy(	eVertexBufferType_Software, eVertexBufferUsageType_Static,
 																				eVertexElementFlag_Position);
 			pTransformedVtxBuffer->Transform(pObject->GetWorldMatrix());
 			

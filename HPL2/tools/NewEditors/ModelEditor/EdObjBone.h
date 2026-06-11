@@ -94,7 +94,7 @@ public:
 
 	void CreateLinkToParent();
 
-	iVertexBuffer* GetBoneVB() { return mpVBBone; }
+	cVertexBuffer* GetBoneVB() { return mpVBBone; }
 
 protected:
 	cObjectIcon* CreateIcon();
@@ -104,7 +104,7 @@ protected:
 	cEdObjBone* mpParentBone;
 	tEdBoneVec mvChildBones;
 	
-	iVertexBuffer* mpVBBone;
+	cVertexBuffer* mpVBBone;
 };
 
 //------------------------------------------------------------

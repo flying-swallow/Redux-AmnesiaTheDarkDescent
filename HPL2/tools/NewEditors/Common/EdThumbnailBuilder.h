@@ -57,7 +57,7 @@ public:
 	tString GetThumbnailNameFromFile(const tWString& asFile);
 	tWString GetThumbnailNameFromFileW(const tWString& asFile);
 
-	void VtxBufferAddNormals(const cMatrixf a_mtxTransform, iVertexBuffer *apVtxBuffer, cVector3f &avVecSum, float& afCount);
+	void VtxBufferAddNormals(const cMatrixf a_mtxTransform, cVertexBuffer *apVtxBuffer, cVector3f &avVecSum, float& afCount);
 	void FocusCameraOnEntity(cMeshEntity* apEntity);
 
 	void PreBuild();

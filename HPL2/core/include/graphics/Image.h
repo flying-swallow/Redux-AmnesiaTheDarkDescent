@@ -25,19 +25,19 @@
 #include <cstdint>
 #include <variant>
 
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 
 namespace hpl {
 class cBitmap;
-struct HPLTexture;
+struct cTexture;
 class Image : public iResourceBase {
 public:
   struct SingleImage {
-    std::shared_ptr<HPLTexture> image;
+    std::shared_ptr<cTexture> image;
   };
 
   struct AnimatedImage {
-    std::vector<std::shared_ptr<HPLTexture>> images;
+    std::vector<std::shared_ptr<cTexture>> images;
     float frameTime = 0.0f;
     float timeCount = 0.0f;
     float timeDir = 1.0f;
@@ -70,7 +70,7 @@ public:
   void SetAnimMode(eTextureAnimMode aMode);
 
   cVector2l GetImageSize() const; 
-  std::shared_ptr<HPLTexture> GetTexture() const;
+  std::shared_ptr<cTexture> GetTexture() const;
   void Update(float afTimeStep);
   void SetFrameTime(float frameTime);
   float GetFrameTime() const;

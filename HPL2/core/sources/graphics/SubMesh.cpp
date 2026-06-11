@@ -94,7 +94,7 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
-	void cSubMesh::SetVertexBuffer(iVertexBuffer* apVtxBuffer)
+	void cSubMesh::SetVertexBuffer(cVertexBuffer* apVtxBuffer)
 	{
 		if(mpVtxBuffer == apVtxBuffer) return;
 
@@ -110,7 +110,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	iVertexBuffer* cSubMesh::GetVertexBuffer()
+	cVertexBuffer* cSubMesh::GetVertexBuffer()
 	{
 		return mpVtxBuffer;
 	}

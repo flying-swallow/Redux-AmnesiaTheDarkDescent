@@ -27,7 +27,7 @@
 namespace hpl {
 
 	class cMesh2D;
-	class iVertexBuffer;
+	class cVertexBuffer;
 	class iLowLevelGraphics;
 	class cResources;
 	class cMesh;
@@ -38,7 +38,7 @@ namespace hpl {
 		cMeshCreator(iLowLevelGraphics *apLowLevelGraphics, cResources *apResources);
 		~cMeshCreator();
 
-		iVertexBuffer* CreateWireframeVertexBuffer(iVertexBuffer *apSrc);
+		cVertexBuffer* CreateWireframeVertexBuffer(cVertexBuffer *apSrc);
 		
         cMesh* CreateBox(const tString &asName, cVector3f avSize, const tString &asMaterial);
 
@@ -54,17 +54,17 @@ namespace hpl {
 
 		cMesh* CreateCone(const tString &asName, const cVector2f &avSize, int alSections, const tString &asMaterial);
 		
-		iVertexBuffer* CreateSkyBoxVertexBuffer(float afSize);
-		iVertexBuffer* CreateBoxVertexBuffer(cVector3f avSize);
+		cVertexBuffer* CreateSkyBoxVertexBuffer(float afSize);
+		cVertexBuffer* CreateBoxVertexBuffer(cVector3f avSize);
 
 	private:
 		cVector3f GetBoxTex(int i,int x, int y, int z, cVector3f *vAdd);
 		int GetBoxIdx(int i,int x, int y, int z);
 		
 		void CreateCircumference(float afRadius, float afSectionStep, float afHeight, tVector3fVec& avPositions);
-		void WrapSides(iVertexBuffer* apVtxBuffer, int alStartVertexIdx, int alSections);
-		void WrapUpperCap(iVertexBuffer* apVtxBuffer, int alCenterVertexIdx, int alStartVertexIdx, int alSections);
-		void WrapLowerCap(iVertexBuffer* apVtxBuffer, int alCenterVertexIdx, int alStartVertexIdx, int alSections);
+		void WrapSides(cVertexBuffer* apVtxBuffer, int alStartVertexIdx, int alSections);
+		void WrapUpperCap(cVertexBuffer* apVtxBuffer, int alCenterVertexIdx, int alStartVertexIdx, int alSections);
+		void WrapLowerCap(cVertexBuffer* apVtxBuffer, int alCenterVertexIdx, int alStartVertexIdx, int alSections);
 
 		iLowLevelGraphics *mpLowLevelGraphics;
 		cResources *mpResources;

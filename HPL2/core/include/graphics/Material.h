@@ -37,7 +37,6 @@ namespace hpl {
 	class cGraphics;
 	class cResources;
 	class Image;
-	class iTexture;
 	class iMaterialType;
 	class cResourceVarsObject;
 
@@ -165,11 +164,6 @@ namespace hpl {
 
 		void Compile();
 
-		[[deprecated("use SetImage")]]
-		void SetTexture(eMaterialTexture aType, iTexture *apTexture);
-		[[deprecated("use GetImage")]]
-		iTexture *GetTexture(eMaterialTexture aType);
-
 		// Image* binding API. Storage owns the Image (auto-destroyed when the
 		// material is destroyed), unless SetAutoDestroyTextures(false) was set.
 		void SetImage(eMaterialTexture aType, Image* apImage);
@@ -219,7 +213,6 @@ namespace hpl {
 		void SetAffectedByFog(bool abX){ mbAffectedByFog = abX;}
 		bool GetAffectedByFog(){ return mbAffectedByFog;}
 		
-		inline iTexture* GetTextureInUnit(eMaterialRenderMode aRenderMode, int alUnit) const { return mvTextureInUnit[aRenderMode][alUnit];}
 		inline eMaterialBlendMode GetBlendMode() const { return mBlendMode; }
 		inline eMaterialAlphaMode GetAlphaMode() const { return mAlphaMode; }
 		inline bool GetDepthTest() const { return mbDepthTest; }
@@ -294,10 +287,7 @@ namespace hpl {
 
 		bool mbUseAlphaDissolveFilter;
 
-		iTexture* mvTextures[eMaterialTexture_LastEnum];
-		iTexture* mvTextureInUnit[eMaterialRenderMode_LastEnum][kMaxTextureUnits];
-
-		// Image* binding storage (parallel to mvTextures during the iTexture* → Image* migration).
+		// Image* binding storage, indexed by eMaterialTexture.
 		std::array<ImageResourceWrapper, eMaterialTexture_LastEnum> m_image;
 
 		// Per-material sampler state.

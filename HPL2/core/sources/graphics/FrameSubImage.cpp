@@ -20,7 +20,6 @@
 #include "graphics/FrameSubImage.h"
 #include "graphics/FrameTexture.h"
 #include "graphics/FrameBitmap.h"
-#include "graphics/Texture.h"
 
 
 namespace hpl {

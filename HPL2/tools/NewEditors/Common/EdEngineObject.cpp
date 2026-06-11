@@ -371,7 +371,7 @@ bool cEngineGeneratedMesh::ReCreate(cMesh* apMesh)
 
 //-----------------------------------------------------------------------
 
-iVertexBuffer* cEngineGeneratedMesh::GetVertexBuffer()
+cVertexBuffer* cEngineGeneratedMesh::GetVertexBuffer()
 {
 	if(mpMesh)
 		return mpMesh->GetSubMesh(0)->GetVertexBuffer();

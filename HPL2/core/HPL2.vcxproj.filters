@@ -961,7 +961,7 @@
     <ClInclude Include="include\graphics\DrawPacket.h">
       <Filter>Graphics</Filter>
     </ClInclude>
-    <ClInclude Include="include\graphics\HPLTexture.h">
+    <ClInclude Include="include\graphics\Texture.h">
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\HybridRenderer.h">
@@ -980,9 +980,6 @@
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\RIBootstrap.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\RIConversion.h">
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\RIDefines.h">
@@ -1028,9 +1025,6 @@
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\spirv_reflect.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\VertexBuffer_RI.h">
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\resources\SpvResourceLoader.h">
@@ -1121,9 +1115,6 @@
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\FrameBitmap.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\FrameBuffer.h">
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\FrameSubImage.h">
@@ -1923,7 +1914,7 @@
     <ClCompile Include="sources\graphics\BindlessPool.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
-    <ClCompile Include="sources\graphics\HPLTexture.cpp">
+    <ClCompile Include="sources\graphics\Texture.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\graphics\HybridRenderer.cpp">
@@ -1968,7 +1959,7 @@
     <ClCompile Include="sources\graphics\spirv_reflect.c">
       <Filter>Graphics</Filter>
     </ClCompile>
-    <ClCompile Include="sources\impl\VertexBuffer_RI.cpp">
+    <ClCompile Include="sources\impl\VertexBuffer.cpp">
       <Filter>Impl\Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\system\QStr.cpp">

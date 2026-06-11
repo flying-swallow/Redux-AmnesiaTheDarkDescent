@@ -1,7 +1,7 @@
 #include "graphics/RIFormat.h"
 #include <assert.h>
 
-static const struct RIFormatProps_s riFormats[] = {
+static const struct RIFormatProps riFormats[] = {
 	[RI_FORMAT_UNKNOWN] = { 
 		.name = "UNKNOWN", 
 		.format = RI_FORMAT_UNKNOWN 
@@ -835,13 +835,13 @@ static const struct RIFormatProps_s riFormats[] = {
 
 };
 
-const struct RIFormatProps_s *GetRIFormatProps( uint32_t format ) {
+const struct RIFormatProps *GetRIFormatProps( uint32_t format ) {
   assert( format < RI_TEXTURE_FORMAT_COUNT );
   return riFormats + format;
 }
 
 uint32_t RIFormatChannelCount( uint32_t format ) {
-  const struct RIFormatProps_s *props = GetRIFormatProps( format );
+  const struct RIFormatProps *props = GetRIFormatProps( format );
   return ( props->redBits ? 1 : 0 ) + ( props->greenBits ? 1 : 0 ) +
          ( props->blueBits ? 1 : 0 ) + ( props->alphaBits ? 1 : 0 );
 }

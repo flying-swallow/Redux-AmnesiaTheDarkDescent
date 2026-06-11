@@ -33,7 +33,7 @@ namespace hpl {
 	class cResources;
 	class iLowLevelGraphics;
 	class cMaterial;
-	class iVertexBuffer;
+	class cVertexBuffer;
 	class iPhysicsRope;
 	
 	//------------------------------------------
@@ -83,7 +83,7 @@ namespace hpl {
 		/////////////////////////////////
 		//Renderable implementations
 		cMaterial *GetMaterial(){ return mpMaterial;}
-		iVertexBuffer* GetVertexBuffer(){return mpVtxBuffer;}
+		cVertexBuffer* GetVertexBuffer(){return mpVtxBuffer;}
 
         void UpdateGraphicsForFrame(float afFrameTime);
 		bool UpdateGraphicsForViewport(cFrustum *apFrustum,float afFrameTime);
@@ -103,7 +103,7 @@ namespace hpl {
 		iPhysicsRope *mpRope;
 		
 		cMaterial *mpMaterial;
-		iVertexBuffer* mpVtxBuffer;
+		cVertexBuffer* mpVtxBuffer;
 
 		int mlMaxSegments;
 

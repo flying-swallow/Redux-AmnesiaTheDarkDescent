@@ -49,7 +49,7 @@ class cWorld;
 class cGuiSet;
 class Image;
 class cViewport;
-struct HPLTexture;
+struct cTexture;
 
 //------------------------------------------
 
@@ -68,8 +68,8 @@ struct HPLTexture;
 //        depthView; pogo read half = final post-processed image)
 struct WorldDrawCtx {
   cViewport                 *viewport;   // who fired — replaces a captured mpViewport
-  struct RICmd_s            *cmd;        // = &RI.primary.cmds[0]
-  struct RIDevice_s         *device;     // = &RI.device
+  struct RICmd            *cmd;        // = &RI.primary.cmds[0]
+  struct RIDevice         *device;     // = &RI.device
   RIBootstrap::FrameContext *frame;      // active set (scratch allocs, freelist)
   cFrustum                  *frustum;
   uint32_t                   width, height;
@@ -81,14 +81,14 @@ struct WorldDrawCtx {
 // but BEFORE the feed blit + post chain. Depth is read-only
 // (DEPTH_ATTACHMENT_OPTIMAL); the pogo is not created yet.
 struct PostTranslucenceDrawCtx : WorldDrawCtx {
-  struct RITextureView_s    *depthView;
+  struct RITextureView    *depthView;
 };
 
 // After the feed blit + post-effect chain: the pogo read half holds the final
 // image and the scene depth is still available.
 struct PostWorldDrawCtx : WorldDrawCtx {
   struct RI_PogoBuffer      *pogo;
-  struct RITextureView_s    *depthView;
+  struct RITextureView    *depthView;
 };
 
 //------------------------------------------
@@ -101,26 +101,26 @@ struct PostWorldDrawCtx : WorldDrawCtx {
 // One color image + an owning sampled-image descriptor — the single-image
 // equivalent of RI_PogoBufferInit (same create flags / view usage so the
 // existing pogo-shaped barriers and pipelines keep matching).
-bool CreateViewportColorTexture(struct RIDevice_s *device, uint32_t width,
+bool CreateViewportColorTexture(struct RIDevice *device, uint32_t width,
                                 uint32_t height, enum RI_Format_e format,
                                 VkImageUsageFlags usage,
-                                struct RITexture_s *tex,
-                                struct RIDescriptor_s *desc, const char *what);
+                                struct RITexture *tex,
+                                struct RIDescriptor *desc, const char *what);
 void ReleaseViewportColorTexture(std::vector<RIFreeHandle> &freelist,
-                                 struct RITexture_s *tex,
-                                 struct RIDescriptor_s *desc);
+                                 struct RITexture *tex,
+                                 struct RIDescriptor *desc);
 
 // One attachment image + a plain view (depth / visibility targets).
-bool CreateViewportAttachmentTexture(struct RIDevice_s *device, uint32_t width,
+bool CreateViewportAttachmentTexture(struct RIDevice *device, uint32_t width,
                                      uint32_t height, enum RI_Format_e format,
                                      VkImageUsageFlags usage,
                                      VkImageAspectFlags aspect,
-                                     struct RITexture_s *tex,
-                                     struct RITextureView_s *view,
+                                     struct RITexture *tex,
+                                     struct RITextureView *view,
                                      const char *what);
 void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
-                                      struct RITexture_s *tex,
-                                      struct RITextureView_s *view);
+                                      struct RITexture *tex,
+                                      struct RITextureView *view);
 
 //------------------------------------------
 
@@ -147,8 +147,8 @@ public:
     uint32_t y;
     uint32_t width;
     uint32_t height;
-    struct RITexture_s renderTarget = {};
-    struct RIDescriptor_s renderTargetDescriptor = {};
+    struct RITexture renderTarget = {};
+    struct RIDescriptor renderTargetDescriptor = {};
   };
 
   // cHybridRenderer: overscan intermediates — renderTarget is a SINGLE image
@@ -169,31 +169,31 @@ public:
               renderTargetDescriptor[RI.swapchainIndex]};
     }
 
-    struct RITexture_s renderTarget[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RIDescriptor_s renderTargetDescriptor[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITexture renderTarget[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RIDescriptor renderTargetDescriptor[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
-    struct RITexture_s depthTextures[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView_s depthView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITexture depthTextures[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITextureView depthView[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
-    struct RITexture_s visibilityTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView_s visibilityView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITexture visibilityTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITextureView visibilityView[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
     // Surfel-generation output — full-res HDR storage image written by
     // surfel_generation_pass (set=3, binding=1). One per swapchain image.
-    struct RITexture_s surfelResultTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView_s surfelResultView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITexture surfelResultTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITextureView surfelResultView[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
     // Stage B packed visibility — RGBA32UI storage image written by the
     // surfel_vbuffer RT pipeline, sampled by the Stage D / F surfel update
     // and generation passes. Per-frame layout is UNDEFINED → GENERAL →
     // SHADER_READ_ONLY, like the gbuffer outputs.
-    struct RITexture_s packedHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView_s packedHitInfoView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITexture packedHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITextureView packedHitInfoView[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
     // Screen-space velocity (motion vectors), RG16F — the gbuffer's 2nd
     // color target; sampled by temporal passes.
-    struct RITexture_s velocityTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView_s velocityView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITexture velocityTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITextureView velocityView[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
     // Direct-lighting accumulation history (RGBA16F ping-pong, kept in
     // GENERAL). [directLightingIndex] is this frame's write target; [^1] is
@@ -201,12 +201,12 @@ public:
     // spans frames). directLightingInit triggers the one-time
     // UNDEFINED→GENERAL + clear — re-armed by Update on resize, since
     // recreation invalidates the history.
-    struct RITexture_s directLightingTexture[2] = {};
-    struct RITextureView_s directLightingView[2] = {};
+    struct RITexture directLightingTexture[2] = {};
+    struct RITextureView directLightingView[2] = {};
     // Parallel surface-key ping-pong (viewZ, normal.xyz) for disocclusion
     // rejection; shares directLightingIndex with the colour history above.
-    struct RITexture_s directKeyTexture[2] = {};
-    struct RITextureView_s directKeyView[2] = {};
+    struct RITexture directKeyTexture[2] = {};
+    struct RITextureView directKeyView[2] = {};
     uint32_t directLightingIndex = 0;
     bool directLightingInit = false;
 
@@ -214,8 +214,8 @@ public:
     // iteration is fully written before it is read, so these only need a one-time
     // UNDEFINED→GENERAL transition (folded into the directLighting init). The
     // composite samples the final iteration's output instead of directLighting.
-    struct RITexture_s directAtrousTexture[2] = {};
-    struct RITextureView_s directAtrousView[2] = {};
+    struct RITexture directAtrousTexture[2] = {};
+    struct RITextureView directAtrousView[2] = {};
 
     // ReSTIR DI reservoirs (RGBA32F = packed light index + W + M; exact uint
     // index needs full-float storage). [reservoirHistory] ping-pongs across
@@ -223,10 +223,10 @@ public:
     // temporal history and DirectSpatialReusePass writes [cur] as next frame's
     // history. [reservoirTemporal] is the intra-frame hand-off from the temporal
     // pass to the spatial pass. All GENERAL, one-time clear with the others.
-    struct RITexture_s reservoirTexture[2] = {};
-    struct RITextureView_s reservoirView[2] = {};
-    struct RITexture_s reservoirTemporalTexture = {};
-    struct RITextureView_s reservoirTemporalView = {};
+    struct RITexture reservoirTexture[2] = {};
+    struct RITextureView reservoirView[2] = {};
+    struct RITexture reservoirTemporalTexture = {};
+    struct RITextureView reservoirTemporalView = {};
 
     // Previous-frame camera for velocity / history reprojection —
     // per-viewport camera state. hasPrevCamera seeds prev = current on the
@@ -250,11 +250,11 @@ public:
               renderTargetDescriptor[RI.swapchainIndex]};
     }
 
-    struct RITexture_s renderTarget[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RIDescriptor_s renderTargetDescriptor[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITexture renderTarget[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RIDescriptor renderTargetDescriptor[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
-    struct RITexture_s depthTextures[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView_s depthView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITexture depthTextures[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITextureView depthView[RI_MAX_SWAPCHAIN_IMAGES] = {};
   };
 
   using ViewportState =
@@ -277,8 +277,8 @@ public:
     // `view` and leaves the image SHADER_READ_ONLY for the consumer.
     // `texture` is the view's backing image — needed for the layout
     // transitions around the delivery draw.
-    struct RITexture_s texture;
-    RITextureView_s view;
+    struct RITexture texture;
+    RITextureView view;
     // Format of `view` — the delivery draw's color attachment (and pipeline
     // key). Defaults to the pogo format; readback consumers (thumbnails) can
     // hand an RGBA8 target instead.
@@ -343,10 +343,10 @@ public:
   bool Evaluate(RIBootstrap::FrameContext *cntx, float afFrameTime, tFlag alFlags);
 
 
-  struct RITextureView_s *GetDepthView();
+  struct RITextureView *GetDepthView();
   // The depth+stencil attachment image backing GetDepthView() — for callers
   // that need to issue their own subresource (e.g. stencil-aspect) barriers.
-  struct RITexture_s *GetDepthTexture();
+  struct RITexture *GetDepthTexture();
   BackBuffer GetBackBuffer();
 
   // Pipeline-stage events, signaled by Evaluate. Handlers run inside the

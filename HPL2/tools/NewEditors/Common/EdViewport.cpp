@@ -205,7 +205,7 @@ void cViewportCallback::OnPostTranslucentDraw(cRendererCallbackFunctions* apFunc
 int				iEdViewport::mlViewportCount = 0;
 bool			iEdViewport::mbCamPlanesUpdated = true;
 cVector2f		iEdViewport::mvCamPlanes = cVector2f(0.05f, 1000.0f);
-iVertexBuffer*	iEdViewport::mpVBBillboard = NULL;
+cVertexBuffer*	iEdViewport::mpVBBillboard = NULL;
 iGpuProgram*	iEdViewport::mpProgDrawSolid = NULL;
 
 tVertexVec iEdViewport::mvArrowQuads[4] = 
@@ -715,7 +715,7 @@ void iEdViewport::DrawSolidColorMesh(cMeshEntity* apMesh, const cColor& aCol, cR
 	apFunctions->SetBlendMode(eMaterialBlendMode_None);
 }
 
-void iEdViewport::DrawSolidColorVertexBuffer(iVertexBuffer* apVB, cMatrixf* apTransform, const cColor& aCol, cRendererCallbackFunctions* apFunctions, bool abUsePreamble)
+void iEdViewport::DrawSolidColorVertexBuffer(cVertexBuffer* apVB, cMatrixf* apTransform, const cColor& aCol, cRendererCallbackFunctions* apFunctions, bool abUsePreamble)
 {
 	if(abUsePreamble)
 	{

@@ -104,10 +104,10 @@ namespace hpl {
 			mTarget);
 	}
 
-	struct RITextureView_s* cViewport::GetDepthView()
+	struct RITextureView* cViewport::GetDepthView()
 	{
 		return std::visit(
-			[](auto &&arg) -> struct RITextureView_s * {
+			[](auto &&arg) -> struct RITextureView * {
 				using T = std::decay_t<decltype(arg)>;
 				if constexpr (std::is_same_v<T, std::monostate>) {
 					return nullptr;
@@ -119,10 +119,10 @@ namespace hpl {
 			m_state);
 	}
 
-	struct RITexture_s* cViewport::GetDepthTexture()
+	struct RITexture* cViewport::GetDepthTexture()
 	{
 		return std::visit(
-			[](auto &&arg) -> struct RITexture_s * {
+			[](auto &&arg) -> struct RITexture * {
 				using T = std::decay_t<decltype(arg)>;
 				if constexpr (std::is_same_v<T, std::monostate>) {
 					return nullptr;
@@ -156,11 +156,11 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-bool CreateViewportColorTexture(struct RIDevice_s *device, uint32_t width,
+bool CreateViewportColorTexture(struct RIDevice *device, uint32_t width,
 								uint32_t height, enum RI_Format_e format,
 								VkImageUsageFlags usage,
-								struct RITexture_s *tex,
-								struct RIDescriptor_s *desc, const char *what) {
+								struct RITexture *tex,
+								struct RIDescriptor *desc, const char *what) {
 	uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
 
 	VmaAllocationCreateInfo memReqs = {};
@@ -212,8 +212,8 @@ bool CreateViewportColorTexture(struct RIDevice_s *device, uint32_t width,
 		Error("%s: failed to create image view\n", what);
 		vmaDestroyImage(device->vk.vmaAllocator, tex->vk.image,
 						tex->vk.allocation);
-		*tex = RITexture_s{};
-		*desc = RIDescriptor_s{};
+		*tex = RITexture{};
+		*desc = RIDescriptor{};
 		return false;
 	}
 	desc->finalize(device);
@@ -221,28 +221,28 @@ bool CreateViewportColorTexture(struct RIDevice_s *device, uint32_t width,
 }
 
 void ReleaseViewportColorTexture(std::vector<RIFreeHandle> &freelist,
-								 struct RITexture_s *tex,
-								 struct RIDescriptor_s *desc) {
+								 struct RITexture *tex,
+								 struct RIDescriptor *desc) {
 	if (desc->vk.image.imageView) {
-		RITextureView_s view = {};
+		RITextureView view = {};
 		view.vk.image = desc->vk.image.imageView;
 		freelist.push_back(view);
 	}
 	if (tex->vk.image) {
 		freelist.push_back(*tex);
 	}
-	*desc = RIDescriptor_s{};
-	*tex = RITexture_s{};
+	*desc = RIDescriptor{};
+	*tex = RITexture{};
 }
 
 // Depth / visibility creation — ported verbatim from the retired swapchain-init
 // block in Graphics.cpp, parameterized by extent.
-bool CreateViewportAttachmentTexture(struct RIDevice_s *device, uint32_t width,
+bool CreateViewportAttachmentTexture(struct RIDevice *device, uint32_t width,
 									 uint32_t height, enum RI_Format_e format,
 									 VkImageUsageFlags usage,
 									 VkImageAspectFlags aspect,
-									 struct RITexture_s *tex,
-									 struct RITextureView_s *view,
+									 struct RITexture *tex,
+									 struct RITextureView *view,
 									 const char *what) {
 	uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
 
@@ -281,23 +281,23 @@ bool CreateViewportAttachmentTexture(struct RIDevice_s *device, uint32_t width,
 		Error("%s: failed to create image view\n", what);
 		vmaDestroyImage(device->vk.vmaAllocator, tex->vk.image,
 						tex->vk.allocation);
-		*tex = RITexture_s{};
+		*tex = RITexture{};
 		return false;
 	}
 	return true;
 }
 
 void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
-									  struct RITexture_s *tex,
-									  struct RITextureView_s *view) {
+									  struct RITexture *tex,
+									  struct RITextureView *view) {
 	if (view->vk.image) {
 		freelist.push_back(*view);
 	}
 	if (tex->vk.image) {
 		freelist.push_back(*tex);
 	}
-	*view = RITextureView_s{};
-	*tex = RITexture_s{};
+	*view = RITextureView{};
+	*tex = RITexture{};
 }
 
 	//-----------------------------------------------------------------------
@@ -342,7 +342,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 		{
 			if(mPogoBuffer.pogoAttachment[p].vk.image.imageView)
 			{
-				RITextureView_s view = {};
+				RITextureView view = {};
 				view.vk.image = mPogoBuffer.pogoAttachment[p].vk.image.imageView;
 				cntx->freelist.push_back(view);
 			}
@@ -350,8 +350,8 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 			{
 				cntx->freelist.push_back(mPogoBuffer.textures[p]);
 			}
-			mPogoBuffer.pogoAttachment[p] = RIDescriptor_s{};
-			mPogoBuffer.textures[p] = RITexture_s{};
+			mPogoBuffer.pogoAttachment[p] = RIDescriptor{};
+			mPogoBuffer.textures[p] = RITexture{};
 		}
 		mPogoBuffer.attachmentIndex = 0;
 		mlPogoWidth = 0;
@@ -370,11 +370,11 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 
 	// Single-subresource color barrier with the texture and transition filled
 	// in — the feed/delivery path always touches exactly mip 0 / layer 0.
-	RITextureBarrier_s ColorBarrier(RITexture_s *apTexture,
+	RITextureBarrier ColorBarrier(RITexture *apTexture,
 									enum RIResourceState_e aBefore, uint32_t aBeforeStages,
 									enum RIResourceState_e aAfter, uint32_t aAfterStages)
 	{
-		RITextureBarrier_s barrier = {};
+		RITextureBarrier barrier = {};
 		barrier.texture = apTexture;
 		barrier.before = aBefore;
 		barrier.beforeStages = aBeforeStages;
@@ -528,7 +528,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 			// half UNDEFINED -> COLOR so the post chain (which renders
 			// into the attach half with no barrier of its own) finds it
 			// ready.
-			const RITextureBarrier_s pre[3] = {
+			const RITextureBarrier pre[3] = {
 				ColorBarrier(&backBuffer.renderTarget,
 							 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT,
 							 RI_RESOURCE_STATE_COPY_SRC, RI_STAGE_BLIT),
@@ -556,7 +556,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 			// Post-blit: BackBuffer back to SHADER_READ (the layout the
 			// backend re-acquires it from next frame), pogo read half ->
 			// SHADER_READ for the post chain / delivery.
-			const RITextureBarrier_s post[2] = {
+			const RITextureBarrier post[2] = {
 				ColorBarrier(&backBuffer.renderTarget,
 							 RI_RESOURCE_STATE_COPY_SRC, RI_STAGE_BLIT,
 							 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT),
@@ -620,7 +620,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 				// Caller texture: discard previous contents (fully
 				// rewritten; also covers its first use) -> COLOR for the
 				// delivery draw, then -> SHADER_READ for the consumer.
-				RITexture_s *pViewTexture = const_cast<RITexture_s *>(&pView->texture);
+				RITexture *pViewTexture = const_cast<RITexture *>(&pView->texture);
 				RI.primary.cmds[0].textureBarrier(ColorBarrier(pViewTexture,
 								 RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_FRAGMENT,
 								 RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE));
@@ -646,8 +646,8 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 			if(worldRendered && pPogo != nullptr)
 			{
 				// Swapchain images are raw VkImage handles — bridge through
-				// a stack RITexture_s for the barrier.
-				RITexture_s swapchainTexture = {};
+				// a stack RITexture for the barrier.
+				RITexture swapchainTexture = {};
 				swapchainTexture.vk.image = RI.swapchain.vk.images[RI.swapchainIndex];
 				RI.primary.cmds[0].textureBarrier(ColorBarrier(&swapchainTexture,
 								 RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_NONE,

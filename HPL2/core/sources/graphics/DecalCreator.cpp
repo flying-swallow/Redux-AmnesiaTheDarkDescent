@@ -470,7 +470,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	bool cDecalCreator::AddPolygon(	int alVertexCount, const cVector3f* apVertices, const cVector3f* apNormals, iVertexBuffer* apDecalVB, 
+	bool cDecalCreator::AddPolygon(	int alVertexCount, const cVector3f* apVertices, const cVector3f* apNormals, cVertexBuffer* apDecalVB, 
 									const cMatrixf& amtxWorldMatrix, const cMatrixf& amtxWorldNormalRot)
 	{
 		int lCount = mlDecalVertexCount;
@@ -519,7 +519,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cDecalCreator::ClipMesh(cSubMeshEntity* apSubMesh,iVertexBuffer* apDecalVB)
+	void cDecalCreator::ClipMesh(cSubMeshEntity* apSubMesh,cVertexBuffer* apDecalVB)
 	{
 		//Log("Clipping mesh %s\n", apSubMesh->GetName().c_str());
 
@@ -542,7 +542,7 @@ namespace hpl {
 		}
 		cVector3f vTransformedUp = vTransformedPlanes[2].GetNormal();
 
-		iVertexBuffer* pSubMeshVB = apSubMesh->GetVertexBuffer();
+		cVertexBuffer* pSubMeshVB = apSubMesh->GetVertexBuffer();
 
 		float* pVertices = pSubMeshVB->GetFloatArray(eVertexBufferElement_Position);
 		float* pNormals = pSubMeshVB->GetFloatArray(eVertexBufferElement_Normal);

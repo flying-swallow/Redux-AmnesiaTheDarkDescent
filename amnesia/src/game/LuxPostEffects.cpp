@@ -21,7 +21,7 @@
 
 #include "LuxMapHandler.h"
 
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 #include "graphics/PostEffectHelpers.h"
 #include "graphics/RIBootstrap.h"
 #include "graphics/RIProgramHelpers.h"
@@ -112,15 +112,15 @@ void cLuxPostEffect_Insanity::RenderEffect(const hpl::PostEffectRenderCtx &ctx)
 	// it MUST write its pogo half every frame, or the composite's post-effect toggle
 	// desyncs and presents a stale, pre-tonemap buffer (the brightness bug).
 	bool valid = (count >= 2);
-	auto resolve = [&](Image *img) -> RIDescriptor_s {
+	auto resolve = [&](Image *img) -> RIDescriptor {
 		if (img && img->GetTexture() && img->GetTexture()->binding.texture)
 			return img->GetTexture()->binding;
 		valid = false;
 		return *ctx.inputSrv;
 	};
-	RIDescriptor_s amp0Desc = (count > 0) ? resolve(mvAmpMaps[i0]) : *ctx.inputSrv;
-	RIDescriptor_s amp1Desc = (count > 0) ? resolve(mvAmpMaps[i1]) : *ctx.inputSrv;
-	RIDescriptor_s zoomDesc = resolve(mpZoomMap);
+	RIDescriptor amp0Desc = (count > 0) ? resolve(mvAmpMaps[i0]) : *ctx.inputSrv;
+	RIDescriptor amp1Desc = (count > 0) ? resolve(mvAmpMaps[i1]) : *ctx.inputSrv;
+	RIDescriptor zoomDesc = resolve(mpZoomMap);
 	if (count <= 0) valid = false;
 
 	VkRenderingAttachmentInfo colorAttach = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};

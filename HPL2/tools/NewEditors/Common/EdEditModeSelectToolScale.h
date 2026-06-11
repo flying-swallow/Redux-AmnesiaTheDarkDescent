@@ -42,7 +42,7 @@ protected:
 	cVector3f mvAxis;
 
 	cBoundingVolume mBV;
-	iVertexBuffer* mpVB;
+	cVertexBuffer* mpVB;
 
 	cMatrixf mmtxOffset;
 

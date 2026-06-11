@@ -168,7 +168,7 @@ protected:
 	///////////////////////////
 	// Data
 	eEdShape mShapeType;
-	iVertexBuffer* mpVBShape;
+	cVertexBuffer* mpVBShape;
 	cVector3f mvShapeSize;
 	
 	cEdObjBody* mpParentBody;

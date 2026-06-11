@@ -20,8 +20,8 @@ namespace hpl {
 // DestroyPostEffectColorTarget. The owner re-creates when the viewport
 // dimensions change (compare against `width` / `height`).
 struct PostEffectColorTarget {
-    struct RITexture_s    texture {};
-    struct RIDescriptor_s descriptor {};
+    struct RITexture    texture {};
+    struct RIDescriptor descriptor {};
     uint32_t width = 0;
     uint32_t height = 0;
     bool valid = false;

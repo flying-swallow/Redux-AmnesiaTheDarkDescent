@@ -31,9 +31,8 @@
 
 #include "impl/LowLevelGraphicsSDL.h"
 #include "impl/SDLFontData.h"
-#include "impl/SDLTexture.h"
 
-#include "graphics/VertexBuffer_RI.h"
+#include "graphics/VertexBuffer.h"
 #include "graphics/Bitmap.h"
 
 #if USE_SDL2
@@ -106,9 +105,9 @@ namespace hpl {
 #endif
 	}
 
-	struct RIWindowHandle_s cLowLevelGraphicsSDL::GetWindowHandle()
+	struct RIWindowHandle cLowLevelGraphicsSDL::GetWindowHandle()
 	{
-		struct RIWindowHandle_s handle = {};
+		struct RIWindowHandle handle = {};
 		SDL_SysWMinfo wmi = {};
 		SDL_VERSION(&wmi.version);
 		handle.type = RI_WINDOW_UNKNOWN;
@@ -278,14 +277,8 @@ namespace hpl {
 		return hplNew(cSDLFontData, (asName, this));
 	}
 
-	iTexture* cLowLevelGraphicsSDL::CreateTexture(const tString& asName, eTextureType aType, eTextureUsage aUsage)
+	cVertexBuffer* cLowLevelGraphicsSDL::CreateVertexBuffer(eVertexBufferType aType, eVertexBufferDrawType aDrawType, eVertexBufferUsageType aUsageType, int alReserveVtxSize, int alReserveIdxSize)
 	{
-		cSDLTexture* pTexture = hplNew(cSDLTexture, (asName, aType, aUsage, this));
-		return pTexture;
-	}
-
-	iVertexBuffer* cLowLevelGraphicsSDL::CreateVertexBuffer(eVertexBufferType aType, eVertexBufferDrawType aDrawType, eVertexBufferUsageType aUsageType, int alReserveVtxSize, int alReserveIdxSize)
-	{
-		return new VertexBuffer_RI(this, aType, aDrawType, aUsageType, alReserveVtxSize, alReserveIdxSize);
+		return new cVertexBuffer(this, aType, aDrawType, aUsageType, alReserveVtxSize, alReserveIdxSize);
 	}
 } // namespace hpl

@@ -138,7 +138,7 @@ protected:
 	///////////////////////////
 	// Data
 	eEditorBodyShape mShapeType;
-	iVertexBuffer* mpVBShape;
+	cVertexBuffer* mpVBShape;
 	
 	cEntityWrapperBody* mpParentBody;
 	cMatrixf* mpRelativeMatrix;

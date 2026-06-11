@@ -51,7 +51,7 @@ void cLuxModelCache::Create()
 	cResourceBaseIterator texIt = gpBase->mpEngine->GetResources()->GetTextureManager()->GetResourceBaseIterator();
 	while(texIt.HasNext())
 	{
-		iTexture *pTex = static_cast<iTexture*>(texIt.Next());
+		iResourceBase *pTex = texIt.Next();
         pTex->IncUserCount();
 		mlstTextureCache.push_back(pTex);
 	}
@@ -99,7 +99,7 @@ void cLuxModelCache::Destroy()
 		gpBase->mpEngine->GetResources()->GetAnimationManager()->Destroy(*it);
 	}
 
-	for(std::list<iTexture*>::iterator it = mlstTextureCache.begin(); it != mlstTextureCache.end(); ++it)
+	for(std::list<iResourceBase*>::iterator it = mlstTextureCache.begin(); it != mlstTextureCache.end(); ++it)
 	{
 		gpBase->mpEngine->GetResources()->GetTextureManager()->Destroy(*it);
 	}
@@ -230,7 +230,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   // set renders the no-depth GuiSet pipeline variant instead (it derives it
   // from the viewport passed into cGuiSet::Render below).
   cViewport *pViewport = gpBase->mpEngine->GetScene()->GetPrimaryViewport();
-  struct RITextureView_s *pDepthView =
+  struct RITextureView *pDepthView =
       pViewport ? pViewport->GetDepthView() : NULL;
 
   VkRenderingAttachmentInfo depthStencil = {

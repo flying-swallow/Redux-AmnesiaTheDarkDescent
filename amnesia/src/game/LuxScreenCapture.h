@@ -23,7 +23,7 @@
 #include "LuxTypes.h"
 
 #include "graphics/Image.h"
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 #include "graphics/RIBootstrap.h"
 #include "graphics/RITypes.h"
 
@@ -38,7 +38,7 @@ namespace hpl {
 // as a 2D texture (and a TRANSFER_DST for the capture copy), wired up for
 // cGui::CreateGfxTexture / RIProgram::bindDescriptors. Shared by the capture
 // (R16G16B16A16_SFLOAT) and the per-state effect (R8G8B8A8_UNORM).
-bool LuxCreateScreenRenderTarget(std::shared_ptr<hpl::HPLTexture> &outTex,
+bool LuxCreateScreenRenderTarget(std::shared_ptr<hpl::cTexture> &outTex,
 		uint32_t width, uint32_t height, VkFormat format, const char *debugName);
 
 //////////////////////////////////////////////////////////////////////////
@@ -86,7 +86,7 @@ public:
 	hpl::cGuiGfxElement* GetScreenGfx() { return mpScreenGfx; }
 
 	// The captured color, for the per-state effect passes (cLuxScreenEffect).
-	RIDescriptor_s* PrimaryDescriptor();
+	RIDescriptor* PrimaryDescriptor();
 	cVector2l GetSize() const { return cVector2l(mlWidth, mlHeight); }
 
 	// Release the gfx and texture.
@@ -98,7 +98,7 @@ private:
 	hpl::cGui            *mpGui       = nullptr;
 	hpl::cGuiGfxElement  *mpScreenGfx = nullptr;
 
-	std::shared_ptr<hpl::HPLTexture> m_primaryColor;
+	std::shared_ptr<hpl::cTexture> m_primaryColor;
 	std::shared_ptr<hpl::Image>      m_primaryImage;
 	uint32_t mlWidth  = 0;
 	uint32_t mlHeight = 0;

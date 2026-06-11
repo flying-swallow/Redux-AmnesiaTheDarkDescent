@@ -38,16 +38,16 @@ public:
   struct WriteBinding {
     uint32_t binding;
     uint32_t arrayElement;
-    RIDescriptor_s descriptor;
+    RIDescriptor descriptor;
   };
 
-  void writeDescriptors(RIDevice_s *device,
+  void writeDescriptors(RIDevice *device,
                         std::span<const WriteBinding> writes);
 
-  void initialize(RIDevice_s *device, std::span<const Binding> bindings,
+  void initialize(RIDevice *device, std::span<const Binding> bindings,
                   std::span<const VkDescriptorPoolSize> poolSizes);
 
-  void destroy(RIDevice_s *device) {
+  void destroy(RIDevice *device) {
     if (vk.m_bindlessPool != VK_NULL_HANDLE) {
       vkDestroyDescriptorPool(device->vk.device, vk.m_bindlessPool, NULL);
       vk.m_bindlessPool = VK_NULL_HANDLE;
@@ -96,14 +96,14 @@ public:
 
   struct DescriptorBinding {
     DescriptorBinding() : handle(), registerOffset(0) {}
-    explicit DescriptorBinding(const char *name, const RIDescriptor_s &desc,
+    explicit DescriptorBinding(const char *name, const RIDescriptor &desc,
                                uint32_t registerOffset = 0)
         : handle(DescriptorBindingID::Create(name)),
           registerOffset(registerOffset), descriptor(desc) {}
 
     struct DescriptorBindingID handle;
     uint32_t registerOffset;
-    struct RIDescriptor_s descriptor;
+    struct RIDescriptor descriptor;
   };
 
   struct DescriptorSetSlot {
@@ -182,14 +182,14 @@ public:
   // slot as external, and skips all descriptor-set allocation / writes /
   // binds for it. The caller binds those sets directly (e.g. via
   // bindBindlessDescriptorSet).
-  void initialize(RIDevice_s *device, std::span<ModuleStage> init,
+  void initialize(RIDevice *device, std::span<ModuleStage> init,
                   std::span<const VkDescriptorSetLayout> externalLayouts = {});
   static std::vector<char> loadShaderStage(cFileSearcher *searcher,
                                            const tString &asName);
-  void bindPipeline(struct RIDevice_s *device, struct RICmd_s *cmd,
+  void bindPipeline(struct RIDevice *device, struct RICmd *cmd,
                     hash_t pipelineHash, const char *debugName,
                     VkGraphicsPipelineCreateInfo *pipelineCreateInfo);
-  void bindComputePipeline(struct RIDevice_s *device, struct RICmd_s *cmd,
+  void bindComputePipeline(struct RIDevice *device, struct RICmd *cmd,
                            hash_t pipelineHash, const char *debugName,
                            VkComputePipelineCreateInfo *pipelineCreateInfo);
   // Bind a Vulkan ray-tracing pipeline. The cache slot also owns the SBT
@@ -199,15 +199,15 @@ public:
   // pipelineCreateInfo — pStages, pGroups, layout are filled here from
   // the program's shaderBin and pipelineLayout.
   void bindRayTracingPipeline(
-      struct RIDevice_s *device, struct RICmd_s *cmd, hash_t pipelineHash,
+      struct RIDevice *device, struct RICmd *cmd, hash_t pipelineHash,
       const char *debugName,
       VkRayTracingPipelineCreateInfoKHR *pipelineCreateInfo);
   // Issue vkCmdTraceRaysKHR against the cached SBT for `pipelineHash`.
   // The pipeline must have been created earlier via bindRayTracingPipeline.
-  void traceRays(struct RICmd_s *cmd, hash_t pipelineHash, uint32_t width,
+  void traceRays(struct RICmd *cmd, hash_t pipelineHash, uint32_t width,
                  uint32_t height, uint32_t depth);
   void bindDescriptors(
-      struct RIDevice_s *device, struct RICmd_s *cmd, uint32_t frameIndex,
+      struct RIDevice *device, struct RICmd *cmd, uint32_t frameIndex,
       DescriptorBinding *binding, size_t bindingCount,
       VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS);
   // Bind an externally-owned bindless descriptor set at `setIndex` against
@@ -215,7 +215,7 @@ public:
   // must have been registered as external via `externalLayouts` at
   // initialize(); the program does not allocate or write descriptors for it.
   void bindBindlessDescriptorSet(
-      struct RICmd_s *cmd, RIBindlessDescriptorSet *bindless, uint32_t setIndex,
+      struct RICmd *cmd, RIBindlessDescriptorSet *bindless, uint32_t setIndex,
       VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS);
 #if (DEVICE_IMPL_VULKAN)
   VkPipelineLayout getPipelineLayout() const { return impl.vk.pipelineLayout; }
@@ -238,7 +238,7 @@ private:
 #endif
     } vk;
   } impl{};
-  RIDevice_s *device = NULL;
+  RIDevice *device = NULL;
   uint16_t reflection_len = 0;
   uint32_t vertex_input_mask = 0;
   std::array<uint32_t, MAX_VERTEX_ATTRIBUTES> vertex_input_format{};

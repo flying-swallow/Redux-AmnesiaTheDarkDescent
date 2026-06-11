@@ -84,7 +84,7 @@ void detachDescriptorSlot( struct RIDescriptorSetAlloc *alloc, struct RIDescript
 	}
 }
 
-struct RIDescriptorSetResult resolveDescriptorSetAlloc( struct RIDevice_s *device, struct RIDescriptorSetAlloc *alloc, uint32_t frameCount, hash_t hash )
+struct RIDescriptorSetResult resolveDescriptorSetAlloc( struct RIDevice *device, struct RIDescriptorSetAlloc *alloc, uint32_t frameCount, hash_t hash )
 {
 	struct RIDescriptorSetResult result = { 0 };
 	const size_t hashIndex = hash % ALLOC_HASH_RESERVE;
@@ -146,7 +146,7 @@ struct RIDescriptorSetResult resolveDescriptorSetAlloc( struct RIDevice_s *devic
 	return result;
 }
 
-void freeDescriptorSetAlloc( struct RIDevice_s *device, struct RIDescriptorSetAlloc *alloc )
+void freeDescriptorSetAlloc( struct RIDevice *device, struct RIDescriptorSetAlloc *alloc )
 {
 #if ( DEVICE_IMPL_VULKAN )
 	for( size_t i = 0; i < arrlen( alloc->blocks ); i++ ) {

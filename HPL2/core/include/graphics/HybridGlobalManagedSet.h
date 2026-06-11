@@ -25,7 +25,7 @@ namespace hpl {
 class Image;
 class cMaterial;
 class cResources;
-class VertexBuffer_RI;
+class cVertexBuffer;
 
 // CPU shadow of a device-local bindless slot buffer (m_opaque*Handles /
 // m_bindlessSlotGenerationBuffer). Those buffers have no mapped pointer, so
@@ -87,8 +87,8 @@ namespace detail {
 // mapped for direct host writes. Shared by HybridGlobalManagedSet (set-0
 // buffers) and cHybridRenderer (the indirect-draw buffer), so it lives in this
 // header rather than a single .cpp.
-static inline struct RIBuffer_s
-CreateBindlessSlotBuffer(RIDevice_s *device, uint32_t slotCount,
+static inline struct RIBuffer
+CreateBindlessSlotBuffer(RIDevice *device, uint32_t slotCount,
                          size_t elementStride, VkBufferUsageFlags usage,
                          bool deviceLocalOnly = false) {
   uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
@@ -110,7 +110,7 @@ CreateBindlessSlotBuffer(RIDevice_s *device, uint32_t slotCount,
   }
 
   VmaAllocationInfo allocationInfo = {};
-  struct RIBuffer_s out;
+  struct RIBuffer out;
   VK_WrapResult(vmaCreateBuffer(device->vk.vmaAllocator, &bufferCreateInfo,
                                 &allocInfo, &out.vk.buffer, &out.vk.allocation,
                                 &allocationInfo));
@@ -158,10 +158,10 @@ public:
 
   // Build the descriptor-set layout + pool, create and seed all set-0 buffers,
   // and run the one-time descriptor write batch.
-  void initialize(RIDevice_s *device, cResources *resources);
+  void initialize(RIDevice *device, cResources *resources);
 
   // Destroy all owned buffers and the descriptor set.
-  void destroy(RIDevice_s *device);
+  void destroy(RIDevice *device);
 
   // Result of submitMaterial: the object's material id in the continuous
   // range-partitioned space, stored in UniformObject.materialID. Solids land in
@@ -197,7 +197,7 @@ public:
   // Stage every dirty mirror into its matching device-local buffer. Called once
   // at the end of Draw() so all bindless handle / slot-generation writes land
   // ahead of the primary submit's reads regardless of recording order.
-  void flushMirrors(RIDevice_s *device);
+  void flushMirrors(RIDevice *device);
 
   // Own the object's stable slot and stage its payload. Finds/allocates the slot
   // for `objectCookie` (stable per object — keyed on the renderable's unique
@@ -209,7 +209,7 @@ public:
   // VB-destroy hook on a fresh slot that bumps the generation when the geometry is
   // freed. Returns the slot, or UINT32_MAX when the pool is exhausted this frame.
   uint32_t submitObject(uint64_t objectCookie, uint32_t frameIndex,
-                        VertexBuffer_RI *vb, const ObjectSubmitDesc &desc,
+                        cVertexBuffer *vb, const ObjectSubmitDesc &desc,
                         uint32_t flags = kSubmitData);
 
   // === Public state (same names as the former cHybridRenderer members) ===
@@ -218,7 +218,7 @@ public:
 
   // Scene-object table (set 0, kBindingSceneObjects): one UniformObject per
   // assigned object slot, filled per-frame in Draw() from the object cache.
-  struct RIBuffer_s m_objectBuffer;
+  struct RIBuffer m_objectBuffer;
 
   // Per-object-slot state in the object cache (m_objectSlots). The cache hands a
   // stable slot per object (keyed on the renderable's unique cookie); this rides
@@ -244,26 +244,26 @@ public:
   // Per-frame light SSBOs. Device-local; refilled each frame through
   // RI.uploader (see Draw()). The m_*Scratch arrays are CPU staging,
   // reserved once at init so the per-frame fill doesn't reallocate.
-  struct RIBuffer_s m_pointLightBuffer = {};
+  struct RIBuffer m_pointLightBuffer = {};
   std::array<PointLight, kPointSlotLightCapacity> m_pointLightScratch;
-  struct RIBuffer_s m_spotLightBuffer = {};
+  struct RIBuffer m_spotLightBuffer = {};
   std::array<SpotLight, kSpotSlotLightCapacity> m_spotLightScratch;
 
   // Per-frame fog-area SSBO. One entry per cFogArea visible this frame.
-  struct RIBuffer_s m_fogAreaBuffer = {};
+  struct RIBuffer m_fogAreaBuffer = {};
   std::array<FogAreaParams, kFogAreaCapacity> m_fogAreaScratch;
 
   // Clustered OOB decals (cDecal). Packed each frame from eRenderListType_Decal
   // into gDecals[]; the projection pass reads them. Capped at kMaxDecals.
-  struct RIBuffer_s m_decalBuffer = {};
+  struct RIBuffer m_decalBuffer = {};
   std::array<GpuDecal, kMaxDecals> m_decalScratch;
 
-  struct RIBuffer_s m_opaquePositionHandles;
-  struct RIBuffer_s m_opaqueTangentHandles;
-  struct RIBuffer_s m_opaqueNormalHandles;
-  struct RIBuffer_s m_opaqueUv0Handles;
-  struct RIBuffer_s m_opaqueColorHandles;
-  struct RIBuffer_s m_opaqueIndexHandles;
+  struct RIBuffer m_opaquePositionHandles;
+  struct RIBuffer m_opaqueTangentHandles;
+  struct RIBuffer m_opaqueNormalHandles;
+  struct RIBuffer m_opaqueUv0Handles;
+  struct RIBuffer m_opaqueColorHandles;
+  struct RIBuffer m_opaqueIndexHandles;
 
   // Per-object-slot reuse generation (sized kObjectSlotCapacity). Bumped to a
   // fresh monotonic value each time the object cache (re)assigns a slot to a
@@ -271,7 +271,7 @@ public:
   // self-invalidates the stale anchor in collectCellInfo. m_nextSlotGeneration
   // is the host-side source of new values so we never read back the
   // write-combined mapped buffer.
-  struct RIBuffer_s m_bindlessSlotGenerationBuffer;
+  struct RIBuffer m_bindlessSlotGenerationBuffer;
   uint32_t m_nextSlotGeneration = 0;
 
   // CPU shadows of the seven device-local bindless slot buffers above (the six
@@ -290,33 +290,33 @@ public:
   BindlessShadowMirror m_surfelCounterMirror;
 
   // === SurfelGI resources (set=0 bindings 10..19, 27..28, 31..33) ===
-  struct RIBuffer_s m_surfelCounterBuffer;
-  struct RIBuffer_s m_surfelBuffer;
-  struct RIBuffer_s m_surfelGeometryBuffer;
-  struct RIBuffer_s m_surfelValidBuffer;
-  struct RIBuffer_s m_surfelDirtyIndexBuffer;
-  struct RIBuffer_s m_surfelFreeBuffer;
-  struct RIBuffer_s m_surfelRecycleBuffer;
-  struct RIBuffer_s m_surfelRayResultBuffer;
-  struct RIBuffer_s m_cellInfoBuffer;
-  struct RIBuffer_s m_cellToSurfelBuffer;
-  struct RIBuffer_s m_surfelRefCounterBuffer;
-  struct RIBuffer_s m_surfelReservationBuffer;
+  struct RIBuffer m_surfelCounterBuffer;
+  struct RIBuffer m_surfelBuffer;
+  struct RIBuffer m_surfelGeometryBuffer;
+  struct RIBuffer m_surfelValidBuffer;
+  struct RIBuffer m_surfelDirtyIndexBuffer;
+  struct RIBuffer m_surfelFreeBuffer;
+  struct RIBuffer m_surfelRecycleBuffer;
+  struct RIBuffer m_surfelRayResultBuffer;
+  struct RIBuffer m_cellInfoBuffer;
+  struct RIBuffer m_cellToSurfelBuffer;
+  struct RIBuffer m_surfelRefCounterBuffer;
+  struct RIBuffer m_surfelReservationBuffer;
   // Compact per-surfel cull record (SurfelBounds) read by the generation
   // pass's hot loop in place of the full m_surfelBuffer gather.
-  struct RIBuffer_s m_surfelBoundsBuffer;
+  struct RIBuffer m_surfelBoundsBuffer;
 
   // Coarse world-space light grid (LightGridBuildPass writes, SurfelRayTrace
   // NEE reads): per-cell light count + packed per-cell unified-light-index list.
-  struct RIBuffer_s m_lightGridCountBuffer;
-  struct RIBuffer_s m_lightGridListBuffer;
+  struct RIBuffer m_lightGridCountBuffer;
+  struct RIBuffer m_lightGridListBuffer;
   // Flat per-object decal-index pool (cWorld::Compile association), uploaded into
   // gObjectDecalIndices; replaces the old spatial decal grid.
-  struct RIBuffer_s m_objectDecalIndexBuffer = {};
+  struct RIBuffer m_objectDecalIndexBuffer = {};
 
   // Per-surfel copy of its anchor slot's generation, captured at spawn and
   // compared against m_bindlessSlotGenerationBuffer in collectCellInfo.
-  struct RIBuffer_s m_surfelSlotGenerationBuffer;
+  struct RIBuffer m_surfelSlotGenerationBuffer;
 
   // Bindless material wiring. The material-id space is range-partitioned across
   // three typed pools/buffers: solid+decal (m_diffuseMaterialBindless / DiffuseMaterial),
@@ -325,10 +325,10 @@ public:
   LRUCache m_diffuseMaterialBindless;
   LRUCache m_translucentMaterialBindless;
   LRUCache m_waterMaterialBindless;
-  struct RIBuffer_s m_diffuseMaterialBuffer;
-  struct RIBuffer_s m_translucentMaterialBuffer = {};
-  struct RIBuffer_s m_waterMaterialBuffer = {};
-  std::optional<RIDescriptor_s> m_materialSampler;
+  struct RIBuffer m_diffuseMaterialBuffer;
+  struct RIBuffer m_translucentMaterialBuffer = {};
+  struct RIBuffer m_waterMaterialBuffer = {};
+  std::optional<RIDescriptor> m_materialSampler;
 
   // Default light falloff LUT (core_falloff_linear), bound once to set 0 as the
   // immutable gAttenuationLut. Held resident for the renderer's lifetime.

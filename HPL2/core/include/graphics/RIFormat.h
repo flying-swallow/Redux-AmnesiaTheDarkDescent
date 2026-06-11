@@ -117,7 +117,7 @@ enum RI_LogicalChannel_e {
 	RI_LOGICAL_C_MAX = 6
 };
 
-struct RIFormatProps_s {
+struct RIFormatProps {
 	const char *name;		       // format name
 	uint32_t format;		       // self
 	union {
@@ -151,7 +151,7 @@ struct RIFormatProps_s {
 extern "C" {
 #endif /* __cplusplus */
 
-const struct RIFormatProps_s* GetRIFormatProps(uint32_t format);
+const struct RIFormatProps* GetRIFormatProps(uint32_t format);
 
 // Number of color channels carried by `format` (count of nonzero
 // R/G/B/A bit fields) — 1 for R8_UNORM-style grayscale, 4 for RGBA.

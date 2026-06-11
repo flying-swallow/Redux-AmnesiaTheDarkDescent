@@ -995,10 +995,6 @@ protected:
 	 * \param apViewport 
 	 * \param apFunctions 
 	 */
-	void DrawBillboard(iTexture *apGfx, const cVector3f& avWorldPosition,const cVector2f& avSize,const cColor& aColor,  
-						cEditorWindowViewport* apViewport, DebugDraw* apFunctions);
-
-	
 	/**
 	 * Draws an arrow pointing upwards using the amtxTransform reference system
 	 * \param apViewport 

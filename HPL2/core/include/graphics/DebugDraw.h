@@ -44,9 +44,9 @@ namespace hpl {
 class cResources;
 class cCamera;
 class cFrustum;
-class iVertexBuffer;
+class cVertexBuffer;
 class Image;
-struct HPLTexture;
+struct cTexture;
 
 // Immediate-mode batcher for editor / debug overlays (grids, gizmos,
 // selection wireframes, entity icons) on the RI backend. Callers enqueue
@@ -116,9 +116,9 @@ public:
 
     // Triangle walks over an engine vertex buffer (selection outlines, solid
     // highlight fills).
-    void DebugWireFrameFromVertexBuffer(iVertexBuffer* apVertexBuffer, const cColor& aColor,
+    void DebugWireFrameFromVertexBuffer(cVertexBuffer* apVertexBuffer, const cColor& aColor,
                                         const DebugDrawOptions& aOptions = DebugDrawOptions());
-    void DebugSolidFromVertexBuffer(iVertexBuffer* apVertexBuffer, const cColor& aColor,
+    void DebugSolidFromVertexBuffer(cVertexBuffer* apVertexBuffer, const cColor& aColor,
                                     const DebugDrawOptions& aOptions = DebugDrawOptions());
 
     /////////////////////////////////////////////
@@ -135,7 +135,7 @@ public:
     // the scene depth (LOADed, read-only — the pipelines never write depth).
     // Sets its own Y-flipped viewport/scissor to the target extent. Calls
     // Reset() at the end.
-    void flush(RIBootstrap::FrameContext* cntx, struct RICmd_s* cmd, const cFrustum* apFrustum,
+    void flush(RIBootstrap::FrameContext* cntx, struct RICmd* cmd, const cFrustum* apFrustum,
                uint32_t alTargetWidth, uint32_t alTargetHeight,
                VkFormat aColorFormat = RIBootstrap::PogoColorFormatVk);
 
@@ -179,7 +179,7 @@ private:
         DebugDepthTest m_depthTest = DebugDepthTest::LessEqual;
         std::variant<Quad, Billboard> m_type;
         cVector2f m_uv0, m_uv1;
-        std::shared_ptr<HPLTexture> m_texture;
+        std::shared_ptr<cTexture> m_texture;
         cColor m_color;
     };
 
@@ -193,7 +193,7 @@ private:
     // the buffer is recreated 1.5x larger and the old one is deferred onto
     // the frame freelist.
     bool RequestStream(RIBootstrap::FrameContext* cntx, size_t alNumVertices, size_t alNumIndices,
-                       struct RISegmentReq_s* apVtxReq, struct RISegmentReq_s* apIdxReq);
+                       struct RISegmentReq* apVtxReq, struct RISegmentReq* apIdxReq);
 
     std::vector<LineSegmentRequest> m_lineSegments;
     std::vector<ColorTriRequest> m_colorTriangles;
@@ -206,9 +206,9 @@ private:
     RIProgram m_uvProgram;      // debug_uv.vert + debug_uv.frag
 
     RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> m_vertexAlloc;
-    RIBuffer_s m_vertexBuffer = {};
+    RIBuffer m_vertexBuffer = {};
     RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> m_indexAlloc;
-    RIBuffer_s m_indexBuffer = {};
+    RIBuffer m_indexBuffer = {};
 };
 
 } // namespace hpl

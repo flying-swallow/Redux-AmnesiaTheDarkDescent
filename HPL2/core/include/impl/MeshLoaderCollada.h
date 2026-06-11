@@ -33,7 +33,7 @@ namespace hpl {
 
 	class cMesh;
 	class cNode3D;
-	class iVertexBuffer;
+	class cVertexBuffer;
 	class cBone;
 	class cAnimation;
 	class cAnimationTrack;
@@ -509,7 +509,7 @@ namespace hpl {
 
 		void CreateSkeletonBone(cColladaNode* apColladaNode, cBone* apParentBone);
 
-		iVertexBuffer *CreateVertexBuffer(cColladaGeometry & aGeometry, 
+		cVertexBuffer *CreateVertexBuffer(cColladaGeometry & aGeometry, 
 											eVertexBufferUsageType aUsageType);
 											//tColladaExtraVtxListVec &vExtraVtxVec);
 

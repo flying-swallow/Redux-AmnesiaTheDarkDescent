@@ -21,7 +21,7 @@
 #define LUX_SCREEN_EFFECT_H
 
 #include "graphics/Image.h"
-#include "graphics/HPLTexture.h"
+#include "graphics/Texture.h"
 #include "graphics/RIBootstrap.h"
 #include "graphics/RIProgram.h"
 #include "graphics/RITypes.h"
@@ -85,8 +85,8 @@ private:
 	hpl::cGui            *mpGui         = nullptr;
 	hpl::cGuiGfxElement  *mpScreenBgGfx = nullptr;
 
-	std::shared_ptr<hpl::HPLTexture> m_screenBgColor;
-	std::shared_ptr<hpl::HPLTexture> m_screenScratch; // Blur ping-pong only.
+	std::shared_ptr<hpl::cTexture> m_screenBgColor;
+	std::shared_ptr<hpl::cTexture> m_screenScratch; // Blur ping-pong only.
 	std::shared_ptr<hpl::Image>      m_screenBgImage;
 
 	hpl::RIProgram m_postProgram; // desaturate/darken or blur post-effect

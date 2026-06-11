@@ -6,13 +6,13 @@
 #include <array>
 #include <cassert>
 
-struct RISegmentAllocDesc_s {
+struct RISegmentAllocDesc {
   uint16_t elementStride;
   uint16_t numSegments;
   uint32_t maxElements; // element count — requests can exceed 65535
 };
 
-struct RISegmentReq_s {
+struct RISegmentReq {
   uint16_t elementStride;
   uint32_t elementOffset;
   uint32_t numElements;
@@ -21,9 +21,9 @@ struct RISegmentReq_s {
 template <size_t N> struct RISegmentAlloc {
   static constexpr uint32_t SEGMENTS = N;
   RISegmentAlloc() { segment.fill(Segment{0, 0}); }
-  RISegmentAlloc(struct RISegmentAllocDesc_s *desc);
+  RISegmentAlloc(struct RISegmentAllocDesc *desc);
   bool request(uint32_t frameIndex, size_t numElements,
-               struct RISegmentReq_s *req);
+               struct RISegmentReq *req);
 
   uint16_t elementStride = 0;
   uint16_t numSegments = 0;
@@ -42,7 +42,7 @@ template <size_t N> struct RISegmentAlloc {
 };
 
 template <size_t N>
-RISegmentAlloc<N>::RISegmentAlloc(struct RISegmentAllocDesc_s *desc) {
+RISegmentAlloc<N>::RISegmentAlloc(struct RISegmentAllocDesc *desc) {
   assert(desc);
   segment.fill(Segment{0, 0});
   elementStride = desc->elementStride;
@@ -56,7 +56,7 @@ RISegmentAlloc<N>::RISegmentAlloc(struct RISegmentAllocDesc_s *desc) {
 }
 template <size_t N>
 bool RISegmentAlloc<N>::request(uint32_t frameIndex, size_t reqElements,
-                                struct RISegmentReq_s *req) {
+                                struct RISegmentReq *req) {
   if (maxElements == 0)
     return false;
   // reclaim segments that are unused

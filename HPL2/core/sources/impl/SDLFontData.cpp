@@ -27,7 +27,6 @@
 #include "resources/ImageManager.h"
 #include "graphics/FrameTexture.h"
 #include "graphics/FrameSubImage.h"
-#include "graphics/Texture.h"
 #include "graphics/Image.h"
 
 
@@ -153,8 +152,8 @@ namespace hpl {
 			tString sName = cString::SetFileExt(cString::To8Char(asFileName),"")+"_"+cString::ToString(lCount);
 			//iTexture *pTexture = mpLowLevelGraphics->CreateTexture("",eTextureType_2D,eTextureUsage_Normal);
 			Image::SingleImage singleImage = {};
-			singleImage.image = std::shared_ptr<HPLTexture>(new HPLTexture{}, HPLTexture::HPLTexture_Delete);
-			HPLTexture::BitmapLoadOptions opts = {0};
+			singleImage.image = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
+			cTexture::BitmapLoadOptions opts = {0};
 			opts.use_mipmaps = true;
 			if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *pBitmap, opts)) {
 				Error("Texture manager Couldn't load SDLFontData '%s'\n", sName.c_str());

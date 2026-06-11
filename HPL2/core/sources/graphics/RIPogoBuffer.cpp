@@ -6,7 +6,7 @@
 #include <vk_mem_alloc.h>
 #endif
 
-void RI_PogoBufferInit( struct RIDevice_s *device, struct RI_PogoBuffer *pogo, uint32_t width, uint32_t height, enum RI_Format_e format )
+void RI_PogoBufferInit( struct RIDevice *device, struct RI_PogoBuffer *pogo, uint32_t width, uint32_t height, enum RI_Format_e format )
 {
 	pogo->attachmentIndex = 0;
 #if ( DEVICE_IMPL_VULKAN )
@@ -63,21 +63,21 @@ void RI_PogoBufferInit( struct RIDevice_s *device, struct RI_PogoBuffer *pogo, u
 #endif
 }
 
-void RI_PogoBufferDestroy( struct RIDevice_s *device, struct RI_PogoBuffer *pogo )
+void RI_PogoBufferDestroy( struct RIDevice *device, struct RI_PogoBuffer *pogo )
 {
 #if ( DEVICE_IMPL_VULKAN )
 	for( size_t p = 0; p < 2; p++ ) {
 		vkDestroyImageView( device->vk.device, pogo->pogoAttachment[p].vk.image.imageView, NULL );
 		vmaDestroyImage( device->vk.vmaAllocator, pogo->textures[p].vk.image, pogo->textures[p].vk.allocation );
-		pogo->pogoAttachment[p] = RIDescriptor_s{};
-		pogo->textures[p] = RITexture_s{};
+		pogo->pogoAttachment[p] = RIDescriptor{};
+		pogo->textures[p] = RITexture{};
 	}
 #endif
 }
 
-void RI_PogoBufferToggle( struct RIDevice_s *device, struct RI_PogoBuffer *pogo, struct RICmd_s *handle )
+void RI_PogoBufferToggle( struct RIDevice *device, struct RI_PogoBuffer *pogo, struct RICmd *handle )
 {
-	struct RITextureBarrier_s barriers[2] = {};
+	struct RITextureBarrier barriers[2] = {};
 	barriers[0] = RI_PogoShaderBarrier( &pogo->textures[pogo->attachmentIndex], false );
 	pogo->attachmentIndex = ( ( pogo->attachmentIndex + 1 ) % 2 );
 	barriers[1] = RI_PogoAttachmentBarrier( &pogo->textures[pogo->attachmentIndex], false );

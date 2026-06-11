@@ -61,8 +61,6 @@ namespace hpl {
 
 		bool SupportsHWSkinning(){ return false; }
 
-		iTexture* GetTextureForUnit(cMaterial *apMaterial,eMaterialRenderMode aRenderMode, int alUnit){ return NULL;}
-		iTexture* GetSpecialTexture(cMaterial *apMaterial, eMaterialRenderMode aRenderMode,iRenderer *apRenderer, int alUnit){ return NULL; }
 
 		iMaterialVars* CreateSpecificVariables(){ return hplNew(cMaterialManagerBlankMaterialType_Vars,());}
 		void LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars){ }

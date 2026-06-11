@@ -167,13 +167,12 @@
     <ClInclude Include="include\graphics\DrawPacket.h" />
     <ClInclude Include="include\graphics\FrameBase.h" />
     <ClInclude Include="include\graphics\FrameBitmap.h" />
-    <ClInclude Include="include\graphics\FrameBuffer.h" />
     <ClInclude Include="include\graphics\FrameSubImage.h" />
     <ClInclude Include="include\graphics\FrameTexture.h" />
     <ClInclude Include="include\graphics\GBufferMRTPipelineDesc.h" />
     <ClInclude Include="include\graphics\GraphicUtils.h" />
     <ClInclude Include="include\graphics\HPLGraphicsConfig.h" />
-    <ClInclude Include="include\graphics\HPLTexture.h" />
+    <ClInclude Include="include\graphics\Texture.h" />
     <ClInclude Include="include\graphics\HybridGlobalManagedSet.h" />
     <ClInclude Include="include\graphics\HybridRenderer.h" />
     <ClInclude Include="include\graphics\Image.h" />
@@ -191,7 +190,6 @@
     <ClInclude Include="include\graphics\RenderList.h" />
     <ClInclude Include="include\graphics\RIBarrier.h" />
     <ClInclude Include="include\graphics\RIBootstrap.h" />
-    <ClInclude Include="include\graphics\RIConversion.h" />
     <ClInclude Include="include\graphics\RIDefines.h" />
     <ClInclude Include="include\graphics\RIDescriptorSetAllocator.h" />
     <ClInclude Include="include\graphics\RIFormat.h" />
@@ -210,7 +208,6 @@
     <ClInclude Include="include\graphics\spirv_reflect.h" />
     <ClInclude Include="include\graphics\TranslucentMeshPipelineDesc.h" />
     <ClInclude Include="include\graphics\VertexBuffer.h" />
-    <ClInclude Include="include\graphics\VertexBuffer_RI.h" />
     <ClInclude Include="include\gui\GuiGfxElement.h" />
     <ClInclude Include="include\gui\WidgetMeshObjectList.h" />
     <ClInclude Include="include\gui\WidgetNodeTree.h" />
@@ -526,7 +523,7 @@
     <ClCompile Include="sources\graphics\FrameTexture.cpp" />
     <ClCompile Include="sources\graphics\GBufferMRTPipelineDesc.cpp" />
     <ClCompile Include="sources\graphics\GraphicUtils.cpp" />
-    <ClCompile Include="sources\graphics\HPLTexture.cpp" />
+    <ClCompile Include="sources\graphics\Texture.cpp" />
     <ClCompile Include="sources\graphics\HybridGlobalManagedSet.cpp" />
     <ClCompile Include="sources\graphics\HybridRenderer.cpp" />
     <ClCompile Include="sources\graphics\Image.cpp" />
@@ -566,7 +563,7 @@
     <ClCompile Include="sources\impl\GamepadSDL.cpp" />
     <ClCompile Include="sources\impl\GamepadXInput.cpp" />
     <ClCompile Include="sources\impl\SDLTexture.cpp" />
-    <ClCompile Include="sources\impl\VertexBuffer_RI.cpp" />
+    <ClCompile Include="sources\impl\VertexBuffer.cpp" />
     <ClCompile Include="sources\input\ActionGamepadAxis.cpp" />
     <ClCompile Include="sources\input\ActionGamepadButton.cpp" />
     <ClCompile Include="sources\input\ActionGamepadHat.cpp" />

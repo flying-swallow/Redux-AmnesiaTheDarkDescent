@@ -21,15 +21,15 @@ namespace {
 // in-flight frames keep their data) and claim from the fresh allocator.
 bool __RequestScratchSegment(RIBootstrap::FrameContext *cntx,
                              RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> &alloc,
-                             RIBuffer_s &buffer, uint16_t elementStride,
+                             RIBuffer &buffer, uint16_t elementStride,
                              VkBufferUsageFlags usage, size_t numElements,
-                             struct RISegmentReq_s *req) {
+                             struct RISegmentReq *req) {
   if (IsRIBufferValid(&RI.renderer, &buffer) &&
       alloc.request(RI.frameIndex, numElements, req)) {
     return true;
   }
 
-  struct RISegmentAllocDesc_s segmentAllocDesc = {0};
+  struct RISegmentAllocDesc segmentAllocDesc = {0};
   segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
   segmentAllocDesc.elementStride = elementStride;
   segmentAllocDesc.maxElements = std::max<size_t>(alloc.maxElements, 4096);
@@ -69,7 +69,7 @@ bool __RequestScratchSegment(RIBootstrap::FrameContext *cntx,
 } // namespace
 
 bool RIBootstrap::RequestTranslucentVtx(FrameContext *cntx, size_t numFloats,
-                                        struct RISegmentReq_s *req) {
+                                        struct RISegmentReq *req) {
   // SHADER_DEVICE_ADDRESS: the hybrid ParticlePass pulls these streams via BDA
   // (segment base address + byte offset fanned into the bindless slot mirrors).
   return __RequestScratchSegment(cntx, translucentVtxAlloc,
@@ -80,7 +80,7 @@ bool RIBootstrap::RequestTranslucentVtx(FrameContext *cntx, size_t numFloats,
 }
 
 bool RIBootstrap::RequestTranslucentIdx(FrameContext *cntx, size_t numIndices,
-                                        struct RISegmentReq_s *req) {
+                                        struct RISegmentReq *req) {
   return __RequestScratchSegment(cntx, translucentIdxAlloc,
                                  translucentIdxBuffer, sizeof(uint32_t),
                                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
@@ -117,14 +117,14 @@ void RIBootstrap::Dispose() {
 
 void RIBootstrap::CloseAndSubmitActiveSet() {
   RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
-  struct RIQueue_s *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
+  struct RIQueue *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
   {
     // Swapchain image: COLOR -> PRESENT for the queue present. The swapchain
-    // images are raw VkImage handles, so bridge through a stack RITexture_s.
-    RITexture_s swapchainTexture = {};
+    // images are raw VkImage handles, so bridge through a stack RITexture.
+    RITexture swapchainTexture = {};
     swapchainTexture.vk.image = RI.swapchain.vk.images[RI.swapchainIndex];
 
-    RITextureBarrier_s toPresent = {};
+    RITextureBarrier toPresent = {};
     toPresent.texture = &swapchainTexture;
     toPresent.before = RI_RESOURCE_STATE_RENDER_TARGET_READ;
     toPresent.after = RI_RESOURCE_STATE_PRESENT;
@@ -135,7 +135,7 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
 
   // Flush pending resource uploads (the vertex/index data the BLAS builds read)
   // once, up front, so both the BLAS submit and the primary chain off it.
-  RIResourceUploaderVKResult_s uploadResult =
+  RIResourceUploaderVKResult uploadResult =
       RI_VKFlushResourceUpdate(&RI.device, &RI.uploader, 0, NULL);
 
   // Submit the dedicated BLAS-build command buffer ahead of the primary. It
@@ -254,10 +254,10 @@ void RIBootstrap::BeginActiveSet() {
     // Swapchain image: UNDEFINED -> COLOR for the frame. (Depth is
     // per-viewport now — each renderer's Draw emits its own first-use
     // UNDEFINED transition on its viewport's depth target.)
-    RITexture_s swapchainTexture = {};
+    RITexture swapchainTexture = {};
     swapchainTexture.vk.image = RI.swapchain.vk.images[RI.swapchainIndex];
 
-    RITextureBarrier_s toColor = {};
+    RITextureBarrier toColor = {};
     toColor.texture = &swapchainTexture;
     toColor.before = RI_RESOURCE_STATE_UNDEFINED;
     toColor.after = RI_RESOURCE_STATE_RENDER_TARGET_READ;
@@ -265,14 +265,14 @@ void RIBootstrap::BeginActiveSet() {
   }
 }
 
-void RIBootstrap::UpdateFrameUBO(RIDescriptor_s *descriptor, void *data,
+void RIBootstrap::UpdateFrameUBO(RIDescriptor *descriptor, void *data,
                                  size_t size) {
   auto *activeSet = GetActiveSet();
   const hash_t hash =
       hash_data_hsieh(HASH_INITIAL_VALUE + frameIndex, data, size);
   if (descriptor->cookie != hash) {
     descriptor->cookie = hash;
-    struct RIBufferScratchAllocReq_s scratchReq = RIAllocBufferFromScratchAlloc(
+    struct RIBufferScratchAllocReq scratchReq = RIAllocBufferFromScratchAlloc(
         &device, &activeSet->uboScratchAlloc, size);
     descriptor->vk.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
     descriptor->vk.buffer.buffer = scratchReq.block.buffer.vk.buffer;
@@ -284,7 +284,7 @@ void RIBootstrap::UpdateFrameUBO(RIDescriptor_s *descriptor, void *data,
   }
 }
 
-std::optional<RIDescriptor_s> RIBootstrap::resolve_filter_descriptor(eTextureWrap wrapS,
+std::optional<RIDescriptor> RIBootstrap::resolve_filter_descriptor(eTextureWrap wrapS,
                                                        eTextureWrap wrapT,
                                                        eTextureWrap wrapR,
                                                        eTextureFilter filter) {

@@ -77,10 +77,10 @@ void cPostEffect_ImageTrail::OnSetActive(bool abX) {
 }
 
 namespace {
-void EmitAccumBarrier(RICmd_s *cmd, RITexture_s *texture,
+void EmitAccumBarrier(RICmd *cmd, RITexture *texture,
                       enum RIResourceState_e before, uint32_t beforeStages,
                       enum RIResourceState_e after, uint32_t afterStages) {
-    RITextureBarrier_s barrier = {};
+    RITextureBarrier barrier = {};
     barrier.texture = texture;
     barrier.before = before;
     barrier.beforeStages = beforeStages;

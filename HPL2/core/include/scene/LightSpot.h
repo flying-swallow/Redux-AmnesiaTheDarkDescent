@@ -26,7 +26,6 @@
 namespace hpl {
 
 	class cResources;
-	class iTexture;
 	class Image;
 	class cFrustum;
 
@@ -63,11 +62,6 @@ namespace hpl {
 
 		cFrustum* GetFrustum();
 
-		[[deprecated("use GetSpotFalloffImage")]]
-		iTexture *GetSpotFalloffMap();
-		[[deprecated("use SetSpotFalloffMap(Image*)")]]
-		void SetSpotFalloffMap(iTexture* apTexture);
-
 		void SetSpotFalloffMap(Image* apImage);
 		Image* GetSpotFalloffImage() const;
 
@@ -85,9 +79,7 @@ namespace hpl {
 
 		cFrustum *mpFrustum;
 
-		iTexture *mpSpotFalloffMap = nullptr;
-
-		// Image* parallel storage.
+		// Image* texture storage.
 		ImageResourceWrapper m_spotFalloffMap;
 
 		float mfFOV;

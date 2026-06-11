@@ -32,7 +32,7 @@ inline uint32_t overscanExtent(uint32_t d) {
 }
 
 class Image;
-class iVertexBuffer;
+class cVertexBuffer;
 
 class cHybridRenderer : public iRenderer {
 public:
@@ -72,11 +72,11 @@ private:
   // at init; detail::BindVertexStreams binds them in the raster passes.
 
   RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> m_indirectSegment;
-  struct RIBuffer_s m_indirectDrawBuffer;
+  struct RIBuffer m_indirectDrawBuffer;
 
-  RIBuffer_s m_tlasStorage = {};
-  struct RIAccelStructure_s m_tlas = {};
-  struct RIBuffer_s m_tlasInstanceBuffer = {};
+  RIBuffer m_tlasStorage = {};
+  struct RIAccelStructure m_tlas = {};
+  struct RIBuffer m_tlasInstanceBuffer = {};
   uint32_t m_tlasCapacity = 0;
   uint32_t m_tlasStorageCapacity = 0;
 
@@ -181,8 +181,8 @@ private:
 	// sampled by the surfel shading passes for visibility-aware GI gather.
 	// Lives at VK_IMAGE_LAYOUT_GENERAL across all surfel passes so the same
 	// view can be bound as both storage image (writes) and sampled image.
-	struct RITexture_s     m_surfelDepthTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-	struct RITextureView_s m_surfelDepthView[RI_MAX_SWAPCHAIN_IMAGES]    = {};
+	struct RITexture     m_surfelDepthTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
+	struct RITextureView m_surfelDepthView[RI_MAX_SWAPCHAIN_IMAGES]    = {};
 
 	// One-shot UNDEFINED -> GENERAL transition tracker for the two surfel
 	// atlases. Per-swapchain-image because each backing image needs the

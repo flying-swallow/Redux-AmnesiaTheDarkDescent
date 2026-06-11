@@ -109,7 +109,6 @@ protected:
 	// Engine related data
 	bool mbDestroyEngineOnExit;
 	cEngine*		mpEngine;
-	iFrameBuffer*	mpFrameBuffer;
 	cViewport*		mpViewport;
 
 	cGuiSet*		mpSet;

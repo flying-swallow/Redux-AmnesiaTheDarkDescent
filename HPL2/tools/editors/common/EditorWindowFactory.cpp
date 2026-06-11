@@ -57,7 +57,6 @@
 //--------------------------------------------------------
 
 cEditorWindowViewport* cEditorWindowFactory::CreateWindowViewport(iEditorBase* apEditor,
-																  iFrameBuffer* apFB,
 																  const cVector2l& avFBViewPos,
 																  const cVector2l& avFBViewSize,
 																  const cVector3f& avPosition, 
@@ -66,7 +65,7 @@ cEditorWindowViewport* cEditorWindowFactory::CreateWindowViewport(iEditorBase* a
 {
 	////////////////////////////////////////
 	// Create viewport and set parameters
-	cEditorWindowViewport* pViewport = hplNew(cEditorWindowViewport,(apEditor, apFB, abAddViewMenu));
+	cEditorWindowViewport* pViewport = hplNew(cEditorWindowViewport,(apEditor, abAddViewMenu));
 	pViewport->SetEngineViewportPositionAndSize(avFBViewPos,avFBViewSize);
 
 	pViewport->Init();
@@ -357,9 +356,9 @@ cEditorWindowLoaderStatus* cEditorWindowFactory::CreateLoaderStatusWindow(iEdito
 
 //--------------------------------------------------------
 
-cEditorWindowMaterialEditor* cEditorWindowFactory::CreateMaterialEditor(iEditorBase* apEditor, iFrameBuffer* apFB)
+cEditorWindowMaterialEditor* cEditorWindowFactory::CreateMaterialEditor(iEditorBase* apEditor)
 {
-	cEditorWindowMaterialEditor* pWindow = hplNew(cEditorWindowMaterialEditor,(apEditor,apFB));
+	cEditorWindowMaterialEditor* pWindow = hplNew(cEditorWindowMaterialEditor,(apEditor));
 	pWindow->Init();
 	apEditor->AddWindow(pWindow);
 	return pWindow;

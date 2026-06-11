@@ -64,7 +64,7 @@ public:
 
 	static bool CheckScreenSpaceMouseVertexBufferIntersect(const cVector2f& avInvYMousePos,
 														   const cVector3f& avRayStart, const cVector3f& avRayEnd,
-														   const cVector2f& avViewportSize, iVertexBuffer* apVtxBuffer,
+														   const cVector2f& avViewportSize, cVertexBuffer* apVtxBuffer,
 														   const cMatrixf& amtxCameraViewMatrix,
 														   const cMatrixf& amtxCameraProjMatrix,
 														   const cMatrixf& amtxVtxBufferWorldMatrix,
@@ -98,7 +98,7 @@ public:
 	// Billboard/pyramid drawing goes through DebugDraw::DrawBillboard /
 	// DebugDraw::DrawPyramid directly now.
 
-	static iVertexBuffer* CreatePyramidVtxBuffer(cGraphics* apGfx, const cVector3f& avBaseCenter, const cVector3f& avTip, float afHalfWidth, const cColor& aColor);
+	static cVertexBuffer* CreatePyramidVtxBuffer(cGraphics* apGfx, const cVector3f& avBaseCenter, const cVector3f& avTip, float afHalfWidth, const cColor& aColor);
 
 	static void GetViewSpacePosAndSize(cCamera* apCamera, const cVector3f& avWorldPosition, const cVector3f& avWorldSize, cVector3f& avViewSpacePosition, cVector3f& avViewSpaceSize);
 
