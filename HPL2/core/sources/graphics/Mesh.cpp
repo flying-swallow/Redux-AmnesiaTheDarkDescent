@@ -64,10 +64,7 @@ namespace hpl {
 
 	cMesh::~cMesh()
 	{
-		for(int i=0;i<(int)mvSubMeshes.size();i++)
-		{
-			hplDelete(mvSubMeshes[i]);
-		}
+		// mvSubMeshes owns the cSubMeshes via unique_ptr — no manual delete.
 		if(mpSkeleton) hplDelete(mpSkeleton);
 		
 		for(int i=0;i< (int)mvAnimations.size(); i++)
@@ -100,8 +97,7 @@ namespace hpl {
 
 		pSubMesh->mpParent = this;
 
-		mvSubMeshes.push_back(pSubMesh);
-		m_mapSubMeshes.insert(tSubMeshMap::value_type(asName, pSubMesh));
+		mvSubMeshes.push_back(std::unique_ptr<cSubMesh>(pSubMesh));
 
 		return pSubMesh;
 	}
@@ -112,7 +108,7 @@ namespace hpl {
 	{
 		if(alIdx >= mvSubMeshes.size()) return NULL;
 
-		return mvSubMeshes[alIdx];
+		return mvSubMeshes[alIdx].get();
 	}
 
 	int cMesh::GetSubMeshIndex(const tString &asName)
@@ -127,10 +123,12 @@ namespace hpl {
 	
 	cSubMesh* cMesh::GetSubMeshName(const tString &asName)
 	{
-		tSubMeshMapIt it = m_mapSubMeshes.find(asName);
-		if(it == m_mapSubMeshes.end())return NULL;
+		for(size_t i=0; i<mvSubMeshes.size(); ++i)
+		{
+			if(mvSubMeshes[i]->GetName() == asName) return mvSubMeshes[i].get();
+		}
 
-		return it->second;
+		return NULL;
 	}
 	
 	int cMesh::GetSubMeshNum()
@@ -142,13 +140,11 @@ namespace hpl {
 
 	int cMesh::GetTriangleCount()
 	{
-		tSubMeshVecIt it = mvSubMeshes.begin();
-
 		int lTriangleCount = 0;
 
-		for(;it!=mvSubMeshes.end(); ++it)
+		for(const auto& pSubMesh : mvSubMeshes)
 		{
-			cVertexBuffer* pVB = (*it)->GetVertexBuffer();
+			cVertexBuffer* pVB = pSubMesh->GetVertexBuffer();
 
 			if(pVB)
 				lTriangleCount += (int)pVB->GetIndexNum()/3;
@@ -244,7 +240,7 @@ namespace hpl {
 		{
 			////////////////////////////
 			//Get the variables
-			cSubMesh *pSubMesh = mvSubMeshes[i];
+			cSubMesh *pSubMesh = mvSubMeshes[i].get();
 			cVertexBuffer *pVtxBuffer = pSubMesh->GetVertexBuffer();
 			float* pPosArray = pVtxBuffer->GetFloatArray(eVertexBufferElement_Position);
 			const int lVtxStride = pVtxBuffer->GetElementNum(eVertexBufferElement_Position);

@@ -22,118 +22,116 @@
 
 #include <vector>
 #include <map>
+#include <memory>
 
-#include "math/MathTypes.h"
 #include "graphics/GraphicsTypes.h"
-#include "system/SystemTypes.h"
+#include "math/MathTypes.h"
 #include "resources/ResourceBase.h"
+#include "system/SystemTypes.h"
 
 #include "scene/Light.h"
 
 namespace hpl {
 
-	class cMaterialManager;
-	class cAnimationManager;
-	class cSubMesh;
-	class cMeshEntity;
-	class cSkeleton;
-	class cAnimation;
-	class cNode3D;
-	class iCollideShape;
-	class iPhysicsWorld;
-	class iPhysicsBody;
-	class iPhysicsJoint;
-	class cBillboard;
-	class cBeam;
-	class cParticleSystem;
-	class cSoundEntity;
-	class cWorld;
+class cMaterialManager;
+class cAnimationManager;
+class cSubMesh;
+class cMeshEntity;
+class cSkeleton;
+class cAnimation;
+class cNode3D;
+class iCollideShape;
+class iPhysicsWorld;
+class iPhysicsBody;
+class iPhysicsJoint;
+class cBillboard;
+class cBeam;
+class cParticleSystem;
+class cSoundEntity;
+class cWorld;
 
-	//--------------------------------------------------
+//--------------------------------------------------
 
-	typedef std::vector<cAnimation*> tAnimationVec;
-	typedef tAnimationVec::iterator tAnimationVecIt;
+typedef std::vector<cAnimation *> tAnimationVec;
+typedef tAnimationVec::iterator tAnimationVecIt;
 
-	typedef std::map<tString, int> tAnimationIndexMap;
-	typedef tAnimationIndexMap::iterator tAnimationIndexMapIt;
+typedef std::map<tString, int> tAnimationIndexMap;
+typedef tAnimationIndexMap::iterator tAnimationIndexMapIt;
 
-	typedef std::vector<cSubMesh*> tSubMeshVec;
-	typedef std::vector<cSubMesh*>::iterator tSubMeshVecIt;
+typedef std::vector<cNode3D *> tNode3DVec;
+typedef tNode3DVec::iterator tNode3DVecIt;
 
-	typedef std::multimap<tString,cSubMesh*> tSubMeshMap;
-	typedef tSubMeshMap::iterator tSubMeshMapIt;
+//--------------------------------------------------
 
-	typedef std::vector<cNode3D*> tNode3DVec;
-	typedef tNode3DVec::iterator tNode3DVecIt;
+class cMesh : public iResourceBase {
+  friend class cSubMesh;
+  friend class cMeshEntity;
 
-	//--------------------------------------------------
+public:
+  cMesh(const tString &asName, const tWString &asFullPath,
+        cMaterialManager *apMaterialManager,
+        cAnimationManager *apAnimationManager);
+  ~cMesh();
 
-	class cMesh : public iResourceBase
-	{
-	friend class cSubMesh;
-	friend class cMeshEntity;
-	public:
-		cMesh(const tString& asName, const tWString& asFullPath, cMaterialManager* apMaterialManager, cAnimationManager * apAnimationManager);
-		~cMesh();
+  bool CreateFromFile(const tString asFile);
 
-		bool CreateFromFile(const tString asFile);
+  cSubMesh *CreateSubMesh(const tString &asName);
 
-		cSubMesh* CreateSubMesh(const tString &asName);
+  cSubMesh *GetSubMesh(unsigned int alIdx);
+  int GetSubMeshIndex(const tString &asName);
+  cSubMesh *GetSubMeshName(const tString &asName);
+  int GetSubMeshNum();
 
-		cSubMesh* GetSubMesh(unsigned int alIdx);
-		int GetSubMeshIndex(const tString &asName);
-		cSubMesh* GetSubMeshName(const tString &asName);
-		int GetSubMeshNum();
+  int GetTriangleCount();
 
-		int GetTriangleCount();
+  void SetSkeleton(cSkeleton *apSkeleton);
+  cSkeleton *GetSkeleton();
 
-		void SetSkeleton(cSkeleton* apSkeleton);
-		cSkeleton* GetSkeleton();
+  void AddAnimation(cAnimation *apAnimation);
 
-		void AddAnimation(cAnimation *apAnimation);
+  cAnimation *GetAnimation(int alIndex);
+  cAnimation *GetAnimationFromName(const tString &asName);
+  int GetAnimationIndex(const tString &asName);
 
-		cAnimation* GetAnimation(int alIndex);
-		cAnimation* GetAnimationFromName(const tString& asName);
-        int GetAnimationIndex(const tString& asName);
+  void ClearAnimations(bool abDeleteAll);
 
-		void ClearAnimations(bool abDeleteAll);
+  int GetAnimationNum();
 
-		int GetAnimationNum();
+  void CompileBonesAndSubMeshes();
 
-		void CompileBonesAndSubMeshes();
+  float GetBoneBoundingRadius(int alIdx) { return mvBoneBoundingRadii[alIdx]; }
 
-		float GetBoneBoundingRadius(int alIdx){ return mvBoneBoundingRadii[alIdx];}
+  // Node
+  cNode3D *GetRootNode();
+  void AddNode(cNode3D *apNode);
+  int GetNodeNum();
+  cNode3D *GetNode(int alIdx);
+  cNode3D *GetNodeByName(const tString &asName);
 
-		//Node
-		cNode3D* GetRootNode();
-		void AddNode(cNode3D* apNode);
-		int GetNodeNum();
-		cNode3D* GetNode(int alIdx);
-		cNode3D* GetNodeByName(const tString &asName);
+  // Resources implementation
+  bool Reload() { return false; }
+  void Unload() {}
+  void Destroy() {}
 
+private:
+  cMaterialManager *mpMaterialManager;
+  cAnimationManager *mpAnimationManager;
 
-		//Resources implementation
-		bool Reload(){ return false;}
-		void Unload(){}
-		void Destroy(){}
+  // cMesh owns its sub-meshes (RAII). unique_ptr keeps each cSubMesh at a
+  // stable heap address, so cSubMeshEntity / GetSubMesh() callers never
+  // dangle. Name lookup scans the vector (each cSubMesh carries its name).
+  std::vector<std::unique_ptr<cSubMesh>> mvSubMeshes;
 
-	private:
-		cMaterialManager* mpMaterialManager;
-		cAnimationManager * mpAnimationManager;
+  cSkeleton *mpSkeleton;
 
-		tSubMeshVec mvSubMeshes;
-		tSubMeshMap m_mapSubMeshes;
+  tAnimationVec mvAnimations;
+  tAnimationIndexMap m_mapAnimIndices;
 
-		cSkeleton *mpSkeleton;
+  tFloatVec mvBoneBoundingRadii;
 
-		tAnimationVec mvAnimations;
-		tAnimationIndexMap m_mapAnimIndices;
-
-		tFloatVec mvBoneBoundingRadii;
-
-		cNode3D *mpRootNode;
-        tNode3DVec mvNodes;
-	};
-
+  cNode3D *mpRootNode;
+  tNode3DVec mvNodes;
 };
+
+}; // namespace hpl
 #endif // HPL_MESH_H

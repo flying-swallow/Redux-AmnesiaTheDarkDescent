@@ -55,12 +55,9 @@ namespace hpl {
 		bool mbCharCollider;
 	};
 
-	typedef std::vector<cMeshCollider*> tMeshColliderVec;
-	typedef tMeshColliderVec::iterator tMeshColliderVecIt;
-
 	//--------------------------------------------------
 
-	class cSubMesh
+	class cSubMesh final
 	{
 	friend class cMesh;
 	friend class cSubMeshEntity;
@@ -125,36 +122,40 @@ namespace hpl {
 		void CompileBonePairs();
 
 		tString msName;
-		
-		tString msMaterialName;
-		cMaterial* mpMaterial;
-		cVertexBuffer* mpVtxBuffer;
 
-		cMatrixf m_mtxLocalTransform;
+		tString msMaterialName;
+		cMaterial* mpMaterial = nullptr;
+		cVertexBuffer* mpVtxBuffer = nullptr;
+
+		cMatrixf m_mtxLocalTransform = cMatrixf::Identity;
 
 		tVertexBonePairVec mvVtxBonePairs;
 
-		tMeshColliderVec mvColliders;
+		// Colliders owned by value (RAII); CreateCollider appends and returns an
+		// element observer used transiently by loaders.
+		std::vector<cMeshCollider> mvColliders;
 
-		float *mpVertexWeights;
-		unsigned char *mpVertexBones;
+		// Per-vertex skinning weights/bone indices (4 per vertex), built lazily
+		// in CompileBonePairs. Vectors own the storage — no manual free.
+		std::vector<float> mvVertexWeights;
+		std::vector<unsigned char> mvVertexBones;
 
 		tTriEdgeVec mvEdges;
 		tTriangleDataVec mvTriangles;
 
 		cVector3f mvModelScale;
 
-		bool mbDoubleSided;
+		bool mbDoubleSided = false;
 
-		bool mbCollideShape;
+		bool mbCollideShape = false;
 
-		bool mbIsOneSided;
-		cVector3f mvOneSidedNormal;
-		cVector3f mvOneSidedPoint;
+		bool mbIsOneSided = false;
+		cVector3f mvOneSidedNormal = 0;
+		cVector3f mvOneSidedPoint = 0;
 
-		cMaterialManager* mpMaterialManager;
+		cMaterialManager* mpMaterialManager = nullptr;
 
-		cMesh* mpParent;
+		cMesh* mpParent = nullptr;
 	};
 
 };
