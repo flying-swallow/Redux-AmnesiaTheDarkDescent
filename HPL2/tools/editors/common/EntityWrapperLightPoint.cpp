@@ -110,7 +110,7 @@ void cEntityWrapperLightPoint::SetGobo(const tString& asGoboFilename)
 	else
 		msGoboFilename = "";
 
-	((cLightPoint*)mpEngineEntity->GetEntity())->SetGoboTexture(pTex);	
+	static_cast<iLight*>(mpEngineEntity->GetEntity())->SetGoboTexture(pTex);	
 
 }
 
