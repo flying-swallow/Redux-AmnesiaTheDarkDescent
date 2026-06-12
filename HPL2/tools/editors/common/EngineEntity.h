@@ -26,6 +26,7 @@ using namespace hpl;
 
 //-----------------------------------------------------------------------
 
+class iGpuProgram; // legacy-GL remnant; DrawProgram hooks kept inert
 class iEntityWrapper;
 class cEntityIcon;
 

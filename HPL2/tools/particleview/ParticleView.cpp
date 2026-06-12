@@ -266,8 +266,10 @@ public:
 			}
 			
 			//Rest
-			pLightSpot->SetFOV(cMath::ToRad(110.0f));
-			pLightSpot->SetAspect(1.0f);
+			cLightSpotData spotData = std::get<cLightSpotData>(pLightSpot->GetLightData());
+			spotData.mfFOV = cMath::ToRad(110.0f);
+			spotData.mfAspect = 1.0f;
+			pLightSpot->SetLightData(spotData);
 			pLightSpot->SetRadius(vPos.Length() * 2);
 			cVector3f vRot = cMath::GetAngleFromPoints3D(vPos,0);
 			pLightSpot->SetMatrix(cMath::MatrixRotate(cVector3f(vRot.x,vRot.y,0),eEulerRotationOrder_XYZ));
@@ -281,7 +283,11 @@ public:
 		// Box light
 		gpLightBox = mpWorld->CreateLightBox("BoxLight");
 		gpLightBox->SetVisible(true);
-		gpLightBox->SetSize(cVector3f(20.0f));
+		{
+			cLightBoxData boxData = std::get<cLightBoxData>(gpLightBox->GetLightData());
+			boxData.mvSize = cVector3f(20.0f);
+			gpLightBox->SetLightData(boxData);
+		}
 		gpLightBox->SetDiffuseColor(cColor(0.2f,1.0f));
 
 			

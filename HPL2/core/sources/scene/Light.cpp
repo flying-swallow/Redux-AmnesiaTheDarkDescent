@@ -19,26 +19,22 @@
 
 #include "scene/Light.h"
 
-#include "system/String.h"
-
-#include "impl/tinyXML/tinyxml.h"
-
-
 #include "system/LowLevelSystem.h"
-#include "system/Platform.h"
+
+#include <cassert>
 
 #include "math/Math.h"
+#include "math/Frustum.h"
+
+#include "graphics/Image.h"
 
 #include "resources/Resources.h"
 #include "resources/TextureManager.h"
-#include "resources/FileSearcher.h"
 
 #include "scene/ParticleSystem.h"
 #include "scene/World.h"
-#include "scene/BillBoard.h"
 #include "scene/SoundEntity.h"
 #include "scene/MeshEntity.h"
-#include "scene/RenderableContainer.h"
 #include "scene/Camera.h"
 
 #include "graphics/Material.h"
@@ -51,36 +47,37 @@
 
 namespace hpl {
 
+	// Spot view-projection biasing (NDC -> texture space) for shadow/gobo sampling.
+	static const cMatrixf g_mtxTextureUnitFix(	0.5f,0,   0,   0.5f,
+												0,   0.5f,0,   0.5f,
+												0,   0,   0.5f,0.5f,
+												0,   0,   0,   1.0f
+												);
+
 	//////////////////////////////////////////////////////////////////////////
 	// CONSTRUCTORS
 	//////////////////////////////////////////////////////////////////////////
 
 	//-----------------------------------------------------------------------
 
-	iLight::iLight(tString asName, cResources *apResources) : iRenderable(asName)
+	iLight::iLight(tLightData aData, tString asName, cResources *apResources)
+		: iRenderable(asName), mLightData(std::move(aData))
 	{
 		///////////////////////////////
 		//Managers and highlevel init
 		mpWorld = NULL;
 		mpTextureManager = apResources->GetTextureManager();
-		mpFileSearcher = apResources->GetFileSearcher();
 
 		///////////////////////////////
 		//Render properties
 		mbApplyTransformToBV = false;
 
 		mShadowMapResolution = eShadowMapResolution_High;
-		mfShadowMapBlurAmount = 6.0f;
-		mbOcclusionCullShadowCasters = false;
 
-		mfShadowMapBiasMul = 1;
-		mfShadowMapSlopeScaleBiasMul = 1;
-			
 		///////////////////////////////
 		//Fade and flicker init
 		mDiffuseColor = 0;
 		mDefaultDiffuseColor = 0;
-		mSpecularColor = 0;
 		mbCastShadows = false;
 		mlShadowCastersAffected = eObjectVariabilityFlag_All;
 		mfIntensity =0;
@@ -88,25 +85,34 @@ namespace hpl {
 		mfSourceRadius = 0;
 		mfFadeTime=0;
 		mbFlickering = false;
-	
+
 		mfFlickerStateLength = 0;
 
 		mfFadeTime =0;
 
 		///////////////////////////////
-		//Data init
-		// Forward+ uses a clamp-to-edge static sampler at the falloff binding.
-		SetFalloffMap(mpTextureManager->Create1DImage("core_falloff_linear", false));
+		//Per-type state init. Parameter defaults live in the struct member
+		//initializers; only spots need runtime setup (derived caches).
+		if(std::holds_alternative<cLightSpotData>(mLightData))
+		{
+			mpFrustum = hplNew( cFrustum, () );
 
-        mpVisibleNodeTracker = hplNew( cVisibleRCNodeTracker, () );
+			mfIntensity = 100.0f;
+
+			// Forward+ uses a clamp-to-edge static sampler at the spot-falloff binding,
+			// so the per-texture wrap call from the legacy path is unnecessary.
+			SetSpotFalloffMap(mpTextureManager->Create1DImage("core_falloff_linear", false));
+		}
+
+		UpdateBoundingVolume();
 	}
 
 	//-----------------------------------------------------------------------
 
 	iLight::~iLight()
 	{
-		if(mpVisibleNodeTracker) hplDelete(mpVisibleNodeTracker);
-		// m_falloffMap / m_goboImage (ImageResourceWrapper) free themselves.
+		if(mpFrustum) hplDelete(mpFrustum);
+		// m_goboImage / m_spotFalloffMap (ImageResourceWrapper) free themselves.
 	}
 
 	//-----------------------------------------------------------------------
@@ -117,21 +123,14 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
-	void iLight::OnChangeVisible()
-	{ 
-		for(size_t i =0; i<mvBillboards.size(); ++i)
-		{
-			mvBillboards[i].mpBillboard->SetVisible(mbIsVisible);
-		}
-	}
-
 	bool iLight::IsVisible()
-	{ 
-		if(mDiffuseColor.r <=0 && mDiffuseColor.g <=0 && mDiffuseColor.b <=0 && mDiffuseColor.a <=0) 
+	{
+		if(mDiffuseColor.r <=0 && mDiffuseColor.g <=0 && mDiffuseColor.b <=0 && mDiffuseColor.a <=0)
 			return false;
-		if(mfIntensity <= 0) return false;
+		// Box lights stay visible regardless of intensity (they don't use it).
+		if(!std::holds_alternative<cLightBoxData>(mLightData) && mfIntensity <= 0) return false;
 
-		return mbIsVisible; 
+		return mbIsVisible;
 	}
 
 	//-----------------------------------------------------------------------
@@ -148,10 +147,8 @@ namespace hpl {
 		//Check if the light changed its visibility
 		if(mbIsVisible && bVisible != bWasVisble && mpRenderCallback)
 		{
-			mpRenderCallback->OnVisibleChange(this); 
+			mpRenderCallback->OnVisibleChange(this);
 		}
-
-		OnSetDiffuse();
 	}
 
 	//-----------------------------------------------------------------------
@@ -363,13 +360,21 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 	void iLight::SetIntensity(float afX)
-	{ 
+	{
+		// Spot reach is driven by radius, not intensity, so it skips the BV/
+		// transform update the other light types do.
+		if(std::holds_alternative<cLightSpotData>(mLightData))
+		{
+			mfIntensity = afX;
+			return;
+		}
+
 		if(mfIntensity == afX) return;
 
 		mfIntensity = afX;
 
 		mbUpdateBoundingVolume = true;
-		
+
 		//This is so that the render container is updated.
 		SetTransformUpdated();
 	}
@@ -383,6 +388,11 @@ namespace hpl {
 		mfRadius = afX;
 
 		mbUpdateBoundingVolume = true;
+
+		// Spot reach feeds the frustum far-plane, so the cached projection must
+		// rebuild too; the lazy getters build it once at first use.
+		if(std::holds_alternative<cLightSpotData>(mLightData))
+			mlBuiltTransform = -1;
 
 		//This is so that the render container is updated.
 		SetTransformUpdated();
@@ -435,16 +445,6 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
-	void iLight::SetFalloffMap(Image* apImage)
-	{
-		m_falloffMap = ImageResourceWrapper(mpTextureManager, apImage, /*autoDestroy=*/true);
-	}
-
-	Image* iLight::GetFalloffImage() const
-	{
-		return m_falloffMap.GetImage();
-	}
-
 	void iLight::SetGoboTexture(Image* apImage)
 	{
 		m_goboImage = ImageResourceWrapper(mpTextureManager, apImage, /*autoDestroy=*/true);
@@ -457,158 +457,12 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void iLight::AddShadowCaster(iRenderable *apObject)
-	{
-		m_mapShadowCasterCache.insert(tShadowCasterCacheMap::value_type(apObject, apObject->GetTransformUpdateCount()));
-	}
-	
-	bool iLight::ShadowCasterIsValid(iRenderable *apObject)
-	{
-		tShadowCasterCacheMapIt it = m_mapShadowCasterCache.find(apObject);
-		if(it == m_mapShadowCasterCache.end()) return false;
-
-		return it->second == apObject->GetTransformUpdateCount();
-	}
-	
-	bool iLight::ShadowCastersAreUnchanged(const tRenderableVec &avObjects)
-	{
-		size_t lDynObjectCount=0;
-		for(size_t i=0; i<avObjects.size(); ++i)
-		{
-			iRenderable *pObject = avObjects[i];
-			if(pObject->IsStatic()==false)
-			{
-				lDynObjectCount++;
-				if(ShadowCasterIsValid(avObjects[i])==false)
-				{
-					return false;
-				}
-			}
-		}
-		
-		if(lDynObjectCount != m_mapShadowCasterCache.size()) return false;
-		
-		return true;
-	}
-
-	void iLight::SetShadowCasterCacheFromVec(const tRenderableVec &avObjects)
-	{
-		m_mapShadowCasterCache.clear();
-
-		for(size_t i=0; i<avObjects.size(); ++i)
-		{
-			if(avObjects[i]->IsStatic()==false) AddShadowCaster(avObjects[i]);
-		}
-	}
-	
-	void iLight::ClearShadowCasterCache()
-	{
-		m_mapShadowCasterCache.clear();
-	}
-
-	//-----------------------------------------------------------------------
-
-	void iLight::LoadXMLProperties(const tString asFile)
-	{
-		tWString sPath = mpFileSearcher->GetFilePath(asFile);
-		if(sPath != _W(""))
-		{
-			FILE *pFile = cPlatform::OpenFile(sPath, _W("rb"));
-			if(pFile==NULL) return;
-
-			TiXmlDocument *pDoc = hplNew( TiXmlDocument,() );
-			if(pDoc->LoadFile(pFile))
-			{
-				TiXmlElement *pRootElem = pDoc->RootElement();
-				
-                TiXmlElement *pMainElem = pRootElem->FirstChildElement("MAIN");
-				if(pMainElem!=NULL)
-				{
-					mbCastShadows = cString::ToBool(pMainElem->Attribute("CastsShadows"),mbCastShadows);
-
-					mDiffuseColor.a = cString::ToFloat(pMainElem->Attribute("Specular"),mDiffuseColor.a);
-					
-					tString sFalloffImage = cString::ToString(pMainElem->Attribute("FalloffImage"),"");
-					Image *pImage = mpTextureManager->Create1DImage(sFalloffImage,false);
-					if(pImage) SetFalloffMap(pImage);
-
-					ExtraXMLProperties(pMainElem);
-				}
-				else
-				{
-					Error("Cannot find main element in %s\n",asFile.c_str());
-				}
-			}
-			else
-			{
-				Error("Couldn't load file '%s'\n",asFile.c_str());
-			}
-			if(pFile) fclose(pFile);
-			hplDelete(pDoc);
-		}
-		else
-		{
-			Error("Couldn't find file '%s'\n",asFile.c_str());
-		}
-
-	}
-
-	//-----------------------------------------------------------------------
-
-	void iLight::AttachBillboard(cBillboard *apBillboard, const cColor &aBaseColor)
-	{
-		cLightBillboardConnection bbConnection;
-
-		bbConnection.mpBillboard = apBillboard;
-		bbConnection.mBaseColor = aBaseColor;
-
-		apBillboard->SetColor(aBaseColor * cColor(mDiffuseColor.r,mDiffuseColor.g,mDiffuseColor.b,1));
-		apBillboard->SetVisible(IsVisible());
-
-		mvBillboards.push_back(bbConnection);
-	}
-
-	//-----------------------------------------------------------------------
-
-	void iLight::RemoveBillboard(cBillboard *apBillboard)
-	{
-		std::vector<cLightBillboardConnection>::iterator it = mvBillboards.begin();
-		for(; it != mvBillboards.end(); ++it)
-		{
-			cLightBillboardConnection &bbConnection = *it;
-			if(bbConnection.mpBillboard == apBillboard)
-			{
-				mvBillboards.erase(it);
-				break;
-			}
-		}
-	}
-
-	//-----------------------------------------------------------------------
-
-	void iLight::UpdateBillboard(cBillboard* apBillboard, const cColor& aBaseColor)
-	{
-		apBillboard->SetColor(aBaseColor * cColor(mDiffuseColor.r, mDiffuseColor.g, mDiffuseColor.b, 1));
-		apBillboard->SetVisible(IsVisible());
-	}
-
-	//-----------------------------------------------------------------------
-
 	//////////////////////////////////////////////////////////////////////////
 	// PROTECTED METHODS
 	//////////////////////////////////////////////////////////////////////////
 
 	//-----------------------------------------------------------------------
 
-	void iLight::RenderShadow(iRenderable *apObject,cRenderSettings *apRenderSettings,
-				iLowLevelGraphics *apLowLevelGraphics)
-	{
-		
-	}
-
-
-	//-----------------------------------------------------------------------
-	
 	void iLight::OnFlickerOff()
 	{
 		//Particle system
@@ -632,15 +486,127 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void iLight::OnSetDiffuse()
+	void iLight::UpdateBoundingVolume()
 	{
-		for(size_t i =0; i<mvBillboards.size(); ++i)
+		if(std::holds_alternative<cLightSpotData>(mLightData))
 		{
-			mvBillboards[i].mpBillboard->SetColor( mvBillboards[i].mBaseColor * cColor(mDiffuseColor.r,mDiffuseColor.g,mDiffuseColor.b,1));
+			mBoundingVolume = GetFrustum()->GetBoundingVolume();
+		}
+		else if(cLightBoxData* pBox = std::get_if<cLightBoxData>(&mLightData))
+		{
+			mBoundingVolume.SetSize(pBox->mvSize);
+			mBoundingVolume.SetPosition(GetWorldPosition());
+		}
+		else // point
+		{
+			mBoundingVolume.SetSize(mfRadius*2);
+			mBoundingVolume.SetPosition(GetWorldPosition());
 		}
 	}
 
-	
+	//-----------------------------------------------------------------------
+	// Spot-light implementation
+	//-----------------------------------------------------------------------
+
+	void iLight::SetLightData(const tLightData& aData)
+	{
+		// The active alternative defines the light's type, which is fixed at
+		// construction — only same-type parameter updates are allowed.
+		assert(aData.index() == mLightData.index());
+		mLightData = aData;
+
+		if(std::holds_alternative<cLightSpotData>(mLightData))
+		{
+			// Projection parameters feed the cached matrices/frustum, and through
+			// them the BV; transform update so the render container refreshes.
+			mlBuiltTransform = -1;
+			mbUpdateBoundingVolume = true;
+			SetTransformUpdated();
+		}
+		else if(std::holds_alternative<cLightBoxData>(mLightData))
+		{
+			// Size feeds the BV; transform update so the render container refreshes.
+			mbUpdateBoundingVolume = true;
+			SetTransformUpdated();
+		}
+	}
+
+	//-----------------------------------------------------------------------
+
+	void iLight::UpdateData(const cLightSpotData& aData)
+	{
+		const int lTransform = GetTransformUpdateCount();
+		if(mlBuiltTransform == lTransform)
+			return;
+
+		// View
+		const cMatrixf mtxView = cMath::MatrixInverse(GetWorldMatrix());
+
+		// Projection (VK clip convention, same form as the camera path)
+		const float fFar = GetReach();
+		const cMatrixf mtxProjection = cMath::MatrixPerspectiveProjection(
+			aData.mfNearClipPlane, fFar, aData.mfFOV, aData.mfAspect, false);
+
+		// View-projection (with texture-unit fix applied)
+		m_mtxViewProj = cMath::MatrixMul(mtxProjection, mtxView);
+		m_mtxViewProj = cMath::MatrixMul(g_mtxTextureUnitFix, m_mtxViewProj);
+
+		// Frustum (keeps its own copies of the matrices)
+		mpFrustum->SetupPerspectiveProj(mtxProjection,
+										mtxView,
+										fFar,aData.mfNearClipPlane,
+										aData.mfFOV,aData.mfAspect,GetWorldPosition(),false);
+
+		mlBuiltTransform = lTransform;
+	}
+
+	//-----------------------------------------------------------------------
+
+	const cMatrixf& iLight::GetViewProjMatrix()
+	{
+		UpdateLightData();
+		return m_mtxViewProj;
+	}
+
+	//-----------------------------------------------------------------------
+
+	cFrustum* iLight::GetFrustum()
+	{
+		UpdateLightData();
+		return mpFrustum;
+	}
+
+	//-----------------------------------------------------------------------
+
+	void iLight::SetSpotFalloffMap(Image* apImage)
+	{
+		m_spotFalloffMap = ImageResourceWrapper(mpTextureManager, apImage, /*autoDestroy=*/true);
+	}
+
+	Image* iLight::GetSpotFalloffImage() const
+	{
+		return m_spotFalloffMap.GetImage();
+	}
+
+	//-----------------------------------------------------------------------
+
+	bool iLight::CollidesWithBV(cBoundingVolume *apBV)
+	{
+		if(std::holds_alternative<cLightSpotData>(mLightData))
+		{
+			if(cMath::CheckBVIntersection(*GetBoundingVolume(), *apBV)==false) return false;
+			return GetFrustum()->CollideBoundingVolume(apBV)!= eCollision_Outside;
+		}
+		return iRenderable::CollidesWithBV(apBV);
+	}
+
+	bool iLight::CollidesWithFrustum(cFrustum *apFrustum)
+	{
+		if(std::holds_alternative<cLightSpotData>(mLightData))
+			return apFrustum->CollideFrustum(GetFrustum())!=eCollision_Outside;
+		return iRenderable::CollidesWithFrustum(apFrustum);
+	}
+
 	//-----------------------------------------------------------------------
 
 }
