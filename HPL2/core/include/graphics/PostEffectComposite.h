@@ -24,18 +24,14 @@
 #include "graphics/RIPogoBuffer.h"
 #include "graphics/RITypes.h"
 
+#include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <map>
 #include <vector>
 
 namespace hpl {
 
 class cGraphics;
 class iPostEffect;
-
-typedef std::multimap<int, iPostEffect *, std::greater<int>> tPostEffectMap;
-typedef tPostEffectMap::iterator tPostEffectMapIt;
 
 class cPostEffectComposite {
 public:
@@ -57,10 +53,16 @@ public:
     // Highest priority is rendered first.
     void AddPostEffect(iPostEffect *apPostEffect, int alPrio);
     inline int GetPostEffectNum() const {
-        return static_cast<int>(mvPostEffects.size());
+        return static_cast<int>(m_postEffects.size());
     }
+    // alIdx is the effect's insertion index, not its position in the
+    // priority-sorted list.
     inline iPostEffect *GetPostEffect(int alIdx) const {
-        return mvPostEffects[alIdx];
+        for (const auto &entry : m_postEffects) {
+            if (entry._id == static_cast<size_t>(alIdx))
+                return entry._effect;
+        }
+        return nullptr;
     }
 
     bool HasActiveEffects();
@@ -68,10 +70,16 @@ public:
     float GetCurrentFrameTime() { return mfCurrentFrameTime; }
 
 private:
+    struct PostEffectEntry {
+        size_t       _id;     // insertion sequence (for GetPostEffect index)
+        int          _prio;   // priority; highest rendered first
+        iPostEffect *_effect;
+    };
+
     cGraphics *mpGraphics;
 
-    tPostEffectMap m_mapPostEffects;
-    std::vector<iPostEffect *> mvPostEffects;
+    // Kept sorted by priority (highest first); _id preserves insertion order.
+    std::vector<PostEffectEntry> m_postEffects;
 
     float mfCurrentFrameTime = 0.0f;
 };
