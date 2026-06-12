@@ -46,24 +46,7 @@ namespace hpl {
 	cSubMesh::cSubMesh(const tString &asName, cMaterialManager* apMaterialManager)
 	{
 		mpMaterialManager = apMaterialManager;
-
 		msName = asName;
-
-		mpMaterial = NULL;
-		mpVtxBuffer = NULL;
-
-		mbDoubleSided = false;
-
-		mbCollideShape = false;
-
-		mpVertexWeights = NULL;
-		mpVertexBones = NULL;
-
-		m_mtxLocalTransform = cMatrixf::Identity;
-
-		mbIsOneSided = false;
-		mvOneSidedNormal =0;
-		mvOneSidedPoint =0;
 	}
 
 	//-----------------------------------------------------------------------
@@ -72,10 +55,7 @@ namespace hpl {
 	{
 		if(mpMaterial)mpMaterialManager->Destroy(mpMaterial);
 		if(mpVtxBuffer) hplDelete(mpVtxBuffer);
-		if(mpVertexBones) hplDeleteArray(mpVertexBones);
-		if(mpVertexWeights) hplDeleteArray(mpVertexWeights);
-
-		STLDeleteAll(mvColliders);
+		// mvVertexWeights / mvVertexBones / mvColliders own their storage (RAII).
 	}
 
 	//-----------------------------------------------------------------------
@@ -147,17 +127,15 @@ namespace hpl {
 
 	cMeshCollider* cSubMesh::CreateCollider(eCollideShapeType aType)
 	{
-		cMeshCollider* pColl = hplNew( cMeshCollider, () );
-		pColl->mType = aType;
+		mvColliders.emplace_back();
+		mvColliders.back().mType = aType;
 
-		mvColliders.push_back(pColl);
-
-		return pColl;
+		return &mvColliders.back();
 	}
 
 	cMeshCollider* cSubMesh::GetCollider(int alIdx)
 	{
-		return mvColliders[alIdx];
+		return &mvColliders[alIdx];
 	}
 
 	int cSubMesh::GetColliderNum()
@@ -193,7 +171,7 @@ namespace hpl {
 		//Create a single object
 		if(mvColliders.size() == 1)
 		{
-			return CreateCollideShapeFromCollider(mvColliders[0],apWorld,1, NULL);
+			return CreateCollideShapeFromCollider(&mvColliders[0],apWorld,1, NULL);
 		}
 		//Create compound object
 		else
@@ -203,7 +181,7 @@ namespace hpl {
 
 			for(size_t i=0; i<mvColliders.size(); ++i)
 			{
-				vShapes.push_back(CreateCollideShapeFromCollider(mvColliders[i],apWorld,1, NULL));
+				vShapes.push_back(CreateCollideShapeFromCollider(&mvColliders[i],apWorld,1, NULL));
 			}
 
 			return apWorld->CreateCompundShape(vShapes);
@@ -295,9 +273,8 @@ namespace hpl {
 	{
 		if(mvVtxBonePairs.empty()) return;
 
-		mpVertexWeights = hplNewArray( float, 4 * mpVtxBuffer->GetVertexNum());
-		mpVertexBones = hplNewArray( unsigned char, 4 * mpVtxBuffer->GetVertexNum()) ;
-		memset(mpVertexWeights,0,4 * mpVtxBuffer->GetVertexNum()*sizeof(float));
+		mvVertexWeights.assign(4 * mpVtxBuffer->GetVertexNum(), 0.0f);
+		mvVertexBones.assign(4 * mpVtxBuffer->GetVertexNum(), 0);
 		bool bWarn = true;
 		///////////////////////////////////
 		// Iterate pairs and fill arrays
@@ -305,8 +282,8 @@ namespace hpl {
 		{
 			cVertexBonePair &Pair = mvVtxBonePairs[i];
 
-			float *pWeight = &mpVertexWeights[Pair.vtxIdx*4];
-			unsigned char *pBoneIdx = &mpVertexBones[Pair.vtxIdx*4];
+			float *pWeight = &mvVertexWeights[Pair.vtxIdx*4];
+			unsigned char *pBoneIdx = &mvVertexBones[Pair.vtxIdx*4];
 			int lPos=-1;
 			//Find out where to add the next weight.
 			for(int j=0; j<4;j++)
@@ -333,7 +310,7 @@ namespace hpl {
 		//Normalize the weights
 		for(int vtx =0; vtx < mpVtxBuffer->GetVertexNum(); ++vtx)
 		{
-			float *pWeight = &mpVertexWeights[vtx*4];
+			float *pWeight = &mvVertexWeights[vtx*4];
 
 			//check if the vertex is missing bone connection
 			if(pWeight[0] == 0)

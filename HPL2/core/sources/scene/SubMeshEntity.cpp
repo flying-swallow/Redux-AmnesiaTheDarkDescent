@@ -217,10 +217,10 @@ namespace hpl {
 				//To count the bone bindings
 				int lCount = 0;
 				//Get pointer to weights and bone index.
-				const float *pWeight = &mpSubMesh->mpVertexWeights[vtx*4];
+				const float *pWeight = &mpSubMesh->mvVertexWeights[vtx*4];
 				if(*pWeight==0) continue;
 
-				const unsigned char *pBoneIdx = &mpSubMesh->mpVertexBones[vtx*4];
+				const unsigned char *pBoneIdx = &mpSubMesh->mvVertexBones[vtx*4];
 
 				const cMatrixf &mtxTransform = mpMeshEntity->mvBoneMatrices[*pBoneIdx];
 				
