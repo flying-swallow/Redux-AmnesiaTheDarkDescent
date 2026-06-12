@@ -30,6 +30,8 @@ using namespace hpl;
 
 //--------------------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
 class iEditorBase;
 
 class cEditorObjectIndexTextures;
@@ -43,7 +45,7 @@ public:
 	cEditorObjectIndexEntryTexture(cEditorObjectIndexTextures* apIndex);
 
 	bool CreateFromFile(const tWString& asFilename);
-	bool CreateFromXmlElement(cXmlElement* apElement);
+	bool CreateFromXmlElement(tinyxml2::XMLElement* apElement);
 
 	tString GetTextureFile();
 	tString GetTextureFileFullPath();
@@ -51,7 +53,7 @@ public:
 	tWString GetTextureTypeString();
 	eEditorTextureResourceType GetTextureType() { return mType; }
 
-	void Save(cXmlElement* apElement);
+	void Save(tinyxml2::XMLElement* apElement);
 
 protected:
 	void BuildEntryName(tString& asEntryName);

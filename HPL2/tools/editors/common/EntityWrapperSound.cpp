@@ -238,19 +238,19 @@ void cEntityWrapperSound::Draw(cEditorWindowViewport* apViewport, DebugDraw* apF
 
 //------------------------------------------------------------------------------
 /*
-void cEntityWrapperSound::SaveToElement(cXmlElement* apElement)
+void cEntityWrapperSound::SaveToElement(tinyxml2::XMLElement* apElement)
 {
 	iEntityWrapper::SaveToElement(apElement);
 	apElement->SetValue("Sound");
 
-	apElement->SetAttributeString("SoundEntityFile", mpEditorWorld->GetEditor()->GetFilePathRelativeToWorkingDir(msSoundEntityFile));
+	hpl::SetAttributeString(apElement, "SoundEntityFile", mpEditorWorld->GetEditor()->GetFilePathRelativeToWorkingDir(msSoundEntityFile));
 
-	apElement->SetAttributeBool("UseDefault", mbUseDefault);
+	hpl::SetAttributeBool(apElement, "UseDefault", mbUseDefault);
 
-	apElement->SetAttributeFloat("MinDistance", mfMinDistance);
-	apElement->SetAttributeFloat("MaxDistance", mfMaxDistance);
+	hpl::SetAttributeFloat(apElement, "MinDistance", mfMinDistance);
+	hpl::SetAttributeFloat(apElement, "MaxDistance", mfMaxDistance);
 
-	apElement->SetAttributeFloat("Volume", mfVolume);
+	hpl::SetAttributeFloat(apElement, "Volume", mfVolume);
 }
 */
 //------------------------------------------------------------------------------

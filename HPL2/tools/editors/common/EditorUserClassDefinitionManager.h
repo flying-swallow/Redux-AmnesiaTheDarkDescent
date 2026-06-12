@@ -37,6 +37,8 @@ enum eEditorVarCategory
 
 //------------------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
 class iEditorVar;
 class cEditorUserClass;
 class cEditorUserClassType;
@@ -73,7 +75,7 @@ public:
 
 	bool Create(void* apData);
 
-	iEditorVar* CreateClassSpecificVariableFromElement(cXmlElement* apElement);
+	iEditorVar* CreateClassSpecificVariableFromElement(tinyxml2::XMLElement* apElement);
 
 	virtual iEditorVar* GetVariable(eEditorVarCategory, const tWString&);
 

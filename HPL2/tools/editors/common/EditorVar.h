@@ -27,6 +27,8 @@ using namespace hpl;
 
 //--------------------------------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
 class iEditorVar;
 class iEditorVarInput;
 class cEditorVarInstance;
@@ -47,10 +49,10 @@ class iEditorVar
 public:
 	iEditorVar(eVariableType aType);
 
-	virtual bool Create(cXmlElement* apElement);
+	virtual bool Create(tinyxml2::XMLElement* apElement);
 
-	iEditorVarInput* CreateInput(iEditorWindow* apWindow, 
-								 iWidget* apParent, 
+	iEditorVarInput* CreateInput(iEditorWindow* apWindow,
+								 iWidget* apParent,
 								 cEditorVarInstance* apVar);
 
 	cEditorVarInstance* CreateInstance();
@@ -305,7 +307,7 @@ class cEditorVarEnum : public iEditorVar
 public:
 	cEditorVarEnum();
 
-	bool Create(cXmlElement* apElement);
+	bool Create(tinyxml2::XMLElement* apElement);
 
 	const tWStringVec& GetEnumValues() { return mvValues; }
 	iEditorVarInput* CreateSpecificInput(iEditorWindow* apWindow, iWidget* apParent, cEditorVarInstance* apVar);
@@ -335,7 +337,7 @@ class cEditorVarFile : public iEditorVar
 public:
 	cEditorVarFile();
 
-	bool Create(cXmlElement* apElement);
+	bool Create(tinyxml2::XMLElement* apElement);
 
 	iEditorVarInput* CreateSpecificInput(iEditorWindow* apWindow, iWidget* apParent, cEditorVarInstance* apVar);
 
@@ -345,7 +347,7 @@ protected:
 	eEditorResourceType mResType;
 	tWStringList mlstExtensions;
 private:
-	eEditorResourceType GetBrowserTypeFromElement(cXmlElement* apElement);
+	eEditorResourceType GetBrowserTypeFromElement(tinyxml2::XMLElement* apElement);
 };
 
 //--------------------------------------------------------------------------------
@@ -413,11 +415,11 @@ public:
 	const tString& GetName() { return msName; }
 
 	virtual cEditorClassInstance* CreateInstance() { return NULL; }
-	virtual iEditorVar* CreateClassSpecificVariableFromElement(cXmlElement* apElement);
+	virtual iEditorVar* CreateClassSpecificVariableFromElement(tinyxml2::XMLElement* apElement);
 
-	static bool AddVariablesFromElement(iEditorClass* apClass, tEditorVarVec& avVars, cXmlElement* apElement);
+	static bool AddVariablesFromElement(iEditorClass* apClass, tEditorVarVec& avVars, tinyxml2::XMLElement* apElement);
 
-	static iEditorVar* CreateVariableFromElement(cXmlElement* apElement);
+	static iEditorVar* CreateVariableFromElement(tinyxml2::XMLElement* apElement);
 	static iEditorVar* CreateVariable(const tString& asType);
 
 	static iEditorClass* GetClassByIdx(const tEditorClassVec& avClasses, int alIdx);
@@ -445,8 +447,8 @@ public:
 
 	void SetVarValue(const tWString& asName, const tWString& asValue);
 
-	void Load(cXmlElement* apElement);
-	void Save(cXmlElement* apElement);
+	void Load(tinyxml2::XMLElement* apElement);
+	void Save(tinyxml2::XMLElement* apElement);
 
 	void LoadValuesFromMap(const tVarValueMap& amapValues);
 	void SaveValuesToMap(tVarValueMap& amapValues);

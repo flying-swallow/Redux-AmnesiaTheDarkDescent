@@ -51,7 +51,7 @@
 #include "haptic/HapticSurface.h"
 #include "haptic/LowLevelHaptic.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 #include "impl/MeshLoaderMSH.h"
 
 #include "math/Math.h"

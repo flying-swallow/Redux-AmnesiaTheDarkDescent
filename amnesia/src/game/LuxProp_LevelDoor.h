@@ -24,6 +24,8 @@
 
 #include "LuxProp.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 //----------------------------------------------
 
 class cLuxProp_LevelDoor_SaveData : public iLuxProp_SaveData
@@ -120,7 +122,7 @@ public:
 	virtual ~cLuxPropLoader_LevelDoor(){}
 
 	iLuxProp *CreateProp(const tString& asName, int alID, cLuxMap *apMap);
-	void LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem);
+	void LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem);
 	void LoadInstanceVariables(iLuxProp *apProp, cResourceVarsObject *apInstanceVars);
 
 private:

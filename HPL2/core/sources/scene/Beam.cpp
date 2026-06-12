@@ -19,7 +19,8 @@
 
 #include "scene/Beam.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
 
 #include "math/Math.h"
 #include "system/String.h"
@@ -364,12 +365,12 @@ namespace hpl {
 		{
 			FILE *pFile = cPlatform::OpenFile(sPath, _W("rb"));
 			if(pFile==NULL) return false;
-			TiXmlDocument *pDoc = hplNew( TiXmlDocument, () );
-			if(pDoc->LoadFile(pFile))
+			tinyxml2::XMLDocument *pDoc = hplNew( tinyxml2::XMLDocument, () );
+			if(pDoc->LoadFile(pFile)==tinyxml2::XML_SUCCESS)
 			{
-				TiXmlElement *pRootElem = pDoc->RootElement();
+				tinyxml2::XMLElement *pRootElem = pDoc->RootElement();
 
-				TiXmlElement *pMainElem = pRootElem->FirstChildElement("MAIN");
+				tinyxml2::XMLElement *pMainElem = pRootElem->FirstChildElement("MAIN");
 				if(pMainElem!=NULL)
 				{
 					tString sMaterial = cString::ToString(pMainElem->Attribute("Material"),"");

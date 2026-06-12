@@ -20,7 +20,8 @@
 #include "resources/EngineFileLoading.h"
 #include "graphics/Image.h"
 
-#include "resources/XmlDocument.h"
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
 #include "resources/Resources.h"
 #include "resources/TextureManager.h"
 #include "resources/MaterialManager.h"
@@ -59,7 +60,7 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 	#define kBeginWorldEntityLoad()		\
-		tString sName = apElement->GetAttributeString("Name");
+		tString sName = GetAttributeString(apElement, "Name");
 	
 	#define kEndWorldEntityLoad(pEntity)		\
 		SetupWorldEntity(pEntity, apElement);	\
@@ -73,7 +74,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cFogArea* cEngineFileLoading::LoadFogArea(cXmlElement* apElement, const tString& asNamePrefix, cWorld *apWorld, bool abStatic)
+	cFogArea* cEngineFileLoading::LoadFogArea(tinyxml2::XMLElement* apElement, const tString& asNamePrefix, cWorld *apWorld, bool abStatic)
 	{
 		kBeginWorldEntityLoad();
 
@@ -81,12 +82,12 @@ namespace hpl {
 
 		if(pFog)
 		{
-			pFog->SetColor(apElement->GetAttributeColor("Color",cColor(1,1)));
-			pFog->SetStart(apElement->GetAttributeFloat("Start", 0));
-			pFog->SetEnd(apElement->GetAttributeFloat("End", 0));
-			pFog->SetFalloffExp(apElement->GetAttributeFloat("FalloffExp", 0));
-			pFog->SetShowBacksideWhenInside(apElement->GetAttributeBool("ShownBacksideWhenInside", true));
-			pFog->SetShowBacksideWhenOutside(apElement->GetAttributeBool("ShownBacksideWhenOutside", true));
+			pFog->SetColor(GetAttributeColor(apElement, "Color",cColor(1,1)));
+			pFog->SetStart(GetAttributeFloat(apElement, "Start", 0));
+			pFog->SetEnd(GetAttributeFloat(apElement, "End", 0));
+			pFog->SetFalloffExp(GetAttributeFloat(apElement, "FalloffExp", 0));
+			pFog->SetShowBacksideWhenInside(GetAttributeBool(apElement, "ShownBacksideWhenInside", true));
+			pFog->SetShowBacksideWhenOutside(GetAttributeBool(apElement, "ShownBacksideWhenOutside", true));
 		}
 
 		kEndWorldEntityLoad(pFog);
@@ -94,22 +95,22 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cParticleSystem* cEngineFileLoading::LoadParticleSystem(cXmlElement* apElement, const tString& asNamePrefix, cWorld *apWorld)
+	cParticleSystem* cEngineFileLoading::LoadParticleSystem(tinyxml2::XMLElement* apElement, const tString& asNamePrefix, cWorld *apWorld)
 	{
 		kBeginWorldEntityLoad();
-		
-		tString sFile = apElement->GetAttributeString("File");
+
+		tString sFile = GetAttributeString(apElement, "File");
 
 		cParticleSystem *pPS = apWorld->CreateParticleSystem(asNamePrefix+sName,sFile,1);
 
 		if(pPS)
 		{
-			pPS->SetColor(apElement->GetAttributeColor("Color",cColor(1,1)));
-			pPS->SetFadeAtDistance(apElement->GetAttributeBool("FadeAtDistance", false));
-			pPS->SetMinFadeDistanceStart(apElement->GetAttributeFloat("MinFadeDistanceStart"));
-			pPS->SetMinFadeDistanceEnd(apElement->GetAttributeFloat("MinFadeDistanceEnd"));
-			pPS->SetMaxFadeDistanceStart(apElement->GetAttributeFloat("MaxFadeDistanceStart"));
-			pPS->SetMaxFadeDistanceEnd(apElement->GetAttributeFloat("MaxFadeDistanceEnd"));
+			pPS->SetColor(GetAttributeColor(apElement, "Color",cColor(1,1)));
+			pPS->SetFadeAtDistance(GetAttributeBool(apElement, "FadeAtDistance", false));
+			pPS->SetMinFadeDistanceStart(GetAttributeFloat(apElement, "MinFadeDistanceStart"));
+			pPS->SetMinFadeDistanceEnd(GetAttributeFloat(apElement, "MinFadeDistanceEnd"));
+			pPS->SetMaxFadeDistanceStart(GetAttributeFloat(apElement, "MaxFadeDistanceStart"));
+			pPS->SetMaxFadeDistanceEnd(GetAttributeFloat(apElement, "MaxFadeDistanceEnd"));
 		}
 		
 		kEndWorldEntityLoad(pPS);
@@ -117,21 +118,21 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
-	cSoundEntity* cEngineFileLoading::LoadSound(cXmlElement* apElement, const tString& asNamePrefix, cWorld *apWorld)
+	cSoundEntity* cEngineFileLoading::LoadSound(tinyxml2::XMLElement* apElement, const tString& asNamePrefix, cWorld *apWorld)
 	{
 		kBeginWorldEntityLoad();
-		
-		tString sSoundFile = apElement->GetAttributeString("SoundEntityFile");
-		bool bUseDefault = apElement->GetAttributeBool("UseDefault");
+
+		tString sSoundFile = GetAttributeString(apElement, "SoundEntityFile");
+		bool bUseDefault = GetAttributeBool(apElement, "UseDefault");
 
 		cSoundEntity *pSound = apWorld->CreateSoundEntity(asNamePrefix+sName,sSoundFile,false);
 		if(pSound==NULL) return NULL;
 
 		if(bUseDefault==false)
 		{
-			pSound->SetMinDistance(apElement->GetAttributeFloat("MinDistance"));
-			pSound->SetMaxDistance(apElement->GetAttributeFloat("MaxDistance"));
-			pSound->SetVolume(apElement->GetAttributeFloat("Volume"));
+			pSound->SetMinDistance(GetAttributeFloat(apElement, "MinDistance"));
+			pSound->SetMaxDistance(GetAttributeFloat(apElement, "MaxDistance"));
+			pSound->SetVolume(GetAttributeFloat(apElement, "Volume"));
 		}
 
 
@@ -150,35 +151,26 @@ namespace hpl {
 		return eBillboardType_Point;
 	}
 
-	cBillboard* cEngineFileLoading::LoadBillboard(cXmlElement* apElement, const tString& asNamePrefix, cWorld *apWorld, cResources *apResources, bool abStatic,
-													tEFL_LightBillboardConnectionList *apLightBillboardList)
+	cBillboard* cEngineFileLoading::LoadBillboard(tinyxml2::XMLElement* apElement, const tString& asNamePrefix, cWorld *apWorld, cResources *apResources, bool abStatic)
 	{
 		kBeginWorldEntityLoad();
-		
-		cVector2f vSize = apElement->GetAttributeVector2f("BillboardSize");
-		tString sMat = apElement->GetAttributeString("MaterialFile");
-		eBillboardType bbType = ToBillboardType(apElement->GetAttributeString("BillboardType"));
+
+		cVector2f vSize = GetAttributeVector2f(apElement, "BillboardSize");
+		tString sMat = GetAttributeString(apElement, "MaterialFile");
+		eBillboardType bbType = ToBillboardType(GetAttributeString(apElement, "BillboardType"));
 
 		cBillboard *pBillboard = apWorld->CreateBillboard(asNamePrefix+sName,vSize,bbType,sMat, abStatic);
 		if(pBillboard==NULL) return NULL;
 
-		pBillboard->SetForwardOffset(apElement->GetAttributeFloat("BillboardOffset"));
-		pBillboard->SetColor(apElement->GetAttributeColor("BillboardColor",cColor(1,1)));
+		pBillboard->SetForwardOffset(GetAttributeFloat(apElement, "BillboardOffset"));
+		pBillboard->SetColor(GetAttributeColor(apElement, "BillboardColor",cColor(1,1)));
 
-		pBillboard->SetIsHalo(apElement->GetAttributeBool("IsHalo",false));
-		pBillboard->SetHaloSourceSize(apElement->GetAttributeVector3f("HaloSourceSize",1));
+		pBillboard->SetIsHalo(GetAttributeBool(apElement, "IsHalo",false));
+		pBillboard->SetHaloSourceSize(GetAttributeVector3f(apElement, "HaloSourceSize",1));
 
-		tString sConnectLight = apElement->GetAttributeString("ConnectLight");
-		if(apLightBillboardList && sConnectLight!="")
-		{
-			cEFL_LightBillboardConnection lightBBConnection;
-			
-			lightBBConnection.msBillboardID = apElement->GetAttributeInt("ID");
-			lightBBConnection.msLightName = asNamePrefix+apElement->GetAttributeString("ConnectLight");
+		// The ConnectLight attribute is ignored — light-billboard color sync was
+		// a fake-bloom hack; the renderer has real bloom now.
 
-			apLightBillboardList->push_back(lightBBConnection);
-		}
-		
 		kEndWorldEntityLoad(pBillboard);
 	}
 
@@ -203,38 +195,38 @@ namespace hpl {
 		return eTextureAnimMode_None;
 	}
 	
-	iLight* cEngineFileLoading::LoadLight(	cXmlElement* apElement, const tString& asNamePrefix, cWorld *apWorld, cResources *apResources, bool abStatic)
+	iLight* cEngineFileLoading::LoadLight(	tinyxml2::XMLElement* apElement, const tString& asNamePrefix, cWorld *apWorld, cResources *apResources, bool abStatic)
 	{
 		kBeginWorldEntityLoad();
-		
+
 		iLight *pLight = NULL;
 
 		bool bStatic = abStatic;
 
 		//////////////////////////
 		// Box Light
-		if(apElement->GetValue() == "BoxLight")
+		if(tString(apElement->Value()) == "BoxLight")
 		{
 			cLightBox *pLightBox = apWorld->CreateLightBox(asNamePrefix+sName, bStatic);
 			pLight = pLightBox;
 
-			pLightBox->SetSize(apElement->GetAttributeVector3f("Size", 1));
-			pLightBox->SetBlendFunc((eLightBoxBlendFunc) apElement->GetAttributeInt("BlendFunc", 1));
+			pLightBox->SetSize(GetAttributeVector3f(apElement, "Size", 1));
+			pLightBox->SetBlendFunc((eLightBoxBlendFunc) GetAttributeInt(apElement, "BlendFunc", 1));
 		}
 		//////////////////////////
 		// Spotlightt
-		else if(apElement->GetValue() == "SpotLight")
+		else if(tString(apElement->Value()) == "SpotLight")
 		{
-			cLightSpot *pLightSpot = apWorld->CreateLightSpot(asNamePrefix+sName,"", bStatic); 
+			cLightSpot *pLightSpot = apWorld->CreateLightSpot(asNamePrefix+sName,"", bStatic);
 			pLight = pLightSpot;
 
 			//Frustum related
-			pLightSpot->SetFOV(apElement->GetAttributeFloat("FOV", 1.0f));
-			pLightSpot->SetAspect(apElement->GetAttributeFloat("Aspect", 1.0f));
-			pLightSpot->SetNearClipPlane(apElement->GetAttributeFloat("NearClipPlane", 0.1f));
+			pLightSpot->SetFOV(GetAttributeFloat(apElement, "FOV", 1.0f));
+			pLightSpot->SetAspect(GetAttributeFloat(apElement, "Aspect", 1.0f));
+			pLightSpot->SetNearClipPlane(GetAttributeFloat(apElement, "NearClipPlane", 0.1f));
 
 			//Spot fall off
-			tString sSpotFalloffMap = apElement->GetAttributeString("SpotFalloffMap");
+			tString sSpotFalloffMap = GetAttributeString(apElement, "SpotFalloffMap");
 			if(sSpotFalloffMap != "")
 			{
 				Image *pFalloff = apResources->GetTextureManager()->Create1DImage(sSpotFalloffMap,true);
@@ -243,26 +235,27 @@ namespace hpl {
 		}
 		//////////////////////////
 		// Point Light
-		else if(apElement->GetValue() == "PointLight")
+		else if(tString(apElement->Value()) == "PointLight")
 		{
-			cLightPoint *pLightPoint  = apWorld->CreateLightPoint(asNamePrefix+sName,"", bStatic); 
+			cLightPoint *pLightPoint  = apWorld->CreateLightPoint(asNamePrefix+sName,"", bStatic);
 			pLight = pLightPoint;
 		}
 		else
 		{
-			Error("Unknown light type '%s'\n", apElement->GetValue().c_str());
+			Error("Unknown light type '%s'\n", apElement->Value());
 			return NULL;
 		}
 
 		//////////////////////////
 		// General properties
 		eLightType lightType = pLight->GetLightType();
+		const bool bSpotLight = lightType == eLightType_Spot;
 
 		//Spot and point
-		if(lightType == eLightType_Point || lightType == eLightType_Spot)
+		if(lightType == eLightType_Point || bSpotLight)
 		{
 			//Falloff
-			tString sFalloffMap = apElement->GetAttributeString("FalloffMap");
+			tString sFalloffMap = GetAttributeString(apElement, "FalloffMap");
 			if(sFalloffMap != "")
 			{
 				Image *pFalloff = apResources->GetTextureManager()->Create1DImage(sFalloffMap,true);
@@ -270,14 +263,14 @@ namespace hpl {
 			}
 
 			//Gobo
-			tString sGobo = apElement->GetAttributeString("Gobo","");
+			tString sGobo = GetAttributeString(apElement, "Gobo","");
 			if(sGobo  != "")
 			{
-				eTextureAnimMode animMode = ToTextureAnimMode(apElement->GetAttributeString("GoboAnimMode",""));
-				float fAnimFrameTime = apElement->GetAttributeFloat("GoboAnimFrameTime", 1);
+				eTextureAnimMode animMode = ToTextureAnimMode(GetAttributeString(apElement, "GoboAnimMode",""));
+				float fAnimFrameTime = GetAttributeFloat(apElement, "GoboAnimFrameTime", 1);
 
 				Image *pGoboTex=NULL;
-				if(lightType  == eLightType_Spot)
+				if(bSpotLight)
 				{
 					if(animMode == eTextureAnimMode_None)
 						pGoboTex = apResources->GetTextureManager()->Create2DImage(sGobo,true);
@@ -301,8 +294,8 @@ namespace hpl {
 		}
 
 		//All types
-		pLight->SetCastShadows(apElement->GetAttributeBool("CastShadows", false));
-		pLight->SetDiffuseColor(apElement->GetAttributeColor("DiffuseColor", cColor(1)));
+		pLight->SetCastShadows(GetAttributeBool(apElement, "CastShadows", false));
+		pLight->SetDiffuseColor(GetAttributeColor(apElement, "DiffuseColor", cColor(1)));
 		pLight->SetDefaultDiffuseColor(pLight->GetDiffuseColor());
 		// Light brightness = "Intensity", reach = "Radius". Two input shapes:
 		//   - new map: authors "Intensity" + "Radius" (reach) explicitly.
@@ -328,27 +321,27 @@ namespace hpl {
 			};
 
 			float fIntensity, fReach;
-			if(apElement->GetAttribute("Intensity"))
+			if(apElement->Attribute("Intensity"))
 			{
-				fIntensity = apElement->GetAttributeFloat("Intensity", 1);
-				fReach     = apElement->GetAttributeFloat("Radius", deriveReach(fIntensity));
+				fIntensity = GetAttributeFloat(apElement, "Intensity", 1);
+				fReach     = GetAttributeFloat(apElement, "Radius", deriveReach(fIntensity));
 			}
 			else
 			{
 				// Old map: "Radius" is the value the PBR renderer treats as
 				// intensity; reach is derived so existing maps look unchanged.
-				fIntensity = apElement->GetAttributeFloat("Radius", 1);
+				fIntensity = GetAttributeFloat(apElement, "Radius", 1);
 				fReach     = deriveReach(fIntensity);
 			}
 			pLight->SetIntensity(fIntensity);
 			pLight->SetRadius(fReach);
-			pLight->SetSourceRadius(apElement->GetAttributeFloat("SourceRadius", 0.f));
+			pLight->SetSourceRadius(GetAttributeFloat(apElement, "SourceRadius", 0.f));
 		}
 
-		pLight->SetShadowMapResolution( ToShadowMapResolution(apElement->GetAttributeString("ShadowResolution", "High")) );
-		
-		bool bShadowsAffectDynamic = apElement->GetAttributeBool("ShadowsAffectDynamic", true);
-		bool bShadowsAffectStatic = apElement->GetAttributeBool("ShadowsAffectStatic", true);
+		pLight->SetShadowMapResolution( ToShadowMapResolution(GetAttributeString(apElement, "ShadowResolution", "High")) );
+
+		bool bShadowsAffectDynamic = GetAttributeBool(apElement, "ShadowsAffectDynamic", true);
+		bool bShadowsAffectStatic = GetAttributeBool(apElement, "ShadowsAffectStatic", true);
 		tObjectVariabilityFlag lFlags =0;
 		if(bShadowsAffectDynamic)	lFlags |= eObjectVariabilityFlag_Dynamic;
 		if(bShadowsAffectStatic)	lFlags |= eObjectVariabilityFlag_Static;
@@ -356,30 +349,30 @@ namespace hpl {
 
 		//////////////////////
 		// Backwards compitabilty:
-		float fDefaultFadeOn = apElement->GetAttributeFloat("FlickerOnFadeLength",0);
-		float fDefaultFadeOff = apElement->GetAttributeFloat("FlickerOffFadeLength",0);
+		float fDefaultFadeOn = GetAttributeFloat(apElement, "FlickerOnFadeLength",0);
+		float fDefaultFadeOff = GetAttributeFloat(apElement, "FlickerOffFadeLength",0);
 
-		pLight->SetFlickerActive(apElement->GetAttributeBool("FlickerActive", false));
+		pLight->SetFlickerActive(GetAttributeBool(apElement, "FlickerActive", false));
 		pLight->SetFlicker(
-			apElement->GetAttributeColor("FlickerOffColor"),
-			apElement->GetAttributeFloat("FlickerOffRadius"),
+			GetAttributeColor(apElement, "FlickerOffColor"),
+			GetAttributeFloat(apElement, "FlickerOffRadius"),
 
-			apElement->GetAttributeFloat("FlickerOnMinLength"),
-			apElement->GetAttributeFloat("FlickerOnMaxLength"),
-			apElement->GetAttributeString("FlickerOnSound"),
-			apElement->GetAttributeString("FlickerOnPS"),
+			GetAttributeFloat(apElement, "FlickerOnMinLength"),
+			GetAttributeFloat(apElement, "FlickerOnMaxLength"),
+			GetAttributeString(apElement, "FlickerOnSound"),
+			GetAttributeString(apElement, "FlickerOnPS"),
 
-			apElement->GetAttributeFloat("FlickerOffMaxLength"),
-			apElement->GetAttributeFloat("FlickerOffMinLength"),
-			apElement->GetAttributeString("FlickerOffSound"),
-			apElement->GetAttributeString("FlickerOffPS"),
+			GetAttributeFloat(apElement, "FlickerOffMaxLength"),
+			GetAttributeFloat(apElement, "FlickerOffMinLength"),
+			GetAttributeString(apElement, "FlickerOffSound"),
+			GetAttributeString(apElement, "FlickerOffPS"),
 
-			apElement->GetAttributeBool("FlickerFade"),
-			apElement->GetAttributeFloat("FlickerOnFadeMinLength", fDefaultFadeOn),
-			apElement->GetAttributeFloat("FlickerOnFadeMaxLength", fDefaultFadeOn),
-			
-			apElement->GetAttributeFloat("FlickerOffFadeMinLength", fDefaultFadeOff),
-			apElement->GetAttributeFloat("FlickerOffFadeMaxLength", fDefaultFadeOff)
+			GetAttributeBool(apElement, "FlickerFade"),
+			GetAttributeFloat(apElement, "FlickerOnFadeMinLength", fDefaultFadeOn),
+			GetAttributeFloat(apElement, "FlickerOnFadeMaxLength", fDefaultFadeOn),
+
+			GetAttributeFloat(apElement, "FlickerOffFadeMinLength", fDefaultFadeOff),
+			GetAttributeFloat(apElement, "FlickerOffFadeMaxLength", fDefaultFadeOff)
 			);
  
 
@@ -394,27 +387,27 @@ namespace hpl {
 													eVertexBufferElement_Normal,
 													eVertexBufferElement_Texture0,
 													eVertexBufferElement_Texture1Tangent};
-	cMesh* cEngineFileLoading::LoadDecalMeshHelper(cXmlElement* apElement, cGraphics* apGraphics, cResources* apResources, const tString& asName, const tString& asMaterial, const cColor& aColor)
+	cMesh* cEngineFileLoading::LoadDecalMeshHelper(tinyxml2::XMLElement* apElement, cGraphics* apGraphics, cResources* apResources, const tString& asName, const tString& asMaterial, const cColor& aColor)
 	{
 		////////////////////////////////
 		//Load Vertex data
 		if(apElement==NULL)return NULL;
 
-		int lNumOfVtx = apElement->GetAttributeInt("NumVerts", 0);
-		int lNumOfIdx = apElement->GetAttributeInt("NumInds", 0);
+		int lNumOfVtx = GetAttributeInt(apElement, "NumVerts", 0);
+		int lNumOfIdx = GetAttributeInt(apElement, "NumInds", 0);
 
 		if(lNumOfIdx <=0 || lNumOfVtx<=0)
 		{
 			Warning("Decal %s is missing geometry, skipping!\n", asName.c_str());
 			return NULL;
 		}
-			
-		cXmlElement *pDataArrayElem[4];
-		pDataArrayElem[0] = apElement->GetFirstElement("Positions");
-		pDataArrayElem[1] = apElement->GetFirstElement("Normals");
-		pDataArrayElem[2] = apElement->GetFirstElement("TexCoords");
-		pDataArrayElem[3] = apElement->GetFirstElement("Tangents");
-		cXmlElement *pIndicesElem = apElement->GetFirstElement("Indices");
+
+		tinyxml2::XMLElement *pDataArrayElem[4];
+		pDataArrayElem[0] = apElement->FirstChildElement("Positions");
+		pDataArrayElem[1] = apElement->FirstChildElement("Normals");
+		pDataArrayElem[2] = apElement->FirstChildElement("TexCoords");
+		pDataArrayElem[3] = apElement->FirstChildElement("Tangents");
+		tinyxml2::XMLElement *pIndicesElem = apElement->FirstChildElement("Indices");
 
 		tFloatVec vDataArrays[4];
 		tIntVec vIdxArray;
@@ -422,10 +415,10 @@ namespace hpl {
 		for(int i=0; i<4; ++i)
 		{
 			vDataArrays->reserve(lNumOfVtx * glDecalNumOfElements[i]);
-			cString::GetFloatVec(pDataArrayElem[i]->GetAttributeString("Array"), vDataArrays[i],&sSepp);
+			cString::GetFloatVec(GetAttributeString(pDataArrayElem[i], "Array"), vDataArrays[i],&sSepp);
 		}
 		vIdxArray.reserve(lNumOfIdx);
-		cString::GetIntVec(pIndicesElem->GetAttributeString("Array"), vIdxArray,&sSepp);
+		cString::GetIntVec(GetAttributeString(pIndicesElem, "Array"), vIdxArray,&sSepp);
 	
 		//////////////////////////////////
 		// Create vertex buffer
@@ -483,14 +476,14 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cEngineFileLoading::SetupWorldEntity(iEntity3D *apEntity, cXmlElement* apElement)
+	void cEngineFileLoading::SetupWorldEntity(iEntity3D *apEntity, tinyxml2::XMLElement* apElement)
 	{
 		if(apEntity==NULL) return;
 
-		int lID = apElement->GetAttributeInt("ID");
-		cVector3f vPosition = apElement->GetAttributeVector3f("WorldPos",0);
-		cVector3f vScale = apElement->GetAttributeVector3f("Scale",1);
-		cVector3f vRotation = apElement->GetAttributeVector3f("Rotation",0);
+		int lID = GetAttributeInt(apElement, "ID");
+		cVector3f vPosition = GetAttributeVector3f(apElement, "WorldPos",0);
+		cVector3f vScale = GetAttributeVector3f(apElement, "Scale",1);
+		cVector3f vRotation = GetAttributeVector3f(apElement, "Rotation",0);
 
 		cMatrixf mtxTransform = cMath::MatrixMul(cMath::MatrixRotate(vRotation, eEulerRotationOrder_XYZ),cMath::MatrixScale(vScale));
 		mtxTransform.SetTranslation(vPosition);

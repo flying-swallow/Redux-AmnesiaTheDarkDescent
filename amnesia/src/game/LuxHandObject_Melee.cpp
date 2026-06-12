@@ -25,6 +25,9 @@
 #include "LuxMapHelper.h"
 #include "LuxHelpFuncs.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //////////////////////////////////////////////////////////////////////////
 // CONSTRUCTORS
 //////////////////////////////////////////////////////////////////////////
@@ -71,32 +74,32 @@ void cLuxHandObject_Melee::RenderTrans(cRendererCallbackFunctions* apFunctions)
 
 //-----------------------------------------------------------------------
 
-void cLuxHandObject_Melee::LoadImplementedVars(cXmlElement *apVarsElem)
+void cLuxHandObject_Melee::LoadImplementedVars(tinyxml2::XMLElement *apVarsElem)
 {
-	msHandsAnim_Swing = apVarsElem->GetAttributeString("HandsAnim_Swing", "");
-	msHandsAnim_SwingCharge = apVarsElem->GetAttributeString("HandsAnim_SwingCharge", "");
-	msHandsAnim_Charge = apVarsElem->GetAttributeString("HandsAnim_Charge", "");
-	msSwingSound = apVarsElem->GetAttributeString("SwingSound", "");
-	msSwingChargeSound = apVarsElem->GetAttributeString("SwingChargeSound", "");
-	msChargeSound = apVarsElem->GetAttributeString("ChargeSound", "");
-	msChargeDoneSound = apVarsElem->GetAttributeString("ChargeDoneSound", "");
-	msHitSound = apVarsElem->GetAttributeString("HitSound", "");
+	msHandsAnim_Swing = hpl::GetAttributeString(apVarsElem, "HandsAnim_Swing", "");
+	msHandsAnim_SwingCharge = hpl::GetAttributeString(apVarsElem, "HandsAnim_SwingCharge", "");
+	msHandsAnim_Charge = hpl::GetAttributeString(apVarsElem, "HandsAnim_Charge", "");
+	msSwingSound = hpl::GetAttributeString(apVarsElem, "SwingSound", "");
+	msSwingChargeSound = hpl::GetAttributeString(apVarsElem, "SwingChargeSound", "");
+	msChargeSound = hpl::GetAttributeString(apVarsElem, "ChargeSound", "");
+	msChargeDoneSound = hpl::GetAttributeString(apVarsElem, "ChargeDoneSound", "");
+	msHitSound = hpl::GetAttributeString(apVarsElem, "HitSound", "");
 
-	mvCollideShapeSize = apVarsElem->GetAttributeVector3f("ColliderSize", cVector3f(1));
-	mvCollideShapeOffset = apVarsElem->GetAttributeVector3f("ColliderOffset", cVector3f(0));
+	mvCollideShapeSize = hpl::GetAttributeVector3f(apVarsElem, "ColliderSize", cVector3f(1));
+	mvCollideShapeOffset = hpl::GetAttributeVector3f(apVarsElem, "ColliderOffset", cVector3f(0));
 
-	mfChargePlayerSpeedMul = apVarsElem->GetAttributeFloat("ChargePlayerSpeedMul", 1.0f);
-	mfChargeTime = apVarsElem->GetAttributeFloat("ChargeTime", 2.0f);
-	mfRelativeDamageTime = apVarsElem->GetAttributeFloat("RelativeDamageTime", 0.5f);
+	mfChargePlayerSpeedMul = hpl::GetAttributeFloat(apVarsElem, "ChargePlayerSpeedMul", 1.0f);
+	mfChargeTime = hpl::GetAttributeFloat(apVarsElem, "ChargeTime", 2.0f);
+	mfRelativeDamageTime = hpl::GetAttributeFloat(apVarsElem, "RelativeDamageTime", 0.5f);
 
-	mfAttackForce = apVarsElem->GetAttributeFloat("AttackForce", 0);
-	mfMaxAttackForce = apVarsElem->GetAttributeFloat("MaxAttackForce", 0);
+	mfAttackForce = hpl::GetAttributeFloat(apVarsElem, "AttackForce", 0);
+	mfMaxAttackForce = hpl::GetAttributeFloat(apVarsElem, "MaxAttackForce", 0);
 
-	mfAttackMinDamage = apVarsElem->GetAttributeFloat("AttackMinDamage", 0);
-	mfAttackMaxDamage = apVarsElem->GetAttributeFloat("AttackMaxDamage", 0);
-	mfAttackHitSpeed = apVarsElem->GetAttributeFloat("AttackHitSpeed", 0);
+	mfAttackMinDamage = hpl::GetAttributeFloat(apVarsElem, "AttackMinDamage", 0);
+	mfAttackMaxDamage = hpl::GetAttributeFloat(apVarsElem, "AttackMaxDamage", 0);
+	mfAttackHitSpeed = hpl::GetAttributeFloat(apVarsElem, "AttackHitSpeed", 0);
 
-	mlAttackStrength = apVarsElem->GetAttributeInt("AttackHitSpeed", 0);
+	mlAttackStrength = hpl::GetAttributeInt(apVarsElem, "AttackHitSpeed", 0);
 }
 
 //-----------------------------------------------------------------------

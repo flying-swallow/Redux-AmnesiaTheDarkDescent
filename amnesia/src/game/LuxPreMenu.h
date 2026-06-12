@@ -24,6 +24,8 @@
 
 #include "LuxBase.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 enum eLuxPreMenuState
 {
 	eLuxPreMenuState_Initial,
@@ -41,7 +43,7 @@ enum eLuxPreMenuState
 class cLuxPreMenuTextElement
 {
 public:
-	bool Load(cXmlElement* apElement, const cVector2f& avGuiSetSize);
+	bool Load(tinyxml2::XMLElement* apElement, const cVector2f& avGuiSetSize);
 
 	cWidgetLabel* CreateLabel(cGuiSet* apSet);
 
@@ -70,7 +72,7 @@ public:
 	cLuxPreMenuSection();
 	~cLuxPreMenuSection();
 
-	bool Load(cXmlElement* apElement, const cVector2f& avGuiSetSize);
+	bool Load(tinyxml2::XMLElement* apElement, const cVector2f& avGuiSetSize);
 
 	void AddTextElement(cLuxPreMenuTextElement* apText);
 	bool HasTextElements();

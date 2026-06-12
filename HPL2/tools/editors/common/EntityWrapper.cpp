@@ -39,6 +39,9 @@
 #include "EntityIcon.h"
 #include "EngineEntity.h"
 
+#include "resources/XmlHelper.h"
+#include <tinyxml2.h>
+
 #include <algorithm>
 
 //------------------------------------------------------------------
@@ -64,7 +67,7 @@ iPropVal::iPropVal(iProp* apProp)
 	mpProp = apProp;
 }
 
-void iPropVal::Save(cXmlElement* apElement)
+void iPropVal::Save(tinyxml2::XMLElement* apElement)
 {
 	if(mpProp->IsSaved()) 
 		SaveSpecific(apElement);
@@ -99,14 +102,14 @@ void cPropValInt::SetToEntity(iEntityWrapper* apEnt)
 	apEnt->SetProperty(mpProp->GetID(), mlVal);
 }
 
-void cPropValInt::Load(cXmlElement* apElement)
+void cPropValInt::Load(tinyxml2::XMLElement* apElement)
 {
-	mlVal = apElement->GetAttributeInt(mpProp->GetName(), mlVal);
+	mlVal = GetAttributeInt(apElement, mpProp->GetName(), mlVal);
 }
 
-void cPropValInt::SaveSpecific(cXmlElement* apElement)
+void cPropValInt::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
-	apElement->SetAttributeInt(mpProp->GetName(), mlVal);
+	SetAttributeInt(apElement, mpProp->GetName(), mlVal);
 }
 
 //------------------------------------------------------------------
@@ -138,14 +141,14 @@ void cPropValFloat::SetToEntity(iEntityWrapper* apEnt)
 	apEnt->SetProperty(mpProp->GetID(), mfVal);
 }
 
-void cPropValFloat::Load(cXmlElement* apElement)
+void cPropValFloat::Load(tinyxml2::XMLElement* apElement)
 {
-	mfVal = apElement->GetAttributeFloat(mpProp->GetName(), mfVal);
+	mfVal = GetAttributeFloat(apElement, mpProp->GetName(), mfVal);
 }
 
-void cPropValFloat::SaveSpecific(cXmlElement* apElement)
+void cPropValFloat::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
-	apElement->SetAttributeFloat(mpProp->GetName(), mfVal);
+	SetAttributeFloat(apElement, mpProp->GetName(), mfVal);
 }
 
 //------------------------------------------------------------------
@@ -177,14 +180,14 @@ void cPropValBool::SetToEntity(iEntityWrapper* apEnt)
 	apEnt->SetProperty(mpProp->GetID(), mbVal);
 }
 
-void cPropValBool::Load(cXmlElement* apElement)
+void cPropValBool::Load(tinyxml2::XMLElement* apElement)
 {
-	mbVal = apElement->GetAttributeBool(mpProp->GetName(), mbVal);
+	mbVal = GetAttributeBool(apElement, mpProp->GetName(), mbVal);
 }
 
-void cPropValBool::SaveSpecific(cXmlElement* apElement)
+void cPropValBool::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
-	apElement->SetAttributeBool(mpProp->GetName(), mbVal);
+	SetAttributeBool(apElement, mpProp->GetName(), mbVal);
 }
 
 //------------------------------------------------------------------
@@ -216,14 +219,14 @@ void cPropValStr::SetToEntity(iEntityWrapper* apEnt)
 	apEnt->SetProperty(mpProp->GetID(), msVal);
 }
 
-void cPropValStr::Load(cXmlElement* apElement)
+void cPropValStr::Load(tinyxml2::XMLElement* apElement)
 {
-	msVal = apElement->GetAttributeString(mpProp->GetName(), msVal);
+	msVal = GetAttributeString(apElement, mpProp->GetName(), msVal);
 }
 
-void cPropValStr::SaveSpecific(cXmlElement* apElement)
+void cPropValStr::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
-	apElement->SetAttributeString(mpProp->GetName(), msVal);
+	SetAttributeString(apElement, mpProp->GetName(), msVal);
 }
 
 //------------------------------------------------------------------
@@ -255,14 +258,14 @@ void cPropValVec2f::SetToEntity(iEntityWrapper* apEnt)
 	apEnt->SetProperty(mpProp->GetID(), mvVal);
 }
 
-void cPropValVec2f::Load(cXmlElement* apElement)
+void cPropValVec2f::Load(tinyxml2::XMLElement* apElement)
 {
-	mvVal = apElement->GetAttributeVector2f(mpProp->GetName(), mvVal);
+	mvVal = GetAttributeVector2f(apElement, mpProp->GetName(), mvVal);
 }
 
-void cPropValVec2f::SaveSpecific(cXmlElement* apElement)
+void cPropValVec2f::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
-	apElement->SetAttributeVector2f(mpProp->GetName(), mvVal);
+	SetAttributeVector2f(apElement, mpProp->GetName(), mvVal);
 }
 
 //------------------------------------------------------------------
@@ -294,14 +297,14 @@ void cPropValVec3f::SetToEntity(iEntityWrapper* apEnt)
 	apEnt->SetProperty(mpProp->GetID(), mvVal);
 }
 
-void cPropValVec3f::Load(cXmlElement* apElement)
+void cPropValVec3f::Load(tinyxml2::XMLElement* apElement)
 {
-	mvVal = apElement->GetAttributeVector3f(mpProp->GetName(), mvVal);
+	mvVal = GetAttributeVector3f(apElement, mpProp->GetName(), mvVal);
 }
 
-void cPropValVec3f::SaveSpecific(cXmlElement* apElement)
+void cPropValVec3f::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
-	apElement->SetAttributeVector3f(mpProp->GetName(), mvVal);
+	SetAttributeVector3f(apElement, mpProp->GetName(), mvVal);
 }
 
 //------------------------------------------------------------------
@@ -333,14 +336,14 @@ void cPropValCol::SetToEntity(iEntityWrapper* apEnt)
 	apEnt->SetProperty(mpProp->GetID(), mVal);
 }
 
-void cPropValCol::Load(cXmlElement* apElement)
+void cPropValCol::Load(tinyxml2::XMLElement* apElement)
 {
-	mVal = apElement->GetAttributeColor(mpProp->GetName(), mVal);
+	mVal = GetAttributeColor(apElement, mpProp->GetName(), mVal);
 }
 
-void cPropValCol::SaveSpecific(cXmlElement* apElement)
+void cPropValCol::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
-	apElement->SetAttributeColor(mpProp->GetName(), mVal);
+	SetAttributeColor(apElement, mpProp->GetName(), mVal);
 }
 
 //------------------------------------------------------------------
@@ -441,12 +444,12 @@ tString iEntityWrapperType::ToString()
 
 //------------------------------------------------------------------
 
-bool iEntityWrapperType::IsAppropriateType(cXmlElement* apElement)
+bool iEntityWrapperType::IsAppropriateType(tinyxml2::XMLElement* apElement)
 {
-	return msXmlElementName==apElement->GetValue();
+	return msXmlElementName==apElement->Value();
 }
 
-bool iEntityWrapperType::IsAppropriateDefaultType(cXmlElement* apElement)
+bool iEntityWrapperType::IsAppropriateDefaultType(tinyxml2::XMLElement* apElement)
 {
 	return false;
 }
@@ -743,7 +746,7 @@ void iEntityWrapperData::CopyToEntity(iEntityWrapper* apEnt, int alCopyStep)
 
 //------------------------------------------------------------------
 
-bool iEntityWrapperData::Load(cXmlElement* apElement)
+bool iEntityWrapperData::Load(tinyxml2::XMLElement* apElement)
 {
 	///////////////////////////////////////////
 	// Load values from XML element
@@ -767,15 +770,16 @@ bool iEntityWrapperData::Load(cXmlElement* apElement)
 
 //------------------------------------------------------------------
 
-bool iEntityWrapperData::Save(cXmlElement* apParentElement)
+bool iEntityWrapperData::Save(tinyxml2::XMLElement* apParentElement)
 {
-	cXmlElement* pElement = apParentElement->CreateChildElement(mpType->GetXmlElementName());
+	tinyxml2::XMLElement* pElement = apParentElement->GetDocument()->NewElement(mpType->GetXmlElementName().c_str());
+	apParentElement->InsertEndChild(pElement);
 	mpType->GetWorld()->SaveDataCallback(this, pElement);
 
 	return SaveSpecific(pElement);
 }
 
-bool iEntityWrapperData::SaveSpecific(cXmlElement* apElement)
+bool iEntityWrapperData::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
 	///////////////////////////////////////////
 	// Load values from XML element
@@ -989,20 +993,18 @@ void iEntityWrapperData::SetName(const tString& asX)
 
 //------------------------------------------------------------------
 
-void iEntityWrapperData::LoadChildren(cXmlElement* apElement)
+void iEntityWrapperData::LoadChildren(tinyxml2::XMLElement* apElement)
 {
-	cXmlElement* pChildrenElement = apElement->GetFirstElement("Children");
+	tinyxml2::XMLElement* pChildrenElement = apElement->FirstChildElement("Children");
 	if(pChildrenElement==NULL)
 		return;
 
-	cXmlNodeListIterator it = pChildrenElement->GetChildIterator();
-	while(it.HasNext())
+	for(tinyxml2::XMLElement* pChild = pChildrenElement->FirstChildElement(); pChild != NULL; pChild = pChild->NextSiblingElement())
 	{
-		cXmlElement* pChild = it.Next()->ToElement();
-		if(pChild->GetValue()!="Child")
+		if(tString(pChild->Value())!="Child")
 			continue;
 
-		int lChildID = pChild->GetAttributeInt("ID",-1);
+		int lChildID = GetAttributeInt(pChild, "ID",-1);
 		if(lChildID!=-1)
 			mvChildIDs.push_back(lChildID);
 	}
@@ -1010,16 +1012,18 @@ void iEntityWrapperData::LoadChildren(cXmlElement* apElement)
 
 //------------------------------------------------------------------
 
-void iEntityWrapperData::SaveChildren(cXmlElement* apElement)
+void iEntityWrapperData::SaveChildren(tinyxml2::XMLElement* apElement)
 {
 	if(mvChildIDs.empty())
 		return;
 
-	cXmlElement* pChildrenElement = apElement->CreateChildElement("Children");
+	tinyxml2::XMLElement* pChildrenElement = apElement->GetDocument()->NewElement("Children");
+	apElement->InsertEndChild(pChildrenElement);
 	for(int i=0;i<(int)mvChildIDs.size();++i)
 	{
-		cXmlElement* pChildElement = pChildrenElement->CreateChildElement("Child");
-		pChildElement->SetAttributeInt("ID", mvChildIDs[i]);
+		tinyxml2::XMLElement* pChildElement = pChildrenElement->GetDocument()->NewElement("Child");
+		pChildrenElement->InsertEndChild(pChildElement);
+		SetAttributeInt(pChildElement, "ID", mvChildIDs[i]);
 	}
 }
 
@@ -1262,18 +1266,20 @@ void iEntityWrapper::ClearChildren()
 
 //------------------------------------------------------------------
 
-void iEntityWrapper::SaveChildren(cXmlElement* apElement)
+void iEntityWrapper::SaveChildren(tinyxml2::XMLElement* apElement)
 {
 	if(mlstChildren.empty()==false)
 	{
-		cXmlElement* pXmlChildren = apElement->CreateChildElement("Children");
+		tinyxml2::XMLElement* pXmlChildren = apElement->GetDocument()->NewElement("Children");
+		apElement->InsertEndChild(pXmlChildren);
 		tEntityWrapperListIt itChildren = mlstChildren.begin();
 		for(;itChildren!=mlstChildren.end(); ++itChildren)
 		{
 			iEntityWrapper* pChild = *itChildren;
-			cXmlElement* pXmlChild = pXmlChildren->CreateChildElement("Child");
+			tinyxml2::XMLElement* pXmlChild = pXmlChildren->GetDocument()->NewElement("Child");
+			pXmlChildren->InsertEndChild(pXmlChild);
 
-			pXmlChild->SetAttributeInt("ID", pChild->GetID());
+			SetAttributeInt(pXmlChild, "ID", pChild->GetID());
 		}
 	}
 }
@@ -1749,7 +1755,7 @@ bool iEntityWrapper::CreateEngineEntity()
 
 //------------------------------------------------------------------
 
-void iEntityWrapper::Save(cXmlElement* apParentElement)
+void iEntityWrapper::Save(tinyxml2::XMLElement* apParentElement)
 {
 	if(apParentElement==NULL)
 	{
@@ -2154,7 +2160,7 @@ void iEntityWrapperDataUserDefinedEntity::CopyToEntity(iEntityWrapper* apEntity,
 
 //-------------------------------------------------------------------
 
-bool iEntityWrapperDataUserDefinedEntity::Load(cXmlElement* apElement)
+bool iEntityWrapperDataUserDefinedEntity::Load(tinyxml2::XMLElement* apElement)
 {
 	iEntityWrapperData::Load(apElement);
 	iEntityWrapperTypeUserDefinedEntity* pType = (iEntityWrapperTypeUserDefinedEntity*)mpType;
@@ -2165,7 +2171,7 @@ bool iEntityWrapperDataUserDefinedEntity::Load(cXmlElement* apElement)
 	///////////////////////////////////////////
 	// Load var values from element
 	const tString& sVarsElement = pType->GetUserVarElementName();
-	cXmlElement* pVars = apElement->GetFirstElement(sVarsElement);
+	tinyxml2::XMLElement* pVars = apElement->FirstChildElement(sVarsElement.c_str());
 	if(pVars)
 	{
 		if(mpClass)
@@ -2190,14 +2196,15 @@ bool iEntityWrapperDataUserDefinedEntity::Load(cXmlElement* apElement)
 
 //-------------------------------------------------------------------
 
-bool iEntityWrapperDataUserDefinedEntity::SaveSpecific(cXmlElement* apElement)
+bool iEntityWrapperDataUserDefinedEntity::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
 	iEntityWrapperData::SaveSpecific(apElement);
 	iEntityWrapperTypeUserDefinedEntity* pType = (iEntityWrapperTypeUserDefinedEntity*)mpType;
 
 	if(mpClass)
 	{
-		cXmlElement* pVarsElement = apElement->CreateChildElement(pType->GetUserVarElementName());
+		tinyxml2::XMLElement* pVarsElement = apElement->GetDocument()->NewElement(pType->GetUserVarElementName().c_str());
+		apElement->InsertEndChild(pVarsElement);
 		mpClass->Save(pVarsElement);
 	}
 
@@ -2350,7 +2357,7 @@ void iEntityWrapperDataAggregate::CopyToEntity(iEntityWrapper* apEntity, int alC
 
 //-------------------------------------------------------------------
 
-bool iEntityWrapperDataAggregate::Load(cXmlElement* apElement)
+bool iEntityWrapperDataAggregate::Load(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperData::Load(apElement)==false)
 		return false;
@@ -2358,13 +2365,11 @@ bool iEntityWrapperDataAggregate::Load(cXmlElement* apElement)
 	iEditorWorld* pWorld = mpType->GetWorld();
 	const tString& sComponentName = ((iEntityWrapperTypeAggregate*)mpType)->GetComponentElementName();
 
-	cXmlNodeListIterator it = apElement->GetChildIterator();
-	while(it.HasNext())
+	for(tinyxml2::XMLElement* pObj = apElement->FirstChildElement(); pObj != NULL; pObj = pObj->NextSiblingElement())
 	{
-		cXmlElement* pObj = it.Next()->ToElement();
-		if(pObj->GetValue()!=sComponentName)
+		if(tString(pObj->Value())!=sComponentName)
 			continue;
-		iEntityWrapper* pEnt = pWorld->GetEntity(pObj->GetAttributeInt("ID", -1));
+		iEntityWrapper* pEnt = pWorld->GetEntity(GetAttributeInt(pObj, "ID", -1));
 		if(pEnt)
 		{
 			iEntityWrapperData* pData = pEnt->CreateCopyData();
@@ -2377,7 +2382,7 @@ bool iEntityWrapperDataAggregate::Load(cXmlElement* apElement)
 
 //-------------------------------------------------------------------
 
-bool iEntityWrapperDataAggregate::SaveSpecific(cXmlElement* apElement)
+bool iEntityWrapperDataAggregate::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperData::SaveSpecific(apElement)==false)
 		return false;
@@ -2385,7 +2390,11 @@ bool iEntityWrapperDataAggregate::SaveSpecific(cXmlElement* apElement)
 	const tString& sComponentName = ((iEntityWrapperTypeAggregate*)mpType)->GetComponentElementName();
 
 	for(int i=0; i<(int)mvComponentsData.size();++i)
-		apElement->CreateChildElement(sComponentName)->SetAttributeInt("ID", mvComponentsData[i]->GetID());
+	{
+		tinyxml2::XMLElement* pComponentElement = apElement->GetDocument()->NewElement(sComponentName.c_str());
+		apElement->InsertEndChild(pComponentElement);
+		SetAttributeInt(pComponentElement, "ID", mvComponentsData[i]->GetID());
+	}
 
 	return true;
 }

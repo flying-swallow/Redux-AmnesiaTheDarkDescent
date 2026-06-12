@@ -24,6 +24,11 @@
 
 #include "system/SystemTypes.h"
 
+namespace tinyxml2 {
+	class XMLDocument;
+	class XMLElement;
+}
+
 namespace hpl {
 	
 	//change to own file type?
@@ -55,22 +60,9 @@ namespace hpl {
 	typedef tFlag tBitmapSaveFlag;
 
 	//-------------------------------------------------------
-
-	class cEFL_LightBillboardConnection
-	{
-	public:
-		tString msLightName;
-		int msBillboardID;
-	};
-
-	typedef std::list<cEFL_LightBillboardConnection> tEFL_LightBillboardConnectionList;
-	typedef tEFL_LightBillboardConnectionList::iterator tEFL_LightBillboardConnectionListIt;
-
-	//-------------------------------------------------------
-	class iXmlDocument;
 	class cBinaryBuffer;
 
-	typedef std::list<iXmlDocument*> tXmlDocumentList;
+	typedef std::list<tinyxml2::XMLDocument*> tXmlDocumentList;
 	typedef tXmlDocumentList::iterator tXmlDocumentListIt;
 
 	typedef std::list<cBinaryBuffer*> tBinaryBufferList;

@@ -29,6 +29,9 @@
 
 #include "EngineEntity.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 #include <algorithm>
 
 //-----------------------------------------------------------------------------------------
@@ -93,7 +96,7 @@ void cEntityWrapperDataDecal::CopyToEntity(iEntityWrapper* apEntity, int alCopyF
 
 //-----------------------------------------------------------------------------------------
 
-bool cEntityWrapperDataDecal::Load(cXmlElement* apElement)
+bool cEntityWrapperDataDecal::Load(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperData::Load(apElement)==false)
 		return false;
@@ -135,7 +138,7 @@ bool cEntityWrapperDataDecal::Load(cXmlElement* apElement)
 	}
 
 	cEngine* pEng = mpType->GetWorld()->GetEditor()->GetEngine();
-	mpMesh = cEngineFileLoading::LoadDecalMeshHelper(apElement->GetFirstElement("DecalMesh"), pEng->GetGraphics(), pEng->GetResources(), GetName(), sMaterial, GetColor(eDecalCol_Color)); 
+	mpMesh = cEngineFileLoading::LoadDecalMeshHelper(apElement->FirstChildElement("DecalMesh"), pEng->GetGraphics(), pEng->GetResources(), GetName(), sMaterial, GetColor(eDecalCol_Color));
 
 	/////////////////////////////////////////////////
 	// Load affected entity IDs
@@ -148,7 +151,7 @@ bool cEntityWrapperDataDecal::Load(cXmlElement* apElement)
 
 //-----------------------------------------------------------------------------------------
 
-bool cEntityWrapperDataDecal::SaveSpecific(cXmlElement* apElement)
+bool cEntityWrapperDataDecal::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperData::SaveSpecific(apElement)==false || mpDecal==NULL)
 		return false;
@@ -168,9 +171,10 @@ bool cEntityWrapperDataDecal::SaveSpecific(cXmlElement* apElement)
 		lIndexNum = pVB->GetIndexNum();
 	}
 
-	cXmlElement* pMesh = apElement->CreateChildElement("DecalMesh");
-	pMesh->SetAttributeInt("NumVerts", lVertexNum);
-	pMesh->SetAttributeInt("NumInds", lIndexNum);
+	tinyxml2::XMLElement* pMesh = apElement->GetDocument()->NewElement("DecalMesh");
+	apElement->InsertEndChild(pMesh);
+	hpl::SetAttributeInt(pMesh, "NumVerts", lVertexNum);
+	hpl::SetAttributeInt(pMesh, "NumInds", lIndexNum);
 
 	if(pVB==NULL)
 		return true;
@@ -190,11 +194,16 @@ bool cEntityWrapperDataDecal::SaveSpecific(cXmlElement* apElement)
 
 	//////////////////////////////////////
 	// Create xml elements
-	cXmlElement* pXmlPositions = pMesh->CreateChildElement("Positions");
-	cXmlElement* pXmlNormals = pMesh->CreateChildElement("Normals");
-	cXmlElement* pXmlTangents = pMesh->CreateChildElement("Tangents");
-	cXmlElement* pXmlTexCoords = pMesh->CreateChildElement("TexCoords");
-	cXmlElement* pXmlIndices = pMesh->CreateChildElement("Indices");
+	tinyxml2::XMLElement* pXmlPositions = pMesh->GetDocument()->NewElement("Positions");
+	pMesh->InsertEndChild(pXmlPositions);
+	tinyxml2::XMLElement* pXmlNormals = pMesh->GetDocument()->NewElement("Normals");
+	pMesh->InsertEndChild(pXmlNormals);
+	tinyxml2::XMLElement* pXmlTangents = pMesh->GetDocument()->NewElement("Tangents");
+	pMesh->InsertEndChild(pXmlTangents);
+	tinyxml2::XMLElement* pXmlTexCoords = pMesh->GetDocument()->NewElement("TexCoords");
+	pMesh->InsertEndChild(pXmlTexCoords);
+	tinyxml2::XMLElement* pXmlIndices = pMesh->GetDocument()->NewElement("Indices");
+	pMesh->InsertEndChild(pXmlIndices);
 
 	tString sPositions;
 	tString sNormals;
@@ -223,11 +232,11 @@ bool cEntityWrapperDataDecal::SaveSpecific(cXmlElement* apElement)
 
 	/////////////////////////////////////////////////
 	// Save strings to elements
-	pXmlPositions->SetAttributeString("Array", sPositions);
-	pXmlNormals->SetAttributeString("Array", sNormals);
-	pXmlTangents->SetAttributeString("Array", sTangents);
-	pXmlTexCoords->SetAttributeString("Array", sTexCoords);
-	pXmlIndices->SetAttributeString("Array", sIndices);
+	hpl::SetAttributeString(pXmlPositions, "Array", sPositions);
+	hpl::SetAttributeString(pXmlNormals, "Array", sNormals);
+	hpl::SetAttributeString(pXmlTangents, "Array", sTangents);
+	hpl::SetAttributeString(pXmlTexCoords, "Array", sTexCoords);
+	hpl::SetAttributeString(pXmlIndices, "Array", sIndices);
 
 	return true;
 }

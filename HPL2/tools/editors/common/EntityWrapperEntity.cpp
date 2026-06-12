@@ -35,6 +35,9 @@
 
 #include "EditorActionDynamicEntity.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //---------------------------------------------------------------------------
 
 tString cEntityWrapperTypeEntity::msLastCheckedFile = "";
@@ -60,34 +63,34 @@ tString cEntityWrapperTypeEntity::ToString()
 
 //------------------------------------------------------------------------------
 
-bool cEntityWrapperTypeEntity::IsAppropriateType(cXmlElement* apElement)
+bool cEntityWrapperTypeEntity::IsAppropriateType(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperType::IsAppropriateType(apElement)==false)
 		return false;
 
 	cResources* pRes = mpWorld->GetEditor()->GetEngine()->GetResources();
 
-	int lFileIndex = apElement->GetAttributeInt("FileIndex", -1);
+	int lFileIndex = GetAttributeInt(apElement, "FileIndex", -1);
 	tString sFilename;
 
 	if(lFileIndex==-1)
 	{
-		sFilename = apElement->GetAttributeString("Filename");
+		sFilename = GetAttributeString(apElement, "Filename");
 		lFileIndex = mpWorld->AddFilenameToIndex("Entities", cString::To8Char(pRes->GetFileSearcher()->GetFilePath(sFilename)));
 	}
 
 	sFilename = mpWorld->GetFilenameFromIndex("Entities", lFileIndex);
 	if(msLastCheckedFile!=sFilename)
 	{
-		iXmlDocument* pModelDoc = pRes->LoadXmlDocument(sFilename);
+		tinyxml2::XMLElement* pModelDoc = pRes->LoadXmlDocument(sFilename);
 		if(pModelDoc)
 		{
-			cXmlElement* pUserVars = pModelDoc->GetFirstElement("UserDefinedVariables");
+			tinyxml2::XMLElement* pUserVars = pModelDoc->FirstChildElement("UserDefinedVariables");
 			if(pUserVars)
 			{
 				msLastCheckedFile = sFilename;
-				msLastCheckedType = pUserVars->GetAttributeString("EntityType");
-				msLastCheckedSubType = pUserVars->GetAttributeString("EntitySubType");
+				msLastCheckedType = GetAttributeString(pUserVars, "EntityType");
+				msLastCheckedSubType = GetAttributeString(pUserVars, "EntitySubType");
 			}
 
 			pRes->DestroyXmlDocument(pModelDoc);
@@ -118,34 +121,34 @@ bool cEntityWrapperTypeEntity::IsAppropriateType(cXmlElement* apElement)
 
 //------------------------------------------------------------------------------
 
-bool cEntityWrapperTypeEntity::IsAppropriateDefaultType(cXmlElement* apElement)
+bool cEntityWrapperTypeEntity::IsAppropriateDefaultType(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperType::IsAppropriateType(apElement)==false)
 		return false;
 
 	cResources* pRes = mpWorld->GetEditor()->GetEngine()->GetResources();
 
-	int lFileIndex = apElement->GetAttributeInt("FileIndex", -1);
+	int lFileIndex = GetAttributeInt(apElement, "FileIndex", -1);
 	tString sFilename;
 
 	if(lFileIndex==-1)
 	{
-		sFilename = apElement->GetAttributeString("Filename");
+		sFilename = GetAttributeString(apElement, "Filename");
 		lFileIndex = mpWorld->AddFilenameToIndex("Entities", cString::To8Char(pRes->GetFileSearcher()->GetFilePath(sFilename)));
 	}
 
 	sFilename = mpWorld->GetFilenameFromIndex("Entities", lFileIndex);
 	if(msLastCheckedFile!=sFilename)
 	{
-		iXmlDocument* pModelDoc = pRes->LoadXmlDocument(sFilename);
+		tinyxml2::XMLElement* pModelDoc = pRes->LoadXmlDocument(sFilename);
 		if(pModelDoc)
 		{
-			cXmlElement* pUserVars = pModelDoc->GetFirstElement("UserDefinedVariables");
+			tinyxml2::XMLElement* pUserVars = pModelDoc->FirstChildElement("UserDefinedVariables");
 			if(pUserVars)
 			{
 				msLastCheckedFile = sFilename;
-				msLastCheckedType = pUserVars->GetAttributeString("EntityType");
-				msLastCheckedSubType = pUserVars->GetAttributeString("EntitySubType");
+				msLastCheckedType = GetAttributeString(pUserVars, "EntityType");
+				msLastCheckedSubType = GetAttributeString(pUserVars, "EntitySubType");
 			}
 
 			pRes->DestroyXmlDocument(pModelDoc);
@@ -212,7 +215,7 @@ cEntityWrapperDataEntity::~cEntityWrapperDataEntity()
 
 //---------------------------------------------------------------------------
 
-bool cEntityWrapperDataEntity::Load(cXmlElement* apElement)
+bool cEntityWrapperDataEntity::Load(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperDataUserDefinedEntity::Load(apElement)==false)
 		return false;
@@ -221,7 +224,7 @@ bool cEntityWrapperDataEntity::Load(cXmlElement* apElement)
 	int lFileIndex = GetInt(eEntityInt_FileIndex);
 	if(lFileIndex==-1)
 	{
-		tWString sPath = pWorld->GetEditor()->GetEngine()->GetResources()->GetFileSearcher()->GetFilePath(apElement->GetAttributeString("Filename"));
+		tWString sPath = pWorld->GetEditor()->GetEngine()->GetResources()->GetFileSearcher()->GetFilePath(GetAttributeString(apElement, "Filename"));
 		lFileIndex = pWorld->AddFilenameToIndex("Entities", cString::To8Char(sPath));
 		SetInt(eEntityInt_FileIndex, lFileIndex);
 	}

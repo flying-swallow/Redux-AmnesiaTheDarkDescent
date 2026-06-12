@@ -24,6 +24,7 @@
 
 #include "LuxHandObject.h"
 
+namespace tinyxml2 { class XMLElement; }
 
 //----------------------------------------------
 
@@ -33,7 +34,7 @@ public:
 	cLuxHandObject_LightSource(const tString& asName, cLuxPlayerHands *apHands);
 	~cLuxHandObject_LightSource();
 	
-	void LoadImplementedVars(cXmlElement *apVarsElem);
+	void LoadImplementedVars(tinyxml2::XMLElement *apVarsElem);
 
 	void ImplementedCreateEntity(cLuxMap *apMap);
 	void ImplementedDestroyEntity(cLuxMap *apMap);

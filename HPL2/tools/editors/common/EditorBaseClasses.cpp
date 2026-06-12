@@ -45,6 +45,9 @@
 
 #include <algorithm>
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 #include "../common/DirectoryHandler.h"
 
 #include "../common/StdAfx.h"
@@ -95,9 +98,9 @@ cMeshEntity* cEditorEntityLoader::LoadEntFile(int alID, const tString& asName, c
 	tWString sFullPath = pRes->GetFileSearcher()->GetFilePath(asFilename);
 
 	cMeshEntity* pEntity = NULL;
-	cXmlElement* pXmlEntity = NULL;
+	tinyxml2::XMLElement* pXmlEntity = NULL;
 
-	iXmlDocument* pDoc = pRes->LoadXmlDocument(asFilename);
+	tinyxml2::XMLElement* pDoc = pRes->LoadXmlDocument(asFilename);
 	if(pDoc==NULL)
 		return NULL;
 
@@ -120,7 +123,7 @@ cMeshEntity* cEditorEntityLoader::LoadEntFile(int alID, const tString& asName, c
 }
 //-----------------------------------------------------------------------
 
-cMeshEntity* cEditorEntityLoader::LoadEntityFromElement(int alID, const tString& asName, cXmlElement* apElement,
+cMeshEntity* cEditorEntityLoader::LoadEntityFromElement(int alID, const tString& asName, tinyxml2::XMLElement* apElement,
 														cWorld* apWorld, const tString& asFilename, const tWString& asFullPath, 
 														bool abLoadAnims, bool abLoadParticles, bool abLoadBillboards, bool abLoadSounds, bool abLoadLights)
 {
@@ -406,12 +409,12 @@ void iEditorBase::Load()
 	Log("// Loading file %ls\n", msSaveFilename.c_str());
 	Log("/////////////////////////////////////////////////////////////////\n\n");
 
-	iXmlDocument* pDoc = GetEngine()->GetResources()->GetLowLevel()->CreateXmlDocument();
-	if(pDoc->CreateFromFile(msSaveFilename)==false)
+	tinyxml2::XMLDocument xmlDoc;
+	if(hpl::LoadXmlFile(xmlDoc, msSaveFilename)==false || xmlDoc.RootElement()==NULL)
 	{
-		GetEngine()->GetResources()->DestroyXmlDocument(pDoc);
 		return;
 	}
+	tinyxml2::XMLElement* pDoc = xmlDoc.RootElement();
 
 	AddRecentFile(msSaveFilename);
 	SetLayoutNeedsUpdate(true);
@@ -420,16 +423,15 @@ void iEditorBase::Load()
 
 	//////////////////////////////////////
 	// Editor session data
-	cXmlElement* pSession = NULL;
+	tinyxml2::XMLElement* pSession = NULL;
 	LoadEditorSession(pDoc, &pSession);
-	
+
 	//////////////////////////////////
 	// Load Scene data
 	mpEditorWorld->Load(pDoc);
 
 	OnPostWorldLoad();
 
-	GetEngine()->GetResources()->DestroyXmlDocument(pDoc);
 	Log("\n/////////////////////////////////////////////////////////////////\n");
 	Log("// Loaded successfully\n");
 	Log("/////////////////////////////////////////////////////////////////\n\n");
@@ -442,15 +444,17 @@ void iEditorBase::Save()
 
 	SetLayoutNeedsUpdate(true);
 
-	iXmlDocument* pDoc = GetEngine()->GetResources()->GetLowLevel()->CreateXmlDocument();
-	
+	tinyxml2::XMLDocument xmlDoc;
+	tinyxml2::XMLElement* pDoc = xmlDoc.NewElement("");
+	xmlDoc.InsertEndChild(pDoc);
+
 	AddRecentFile(msSaveFilename);
 	msLastLoadPath = cString::GetFilePathW(msSaveFilename);
 	msLastSavePath = msLastLoadPath;
 
 	//////////////////////////////////////
 	// Editor session data
-	cXmlElement* pSession = NULL;
+	tinyxml2::XMLElement* pSession = NULL;
 	SaveEditorSession(pDoc, &pSession);
 
 	///////////////////////////////////
@@ -458,84 +462,84 @@ void iEditorBase::Save()
 	mpEditorWorld->Save(pDoc);
 	mpEditorWorld->UpdateSavedModifications();
 
-	pDoc->SaveToFile(msSaveFilename);
-
-	GetEngine()->GetResources()->DestroyXmlDocument(pDoc);
+	hpl::SaveXmlFile(xmlDoc, msSaveFilename);
 }
 
 //-----------------------------------------------------------------------
 
-void iEditorBase::LoadEditorSession(iXmlDocument* apDoc, cXmlElement **apElement)
+void iEditorBase::LoadEditorSession(tinyxml2::XMLElement* apDoc, tinyxml2::XMLElement **apElement)
 {
 	///////////////////////////////////////////////////////////////////
 	// (TODO: this needs clean up, or be moved elsewhere)
-	*apElement = apDoc->GetFirstElement("EditorSession");
-	cXmlElement* pSession = *apElement;
+	*apElement = apDoc->FirstChildElement("EditorSession");
+	tinyxml2::XMLElement* pSession = *apElement;
 
 	if(pSession==NULL)
 		return;
 
 	/////////////////////////////////////
-	// Load performance options 
-	cXmlElement* pPerfOptions = pSession->GetFirstElement("Performance");
+	// Load performance options
+	tinyxml2::XMLElement* pPerfOptions = pSession->FirstChildElement("Performance");
 	if(pPerfOptions)
 	{
-		mpEditorWorld->SetTypeActive(eEditorEntityType_Light,(pPerfOptions->GetAttributeBool("LightsActive", true)));
-		mpEditorWorld->SetTypeActive(eEditorEntityType_ParticleSystem,(pPerfOptions->GetAttributeBool("PSActive", true)));
-		SetWorldReflectionActive(pPerfOptions->GetAttributeBool("WorldReflection", true));
-		cEditorWindowViewport::SetCamPlanes(pPerfOptions->GetAttributeVector2f("CamClipPlanes", cVector2f(0.05f, 1000)));
-		mpEditorWorld->SetShowFog(pPerfOptions->GetAttributeBool("ShowFog", true));
-		mpEditorWorld->SetShowSkybox(pPerfOptions->GetAttributeBool("ShowSkybox", true));
+		mpEditorWorld->SetTypeActive(eEditorEntityType_Light,(GetAttributeBool(pPerfOptions, "LightsActive", true)));
+		mpEditorWorld->SetTypeActive(eEditorEntityType_ParticleSystem,(GetAttributeBool(pPerfOptions, "PSActive", true)));
+		SetWorldReflectionActive(GetAttributeBool(pPerfOptions, "WorldReflection", true));
+		cEditorWindowViewport::SetCamPlanes(GetAttributeVector2f(pPerfOptions, "CamClipPlanes", cVector2f(0.05f, 1000)));
+		mpEditorWorld->SetShowFog(GetAttributeBool(pPerfOptions, "ShowFog", true));
+		mpEditorWorld->SetShowSkybox(GetAttributeBool(pPerfOptions, "ShowSkybox", true));
 	}
-	cXmlElement* pVPData = pSession->GetFirstElement("ViewportConfig");
+	tinyxml2::XMLElement* pVPData = pSession->FirstChildElement("ViewportConfig");
 	if(pVPData==NULL)
 		return;
 	int i=0;
-	cXmlNodeListIterator it = pVPData->GetChildIterator();
-	while(it.HasNext() && i<(int)mvViewports.size())
+	for(tinyxml2::XMLElement* pVP = pVPData->FirstChildElement(); pVP != NULL && i<(int)mvViewports.size(); pVP = pVP->NextSiblingElement())
 	{
-		cXmlElement* pVP = it.Next()->ToElement();
 		mvViewports[i++]->Load(pVP);
 	}
-	SetFocusedViewport(mvViewports[pVPData->GetAttributeInt("SelectedViewport",0)]);
-	SetFlags(eEditorFlag_ViewportEnlarged, pVPData->GetAttributeBool("UsingEnlargedViewport",false));
-	mpEditorWorld->SetGlobalAmbientLightEnabled(pVPData->GetAttributeBool("GAmbientLight", true));
-	mpEditorWorld->SetGlobalPointLightEnabled(pVPData->GetAttributeBool("GPointLight", true));
+	SetFocusedViewport(mvViewports[GetAttributeInt(pVPData, "SelectedViewport",0)]);
+	SetFlags(eEditorFlag_ViewportEnlarged, GetAttributeBool(pVPData, "UsingEnlargedViewport",false));
+	mpEditorWorld->SetGlobalAmbientLightEnabled(GetAttributeBool(pVPData, "GAmbientLight", true));
+	mpEditorWorld->SetGlobalPointLightEnabled(GetAttributeBool(pVPData, "GPointLight", true));
 }
 
 //-----------------------------------------------------------------------
 
-void iEditorBase::SaveEditorSession(iXmlDocument* apDoc, cXmlElement** apElement)
+void iEditorBase::SaveEditorSession(tinyxml2::XMLElement* apDoc, tinyxml2::XMLElement** apElement)
 {
 	///////////////////////////////////////////////////////////////////
 	// (TODO: this needs clean up, or be moved elsewhere)
-	*apElement = apDoc->CreateChildElement("EditorSession");
+	*apElement = apDoc->GetDocument()->NewElement("EditorSession");
+	apDoc->InsertEndChild(*apElement);
 
 	// Save performance options
-	cXmlElement* pPerfOptions = (*apElement)->CreateChildElement("Performance");
-	pPerfOptions->SetAttributeBool("LightsActive", mpEditorWorld->GetTypeActive(eEditorEntityType_Light));
-	pPerfOptions->SetAttributeBool("PSActive", mpEditorWorld->GetTypeActive(eEditorEntityType_ParticleSystem));
-	pPerfOptions->SetAttributeBool("WorldReflection", GetWorldReflectionActive());
-	pPerfOptions->SetAttributeVector2f("CamClipPlanes", cEditorWindowViewport::GetCamPlanes());
-	pPerfOptions->SetAttributeBool("ShowFog", mpEditorWorld->GetShowFog());
-	pPerfOptions->SetAttributeBool("ShowSkybox", mpEditorWorld->GetShowSkybox());
+	tinyxml2::XMLElement* pPerfOptions = (*apElement)->GetDocument()->NewElement("Performance");
+	(*apElement)->InsertEndChild(pPerfOptions);
+	SetAttributeBool(pPerfOptions, "LightsActive", mpEditorWorld->GetTypeActive(eEditorEntityType_Light));
+	SetAttributeBool(pPerfOptions, "PSActive", mpEditorWorld->GetTypeActive(eEditorEntityType_ParticleSystem));
+	SetAttributeBool(pPerfOptions, "WorldReflection", GetWorldReflectionActive());
+	SetAttributeVector2f(pPerfOptions, "CamClipPlanes", cEditorWindowViewport::GetCamPlanes());
+	SetAttributeBool(pPerfOptions, "ShowFog", mpEditorWorld->GetShowFog());
+	SetAttributeBool(pPerfOptions, "ShowSkybox", mpEditorWorld->GetShowSkybox());
 
 	// Save viewport data
-	cXmlElement* pVPData = (*apElement)->CreateChildElement("ViewportConfig");
-	pVPData->SetAttributeBool("GridSnap", cEditorGrid::GetSnapToGrid());
-	pVPData->SetAttributeFloat("GridSnapSeparation", cEditorGrid::GetSnapSeparation());
-	pVPData->SetAttributeBool("UsingEnlargedViewport", mpFocusedViewport->IsEnlarged());
-	pVPData->SetAttributeBool("GAmbientLight", mpEditorWorld->GetGlobalAmbientLightEnabled());
-	pVPData->SetAttributeBool("GPointLight", mpEditorWorld->GetGlobalPointLightEnabled());
-	pVPData->SetAttributeColor("BGColor", mpEditorWorld->GetBGDefaultColor());
+	tinyxml2::XMLElement* pVPData = (*apElement)->GetDocument()->NewElement("ViewportConfig");
+	(*apElement)->InsertEndChild(pVPData);
+	SetAttributeBool(pVPData, "GridSnap", cEditorGrid::GetSnapToGrid());
+	SetAttributeFloat(pVPData, "GridSnapSeparation", cEditorGrid::GetSnapSeparation());
+	SetAttributeBool(pVPData, "UsingEnlargedViewport", mpFocusedViewport->IsEnlarged());
+	SetAttributeBool(pVPData, "GAmbientLight", mpEditorWorld->GetGlobalAmbientLightEnabled());
+	SetAttributeBool(pVPData, "GPointLight", mpEditorWorld->GetGlobalPointLightEnabled());
+	SetAttributeColor(pVPData, "BGColor", mpEditorWorld->GetBGDefaultColor());
 	for(int i=0;i<(int)mvViewports.size();++i)
 	{
-		cXmlElement* pVP = pVPData->CreateChildElement("Viewport");
+		tinyxml2::XMLElement* pVP = pVPData->GetDocument()->NewElement("Viewport");
+		pVPData->InsertEndChild(pVP);
 		cEditorWindowViewport* pViewport = mvViewports[i];
 		pViewport->Save(pVP);
 
 		if(mpFocusedViewport==mvViewports[i])
-			pVPData->SetAttributeInt("SelectedViewport", i);
+			SetAttributeInt(pVPData, "SelectedViewport", i);
 	}
 }
 

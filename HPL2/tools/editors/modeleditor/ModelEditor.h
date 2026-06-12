@@ -30,6 +30,8 @@ using namespace hpl;
 
 #include "ModelEditorTypes.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 //--------------------------------------------------------------------
 
 class iEditorWindow;
@@ -119,8 +121,8 @@ protected:
 	void OnSaveConfig();
 
 	void AppSpecificReset();
-	void AppSpecificLoad(iXmlDocument* apDoc);
-	void AppSpecificSave(iXmlDocument* apDoc);
+	void AppSpecificLoad(tinyxml2::XMLElement* apDoc);
+	void AppSpecificSave(tinyxml2::XMLElement* apDoc);
 
 	cWidgetMainMenu* CreateMainMenu();
 

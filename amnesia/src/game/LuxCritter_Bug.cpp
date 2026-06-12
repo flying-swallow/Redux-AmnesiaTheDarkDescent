@@ -24,6 +24,8 @@
 #include "LuxMap.h"
 #include "LuxMapHelper.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 //////////////////////////////////////////////////////////////////////////
 // LOADER
 //////////////////////////////////////////////////////////////////////////
@@ -43,7 +45,7 @@ iLuxProp *cLuxPropLoader_Critter_Bug::CreateProp(const tString& asName, int alID
 
 //-----------------------------------------------------------------------
 
-void cLuxPropLoader_Critter_Bug::LoadCritterVariables(iLuxProp *apProp, cXmlElement *apRootElem)
+void cLuxPropLoader_Critter_Bug::LoadCritterVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem)
 {
 	cLuxCritter_Bug  *pCritter_Bug = static_cast<cLuxCritter_Bug*>(apProp);
 

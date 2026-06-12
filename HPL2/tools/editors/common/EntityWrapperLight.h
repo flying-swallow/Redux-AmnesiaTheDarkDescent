@@ -23,6 +23,8 @@
 #include "EntityWrapper.h"
 #include "EngineEntity.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 class cEditorWindowViewport;
 
 class cEntityWrapperBillboard;
@@ -115,7 +117,7 @@ public:
 	void CopyFromEntity(iEntityWrapper* apEntity);
 	void CopyToEntity(iEntityWrapper* apEntity, int alCopyFlags);
 
-	bool Load(cXmlElement* apElement);
+	bool Load(tinyxml2::XMLElement* apElement);
 
 	const tIntList& GetConnectedBBIDS();
 protected:
@@ -299,7 +301,7 @@ public:
 
 	void Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol);
 
-	void SaveToElement(cXmlElement* apElement);
+	void SaveToElement(tinyxml2::XMLElement* apElement);
 
 	cEditorWindowEntityEditBox* CreateEditBox(cEditorEditModeSelect* apEditMode);
 

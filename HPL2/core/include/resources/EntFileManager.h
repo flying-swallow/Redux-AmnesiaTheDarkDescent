@@ -23,10 +23,11 @@
 #include "resources/ResourceManager.h"
 #include "resources/ResourceBase.h"
 
+namespace tinyxml2 { class XMLElement; class XMLDocument; }
+
 namespace hpl {
-	
+
 	class cResources;
-	class iXmlDocument;
 
 	//------------------------------------
 	
@@ -38,7 +39,7 @@ namespace hpl {
 
 		bool CreateFromFile();
 
-		iXmlDocument *GetXmlDoc(){ return mpXmlDoc;}
+		tinyxml2::XMLElement *GetXmlDoc();
 
 		//resources stuff.
 		bool Reload(){ return false;}
@@ -46,7 +47,7 @@ namespace hpl {
 		void Destroy(){}
 		
 	private:
-		iXmlDocument *mpXmlDoc;
+		tinyxml2::XMLDocument *mpXmlDoc;
 	};
 
 

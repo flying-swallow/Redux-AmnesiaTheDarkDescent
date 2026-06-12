@@ -29,6 +29,8 @@
 
 class cLuxMap;
 
+namespace tinyxml2 { class XMLElement; }
+
 //----------------------------------------------
 // ATTENTION!
 // The entity classes is only be used if for some reason 
@@ -84,8 +86,8 @@ public:
 	cLuxStaticPropLoader(const tString& asName);
 	virtual ~cLuxStaticPropLoader(){}
 
-	void BeforeLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars);
-	void AfterLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars);
+	void BeforeLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars);
+	void AfterLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars);
 };
 
 //----------------------------------------------

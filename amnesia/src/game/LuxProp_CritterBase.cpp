@@ -39,7 +39,7 @@ iLuxPropLoader_Critter::iLuxPropLoader_Critter(const tString asName) : iLuxPropL
 
 //-----------------------------------------------------------------------
 
-void iLuxPropLoader_Critter::LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem)
+void iLuxPropLoader_Critter::LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem)
 {
 	iLuxProp_CritterBase  *pCritter = static_cast<iLuxProp_CritterBase*>(apProp);
 

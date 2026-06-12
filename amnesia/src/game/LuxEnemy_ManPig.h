@@ -27,6 +27,10 @@
 
 //----------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
+//----------------------------------------------
+
 class cLuxEnemy_ManPig_SaveData : public iLuxEnemy_SaveData
 {
 	kSerializableClassInit(cLuxEnemy_ManPig_SaveData)
@@ -225,7 +229,7 @@ public:
 	virtual ~cLuxEnemyLoader_ManPig(){}
 
 	iLuxEnemy *CreateEnemy(const tString& asName, int alID, cLuxMap *apMap);
-	void LoadVariables(iLuxEnemy *apEnemy, cXmlElement *apRootElem);
+	void LoadVariables(iLuxEnemy *apEnemy, tinyxml2::XMLElement *apRootElem);
 	void LoadInstanceVariables(iLuxEnemy *apEnemy, cResourceVarsObject *apInstanceVars);
 };
 

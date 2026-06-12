@@ -18,7 +18,7 @@
  */
 
 #include "QualityChooser.h"
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 #include <algorithm>
 #include <cctype>
 
@@ -74,9 +74,9 @@ cQualityChooser::cQualityChooser(const tString& asDBFile)
 
 void cQualityChooser::BuildDatabase()
 {
-	TiXmlDocument pDoc(msDBFile.c_str());
+	tinyxml2::XMLDocument pDoc;
 
-	if(pDoc.LoadFile()==false)
+	if(pDoc.LoadFile(msDBFile.c_str())!=tinyxml2::XML_SUCCESS)
 	{
 #if defined __APPLE__
 		cPlatform::CreateMessageBox(eMsgBoxType_Warning,L"Error Parsing Card Database", L"Could not parse the card database");
@@ -87,8 +87,8 @@ void cQualityChooser::BuildDatabase()
 		return;
 	}
 
-	TiXmlElement* root = pDoc.RootElement();
-	TiXmlNode* pModelParent = root->FirstChildElement("Models");
+	tinyxml2::XMLElement* root = pDoc.RootElement();
+	tinyxml2::XMLNode* pModelParent = root->FirstChildElement("Models");
 	////////////////////////
 	// Get Manufacturers
 	//for(pManufNode = root->FirstChild(); pManufNode != NULL; pManufNode = pManufNode->NextSibling())
@@ -104,13 +104,13 @@ void cQualityChooser::BuildDatabase()
 
 		////////////////////////////////////////////////////
 		// Manufacturer created, get models for it now
-		TiXmlNode* pModelNode;
+		tinyxml2::XMLNode* pModelNode;
 		for(pModelNode = pModelParent->FirstChild();pModelNode!=NULL; pModelNode = pModelNode->NextSibling())
 		{
 			if(pModelNode==NULL)
 				break;
 
-			TiXmlElement* pModelElem = pModelNode->ToElement();
+			tinyxml2::XMLElement* pModelElem = pModelNode->ToElement();
 
 			tString sModelName = cString::ToLowerCase(pModelElem->Attribute("Name"));
 			cVideoCardModel* pModel = new cVideoCardModel(sModelName);
@@ -119,14 +119,14 @@ void cQualityChooser::BuildDatabase()
 
 			///////////////////////////////////////////////
 			// Get Series for current model
-			TiXmlNode* pSeriesNode;
+			tinyxml2::XMLNode* pSeriesNode;
 			std::vector<cVideoCardSeries*> vSeries;
 			for(pSeriesNode = pModelElem->FirstChild();pSeriesNode!=NULL; pSeriesNode = pSeriesNode->NextSibling())
 			{
 				if(pSeriesNode==NULL)
 					break;
 
-				TiXmlElement* pSeriesElem = pSeriesNode->ToElement();
+				tinyxml2::XMLElement* pSeriesElem = pSeriesNode->ToElement();
 				tString sSeriesCode = cString::ToLowerCase(pSeriesElem->Attribute("Code"));
 
 				eQRating rating = eQRating_Unknown;

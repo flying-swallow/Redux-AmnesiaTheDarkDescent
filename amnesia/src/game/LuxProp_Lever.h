@@ -26,6 +26,10 @@
 
 //----------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
+//----------------------------------------------
+
 class cLuxProp_Lever_SaveData : public iLuxProp_SaveData
 {
 	kSerializableClassInit(cLuxProp_Lever_SaveData)
@@ -142,7 +146,7 @@ public:
 	virtual ~cLuxPropLoader_Lever(){}
 
 	iLuxProp *CreateProp(const tString& asName, int alID, cLuxMap *apMap);
-	void LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem);
+	void LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem);
 	void LoadInstanceVariables(iLuxProp *apProp, cResourceVarsObject *apInstanceVars);
 
 private:

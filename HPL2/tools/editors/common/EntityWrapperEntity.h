@@ -26,6 +26,8 @@ using namespace hpl;
 
 #include "EntityWrapper.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 //---------------------------------------------------------------
 
 class cEditorWindowEntityEditBoxEntity;
@@ -57,8 +59,8 @@ public:
 
 	tString ToString();
 
-	bool IsAppropriateType(cXmlElement*);
-	bool IsAppropriateDefaultType(cXmlElement*);
+	bool IsAppropriateType(tinyxml2::XMLElement*);
+	bool IsAppropriateDefaultType(tinyxml2::XMLElement*);
 
 	const tString& GetUserTypeName();
 	const tString& GetUserSubTypeName();
@@ -87,7 +89,7 @@ public:
 	cEntityWrapperDataEntity(iEntityWrapperType*);
 	~cEntityWrapperDataEntity();
 
-	bool Load(cXmlElement* apElement);
+	bool Load(tinyxml2::XMLElement* apElement);
 
 protected:
 	iEntityWrapper* CreateSpecificEntity();

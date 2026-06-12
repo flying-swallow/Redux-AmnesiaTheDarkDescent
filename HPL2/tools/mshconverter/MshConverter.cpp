@@ -22,6 +22,9 @@
 #include "impl/MeshLoaderMSH.h"
 #include "impl/MeshLoaderCollada.h"
 #include "resources/WorldLoaderHplMap.h"
+#include "resources/XmlHelper.h"
+
+#include <tinyxml2.h>
 
 
 using namespace hpl;
@@ -70,11 +73,11 @@ public:
 	{
 	}
 
-	void BeforeLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+	void BeforeLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 	{
 
 	}
-	void AfterLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+	void AfterLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 	{
 
 	}
@@ -369,35 +372,30 @@ void LoadPathNodeDataFile(const tWString &asFilePath)
 {
 	///////////////////////
 	// Load Document
-	iXmlDocument *pDoc = gpEngine->GetResources()->GetLowLevel()->CreateXmlDocument();
-	if(pDoc->CreateFromFile(asFilePath)==false)
+	tinyxml2::XMLDocument xmlDoc;
+	if(hpl::LoadXmlFile(xmlDoc, asFilePath)==false || xmlDoc.RootElement()==NULL)
 	{
 		Error("Could not parse/load XML from %s\n",cString::To8Char(asFilePath).c_str());
-		hplDelete( pDoc );
 		return;
 	}
+	tinyxml2::XMLElement *pDoc = xmlDoc.RootElement();
 
 	///////////////////////
 	// Load the node types
-	cXmlNodeListIterator childIt = pDoc->GetChildIterator();
-	while(childIt.HasNext())
+	for(tinyxml2::XMLElement *pElem = pDoc->FirstChildElement(); pElem != NULL; pElem = pElem->NextSiblingElement())
 	{
-		cXmlElement *pElem = childIt.Next()->ToElement();
-
 		cPathNodeData pathNodeData;
-		pathNodeData.msName = pElem->GetAttributeString("Name","");
-		pathNodeData.msNodeName = pElem->GetAttributeString("NodeName","");
-		pathNodeData.mvBodySize = pElem->GetAttributeVector3f("BodySize",0);
-		pathNodeData.mbNodeAtCenter = pElem->GetAttributeBool("NodeAtCenter",false);
-		pathNodeData.mlMinEdges = pElem->GetAttributeInt("MinEdges",0);
-		pathNodeData.mlMaxEdges = pElem->GetAttributeInt("MaxEdges",0);
-		pathNodeData.mfMaxEdgeDistance = pElem->GetAttributeFloat("MaxEdgeDistance",0);
-		pathNodeData.mfMaxHeight = pElem->GetAttributeFloat("MaxHeight",0);
+		pathNodeData.msName = GetAttributeString(pElem,"Name","");
+		pathNodeData.msNodeName = GetAttributeString(pElem,"NodeName","");
+		pathNodeData.mvBodySize = GetAttributeVector3f(pElem,"BodySize",0);
+		pathNodeData.mbNodeAtCenter = GetAttributeBool(pElem,"NodeAtCenter",false);
+		pathNodeData.mlMinEdges = GetAttributeInt(pElem,"MinEdges",0);
+		pathNodeData.mlMaxEdges = GetAttributeInt(pElem,"MaxEdges",0);
+		pathNodeData.mfMaxEdgeDistance = GetAttributeFloat(pElem,"MaxEdgeDistance",0);
+		pathNodeData.mfMaxHeight = GetAttributeFloat(pElem,"MaxHeight",0);
 
 		gvPathNodeData.push_back(pathNodeData);
 	}
-
-	hplDelete( pDoc );
 }
 
 //------------------------------------------

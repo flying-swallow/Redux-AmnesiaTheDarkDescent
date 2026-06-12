@@ -28,8 +28,6 @@
 
 #include "engine/Updateable.h"
 
-class TiXmlElement;
-
 namespace hpl {
 
 	class cImageEntity;
@@ -66,8 +64,6 @@ namespace hpl {
 	class cLanguageFile;
 	class cGui;
 	class cPhysics;
-	class iXmlDocument;
-	class cXmlElement;
 	class cBinaryBuffer;
 
 	//-------------------------------------------------------
@@ -80,7 +76,7 @@ namespace hpl {
 	class cResourceVarsObject
 	{
 	public:
-		void LoadVariables(cXmlElement *apRootElem);
+		void LoadVariables(tinyxml2::XMLElement *apRootElem);
 		void SetUserVariable(const tString& asName, const tString& asValue);
 		tString* GetUserVariable(const tString& asName);
 
@@ -129,7 +125,7 @@ namespace hpl {
 
 		bool GetCreatesStaticEntity(){ return mbCreatesStaticEntity; }
 		
-		virtual iEntity3D* Load(const tString &asName, int alID, bool abActive, cXmlElement* apRootElem, 
+		virtual iEntity3D* Load(const tString &asName, int alID, bool abActive, tinyxml2::XMLElement* apRootElem,
 								const cMatrixf &a_mtxTransform, const cVector3f &avScale, 
 								cWorld *apWorld, const tString &asFileName, const tWString &asFullPath, cResourceVarsObject *apInstanceVars)=0;
 
@@ -200,8 +196,11 @@ namespace hpl {
 
 		bool LoadResourceDirsFile(const tString &asFile, const tWString &asAltPath = _W(""));
 
-		iXmlDocument* LoadXmlDocument(const tString& asFile);
-		void DestroyXmlDocument(iXmlDocument* apDoc);
+		// Returns the root element of the loaded document. cResources owns the
+		// underlying tinyxml2::XMLDocument (tracked in mlstXmlDocuments); pass the
+		// returned root back to DestroyXmlDocument to release it.
+		tinyxml2::XMLElement* LoadXmlDocument(const tString& asFile);
+		void DestroyXmlDocument(tinyxml2::XMLElement* apDocRoot);
 
 		cBinaryBuffer* LoadBinaryBuffer(const tString& asFile);
 		void DestroyBinaryBuffer(cBinaryBuffer* apFile);

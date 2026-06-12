@@ -39,14 +39,14 @@ cLuxStaticPropLoader::cLuxStaticPropLoader(const tString& asName) : cEntityLoade
 
 //-----------------------------------------------------------------------
 
-void cLuxStaticPropLoader::BeforeLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+void cLuxStaticPropLoader::BeforeLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 {
 
 }
 
 //-----------------------------------------------------------------------
 
-void cLuxStaticPropLoader::AfterLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+void cLuxStaticPropLoader::AfterLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 {
 	cLuxMap *pMap = gpBase->mpCurrentMapLoading;
 	if(pMap==NULL) return;

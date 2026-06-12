@@ -32,6 +32,8 @@ using namespace hpl;
 
 //--------------------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; class XMLDocument; }
+
 class iEditorWindow;
 
 class iEditorEditMode;
@@ -64,12 +66,12 @@ public:
 protected:
 	///////////////////////////
 	// Own functions
-	void LoadEditorSession(iXmlDocument* apDoc, cXmlElement** apElement) {}
-	void SaveEditorSession(iXmlDocument* apDoc, cXmlElement** apElement) {}
-	
+	void LoadEditorSession(tinyxml2::XMLDocument* apDoc, tinyxml2::XMLElement** apElement) {}
+	void SaveEditorSession(tinyxml2::XMLDocument* apDoc, tinyxml2::XMLElement** apElement) {}
+
 	void AppSpecificReset(){}
-	void AppSpecificLoad(iXmlDocument* apDoc){}
-	void AppSpecificSave(iXmlDocument* apDoc){}
+	void AppSpecificLoad(tinyxml2::XMLDocument* apDoc){}
+	void AppSpecificSave(tinyxml2::XMLDocument* apDoc){}
 
 	void SetUpWindowAreas(){}
 	void InitRenderTarget(const cVector2f& avSize){}

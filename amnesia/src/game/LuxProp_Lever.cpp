@@ -53,7 +53,7 @@ static int ToAutoMoveGoal(const tString& asType)
 	return 0;
 }
 
-void cLuxPropLoader_Lever::LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem)
+void cLuxPropLoader_Lever::LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem)
 {
 	cLuxProp_Lever  *pLever = static_cast<cLuxProp_Lever*>(apProp);
 

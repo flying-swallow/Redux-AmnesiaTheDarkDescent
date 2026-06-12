@@ -26,6 +26,8 @@ using namespace hpl;
 
 #include "EditorTypes.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 //----------------------------------------------------------------------
 
 class iEditorBase;
@@ -79,22 +81,22 @@ public:
 
 	////////////////////////////////////////////////////////
 	// Loading / Saving
-	virtual bool Load(iXmlDocument* apXmlDoc);
-	virtual cXmlElement* GetWorldDataElement(iXmlDocument* apXmlDoc)=0;
-	virtual void LoadWorldData(cXmlElement* apWorldDataElement);
-	virtual cXmlElement* GetWorldObjectsElement(cXmlElement* apWorldDataElement)=0;
-	virtual void LoadWorldObjects(cXmlElement* apWorldObjectsElement);
-	virtual bool CustomCategoryLoader(cXmlElement* apWorldObjectsElement, cXmlElement* apCategoryElement) { return false; }
+	virtual bool Load(tinyxml2::XMLElement* apXmlDoc);
+	virtual tinyxml2::XMLElement* GetWorldDataElement(tinyxml2::XMLElement* apXmlDoc)=0;
+	virtual void LoadWorldData(tinyxml2::XMLElement* apWorldDataElement);
+	virtual tinyxml2::XMLElement* GetWorldObjectsElement(tinyxml2::XMLElement* apWorldDataElement)=0;
+	virtual void LoadWorldObjects(tinyxml2::XMLElement* apWorldObjectsElement);
+	virtual bool CustomCategoryLoader(tinyxml2::XMLElement* apWorldObjectsElement, tinyxml2::XMLElement* apCategoryElement) { return false; }
 
 	void SetShowLoadErrorPopUp() { mbShowLoadErrorPopUp = true; }
 	void SetLoadErrorMessage(const tWString& asX) { msLoadErrorMsg = asX; }
 
-	virtual bool Save(iXmlDocument* apXmlDoc);
-	virtual cXmlElement* CreateWorldDataElement(iXmlDocument* apXmlDoc)=0;
-	virtual void SaveWorldData(cXmlElement* apWorldDataElement);
-	virtual cXmlElement* CreateWorldObjectsElement(cXmlElement* apWorldDataElement)=0;
-	virtual void SaveWorldObjects(cXmlElement* apWorldObjectsElement, tEntityWrapperList& alstEntities);
-	virtual bool CustomCategorySaver(cXmlElement* apWorldObjectsElement) { return false; }
+	virtual bool Save(tinyxml2::XMLElement* apXmlDoc);
+	virtual tinyxml2::XMLElement* CreateWorldDataElement(tinyxml2::XMLElement* apXmlDoc)=0;
+	virtual void SaveWorldData(tinyxml2::XMLElement* apWorldDataElement);
+	virtual tinyxml2::XMLElement* CreateWorldObjectsElement(tinyxml2::XMLElement* apWorldDataElement)=0;
+	virtual void SaveWorldObjects(tinyxml2::XMLElement* apWorldObjectsElement, tEntityWrapperList& alstEntities);
+	virtual bool CustomCategorySaver(tinyxml2::XMLElement* apWorldObjectsElement) { return false; }
 
 
 	virtual void ImportObjects(const tString& asX, tIntList& alstImportedIDs);
@@ -117,7 +119,7 @@ public:
 	///////////////////////////////////////////////////////
 	// Object Creation
 	iEntityWrapper* CreateEntityWrapperFromData(iEntityWrapperData* apData);
-	iEntityWrapper* CreateEntityWrapperFromXMLElement(cXmlElement* apElement);
+	iEntityWrapper* CreateEntityWrapperFromXMLElement(tinyxml2::XMLElement* apElement);
 
 	void SetUpEntityWrapper(iEntityWrapper* apEntity,
 							const cVector3f& avPosition=0,
@@ -129,7 +131,7 @@ public:
 	void AddEntityType(iEntityWrapperType* apType);
 	iEntityWrapperType* GetEntityTypeByName(const tString&);
 	iEntityWrapperType* GetEntityTypeByID(int alType);
-	iEntityWrapperType* GetEntityTypeByElement(cXmlElement*);
+	iEntityWrapperType* GetEntityTypeByElement(tinyxml2::XMLElement*);
 
 	int GetEntityTypeNum();
 	iEntityWrapperType* GetEntityType(int alX);
@@ -142,8 +144,8 @@ public:
 	virtual void CopyDataToEntityCallback(iEntityWrapperData* apData, iEntityWrapper* apEnt, int alCopyStep) {}
 	virtual void DestroyDataCallback(iEntityWrapperData* apData) {}
 
-	virtual void SaveDataCallback(iEntityWrapperData* apData, cXmlElement* apElement) {}
-	virtual void LoadDataCallback(iEntityWrapperData* apData, cXmlElement* apElement) {}
+	virtual void SaveDataCallback(iEntityWrapperData* apData, tinyxml2::XMLElement* apElement) {}
+	virtual void LoadDataCallback(iEntityWrapperData* apData, tinyxml2::XMLElement* apElement) {}
 
 	virtual void DestroyEntityWrapperCallback(iEntityWrapper* apEnt) {}
 
@@ -187,7 +189,7 @@ public:
 
 	int AddEntityCategory(const tString& asX, int alType);
 	void AddTypeToCategory(int alCatID, int alType);
-	cXmlElement* GetParentElementForObject(std::vector<cXmlElement*>& avParentElements, iEntityWrapper* apEnt);
+	tinyxml2::XMLElement* GetParentElementForObject(std::vector<tinyxml2::XMLElement*>& avParentElements, iEntityWrapper* apEnt);
 
 	///////////////////////////////
 	// Filename indices
@@ -197,8 +199,8 @@ public:
 	const tString& GetFilenameFromIndex(const tString& asName, int alIndex);
 	tString GetFileRelativePath(const tString& asX);
 
-	void LoadFileIndices(cXmlElement* apWorldObjectsElement);
-	void SaveFileIndices(cXmlElement* apWorldObjectsElement);
+	void LoadFileIndices(tinyxml2::XMLElement* apWorldObjectsElement);
+	void SaveFileIndices(tinyxml2::XMLElement* apWorldObjectsElement);
 
 	void SanitizeFileIndex(tStringVec& avFileIndices, int alTypeID);
 	void RelocateFileIndex(int alTypeID, int alOldIndex, int alNewIndex);

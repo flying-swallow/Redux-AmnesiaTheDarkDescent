@@ -22,6 +22,8 @@
 
 #include "EntityWrapper.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 class cEditorWindowViewport;
 
 //---------------------------------------------------------------------
@@ -47,7 +49,7 @@ public:
 
 	tString ToString();
 
-	bool IsAppropriateType(cXmlElement*);
+	bool IsAppropriateType(tinyxml2::XMLElement*);
 
 	const tString& GetAreaType();
 

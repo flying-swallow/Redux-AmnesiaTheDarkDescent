@@ -23,6 +23,9 @@
 
 #include "EditorThumbnailBuilder.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 #include <algorithm>
 
 
@@ -69,13 +72,13 @@ bool cEditorObjectIndexEntryTexture::CreateFromFile(const tWString& asFilename)
 
 //----------------------------------------------------------------------------------------
 
-bool cEditorObjectIndexEntryTexture::CreateFromXmlElement(cXmlElement* apElement)
+bool cEditorObjectIndexEntryTexture::CreateFromXmlElement(tinyxml2::XMLElement* apElement)
 {
 	if(iEditorObjectIndexEntry::CreateFromXmlElement(apElement)==false)
 		return false;
 
-	mType = GetTextureTypeFromTypeString(apElement->GetAttributeString("Type"));
-	cVector3f vTemp = apElement->GetAttributeVector3f("Size");
+	mType = GetTextureTypeFromTypeString(GetAttributeString(apElement, "Type"));
+	cVector3f vTemp = GetAttributeVector3f(apElement, "Size");
 	for(int i=0;i<3;++i)
 		mvSize.v[i] = (int)vTemp.v[i];
 
@@ -84,15 +87,15 @@ bool cEditorObjectIndexEntryTexture::CreateFromXmlElement(cXmlElement* apElement
 
 //----------------------------------------------------------------------------------------
 
-void cEditorObjectIndexEntryTexture::Save(cXmlElement* apElement)
+void cEditorObjectIndexEntryTexture::Save(tinyxml2::XMLElement* apElement)
 {
 	iEditorObjectIndexEntry::Save(apElement);
 
-	apElement->SetAttributeString("Type", cString::To8Char(GetTextureTypeString()));
+	SetAttributeString(apElement, "Type", cString::To8Char(GetTextureTypeString()));
 	cVector3f vTemp;
 	for(int i=0;i<3;++i)
 		vTemp.v[i] = (float)mvSize.v[i];
-	apElement->SetAttributeVector3f("Size", vTemp);
+	SetAttributeVector3f(apElement, "Size", vTemp);
 }
 
 //----------------------------------------------------------------------------------------
@@ -194,15 +197,14 @@ tString cEditorObjectIndexEntryTexture::GetDiffuseFromMatFile(const tString& asF
 	iEditorObjectIndex* pIndex = mpParentDir->GetIndex();
 	cResources* pRes = pIndex->GetEditor()->GetEngine()->GetResources();
 	cBitmapLoaderHandler* pHandler = pRes->GetBitmapLoaderHandler();
-	iXmlDocument* pTempMatDoc = pRes->GetLowLevel()->CreateXmlDocument();
-	if(pTempMatDoc->CreateFromFile(pRes->GetFileSearcher()->GetFilePath(msFileName)))
+	tinyxml2::XMLDocument xmlDoc;
+	if(hpl::LoadXmlFile(xmlDoc, pRes->GetFileSearcher()->GetFilePath(msFileName)) && xmlDoc.RootElement()!=NULL)
 	{
-		cXmlElement* pXmlUnits = pTempMatDoc->GetFirstElement("TextureUnits");
-		cXmlNodeListIterator itUnits = pXmlUnits->GetChildIterator();
-		while(itUnits.HasNext())
+		tinyxml2::XMLElement* pTempMatDoc = xmlDoc.RootElement();
+		tinyxml2::XMLElement* pXmlUnits = pTempMatDoc->FirstChildElement("TextureUnits");
+		for(tinyxml2::XMLElement* pUnit = pXmlUnits->FirstChildElement(); pUnit != NULL; pUnit = pUnit->NextSiblingElement())
 		{
-			cXmlElement* pUnit = itUnits.Next()->ToElement();
-			sTexFile = pUnit->GetAttributeString("File");
+			sTexFile = GetAttributeString(pUnit, "File");
 			if(cString::GetFileExt(sTexFile)=="")
 			{
 				tStringVec* pvSupportedExts = pHandler->GetSupportedTypes();
@@ -218,7 +220,6 @@ tString cEditorObjectIndexEntryTexture::GetDiffuseFromMatFile(const tString& asF
 			break;
 		}
 	}
-	pRes->DestroyXmlDocument(pTempMatDoc);
 
 	return sTexFile;
 }
@@ -635,7 +636,8 @@ void cEditorWindowTextureBrowser::PopulateTextureList()
 
 	//tWString sIndexFilename = mpEditor->GetTempDir() + sCurrentDir + _W(".tls");
 	tWString sThumbnailsDir = mpEditor->GetThumbnailDir();
-	iXmlDocument *pDoc = mpEditor->GetEngine()->GetResources()->GetLowLevel()->CreateXmlDocument();
+	tinyxml2::XMLDocument xmlDoc;
+	tinyxml2::XMLDocument *pDoc = &xmlDoc;
 
 	//////////////////////////////////////////
 	// Clear current icons and selection

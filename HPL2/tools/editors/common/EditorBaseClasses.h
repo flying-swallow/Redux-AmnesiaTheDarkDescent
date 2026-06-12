@@ -25,6 +25,8 @@ using namespace hpl;
 
 #include "EditorTypes.h"
 
+namespace tinyxml2 { class XMLElement; class XMLDocument; }
+
 //---------------------------------------------------------------
 
 class iEditorBase;
@@ -125,9 +127,9 @@ class cEditorEntityLoader : public cEntityLoader_Object
 public:
 	cEditorEntityLoader(iEditorBase* apEditor);
 
-	void BeforeLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars){}
-	
-	void AfterLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars){}
+	void BeforeLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars){}
+
+	void AfterLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars){}
 
 	cMeshEntity* LoadEntFile(int alID, const tString& asName, const tString& asFilename, 
 							 cWorld* apWorld,
@@ -137,7 +139,7 @@ public:
 							 bool abLoadSounds=false,
 							 bool abLoadLights=true);
 
-	cMeshEntity* LoadEntityFromElement(int alID, const tString& asName, cXmlElement* apElement, 
+	cMeshEntity* LoadEntityFromElement(int alID, const tString& asName, tinyxml2::XMLElement* apElement,
 									   cWorld* apWorld, const tString& asFilename="", const tWString& asFullPath=_W(""), 
 									   bool abLoadAnims=false,
 									   bool abLoadParticles=false,
@@ -440,8 +442,8 @@ protected:
 
 	virtual void AppSpecificReset()=0;
 
-	virtual void LoadEditorSession(iXmlDocument* apDoc, cXmlElement** apElement);
-	virtual void SaveEditorSession(iXmlDocument* apDoc, cXmlElement** apElement);
+	virtual void LoadEditorSession(tinyxml2::XMLElement* apDoc, tinyxml2::XMLElement** apElement);
+	virtual void SaveEditorSession(tinyxml2::XMLElement* apDoc, tinyxml2::XMLElement** apElement);
 
 	virtual cWidgetMainMenu* CreateMainMenu() { return NULL; }
 	virtual void UpdateMenu(){}

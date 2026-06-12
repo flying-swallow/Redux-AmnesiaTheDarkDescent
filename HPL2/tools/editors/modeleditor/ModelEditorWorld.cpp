@@ -41,6 +41,9 @@
 
 #include "../common/EditorUserClassDefinitionManager.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 #include <algorithm>
 
 int cAnimationEventWrapper::mlIndices = 0;
@@ -51,18 +54,18 @@ cAnimationEventWrapper::cAnimationEventWrapper()
 	mlIndex = mlIndices++;
 }
 
-void cAnimationEventWrapper::Load(cXmlElement* apElement)
+void cAnimationEventWrapper::Load(tinyxml2::XMLElement* apElement)
 {
-	SetTime(apElement->GetAttributeFloat("Time"));
-	SetType(apElement->GetAttributeString("Type"));
-	SetValue(apElement->GetAttributeString("Value"));
+	SetTime(GetAttributeFloat(apElement, "Time"));
+	SetType(GetAttributeString(apElement, "Type"));
+	SetValue(GetAttributeString(apElement, "Value"));
 }
 
-void cAnimationEventWrapper::Save(cXmlElement* apElement)
+void cAnimationEventWrapper::Save(tinyxml2::XMLElement* apElement)
 {
-	apElement->SetAttributeFloat("Time",GetTime());
-	apElement->SetAttributeString("Type",GetType());
-	apElement->SetAttributeString("Value",GetValue());
+	SetAttributeFloat(apElement, "Time",GetTime());
+	SetAttributeString(apElement, "Type",GetType());
+	SetAttributeString(apElement, "Value",GetValue());
 }
 
 bool cAnimationEventWrapper::IsValid()
@@ -99,33 +102,32 @@ bool cAnimationWrapper::IsValid()
 	return true;
 }
 
-void cAnimationWrapper::Load(cXmlElement* apElement)
+void cAnimationWrapper::Load(tinyxml2::XMLElement* apElement)
 {
-	SetName(apElement->GetAttributeString("Name"));
-	SetFile(apElement->GetAttributeString("File"));
-	SetSpeed(apElement->GetAttributeFloat("Speed"));
-	SetSpecialEventTime(apElement->GetAttributeFloat("SpecialEventTime"));
+	SetName(GetAttributeString(apElement, "Name"));
+	SetFile(GetAttributeString(apElement, "File"));
+	SetSpeed(GetAttributeFloat(apElement, "Speed"));
+	SetSpecialEventTime(GetAttributeFloat(apElement, "SpecialEventTime"));
 
-	cXmlNodeListIterator events = apElement->GetChildIterator();
-	while(events.HasNext())
+	for(tinyxml2::XMLElement* pXmlEvent = apElement->FirstChildElement(); pXmlEvent != NULL; pXmlEvent = pXmlEvent->NextSiblingElement())
 	{
-		cXmlElement* pXmlEvent = events.Next()->ToElement();
 		cAnimationEventWrapper event;
 		event.Load(pXmlEvent);
 		mvEvents.push_back(event);
 	}
 }
 
-void cAnimationWrapper::Save(cXmlElement* apElement)
+void cAnimationWrapper::Save(tinyxml2::XMLElement* apElement)
 {
-	apElement->SetAttributeString("Name",GetName());
-	apElement->SetAttributeString("File",GetFile());
-	apElement->SetAttributeFloat("Speed",GetSpeed());
-	apElement->SetAttributeFloat("SpecialEventTime",GetSpecialEventTime());
+	SetAttributeString(apElement, "Name",GetName());
+	SetAttributeString(apElement, "File",GetFile());
+	SetAttributeFloat(apElement, "Speed",GetSpeed());
+	SetAttributeFloat(apElement, "SpecialEventTime",GetSpecialEventTime());
 	for(int i=0;i<(int)mvEvents.size();++i)
 	{
 		cAnimationEventWrapper* pEvent = &mvEvents[i];
-		cXmlElement* pXmlEvent = apElement->CreateChildElement("Event");
+		tinyxml2::XMLElement* pXmlEvent = apElement->GetDocument()->NewElement("Event");
+		apElement->InsertEndChild(pXmlEvent);
 		pEvent->Save(pXmlEvent);
 	}
 }
@@ -217,17 +219,14 @@ tString cModelEditorWorld::GetMeshFilename()
 	return mpTypeSubMesh->GetMeshFilename();
 }
 
-void cModelEditorWorld::SetMeshFromElement(cXmlElement* apMeshElement, cXmlElement* apBonesElement)
+void cModelEditorWorld::SetMeshFromElement(tinyxml2::XMLElement* apMeshElement, tinyxml2::XMLElement* apBonesElement)
 {
 	tEntityDataVec vSubMeshData, vBoneData;
 
 	////////////////////////////////////////////////////////////
 	// Get submesh data from the .ent file
-	cXmlNodeListIterator itSubMeshes = apMeshElement->GetChildIterator();
-	while(itSubMeshes.HasNext())
+	for(tinyxml2::XMLElement* pSubMesh = apMeshElement->FirstChildElement(); pSubMesh != NULL; pSubMesh = pSubMesh->NextSiblingElement())
 	{
-		cXmlElement* pSubMesh = itSubMeshes.Next()->ToElement();
-
 		iEntityWrapperData* pData = mpTypeSubMesh->CreateData();
 		pData->Load(pSubMesh);
 
@@ -238,11 +237,8 @@ void cModelEditorWorld::SetMeshFromElement(cXmlElement* apMeshElement, cXmlEleme
 	// Get bone data from the .ent file
 	if(apBonesElement)
 	{
-		cXmlNodeListIterator itBones = apBonesElement->GetChildIterator();
-		while(itBones.HasNext())
+		for(tinyxml2::XMLElement* pBone = apBonesElement->FirstChildElement(); pBone != NULL; pBone = pBone->NextSiblingElement())
 		{
-			cXmlElement* pBone = itBones.Next()->ToElement();
-
 			iEntityWrapperData* pData = mpTypeBone->CreateData();
 			pData->Load(pBone);
 
@@ -253,8 +249,8 @@ void cModelEditorWorld::SetMeshFromElement(cXmlElement* apMeshElement, cXmlEleme
 	////////////////////////////////////////////////////////////
 	// Load mesh using the submesh and bone data loaded above
 	// A comparison will take place and updates to data will come if necessary
-	mpTypeSubMesh->SetMesh(apMeshElement->GetAttributeString("Filename"), true, 
-							vSubMeshData, tIntList(), vBoneData, tIntList());	
+	mpTypeSubMesh->SetMesh(GetAttributeString(apMeshElement, "Filename"), true,
+							vSubMeshData, tIntList(), vBoneData, tIntList());
 }
 
 //------------------------------------------------------------------
@@ -291,17 +287,17 @@ void cModelEditorWorld::SetType(cEditorUserClassSubType* apType, bool abKeepValu
 
 //------------------------------------------------------------------
 
-void cModelEditorWorld::LoadWorldData(cXmlElement* apWorldDataElement)
+void cModelEditorWorld::LoadWorldData(tinyxml2::XMLElement* apWorldDataElement)
 {
 	iEditorWorld::LoadWorldData(apWorldDataElement);
 
-	cXmlElement* pXmlVariables = apWorldDataElement->GetParent()->GetFirstElement("UserDefinedVariables");
+	tinyxml2::XMLElement* pXmlVariables = apWorldDataElement->Parent()->ToElement()->FirstChildElement("UserDefinedVariables");
 	if(pXmlVariables)
 	{
 		cEditorUserClassDefinition* pDef = mpEditor->GetClassDefinitionManager()->GetDefinition(eUserClassDefinition_Entity);
 
-		tString sType = pXmlVariables->GetAttributeString("EntityType");
-		tString sSubType = pXmlVariables->GetAttributeString("EntitySubType");
+		tString sType = GetAttributeString(pXmlVariables, "EntityType");
+		tString sSubType = GetAttributeString(pXmlVariables, "EntitySubType");
 
 		bool bValid = false;
 		cEditorUserClassType* pBaseType = pDef->GetType(sType);
@@ -326,49 +322,50 @@ void cModelEditorWorld::LoadWorldData(cXmlElement* apWorldDataElement)
 
 //------------------------------------------------------------------
 
-cXmlElement* cModelEditorWorld::GetWorldDataElement(iXmlDocument* apXmlDoc)
+tinyxml2::XMLElement* cModelEditorWorld::GetWorldDataElement(tinyxml2::XMLElement* apXmlDoc)
 {
-	return apXmlDoc->GetFirstElement("ModelData");
+	return apXmlDoc->FirstChildElement("ModelData");
 }
 
 //------------------------------------------------------------------
 
-cXmlElement* cModelEditorWorld::GetWorldObjectsElement(cXmlElement* apWorldDataElement)
+tinyxml2::XMLElement* cModelEditorWorld::GetWorldObjectsElement(tinyxml2::XMLElement* apWorldDataElement)
 {
 	return apWorldDataElement;
 }
 
 //------------------------------------------------------------------
 
-bool cModelEditorWorld::CustomCategorySaver(cXmlElement* apWorldObjectsElement)
+bool cModelEditorWorld::CustomCategorySaver(tinyxml2::XMLElement* apWorldObjectsElement)
 {
-	cXmlElement* pMeshElem = apWorldObjectsElement->GetFirstElement("Mesh");
-	pMeshElem->SetAttributeString("Filename", 
+	tinyxml2::XMLElement* pMeshElem = apWorldObjectsElement->FirstChildElement("Mesh");
+	SetAttributeString(pMeshElem, "Filename",
 		cString::To8Char(mpEditor->GetPathRelToWD(cString::To16Char(mpTypeSubMesh->GetMeshFilename()))));
-	
-	cXmlElement* pAnimElem = apWorldObjectsElement->GetFirstElement("Animations");
+
+	tinyxml2::XMLElement* pAnimElem = apWorldObjectsElement->FirstChildElement("Animations");
 	{
 		for(int i=0;i<(int)mvAnimations.size();++i)
 		{
 			cAnimationWrapper& pAnim = mvAnimations[i];
-			cXmlElement* pXmlAnim = pAnimElem->CreateChildElement("Animation");
+			tinyxml2::XMLElement* pXmlAnim = pAnimElem->GetDocument()->NewElement("Animation");
+			pAnimElem->InsertEndChild(pXmlAnim);
 			pAnim.Save(pXmlAnim);
 		}
 	}
-	
+
 
 	return true;
 }
 
-bool cModelEditorWorld::CustomCategoryLoader(cXmlElement* apWorldObjectsElement, cXmlElement* apCategoryElement)
+bool cModelEditorWorld::CustomCategoryLoader(tinyxml2::XMLElement* apWorldObjectsElement, tinyxml2::XMLElement* apCategoryElement)
 {
 	if(apCategoryElement==NULL)
 		return false;
 
-	const tString& sCatName = apCategoryElement->GetValue();
+	const tString sCatName = apCategoryElement->Value();
 	if(sCatName=="Mesh")
 	{
-		SetMeshFromElement(apCategoryElement, apWorldObjectsElement->GetFirstElement("Bones"));
+		SetMeshFromElement(apCategoryElement, apWorldObjectsElement->FirstChildElement("Bones"));
 
 		return true;
 	}
@@ -378,10 +375,8 @@ bool cModelEditorWorld::CustomCategoryLoader(cXmlElement* apWorldObjectsElement,
 	}
 	else if(sCatName=="Animations")
 	{
-		cXmlNodeListIterator animations = apCategoryElement->GetChildIterator();
-		while(animations.HasNext())
+		for(tinyxml2::XMLElement* pElement = apCategoryElement->FirstChildElement(); pElement != NULL; pElement = pElement->NextSiblingElement())
 		{
-			cXmlElement* pElement = animations.Next()->ToElement();
 			cAnimationWrapper animation;
 			animation.Load(pElement);
 			mvAnimations.push_back(animation);
@@ -395,28 +390,31 @@ bool cModelEditorWorld::CustomCategoryLoader(cXmlElement* apWorldObjectsElement,
 
 //------------------------------------------------------------------
 
-cXmlElement* cModelEditorWorld::CreateWorldDataElement(iXmlDocument* apXmlDoc)
+tinyxml2::XMLElement* cModelEditorWorld::CreateWorldDataElement(tinyxml2::XMLElement* apXmlDoc)
 {
-	return apXmlDoc->CreateChildElement("ModelData");
+	tinyxml2::XMLElement* pModelData = apXmlDoc->GetDocument()->NewElement("ModelData");
+	apXmlDoc->InsertEndChild(pModelData);
+	return pModelData;
 }
 
 //------------------------------------------------------------------
 
-cXmlElement* cModelEditorWorld::CreateWorldObjectsElement(cXmlElement* apWorldDataElement)
+tinyxml2::XMLElement* cModelEditorWorld::CreateWorldObjectsElement(tinyxml2::XMLElement* apWorldDataElement)
 {
 	return apWorldDataElement;
 }
 
 //------------------------------------------------------------------
 
-void cModelEditorWorld::SaveWorldData(cXmlElement* apWorldDataElement)
+void cModelEditorWorld::SaveWorldData(tinyxml2::XMLElement* apWorldDataElement)
 {
 	cEditorUserClassSubType* pSubType = (cEditorUserClassSubType*)mpClass->GetClass();
 	cEditorUserClassType* pType = pSubType->GetParent();
 
-	cXmlElement* pXmlUserVars = apWorldDataElement->GetParent()->CreateChildElement("UserDefinedVariables");
-	pXmlUserVars->SetAttributeString("EntityType", pType->GetName());
-	pXmlUserVars->SetAttributeString("EntitySubType", pSubType->GetName());
+	tinyxml2::XMLElement* pXmlUserVars = apWorldDataElement->Parent()->ToElement()->GetDocument()->NewElement("UserDefinedVariables");
+	apWorldDataElement->Parent()->ToElement()->InsertEndChild(pXmlUserVars);
+	SetAttributeString(pXmlUserVars, "EntityType", pType->GetName());
+	SetAttributeString(pXmlUserVars, "EntitySubType", pSubType->GetName());
 
 	mpClass->Save(pXmlUserVars);
 }

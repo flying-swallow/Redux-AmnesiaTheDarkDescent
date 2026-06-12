@@ -24,6 +24,8 @@
 
 //--------------------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; class XMLDocument; }
+
 class cEntityWrapperTypeSubMesh;
 class cEntityWrapperTypeBone;
 class cAnimationEventWrapper;
@@ -52,8 +54,8 @@ public:
 
 	int GetIndex() { return mlIndex; }
 
-	void Load(cXmlElement* apElement);
-	void Save(cXmlElement* apElement);
+	void Load(tinyxml2::XMLElement* apElement);
+	void Save(tinyxml2::XMLElement* apElement);
 
 	void SetTime(float afX) { mfTime = afX; }
 	float GetTime() { return mfTime; }
@@ -83,8 +85,8 @@ public:
 
 	bool IsValid();
 
-	void Load(cXmlElement* apElement);
-	void Save(cXmlElement* apElement);
+	void Load(tinyxml2::XMLElement* apElement);
+	void Save(tinyxml2::XMLElement* apElement);
 
 	void SetName(const tString& asName) { msName = asName; }
 	const tString& GetName() { return msName; }
@@ -130,7 +132,7 @@ public:
 
 	///////////////////////////////////////////
 	// Mesh
-	void SetMeshFromElement(cXmlElement* apMeshElement, cXmlElement* apBonesElement);
+	void SetMeshFromElement(tinyxml2::XMLElement* apMeshElement, tinyxml2::XMLElement* apBonesElement);
 
 	///////////////////////////////////////////
 	// Animations
@@ -143,19 +145,19 @@ public:
 	void SetType(cEditorUserClassSubType* apType, bool abKeepValues=true);
 	cEditorClassInstance* GetClass() { return mpClass; }
 
-	cXmlElement* GetWorldDataElement(iXmlDocument* apXmlDoc);
-	void LoadWorldData(cXmlElement* apWorldDataElement);
-	cXmlElement* GetWorldObjectsElement(cXmlElement* apWorldDataElement);
+	tinyxml2::XMLElement* GetWorldDataElement(tinyxml2::XMLElement* apXmlDoc);
+	void LoadWorldData(tinyxml2::XMLElement* apWorldDataElement);
+	tinyxml2::XMLElement* GetWorldObjectsElement(tinyxml2::XMLElement* apWorldDataElement);
 
-	cXmlElement* CreateWorldDataElement(iXmlDocument* apXmlDoc);
-	cXmlElement* CreateWorldObjectsElement(cXmlElement* apWorldDataElement);
+	tinyxml2::XMLElement* CreateWorldDataElement(tinyxml2::XMLElement* apXmlDoc);
+	tinyxml2::XMLElement* CreateWorldObjectsElement(tinyxml2::XMLElement* apWorldDataElement);
 
-	void SaveWorldData(cXmlElement*);
+	void SaveWorldData(tinyxml2::XMLElement*);
 
 protected:
 
-	bool CustomCategorySaver(cXmlElement*);
-	bool CustomCategoryLoader(cXmlElement*, cXmlElement*);
+	bool CustomCategorySaver(tinyxml2::XMLElement*);
+	bool CustomCategoryLoader(tinyxml2::XMLElement*, tinyxml2::XMLElement*);
 
 	cEntityWrapperTypeSubMesh* mpTypeSubMesh;
 	cEntityWrapperTypeBone*		mpTypeBone;

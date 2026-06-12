@@ -22,6 +22,8 @@
 
 #include "EntityWrapperPrimitive.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 //---------------------------------------------------------------
 
 #define PlanePropIdStart 120
@@ -69,8 +71,8 @@ public:
 	cEntityWrapperDataPrimitivePlane(iEntityWrapperType*);
 
 	void CopyFromEntity(iEntityWrapper*);
-	bool Load(cXmlElement*);
-	bool SaveSpecific(cXmlElement*);
+	bool Load(tinyxml2::XMLElement*);
+	bool SaveSpecific(tinyxml2::XMLElement*);
 	
 protected:
 	iEntityWrapper* CreateSpecificEntity();

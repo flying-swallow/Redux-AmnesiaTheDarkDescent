@@ -101,7 +101,7 @@ public:
 	virtual ~cLuxPropLoader_Photocell(){}
 
 	iLuxProp *CreateProp(const tString& asName, int alID, cLuxMap *apMap);
-	void LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem);
+	void LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem);
 	void LoadInstanceVariables(iLuxProp *apProp, cResourceVarsObject *apInstanceVars);
 
 private:

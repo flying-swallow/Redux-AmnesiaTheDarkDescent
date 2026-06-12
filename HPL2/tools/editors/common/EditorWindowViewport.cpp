@@ -19,6 +19,9 @@
 
 #include "EditorWindowViewport.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 #include "graphics/DebugDraw.h"
 
 #include "EditorBaseClasses.h"
@@ -299,47 +302,47 @@ void cEditorWindowViewport::FocusOnSelection(cEditorSelection* apSelection)
 
 //----------------------------------------------------------------
 
-void cEditorWindowViewport::Load(cXmlElement* apElement)
+void cEditorWindowViewport::Load(tinyxml2::XMLElement* apElement)
 {
-	SetPreset((eEditorWindowViewportPreset)apElement->GetAttributeInt("Preset",0));
-	SetRenderMode((eRenderer)apElement->GetAttributeInt("RenderMode",0));
-	SetDrawGrid(apElement->GetAttributeBool("ShowGrid", true));
-	SetDrawAxes(apElement->GetAttributeBool("ShowAxes", true));
+	SetPreset((eEditorWindowViewportPreset)GetAttributeInt(apElement,"Preset",0));
+	SetRenderMode((eRenderer)GetAttributeInt(apElement,"RenderMode",0));
+	SetDrawGrid(GetAttributeBool(apElement,"ShowGrid", true));
+	SetDrawAxes(GetAttributeBool(apElement,"ShowAxes", true));
 
-	mCamera.SetTargetPosition(apElement->GetAttributeVector3f("CameraTarget"));
-	mCamera.SetCameraPosition(apElement->GetAttributeVector3f("CameraPosition"));
-	float fZoom = apElement->GetAttributeFloat("Zoom");
+	mCamera.SetTargetPosition(GetAttributeVector3f(apElement,"CameraTarget"));
+	mCamera.SetCameraPosition(GetAttributeVector3f(apElement,"CameraPosition"));
+	float fZoom = GetAttributeFloat(apElement,"Zoom");
 	if(fZoom==0)
 		fZoom = mCamera.GetZoomFunc()->GetZoomFromDistToTarget((mCamera.GetCameraPosition()-mCamera.GetTargetPosition()).Length());
 
 	mCamera.SetZoom(fZoom);
-	mCamera.LockToGrid(apElement->GetAttributeBool("UsingLTCam", true));
+	mCamera.LockToGrid(GetAttributeBool(apElement,"UsingLTCam", true));
 
 	mCamera.UpdateCamera(0);
 
 	ePlaneNormal plane = mpGrid->GetPlaneNormal();
 
-	mpGrid->SetHeight(apElement->GetAttributeFloat("GridHeight"));
-	mpGrid->SetPlaneNormal((ePlaneNormal)apElement->GetAttributeInt("GridPlane", plane));
+	mpGrid->SetHeight(GetAttributeFloat(apElement,"GridHeight"));
+	mpGrid->SetPlaneNormal((ePlaneNormal)GetAttributeInt(apElement,"GridPlane", plane));
 }
 
 //----------------------------------------------------------------
 
-void cEditorWindowViewport::Save(cXmlElement* apElement)
+void cEditorWindowViewport::Save(tinyxml2::XMLElement* apElement)
 {
-	apElement->SetAttributeInt("RenderMode", (int)mRenderMode);
-	apElement->SetAttributeInt("Preset", (int)mPreset);
-	apElement->SetAttributeBool("ShowGrid", GetDrawGrid());
-	apElement->SetAttributeBool("ShowAxes", GetDrawAxes());
+	SetAttributeInt(apElement,"RenderMode", (int)mRenderMode);
+	SetAttributeInt(apElement,"Preset", (int)mPreset);
+	SetAttributeBool(apElement,"ShowGrid", GetDrawGrid());
+	SetAttributeBool(apElement,"ShowAxes", GetDrawAxes());
 
-	apElement->SetAttributeVector3f("CameraPosition", mCamera.GetCameraPosition());
-	apElement->SetAttributeVector3f("CameraTarget", mCamera.GetTargetPosition());
-	apElement->SetAttributeFloat("CameraZoom", mCamera.GetZoom());
+	SetAttributeVector3f(apElement,"CameraPosition", mCamera.GetCameraPosition());
+	SetAttributeVector3f(apElement,"CameraTarget", mCamera.GetTargetPosition());
+	SetAttributeFloat(apElement,"CameraZoom", mCamera.GetZoom());
 
-	apElement->SetAttributeFloat("GridHeight", mpGrid->GetHeight());
-	apElement->SetAttributeInt("GridPlane", (int)mpGrid->GetPlaneNormal());
+	SetAttributeFloat(apElement,"GridHeight", mpGrid->GetHeight());
+	SetAttributeInt(apElement,"GridPlane", (int)mpGrid->GetPlaneNormal());
 
-	apElement->SetAttributeBool("UsingLTCam", mCamera.IsLockedToGrid());
+	SetAttributeBool(apElement,"UsingLTCam", mCamera.IsLockedToGrid());
 }
 
 //----------------------------------------------------------------

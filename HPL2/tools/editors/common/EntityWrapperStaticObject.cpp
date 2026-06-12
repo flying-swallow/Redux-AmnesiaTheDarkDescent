@@ -30,6 +30,9 @@
 
 #include "EngineEntity.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //---------------------------------------------------------------------------
 
 cEntityWrapperDataStaticObject::cEntityWrapperDataStaticObject(iEntityWrapperType* apType) : iEntityWrapperData(apType)
@@ -38,7 +41,7 @@ cEntityWrapperDataStaticObject::cEntityWrapperDataStaticObject(iEntityWrapperTyp
 
 //---------------------------------------------------------------------------
 
-bool cEntityWrapperDataStaticObject::Load(cXmlElement* apElement)
+bool cEntityWrapperDataStaticObject::Load(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperData::Load(apElement)==false)
 		return false;
@@ -47,7 +50,7 @@ bool cEntityWrapperDataStaticObject::Load(cXmlElement* apElement)
 	int lFileIndex = GetInt(eStaticObjectInt_FileIndex);
 	if(lFileIndex==-1)
 	{
-		tWString sPath = pWorld->GetEditor()->GetEngine()->GetResources()->GetFileSearcher()->GetFilePath(apElement->GetAttributeString("Filename"));
+		tWString sPath = pWorld->GetEditor()->GetEngine()->GetResources()->GetFileSearcher()->GetFilePath(GetAttributeString(apElement, "Filename"));
 		lFileIndex = pWorld->AddFilenameToIndex("StaticObjects", cString::To8Char(sPath));
 		SetInt(eStaticObjectInt_FileIndex, lFileIndex);
 	}

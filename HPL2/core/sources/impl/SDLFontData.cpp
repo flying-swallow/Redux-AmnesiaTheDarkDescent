@@ -30,7 +30,7 @@
 #include "graphics/Image.h"
 
 
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 #include "system/String.h"
 #include "system/Platform.h"
@@ -70,20 +70,19 @@ namespace hpl {
 		FILE *pFile = cPlatform::OpenFile(asFileName, _W("rb"));
 		if(pFile==NULL) return false;
 		
-		TiXmlDocument *pXmlDoc = hplNew( TiXmlDocument,() );
-		if(pXmlDoc->LoadFile(pFile)==false)
+		tinyxml2::XMLDocument xmlDoc;
+		if(xmlDoc.LoadFile(pFile)!=tinyxml2::XML_SUCCESS)
 		{
 			Error("Couldn't load angle code font file '%s'\n",asFileName.c_str());
 			fclose(pFile);
-			hplDelete(pXmlDoc);
 			return false;
 		}
 
-		TiXmlElement *pRootElem = pXmlDoc->RootElement();
+		tinyxml2::XMLElement *pRootElem = xmlDoc.RootElement();
 
 		////////////////////////////////////////////
 		// Load Common info
-		TiXmlElement *pCommonElem = pRootElem->FirstChildElement("common");
+		tinyxml2::XMLElement *pCommonElem = pRootElem->FirstChildElement("common");
 
 		int lLineHeight = cString::ToInt(pCommonElem->Attribute("lineHeight"),0);
 		int lBase = cString::ToInt(pCommonElem->Attribute("base"),0);
@@ -97,8 +96,8 @@ namespace hpl {
 
 		////////////////////////////////////////////
 		// Check for largest glyph number and resize array.
-		TiXmlElement *pCharsRootElem = pRootElem->FirstChildElement("chars");
-		TiXmlElement *pCharElem = pCharsRootElem->FirstChildElement("char");
+		tinyxml2::XMLElement *pCharsRootElem = pRootElem->FirstChildElement("chars");
+		tinyxml2::XMLElement *pCharElem = pCharsRootElem->FirstChildElement("char");
 		for(; pCharElem != NULL; pCharElem = pCharElem->NextSiblingElement("char"))
 		{
 			int lId = cString::ToInt(pCharElem->Attribute("id"),0);
@@ -113,10 +112,10 @@ namespace hpl {
 		// Load bitmaps
 		std::vector<cFrameTexture*> vFrameTextures;
 		
-		TiXmlElement *pPagesRootElem = pRootElem->FirstChildElement("pages");
+		tinyxml2::XMLElement *pPagesRootElem = pRootElem->FirstChildElement("pages");
 
 		int lCount=0;
-		TiXmlElement *pPageElem = pPagesRootElem->FirstChildElement("page");
+		tinyxml2::XMLElement *pPageElem = pPagesRootElem->FirstChildElement("page");
 		for(; pPageElem != NULL; pPageElem = pPageElem->NextSiblingElement("page"), ++lCount)
 		{
 			tWString sFileName = cString::To16Char(pPageElem->Attribute("file"));
@@ -128,7 +127,6 @@ namespace hpl {
 			if(pBitmap==NULL)
 			{
 				Error("Couldn't load bitmap %s for FNT file '%s'\n",cString::To8Char(sFilePath).c_str(),cString::To8Char(asFileName).c_str());
-				hplDelete(pXmlDoc);
 				return false;
 			}
 			
@@ -212,7 +210,6 @@ namespace hpl {
 
 		//Destroy XML
 		fclose(pFile);
-		hplDelete(pXmlDoc);
 		return true;
 	}
 	

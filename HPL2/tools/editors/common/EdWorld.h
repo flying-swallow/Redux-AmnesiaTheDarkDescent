@@ -27,6 +27,8 @@ using namespace hpl;
 
 //-------------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
 class iEditor;
 class iTypeNode;
 class iEdWorld;
@@ -87,7 +89,7 @@ public:
 	 *	Gets the most appropriate type to load the given XML element. 
 	 *  This should spread through the whole type hierarchy until the type is found.
 	 */
-	virtual iTypeNode* GetTypeByXmlElement(cXmlElement*);
+	virtual iTypeNode* GetTypeByXmlElement(tinyxml2::XMLElement*);
 
 protected:
 	bool AddChildType(iTypeNode*);
@@ -135,8 +137,8 @@ protected:
 class iEdSessionData
 {
 public:
-	virtual bool Save(cXmlElement*);
-	virtual bool Load(cXmlElement*);
+	virtual bool Save(tinyxml2::XMLElement*);
+	virtual bool Load(tinyxml2::XMLElement*);
 protected:
 };
 
@@ -162,7 +164,7 @@ public:
 
 	iTypeNode* GetTypeByName(const tWString&);
 	iTypeNode* GetTypeByID(int);
-	iTypeNode* GetTypeByXmlElement(cXmlElement*);
+	iTypeNode* GetTypeByXmlElement(tinyxml2::XMLElement*);
 
 	virtual bool LoadFromFile()=0;
 	virtual bool SaveToFile()=0;

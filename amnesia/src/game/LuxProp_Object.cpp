@@ -19,6 +19,8 @@
 
 #include "LuxProp_Object.h"
 
+#include <tinyxml2.h>
+
 #include "LuxPlayer.h"
 #include "LuxPlayerState.h"
 #include "LuxMap.h"
@@ -48,7 +50,7 @@ iLuxProp *cLuxPropLoader_Object::CreateProp(const tString& asName, int alID, cLu
 
 //-----------------------------------------------------------------------
 
-void cLuxPropLoader_Object::LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem)
+void cLuxPropLoader_Object::LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem)
 {
 	cLuxProp_Object  *pObject = static_cast<cLuxProp_Object*>(apProp);
 

@@ -41,6 +41,9 @@
 #include "EntityWrapperParticleSystem.h"
 #include "EntityWrapperPrimitivePlane.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //---------------------------------------------------------------------------
 
 /////////////////////////////////////////////////////////////////////////////
@@ -178,7 +181,7 @@ iEntityWrapper* cEntityWrapperFactory::CreateEntityWrapperFromEntityWrapperData(
 
 //---------------------------------------------------------------------------
 
-iEntityWrapper* cEntityWrapperFactory::CreateEntityWrapperFromXMLElement(iEditorWorld* apEditorWorld, cXmlElement* apElement)
+iEntityWrapper* cEntityWrapperFactory::CreateEntityWrapperFromXMLElement(iEditorWorld* apEditorWorld, tinyxml2::XMLElement* apElement)
 {
 
 	//////////////////////////////////////////////////////////////////////////
@@ -188,38 +191,35 @@ iEntityWrapper* cEntityWrapperFactory::CreateEntityWrapperFromXMLElement(iEditor
 
 	iEntityWrapper* pEnt = NULL;
 
-	int lType = apElement->GetAttributeInt("Type");
-	
-	int lSubType = apElement->GetAttributeInt("SubType",-1);
+	int lType = GetAttributeInt(apElement, "Type");
+
+	int lSubType = GetAttributeInt(apElement, "SubType",-1);
 	// Backward compatibility
 	if(lSubType==-1)
-		lSubType = apElement->GetAttributeInt("LightType",-1);
+		lSubType = GetAttributeInt(apElement, "LightType",-1);
 	if(lSubType==-1)
-		lSubType = apElement->GetAttributeInt("JointType",-1);
+		lSubType = GetAttributeInt(apElement, "JointType",-1);
 	if(lSubType==-1)
-		lSubType = apElement->GetAttributeInt("SubMeshID",-1);
+		lSubType = GetAttributeInt(apElement, "SubMeshID",-1);
 
 
-	int lID = apElement->GetAttributeInt("ID", -1);
+	int lID = GetAttributeInt(apElement, "ID", -1);
 	if(lID==-1)
 		lID = apEditorWorld->GetFreeID();
 
-	tString sFilename = apElement->GetAttributeString("Filename");
+	tString sFilename = GetAttributeString(apElement, "Filename");
 	// Backward compatibility
 	if(sFilename=="")
-		sFilename = apElement->GetAttributeString("MeshFilename");
+		sFilename = GetAttributeString(apElement, "MeshFilename");
 	if(sFilename=="")
-		sFilename = apElement->GetAttributeString("EntityFilename");
+		sFilename = GetAttributeString(apElement, "EntityFilename");
 
     if(lType==eEditorEntityType_Primitive)
 	{
-		cXmlNodeListIterator itParams = apElement->GetFirstElement("Parameters")->GetChildIterator();
 		tVector3fList lstParameters;
-		while(itParams.HasNext())
+		for(tinyxml2::XMLElement* pParam = apElement->FirstChildElement("Parameters")->FirstChildElement(); pParam != NULL; pParam = pParam->NextSiblingElement())
 		{
-			cXmlElement* pParam = itParams.Next()->ToElement();
-
-			lstParameters.push_back(pParam->GetAttributeVector3f("Value"));
+			lstParameters.push_back(GetAttributeVector3f(pParam, "Value"));
 		}
 		pEnt = cEntityWrapperFactory::CreateEntityWrapperPrimitive(apEditorWorld, lID, "", lstParameters);
 	}

@@ -41,8 +41,10 @@
 #include "resources/AnimationManager.h"
 #include "resources/MeshLoaderHandler.h"
 #include "resources/FileSearcher.h"
-#include "resources/XmlDocument.h"
 #include "resources/EngineFileLoading.h"
+
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
 
 #include "graphics/Mesh.h"
 #include "graphics/SubMesh.h"
@@ -85,16 +87,14 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static iCollideShape* GetBodyShape(cXmlElement *apBodyElem,iPhysicsWorld *apPhysicsWorld, tLoaderCollideShapeMap &a_setShapes)
+	static iCollideShape* GetBodyShape(tinyxml2::XMLElement *apBodyElem,iPhysicsWorld *apPhysicsWorld, tLoaderCollideShapeMap &a_setShapes)
 	{
 		////////////////////////////////////////
 		// Get shapes for body
 		tCollideShapeVec vShapes;
-		cXmlNodeListIterator boundShapeIt = apBodyElem->GetChildIterator();
-		while(boundShapeIt.HasNext())
+		for(tinyxml2::XMLElement *pShapeElem = apBodyElem->FirstChildElement(); pShapeElem != NULL; pShapeElem = pShapeElem->NextSiblingElement())
 		{
-			cXmlElement *pShapeElem = boundShapeIt.Next()->ToElement();
-			int lShapeID = pShapeElem->GetAttributeInt("ID");
+			int lShapeID = GetAttributeInt(pShapeElem, "ID");
 
 			tLoaderCollideShapeMapIt it = a_setShapes.find(lShapeID);
 			if(it != a_setShapes.end())
@@ -129,12 +129,12 @@ namespace hpl {
 		return eCollideShapeType_Null;
 	}
 
-	static iCollideShape* CreateCollideShape(cXmlElement *apShapeElem, iPhysicsWorld *apPhysicsWorld, const cVector3f &avScale)
+	static iCollideShape* CreateCollideShape(tinyxml2::XMLElement *apShapeElem, iPhysicsWorld *apPhysicsWorld, const cVector3f &avScale)
 	{
-		eCollideShapeType type = ToCollideShape(apShapeElem->GetAttributeString("ShapeType"));
-		cVector3f vSize = apShapeElem->GetAttributeVector3f("Scale") * avScale;
-		cVector3f vPos = apShapeElem->GetAttributeVector3f("RelativeTranslation") * avScale;
-		cVector3f vRot = apShapeElem->GetAttributeVector3f("RelativeRotation");
+		eCollideShapeType type = ToCollideShape(GetAttributeString(apShapeElem, "ShapeType"));
+		cVector3f vSize = GetAttributeVector3f(apShapeElem, "Scale") * avScale;
+		cVector3f vPos = GetAttributeVector3f(apShapeElem, "RelativeTranslation") * avScale;
+		cVector3f vRot = GetAttributeVector3f(apShapeElem, "RelativeRotation");
 
 		cMatrixf mtxOffset = cMath::MatrixRotate(vRot,eEulerRotationOrder_XYZ);
 		mtxOffset.SetTranslation(vPos);
@@ -180,32 +180,32 @@ namespace hpl {
 		return ePhysicsJointType_Ball;
 	}
 
-	static iPhysicsJoint* CreateJoint(	const tString& asEntityName, 
-										cXmlElement *apJointElem, iPhysicsWorld *apPhysicsWorld,
+	static iPhysicsJoint* CreateJoint(	const tString& asEntityName,
+										tinyxml2::XMLElement *apJointElem, iPhysicsWorld *apPhysicsWorld,
 										tLoaderPhysicsBodyMap &a_setBodies,
 										const cMatrixf& a_mtxTransform,
 										const cVector3f& avScale)
 	{
-		
+
 		/////////////////////////////
 		//Get pin direction and pivot and transform according to entity
-		cVector3f vPivot = apJointElem->GetAttributeVector3f("WorldPos") * avScale;
-		cVector3f vPinDir = apJointElem->GetAttributeVector3f("PinDir");
+		cVector3f vPivot = GetAttributeVector3f(apJointElem, "WorldPos") * avScale;
+		cVector3f vPinDir = GetAttributeVector3f(apJointElem, "PinDir");
 
 		vPivot = cMath::MatrixMul(a_mtxTransform, vPivot);
 		vPinDir = cMath::MatrixMul3x3(a_mtxTransform, vPinDir);
 		
 		/////////////////////////////
 		//Name and type
-		tString sJointName = asEntityName + "_" + apJointElem->GetAttributeString("Name");
+		tString sJointName = asEntityName + "_" + GetAttributeString(apJointElem, "Name");
 
-		ePhysicsJointType jointType = ToJointType(apJointElem->GetValue());
+		ePhysicsJointType jointType = ToJointType(apJointElem->Value());
 
 
 		/////////////////////////////
 		//Get the bodies
-		int lParentID = apJointElem->GetAttributeInt("ConnectedParentBodyID");
-		int lChildID = apJointElem->GetAttributeInt("ConnectedChildBodyID");
+		int lParentID = GetAttributeInt(apJointElem, "ConnectedParentBodyID");
+		int lChildID = GetAttributeInt(apJointElem, "ConnectedChildBodyID");
 
 		iPhysicsBody *pParentBody = lParentID > 0 ? FindBody(lParentID,a_setBodies) : NULL;
 		iPhysicsBody *pChildBody = FindBody(lChildID,a_setBodies);
@@ -222,8 +222,8 @@ namespace hpl {
 		{
 			iPhysicsJointHinge *pJoint = apPhysicsWorld->CreateJointHinge(sJointName,vPivot,vPinDir,pParentBody,pChildBody);
 
-			pJoint->SetMinAngle(cMath::ToRad(apJointElem->GetAttributeFloat("MinAngle")));
-			pJoint->SetMaxAngle(cMath::ToRad(apJointElem->GetAttributeFloat("MaxAngle")));
+			pJoint->SetMinAngle(cMath::ToRad(GetAttributeFloat(apJointElem, "MinAngle")));
+			pJoint->SetMaxAngle(cMath::ToRad(GetAttributeFloat(apJointElem, "MaxAngle")));
 
 			return pJoint;
 		}
@@ -233,8 +233,8 @@ namespace hpl {
 		{
 			iPhysicsJointBall *pJoint = apPhysicsWorld->CreateJointBall(sJointName,vPivot,vPinDir,pParentBody,pChildBody);
 
-			pJoint->SetConeLimits(	cMath::ToRad(apJointElem->GetAttributeFloat("MaxConeAngle")),
-									cMath::ToRad(apJointElem->GetAttributeFloat("MaxTwistAngle")));
+			pJoint->SetConeLimits(	cMath::ToRad(GetAttributeFloat(apJointElem, "MaxConeAngle")),
+									cMath::ToRad(GetAttributeFloat(apJointElem, "MaxTwistAngle")));
 
 			return pJoint;
 		}
@@ -244,8 +244,8 @@ namespace hpl {
 		{
 			iPhysicsJointSlider *pJoint = apPhysicsWorld->CreateJointSlider(sJointName, vPivot,vPinDir,pParentBody,pChildBody);
 
-			pJoint->SetMinDistance(apJointElem->GetAttributeFloat("MinDistance"));
-			pJoint->SetMaxDistance(apJointElem->GetAttributeFloat("MaxDistance"));
+			pJoint->SetMinDistance(GetAttributeFloat(apJointElem, "MinDistance"));
+			pJoint->SetMaxDistance(GetAttributeFloat(apJointElem, "MaxDistance"));
 
 			return pJoint;
 		}
@@ -255,8 +255,8 @@ namespace hpl {
 		{
 			iPhysicsJointScrew *pJoint = apPhysicsWorld->CreateJointScrew(sJointName,vPivot,vPinDir,pParentBody,pChildBody);
 
-			pJoint->SetMinDistance(apJointElem->GetAttributeFloat("MinDistance"));
-			pJoint->SetMaxDistance(apJointElem->GetAttributeFloat("MaxDistance"));
+			pJoint->SetMinDistance(GetAttributeFloat(apJointElem, "MinDistance"));
+			pJoint->SetMaxDistance(GetAttributeFloat(apJointElem, "MaxDistance"));
 
 			return pJoint;
 		}
@@ -294,7 +294,7 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 
-	iEntity3D* cEntityLoader_Object::Load(	const tString &asName, int alID, bool abActive, cXmlElement *apRootElem, 
+	iEntity3D* cEntityLoader_Object::Load(	const tString &asName, int alID, bool abActive, tinyxml2::XMLElement *apRootElem,
 											const cMatrixf &a_mtxTransform, const cVector3f &avScale, 
 											cWorld *apWorld, const tString &asFileName, const tWString &asFullPath, cResourceVarsObject *apInstanceVars)
 	{
@@ -329,7 +329,7 @@ namespace hpl {
 
 		////////////////////////////////////////	
 		// Load ModelData
-		cXmlElement* pModelDataElem = apRootElem->GetFirstElement("ModelData");
+		tinyxml2::XMLElement* pModelDataElem = apRootElem->FirstChildElement("ModelData");
 		if(pModelDataElem==NULL){
 			Error("Couldn't load element ModelData"); return NULL;
 		}
@@ -344,15 +344,15 @@ namespace hpl {
 
 		////////////////////////////////////////	
 		// Load Mesh and create entity
-		cXmlElement *pMeshElem =NULL;
+		tinyxml2::XMLElement *pMeshElem =NULL;
 		{
-			pMeshElem  = pModelDataElem->GetFirstElement("Mesh");
+			pMeshElem  = pModelDataElem->FirstChildElement("Mesh");
 			if(pMeshElem==NULL){
 				Error("Couldn't load element Mesh"); return NULL;
 			}
 
 			// Create mesh
-			tString sMeshFile = pMeshElem->GetAttributeString("Filename");
+			tString sMeshFile = GetAttributeString(pMeshElem, "Filename");
 			if(cString::GetFilePath(sMeshFile).size() < 1)
 			{
 				sMeshFile = cString::SetFilePath(sMeshFile, cString::To8Char(cString::GetFilePathW(asFullPath) ) );
@@ -376,14 +376,11 @@ namespace hpl {
 		// Load sub meshes
 		{
 			bool bHasSkeleton = mpMesh->GetSkeleton()!=NULL;
-			cXmlNodeListIterator submeshIt = pMeshElem->GetChildIterator();
-			while(submeshIt.HasNext())
+			for(tinyxml2::XMLElement *pSubMeshElem = pMeshElem->FirstChildElement(); pSubMeshElem != NULL; pSubMeshElem = pSubMeshElem->NextSiblingElement())
 			{
-				cXmlElement *pSubMeshElem = submeshIt.Next()->ToElement();
-
 				//////////////////////////
 				// Load the sub entity
-				tString sName = pSubMeshElem->GetAttributeString("Name");
+				tString sName = GetAttributeString(pSubMeshElem, "Name");
 				//tString sMaterialFile = cString::ToString(pSubMeshElem->Attribute("MaterialFile"),"");
 
 				cSubMeshEntity *pSubEntity = mpEntity->GetSubMeshEntityName(sName);
@@ -400,9 +397,9 @@ namespace hpl {
 				// Get transform matrix
 				if(bHasSkeleton==false)
 				{
-					cMatrixf mtxLocalTransform = GetMatrixFromVectors(	pSubMeshElem->GetAttributeVector3f("WorldPos")*mvScale,
-																		pSubMeshElem->GetAttributeVector3f("Rotation"),
-																		pSubMeshElem->GetAttributeVector3f("Scale")*mvScale);
+					cMatrixf mtxLocalTransform = GetMatrixFromVectors(	GetAttributeVector3f(pSubMeshElem, "WorldPos")*mvScale,
+																		GetAttributeVector3f(pSubMeshElem, "Rotation"),
+																		GetAttributeVector3f(pSubMeshElem, "Scale")*mvScale);
 					
 					//mtxLocalTransform = cMath::MatrixMul(mtxLocalTransform, cMath::MatrixScale(mvScale));
 
@@ -411,8 +408,8 @@ namespace hpl {
 				
 				//////////////////////////
 				// Set the variables
-				int lID = pSubMeshElem->GetAttributeInt("ID",-1);
-				if(lID < 0) lID = pSubMeshElem->GetAttributeInt("SubMeshID"); //To support older files!
+				int lID = GetAttributeInt(pSubMeshElem, "ID",-1);
+				if(lID < 0) lID = GetAttributeInt(pSubMeshElem, "SubMeshID"); //To support older files!
 				
 				pSubEntity->SetUniqueID(lID);
 
@@ -433,18 +430,15 @@ namespace hpl {
 
 		////////////////////////////////////////	
 		// Animations
-		cXmlElement *pAnimationsElem  = pModelDataElem->GetFirstElement("Animations");
+		tinyxml2::XMLElement *pAnimationsElem  = pModelDataElem->FirstChildElement("Animations");
 		if(mbLoadAnimations && mpEntity && pAnimationsElem)
 		{
-			cXmlNodeListIterator animElemIt = pAnimationsElem->GetChildIterator();
-			while(animElemIt.HasNext())
+			for(tinyxml2::XMLElement *pAnimElem = pAnimationsElem->FirstChildElement(); pAnimElem != NULL; pAnimElem = pAnimElem->NextSiblingElement())
 			{
-				cXmlElement *pAnimElem = animElemIt.Next()->ToElement();
-				
-				tString sFile = pAnimElem->GetAttributeString("File");
-				tString sName = pAnimElem->GetAttributeString("Name");
-				float fSpeed = pAnimElem->GetAttributeFloat("Speed",1.0f);
-				float fSpecialEventTime = pAnimElem->GetAttributeFloat("SpecialEventTime",0.0f);
+				tString sFile = GetAttributeString(pAnimElem, "File");
+				tString sName = GetAttributeString(pAnimElem, "Name");
+				float fSpeed = GetAttributeFloat(pAnimElem, "Speed",1.0f);
+				float fSpecialEventTime = GetAttributeFloat(pAnimElem, "SpecialEventTime",0.0f);
 				
 				if(cString::GetFilePath(sFile).length() <= 1)
 					sFile = cString::SetFilePath(sFile, cString::To8Char(cString::GetFilePathW(asFullPath) ) );
@@ -458,15 +452,12 @@ namespace hpl {
 
 					///////////////////////////////
 					// Load events
-					cXmlNodeListIterator eventElemIt = pAnimElem->GetChildIterator();
-					while(eventElemIt.HasNext())
+					for(tinyxml2::XMLElement *pEventElem = pAnimElem->FirstChildElement(); pEventElem != NULL; pEventElem = pEventElem->NextSiblingElement())
 					{
-						cXmlElement *pEventElem = eventElemIt.Next()->ToElement();
-
                         cAnimationEvent *pEvent = pState->CreateEvent();
-						pEvent->mfTime = pEventElem->GetAttributeFloat("Time");
-						pEvent->mType = ToAnimEventType(pEventElem->GetAttributeString("Type"));
-						pEvent->msValue = pEventElem->GetAttributeString("Value");
+						pEvent->mfTime = GetAttributeFloat(pEventElem, "Time");
+						pEvent->mType = ToAnimEventType(GetAttributeString(pEventElem, "Type"));
+						pEvent->msValue = GetAttributeString(pEventElem, "Value");
 					}
 
 				}
@@ -474,22 +465,17 @@ namespace hpl {
 		}
 
 
-		////////////////////////////////////////	
+		////////////////////////////////////////
 		// Load World entities
 		{
-			//List that contain light and billboard connections
-			tEFL_LightBillboardConnectionList lstLightBillboardListConnections;
-
-            cXmlElement *pEntitiesElem  = pModelDataElem->GetFirstElement("Entities");
+            tinyxml2::XMLElement *pEntitiesElem  = pModelDataElem->FirstChildElement("Entities");
 			if(pEntitiesElem)
 			{
 				////////////////////////
 				//Iterate entities
-				cXmlNodeListIterator entityIt = pEntitiesElem->GetChildIterator();
-				while(entityIt.HasNext())
+				for(tinyxml2::XMLElement *pEntityElem = pEntitiesElem->FirstChildElement(); pEntityElem != NULL; pEntityElem = pEntityElem->NextSiblingElement())
 				{
-					cXmlElement *pEntityElem = entityIt.Next()->ToElement();
-					const tString& sEntityType = pEntityElem->GetValue();
+					const tString sEntityType = pEntityElem->Value();
 					iEntity3D *pEntity = NULL;
 
 					/////////////////////////
@@ -509,8 +495,7 @@ namespace hpl {
 					{
 						if(mbLoadBillboards)
 						{
-							cBillboard *pBillboard = cEngineFileLoading::LoadBillboard(pEntityElem,asName +"_", apWorld, apWorld->GetResources(), mbLoadAsStatic,
-																						&lstLightBillboardListConnections);
+							cBillboard *pBillboard = cEngineFileLoading::LoadBillboard(pEntityElem,asName +"_", apWorld, apWorld->GetResources(), mbLoadAsStatic);
 							if(pBillboard)	mvBillboards.push_back(pBillboard);
 							pEntity = pBillboard;
 						}
@@ -557,29 +542,6 @@ namespace hpl {
 				}
 			}
 
-			/////////////////////////////////////
-			//Set up light and billboard connections
-			tEFL_LightBillboardConnectionListIt connIt = lstLightBillboardListConnections.begin();
-			for(; connIt != lstLightBillboardListConnections.end(); ++connIt)
-			{
-				cEFL_LightBillboardConnection& lightConnect = *connIt;
-
-				cBillboard *pBB = GetBillboardFromID(lightConnect.msBillboardID);
-				iLight *pLight = GetLightFromName(lightConnect.msLightName);
-
-				if(pLight==NULL)
-				{
-					Warning("Light with name '%s' does not exist!",lightConnect.msLightName.c_str());
-					continue;
-				}
-				if(pBB==NULL)
-				{
-					Warning("Billboard with id '%d' does not exist!",lightConnect.msBillboardID);
-					continue;
-				}
-
-				pLight->AttachBillboard(pBB, pBB->GetColor());
-			}
 		}
 
 		////////////////////////////////////////	
@@ -592,18 +554,15 @@ namespace hpl {
 		tNodeStateMap mapBoneStates;
 		if(mpMesh->GetSkeleton())
 		{
-			cXmlElement *pBonesElem  = pModelDataElem->GetFirstElement("Bones");
+			tinyxml2::XMLElement *pBonesElem  = pModelDataElem->FirstChildElement("Bones");
 			if(pBonesElem)
 			{
 				//////////////////////////
 				// Iterate bones
-				cXmlNodeListIterator boneIt = pBonesElem->GetChildIterator();
-				while(boneIt.HasNext())
+				for(tinyxml2::XMLElement *pBoneElem = pBonesElem->FirstChildElement(); pBoneElem != NULL; pBoneElem = pBoneElem->NextSiblingElement())
 				{
-					cXmlElement *pBoneElem = boneIt.Next()->ToElement();
-
-					int lID = pBoneElem->GetAttributeInt("ID");
-					tString sName = pBoneElem->GetAttributeString("Name");
+					int lID = GetAttributeInt(pBoneElem, "ID");
+					tString sName = GetAttributeString(pBoneElem, "Name");
 
 					cBoneState *pBoneState = mpEntity->GetBoneStateFromName(sName);
 					if(pBoneState==NULL){
@@ -630,17 +589,14 @@ namespace hpl {
 
 		if(pPhysicsWorld)
 		{
-			cXmlElement *pShapesElem  = pModelDataElem->GetFirstElement("Shapes");
+			tinyxml2::XMLElement *pShapesElem  = pModelDataElem->FirstChildElement("Shapes");
 			if(pShapesElem)
 			{
-				cXmlNodeListIterator shapeIt = pShapesElem->GetChildIterator();
-				while(shapeIt.HasNext())
+				for(tinyxml2::XMLElement *pBodyShapeElem = pShapesElem->FirstChildElement(); pBodyShapeElem != NULL; pBodyShapeElem = pBodyShapeElem->NextSiblingElement())
 				{
-					cXmlElement *pBodyShapeElem = shapeIt.Next()->ToElement();
-
 					iCollideShape *pCollideShape = CreateCollideShape(pBodyShapeElem, pPhysicsWorld, mvScale);
 					if(pCollideShape == NULL) continue;
-					int lID = pBodyShapeElem->GetAttributeInt("ID");
+					int lID = GetAttributeInt(pBodyShapeElem, "ID");
 
 					setShapes.insert(tLoaderCollideShapeMap::value_type(lID, pCollideShape));
 				}
@@ -656,17 +612,15 @@ namespace hpl {
 		{
 			////////////////////////
 			//Iterate the bodies elements
-			cXmlElement *pBodiesElem  = pModelDataElem->GetFirstElement("Bodies");
+			tinyxml2::XMLElement *pBodiesElem  = pModelDataElem->FirstChildElement("Bodies");
 			if(pBodiesElem)
 			{
-				cXmlNodeListIterator bodyIt = pBodiesElem->GetChildIterator();
-				while(bodyIt.HasNext())
+				for(tinyxml2::XMLElement *pBodyElem = pBodiesElem->FirstChildElement(); pBodyElem != NULL; pBodyElem = pBodyElem->NextSiblingElement())
 				{
 					/////////////////////
 					// Init
-					cXmlElement *pBodyElem = bodyIt.Next()->ToElement();
-					int lID = pBodyElem->GetAttributeInt("ID");
-					tString sBodyName = pBodyElem->GetAttributeString("Name");
+					int lID = GetAttributeInt(pBodyElem, "ID");
+					tString sBodyName = GetAttributeString(pBodyElem, "Name");
 
 					/////////////////////
 					// Get shape
@@ -682,7 +636,7 @@ namespace hpl {
 					SetBodyProperties(pBody, pBodyElem);
 
 					//Material
-					iPhysicsMaterial *pPhysicsMat = pPhysicsWorld->GetMaterialFromName(pBodyElem->GetAttributeString("Material"));
+					iPhysicsMaterial *pPhysicsMat = pPhysicsWorld->GetMaterialFromName(GetAttributeString(pBodyElem, "Material"));
 					if(pPhysicsMat) pBody->SetMaterial(pPhysicsMat);
 
 					setBodies.insert(tLoaderPhysicsBodyMap::value_type(lID, pBody));
@@ -707,10 +661,10 @@ namespace hpl {
 			{
 				if(mapBoneStates.size() != mpEntity->GetBoneStateNum())
 				{
-					Error("Loading entity %s: Skeletons in mesh file (%ls) and .ent file (%ls) differ! Probably caused by .ent not being up to date with mesh\n", 
-						asName.c_str(), 
-						mpMesh->GetFullPath().c_str(), 
-						static_cast<iXmlDocument*>(apRootElem)->GetPath().c_str());
+					Error("Loading entity %s: Skeletons in mesh file (%ls) and .ent file (%ls) differ! Probably caused by .ent not being up to date with mesh\n",
+						asName.c_str(),
+						mpMesh->GetFullPath().c_str(),
+						asFullPath.c_str());
 				}
 				else
 					lstTempEntities.push_back(mpEntity);
@@ -782,15 +736,11 @@ namespace hpl {
 		////////////////////////////////////////	
 		// Load Joints
 		{
-			cXmlElement *JointsElem  = pModelDataElem->GetFirstElement("Joints");
+			tinyxml2::XMLElement *JointsElem  = pModelDataElem->FirstChildElement("Joints");
 			if(JointsElem)
 			{
-				cXmlNodeListIterator jointIt = JointsElem->GetChildIterator();
-				while(jointIt.HasNext())
+				for(tinyxml2::XMLElement *pJointElem = JointsElem->FirstChildElement(); pJointElem != NULL; pJointElem = pJointElem->NextSiblingElement())
 				{
-					cXmlElement *pJointElem = jointIt.Next()->ToElement();
-
-
 					iPhysicsJoint *pJoint = CreateJoint(asName,pJointElem,pPhysicsWorld,setBodies, a_mtxTransform, mvScale);
 					if(pJoint)
 					{
@@ -898,11 +848,11 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 	
-	void cEntityLoader_Object::LoadAndAttachChildren(	cXmlElement *apMainElem, iEntity3D *apEntityParent, cBoneState *apBoneStateParent, 
+	void cEntityLoader_Object::LoadAndAttachChildren(	tinyxml2::XMLElement *apMainElem, iEntity3D *apEntityParent, cBoneState *apBoneStateParent,
 														tEntity3DList& a_lstChildList, tNodeStateMap &a_mapBoneStates,
 														bool abRemoveAttachedChild, bool abIsBody)
 	{
-		cXmlElement *pChildrenElem  = apMainElem->GetFirstElement("Children");
+		tinyxml2::XMLElement *pChildrenElem  = apMainElem->FirstChildElement("Children");
 		if(pChildrenElem==NULL) return;
 
 		cMatrixf mtxInvParent;
@@ -913,12 +863,9 @@ namespace hpl {
 
 		///////////////////////////////
 		//Iterate the children elements
-		cXmlNodeListIterator childIt = pChildrenElem->GetChildIterator();
-		while(childIt.HasNext())
+		for(tinyxml2::XMLElement *pChildElem = pChildrenElem->FirstChildElement(); pChildElem != NULL; pChildElem = pChildElem->NextSiblingElement())
 		{
-			cXmlElement *pChildElem = childIt.Next()->ToElement();
-
-			int lID = pChildElem->GetAttributeInt("ID");
+			int lID = GetAttributeInt(pChildElem, "ID");
 			
 			//////////////////////////////////
 			// Search for child entity
@@ -982,105 +929,83 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cBillboard* cEntityLoader_Object::GetBillboardFromID(int alID)
+	void cEntityLoader_Object::SetBodyProperties(iPhysicsBody *apBody, tinyxml2::XMLElement *apElem)
 	{
-        for(size_t i=0; i<mvBillboards.size(); ++i)
-		{
-			cBillboard *pBB = mvBillboards[i];
-			if(pBB->GetUniqueID() == alID) return pBB;
-		}
-		return NULL;
-	}
-	
-	iLight* cEntityLoader_Object::GetLightFromName(const tString& asName)
-	{
-		for(size_t i=0; i<mvLights.size(); ++i)
-		{
-			iLight *pLight = mvLights[i];
-			if(pLight->GetName() == asName) return pLight;
-		}
-		return NULL;
-	}
-
-	//-----------------------------------------------------------------------
-
-	void cEntityLoader_Object::SetBodyProperties(iPhysicsBody *apBody, cXmlElement *apElem)
-	{
-		apBody->SetMatrix(GetMatrixFromVectors(	apElem->GetAttributeVector3f("WorldPos") * mvScale,
-												apElem->GetAttributeVector3f("Rotation"), 
-												1.0f) 
+		apBody->SetMatrix(GetMatrixFromVectors(	GetAttributeVector3f(apElem, "WorldPos") * mvScale,
+												GetAttributeVector3f(apElem, "Rotation"),
+												1.0f)
 												);
 
-		apBody->SetMass(apElem->GetAttributeFloat("Mass",1.0f));
-		
-		apBody->SetAngularDamping(apElem->GetAttributeFloat("AngularDamping"));
-		apBody->SetLinearDamping(apElem->GetAttributeFloat("LinearDamping"));
+		apBody->SetMass(GetAttributeFloat(apElem, "Mass",1.0f));
 
-		apBody->SetBlocksSound(apElem->GetAttributeBool("BlocksSound",false));
-		apBody->SetCollideCharacter(apElem->GetAttributeBool("CollideCharacter",true));
-		apBody->SetCollide(apElem->GetAttributeBool("CollideNonCharacter",true));
+		apBody->SetAngularDamping(GetAttributeFloat(apElem, "AngularDamping"));
+		apBody->SetLinearDamping(GetAttributeFloat(apElem, "LinearDamping"));
 
-		apBody->SetGravity(apElem->GetAttributeBool("HasGravity",true));
-		apBody->SetBuoyancyDensityMul(apElem->GetAttributeFloat("BuoyancyDensityMul",1.0));
+		apBody->SetBlocksSound(GetAttributeBool(apElem, "BlocksSound",false));
+		apBody->SetCollideCharacter(GetAttributeBool(apElem, "CollideCharacter",true));
+		apBody->SetCollide(GetAttributeBool(apElem, "CollideNonCharacter",true));
 
-		apBody->SetMaxAngularSpeed(apElem->GetAttributeFloat("MaxAngularSpeed",0));
-		apBody->SetMaxLinearSpeed(apElem->GetAttributeFloat("MaxLinearSpeed",0));
+		apBody->SetGravity(GetAttributeBool(apElem, "HasGravity",true));
+		apBody->SetBuoyancyDensityMul(GetAttributeFloat(apElem, "BuoyancyDensityMul",1.0));
 
-		apBody->SetContinuousCollision(apElem->GetAttributeBool("ContinuousCollision",true));
+		apBody->SetMaxAngularSpeed(GetAttributeFloat(apElem, "MaxAngularSpeed",0));
+		apBody->SetMaxLinearSpeed(GetAttributeFloat(apElem, "MaxLinearSpeed",0));
 
-		apBody->SetPushedByCharacterGravity(apElem->GetAttributeBool("PushedByCharacterGravity",false));
+		apBody->SetContinuousCollision(GetAttributeBool(apElem, "ContinuousCollision",true));
 
-		apBody->SetVolatile(apElem->GetAttributeBool("Volatile",false));
+		apBody->SetPushedByCharacterGravity(GetAttributeBool(apElem, "PushedByCharacterGravity",false));
 
-		apBody->SetUseSurfaceEffects(apElem->GetAttributeBool("UseSurfaceEffects",true));
-	
-		apBody->SetGravityCanAttachCharacter(apElem->GetAttributeBool("CanAttachCharacter",false));
+		apBody->SetVolatile(GetAttributeBool(apElem, "Volatile",false));
 
-		apBody->SetUniqueID(apElem->GetAttributeInt("ID",-1));
+		apBody->SetUseSurfaceEffects(GetAttributeBool(apElem, "UseSurfaceEffects",true));
+
+		apBody->SetGravityCanAttachCharacter(GetAttributeBool(apElem, "CanAttachCharacter",false));
+
+		apBody->SetUniqueID(GetAttributeInt(apElem, "ID",-1));
 	}
 
 	//-----------------------------------------------------------------------
 
-	void cEntityLoader_Object::SetJointProperties(iPhysicsJoint *pJoint, cXmlElement *apJointElem, cWorld *apWorld)
+	void cEntityLoader_Object::SetJointProperties(iPhysicsJoint *pJoint, tinyxml2::XMLElement *apJointElem, cWorld *apWorld)
 	{
-		tString t = apJointElem->GetAttributeString("MoveSound","");
+		tString t = GetAttributeString(apJointElem, "MoveSound","");
 		pJoint->SetMoveSound(t);
-		pJoint->SetMinMoveSpeed(apJointElem->GetAttributeFloat("MinMoveSpeed",0.5f));
-		pJoint->SetMinMoveFreq(apJointElem->GetAttributeFloat("MinMoveFreq",0.9f));
-		pJoint->SetMinMoveVolume(apJointElem->GetAttributeFloat("MinMoveVolume",0.3f));
-		pJoint->SetMinMoveFreqSpeed(apJointElem->GetAttributeFloat("MinMoveFreqSpeed",0.9f));
-		pJoint->SetMaxMoveFreq(apJointElem->GetAttributeFloat("MaxMoveFreq",1.1f));
-		pJoint->SetMaxMoveVolume(apJointElem->GetAttributeFloat("MaxMoveVolume",1.0f));
-		pJoint->SetMaxMoveFreqSpeed(apJointElem->GetAttributeFloat("MaxMoveFreqSpeed",1.1f));
-		pJoint->SetMiddleMoveSpeed(apJointElem->GetAttributeFloat("MiddleMoveSpeed",1.0f));
-		pJoint->SetMiddleMoveVolume(apJointElem->GetAttributeFloat("MiddleMoveVolume",1.0f));
-		pJoint->SetMoveSpeedType(cString::ToLowerCase(apJointElem->GetAttributeString("MoveType","Linear")) == "angular" ? 
+		pJoint->SetMinMoveSpeed(GetAttributeFloat(apJointElem, "MinMoveSpeed",0.5f));
+		pJoint->SetMinMoveFreq(GetAttributeFloat(apJointElem, "MinMoveFreq",0.9f));
+		pJoint->SetMinMoveVolume(GetAttributeFloat(apJointElem, "MinMoveVolume",0.3f));
+		pJoint->SetMinMoveFreqSpeed(GetAttributeFloat(apJointElem, "MinMoveFreqSpeed",0.9f));
+		pJoint->SetMaxMoveFreq(GetAttributeFloat(apJointElem, "MaxMoveFreq",1.1f));
+		pJoint->SetMaxMoveVolume(GetAttributeFloat(apJointElem, "MaxMoveVolume",1.0f));
+		pJoint->SetMaxMoveFreqSpeed(GetAttributeFloat(apJointElem, "MaxMoveFreqSpeed",1.1f));
+		pJoint->SetMiddleMoveSpeed(GetAttributeFloat(apJointElem, "MiddleMoveSpeed",1.0f));
+		pJoint->SetMiddleMoveVolume(GetAttributeFloat(apJointElem, "MiddleMoveVolume",1.0f));
+		pJoint->SetMoveSpeedType(cString::ToLowerCase(GetAttributeString(apJointElem, "MoveType","Linear")) == "angular" ?
 									ePhysicsJointSpeed_Angular : 	ePhysicsJointSpeed_Linear);
-		
-		pJoint->SetStickyMinLimit(apJointElem->GetAttributeBool("StickyMinLimit",false));
-		pJoint->SetStickyMaxLimit(apJointElem->GetAttributeBool("StickyMaxLimit",false));
 
-		pJoint->SetBreakable(apJointElem->GetAttributeBool("Breakable",false));
-		pJoint->SetBreakForce(apJointElem->GetAttributeFloat("BreakForce",1000));
-		pJoint->SetBreakSound(apJointElem->GetAttributeString("BreakSound",""));
+		pJoint->SetStickyMinLimit(GetAttributeBool(apJointElem, "StickyMinLimit",false));
+		pJoint->SetStickyMaxLimit(GetAttributeBool(apJointElem, "StickyMaxLimit",false));
 
-		pJoint->SetLimitAutoSleep(apJointElem->GetAttributeBool("LimitAutoSleep",false));
-		pJoint->SetLimitAutoSleepDist(apJointElem->GetAttributeFloat("LimitAutoSleepDist",0.02f));
-		pJoint->SetLimitAutoSleepNumSteps(apJointElem->GetAttributeInt("LimitAutoSleepNumSteps",10));
-		
-		pJoint->SetCollideBodies(apJointElem->GetAttributeBool("CollideBodies",true));
-		
-		pJoint->GetMaxLimit()->msSound = apJointElem->GetAttributeString("MaxLimitSound","");
-		pJoint->GetMaxLimit()->mfMaxSpeed = apJointElem->GetAttributeFloat("MaxLimitMaxSpeed",10.0f);
-		pJoint->GetMaxLimit()->mfMinSpeed = apJointElem->GetAttributeFloat("MaxLimit_MinSpeed",20.0f);
+		pJoint->SetBreakable(GetAttributeBool(apJointElem, "Breakable",false));
+		pJoint->SetBreakForce(GetAttributeFloat(apJointElem, "BreakForce",1000));
+		pJoint->SetBreakSound(GetAttributeString(apJointElem, "BreakSound",""));
+
+		pJoint->SetLimitAutoSleep(GetAttributeBool(apJointElem, "LimitAutoSleep",false));
+		pJoint->SetLimitAutoSleepDist(GetAttributeFloat(apJointElem, "LimitAutoSleepDist",0.02f));
+		pJoint->SetLimitAutoSleepNumSteps(GetAttributeInt(apJointElem, "LimitAutoSleepNumSteps",10));
+
+		pJoint->SetCollideBodies(GetAttributeBool(apJointElem, "CollideBodies",true));
+
+		pJoint->GetMaxLimit()->msSound = GetAttributeString(apJointElem, "MaxLimitSound","");
+		pJoint->GetMaxLimit()->mfMaxSpeed = GetAttributeFloat(apJointElem, "MaxLimitMaxSpeed",10.0f);
+		pJoint->GetMaxLimit()->mfMinSpeed = GetAttributeFloat(apJointElem, "MaxLimit_MinSpeed",20.0f);
 		if(pJoint->GetMaxLimit()->mfMaxSpeed <=0) pJoint->GetMaxLimit()->mfMaxSpeed = 0.01f;
 
-		pJoint->GetMinLimit()->msSound = apJointElem->GetAttributeString("MinLimitSound","");
-		pJoint->GetMinLimit()->mfMaxSpeed = apJointElem->GetAttributeFloat("MinLimitMaxSpeed",10.0f);
-		pJoint->GetMinLimit()->mfMinSpeed = apJointElem->GetAttributeFloat("MinLimitMinSpeed",20.0f);
+		pJoint->GetMinLimit()->msSound = GetAttributeString(apJointElem, "MinLimitSound","");
+		pJoint->GetMinLimit()->mfMaxSpeed = GetAttributeFloat(apJointElem, "MinLimitMaxSpeed",10.0f);
+		pJoint->GetMinLimit()->mfMinSpeed = GetAttributeFloat(apJointElem, "MinLimitMinSpeed",20.0f);
 		if(pJoint->GetMinLimit()->mfMaxSpeed <=0) pJoint->GetMaxLimit()->mfMaxSpeed = 0.01f;
 
-		pJoint->SetUniqueID(apJointElem->GetAttributeInt("ID",-1));
+		pJoint->SetUniqueID(GetAttributeInt(apJointElem, "ID",-1));
 
 
 		/////////////////////////////
@@ -1170,8 +1095,8 @@ namespace hpl {
 	/////////////////////////
 
 
-	void cEntityLoader_Object::LoadController(iPhysicsJoint* apJoint,iPhysicsWorld *apPhysicsWorld, 
-												TiXmlElement *apElem)
+	void cEntityLoader_Object::LoadController(iPhysicsJoint* apJoint,iPhysicsWorld *apPhysicsWorld,
+												tinyxml2::XMLElement *apElem)
 	{
 		//////////////////////////////
 		// Get the properties
@@ -1254,16 +1179,16 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
-	void cEntityLoader_Object::LoadUserVariables(cXmlElement *apRootElem)
+	void cEntityLoader_Object::LoadUserVariables(tinyxml2::XMLElement *apRootElem)
 	{
-		cXmlElement *pVarRootElem = apRootElem->GetFirstElement("UserDefinedVariables");
+		tinyxml2::XMLElement *pVarRootElem = apRootElem->FirstChildElement("UserDefinedVariables");
 		if(pVarRootElem==NULL){
 			Warning("Can not find a use variable root element!\n");
 			return;
 		}
 
-		msEntityType = pVarRootElem->GetAttributeString("EntityType");
-		msEntitySubType = pVarRootElem->GetAttributeString("EntitySubType");
+		msEntityType = GetAttributeString(pVarRootElem, "EntityType");
+		msEntitySubType = GetAttributeString(pVarRootElem, "EntitySubType");
 
 		LoadVariables(pVarRootElem);
 	}

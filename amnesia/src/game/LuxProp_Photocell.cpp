@@ -43,7 +43,7 @@ iLuxProp *cLuxPropLoader_Photocell::CreateProp(const tString& asName, int alID, 
 
 //-----------------------------------------------------------------------
 
-void cLuxPropLoader_Photocell::LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem)
+void cLuxPropLoader_Photocell::LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem)
 {
 	cLuxProp_Photocell  *pPhotocell = static_cast<cLuxProp_Photocell*>(apProp);
 

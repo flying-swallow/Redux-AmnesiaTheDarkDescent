@@ -19,6 +19,8 @@
 
 #include "EdType.h"
 
+#include <tinyxml2.h>
+
 //-----------------------------------------------------------------------
 
 iTypeNode::iTypeNode(iEdWorld* apWorld, int alID, const tWString& asName, iTypeNode* apParentType)
@@ -99,7 +101,7 @@ iTypeNode* iTypeNode::GetTypeByID(int alID)
 	return NULL;
 }
 
-iTypeNode* iTypeNode::GetTypeByXmlElement(cXmlElement* apElement)
+iTypeNode* iTypeNode::GetTypeByXmlElement(tinyxml2::XMLElement* apElement)
 {
 	// TODO: Implement !!
 	return NULL;

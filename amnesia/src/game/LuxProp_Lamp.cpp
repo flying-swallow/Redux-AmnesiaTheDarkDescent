@@ -46,7 +46,7 @@ iLuxProp *cLuxPropLoader_Lamp::CreateProp(const tString& asName, int alID, cLuxM
 
 //-----------------------------------------------------------------------
 
-void cLuxPropLoader_Lamp::LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem)
+void cLuxPropLoader_Lamp::LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem)
 {
 	cLuxProp_Lamp  *pLamp = static_cast<cLuxProp_Lamp*>(apProp);
 

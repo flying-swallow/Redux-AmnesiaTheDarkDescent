@@ -44,7 +44,7 @@ iLuxProp *cLuxPropLoader_LevelDoor::CreateProp(const tString& asName, int alID, 
 
 //-----------------------------------------------------------------------
 
-void cLuxPropLoader_LevelDoor::LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem)
+void cLuxPropLoader_LevelDoor::LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem)
 {
 	cLuxProp_LevelDoor  *pLevelDoor = static_cast<cLuxProp_LevelDoor*>(apProp);
 

@@ -41,8 +41,6 @@ namespace hpl {
 		void AddMeshLoaders(cMeshLoaderHandler* apHandler);
 		void AddVideoLoaders(cVideoLoaderHandler* apHandler);
 
-		iXmlDocument* CreateXmlDocument(const tString& asName="");
-
 	private:
 		iLowLevelGraphics *mpLowLevelGraphics;
 	};

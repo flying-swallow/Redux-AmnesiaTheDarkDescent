@@ -25,6 +25,7 @@
 #include "scene/Entity3D.h"
 #include "resources/ResourceBase.h"
 
+namespace tinyxml2 { class XMLElement; }
 
 namespace hpl {
 
@@ -35,7 +36,6 @@ namespace hpl {
 	class iParticleEmitter;
 	class iParticleEmitterData;
 	class cParticleManager;
-	class cXmlElement;
 
 	//----------------------------------------------------
 
@@ -50,7 +50,7 @@ namespace hpl {
 		cParticleSystem* Create(tString asName, cVector3f avSize);
 
 		bool LoadFromFile(const tWString &asFile);
-		bool LoadFromElement(cXmlElement* apElement);
+		bool LoadFromElement(tinyxml2::XMLElement* apElement);
 
 		void AddEmitterData(iParticleEmitterData *apData);
 
