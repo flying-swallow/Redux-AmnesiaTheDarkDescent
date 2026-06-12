@@ -752,14 +752,11 @@ public:
 		//Ambient
 		mpAmbientBox = NULL;
 		mpAmbientBox = mpWorld->CreateLightBox("AmbientBoxLight");
-		{
-			cLightBoxData boxData = std::get<cLightBoxData>(mpAmbientBox->GetLightData());
-			boxData.mvSize = cVector3f(1000,1000,1000);
-			boxData.mBlendFunc = eLightBoxBlendFunc_Add;
-			mpAmbientBox->SetLightData(boxData);
-		}
+		mpAmbientBox->SetSize(cVector3f(1000,1000,1000));
 		mpAmbientBox->SetDiffuseColor(cColor(0.5f,0));
+		mpAmbientBox->SetBlendFunc(eLightBoxBlendFunc_Add);
 		mpAmbientBox->SetVisible(false);
+		mpAmbientBox->SetBoxLightPrio(1);
 
 
 		//////////////////////////////////
@@ -1692,7 +1689,7 @@ public:
 			for(int i=0; i<pRenderList->GetLightNum(); ++i)
 			{
 				iLight *pLight = pRenderList->GetLight(i);
-				if(pLight->GetCastShadows() && std::holds_alternative<cLightSpotData>(pLight->GetLightData()))
+				if(pLight->GetCastShadows() && pLight->GetLightType()==eLightType_Spot)
 				{
 					lShadowCasters++;
 				}

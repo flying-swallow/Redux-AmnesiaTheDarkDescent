@@ -33,7 +33,8 @@
 
 #include "scene/Node3D.h"
 #include "scene/MeshEntity.h"
-#include "scene/Light.h"
+#include "scene/LightSpot.h"
+#include "scene/LightPoint.h"
 #include "scene/World.h"
 #include "scene/SoundEntity.h"
 #include "scene/BillBoard.h"

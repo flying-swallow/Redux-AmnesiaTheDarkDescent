@@ -211,10 +211,7 @@ void cEntityWrapperLightSpot::SetFOV(float afAngle)
 {
 	mfFOV = afAngle;
 
-	iLight* pLight = static_cast<iLight*>(mpEngineEntity->GetEntity());
-	cLightSpotData spotData = std::get<cLightSpotData>(pLight->GetLightData());
-	spotData.mfFOV = mfFOV;
-	pLight->SetLightData(spotData);
+	((cLightSpot*)mpEngineEntity->GetEntity())->SetFOV(mfFOV);
 }
 
 //---------------------------------------------------------------------------
@@ -223,10 +220,7 @@ void cEntityWrapperLightSpot::SetAspect(float afAngle)
 {
 	mfAspect = afAngle;
 
-	iLight* pLight = static_cast<iLight*>(mpEngineEntity->GetEntity());
-	cLightSpotData spotData = std::get<cLightSpotData>(pLight->GetLightData());
-	spotData.mfAspect = mfAspect;
-	pLight->SetLightData(spotData);
+	((cLightSpot*)mpEngineEntity->GetEntity())->SetAspect(mfAspect);
 }
 
 //---------------------------------------------------------------------------
@@ -235,7 +229,7 @@ void cEntityWrapperLightSpot::SetRadius(float afX)
 {
 	mfRadius = afX;
 
-	static_cast<iLight*>(mpEngineEntity->GetEntity())->SetRadius(mfRadius);
+	((cLightSpot*)mpEngineEntity->GetEntity())->SetRadius(mfRadius);
 }
 
 //---------------------------------------------------------------------------
@@ -244,10 +238,7 @@ void cEntityWrapperLightSpot::SetNearClipPlane(float afX)
 {
 	mfNearClipPlane = afX;
 
-	iLight* pLight = static_cast<iLight*>(mpEngineEntity->GetEntity());
-	cLightSpotData spotData = std::get<cLightSpotData>(pLight->GetLightData());
-	spotData.mfNearClipPlane = mfNearClipPlane;
-	pLight->SetLightData(spotData);
+	((cLightSpot*)mpEngineEntity->GetEntity())->SetNearClipPlane(mfNearClipPlane);
 }
 
 //---------------------------------------------------------------------------
@@ -265,7 +256,7 @@ void cEntityWrapperLightSpot::SetSpotFalloffMap(const tString& asFalloffMap)
 		msSpotFalloffMap = "";
 	}
 
-	static_cast<iLight*>(mpEngineEntity->GetEntity())->SetSpotFalloffMap(pTex);	
+	((cLightSpot*)mpEngineEntity->GetEntity())->SetSpotFalloffMap(pTex);	
 }
 
 //---------------------------------------------------------------------------
@@ -275,7 +266,7 @@ void cEntityWrapperLightSpot::DrawLightTypeSpecific(cEditorWindowViewport* apVie
 {
 	// Frustum edge wireframe (cFrustum::Draw needs the legacy GL path; walk
 	// the corner vertices directly instead).
-	cFrustum* pFrustum = static_cast<iLight*>(mpEngineEntity->GetEntity())->GetFrustum();
+	cFrustum* pFrustum = ((cLightSpot*)mpEngineEntity->GetEntity())->GetFrustum();
 	const cColor frustumCol = cColor(1,1);
 	for(int i=0; i<4; ++i)
 		apFunctions->DebugDrawLine(pFrustum->GetVertex(i==0?3:i-1), pFrustum->GetVertex(i), frustumCol);

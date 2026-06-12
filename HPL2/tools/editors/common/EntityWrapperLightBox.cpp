@@ -171,10 +171,7 @@ void cEntityWrapperLightBox::SetSize(const cVector3f& avSize)
 {
 	mvSize = avSize;
 
-	iLight* pLight = static_cast<iLight*>(mpEngineEntity->GetEntity());
-	cLightBoxData boxData = std::get<cLightBoxData>(pLight->GetLightData());
-	boxData.mvSize = avSize;
-	pLight->SetLightData(boxData);
+	((cLightBox*)mpEngineEntity->GetEntity())->SetSize(avSize);
 }
 
 //---------------------------------------------------------------------------
@@ -183,10 +180,7 @@ void cEntityWrapperLightBox::SetBlendFunc(eLightBoxBlendFunc aFunc)
 {
 	mBlendFunc = aFunc;
 
-	iLight* pLight = static_cast<iLight*>(mpEngineEntity->GetEntity());
-	cLightBoxData boxData = std::get<cLightBoxData>(pLight->GetLightData());
-	boxData.mBlendFunc = aFunc;
-	pLight->SetLightData(boxData);
+	((cLightBox*)mpEngineEntity->GetEntity())->SetBlendFunc(aFunc);
 }
 
 //---------------------------------------------------------------------------

@@ -21,93 +21,122 @@
 #define HPL_LIGHT_H
 
 #include "scene/Entity3D.h"
-#include "scene/SceneTypes.h"
 #include "graphics/GraphicsTypes.h"
 #include "graphics/ImageResourceWrapper.h"
 #include "graphics/Renderable.h"
 
-#include <variant>
+class TiXmlElement;
 
 namespace hpl {
 
 	//------------------------------------------
 
+	class iLowLevelGraphics;
+	class cRenderSettings;
+	class cCamera;
 	class cFrustum;
+	class iGpuProgram;
 	class Image;
 	class cTextureManager;
 	class cResources;
+	class cFileSearcher;
+	class cBillboard;
+	class cSectorVisibilityContainer;
 	class cWorld;
+	class cVisibleRCNodeTracker;
+	
+	//------------------------------------------
+	
+	enum eLightType
+	{
+		eLightType_Point,
+		eLightType_Spot,
+		eLightType_Box,
+		eLightType_LastEnum
+	};
+
+	enum eShadowVolumeType
+	{
+		eShadowVolumeType_None,
+		eShadowVolumeType_ZPass,
+		eShadowVolumeType_ZFail,
+		eShadowVolumeType_LastEnum,
+	};
 
 	//------------------------------------------
 
-	// Per-type parameter blocks for the (formerly subclassed) light kinds —
-	// pure authored/modifiable fields only, plain and copyable. iLight holds one
-	// of these in a variant; which alternative is held defines the light's type.
-	// Derived state (matrices/frustum) lives on iLight and is rebuilt from these.
-	// Read via GetLightData(), edit a copy and feed it back via SetLightData().
+	typedef std::map<iRenderable*, int> tShadowCasterCacheMap;
+	typedef tShadowCasterCacheMap::iterator tShadowCasterCacheMapIt;
 
-	struct cLightPointData
+	//------------------------------------------
+
+	class cLightBillboardConnection
 	{
-		// Point lights need no parameters beyond the shared radius/intensity.
+	public:
+		cBillboard *mpBillboard;
+		cColor mBaseColor;
 	};
-
-	struct cLightSpotData
-	{
-		float mfFOV = 1.04719755f;	// 60 degrees
-		float mfAspect = 1.0f;
-		float mfNearClipPlane = 0.1f;
-	};
-
-	struct cLightBoxData
-	{
-		cVector3f mvSize = cVector3f(1);
-		eLightBoxBlendFunc mBlendFunc = eLightBoxBlendFunc_Replace;
-	};
-
-	// Active per-type parameters. Which alternative is held defines the light's
-	// type; inspect with std::holds_alternative / std::get_if / std::visit.
-	typedef std::variant<cLightPointData, cLightSpotData, cLightBoxData> tLightData;
 
 	//------------------------------------------
 
 	class iLight : public iRenderable
 	{
 	public:
-		iLight(tLightData aData, tString asName, cResources *apResources);
+		iLight(tString asName, cResources *apResources);
 		virtual ~iLight();
 
-		void UpdateLogic(float afTimeStep) override;
+		void UpdateLogic(float afTimeStep);
 
 		bool CheckObjectIntersection(iRenderable *apObject);
-
-		const tLightData& GetLightData() const { return mLightData; }
-		// Feed edited parameters back. The active alternative must match the
-		// light's type (the type is fixed at construction); triggers the
-		// per-type derived-state updates (spot matrices/frustum, box BV).
-		void SetLightData(const tLightData& aData);
+		
+		eLightType GetLightType(){ return mLightType;}
 
 		// Image* binding API.
+		void SetFalloffMap(Image* apImage);
+		Image* GetFalloffImage() const;
+
 		void SetGoboTexture(Image* apImage);
 		Image* GetGoboImage() const;
 
 		///////////////////////////////
 		//iEntity implementation
-		tString GetEntityType() override { return "iLight";}
+		tString GetEntityType(){ return "iLight";}
 
-		bool IsVisible() override;
-
+		virtual bool IsVisible();
+		void OnChangeVisible();
+		
 		///////////////////////////////
 		//Renderable implementation:
-		cMaterial *GetMaterial() override { return NULL;}
-		cVertexBuffer* GetVertexBuffer() override { return NULL;}
+		cMaterial *GetMaterial(){ return NULL;}
+		cVertexBuffer* GetVertexBuffer(){ return NULL;}
 
-		eRenderableType GetRenderType() override { return eRenderableType_Light;}
+		eRenderableType GetRenderType(){ return eRenderableType_Light;}
 
-		cBoundingVolume* GetBoundingVolume() override;
+		cBoundingVolume* GetBoundingVolume();
 
-		int GetMatrixUpdateCount() override { return GetTransformUpdateCount();}
+		int GetMatrixUpdateCount(){ return GetTransformUpdateCount();}
 
-		cMatrixf* GetModelMatrix(cFrustum* apFrustum) override;
+		cMatrixf* GetModelMatrix(cFrustum* apFrustum);
+
+		inline void RenderShadow(iRenderable *apObject,cRenderSettings *apRenderSettings,iLowLevelGraphics *apLowLevelGraphics);
+
+		void LoadXMLProperties(const tString asFile);
+
+		void AttachBillboard(cBillboard *apBillboard, const cColor &aBaseColor);
+		void RemoveBillboard(cBillboard *apBillboard);
+		// Re-sync one connected billboard's colour (base × this light's diffuse)
+		// and visibility — used by the editor when the connection's colour
+		// updates so the billboard tracks the light instead of desyncing.
+		void UpdateBillboard(cBillboard* apBillboard, const cColor& aBaseColor);
+		std::vector<cLightBillboardConnection>* GetBillboardVec(){ return &mvBillboards;}
+
+		//////////////////////////
+		//Shadow caster cache
+		void AddShadowCaster(iRenderable *apObject);
+		bool ShadowCasterIsValid(iRenderable *apObject);
+		bool ShadowCastersAreUnchanged(const tRenderableVec &avObjects);
+		void SetShadowCasterCacheFromVec(const tRenderableVec &avObjects);
+		void ClearShadowCasterCache();
 
         //////////////////////////
 		//Fading
@@ -156,6 +185,9 @@ namespace hpl {
 		const cColor&  GetDefaultDiffuseColor(){ return mDefaultDiffuseColor;}
 		void SetDefaultDiffuseColor(const cColor& aColor) { mDefaultDiffuseColor = aColor; }
 		
+		const cColor& GetSpecularColor(){ return mSpecularColor; }
+		void SetSpecularColor(cColor aColor){ mSpecularColor = aColor; }
+
 		bool GetCastShadows(){ return mbCastShadows;}
 		void SetCastShadows(bool afX){ mbCastShadows = afX;}
 
@@ -165,10 +197,23 @@ namespace hpl {
 		inline eShadowMapResolution GetShadowMapResolution() const{ return mShadowMapResolution;}
 		inline void SetShadowMapResolution(eShadowMapResolution aQuality){ mShadowMapResolution  = aQuality;}
 
-		void SetIntensity(float afX);
+		inline float GetShadowMapBlurAmount() const{ return mfShadowMapBlurAmount;}
+		inline void SetShadowMapBlurAmount(float afX){ mfShadowMapBlurAmount  = afX;}
+
+		inline bool GetOcclusionCullShadowCasters() const{ return mbOcclusionCullShadowCasters;}
+		inline void SetOcclusionCullShadowCasters(bool abX){ mbOcclusionCullShadowCasters  = abX;}
+
+		inline cVisibleRCNodeTracker * GetVisibleNodeTracker(){ return mpVisibleNodeTracker;}
+
+		float GetShadowMapBiasMul(){ return mfShadowMapBiasMul;}
+		float GetShadowMapSlopeScaleBiasMul(){ return mfShadowMapSlopeScaleBiasMul;}
+		void SetShadowMapBiasMul(float afX){ mfShadowMapBiasMul = afX;}
+		void SetShadowMapSlopeScaleBiasMul(float afX){ mfShadowMapSlopeScaleBiasMul = afX;}
+		
+		virtual void SetIntensity(float afX);
 		float GetIntensity(){return mfIntensity;}
 
-		void SetRadius(float afX);
+		virtual void SetRadius(float afX);
 		float GetRadius() { return mfRadius; }
 
 		void SetSourceRadius(float afX);
@@ -178,67 +223,48 @@ namespace hpl {
 
 		void SetWorld(cWorld *apWorld){ mpWorld = apWorld;}
 
-		//////////////////////////
-		// Spot-light API (valid when the light holds cLightSpotData) — derived
-		// state and resources; the parameters live in cLightSpotData.
-		const cMatrixf& GetViewProjMatrix();
-
-		// Falls back to intensity when no radius is authored (PBR maps derive
-		// reach from intensity) so code-created spots never get a zero far plane.
-		float GetReach() const { return mfRadius > 0.f ? mfRadius : mfIntensity; }
-
-		cFrustum* GetFrustum();
-
-		void SetSpotFalloffMap(Image* apImage);
-		Image* GetSpotFalloffImage() const;
-
-		bool CollidesWithBV(cBoundingVolume *apBV) override;
-		bool CollidesWithFrustum(cFrustum *apFrustum) override;
 
 	protected:
 		void OnFlickerOff();
 		void OnFlickerOn();
+		void OnSetDiffuse();
 
-		void UpdateBoundingVolume();
-
-		// Lazily rebuilds cached per-type derived state (spot matrices/frustum);
-		// cheap no-op when nothing changed, so getters call it freely. Dispatches
-		// on the active alternative — adding a light type means adding a data
-		// struct to tLightData plus one UpdateData overload.
-		void UpdateLightData(){ std::visit([this](const auto& aData){ UpdateData(aData); }, mLightData); }
-
-		void UpdateData(const cLightPointData& aData){}
-		void UpdateData(const cLightSpotData& aData);
-		void UpdateData(const cLightBoxData& aData){}
-
-		tLightData mLightData;
-
-		// Spot derived caches + resource (valid when holding cLightSpotData).
-		cMatrixf m_mtxViewProj;
-		cFrustum *mpFrustum = nullptr;
-		ImageResourceWrapper m_spotFalloffMap;
-		// Transform count the caches were last built against; -1 forces a rebuild
-		// (the entity count never goes negative), so projection-parameter changes
-		// (FOV/aspect/near/reach) just reset it instead of tracking their own dirty.
-		int mlBuiltTransform = -1;
+        virtual void ExtraXMLProperties(TiXmlElement *apMainElem){}
+		virtual void UpdateBoundingVolume()=0;
+		
+		eLightType mLightType;
 
 		cTextureManager *mpTextureManager;
+		cFileSearcher *mpFileSearcher;
 		cWorld *mpWorld;
 
 		// Image* texture storage.
+		ImageResourceWrapper m_falloffMap;
 		ImageResourceWrapper m_goboImage;
 
 		eShadowMapResolution mShadowMapResolution;
+		float mfShadowMapBlurAmount;
+		bool mbOcclusionCullShadowCasters;
+
+		cVisibleRCNodeTracker *mpVisibleNodeTracker;
+
+		std::vector<cLightBillboardConnection> mvBillboards;
 
 		cColor mDiffuseColor;
 		cColor mDefaultDiffuseColor;
 
+		cColor mSpecularColor;
 		float mfIntensity;
 		float mfRadius;
 		float mfSourceRadius;
 
 		bool mbCastShadows;
 		tObjectVariabilityFlag mlShadowCastersAffected;
+
+		tShadowCasterCacheMap m_mapShadowCasterCache;
+
+		float mfShadowMapBiasMul;
+		float mfShadowMapSlopeScaleBiasMul;
 
 		///////////////////////////
 		//Fading.
@@ -277,12 +303,5 @@ namespace hpl {
 
 	typedef std::list<iLight*> tLightList;
 	typedef tLightList::iterator tLightListIt;
-
-	// The light kinds were flattened into the single concrete iLight (which
-	// holds per-type state in a variant). These aliases remain for source
-	// compatibility; construct via cWorld::CreateLightPoint/Spot/Box.
-	using cLightPoint = iLight;
-	using cLightSpot = iLight;
-	using cLightBox = iLight;
 };
 #endif // HPL_LIGHT_H

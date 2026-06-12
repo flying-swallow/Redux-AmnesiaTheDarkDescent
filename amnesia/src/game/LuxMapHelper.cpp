@@ -572,7 +572,7 @@ float cLuxMapHelper::GetLightLevelAtPos(const cVector3f& avPos, std::vector<iLig
 		
 		///////////////////////////
 		//Box light
-		if(std::holds_alternative<cLightBoxData>(pLight->GetLightData()))
+		if(pLight->GetLightType() == eLightType_Box)
 		{
 			fLightLevel += GetMaxRGB(pLight->GetDiffuseColor());
 		}
@@ -581,7 +581,7 @@ float cLuxMapHelper::GetLightLevelAtPos(const cVector3f& avPos, std::vector<iLig
 		else
 		{
 			//Check line of sight
-			if(	std::holds_alternative<cLightSpotData>(pLight->GetLightData()) && pLight->GetCastShadows() &&
+			if(	pLight->GetLightType() == eLightType_Spot && pLight->GetCastShadows() &&
 				CheckLineOfSight(pLight->GetWorldPosition(),avPos, true)==false)
 			{
 				continue;
@@ -650,12 +650,19 @@ void cLuxMapHelper::GetLightsAtNode(iRenderableContainerNode *apNode, tLightList
 			bool bAdd = false;
 
 			iLight *pLight = static_cast<iLight*>(pObject);
-			if(std::holds_alternative<cLightBoxData>(pLight->GetLightData()))
+			switch(pLight->GetLightType())
+			{
+			case eLightType_Box:
 				bAdd = cMath::CheckPointInBVIntersection(avPos, *pLight->GetBoundingVolume());
-			else if(std::holds_alternative<cLightSpotData>(pLight->GetLightData()))
-				bAdd = pLight->GetFrustum()->CollidePoint(avPos);
-			else // point
+				break;
+			case eLightType_Point:
 				bAdd = cMath::CheckPointInSphereIntersection(avPos, pLight->GetWorldPosition(), pLight->GetIntensity());
+				break;
+			case eLightType_Spot:
+				cLightSpot *pSpotLight = static_cast<cLightSpot*>(pLight);
+				bAdd = pSpotLight->GetFrustum()->CollidePoint(avPos);
+				break;
+			}
 
 			if(bAdd) alstLights.push_back(pLight);
 		}

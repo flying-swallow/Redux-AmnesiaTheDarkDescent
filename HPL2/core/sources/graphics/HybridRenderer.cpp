@@ -31,6 +31,8 @@
 #include "scene/Decal.h"
 #include "scene/FogArea.h"
 #include "scene/Light.h"
+#include "scene/LightBox.h"
+#include "scene/LightSpot.h"
 #include "scene/ParticleEmitter.h"
 #include "scene/RenderableContainer.h"
 #include "scene/World.h"
@@ -724,7 +726,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   size_t num_point_lights = 0;
   for (iLight *pLight : lights) {
-    if (!std::holds_alternative<cLightPointData>(pLight->GetLightData()))
+    if (pLight->GetLightType() != eLightType_Point)
       continue;
     if (num_point_lights >= kPointSlotLightCapacity) {
       Warning("Point-light slot capacity exhausted; dropping remaining lights");
@@ -796,13 +798,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // TRANSFER_WRITE ↔ SHADER_READ barrier, so no extra barrier needed here.
   size_t num_spot_lights = 0;
   for (iLight *pLight : lights) {
-    const cLightSpotData *spot = std::get_if<cLightSpotData>(&pLight->GetLightData());
-    if (!spot)
+    if (pLight->GetLightType() != eLightType_Spot)
       continue;
     if (num_spot_lights >= kSpotSlotLightCapacity) {
       Warning("Spot-light slot capacity exhausted; dropping remaining lights");
       break;
     }
+    cLightSpot *pSpot = static_cast<cLightSpot *>(pLight);
     SpotLight sl{};
     sl.type = LIGHT_TYPE_SPOT;
     const cVector3f pos = pLight->GetWorldPosition();
@@ -823,7 +825,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         sl.direction[2] /= len;
       }
     }
-    sl.cosOuterAngle = std::cos(spot->mfFOV * 0.5f);
+    sl.cosOuterAngle = std::cos(pSpot->GetFOV() * 0.5f);
     const cColor c = pLight->GetDiffuseColor();
     sl.color[0] = hpl::sRGBToLinear(c.r);
     sl.color[1] = hpl::sRGBToLinear(c.g);
@@ -835,7 +837,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                              (uint32_t)RI.frameIndex);
     sl.shadowEnabled = pLight->GetCastShadows() ? 1u : 0u;
     const ml::float4x4 vpF4 =
-        cMath::ToFloatTranspose4x4(pLight->GetViewProjMatrix());
+        cMath::ToFloatTranspose4x4(pSpot->GetViewProjMatrix());
     std::memcpy(sl.viewProjection, vpF4.a, sizeof(sl.viewProjection));
     m_global.m_spotLightScratch[num_spot_lights++] = sl;
   }
