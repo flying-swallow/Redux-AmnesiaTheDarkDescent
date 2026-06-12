@@ -172,7 +172,6 @@
     <ClInclude Include="include\graphics\GBufferMRTPipelineDesc.h" />
     <ClInclude Include="include\graphics\GraphicUtils.h" />
     <ClInclude Include="include\graphics\HPLGraphicsConfig.h" />
-    <ClInclude Include="include\graphics\Texture.h" />
     <ClInclude Include="include\graphics\HybridGlobalManagedSet.h" />
     <ClInclude Include="include\graphics\HybridRenderer.h" />
     <ClInclude Include="include\graphics\Image.h" />
@@ -216,7 +215,6 @@
     <ClInclude Include="include\gui\GuiPopUpUIKeyboard.h" />
     <ClInclude Include="include\impl\GamepadSDL.h" />
     <ClInclude Include="include\impl\GamepadXInput.h" />
-    <ClInclude Include="include\impl\SDLTexture.h" />
     <ClInclude Include="include\input\ActionGamepadAxis.h" />
     <ClInclude Include="include\input\ActionGamepadButton.h" />
     <ClInclude Include="include\input\ActionGamepadHat.h" />
@@ -562,7 +560,6 @@
     <ClCompile Include="sources\gui\GuiPopUpUIKeyboard.cpp" />
     <ClCompile Include="sources\impl\GamepadSDL.cpp" />
     <ClCompile Include="sources\impl\GamepadXInput.cpp" />
-    <ClCompile Include="sources\impl\SDLTexture.cpp" />
     <ClCompile Include="sources\impl\VertexBuffer.cpp" />
     <ClCompile Include="sources\input\ActionGamepadAxis.cpp" />
     <ClCompile Include="sources\input\ActionGamepadButton.cpp" />

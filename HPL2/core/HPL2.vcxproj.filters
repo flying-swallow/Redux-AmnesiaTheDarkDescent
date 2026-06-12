@@ -1126,9 +1126,6 @@
     <ClInclude Include="include\gui\GuiGfxElement.h">
       <Filter>Gui</Filter>
     </ClInclude>
-    <ClInclude Include="include\impl\SDLTexture.h">
-      <Filter>Impl\Graphics</Filter>
-    </ClInclude>
     <ClInclude Include="include\graphics\Renderer.h">
       <Filter>Graphics</Filter>
     </ClInclude>
@@ -2051,9 +2048,6 @@
     </ClCompile>
     <ClCompile Include="sources\gui\GuiGfxElement.cpp">
       <Filter>Gui</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\impl\SDLTexture.cpp">
-      <Filter>Impl\Graphics</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>
