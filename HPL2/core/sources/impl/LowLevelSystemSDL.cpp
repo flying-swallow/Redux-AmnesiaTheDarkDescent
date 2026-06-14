@@ -42,11 +42,7 @@
 #include "impl/SqScript.h"
 #include "system/Platform.h"
 
-#if USE_SDL2
-#include "SDL2/SDL.h"
-#else
-#include "SDL/SDL.h"
-#endif
+#include <SDL3/SDL.h>
 
 #include "impl/scriptstring.h"
 
@@ -234,9 +230,6 @@ namespace hpl {
 		if(gpLogMessageCallbackFunc) gpLogMessageCallbackFunc(eLogOutputType_FatalError, sMess.c_str());
 
 #if defined(__APPLE__) || defined(__linux__)
-#if !SDL_VERSION_ATLEAST(2, 0, 0)
-		SDL_WM_GrabInput(SDL_GRAB_OFF);
-#endif
 		SDL_Quit();
 #endif
 		assert(false);

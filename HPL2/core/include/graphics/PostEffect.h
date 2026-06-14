@@ -72,8 +72,8 @@ private:
 struct PostEffectRenderCtx {
     struct RICmd        *cmd;
     struct RIDescriptor *inputSrv;
-    VkImage                outputImage;
-    VkImageView            outputView;
+    struct RITexture     *outputTexture; // backing texture of the output attachment
+    struct RITextureView *outputView;    // attachment view (fed to RIRenderingAttachment)
     uint32_t               width;
     uint32_t               height;
     uint32_t               frameIndex;

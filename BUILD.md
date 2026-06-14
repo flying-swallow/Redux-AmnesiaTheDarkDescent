@@ -1,20 +1,21 @@
 # Building Amnesia64
 
-Amnesia64 uses CMake (>= 3.18) defined in [`CMakeLists.txt`](CMakeLists.txt). The wrapper scripts below cover the common paths so you don't have to remember per-platform build commands.
+Amnesia64 uses CMake (>= 3.18) defined in [`CMakeLists.txt`](CMakeLists.txt), with the per-platform build configurations captured in [`CMakePresets.json`](CMakePresets.json) (generator, build type, RI backend, architecture). The wrapper scripts below cover the common paths so you don't have to remember per-platform build commands — under the hood they drive the CMake presets, which you can also invoke directly (see [§5](#5-cmake-presets-dropping-the-wrappers)).
 
-A Visual Studio solution ([`Amnesia.sln`](Amnesia.sln)) is also shipped as an alternative Windows path — see [README.md](README.md) for details. macOS builds are not yet supported.
+A Visual Studio solution ([`Amnesia.sln`](Amnesia.sln)) is also shipped as an alternative Windows path — see [README.md](README.md) for details.
 
 ## Quick start
 
 One script per platform — pick the one matching your host:
 
-| Host                  | Command                       |
-| --------------------- | ----------------------------- |
-| Linux                 | `./build-linux.sh`            |
-| Linux (containerized) | `./build-linux-docker.sh`     |
-| Windows (PowerShell)  | `.\build-windows.ps1`         |
+| Host                  | Command                       | RI backend |
+| --------------------- | ----------------------------- | ---------- |
+| Linux                 | `./build-linux.sh`            | Vulkan     |
+| macOS                 | `./build-macos.sh`            | Metal      |
+| Linux (containerized) | `./build-linux-docker.sh`     | Vulkan     |
+| Windows (PowerShell)  | `.\build-windows.ps1`         | Vulkan     |
 
-Both default to a release build, init submodules on first run, configure CMake, build, and stage assets via the `deploy` target. Output ends up in `build/bin/`.
+They all default to a release build, init submodules on first run, select the matching CMake preset, build, and stage assets via the `deploy` target. Output ends up in `build/bin/`. The RI rendering backend is chosen by the preset (`ENABLE_VULKAN` / `ENABLE_METAL`) — Vulkan on Linux/Windows, Metal on macOS.
 
 ## 1. Clone the repository
 
@@ -59,7 +60,18 @@ Examples:
 ./build-linux.sh release -- -DUSE_SYSTEM_SDL2=ON -DUSE_GRAPHICS_WAYLAND=OFF
 ```
 
-The script invokes plain CMake with `-DCMAKE_BUILD_TYPE=<Release|Debug>` and forwards any args after `--` straight to the configure step.
+The script selects the `linux-release` / `linux-debug` CMake preset (`cmake --preset … && cmake --build --preset …`) and forwards any args after `--` straight to the configure step.
+
+### macOS (`build-macos.sh`)
+
+Mirrors `build-linux.sh` (same `release|debug`, `--clean`, `--no-deploy`, `--game-dir` flags) but selects the `macos-release` / `macos-debug` presets, which use the **Ninja** generator and build the native **Metal** RI backend (`ENABLE_METAL=ON`) — no Vulkan loader / MoltenVK required.
+
+```bash
+brew install ninja                              # required generator
+./build-macos.sh                                # native release (Metal)
+./build-macos.sh debug --clean
+./build-macos.sh release --game-dir "$HOME/Library/Application Support/Steam/steamapps/common/Amnesia The Dark Descent"
+```
 
 ### Containerized build (`build-linux-docker.sh`)
 
@@ -108,20 +120,39 @@ Run from a *Developer PowerShell for VS 2022* so MSBuild and CMake are on `PATH`
 .\build-windows.ps1 release -- -DUSE_SYSTEM_ZLIB=ON
 ```
 
-The script uses the `Visual Studio 17 2022` generator targeting `x64`. Output goes to `build\bin\`.
+The script selects the `windows` configure preset (VS 17 2022 / x64) and the `windows-release` / `windows-debug` build preset. Output goes to `build\bin\`.
 
-## 5. Native build details (when you want to drop the wrappers)
+## 5. CMake presets (dropping the wrappers)
 
-### Linux
+The wrapper scripts just add submodule init, `--clean`, `--game-dir`, and the `deploy` step around the CMake presets. For IDE integration (VS, VS Code, CLion all read `CMakePresets.json`) or manual builds, use the presets directly:
 
-Dependencies: GCC 10+ or Clang 11+, CMake >= 3.18, GNU Make or Ninja, an assembler (NASM/GAS), plus X11/Wayland headers if those backends are enabled. Bundled dependency sources under `extern/` and `HPL2/dependencies/` cover the rest, so a system-wide install of SDL2/OpenAL/etc. is optional.
+```bash
+cmake --preset macos-debug                 # configure (Ninja, Metal, Debug)
+cmake --build  --preset macos-debug        # build
+cmake --build  --preset macos-debug --target deploy
+```
+
+| Configure preset | Generator           | Backend | Build type |
+| ---------------- | ------------------- | ------- | ---------- |
+| `linux-release` / `linux-debug`   | Unix Makefiles      | Vulkan  | Release / Debug |
+| `macos-release` / `macos-debug`   | Ninja               | Metal   | Release / Debug |
+| `windows`        | Visual Studio 17 2022 (x64) | Vulkan  | (multi-config — pick at build time) |
+
+`cmake --list-presets` shows the configure presets available on your host (the `windows` preset only appears on Windows). Build presets mirror the names (`windows-release` / `windows-debug` select the config for the multi-config VS generator). The game directory stays out of the committed presets — pass it as an extra `-D` (`cmake --preset linux-release -D AMNESIA_GAME_DIRECTORY=...`) or keep personal overrides in a gitignored `CMakeUserPresets.json`. The presets also set `CMAKE_POLICY_VERSION_MINIMUM=3.5` so the older bundled submodules (e.g. vorbis) configure under CMake 4.x; pass that yourself if you bypass the presets.
+
+### Linux dependencies
+
+GCC 10+ or Clang 11+, CMake >= 3.18 (>= 3.21 to use the presets), GNU Make or Ninja, an assembler (NASM/GAS), plus X11/Wayland headers if those backends are enabled. Bundled dependency sources under `extern/` and `HPL2/dependencies/` cover the rest, so a system-wide install of SDL2/OpenAL/etc. is optional.
 
 ### Shader compilers
 
 GLSL shaders (`.vert`, `.frag`, `.comp`, `.rgen`, etc.) compile to SPIR-V via the bundled `glslang` submodule. Slang shaders (`.slang`) compile via a prebuilt `slangc` automatically downloaded from the [Slang releases page](https://github.com/shader-slang/slang/releases) at configure time. Override with `-DSLANGC_EXECUTABLE=/path/to/slangc` (e.g. from the Vulkan SDK) to skip the download and use a local install. The pinned Slang version is set in [`cmake/slang.cmake`](cmake/slang.cmake) (`SLANG_VERSION`).
 
+Fully manual (no preset) — set the backend and the policy-min explicitly:
+
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+      -DENABLE_VULKAN=ON -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
       -DAMNESIA_GAME_DIRECTORY="$HOME/.steam/steam/steamapps/common/Amnesia The Dark Descent"
 cmake --build build -j"$(nproc)"
 cmake --build build --target deploy -j"$(nproc)"
@@ -147,6 +178,8 @@ Defined in [`CMakeLists.txt`](CMakeLists.txt). Pass via `-D<NAME>=<VALUE>` (afte
 | Option                | Default | Purpose                                              |
 | --------------------- | ------- | ---------------------------------------------------- |
 | `AMNESIA_GAME_DIRECTORY` | (see above) | Path to the installed Amnesia: TDD game folder   |
+| `ENABLE_VULKAN`       | ON      | Build the Vulkan RI backend (`DEVICE_SUPPORT_VULKAN`) |
+| `ENABLE_METAL`        | OFF     | Build the Metal RI backend (Apple only). Enable exactly one backend — the renderer compiles one at a time |
 | `USE_GRAPHICS_X11`    | ON      | (Linux) X11 backend                                  |
 | `USE_GRAPHICS_WAYLAND`| ON      | (Linux) Wayland backend                              |
 | `USE_SYSTEM_ZLIB`     | OFF     | Use system zlib instead of bundled                   |

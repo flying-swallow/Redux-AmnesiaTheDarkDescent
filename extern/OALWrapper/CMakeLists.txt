@@ -11,7 +11,7 @@ LIST(APPEND OALWRAPPER_INCLUDE_PATHS
   PRIVATE ${OGG_INCLUDE_DIR}
   PRIVATE ${VORBIS_INCLUDE_DIR}
   PRIVATE ${OPENAL_INCLUDE_DIR}
-  PRIVATE ${SDL2_INCLUDE_DIR}
+  PRIVATE ${SDL3_INCLUDE_DIR}
   PUBLIC include
   )
 
@@ -75,8 +75,6 @@ SET(all_includes
     include//OALWrapper/OAL_WAVSample.h
 )
 
-add_definitions(-DUSE_SDL2)
-
 add_library(OALWrapper STATIC
     ${all_sources}
     ${all_includes}
@@ -87,7 +85,7 @@ TARGET_LINK_LIBRARIES(OALWrapper
     Vorbis::vorbisfile
     Vorbis::vorbis
     OpenAL::OpenAL
-    SDL2::SDL2
+    SDL3::SDL3
 )
 TARGET_INCLUDE_DIRECTORIES(OALWrapper
     ${OALWRAPPER_INCLUDE_PATHS}

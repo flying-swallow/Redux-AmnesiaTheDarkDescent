@@ -35,37 +35,36 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
     // Stage mask shared by every binding the SurfelGI RT pipeline touches —
     // raygen/any-hit/closest-hit/miss all need bindless texture+vertex
     // access for the alpha test, camera-ray reconstruction, and (in Stage E)
-    // material shading inside the path-tracer.
-    const VkShaderStageFlags kRtSharedStages =
-        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-        VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR |
-        VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-        VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR;
+    // material shading inside the path-tracer. (Neutral RIShaderStageBits_e;
+    // Vulkan reads them as stage visibility, Metal ignores them.)
+    const uint32_t kRtSharedStages =
+        RI_SHADER_STAGE_VERTEX | RI_SHADER_STAGE_FRAGMENT |
+        RI_SHADER_STAGE_COMPUTE | RI_SHADER_STAGE_RAYGEN |
+        RI_SHADER_STAGE_CLOSEST_HIT | RI_SHADER_STAGE_ANY_HIT |
+        RI_SHADER_STAGE_MISS;
     // textures_2d[] — sampled by the gbuffer, the composite, and the SurfelGI
     // RT pipeline (any-hit alpha test + closest-hit albedo).
     bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingTextures2D, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+        kBindingTextures2D, RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
         kTextureSlotCapacity, kRtSharedStages,
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
-            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT});
+        RI_BINDLESS_PARTIALLY_BOUND | RI_BINDLESS_UPDATE_AFTER_BIND});
     // textures_cube[] — point-light gobos + env maps; also sampled by the RT
     // pipeline's miss shader (env-light contribution).
     bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingTexturesCube, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+        kBindingTexturesCube, RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
         kTextureSlotCapacity, kRtSharedStages,
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
-            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT});
+        RI_BINDLESS_PARTIALLY_BOUND | RI_BINDLESS_UPDATE_AFTER_BIND});
     // opaque*Handles bindings 3..8 — vertex pulling for the gbuffer VS,
     // triangle fetch in the composite, and barycentric hit fetches in the RT
     // pipeline.
     for (uint32_t i = 0; i < 6; ++i) {
       bindings.push_back(RIBindlessDescriptorSet::Binding{
           kBindingOpaquePositionHandles + i,
-          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kRtSharedStages, 0});
+          RI_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kRtSharedStages, 0});
     }
     // materialSampler — paired with textures_2d at every sample site.
     bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingMaterialSampler, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
+        kBindingMaterialSampler, RI_DESCRIPTOR_TYPE_SAMPLER, 1,
         kRtSharedStages, 0});
     // SurfelGI SSBOs. Reachable from compute, ray-tracing, and fragment stages
     // (the update/raytrace passes, the VBuffer/RT raygen, and the composite).
@@ -81,13 +80,13 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
         kBindingLightGridCount,         kBindingLightGridList,
         kBindingObjectDecalIndices,
     };
-    const VkShaderStageFlags kSurfelStageFlags =
-        VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-        VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-        VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR;
+    const uint32_t kSurfelStageFlags =
+        RI_SHADER_STAGE_COMPUTE | RI_SHADER_STAGE_FRAGMENT |
+        RI_SHADER_STAGE_RAYGEN | RI_SHADER_STAGE_CLOSEST_HIT |
+        RI_SHADER_STAGE_ANY_HIT | RI_SHADER_STAGE_MISS;
     for (uint32_t b : kSurfelCellBindings) {
       bindings.push_back(RIBindlessDescriptorSet::Binding{
-          b, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kSurfelStageFlags, 0});
+          b, RI_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kSurfelStageFlags, 0});
     }
     // Scene-object + diffuse-material tables. Read by the gbuffer, the
     // composite, and the RT pipeline's hit shaders.
@@ -97,105 +96,79 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
     };
     for (uint32_t b : kSceneTableBindings) {
       bindings.push_back(RIBindlessDescriptorSet::Binding{
-          b, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kRtSharedStages, 0});
+          b, RI_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kRtSharedStages, 0});
     }
     // Point/spot-light SSBOs — read by the composite and the path-tracer (NEE).
     bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingPointLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+        kBindingPointLights, RI_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
         kRtSharedStages, 0});
     bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingSpotLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+        kBindingSpotLights, RI_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
         kRtSharedStages, 0});
     bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingFogAreas, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+        kBindingFogAreas, RI_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
         kRtSharedStages, 0});
     bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingDecals, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+        kBindingDecals, RI_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
         kRtSharedStages, 0});
     bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingWaterMaterial, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+        kBindingWaterMaterial, RI_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
         kRtSharedStages, 0});
     bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingTranslucentMaterial, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+        kBindingTranslucentMaterial, RI_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
         kRtSharedStages, 0});
 
     // gSurfelDepthSampler stays on set 0 — immutable, never collides with the
     // in-flight frame. The surfel images + TLAS live on set 1 instead, pushed
     // per-dispatch from a frame-rotated pool (see RIProgram::bindDescriptors).
     bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingSurfelDepthSampler, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
-        VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-            VK_SHADER_STAGE_RAYGEN_BIT_KHR |
-            VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-            VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
-        0});
+        kBindingSurfelDepthSampler, RI_DESCRIPTOR_TYPE_SAMPLER, 1,
+        kSurfelStageFlags, 0});
 
     // Default light falloff LUT (core_falloff_linear) — one immutable sampled
     // image on set 0, written once at init; replaces the per-light bindless
     // resolve of the attenuation texture.
     bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingAttenuationLut, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
-        VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-            VK_SHADER_STAGE_RAYGEN_BIT_KHR |
-            VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-            VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
-        0});
+        kBindingAttenuationLut, RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+        kSurfelStageFlags, 0});
 
     // core_dissolve noise — one immutable sampled image on set 0, written once
     // at init. UV-sampled by the shared SceneMaterials.alphaTest in every
     // alpha-testing context (gbuffer FS, V-buffer / surfel anyhit, shadow and
     // reflection RayQuery loops) — the legacy solid_z dissolve fade.
     bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingDissolveMap, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
-        VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-            VK_SHADER_STAGE_RAYGEN_BIT_KHR |
-            VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-            VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
-        0});
+        kBindingDissolveMap, RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
+        kSurfelStageFlags, 0});
 
-    VkDescriptorPoolSize poolSizes[3] = {};
-    // Sampled-image budget covers textures_2d[] + textures_cube[] + the
-    // global attenuation LUT + the dissolve noise map.
-    poolSizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                                        kTextureSlotCapacity * 2 + 2};
-    // Storage-buffer pool budget: 6 opaque*Handles + 17 surfel/cell bindings
-    // (kSurfelCellBindings, incl. kBindingSurfelBounds, the two slot-generation
-    // buffers, and the two light-grid buffers) + 2 scene/material + 3 light
-    // SSBOs + 1 fog-area + 1 water-material + 3 decal (gDecals + the two decal-
-    // grid buffers) = 33. Round up to 40 for slack.
-    poolSizes[1] =
-        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 40};
-    // Two samplers: gMaterialSampler + gSurfelDepthSampler.
-    poolSizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLER, 2};
-
-    m_bindlessSet.initialize(device, bindings, poolSizes);
+    // Pool sizes are derived from the bindings inside initialize().
+    m_bindlessSet.initialize(device, bindings);
   }
 
-  const VkBufferUsageFlags kStorage =
-      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-      VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-      VK_BUFFER_USAGE_TRANSFER_SRC_BIT;  // surfelValid→surfelDirty ping-pong copy
+  const uint32_t kStorage =
+      RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE |
+      RI_BUFFER_USAGE_TRANSFER_DST |
+      RI_BUFFER_USAGE_TRANSFER_SRC;  // surfelValid→surfelDirty ping-pong copy
   m_objectBuffer = detail::CreateBindlessSlotBuffer(
       device, kObjectSlotCapacity, sizeof(UniformObject), kStorage,
-      /*deviceLocalOnly*/ true);
+      RI_MEMORY_DEVICE);
   m_opaquePositionHandles = detail::CreateBindlessSlotBuffer(
-      device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
-      /*deviceLocalOnly*/ true);
+      device, kObjectSlotCapacity, sizeof(RIDeviceSize), kStorage,
+      RI_MEMORY_DEVICE);
   m_opaqueTangentHandles = detail::CreateBindlessSlotBuffer(
-      device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
-      /*deviceLocalOnly*/ true);
+      device, kObjectSlotCapacity, sizeof(RIDeviceSize), kStorage,
+      RI_MEMORY_DEVICE);
   m_opaqueNormalHandles = detail::CreateBindlessSlotBuffer(
-      device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
-      /*deviceLocalOnly*/ true);
+      device, kObjectSlotCapacity, sizeof(RIDeviceSize), kStorage,
+      RI_MEMORY_DEVICE);
   m_opaqueUv0Handles = detail::CreateBindlessSlotBuffer(
-      device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
-      /*deviceLocalOnly*/ true);
+      device, kObjectSlotCapacity, sizeof(RIDeviceSize), kStorage,
+      RI_MEMORY_DEVICE);
   m_opaqueColorHandles = detail::CreateBindlessSlotBuffer(
-      device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
-      /*deviceLocalOnly*/ true);
+      device, kObjectSlotCapacity, sizeof(RIDeviceSize), kStorage,
+      RI_MEMORY_DEVICE);
   m_opaqueIndexHandles = detail::CreateBindlessSlotBuffer(
-      device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
-      /*deviceLocalOnly*/ true);
+      device, kObjectSlotCapacity, sizeof(RIDeviceSize), kStorage,
+      RI_MEMORY_DEVICE);
 
   // === SurfelGI SSBOs ===
   // Sizes from the kSurfel* / kCell* / kRayBudget constants:
@@ -223,7 +196,7 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
 
   m_surfelCounterBuffer = detail::CreateBindlessSlotBuffer(
       device, kSurfelCounterSlotCount, sizeof(uint32_t), kStorage,
-      /*deviceLocalOnly*/ true);
+      RI_MEMORY_DEVICE);
   m_surfelBuffer = detail::CreateBindlessSlotBuffer(
       device, kTotalSurfelLimit, sizeof(Surfel), kStorage);
   m_surfelGeometryBuffer = detail::CreateBindlessSlotBuffer(
@@ -256,10 +229,10 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
   // so no host seeding / mapping is needed (deviceLocalOnly).
   m_lightGridCountBuffer = detail::CreateBindlessSlotBuffer(
       device, kLightGridCellCount, sizeof(uint32_t), kStorage,
-      /*deviceLocalOnly*/ true);
+      RI_MEMORY_DEVICE);
   m_lightGridListBuffer = detail::CreateBindlessSlotBuffer(
       device, kLightGridCellCount * kLightsPerCellMax, sizeof(uint32_t),
-      kStorage, /*deviceLocalOnly*/ true);
+      kStorage, RI_MEMORY_DEVICE);
   // (Per-object decal index pool m_objectDecalIndexBuffer is created with the
   // other host-uploaded SSBOs below, alongside m_decalBuffer.)
 
@@ -286,7 +259,7 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
   // captures a matching value and 0 can never alias a live slot.
   m_bindlessSlotGenerationBuffer = detail::CreateBindlessSlotBuffer(
       device, kObjectSlotCapacity, sizeof(uint32_t), kStorage,
-      /*deviceLocalOnly*/ true);
+      RI_MEMORY_DEVICE);
   m_surfelSlotGenerationBuffer = detail::CreateBindlessSlotBuffer(
       device, kTotalSurfelLimit, sizeof(uint32_t), kStorage);
   // m_bindlessSlotGenerationBuffer is now device-local (no mappedAddress); the
@@ -302,12 +275,12 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
   // dirty range once per frame. markAllDirty() seeds the device buffers from
   // the zeroed shadow on the first frame, giving a clean device == mirror
   // invariant for every slot.
-  m_opaquePositionMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
-  m_opaqueTangentMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
-  m_opaqueNormalMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
-  m_opaqueUv0Mirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
-  m_opaqueColorMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
-  m_opaqueIndexMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+  m_opaquePositionMirror.init(kObjectSlotCapacity, sizeof(RIDeviceSize));
+  m_opaqueTangentMirror.init(kObjectSlotCapacity, sizeof(RIDeviceSize));
+  m_opaqueNormalMirror.init(kObjectSlotCapacity, sizeof(RIDeviceSize));
+  m_opaqueUv0Mirror.init(kObjectSlotCapacity, sizeof(RIDeviceSize));
+  m_opaqueColorMirror.init(kObjectSlotCapacity, sizeof(RIDeviceSize));
+  m_opaqueIndexMirror.init(kObjectSlotCapacity, sizeof(RIDeviceSize));
   m_bindlessSlotGenerationMirror.init(kObjectSlotCapacity, sizeof(uint32_t));
   m_opaquePositionMirror.markAllDirty();
   m_opaqueTangentMirror.markAllDirty();
@@ -331,40 +304,21 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
   // Draw() stages through RI.uploader rather than memcpy'ing into mapped memory
   // the GPU may still be reading from a prior frame.
   {
-    uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-    VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    VK_ConfigureBufferQueueFamilies(&bci, device->queues, RI_QUEUE_LEN,
-                                    queueFamilies, RI_QUEUE_LEN);
-    bci.usage =
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
-    VmaAllocationCreateInfo aci = {};
-    aci.usage = VMA_MEMORY_USAGE_AUTO;
-
-    bci.size = (VkDeviceSize)kPointSlotLightCapacity * sizeof(PointLight);
-    VK_WrapResult(vmaCreateBuffer(
-        device->vk.vmaAllocator, &bci, &aci, &m_pointLightBuffer.vk.buffer,
-        &m_pointLightBuffer.vk.allocation, nullptr));
-
-    bci.size = (VkDeviceSize)kSpotSlotLightCapacity * sizeof(SpotLight);
-    VK_WrapResult(vmaCreateBuffer(device->vk.vmaAllocator, &bci, &aci,
-                                  &m_spotLightBuffer.vk.buffer,
-                                  &m_spotLightBuffer.vk.allocation, nullptr));
-
-    bci.size = (VkDeviceSize)kFogAreaCapacity * sizeof(FogAreaParams);
-    VK_WrapResult(vmaCreateBuffer(device->vk.vmaAllocator, &bci, &aci,
-                                  &m_fogAreaBuffer.vk.buffer,
-                                  &m_fogAreaBuffer.vk.allocation, nullptr));
-
-    bci.size = (VkDeviceSize)kMaxDecals * sizeof(GpuDecal);
-    VK_WrapResult(vmaCreateBuffer(device->vk.vmaAllocator, &bci, &aci,
-                                  &m_decalBuffer.vk.buffer,
-                                  &m_decalBuffer.vk.allocation, nullptr));
-
-    bci.size = (VkDeviceSize)kMaxObjectDecalIndices * sizeof(uint32_t);
-    VK_WrapResult(vmaCreateBuffer(device->vk.vmaAllocator, &bci, &aci,
-                                  &m_objectDecalIndexBuffer.vk.buffer,
-                                  &m_objectDecalIndexBuffer.vk.allocation, nullptr));
+    // Device-local; filled per-frame via RI.uploader, never host-mapped.
+    const uint32_t kLightUsage =
+        RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE | RI_BUFFER_USAGE_TRANSFER_DST;
+    auto makeDeviceBuffer = [&](uint64_t size) {
+      RIBufferDesc desc = {};
+      desc.size = size;
+      desc.usage = kLightUsage;
+      desc.location = RI_MEMORY_DEVICE;
+      return RIBuffer::create(device, desc);
+    };
+    m_pointLightBuffer = makeDeviceBuffer((uint64_t)kPointSlotLightCapacity * sizeof(PointLight));
+    m_spotLightBuffer = makeDeviceBuffer((uint64_t)kSpotSlotLightCapacity * sizeof(SpotLight));
+    m_fogAreaBuffer = makeDeviceBuffer((uint64_t)kFogAreaCapacity * sizeof(FogAreaParams));
+    m_decalBuffer = makeDeviceBuffer((uint64_t)kMaxDecals * sizeof(GpuDecal));
+    m_objectDecalIndexBuffer = makeDeviceBuffer((uint64_t)kMaxObjectDecalIndices * sizeof(uint32_t));
   }
 
   m_diffuseMaterialBindless.reset(kSolidMaterialCapacity);
@@ -372,17 +326,17 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
   m_waterMaterialBindless.reset(kWaterMaterialCapacity);
   m_diffuseMaterialBuffer = detail::CreateBindlessSlotBuffer(
       device, kSolidMaterialCapacity, sizeof(DiffuseMaterial), kStorage,
-      /*deviceLocalOnly*/ true);
+      RI_MEMORY_DEVICE);
   // Compact typed SSBOs for the translucent and water partitions of the
   // continuous material-id space. submitMaterial allocates a local slot from the
   // matching pool and stores (rangeBase + localSlot) in UniformObject.materialID;
   // the shaders de-bias with (materialID - rangeBase). See Constants.h ranges.
   m_translucentMaterialBuffer = detail::CreateBindlessSlotBuffer(
       device, kTranslucentMaterialCapacity, sizeof(TranslucentMaterial), kStorage,
-      /*deviceLocalOnly*/ true);
+      RI_MEMORY_DEVICE);
   m_waterMaterialBuffer = detail::CreateBindlessSlotBuffer(
       device, kWaterMaterialCapacity, sizeof(WaterMaterial), kStorage,
-      /*deviceLocalOnly*/ true);
+      RI_MEMORY_DEVICE);
 
   // Default linear/wrap sampler for all bindless texture fetches. The
   // engine's filter cache (RIBootstrap::resolve_filter_descriptor) hands
@@ -393,12 +347,12 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
       eTextureFilter_Trilinear);
 
   {
-    const VkDeviceSize kOpaqueHandleRange =
-        kObjectSlotCapacity * sizeof(VkDeviceAddress);
+    const RIDeviceSize kOpaqueHandleRange =
+        kObjectSlotCapacity * sizeof(RIDeviceSize);
     const struct {
       uint32_t binding;
       RIBuffer *buffer;
-      VkDeviceSize range;
+      RIDeviceSize range;
     } ssbos[] = {
         {kBindingOpaquePositionHandles, &m_opaquePositionHandles,
          kOpaqueHandleRange},
@@ -470,10 +424,9 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
     for (uint32_t i = 0; i < std::size(ssbos); ++i) {
       writes[count].binding = ssbos[i].binding;
       writes[count].arrayElement = 0;
-      writes[count].descriptor.vk.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      writes[count].descriptor.vk.buffer.buffer = ssbos[i].buffer->vk.buffer;
-      writes[count].descriptor.vk.buffer.offset = 0;
-      writes[count].descriptor.vk.buffer.range = ssbos[i].range;
+      writes[count].descriptor =
+          RIDescriptor::storageBuffer(device, ssbos[i].buffer, 0, ssbos[i].range,
+                                      hash_u64(HASH_INITIAL_VALUE, ssbos[i].binding));
       count++;
     }
     writes[count].binding = kBindingMaterialSampler;
@@ -502,12 +455,8 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
     if (auto lutTex = m_attenuationLut ? m_attenuationLut->GetTexture() : nullptr) {
       writes[count].binding = kBindingAttenuationLut;
       writes[count].arrayElement = 0;
-      writes[count].descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-      writes[count].descriptor.vk.image.sampler = VK_NULL_HANDLE;
-      writes[count].descriptor.vk.image.imageView =
-          lutTex->binding.vk.image.imageView;
-      writes[count].descriptor.vk.image.imageLayout =
-          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      // The texture's own sampled-image binding descriptor is exactly what we want.
+      writes[count].descriptor = lutTex->binding;
       count++;
     } else {
       Warning("Failed to load core_falloff_linear; light attenuation LUT unbound\n");
@@ -520,12 +469,7 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
     if (auto disTex = m_dissolveMap ? m_dissolveMap->GetTexture() : nullptr) {
       writes[count].binding = kBindingDissolveMap;
       writes[count].arrayElement = 0;
-      writes[count].descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-      writes[count].descriptor.vk.image.sampler = VK_NULL_HANDLE;
-      writes[count].descriptor.vk.image.imageView =
-          disTex->binding.vk.image.imageView;
-      writes[count].descriptor.vk.image.imageLayout =
-          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      writes[count].descriptor = disTex->binding;
       count++;
     } else {
       Warning("Failed to load core_dissolve.tga; dissolve fade unbound\n");
@@ -557,11 +501,7 @@ uint32_t HybridGlobalManagedSet::resolveTextureSlot(
     RIBindlessDescriptorSet::WriteBinding binding = {};
     binding.binding = 0;
     binding.arrayElement = req.id;
-    binding.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    binding.descriptor.vk.image.sampler = VK_NULL_HANDLE;
-    binding.descriptor.vk.image.imageView = texture->binding.vk.image.imageView;
-    binding.descriptor.vk.image.imageLayout =
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    binding.descriptor = texture->binding;
     m_bindlessSet.writeDescriptors(&RI.device, {&binding, 1});
   }
   return req.id;
@@ -588,11 +528,7 @@ uint32_t HybridGlobalManagedSet::resolveCubeTextureSlot(
     RIBindlessDescriptorSet::WriteBinding binding = {};
     binding.binding = kBindingTexturesCube;
     binding.arrayElement = req.id;
-    binding.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    binding.descriptor.vk.image.sampler = VK_NULL_HANDLE;
-    binding.descriptor.vk.image.imageView = texture->binding.vk.image.imageView;
-    binding.descriptor.vk.image.imageLayout =
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    binding.descriptor = texture->binding;
     m_bindlessSet.writeDescriptors(&RI.device, {&binding, 1});
   }
   return req.id;
@@ -836,30 +772,30 @@ uint32_t HybridGlobalManagedSet::submitObject(uint64_t objectCookie,
   // Rewritten every frame: a SubmitToGPU realloc hands back a new device address,
   // so a once-only write would leave a slot pointing at a freed buffer.
   if (vb && (flags & (kSubmitVertex | kSubmitIndex))) {
-    auto bdaOf = [&](eVertexBufferElement type) -> VkDeviceAddress {
+    auto bdaOf = [&](eVertexBufferElement type) -> RIDeviceSize {
       const auto *element = vb->GetElement(type);
       return (element && element->buffer)
                  ? element->buffer->GetDeviceHandle(&RI.device)
                  : 0;
     };
     if (flags & kSubmitVertex) {
-      m_opaquePositionMirror.write<VkDeviceAddress>(
+      m_opaquePositionMirror.write<RIDeviceSize>(
           slot, bdaOf(eVertexBufferElement_Position));
-      m_opaqueNormalMirror.write<VkDeviceAddress>(
+      m_opaqueNormalMirror.write<RIDeviceSize>(
           slot, bdaOf(eVertexBufferElement_Normal));
-      m_opaqueTangentMirror.write<VkDeviceAddress>(
+      m_opaqueTangentMirror.write<RIDeviceSize>(
           slot, bdaOf(eVertexBufferElement_Texture1Tangent));
-      m_opaqueColorMirror.write<VkDeviceAddress>(
+      m_opaqueColorMirror.write<RIDeviceSize>(
           slot, bdaOf(eVertexBufferElement_Color0));
-      m_opaqueUv0Mirror.write<VkDeviceAddress>(
+      m_opaqueUv0Mirror.write<RIDeviceSize>(
           slot, bdaOf(eVertexBufferElement_Texture0));
     }
     if (flags & kSubmitIndex) {
-      const VkDeviceAddress idxAddr =
+      const RIDeviceSize idxAddr =
           vb->GetIndexRIBuffer()
               ? vb->GetIndexRIBuffer()->GetDeviceHandle(&RI.device)
               : 0;
-      m_opaqueIndexMirror.write<VkDeviceAddress>(slot, idxAddr);
+      m_opaqueIndexMirror.write<RIDeviceSize>(slot, idxAddr);
     }
   }
   return slot;
@@ -907,41 +843,20 @@ void HybridGlobalManagedSet::flushMirrors(RIDevice *device) {
 }
 
 void HybridGlobalManagedSet::destroy(RIDevice *device) {
-  if (m_pointLightBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_pointLightBuffer.vk.buffer,
-                     m_pointLightBuffer.vk.allocation);
-    m_pointLightBuffer = {};
-  }
-  if (m_lightGridCountBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_lightGridCountBuffer.vk.buffer,
-                     m_lightGridCountBuffer.vk.allocation);
-    m_lightGridCountBuffer = {};
-  }
-  if (m_lightGridListBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_lightGridListBuffer.vk.buffer,
-                     m_lightGridListBuffer.vk.allocation);
-    m_lightGridListBuffer = {};
-  }
-  if (m_spotLightBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_spotLightBuffer.vk.buffer,
-                     m_spotLightBuffer.vk.allocation);
-    m_spotLightBuffer = {};
-  }
-  if (m_fogAreaBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_fogAreaBuffer.vk.buffer,
-                     m_fogAreaBuffer.vk.allocation);
-    m_fogAreaBuffer = {};
-  }
-  if (m_decalBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_decalBuffer.vk.buffer,
-                     m_decalBuffer.vk.allocation);
-    m_decalBuffer = {};
-  }
-  if (m_objectDecalIndexBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_objectDecalIndexBuffer.vk.buffer,
-                     m_objectDecalIndexBuffer.vk.allocation);
-    m_objectDecalIndexBuffer = {};
-  }
+  m_pointLightBuffer.dispose(device);
+  m_pointLightBuffer = {};
+  m_lightGridCountBuffer.dispose(device);
+  m_lightGridCountBuffer = {};
+  m_lightGridListBuffer.dispose(device);
+  m_lightGridListBuffer = {};
+  m_spotLightBuffer.dispose(device);
+  m_spotLightBuffer = {};
+  m_fogAreaBuffer.dispose(device);
+  m_fogAreaBuffer = {};
+  m_decalBuffer.dispose(device);
+  m_decalBuffer = {};
+  m_objectDecalIndexBuffer.dispose(device);
+  m_objectDecalIndexBuffer = {};
   m_bindlessSet.destroy(device);
 }
 

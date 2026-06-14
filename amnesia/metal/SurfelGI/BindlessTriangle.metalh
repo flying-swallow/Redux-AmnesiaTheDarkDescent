@@ -1,0 +1,99 @@
+#pragma once
+// Mirrors amnesia/slang/SurfelGI/BindlessTriangle.slang (+ HitInfo helpers) —
+// fetches a triangle's three vertices through the buffer-device-address handles
+// in Set0 and interpolates them to world space (Scene.getVertexData). Flattened
+// into each .metal at stage time by cmake/flatten_metal_includes.py.
+//
+// IMPORTANT: this header references `device Set0&`, so it must be #included
+// AFTER the including file's `struct Set0` definition (not next to SceneTypes).
+// SceneTypes.metalh (MatStorage / HitInfo / TriangleHit / VertexData / UniformObject)
+// must already be included.
+
+struct TriVtx { float3 posL[3]; float3 normalL[3]; float4 tangentL[3]; float2 uv[3]; };
+
+// Reconstruct the column-major float4x4 from MatStorage exactly as the Slang
+// lowering does (transpose of the stored data), then transform row-vector style.
+// A single by-value overload serves every call site: the RT pass passes a copied
+// (thread) MatStorage, the compute passes index a device buffer (MSL copies the
+// device value into the parameter). NOTE: a second `device const MatStorage&`
+// overload was deliberately NOT added — given a device lvalue the value and
+// device-ref overloads are ambiguous to the Metal compiler, so only one is kept.
+static float4x4 loadMat(MatStorage m) {
+    return float4x4(m.data[0][0], m.data[1][0], m.data[2][0], m.data[3][0],
+                    m.data[0][1], m.data[1][1], m.data[2][1], m.data[3][1],
+                    m.data[0][2], m.data[1][2], m.data[2][2], m.data[3][2],
+                    m.data[0][3], m.data[1][3], m.data[2][3], m.data[3][3]);
+}
+
+// --- HitInfo packing ---------------------------------------------------------
+static bool hitIsValid(HitInfo h) { return any(h.packed != uint4(0u)); }
+static TriangleHit getTriangleHit(uint4 packed) {
+    TriangleHit t; t.instanceID = packed.x; t.primitiveIndex = packed.y;
+    uint z = packed.z;
+    t.barycentrics = float2(as_type<half>((ushort)(z & 0xFFFFu)), as_type<half>((ushort)((z >> 16u) & 0xFFFFu)));
+    return t;
+}
+static TriangleHit getTriangleHit(HitInfo h) { return getTriangleHit(h.packed); }
+static uint4 packTriangleHit(TriangleHit h) {
+    uint bx = uint(as_type<ushort>(half(h.barycentrics.x)));
+    uint by = uint(as_type<ushort>(half(h.barycentrics.y)));
+    return uint4(h.instanceID, h.primitiveIndex, bx | (by << 16), 0u);
+}
+
+// --- bindless triangle fetch + interpolation ---------------------------------
+static void fetchBindlessTriangle(uint instanceId, uint primId, thread TriVtx& vtx, device Set0& set0) {
+    ulong indexAddr = set0.gOpaqueIndexHandles[instanceId];
+    ulong posAddr   = set0.gOpaquePositionHandles[instanceId];
+    ulong nrmAddr   = set0.gOpaqueNormalHandles[instanceId];
+    ulong tanAddr   = set0.gOpaqueTangentHandles[instanceId];
+    ulong uvAddr    = set0.gOpaqueUv0Handles[instanceId];
+
+    uint idxBase = primId * 3u;
+    uint3 tri = uint3(idxBase, idxBase + 1u, idxBase + 2u);
+    if (indexAddr != 0ul) {
+        device uint* ib = (device uint*)indexAddr;
+        tri = uint3(ib[tri.x], ib[tri.y], ib[tri.z]);
+    }
+    if (posAddr != 0ul) {
+        device float4* pb = (device float4*)posAddr;
+        vtx.posL[0] = pb[tri.x].xyz; vtx.posL[1] = pb[tri.y].xyz; vtx.posL[2] = pb[tri.z].xyz;
+    } else { vtx.posL[0] = vtx.posL[1] = vtx.posL[2] = float3(0.0f); }
+    if (nrmAddr != 0ul) {
+        device float3* nb = (device float3*)nrmAddr;
+        vtx.normalL[0] = nb[tri.x]; vtx.normalL[1] = nb[tri.y]; vtx.normalL[2] = nb[tri.z];
+    } else { vtx.normalL[0] = vtx.normalL[1] = vtx.normalL[2] = float3(0.0f, 0.0f, 1.0f); }
+    if (tanAddr != 0ul) {
+        device float4* tb = (device float4*)tanAddr;
+        vtx.tangentL[0] = tb[tri.x]; vtx.tangentL[1] = tb[tri.y]; vtx.tangentL[2] = tb[tri.z];
+    } else {
+        for (uint k = 0u; k < 3u; ++k) {
+            float3 N = vtx.normalL[k];
+            float3 helper = (abs(N.x) < 0.9f) ? float3(1, 0, 0) : float3(0, 1, 0);
+            vtx.tangentL[k] = float4(normalize(cross(helper, N)), 1.0f);
+        }
+    }
+    if (uvAddr != 0ul) {
+        device float3* ub = (device float3*)uvAddr;
+        vtx.uv[0] = ub[tri.x].xy; vtx.uv[1] = ub[tri.y].xy; vtx.uv[2] = ub[tri.z].xy;
+    } else { vtx.uv[0] = vtx.uv[1] = vtx.uv[2] = float2(0.0f); }
+}
+
+static VertexData getVertexData(TriangleHit hit, device Set0& set0) {
+    TriVtx vtx;
+    fetchBindlessTriangle(hit.instanceID, hit.primitiveIndex, vtx, set0);
+
+    float b1 = hit.barycentrics.x, b2 = hit.barycentrics.y, b0 = 1.0f - b1 - b2;
+    float3 normalL = vtx.normalL[0] * b0 + vtx.normalL[1] * b1 + vtx.normalL[2] * b2;
+    float3 tanL    = vtx.tangentL[0].xyz * b0 + vtx.tangentL[1].xyz * b1 + vtx.tangentL[2].xyz * b2;
+    float2 uv      = vtx.uv[0] * b0 + vtx.uv[1] * b1 + vtx.uv[2] * b2;
+
+    float4x4 M = loadMat(set0.gSceneObjects[hit.instanceID].modelMat);
+    float3x3 nrmMat = float3x3(M[0].xyz, M[1].xyz, M[2].xyz);
+
+    VertexData v;
+    v.posW = (float4(vtx.posL[0] * b0 + vtx.posL[1] * b1 + vtx.posL[2] * b2, 1.0f) * M).xyz;
+    v.normalW  = normalize(normalL * nrmMat);
+    v.tangentW = normalize(tanL * nrmMat);
+    v.texC = uv;
+    return v;
+}

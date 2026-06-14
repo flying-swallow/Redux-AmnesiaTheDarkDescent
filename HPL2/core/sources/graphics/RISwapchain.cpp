@@ -5,6 +5,10 @@
 
 #include "graphics/RIVK.h"
 
+#if (DEVICE_IMPL_MTL)
+#include "graphics/RIMTL.h"
+#endif
+
 #include <cassert>
 #include <cstdlib>
 #include <cstring>
@@ -43,12 +47,15 @@ int InitRISwapchain( struct RIDevice *dev, struct RISwapchainDesc *init, RISwapc
 	assert( init->windowHandle );
 	assert( init );
 	assert( swapchain );
-	assert( init->requestImageCount <= ARRAY_COUNT( swapchain->vk.images ) && init->requestImageCount > 0 );
+	assert( init->requestImageCount > 0 );
 	swapchain->width = init->width;
 	swapchain->height = init->height;
 	swapchain->presentQueue = init->queue;
-	VkResult result = VK_SUCCESS;
+
 #if ( DEVICE_IMPL_VULKAN )
+	if (dev->renderer->is_target_selected(RI_DEVICE_API_VK)) {
+	assert( init->requestImageCount <= ARRAY_COUNT( swapchain->vk.images ) );
+	VkResult result = VK_SUCCESS;
 	{
 		switch( init->windowHandle->type ) {
 #ifdef VK_USE_PLATFORM_XLIB_KHR
@@ -74,10 +81,9 @@ int InitRISwapchain( struct RIDevice *dev, struct RISwapchainDesc *init, RISwapc
 #ifdef VK_USE_PLATFORM_METAL_EXT
 			case RI_WINDOW_METAL: {
 				VkMetalSurfaceCreateInfoEXT metalSurfaceCreateInfo = { VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT };
-				metalSurfaceCreateInfo.pLayer = (CAMetalLayer *)swapChainDesc.window.metal.caMetalLayer;
-
-				VkResult result = vk.CreateMetalSurfaceEXT( m_Device, &metalSurfaceCreateInfo, m_Device.GetAllocationCallbacks(), &m_Surface );
-				RETURN_ON_FAILURE( &m_Device, result == VK_SUCCESS, GetReturnCode( result ), "vkCreateMetalSurfaceEXT returned %d", (int32_t)result );
+				metalSurfaceCreateInfo.pLayer = (const CAMetalLayer *)init->windowHandle->metal.caMetalLayer;
+				result = vkCreateMetalSurfaceEXT( dev->renderer->vk.instance, &metalSurfaceCreateInfo, NULL, &swapchain->vk.surface );
+				VK_WrapResult( result );
 				break;
 			}
 #endif
@@ -95,7 +101,6 @@ int InitRISwapchain( struct RIDevice *dev, struct RISwapchainDesc *init, RISwapc
 				break;
 		}
 	}
-#endif
 	VkSurfaceCapabilitiesKHR surfaceCaps = {0};
 	{
 		VkBool32 supported = VK_FALSE;
@@ -233,7 +238,34 @@ int InitRISwapchain( struct RIDevice *dev, struct RISwapchainDesc *init, RISwapc
 	}
 	free(supportedPresentMode);
 	free(surfaceFormats);
+	return RI_SUCCESS;
+	}
+#endif
+#if ( DEVICE_IMPL_MTL )
+	if (dev->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+  swapchain->mtl.layer =
+      (CA::MetalLayer *)init->windowHandle->metal.caMetalLayer;
+  if (!swapchain->mtl.layer) {
+    swapchain->imageCount = 0;
+    return RI_FAIL;
+  }
+  swapchain->mtl.layer->setDevice(dev->mtl.device);
+  uint32_t riFormat = RISwapchainFormatToRIFormat(init->format);
+  swapchain->mtl.layer->setPixelFormat(RIToMTLFormat(riFormat));
+  CGSize drawableSize;
+  drawableSize.width = init->width;
+  drawableSize.height = init->height;
+  swapchain->mtl.layer->setDrawableSize(drawableSize);
+  swapchain->format = riFormat;
+  // CAMetalLayer manages its own (2-3) drawables internally; expose the
+  // requested count so the engine's frame indexing stays valid.
+  swapchain->imageCount = init->requestImageCount;
+  swapchain->mtl.textureIndex = 0;
   return RI_SUCCESS;
+	}
+#endif
+	swapchain->imageCount = 0;
+	return RI_FAIL;
 }
 
 uint32_t RISwapchainAcquireNextTexture( struct RIDevice *dev, RISwapchain<> *swapchain )
@@ -244,6 +276,32 @@ uint32_t RISwapchainAcquireNextTexture( struct RIDevice *dev, RISwapchain<> *swa
 		VkSemaphore imageAcquiredSemaphore = swapchain->vk.imageAcquireSem[swapchain->vk.frameIndex];
 		VK_WrapResult( vkAcquireNextImageKHR( dev->vk.device, swapchain->vk.swapchain, 5000 * 1000000ull, imageAcquiredSemaphore, VK_NULL_HANDLE, &swapchain->vk.textureIndex ) );
 		return swapchain->vk.textureIndex;
+	}
+#endif
+#if ( DEVICE_IMPL_MTL )
+	{
+		// Metal vends a fresh drawable per frame; cache it and rebind its
+		// backing texture into the single swapchain texture slot.
+		if (swapchain->mtl.drawable)
+			swapchain->mtl.drawable->release();
+		auto *drawable = swapchain->mtl.layer->nextDrawable();
+		if (!drawable) {
+			// nextDrawable() returns nil under window minimize / drawable-pool
+			// exhaustion / resource pressure. Don't deref it: drop the slot (the
+			// previous drawable was already released last present) so callers see a
+			// null target instead of dereferencing nil or a dangling texture.
+			// TODO: a real frame-skip path in BeginActiveSet would be cleaner than
+			// rendering into a null drawable for the dropped frame.
+			hpl::Warning("Metal swapchain: nextDrawable() returned nil; skipping frame drawable\n");
+			swapchain->mtl.drawable = nullptr;
+			swapchain->textures[0].mtl.texture = nullptr;
+			swapchain->mtl.textureIndex = 0;
+			return 0;
+		}
+		swapchain->mtl.drawable = drawable->retain();
+		swapchain->textures[0].mtl.texture = swapchain->mtl.drawable->texture();
+		swapchain->mtl.textureIndex = 0;
+		return 0;
 	}
 #endif
 	return 0;
@@ -271,6 +329,19 @@ void RISwapchainPresent(struct RIDevice* dev, RISwapchain<>* swapchain) {
 		}
 		swapchain->vk.presentID++;
 		swapchain->vk.frameIndex = ( swapchain->vk.frameIndex + 1 ) % RI_MAX_SWAPCHAIN_IMAGES;
+	}
+#endif
+#if ( DEVICE_IMPL_MTL )
+	{
+		// Present rides its own command buffer; never reuse a committed RICmd.
+		MTL::CommandBuffer *cb = swapchain->presentQueue->mtl.queue->commandBuffer();
+		if (swapchain->mtl.drawable)
+			cb->presentDrawable(swapchain->mtl.drawable);
+		cb->commit();
+		if (swapchain->mtl.drawable) {
+			swapchain->mtl.drawable->release();
+			swapchain->mtl.drawable = nullptr;
+		}
 	}
 #endif
 }

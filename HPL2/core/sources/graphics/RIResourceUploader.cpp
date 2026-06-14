@@ -1,18 +1,59 @@
 #include "graphics/RIResourceUploader.h"
 #include "graphics/RIFormat.h"
 
+#if ( DEVICE_IMPL_MTL )
+#include "graphics/RIMTL.h"
+#endif
+
 #include <system/Types.h>
 #include <system/stb_ds.h>
 
 #include <cassert>
 #include <cstring>
 
+#if ( DEVICE_IMPL_MTL )
+// Unified-memory predicate: the Metal adapter type is set from
+// MTL::Device::hasUnifiedMemory() in RIRenderer::enumerateAdapters.
+static inline bool RI_DeviceIsUMA( struct RIDevice *device )
+{
+	return device->physicalAdapter.type == RI_ADAPTER_TYPE_INTEGRATED_GPU;
+}
+
+// Opt-in UMA direct-write predicate. Begin and End both consult this (its inputs
+// don't change between them) so End knows to skip the copy when Begin wrote straight
+// into the target.
+static inline bool __IsUMADirect( struct RIDevice *device, struct RIResourceBufferTransaction *trans )
+{
+	return trans->directWriteSafe && RI_DeviceIsUMA( device ) && trans->target.mappedAddress;
+}
+
+// Ensure the active set is recording on Metal: host-wait the set's prior use,
+// reset its staging tail / temporaries, and open a fresh command buffer.
+static struct RICmd *__AcquireCmdMTL( struct RIDevice *device, struct RITransferCommandGroup *group )
+{
+	const size_t set = group->active_set;
+	if( !group->is_recording ) {
+		if( group->mtl.events[set] )
+			group->mtl.events[set]->waitUntilSignaledValue( group->mtl.values[set], UINT64_MAX );
+
+		group->staging_buffer_offset = 0;
+		for( size_t j = 0; j < (size_t)arrlen( group->temporary_buffers[set] ); j++ )
+			group->temporary_buffers[set][j].dispose( device );
+		arrsetlen( group->temporary_buffers[set], 0 );
+
+		group->cmd[set].mtl.cmd = group->queue->mtl.queue->commandBuffer()->retain();
+		group->is_recording = true;
+	}
+	return &group->cmd[set];
+}
+#endif
+
 // Wait for the active set's fence (signalled means the GPU is done with the
 // previous use), free overflow temporaries, reset the pool, begin the cmd
 // buffer. No-op if the group is already recording.
+#if ( DEVICE_IMPL_VULKAN )
 static VkCommandBuffer __AcquireCmd( struct RIDevice *device, struct RITransferCommandGroup *group )
 {
-#if ( DEVICE_IMPL_VULKAN )
 	if( !group->is_recording ) {
 		VkFence fence = group->vk.fences[group->active_set];
 		if( vkGetFenceStatus( device->vk.device, fence ) == VK_NOT_READY ) {
@@ -34,10 +75,8 @@ static VkCommandBuffer __AcquireCmd( struct RIDevice *device, struct RITransferC
 		group->is_recording = true;
 	}
 	return group->cmd[group->active_set].vk.cmd;
-#else
-	return VK_NULL_HANDLE;
-#endif
 }
+#endif
 
 static void __InitTransferCommandGroup( struct RIDevice *device, struct RITransferCommandGroup *group, struct RIQueue *queue )
 {
@@ -64,18 +103,11 @@ static void __InitTransferCommandGroup( struct RIDevice *device, struct RITransf
 		}
 
 		{
-			VmaAllocationCreateInfo allocInfo = { 0 };
-			allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-			allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
-			VkBufferCreateInfo bufInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-			bufInfo.size = RI_RESOURCE_STAGE_BUFFER_SIZE;
-			bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-			bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
-			VmaAllocationInfo vmaInfo = { 0 };
-			VK_WrapResult( vmaCreateBuffer( device->vk.vmaAllocator, &bufInfo, &allocInfo, &group->staging_buffer[i].vk.buffer, &group->staging_buffer[i].vk.allocation, &vmaInfo ) );
-			group->staging_buffer[i].mappedAddress = vmaInfo.pMappedData;
+			RIBufferDesc desc = {};
+			desc.size = RI_RESOURCE_STAGE_BUFFER_SIZE;
+			desc.usage = RI_BUFFER_USAGE_TRANSFER_SRC | RI_BUFFER_USAGE_TRANSFER_DST;
+			desc.location = RI_MEMORY_HOST_UPLOAD;
+			group->staging_buffer[i] = RIBuffer::create( device, desc );
 		}
 
 		// Fence starts signalled so the first acquire doesn't block.
@@ -90,6 +122,17 @@ static void __InitTransferCommandGroup( struct RIDevice *device, struct RITransf
 			VK_WrapResult( vkCreateSemaphore( device->vk.device, &info, NULL, &group->vk.semaphores[i] ) );
 		}
 
+		group->temporary_buffers[i] = NULL;
+	}
+#endif
+#if ( DEVICE_IMPL_MTL )
+	for( size_t i = 0; i < RI_RESOURCE_MAX_SETS; i++ ) {
+		// One Shared (CPU-coherent) staging buffer per set; command buffers come
+		// from the queue lazily (no command pool on Metal).
+		group->staging_buffer[i] = RIBuffer::MTL_create( device, RI_RESOURCE_STAGE_BUFFER_SIZE, /*hostVisible*/ true );
+		group->cmd_pool[i].mtl.queue = queue->mtl.queue;
+		group->mtl.events[i] = device->mtl.device->newSharedEvent();
+		group->mtl.values[i] = 0;
 		group->temporary_buffers[i] = NULL;
 	}
 #endif
@@ -114,11 +157,29 @@ static void __FreeTransferCommandGroup( struct RIDevice *device, struct RITransf
 		vkDestroySemaphore( device->vk.device, group->vk.semaphores[i], NULL );
 	}
 #endif
+#if ( DEVICE_IMPL_MTL )
+	for( size_t i = 0; i < RI_RESOURCE_MAX_SETS; i++ ) {
+		for( size_t j = 0; j < (size_t)arrlen( group->temporary_buffers[i] ); j++ )
+			group->temporary_buffers[i][j].dispose( device );
+		arrfree( group->temporary_buffers[i] );
+
+		group->staging_buffer[i].dispose( device );
+
+		if( group->cmd[i].mtl.cmd ) {
+			group->cmd[i].mtl.cmd->release();
+			group->cmd[i].mtl.cmd = nullptr;
+		}
+		if( group->mtl.events[i] ) {
+			group->mtl.events[i]->release();
+			group->mtl.events[i] = nullptr;
+		}
+	}
+#endif
 }
 
 static bool __AllocateFromStageBuffer( struct RIDevice *device, struct RITransferCommandGroup *group, size_t size, size_t alignment, struct RIMappedMemoryRange *out )
 {
-#if ( DEVICE_IMPL_VULKAN )
+	(void)device;
 	const size_t alignedSize = ALIGN_TO( size, alignment );
 	const size_t alignedOffset = ALIGN_TO( group->staging_buffer_offset, alignment );
 
@@ -127,44 +188,35 @@ static bool __AllocateFromStageBuffer( struct RIDevice *device, struct RITransfe
 	if( alignedSize > RI_RESOURCE_STAGE_BUFFER_SIZE - alignedOffset )
 		return false;
 
+	// staging_buffer[set].mappedAddress is the CPU-write pointer (VMA pMappedData on
+	// Vulkan, MTL Shared contents() on Metal); the RIBuffer handle carries the
+	// matching vk.buffer / mtl.buffer for the recorded copy.
 	const size_t set = group->active_set;
 	out->offset = alignedOffset;
 	out->size = alignedSize;
 	out->data = (uint8_t *)group->staging_buffer[set].mappedAddress + alignedOffset;
-	out->buffer = group->staging_buffer[set].vk.buffer;
-	out->alloc = NULL; // belongs to the persistent staging buffer
+	out->buffer = group->staging_buffer[set];
 
 	group->staging_buffer_offset = alignedOffset + alignedSize;
 	return true;
-#else
-	return false;
-#endif
 }
 
 static void __AllocateTemporaryBuffer( struct RIDevice *device, struct RITransferCommandGroup *group, size_t size, struct RIMappedMemoryRange *out )
 {
-#if ( DEVICE_IMPL_VULKAN )
-	VmaAllocationCreateInfo allocInfo = { 0 };
-	allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-	allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+	RIBufferDesc desc = {};
+	desc.size = size;
+	desc.usage = RI_BUFFER_USAGE_TRANSFER_SRC | RI_BUFFER_USAGE_TRANSFER_DST;
+	desc.location = RI_MEMORY_HOST_UPLOAD;
+	struct RIBuffer tmp = RIBuffer::create( device, desc );
 
-	VkBufferCreateInfo bufInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-	bufInfo.size = size;
-	bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
-	struct RIBuffer tmp = {};
-	VmaAllocationInfo vmaInfo = { 0 };
-	VK_WrapResult( vmaCreateBuffer( device->vk.vmaAllocator, &bufInfo, &allocInfo, &tmp.vk.buffer, &tmp.vk.allocation, &vmaInfo ) );
-
+	// Tracked for lifetime / freeing in temporary_buffers; 'out->buffer' is a handle
+	// alias used only to record the copy.
 	arrpush( group->temporary_buffers[group->active_set], tmp );
 
 	out->offset = 0;
 	out->size = size;
-	out->data = vmaInfo.pMappedData;
-	out->buffer = tmp.vk.buffer;
-	out->alloc = tmp.vk.allocation;
-#endif
+	out->data = tmp.mappedAddress;
+	out->buffer = tmp;
 }
 
 static void __ResolveStageMemory( struct RIDevice *device, struct RITransferCommandGroup *group, size_t size, size_t alignment, struct RIMappedMemoryRange *out )
@@ -198,21 +250,48 @@ void RI_FreeResourceUploader( struct RIDevice *device, struct RIResourceUploader
 
 void RI_ResourceBeginCopyBuffer( struct RIDevice *device, struct RIResourceUploader *res, struct RIResourceBufferTransaction *trans )
 {
-	__AcquireCmd( device, &res->upload_resource );
-	__ResolveStageMemory( device, &res->upload_resource, trans->size, 4, &trans->mapped );
+#if ( DEVICE_IMPL_VULKAN )
+	if( device->renderer->is_target_selected( RI_DEVICE_API_VK ) ) {
+		__AcquireCmd( device, &res->upload_resource );
+		__ResolveStageMemory( device, &res->upload_resource, trans->size, 4, &trans->mapped );
+		return;
+	}
+#endif
+#if ( DEVICE_IMPL_MTL )
+	if( device->renderer->is_target_selected( RI_DEVICE_API_MTL ) ) {
+		// Opt-in UMA direct write: only safe when the caller guarantees no in-flight
+		// frame reads 'target' (write-once / load-time). Otherwise stage + blit so the
+		// copy stays ordered on the queue against the previous frame's reads.
+		if( __IsUMADirect( device, trans ) ) {
+			trans->mapped.offset = 0;
+			trans->mapped.size = trans->size;
+			trans->mapped.data = (uint8_t *)trans->target.mappedAddress + trans->offset;
+			return;
+		}
+		__AcquireCmdMTL( device, &res->upload_resource );
+		__ResolveStageMemory( device, &res->upload_resource, trans->size, 4, &trans->mapped );
+		return;
+	}
+#endif
+	assert( false && "unhandled backend" );
 }
 
 void RI_ResourceEndCopyBuffer( struct RIDevice *device, struct RIResourceUploader *res, struct RIResourceBufferTransaction *trans )
 {
-#if ( DEVICE_IMPL_VULKAN )
-	VkBufferCopy region = { 0 };
-	region.srcOffset = trans->mapped.offset;
-	region.dstOffset = trans->offset;
-	region.size = trans->size;
+	(void)device;
+#if ( DEVICE_IMPL_MTL )
+	// Direct-write path wrote straight into the Shared target — nothing to copy.
+	if( __IsUMADirect( device, trans ) )
+		return;
+#endif
 
-	VkCommandBuffer cmd = __AcquireCmd( device, &res->upload_resource );
+	// Begin acquired the recording command buffer; record the copy on it. The
+	// pre/post barriers are Vulkan-only — on Metal the blit is queue-ordered after
+	// the previous frame's reads and hazard tracking serialises this frame's reads
+	// after it (mirrors what the Vulkan barrier provides).
 	struct RICmd *barrierCmd = &res->upload_resource.cmd[res->upload_resource.active_set];
 
+#if ( DEVICE_IMPL_VULKAN )
 	if( trans->currentState != RI_RESOURCE_STATE_COPY_DST ) {
 		struct RIBufferBarrier pre_barrier = {};
 		pre_barrier.buffer = &trans->target;
@@ -220,11 +299,13 @@ void RI_ResourceEndCopyBuffer( struct RIDevice *device, struct RIResourceUploade
 		pre_barrier.beforeStages = trans->currentStages;
 		pre_barrier.after = RI_RESOURCE_STATE_COPY_DST;
 		pre_barrier.afterStages = RI_STAGE_COPY;
-		barrierCmd->bufferBarrier( pre_barrier );
+		barrierCmd->vk_d3d12_bufferBarrier( pre_barrier );
 	}
+#endif
 
-	vkCmdCopyBuffer( cmd, trans->mapped.buffer, trans->target.vk.buffer, 1, &region );
+	barrierCmd->copyBuffer(device->renderer, &trans->mapped.buffer, trans->mapped.offset, &trans->target, trans->offset, trans->size );
 
+#if ( DEVICE_IMPL_VULKAN )
 	if( trans->postState != RI_RESOURCE_STATE_UNDEFINED && trans->postState != RI_RESOURCE_STATE_COPY_DST ) {
 		struct RIBufferBarrier post_barrier = {};
 		post_barrier.buffer = &trans->target;
@@ -232,7 +313,7 @@ void RI_ResourceEndCopyBuffer( struct RIDevice *device, struct RIResourceUploade
 		post_barrier.beforeStages = RI_STAGE_COPY;
 		post_barrier.after = trans->postState;
 		post_barrier.afterStages = trans->postStages;
-		barrierCmd->bufferBarrier( post_barrier );
+		barrierCmd->vk_d3d12_bufferBarrier( post_barrier );
 	}
 #endif
 }
@@ -254,45 +335,59 @@ void RI_ResourceBeginCopyTexture( struct RIDevice *device, struct RIResourceUplo
 	if( offsetAlign < 4 )
 		offsetAlign = 4;
 
-	__AcquireCmd( device, &res->upload_resource );
-	__ResolveStageMemory( device, &res->upload_resource, alignedSlicePitch, offsetAlign, &trans->mapped );
+#if ( DEVICE_IMPL_VULKAN )
+	if( device->renderer->is_target_selected( RI_DEVICE_API_VK ) ) {
+		__AcquireCmd( device, &res->upload_resource );
+		__ResolveStageMemory( device, &res->upload_resource, alignedSlicePitch, offsetAlign, &trans->mapped );
+		return;
+	}
+#endif
+#if ( DEVICE_IMPL_MTL )
+	if( device->renderer->is_target_selected( RI_DEVICE_API_MTL ) ) {
+		// Textures always stage on Metal (Private storage, swizzled layout) — no UMA
+		// direct path.
+		__AcquireCmdMTL( device, &res->upload_resource );
+		__ResolveStageMemory( device, &res->upload_resource, alignedSlicePitch, offsetAlign, &trans->mapped );
+		return;
+	}
+#endif
+	assert( false && "unhandled backend" );
 }
 
 void RI_ResourceEndCopyTexture( struct RIDevice *device, struct RIResourceUploader *res, struct RIResourceTextureTransaction *trans )
 {
-#if ( DEVICE_IMPL_VULKAN )
+	(void)device;
 	const struct RIFormatProps *formatProps = GetRIFormatProps( trans->format );
 
-	// bufferRowLength / bufferImageHeight describe the layout of the staging
-	// buffer in texels, and must match the strides used to write it. The CPU
-	// writes rows at alignRowPitch (which equals rowPitch on AMD/Intel where
-	// optimalBufferCopyRowPitchAlignment == 1, but is 256-aligned on NVIDIA).
-	// Deriving from the unaligned rowPitch caused texture corruption on NVIDIA.
+	// Staging layout in both representations: Vulkan's VkBufferImageCopy takes
+	// texel bufferRowLength/bufferImageHeight, Metal's blit takes raw byte pitches.
+	// The CPU writes rows at alignRowPitch (== rowPitch on AMD/Intel where
+	// optimalBufferCopyRowPitchAlignment == 1, but 256-aligned on NVIDIA); deriving
+	// from the unaligned rowPitch caused texture corruption on NVIDIA.
 	const uint32_t rowBlockNum = trans->alignRowPitch / formatProps->stride;
-	const uint32_t bufferRowLength = rowBlockNum * formatProps->blockWidth;
 	const uint32_t sliceRowNum = trans->alignSlicePitch / trans->alignRowPitch;
-	const uint32_t bufferImageHeight = sliceRowNum * formatProps->blockHeight;
 
-	VkBufferImageCopy region = { 0 };
-	region.bufferOffset = trans->mapped.offset;
-	region.bufferRowLength = bufferRowLength;
-	region.bufferImageHeight = bufferImageHeight;
-	region.imageOffset.x = trans->x;
-	region.imageOffset.y = trans->y;
-	region.imageOffset.z = trans->z;
-	region.imageExtent.width = trans->width;
-	region.imageExtent.height = trans->height;
-	region.imageExtent.depth = trans->depth;
-	region.imageSubresource.mipLevel = trans->mipOffset;
-	region.imageSubresource.baseArrayLayer = trans->arrayOffset;
-	region.imageSubresource.layerCount = 1;
-	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	struct RIBufferTextureCopyDesc copy = {};
+	copy.bufferOffset = trans->mapped.offset;
+	copy.bufferRowLength = rowBlockNum * formatProps->blockWidth;
+	copy.bufferImageHeight = sliceRowNum * formatProps->blockHeight;
+	copy.bytesPerRow = trans->alignRowPitch;
+	copy.bytesPerImage = trans->alignSlicePitch;
+	copy.mipLevel = trans->mipOffset;
+	copy.arrayLayer = trans->arrayOffset;
+	copy.x = trans->x;
+	copy.y = trans->y;
+	copy.z = trans->z;
+	copy.width = trans->width;
+	copy.height = trans->height;
+	copy.depth = trans->depth;
 
-	VkCommandBuffer cmd = __AcquireCmd( device, &res->upload_resource );
+	// Begin acquired the recording command buffer. Barriers cover only the single
+	// (mipOffset, arrayOffset) subresource and are Vulkan-only — Metal is
+	// hazard-tracked and queue-ordered.
 	struct RICmd *barrierCmd = &res->upload_resource.cmd[res->upload_resource.active_set];
 
-	// Barriers cover only the single (mipOffset, arrayOffset) subresource the
-	// copy writes.
+#if ( DEVICE_IMPL_VULKAN )
 	if( trans->currentState != RI_RESOURCE_STATE_COPY_DST ) {
 		struct RITextureBarrier pre_barrier = {};
 		pre_barrier.texture = &trans->target;
@@ -304,11 +399,13 @@ void RI_ResourceEndCopyTexture( struct RIDevice *device, struct RIResourceUpload
 		pre_barrier.mipCount = 1;
 		pre_barrier.baseLayer = trans->arrayOffset;
 		pre_barrier.layerCount = 1;
-		barrierCmd->textureBarrier( pre_barrier );
+		barrierCmd->vk_d3d12_textureBarrier( pre_barrier );
 	}
+#endif
 
-	vkCmdCopyBufferToImage( cmd, trans->mapped.buffer, trans->target.vk.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
+	barrierCmd->copyBufferToTexture(device->renderer, &trans->mapped.buffer, &trans->target, copy );
 
+#if ( DEVICE_IMPL_VULKAN )
 	if( trans->postState != RI_RESOURCE_STATE_UNDEFINED && trans->postState != RI_RESOURCE_STATE_COPY_DST ) {
 		struct RITextureBarrier post_barrier = {};
 		post_barrier.texture = &trans->target;
@@ -320,7 +417,7 @@ void RI_ResourceEndCopyTexture( struct RIDevice *device, struct RIResourceUpload
 		post_barrier.mipCount = 1;
 		post_barrier.baseLayer = trans->arrayOffset;
 		post_barrier.layerCount = 1;
-		barrierCmd->textureBarrier( post_barrier );
+		barrierCmd->vk_d3d12_textureBarrier( post_barrier );
 	}
 #endif
 }
@@ -372,6 +469,43 @@ struct RIResourceUploaderVKResult RI_VKFlushResourceUpdate( struct RIDevice *dev
 	result.signaled = true;
 	result.vk.fence = group->vk.fences[active_set];
 	result.vk.semaphore = group->vk.semaphores[active_set];
+	return result;
+}
+#endif
+
+#if ( DEVICE_IMPL_MTL )
+struct RIResourceUploaderVKResult RI_MTLFlushResourceUpdate( struct RIDevice *device, struct RIResourceUploader *res )
+{
+	(void)device;
+	struct RITransferCommandGroup *group = &res->upload_resource;
+	const size_t active_set = group->active_set;
+
+	struct RIResourceUploaderVKResult result = {};
+
+	// Nothing recorded (e.g. only UMA direct writes this frame) — no command buffer
+	// to commit; return the current set's event/value so callers can branch.
+	if( !group->is_recording ) {
+		result.signaled = false;
+		result.mtl.event = group->mtl.events[active_set];
+		result.mtl.value = group->mtl.values[active_set];
+		return result;
+	}
+
+	struct RICmd *cmd = &group->cmd[active_set];
+	cmd->mtl_encoderEnd(); // close the blit encoder before commit
+
+	const uint64_t signalValue = ++group->mtl.values[active_set];
+	cmd->mtl.cmd->encodeSignalEvent( group->mtl.events[active_set], signalValue );
+	cmd->mtl.cmd->commit();
+	cmd->mtl.cmd->release();
+	cmd->mtl.cmd = nullptr;
+
+	group->active_set = ( active_set + 1 ) % RI_RESOURCE_MAX_SETS;
+	group->is_recording = false;
+
+	result.signaled = true;
+	result.mtl.event = group->mtl.events[active_set];
+	result.mtl.value = group->mtl.values[active_set];
 	return result;
 }
 #endif

@@ -202,6 +202,7 @@ namespace hpl {
 		mbApplicationHasInputFocus = false;
 		mbApplicationHasMouseFocus = false;
 		mbApplicationIsVisible = false;
+		mbHasHadInputFocus = false;
 
 		mvEngineTypeStrings.resize(eVariableType_LastEnum);
 		mvEngineTypeStrings[eVariableType_Int] =	"Int";
@@ -813,10 +814,28 @@ namespace hpl {
 	void cEngine::CheckIfAppInFocusElseWait()
 	{
 		iLowLevelGraphics *pllGfx = mpGraphics->GetLowLevel();
+
+		// Don't block before the window has ever held input focus. A freshly
+		// created window may not be focusable yet -- in particular a native
+		// Wayland Vulkan surface is not mapped (and so cannot receive focus)
+		// until the first frame is presented, which only happens once we let
+		// the main loop run. Blocking here would deadlock with no visible
+		// window. Once the window has gained focus at least once, honour the
+		// out-of-focus pause normally (e.g. when alt-tabbed away).
+		if(!mbHasHadInputFocus)
+		{
+			if(pllGfx->GetWindowInputFocus())
+				mbHasHadInputFocus = true;
+			return;
+		}
+
 		while(	pllGfx->GetWindowInputFocus()==false)
 		{
 			cPlatform::Sleep(100);
 			mpInput->Update(1.0f/10.0f);
+
+			if(GetGameIsDone())
+				break;
 		}
 	}
 

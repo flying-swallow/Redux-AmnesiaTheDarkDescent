@@ -1,0 +1,44 @@
+#pragma once
+// Mirrors amnesia/slang/Grid.slang — world-space light-grid cell math.
+static int3 gridUnflattenCellIndex(uint flat, uint gridDim) {
+    uint x = flat % gridDim;
+    uint y = (flat / gridDim) % gridDim;
+    uint z = flat / (gridDim * gridDim);
+    return int3(uint3(x, y, z)) - int3(int(gridDim / 2u));
+}
+
+static bool gridCellValid(int3 cellPos, uint gridDim) {
+    int h = int(gridDim / 2u);
+    return abs(cellPos.x) < h && abs(cellPos.y) < h && abs(cellPos.z) < h;
+}
+
+// Tight cell-AABB vs reach-sphere test (squared distance, no sqrt). The cell's
+// world AABB is centered on cameraPosW + cellPos*gridUnit, half-extent
+// gridUnit/2.
+static bool sphereIntersectsGridCell(float3 center, float radius, int3 cellPos,
+                                     float3 cameraPosW, uint gridDim, float gridUnit) {
+    if (!gridCellValid(cellPos, gridDim))
+        return false;
+    float3 half3 = float3(gridUnit) * 0.5f;
+    float3 cellC = float3(cellPos) * gridUnit;
+    float3 lo = cellC - half3 + cameraPosW;
+    float3 hi = cellC + half3 + cameraPosW;
+    float3 d = clamp(center, lo, hi) - center;
+    return dot(d, d) < radius * radius;
+}
+
+// Cone vs cell-bounding-sphere angular cull (conservative). cellR is the cell's
+// bounding-sphere radius (half-diagonal = gridUnit * sqrt(3)/2).
+static bool coneIntersectsGridCell(float3 apex, float3 axis, float cosHalfAngle,
+                                   int3 cellPos, float3 cameraPosW, uint gridDim, float gridUnit) {
+    if (!gridCellValid(cellPos, gridDim))
+        return false;
+    float cellR = gridUnit * 0.86602540378f;            // sqrt(3)/2
+    float3 v = float3(cellPos) * gridUnit + cameraPosW - apex;
+    float vDotA = dot(v, axis);
+    bool backCull = vDotA < -cellR;
+    float sinHalf = sqrt(clamp(1.0f - cosHalfAngle * cosHalfAngle, 0.0f, 1.0f));
+    float perp = sqrt(max(dot(v, v) - vDotA * vDotA, 0.0f));
+    bool outside = (cosHalfAngle * perp - vDotA * sinHalf) > cellR;
+    return !(outside || backCull);
+}

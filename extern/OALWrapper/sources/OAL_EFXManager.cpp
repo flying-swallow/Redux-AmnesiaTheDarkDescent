@@ -12,9 +12,9 @@
 #include "OALWrapper/OAL_Filter.h"
 #include "OALWrapper/OAL_Device.h"
 
-#include <SDL2/SDL_thread.h>
-#include <SDL2/SDL_timer.h>
-#include <SDL2/SDL_version.h>
+#include <SDL3/SDL_thread.h>
+#include <SDL3/SDL_timer.h>
+#include <SDL3/SDL_version.h>
 
 int SlotUpdaterThread(void* alUnusedArg);
 
@@ -203,11 +203,7 @@ bool cOAL_EFXManager::Initialize(int alNumSlotsHint, int alNumSends, bool abUseT
 
 		mlThreadWaitTime = 1000/alSlotUpdateFreq;
 
-#if SDL_VERSION_ATLEAST(2, 0, 0)
 		mpUpdaterThread = SDL_CreateThread ( SlotUpdaterThread, "EFX Slot Updater", NULL );
-#else
-		mpUpdaterThread = SDL_CreateThread ( SlotUpdaterThread, NULL );
-#endif
 	}
 
 	LogMsg("",eOAL_LogVerbose_Medium, eOAL_LogMsg_Info, "EFX succesfully initialized.\n" );

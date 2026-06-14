@@ -8,6 +8,7 @@ struct FrameState_s;
 
 struct RI_PogoBuffer {
 	struct RITexture textures[2];
+	struct RITextureView views[2];
 	struct RIDescriptor pogoAttachment[2];
 	uint16_t attachmentIndex;
 };

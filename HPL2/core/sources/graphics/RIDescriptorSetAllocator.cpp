@@ -162,4 +162,22 @@ void freeDescriptorSetAlloc( struct RIDevice *device, struct RIDescriptorSetAllo
 	}
 	arrfree( alloc->pools );
 #endif
+#if ( DEVICE_IMPL_MTL )
+	if( device->renderer->is_target_selected( RI_DEVICE_API_MTL ) ) {
+		// Each reserved slot owns an argument buffer (calloc-zeroed slots are null).
+		for( size_t i = 0; i < arrlen( alloc->blocks ); i++ ) {
+			struct RIDescriptorSetSlot *block = alloc->blocks[i];
+			for( size_t j = 0; j < RESERVE_BLOCK_SIZE; j++ )
+				if( block[j].mtl.argumentBuffer )
+					block[j].mtl.argumentBuffer->release();
+			free( block );
+		}
+		arrfree( alloc->blocks );
+		arrfree( alloc->reservedSlots );
+		if( alloc->mtl.encoder )
+			alloc->mtl.encoder->release();
+		alloc->mtl.encoder = nullptr;
+		return;
+	}
+#endif
 }

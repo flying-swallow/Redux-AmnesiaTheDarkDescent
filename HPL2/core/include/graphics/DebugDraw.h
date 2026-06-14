@@ -137,7 +137,7 @@ public:
     // Reset() at the end.
     void flush(RIBootstrap::FrameContext* cntx, struct RICmd* cmd, const cFrustum* apFrustum,
                uint32_t alTargetWidth, uint32_t alTargetHeight,
-               VkFormat aColorFormat = RIBootstrap::PogoColorFormatVk);
+               RI_Format_e aColorFormat = RIBootstrap::PogoColorFormat);
 
 private:
     // Mirrors the unified vertex stream the DebugDraw slang shaders declare

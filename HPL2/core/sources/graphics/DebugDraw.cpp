@@ -44,131 +44,110 @@ namespace hpl {
 			float viewProj2DMat[16];
 		};
 
-		VkCompareOp toCompareOp(DebugDraw::DebugDepthTest aTest)
+		RICompareFunc_e toCompareOp(DebugDraw::DebugDepthTest aTest)
 		{
 			switch(aTest) {
-			case DebugDraw::DebugDepthTest::None:         return VK_COMPARE_OP_NEVER;
-			case DebugDraw::DebugDepthTest::Less:         return VK_COMPARE_OP_LESS;
-			case DebugDraw::DebugDepthTest::LessEqual:    return VK_COMPARE_OP_LESS_OR_EQUAL;
-			case DebugDraw::DebugDepthTest::Equal:        return VK_COMPARE_OP_EQUAL;
-			case DebugDraw::DebugDepthTest::GreaterEqual: return VK_COMPARE_OP_GREATER_OR_EQUAL;
-			case DebugDraw::DebugDepthTest::Greater:      return VK_COMPARE_OP_GREATER;
-			case DebugDraw::DebugDepthTest::NotEqual:     return VK_COMPARE_OP_NOT_EQUAL;
-			case DebugDraw::DebugDepthTest::Always:       return VK_COMPARE_OP_ALWAYS;
+			case DebugDraw::DebugDepthTest::None:         return RI_COMPARE_NEVER;
+			case DebugDraw::DebugDepthTest::Less:         return RI_COMPARE_LESS;
+			case DebugDraw::DebugDepthTest::LessEqual:    return RI_COMPARE_LESS_EQUAL;
+			case DebugDraw::DebugDepthTest::Equal:        return RI_COMPARE_EQUAL;
+			case DebugDraw::DebugDepthTest::GreaterEqual: return RI_COMPARE_GREATER_EQUAL;
+			case DebugDraw::DebugDepthTest::Greater:      return RI_COMPARE_GREATER;
+			case DebugDraw::DebugDepthTest::NotEqual:     return RI_COMPARE_NOT_EQUAL;
+			case DebugDraw::DebugDepthTest::Always:       return RI_COMPARE_ALWAYS;
 			default: break;
 			}
 			assert(false && "unhandled DebugDepthTest");
-			return VK_COMPARE_OP_ALWAYS;
+			return RI_COMPARE_ALWAYS;
 		}
 
 		struct DebugPipelineCfg {
-			VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+			uint8_t topology = RI_TOPOLOGY_LINE_LIST;      // RITopology_e
 			bool depthTestEnable = true;
-			VkCompareOp depthOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+			uint8_t depthOp = RI_COMPARE_LESS_EQUAL;       // RICompareFunc_e
 			bool alphaBlend = false;   // false => additive ONE/ONE (TDD overlay look)
 			bool uvLayout = false;     // declare the uv attribute (debug_uv.vert)
-			VkFormat colorFormat = RIBootstrap::PogoColorFormatVk;
+			uint32_t colorFormat = RIBootstrap::PogoColorFormat; // RI_Format_e
 		};
 
 		// One cached pipeline per (topology, depth, blend, format) combination —
-		// non-bindless template cloned from GuiSet.cpp / RendererWireFrame.cpp.
+		// non-bindless template cloned from RendererWireFrame.cpp (neutral desc).
 		void bindDebugPipeline(RIProgram& aProgram, struct RICmd* cmd,
 							   const DebugPipelineCfg& aCfg, const char* asDebugName)
 		{
-			// Unified DebugVertex stream (stride 36); color-only stages skip uv.
-			VkVertexInputAttributeDescription colorAttribs[] = {
-				{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 },     // position
-				{ 1, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 20 }, // color
-			};
-			VkVertexInputAttributeDescription uvAttribs[] = {
-				{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0 },     // position
-				{ 1, 0, VK_FORMAT_R32G32_SFLOAT, 12 },       // uv
-				{ 2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 20 }, // color
-			};
-			VkVertexInputBindingDescription vertexBindingDesc[] = {
-				{ 0, 36, VK_VERTEX_INPUT_RATE_VERTEX }
-			};
-			VkPipelineVertexInputStateCreateInfo vertexInputState = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-			vertexInputState.pVertexAttributeDescriptions = aCfg.uvLayout ? uvAttribs : colorAttribs;
-			vertexInputState.vertexAttributeDescriptionCount = aCfg.uvLayout ? 3 : 2;
-			vertexInputState.pVertexBindingDescriptions = vertexBindingDesc;
-			vertexInputState.vertexBindingDescriptionCount = 1;
-
-			VkPipelineInputAssemblyStateCreateInfo inputAssemblyState = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
-			inputAssemblyState.topology = aCfg.topology;
-
-			VkPipelineRasterizationStateCreateInfo rasterizationState = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
-			rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
-			rasterizationState.cullMode = VK_CULL_MODE_NONE; // sidesteps the CW-front-face trap
-			rasterizationState.lineWidth = 1.0f;
-
-			VkDynamicState dynamicStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-			VkPipelineDynamicStateCreateInfo dynamicState = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
-			dynamicState.dynamicStateCount = ARRAY_COUNT(dynamicStates);
-			dynamicState.pDynamicStates = dynamicStates;
-
-			VkPipelineRenderingCreateInfo pipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
-			VkFormat colorFormats[1] = { aCfg.colorFormat };
-			pipelineRenderingCreateInfo.colorAttachmentCount = 1;
-			pipelineRenderingCreateInfo.pColorAttachmentFormats = colorFormats;
-			pipelineRenderingCreateInfo.depthAttachmentFormat = RIFormatToVK(RIBootstrap::DepthFormat);
-			pipelineRenderingCreateInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
-
-			VkPipelineViewportStateCreateInfo viewportState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
-			viewportState.viewportCount = 1;
-			viewportState.scissorCount = 1;
-
-			VkPipelineMultisampleStateCreateInfo multisampleState = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
-			multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
+			RIGraphicsPipelineDesc pipe{};
+			pipe.topology = aCfg.topology;
+			pipe.cullMode = RI_CULL_MODE_NONE; // sidesteps the CW-front-face trap
+			pipe.fillMode = RI_FILL_SOLID;
 			// Overlay geometry never writes depth — it tests against the scene.
-			VkPipelineDepthStencilStateCreateInfo depthStencilState = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
-			depthStencilState.depthTestEnable = aCfg.depthTestEnable ? VK_TRUE : VK_FALSE;
-			depthStencilState.depthWriteEnable = VK_FALSE;
-			depthStencilState.depthCompareOp = aCfg.depthOp;
-			depthStencilState.minDepthBounds = 0.0f;
-			depthStencilState.maxDepthBounds = 1.0f;
+			pipe.depthTestEnable = aCfg.depthTestEnable;
+			pipe.depthWriteEnable = false;
+			pipe.depthCompareOp = aCfg.depthOp;
+			pipe.depthStencilFormat = RIBootstrap::DepthFormat;
 
 			// RGB-only write mask: keep the scene's alpha channel intact.
-			VkPipelineColorBlendAttachmentState blendAttachmentState[1] = {};
-			blendAttachmentState[0].blendEnable = VK_TRUE;
-			blendAttachmentState[0].colorBlendOp = VK_BLEND_OP_ADD;
-			blendAttachmentState[0].alphaBlendOp = VK_BLEND_OP_ADD;
-			blendAttachmentState[0].colorWriteMask =
-				VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
+			pipe.colorCount = 1;
+			pipe.colors[0].format = aCfg.colorFormat;
+			pipe.colors[0].blendEnabled = true;
+			pipe.colors[0].colorBlendOp = RI_BLEND_OP_ADD;
+			pipe.colors[0].alphaBlendOp = RI_BLEND_OP_ADD;
+			pipe.colors[0].writeMask = RI_COLOR_WRITE_RGB;
 			if(aCfg.alphaBlend) {
-				blendAttachmentState[0].srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-				blendAttachmentState[0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-				blendAttachmentState[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-				blendAttachmentState[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+				pipe.colors[0].srcColor = RI_BLEND_SRC_ALPHA;
+				pipe.colors[0].dstColor = RI_BLEND_ONE_MINUS_SRC_ALPHA;
+				pipe.colors[0].srcAlpha = RI_BLEND_SRC_ALPHA;
+				pipe.colors[0].dstAlpha = RI_BLEND_ONE_MINUS_SRC_ALPHA;
 			} else {
-				blendAttachmentState[0].srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-				blendAttachmentState[0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
-				blendAttachmentState[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-				blendAttachmentState[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+				pipe.colors[0].srcColor = RI_BLEND_ONE;
+				pipe.colors[0].dstColor = RI_BLEND_ONE;
+				pipe.colors[0].srcAlpha = RI_BLEND_ONE;
+				pipe.colors[0].dstAlpha = RI_BLEND_ONE;
 			}
-			VkPipelineColorBlendStateCreateInfo colorBlendState = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
-			colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
-			colorBlendState.pAttachments = blendAttachmentState;
 
-			VkGraphicsPipelineCreateInfo pipelineCreateInfo = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
-			pipelineCreateInfo.pNext = &pipelineRenderingCreateInfo;
-			pipelineCreateInfo.pVertexInputState = &vertexInputState;
-			pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
-			pipelineCreateInfo.pRasterizationState = &rasterizationState;
-			pipelineCreateInfo.pDynamicState = &dynamicState;
-			pipelineCreateInfo.pViewportState = &viewportState;
-			pipelineCreateInfo.pMultisampleState = &multisampleState;
-			pipelineCreateInfo.pDepthStencilState = &depthStencilState;
-			pipelineCreateInfo.pColorBlendState = &colorBlendState;
+			// Unified DebugVertex stream (stride 36); color-only stages skip uv.
+			pipe.vertexStreamCount = 1;
+			pipe.vertexStreams[0] = { /*binding*/ 0, /*stride*/ 36, /*perInstance*/ false };
+			pipe.vertexAttributes[0] = { 0, 0, RI_FORMAT_RGB32_SFLOAT, 0 }; // position
+			if(aCfg.uvLayout) {
+				pipe.vertexAttributes[1] = { 1, 0, RI_FORMAT_RG32_SFLOAT, 12 };    // uv
+				pipe.vertexAttributes[2] = { 2, 0, RI_FORMAT_RGBA32_SFLOAT, 20 };  // color
+				pipe.vertexAttributeCount = 3;
+			} else {
+				pipe.vertexAttributes[1] = { 1, 0, RI_FORMAT_RGBA32_SFLOAT, 20 };  // color
+				pipe.vertexAttributeCount = 2;
+			}
 
 			hash_t hash = hash_u32(HASH_INITIAL_VALUE, (uint32_t)aCfg.topology);
 			hash = hash_u32(hash, (uint32_t)aCfg.depthTestEnable);
 			hash = hash_u32(hash, (uint32_t)aCfg.depthOp);
 			hash = hash_u32(hash, (uint32_t)aCfg.alphaBlend);
 			hash = hash_u32(hash, (uint32_t)aCfg.colorFormat);
-			aProgram.bindPipeline(&RI.device, cmd, hash, asDebugName, &pipelineCreateInfo);
+			aProgram.bindPipeline(&RI.device, cmd, hash, asDebugName, pipe);
 		}
+
+		//------------------------------------------------------------------
+		// Explicit per-backend binding tables for the three DebugDraw programs
+		// (m_colorProgram, m_color2DProgram, m_uvProgram). None take a bindless
+		// set, so every [vk::binding] is program-managed. Authored from
+		// DebugDraw/debug*.slang and the generated
+		// build-mtl/amnesia/compiled_shaders/debug*.metal entry-point
+		// signatures. State flows through the "pass" frame-scratch UBO — no
+		// push constants, so pushConstantSize stays 0.
+
+		// debug.frag / debug_2d: flat vertex color — the declared `pass` UBO is
+		// unused in the fragment stage (slangc + the SPIR-V optimizer strip it),
+		// so only the vertex `pass` UBO (Metal buffer 0) survives.
+		const RIProgram::RIProgramBinding kDebugColor[] = {
+			{ "pass", RI_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, RI_SHADER_STAGE_VERTEX, {0, 0}, {}, {0} },
+		};
+
+		// debug_uv: vertex `pass` UBO (Metal buffer 0) + fragment diffuse
+		// sampler/texture. The `pass` UBO is stripped from the fragment stage.
+		const RIProgram::RIProgramBinding kDebugUv[] = {
+			{ "pass",           RI_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, RI_SHADER_STAGE_VERTEX,   {0, 0}, {}, {0} },
+			{ "diffuseSampler", RI_DESCRIPTOR_TYPE_SAMPLER,        1, RI_SHADER_STAGE_FRAGMENT, {0, 1}, {}, {0} },
+			{ "diffuseMap",     RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE,  1, RI_SHADER_STAGE_FRAGMENT, {0, 2}, {}, {0} },
+		};
 
 	} // namespace
 
@@ -176,18 +155,22 @@ namespace hpl {
 
 	void DebugDraw::Init(cResources* apResources)
 	{
-		auto loadProgram = [&](RIProgram& aProgram, const char* asVert, const char* asFrag) {
+		auto loadProgram = [&](RIProgram& aProgram, const char* asVert, const char* asFrag,
+							   std::span<const RIProgram::RIProgramBinding> bindings) {
 			auto vert_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), asVert);
 			auto frag_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), asFrag);
 			std::array<RIProgram::ModuleStage, 2> stages = {
 				RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, vert_stage, "vsMain"},
 				RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, frag_stage, "psMain"}
 			};
-			aProgram.initialize(&RI.device, stages);
+			RIProgram::RIProgramDescriptor desc = {};
+			desc.stages = stages;
+			desc.bindings = bindings;
+			aProgram.initialize(&RI.device, desc);
 		};
-		loadProgram(m_colorProgram, "debug.vert.spv", "debug.frag.spv");
-		loadProgram(m_color2DProgram, "debug_2d.vert.spv", "debug.frag.spv");
-		loadProgram(m_uvProgram, "debug_uv.vert.spv", "debug_uv.frag.spv");
+		loadProgram(m_colorProgram, "debug.vert.spv", "debug.frag.spv", kDebugColor);
+		loadProgram(m_color2DProgram, "debug_2d.vert.spv", "debug.frag.spv", kDebugColor);
+		loadProgram(m_uvProgram, "debug_uv.vert.spv", "debug_uv.frag.spv", kDebugUv);
 	}
 
 	//-----------------------------------------------------------------------
@@ -471,23 +454,14 @@ namespace hpl {
 			bool res = m_vertexAlloc.request(RI.frameIndex, alNumVertices, apVtxReq);
 			assert(res);
 
-			uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-			VkBufferCreateInfo bufferCreateInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-			VK_ConfigureBufferQueueFamilies(&bufferCreateInfo, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
-			bufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
-			bufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-
-			VmaAllocationInfo allocationInfo = { 0 };
-			VmaAllocationCreateInfo allocInfo = { 0 };
-			allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-			allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
-			if(m_vertexBuffer.vk.buffer) {
+			if(IsRIBufferValid(&RI.renderer, &m_vertexBuffer)) {
 				cntx->freelist.push_back(m_vertexBuffer);
 			}
-			VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferCreateInfo, &allocInfo,
-										  &m_vertexBuffer.vk.buffer, &m_vertexBuffer.vk.allocation, &allocationInfo));
-			m_vertexBuffer.mappedAddress = allocationInfo.pMappedData;
+			RIBufferDesc vbDesc = {};
+			vbDesc.size = (uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
+			vbDesc.usage = RI_BUFFER_USAGE_VERTEX_BUFFER;
+			vbDesc.location = RI_MEMORY_HOST_UPLOAD;
+			m_vertexBuffer = RIBuffer::create(&RI.device, vbDesc);
 		}
 
 		if(!IsRIBufferValid(&RI.renderer, &m_indexBuffer) ||
@@ -504,23 +478,14 @@ namespace hpl {
 			bool res = m_indexAlloc.request(RI.frameIndex, alNumIndices, apIdxReq);
 			assert(res);
 
-			uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-			VkBufferCreateInfo bufferCreateInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-			VK_ConfigureBufferQueueFamilies(&bufferCreateInfo, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
-			bufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
-			bufferCreateInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-
-			VmaAllocationInfo allocationInfo = { 0 };
-			VmaAllocationCreateInfo allocInfo = { 0 };
-			allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-			allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
-			if(m_indexBuffer.vk.buffer) {
+			if(IsRIBufferValid(&RI.renderer, &m_indexBuffer)) {
 				cntx->freelist.push_back(m_indexBuffer);
 			}
-			VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferCreateInfo, &allocInfo,
-										  &m_indexBuffer.vk.buffer, &m_indexBuffer.vk.allocation, &allocationInfo));
-			m_indexBuffer.mappedAddress = allocationInfo.pMappedData;
+			RIBufferDesc ibDesc = {};
+			ibDesc.size = (uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
+			ibDesc.usage = RI_BUFFER_USAGE_INDEX_BUFFER;
+			ibDesc.location = RI_MEMORY_HOST_UPLOAD;
+			m_indexBuffer = RIBuffer::create(&RI.device, ibDesc);
 		}
 		return true;
 	}
@@ -528,7 +493,7 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 	void DebugDraw::flush(RIBootstrap::FrameContext* cntx, struct RICmd* cmd, const cFrustum* apFrustum,
-						  uint32_t alTargetWidth, uint32_t alTargetHeight, VkFormat aColorFormat)
+						  uint32_t alTargetWidth, uint32_t alTargetHeight, RI_Format_e aColorFormat)
 	{
 		if(!HasRequests()) {
 			return;
@@ -560,12 +525,16 @@ namespace hpl {
 		// Y-flipped viewport to the target extent — same convention as the
 		// scene passes, so the unmodified projection lands the right way up.
 		{
-			VkViewport viewport_vk = { 0.0f, (float)alTargetHeight,
-									   (float)alTargetWidth, -(float)alTargetHeight,
-									   0.0f, 1.0f };
-			VkRect2D scissor = { { 0, 0 }, { alTargetWidth, alTargetHeight } };
-			vkCmdSetViewport(cmd->vk.cmd, 0, 1, &viewport_vk);
-			vkCmdSetScissor(cmd->vk.cmd, 0, 1, &scissor);
+			RIViewport viewport_vk = {};
+			viewport_vk.y = (float)alTargetHeight;
+			viewport_vk.width = (float)alTargetWidth;
+			viewport_vk.height = -(float)alTargetHeight;
+			viewport_vk.depthMax = 1.0f;
+			RIRect scissor = {};
+			scissor.width = (int16_t)alTargetWidth;
+			scissor.height = (int16_t)alTargetHeight;
+			cmd->setViewport(&RI.renderer, viewport_vk);
+			cmd->setScissor(&RI.renderer, scissor);
 		}
 
 		////////////////////////////////////////////
@@ -582,8 +551,8 @@ namespace hpl {
 			Reset();
 			return;
 		}
-		const VkDeviceSize vtxBase = (VkDeviceSize)vtxReq.elementOffset * sizeof(DebugVertex);
-		const VkDeviceSize idxBase = (VkDeviceSize)idxReq.elementOffset * sizeof(uint32_t);
+		const RIDeviceSize vtxBase = (RIDeviceSize)vtxReq.elementOffset * sizeof(DebugVertex);
+		const RIDeviceSize idxBase = (RIDeviceSize)idxReq.elementOffset * sizeof(uint32_t);
 		DebugVertex* vboMemory = reinterpret_cast<DebugVertex*>((uint8_t*)m_vertexBuffer.mappedAddress + vtxBase);
 		uint32_t* eleMemory = reinterpret_cast<uint32_t*>((uint8_t*)m_indexBuffer.mappedAddress + idxBase);
 
@@ -595,11 +564,12 @@ namespace hpl {
 		auto drawRun = [&](RIProgram& aProgram, size_t alRunVertexStart, size_t alRunIndexStart,
 						   size_t alRunIndexCount, RIProgram::DescriptorBinding* apBindings, size_t alNumBindings) {
 			aProgram.bindDescriptors(&RI.device, cmd, RI.frameIndex, apBindings, alNumBindings);
-			const VkDeviceSize vbOffset = vtxBase + alRunVertexStart * sizeof(DebugVertex);
-			const VkDeviceSize ibOffset = idxBase + alRunIndexStart * sizeof(uint32_t);
-			vkCmdBindVertexBuffers(cmd->vk.cmd, 0, 1, &m_vertexBuffer.vk.buffer, &vbOffset);
-			vkCmdBindIndexBuffer(cmd->vk.cmd, m_indexBuffer.vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
-			cmd->drawIndexed((uint32_t)alRunIndexCount, 1, 0, 0, 0);
+			const RIDeviceSize vbOffset = vtxBase + alRunVertexStart * sizeof(DebugVertex);
+			const RIDeviceSize ibOffset = idxBase + alRunIndexStart * sizeof(uint32_t);
+			struct RIBuffer *vbufs[1] = { &m_vertexBuffer };
+			cmd->bindVertexBuffers<1>(0, 1, vbufs, &vbOffset);
+			cmd->bindIndexBuffer(&RI.renderer, &m_indexBuffer, ibOffset, RI_INDEX_TYPE_32);
+			cmd->drawIndexed(&RI.renderer, (uint32_t)alRunIndexCount, 1, 0, 0, 0);
 		};
 
 		////////////////////////////////////////////
@@ -631,7 +601,7 @@ namespace hpl {
 				indexCursor += runIndexCount;
 
 				DebugPipelineCfg cfg;
-				cfg.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+				cfg.topology = RI_TOPOLOGY_TRIANGLE_LIST;
 				cfg.depthTestEnable = true;
 				cfg.depthOp = toCompareOp(depthTest);
 				cfg.colorFormat = aColorFormat;
@@ -678,7 +648,7 @@ namespace hpl {
 				indexCursor += runIndexCount;
 
 				DebugPipelineCfg cfg;
-				cfg.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+				cfg.topology = RI_TOPOLOGY_TRIANGLE_LIST;
 				cfg.depthTestEnable = true;
 				cfg.depthOp = toCompareOp(depthTest);
 				cfg.colorFormat = aColorFormat;
@@ -751,7 +721,7 @@ namespace hpl {
 				indexCursor += runIndexCount;
 
 				DebugPipelineCfg cfg;
-				cfg.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+				cfg.topology = RI_TOPOLOGY_TRIANGLE_LIST;
 				cfg.depthTestEnable = true;
 				cfg.depthOp = toCompareOp(depthTest);
 				cfg.alphaBlend = true; // icons have cutout alpha
@@ -759,7 +729,7 @@ namespace hpl {
 				cfg.colorFormat = aColorFormat;
 				bindDebugPipeline(m_uvProgram, cmd, cfg, "debug.uvQuad");
 
-				// Pin the texture so a mid-frame destroy can't free the VkImage
+				// Pin the texture so a mid-frame destroy can't free the image
 				// before this submit retires.
 				cntx->resourceLink.push_back(texture);
 
@@ -806,7 +776,7 @@ namespace hpl {
 				indexCursor += runIndexCount;
 
 				DebugPipelineCfg cfg;
-				cfg.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+				cfg.topology = RI_TOPOLOGY_LINE_LIST;
 				cfg.depthTestEnable = true;
 				cfg.depthOp = toCompareOp(depthTest);
 				cfg.colorFormat = aColorFormat;
@@ -839,9 +809,9 @@ namespace hpl {
 			indexCursor += runIndexCount;
 
 			DebugPipelineCfg cfg;
-			cfg.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+			cfg.topology = RI_TOPOLOGY_LINE_LIST;
 			cfg.depthTestEnable = false;
-			cfg.depthOp = VK_COMPARE_OP_ALWAYS;
+			cfg.depthOp = RI_COMPARE_ALWAYS;
 			cfg.colorFormat = aColorFormat;
 			bindDebugPipeline(m_color2DProgram, cmd, cfg, "debug.line2D");
 

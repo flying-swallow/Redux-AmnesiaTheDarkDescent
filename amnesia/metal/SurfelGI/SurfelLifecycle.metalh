@@ -1,0 +1,64 @@
+#pragma once
+// Mirrors amnesia/slang/SurfelGI/SurfelLifecycle.slang — surfel construction,
+// free-list slot allocation/publish/release, and the per-frame lifecycle tick.
+// Flattened into each .metal at stage time by cmake/flatten_metal_includes.py.
+//
+// IMPORTANT: references `device Set0&`, so #include AFTER the file's `struct Set0`.
+// SurfelGI/SurfelTypes.metalh (Surfel / SurfelRecycleInfo / MSMEData) and
+// SceneTypes.metalh (TriangleHit) must already be included.
+//
+// The surfel-counter slot indices (kSurfelCounterValid / kSurfelCounterFree) stay
+// in the including file (they share a line with the other counter slots that
+// pass uses); they are identical everywhere.
+
+// Module-owned lifecycle constants (identical across every including pass).
+constant uint kTotalSurfelLimit   = 150000u;
+constant uint kObjectSlotCapacity = 32768u;
+constant uint kMaxLife            = 240u;
+constant uint kSleepingMaxLife    = 60u;    // kMaxLife / 4
+
+static MSMEData makeMSMEData() {
+    MSMEData d; d.mean = float3(0.0f); d._padMean = 0.0f; d.shortMean = float3(0.0f);
+    d.vbbr = 0.0f; d.variance = float3(0.0f); d.inconsistency = 1.0f; return d;
+}
+static Surfel makeSurfel(float3 position, float3 normal, float radius) {
+    Surfel s; s.position = position; s.normal = normal; s.radius = radius;
+    s.radiance = float3(0.0f); s.sumLuminance = 0.0f; s.hasHole = 0u;
+    s.msmeData = makeMSMEData(); s.rayOffset = 0u; s.rayCount = 0u; return s;
+}
+// No-rollback semantics preserved (counters stay modified on failure).
+static bool tryAllocateSurfelSlot(thread uint& newIndex, thread uint& validSlot, device Set0& set0) {
+    newIndex = 0u; validSlot = 0u;
+    uint freeSurfelCount = atomic_fetch_add_explicit((device atomic_uint*)&set0.gSurfelCounter[kSurfelCounterFree], 0xFFFFFFFFu, memory_order_relaxed);
+    if (!(0u < freeSurfelCount && freeSurfelCount <= kTotalSurfelLimit)) return false;
+    uint validSurfelCount = atomic_fetch_add_explicit((device atomic_uint*)&set0.gSurfelCounter[kSurfelCounterValid], 1u, memory_order_relaxed);
+    if (validSurfelCount >= kTotalSurfelLimit) return false;
+    newIndex = set0.gSurfelFreeIndexBuffer[freeSurfelCount - 1u];
+    validSlot = validSurfelCount;
+    return true;
+}
+static void publishNewSurfel(uint newIndex, uint validSlot, Surfel s, SurfelRecycleInfo recycle,
+                             uint4 packedHit, uint instanceID, uint initialRefCount, device Set0& set0) {
+    set0.gSurfelValidIndexBuffer[validSlot] = newIndex;
+    set0.gSurfelBuffer[newIndex] = s;
+    set0.gSurfelRecycleInfoBuffer[newIndex] = recycle;
+    set0.gSurfelGeometryBuffer[newIndex] = packedHit;
+    set0.gSurfelSlotGeneration[newIndex] = set0.gBindlessSlotGeneration[instanceID];
+    set0.gSurfelRefCounter[newIndex] = initialRefCount;
+}
+static void releaseSurfel(uint surfelIndex, device Set0& set0) {
+    uint freeCount = atomic_fetch_add_explicit((device atomic_uint*)&set0.gSurfelCounter[kSurfelCounterFree], 1u, memory_order_relaxed);
+    set0.gSurfelFreeIndexBuffer[freeCount] = surfelIndex;
+}
+static SurfelRecycleInfo tickSurfelLifecycle(SurfelRecycleInfo info, bool hasEnoughRefCount, thread bool& isSleeping) {
+    bool lastSeen = (info.status & 0x0002u) != 0u;
+    info.life  = ushort(max(int(info.life) - 1, 0));
+    info.frame = ushort(clamp(int(info.frame) + 1, 0, 65535));
+    if (lastSeen) { info.life = ushort(kMaxLife); if (isSleeping) isSleeping = false; }
+    if (isSleeping && hasEnoughRefCount) info.life = ushort(kSleepingMaxLife);
+    return info;
+}
+static bool isAnchorStale(uint surfelIndex, TriangleHit hit, device Set0& set0) {
+    return hit.instanceID >= kObjectSlotCapacity ||
+           set0.gSurfelSlotGeneration[surfelIndex] != set0.gBindlessSlotGeneration[hit.instanceID];
+}

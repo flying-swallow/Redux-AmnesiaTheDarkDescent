@@ -47,27 +47,41 @@ namespace hpl {
 	{
 		mpLowLevelInputSDL = apLowLevelInputSDL;
 
-		mpHandle = SDL_GameControllerOpen(mlIndex);
+		// SDL3 opens gamepads by instance id, not by device index; map the
+		// requested index through the current gamepad list.
+		SDL_JoystickID gamepadId = 0;
+		{
+			int lNumGamepads = 0;
+			SDL_JoystickID *pGamepads = SDL_GetGamepads(&lNumGamepads);
+			if(pGamepads)
+			{
+				if(mlIndex >= 0 && mlIndex < lNumGamepads)
+					gamepadId = pGamepads[mlIndex];
+				SDL_free(pGamepads);
+			}
+		}
+
+		mpHandle = gamepadId ? SDL_OpenGamepad(gamepadId) : NULL;
 		mlLastTimeActive = -1;
 		mpHaptic = NULL;
 
 		if(mpHandle)
 		{
-			SDL_Joystick *joy = SDL_GameControllerGetJoystick(mpHandle);
+			SDL_Joystick *joy = SDL_GetGamepadJoystick(mpHandle);
 
-			mlInstance = SDL_JoystickInstanceID(joy);
+			mlInstance = SDL_GetJoystickID(joy);
 
-			msGamepadName = tString(SDL_GameControllerName(mpHandle));
+			msGamepadName = tString(SDL_GetGamepadName(mpHandle));
 
-			mvButtonArray.assign(SDL_CONTROLLER_BUTTON_MAX, false);
+			mvButtonArray.assign(SDL_GAMEPAD_BUTTON_COUNT, false);
 
-			mvAxisArray.assign(SDL_CONTROLLER_AXIS_MAX, 0.0f);
+			mvAxisArray.assign(SDL_GAMEPAD_AXIS_COUNT, 0.0f);
 
-			mpHaptic = SDL_HapticOpenFromJoystick(joy);
+			mpHaptic = SDL_OpenHapticFromJoystick(joy);
 
-			if(SDL_HapticRumbleInit(mpHaptic) != 0)
+			if(mpHaptic && !SDL_InitHapticRumble(mpHaptic))
 			{
-				if(mpHaptic) SDL_HapticClose(mpHaptic);
+				SDL_CloseHaptic(mpHaptic);
 				mpHaptic = NULL;
 			}
 		}
@@ -77,10 +91,10 @@ namespace hpl {
 	{
 		if(mpHaptic)
 		{
-			SDL_HapticRumbleStop(mpHaptic);
-			SDL_HapticClose(mpHaptic);
+			SDL_StopHapticRumble(mpHaptic);
+			SDL_CloseHaptic(mpHaptic);
 		}
-		if(mpHandle) SDL_GameControllerClose(mpHandle);
+		if(mpHandle) SDL_CloseGamepad(mpHandle);
 	}
 
 
@@ -147,16 +161,16 @@ namespace hpl {
 			SDL_Event *pEvent = &(*it);
 
 			switch (pEvent->type) {
-			case SDL_CONTROLLERDEVICEREMOVED:
-				if(mlInstance == pEvent->cdevice.which)
+			case SDL_EVENT_GAMEPAD_REMOVED:
+				if(mlInstance == pEvent->gdevice.which)
 				{
 					bDeviceRemoved = true;
 				}
 				break;
-			case SDL_CONTROLLERAXISMOTION:
-				if (mlInstance == pEvent->caxis.which) {
-					eGamepadAxis axis = SDLToAxis(pEvent->caxis.axis);
-					float fAxisValue = SDLToAxisValue(pEvent->caxis.value);
+			case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+				if (mlInstance == pEvent->gaxis.which) {
+					eGamepadAxis axis = SDLToAxis(pEvent->gaxis.axis);
+					float fAxisValue = SDLToAxisValue(pEvent->gaxis.value);
 
 					if(fAxisValue!=mvAxisArray[axis])
 					{
@@ -166,18 +180,18 @@ namespace hpl {
 						mlstInputUpdates.push_back(inputUpdate);
 					}
 
-					if(pEvent->caxis.value == 0 || pEvent->caxis.value == 16384) lFlushed++;
+					if(pEvent->gaxis.value == 0 || pEvent->gaxis.value == 16384) lFlushed++;
 
-					mvAxisArray[axis] = fAxisValue;                        
+					mvAxisArray[axis] = fAxisValue;
 				}
 				break;
-			case SDL_CONTROLLERBUTTONDOWN:
-			case SDL_CONTROLLERBUTTONUP:
-				if (mlInstance == pEvent->cbutton.which) {
-					eGamepadButton button = SDLToButton(pEvent->cbutton.button);
+			case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+			case SDL_EVENT_GAMEPAD_BUTTON_UP:
+				if (mlInstance == pEvent->gbutton.which) {
+					eGamepadButton button = SDLToButton(pEvent->gbutton.button);
 					inputUpdate = cGamepadInputData(mlIndex, eGamepadInputType_Button, button, 0.0f);
 
-					bool bPressed = (pEvent->cbutton.state==SDL_RELEASED) == false;
+					bool bPressed = pEvent->gbutton.down;
 
 					if(mvButtonArray[button] != bPressed) 
 					{
@@ -213,7 +227,7 @@ namespace hpl {
 			UpdateAxis(5, mvAxisArray[5]);
 		}
 
-		if(bDeviceRemoved || lFlushed >= (SDL_CONTROLLER_BUTTON_MAX + SDL_CONTROLLER_AXIS_MAX)) // if flushed is 21 then all buttons have been reset which means that the controller has been disconnected in some way
+		if(bDeviceRemoved || lFlushed >= (SDL_GAMEPAD_BUTTON_COUNT + SDL_GAMEPAD_AXIS_COUNT)) // if flushed is 21 then all buttons have been reset which means that the controller has been disconnected in some way
 		{
 			mlstInputUpdates.clear();
 			mlstButtonsPressed.clear();
@@ -423,8 +437,8 @@ namespace hpl {
 	{
 		if(mpHaptic)
 		{
-			if(afValue > 0) SDL_HapticRumblePlay(mpHaptic, afValue, alMillisec);
-			else			SDL_HapticRumbleStop(mpHaptic);
+			if(afValue > 0) SDL_PlayHapticRumble(mpHaptic, afValue, alMillisec);
+			else			SDL_StopHapticRumble(mpHaptic);
 		}
 	}
 

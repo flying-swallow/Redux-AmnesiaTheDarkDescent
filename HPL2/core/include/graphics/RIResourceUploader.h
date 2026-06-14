@@ -11,10 +11,10 @@ struct RIMappedMemoryRange {
 	size_t offset;
 	size_t size;
 	void *data;
-#if ( DEVICE_IMPL_VULKAN )
-	VkBuffer buffer;
-	struct VmaAllocation_T *alloc; // NULL when the slice belongs to the persistent staging buffer
-#endif
+	// Staging source for the recorded copy (the persistent staging buffer or a
+	// temporary). Unset on the UMA direct-write path, where 'data' points straight
+	// into the target and no copy is recorded.
+	struct RIBuffer buffer;
 };
 
 // One queue + per-set cmd pool / cmd buffer / staging buffer / fence / semaphore.
@@ -40,6 +40,14 @@ struct RITransferCommandGroup {
 			VkSemaphore semaphores[RI_RESOURCE_MAX_SETS];
 		} vk;
 #endif
+#if ( DEVICE_IMPL_MTL )
+		struct {
+			// Per-set timeline fence: the active set's command buffer signals
+			// 'values[set]' on commit; __AcquireCmd host-waits it before reuse.
+			MTL::SharedEvent *events[RI_RESOURCE_MAX_SETS];
+			uint64_t values[RI_RESOURCE_MAX_SETS];
+		} mtl;
+#endif
 	};
 };
 
@@ -61,6 +69,14 @@ struct RIResourceBufferTransaction {
 	uint32_t currentStages; // RIStageBits_e
 	enum RIResourceState_e postState;
 	uint32_t postStages; // RIStageBits_e
+
+	// [mtl] Caller opt-in for the UMA direct-write fast path: set true ONLY when no
+	// in-flight frame can read 'target' while it is rewritten (write-once / load-time
+	// uploads). When true on a unified-memory device with a host-visible target,
+	// the uploader memcpys straight into the buffer and records no copy. Per-frame
+	// read-modify-write targets MUST leave this false so the staging+blit path keeps
+	// the copy ordered against the previous frame's reads. Ignored on Vulkan.
+	bool directWriteSafe = false;
 
 	// filled by RI_ResourceBeginCopyBuffer
 	struct RIMappedMemoryRange mapped;
@@ -115,11 +131,24 @@ struct RIResourceUploaderVKResult {
 			VkSemaphore semaphore;
 		} vk;
 #endif
+#if ( DEVICE_IMPL_MTL )
+		struct {
+			MTL::SharedEvent *event;
+			uint64_t value; // value the committed upload signals on 'event'
+		} mtl;
+#endif
 	};
 };
 
 #if ( DEVICE_IMPL_VULKAN )
 struct RIResourceUploaderVKResult RI_VKFlushResourceUpdate( struct RIDevice *device, struct RIResourceUploader *res, size_t num_semaphores, VkSemaphoreSubmitInfo *wait_semaphore_info );
+#endif
+
+#if ( DEVICE_IMPL_MTL )
+// Commit the active set's upload command buffer (if anything was recorded),
+// signalling its per-set SharedEvent so a later submit can wait on it. When
+// nothing was recorded, returns signaled=false with the current set's event/value.
+struct RIResourceUploaderVKResult RI_MTLFlushResourceUpdate( struct RIDevice *device, struct RIResourceUploader *res );
 #endif
 
 #endif

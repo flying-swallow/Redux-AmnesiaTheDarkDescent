@@ -28,17 +28,9 @@
 #include <sys/param.h>
 #include <fstream>
 
-#if USE_SDL2
-#include "SDL2/SDL.h"
-#else
-#include "SDL/SDL.h"
-#endif
+#include <SDL3/SDL.h>
 
 #ifdef __linux__
-#if !SDL_VERSION_ATLEAST(2,0,0)
-#include <FL/fl_ask.H>
-#endif
-
 #include <sys/types.h>
 #endif
 #include <unistd.h>
@@ -365,9 +357,9 @@ namespace hpl {
 
 		sMess += text;
 
-#if defined(__APPLE__) && (HPL_MINIMAL || !SDL_VERSION_ATLEAST(2,0,0))
+#if defined(__APPLE__) && HPL_MINIMAL
 		OSXAlertBox(eType, cString::To8Char(asCaption), cString::To8Char(sMess));
-#elif SDL_VERSION_ATLEAST(2,0,0)
+#else
 		Uint32 type = SDL_MESSAGEBOX_WARNING;
 		switch (eType) {
 			case eMsgBoxType_Info: type = SDL_MESSAGEBOX_INFORMATION; break;
@@ -394,16 +386,6 @@ namespace hpl {
 		};
 		int pressed = -1;
 		SDL_ShowMessageBox(&data, &pressed);
-#else
-		// Linux/X11 implementation
-		SDL_GrabMode cur = SDL_WM_GrabInput(SDL_GRAB_QUERY);
-		if (cur == SDL_GRAB_ON) {
-			SDL_WM_GrabInput(SDL_GRAB_OFF);
-		}
-		fl_alert("%s", cString::To8Char(asCaption + tWString(_W("\n\n")) + sMess).c_str());
-		if (cur == SDL_GRAB_ON) {
-			SDL_WM_GrabInput(SDL_GRAB_ON);
-		}
 #endif
 	}
 

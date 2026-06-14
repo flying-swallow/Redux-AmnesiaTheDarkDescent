@@ -877,55 +877,39 @@ static bool CreatePaneTexture(std::shared_ptr<cTexture> &outTexture,
 	std::shared_ptr<cTexture> texture(new cTexture{},
 										cTexture::cTexture_Delete);
 
-	VkImageCreateInfo imageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-	imageInfo.imageType = VK_IMAGE_TYPE_2D;
-	imageInfo.format = RIBootstrap::PogoColorFormatVk;
-	imageInfo.extent = {alWidth, alHeight, 1};
-	imageInfo.mipLevels = 1;
-	imageInfo.arrayLayers = 1;
-	imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-	imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+	RITextureDesc paneDesc = {};
+	paneDesc.type = RI_TEXTURE_2D;
+	paneDesc.format = RIBootstrap::PogoColorFormat;
+	paneDesc.width = alWidth;
+	paneDesc.height = alHeight;
+	paneDesc.depth = 1;
+	paneDesc.mipNum = 1;
+	paneDesc.layerNum = 1;
 	// COLOR_ATTACHMENT: cScene's delivery draw renders into it.
-	// SAMPLED: the GUI (GuiSet) displays it like any other Image.
-	imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-	uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-	imageInfo.pQueueFamilyIndices = queueFamilies;
-	VK_ConfigureImageQueueFamilies(&imageInfo, RI.device.queues, RI_QUEUE_LEN,
-								   queueFamilies, RI_QUEUE_LEN);
-
-	VmaAllocationCreateInfo allocInfo = {};
-	allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-	if(!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo,
-									 &allocInfo, &texture->handle.vk.image,
-									 &texture->handle.vk.allocation, NULL)))
+	// SHADER_RESOURCE: the GUI (GuiSet) displays it like any other Image.
+	paneDesc.usage = RI_USAGE_SHADER_RESOURCE | RI_USAGE_COLOR_ATTACHMENT;
+	texture->handle = RITexture::create(&RI.device, paneDesc);
+	if(texture->handle.isEmpty(&RI.device))
 	{
 		Error("EditorViewport: failed to create %ux%u pane image\n", alWidth, alHeight);
 		return false;
 	}
 
-	VkImageViewCreateInfo viewInfo = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-	viewInfo.image = texture->handle.vk.image;
-	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	viewInfo.format = imageInfo.format;
-	viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+	RITextureViewDesc paneView = {};
+	paneView.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
+	paneView.format = RIBootstrap::PogoColorFormat;
+	paneView.mipNum = 1;
+	paneView.layerNum = 1;
+	texture->view = RITextureView::create(&RI.device, &texture->handle, paneView);
+	texture->binding = RIDescriptor::sampledImage(&RI.device, &texture->view, hash_random());
 
-	texture->binding.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-	texture->binding.texture = &texture->handle;
-	texture->binding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-	texture->binding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	if(!VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
-										&texture->binding.vk.image.imageView)))
-	{
-		Error("EditorViewport: failed to create pane image view\n");
-		vmaDestroyImage(RI.device.vk.vmaAllocator, texture->handle.vk.image,
-						texture->handle.vk.allocation);
-		texture->handle.vk.image = VK_NULL_HANDLE;
-		texture->handle.vk.allocation = NULL;
-		return false;
-	}
-	texture->binding.finalize(&RI.device);
+//	texture->binding.texture = &texture->handle;
+//	texture->binding.view = &texture->view;
+//	texture->binding.type = RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+//#if (DEVICE_IMPL_VULKAN)
+//	texture->binding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+//#endif
+//	texture->binding.finalize(&RI.device);
 
 	texture->width = (uint16_t)alWidth;
 	texture->height = (uint16_t)alHeight;
@@ -981,7 +965,7 @@ void iEditorViewport::UpdateViewport()
 	target.width = (uint32_t)vSize.x;
 	target.height = (uint32_t)vSize.y;
 	target.texture = mpPaneTexture->handle;
-	target.view.vk.image = mpPaneTexture->binding.vk.image.imageView;
+	target.view    = mpPaneTexture->view;
 	mpEngineViewport->SetTarget(target);
 
 	////////////////////////////////////////////

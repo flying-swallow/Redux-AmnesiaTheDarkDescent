@@ -1,0 +1,89 @@
+#pragma once
+// Shared Metal header — port of amnesia/slang/ILight.slang + LightFalloff.slang.
+// NEE light sampling for PointLight / SpotLight (radiance = color·intensity·
+// softened-inverse-square·gobo·cone), plus the radial / cone falloff LUT lookups.
+// Flattened into each .metal at stage time by cmake/flatten_metal_includes.py.
+//
+// Slang models lights via the ILight interface (existential boxing); Metal has no
+// interfaces, so the point/spot sample() bodies become free functions that take
+// the typed light + a `device Set0&` (gTextures2D / gTexturesCube / gAttenuationLut
+// / gMaterialSampler / gSurfelDepthSampler). #include AFTER `struct Set0`.
+//
+// Lifted from SurfelRayTrace.rt.metal's sampleLight / sampleSpotCone (parity with
+// the shipped surfel NEE path). Requires PointLight / SpotLight / LightSample /
+// SceneConstants (SceneTypes.metalh), loadMat (BindlessTriangle.metalh),
+// kInvalidTextureIndex + kPointLightSourceRadiusSq (defined by the including .metal).
+
+// --- LightFalloff.slang ------------------------------------------------------
+// The default falloff LUT (core_falloff_linear) is bound once on set 0 as
+// gAttenuationLut, sampled with gSurfelDepthSampler (ClampToEdge).
+static float sampleAttenuation(float r2, device Set0& set0) {
+    return set0.gAttenuationLut.sample(set0.gSurfelDepthSampler, float2(saturate(r2), 0.5f), level(0.0f)).r;
+}
+static float sampleSpotCone(float cosTheta, float cosOuterAngle, device Set0& set0) {
+    float u = (1.0f - cosTheta) / max(1.0f - cosOuterAngle, 1e-6f);
+    return set0.gAttenuationLut.sample(set0.gSurfelDepthSampler, float2(saturate(u), 0.5f), level(0.0f)).r;
+}
+
+// --- ILight.slang: PointLight.sample ------------------------------------------
+// Radiance = color·intensity·softened inverse-square (HDR near source). `dir`
+// points from the shading point toward the light. Returns false on a degenerate
+// (zero-distance) sample.
+static bool samplePointLight(PointLight pl, float3 shadingPosW, thread LightSample& ls, device Set0& set0) {
+    ls.Li = float3(0.0f); ls.pdf = 1.0f; ls.dir = float3(0, 0, 1); ls.distance = 0.0f;
+    float3 toLight = float3(pl.position) - shadingPosW;
+    float  dist    = length(toLight);
+    if (dist <= 0.0f) return false;
+    float3 L     = toLight / dist;
+    float  atten = 1.0f / (dist * dist + kPointLightSourceRadiusSq);
+
+    float3 gobo = float3(1.0f);
+    if (pl.goboTextureIndex != kInvalidTextureIndex) {
+        float3x3 wToL = float3x3(float3(pl.worldToLightX), float3(pl.worldToLightY), float3(pl.worldToLightZ));
+        float3 lld = wToL * (-L);
+        gobo = set0.gTexturesCube[pl.goboTextureIndex].sample(set0.gMaterialSampler, lld, level(0.0f)).rgb;
+    }
+    ls.Li = float3(pl.color) * pl.intensity * gobo * atten;
+    ls.dir = L; ls.distance = dist;
+    return true;
+}
+
+// --- ILight.slang: SpotLight.sample -------------------------------------------
+// Same radial term as the point light, times an angular cone term (projected
+// gobo via viewProjection when bound, else the cone LUT).
+static bool sampleSpotLight(SpotLight sl, float3 shadingPosW, thread LightSample& ls, device Set0& set0) {
+    ls.Li = float3(0.0f); ls.pdf = 1.0f; ls.dir = float3(0, 0, 1); ls.distance = 0.0f;
+    float3 toLight = float3(sl.position) - shadingPosW;
+    float  dist    = length(toLight);
+    if (dist <= 0.0f) return false;
+    float3 L     = toLight / dist;
+    float  atten = 1.0f / (dist * dist + kPointLightSourceRadiusSq);
+
+    float3 gobo = float3(1.0f);
+    float  cone = 1.0f;
+    if (sl.goboTextureIndex != kInvalidTextureIndex) {
+        float4 lc = loadMat(sl.viewProjection) * float4(shadingPosW, 1.0f);
+        if (lc.w <= 0.0f) return false;
+        float2 uv = lc.xy / lc.w;
+        if (any(uv < float2(0.0f)) || any(uv > float2(1.0f))) return false;
+        gobo = set0.gTextures2D[sl.goboTextureIndex].sample(set0.gMaterialSampler, uv, level(0.0f)).rgb;
+    } else {
+        float cosTheta = dot(-L, float3(sl.direction));
+        if (cosTheta < sl.cosOuterAngle) return false;
+        cone = sampleSpotCone(cosTheta, sl.cosOuterAngle, set0);
+    }
+    ls.Li = float3(sl.color) * sl.intensity * gobo * cone * atten;
+    ls.dir = L; ls.distance = dist;
+    return true;
+}
+
+// Flat-index NEE dispatcher (Scene.getLight + .sample): point lights occupy
+// [0, pointLightCount), spot lights follow. Mirrors SurfelRayTrace.rt.metal's
+// sampleLight.
+static bool sampleLight(uint lightIndex, float3 shadingPosW, thread LightSample& ls,
+                        device Set0& set0, constant SceneConstants* gPerFrame) {
+    uint nPoint = gPerFrame->pointLightCount;
+    if (lightIndex < nPoint)
+        return samplePointLight(set0.gPointLights[lightIndex], shadingPosW, ls, set0);
+    return sampleSpotLight(set0.gSpotLights[lightIndex - nPoint], shadingPosW, ls, set0);
+}

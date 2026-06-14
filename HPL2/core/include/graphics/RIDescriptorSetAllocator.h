@@ -29,6 +29,13 @@ struct RIDescriptorSetSlot {
 			VkDescriptorSet handle;
 		} vk;
 #endif
+#if ( DEVICE_IMPL_MTL )
+		// On Metal a descriptor set is an argument buffer; this slot owns one,
+		// encoded (on a cache miss) by the set's RIDescriptorSetAlloc::mtl.encoder.
+		struct {
+			MTL::Buffer *argumentBuffer;
+		} mtl;
+#endif
 	};
 };
 
@@ -57,6 +64,15 @@ struct RIDescriptorSetAlloc {
 	struct RIDescriptorPoolAllocSlot* pools; // stb arrays
 	struct RIDescriptorSetSlot **blocks;
 	size_t blockIndex;
+#if ( DEVICE_IMPL_MTL )
+	// Per-set argument-buffer encoder (built once at program init) + the byte
+	// size each reserved slot's argument buffer must be. mtlDescriptorSetAlloc
+	// allocates the buffers; bindDescriptors re-targets the encoder per miss.
+	struct {
+		MTL::ArgumentEncoder *encoder;
+		uint64_t encodedLength;
+	} mtl;
+#endif
 };
 
 struct RIDescriptorSetResult {

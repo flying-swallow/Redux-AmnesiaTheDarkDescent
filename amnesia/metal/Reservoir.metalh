@@ -1,0 +1,71 @@
+#pragma once
+// Shared Metal header — port of amnesia/slang/Reservoir.slang.
+// Light-selection reservoir for ReSTIR DI (Bitterli et al. 2020, biased reuse).
+// The stored "sample" is the chosen analytic light's global index (NOT a point
+// on the light). Flattened into each .metal at stage time by
+// cmake/flatten_metal_includes.py.
+//
+// Requires RNG + rng_next_float from Random.metalh (let the consuming .metal
+// #include both). The Slang `[mutating]` methods become free functions taking a
+// `thread Reservoir&`; rng.next_float() becomes rng_next_float(rng).
+
+struct Reservoir {
+    uint  y;       // selected light (global unified index)
+    float W;       // unbiased contribution weight (UCW)
+    float M;       // confidence — candidate / merged sample count
+    // Transient (build + combine), not persisted to the texture:
+    float wSum;    // running weight sum
+    float pHatY;   // target value of `y` at this pixel
+};
+
+static void reservoirInit(thread Reservoir& r) {
+    r.y = 0u; r.W = 0.0f; r.M = 0.0f; r.wSum = 0.0f; r.pHatY = 0.0f;
+}
+
+static bool reservoirIsEmpty(Reservoir r) { return r.W <= 0.0f || r.M <= 0.0f; }
+
+// RIS build: stream one candidate light whose target at this pixel is pHatLi.
+static void reservoirStreamCandidate(thread Reservoir& r, uint li, float pHatLi, thread RNG& rng) {
+    r.wSum += pHatLi;
+    r.M    += 1.0f;
+    if (pHatLi > 0.0f && rng_next_float(rng) * r.wSum <= pHatLi) {
+        r.y     = li;
+        r.pHatY = pHatLi;
+    }
+}
+
+// Finalize after a uniform-candidate RIS build: W = (Σ pHat) / pHat(y).
+static void reservoirFinalizeBuild(thread Reservoir& r) {
+    r.W = (r.pHatY > 0.0f) ? r.wSum / r.pHatY : 0.0f;
+}
+
+// Reservoir-of-reservoirs combine (temporal / spatial reuse). pHatAtX is the
+// target of other's selected light re-evaluated at THIS pixel.
+static void reservoirMerge(thread Reservoir& r, Reservoir other, float pHatAtX, thread RNG& rng) {
+    float w = pHatAtX * other.W * other.M;
+    r.wSum += w;
+    r.M    += other.M;
+    if (w > 0.0f && rng_next_float(rng) * r.wSum <= w) {
+        r.y     = other.y;
+        r.pHatY = pHatAtX;
+    }
+}
+
+// Finalize after merge()s: W = Σw / (M · pHat(y)).
+static void reservoirFinalizeCombine(thread Reservoir& r) {
+    r.W = (r.pHatY > 0.0f && r.M > 0.0f) ? r.wSum / (r.M * r.pHatY) : 0.0f;
+}
+
+// RGBA32F texel <-> reservoir. Only the persisted fields (y, W, M) round-trip.
+static float4 packReservoir(Reservoir r) {
+    return float4(as_type<float>(r.y), r.W, r.M, 0.0f);
+}
+static Reservoir unpackReservoir(float4 t) {
+    Reservoir r;
+    r.y     = as_type<uint>(t.x);
+    r.W     = t.y;
+    r.M     = t.z;
+    r.wSum  = 0.0f;
+    r.pHatY = 0.0f;
+    return r;
+}

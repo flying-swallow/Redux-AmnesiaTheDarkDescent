@@ -26,7 +26,7 @@
 #include "input/Gamepad.h"
 //#include "input/InputTypes.h"
 
-#include "SDL2/SDL.h"
+#include <SDL3/SDL.h>
 
 namespace hpl {
 
@@ -102,7 +102,7 @@ namespace hpl {
 
 		std::list<cGamepadInputData> mlstAxisChanges;
 
-		SDL_GameController	*mpHandle;
+		SDL_Gamepad	*mpHandle;
 		SDL_JoystickID      mlInstance;
 		cLowLevelInputSDL	*mpLowLevelInputSDL;
 		SDL_Haptic* mpHaptic;

@@ -38,11 +38,7 @@
 #include <io.h>
 #include <direct.h>
 
-#ifdef USE_SDL2
-#include <SDL2/SDL.h>
-#else
-#include "SDL/SDL.h"
-#endif
+#include <SDL3/SDL.h>
 
 #include "impl/TimerSDL.h"
 #include "impl/ThreadWin32.h"
@@ -393,7 +389,8 @@ namespace hpl {
 
 	unsigned long cPlatform::GetApplicationTime()
 	{
-		return SDL_GetTicks();
+		// SDL3's SDL_GetTicks() returns Uint64 milliseconds since init.
+		return (unsigned long)SDL_GetTicks();
 	}
 
 	//-----------------------------------------------------------------------

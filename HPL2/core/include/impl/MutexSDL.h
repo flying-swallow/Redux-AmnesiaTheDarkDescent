@@ -22,7 +22,7 @@
 
 #include "system/Mutex.h"
 
-struct SDL_mutex;
+struct SDL_Mutex;
 
 namespace hpl {
 
@@ -37,7 +37,7 @@ namespace hpl {
 		bool Unlock();
 
 	private:
-		SDL_mutex* mpMutexHandle;
+		SDL_Mutex* mpMutexHandle;
 
 	};
 

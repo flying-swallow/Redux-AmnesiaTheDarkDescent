@@ -29,6 +29,30 @@
 using namespace hpl;
 
 //-----------------------------------------------------------------------
+// Explicit per-backend binding tables for cLuxScreenEffect::m_postProgram.
+// The program is the shared fullscreen vert + ONE of two frags chosen by
+// mEffect; both frags share the same set-0 layout (inputSampler b0, sourceInput
+// b1). The blur variant additionally carries a fragment push constant.
+// vk = {name, set, binding, RIDescriptorType_e, count}; mtl read off the
+// generated entry-point signatures in build-mtl/amnesia/compiled_shaders.
+// The fullscreen vert (posteffect_fullscreen.vert) has no descriptors / push
+// constant (vs empty for both variants).
+namespace {
+
+// Push constant for the blur variant (matches BloomBlurPC / the local BlurPC).
+struct ScreenBlurPushConstants { float blurDir[2]; float _pad[2]; };
+
+// Shared fragment binding table for both variants (Metal: sourceInput
+// [[texture(0)]], inputSampler [[sampler(0)]]; the blur variant's push constant
+// is [[buffer(0)]]). The inventory variant has no push constant.
+constexpr RIProgram::RIProgramBinding kPost[] = {
+	{"inputSampler", RI_DESCRIPTOR_TYPE_SAMPLER, 1, RI_SHADER_STAGE_FRAGMENT, {0, 0}, {}, {0}},
+	{"sourceInput", RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, RI_SHADER_STAGE_FRAGMENT, {0, 1}, {}, {0}},
+};
+
+} // namespace
+
+//-----------------------------------------------------------------------
 
 // Lay down a single whole-image color barrier on the active command buffer.
 static void ImageBarrier(RICmd *cmd, RITexture *texture,
@@ -38,7 +62,7 @@ static void ImageBarrier(RICmd *cmd, RITexture *texture,
 	RITextureBarrier barrier(texture, before, after, beforeStages, afterStages);
 	barrier.mipCount   = 1;
 	barrier.layerCount = 1;
-	cmd->textureBarrier(barrier);
+	cmd->vk_d3d12_textureBarrier(barrier);
 }
 
 //-----------------------------------------------------------------------
@@ -53,11 +77,17 @@ void cLuxScreenEffect::Init(hpl::cGui *apGui, Effect effect)
 	//   DesaturateDarken: inventory_post.frag (single pass).
 	//   Blur: posteffect_bloom_blur.frag (H/V ping-pong in OnPostRender).
 	const char *vert = "posteffect_fullscreen.vert.spv";
-	const char *frag = (mEffect == Effect::Blur)
+	const bool bBlur = (mEffect == Effect::Blur);
+	const char *frag = bBlur
 		? "posteffect_bloom_blur.frag.spv" : "inventory_post.frag.spv";
 
+	// The blur variant carries a fragment push constant; inventory has none.
+	const uint16_t pcSize = bBlur ? (uint16_t)sizeof(ScreenBlurPushConstants) : 0;
+	const uint32_t pcStages = bBlur ? (uint32_t)RI_SHADER_STAGE_FRAGMENT : 0u;
+
 	LoadSlangGraphics(&RI.device, m_postProgram, gpBase->mpEngine->GetResources(),
-	                  vert, frag);
+	                  vert, frag, "vsMain", "psMain", {},
+	                  kPost, pcSize, pcStages);
 }
 
 //-----------------------------------------------------------------------
@@ -67,13 +97,13 @@ void cLuxScreenEffect::CreateTextures()
 	const uint32_t w = RI.swapchain.width;
 	const uint32_t h = RI.swapchain.height;
 
-	LuxCreateScreenRenderTarget(m_screenBgColor, w, h, VK_FORMAT_R8G8B8A8_UNORM,
+	LuxCreateScreenRenderTarget(m_screenBgColor, w, h, RI_FORMAT_RGBA8_UNORM,
 	                            "screen.effectBg");
 
 	// The separable blur ping-pongs through a scratch target between the shared
 	// sharp copy and the blurred result.
 	if (mEffect == Effect::Blur)
-		LuxCreateScreenRenderTarget(m_screenScratch, w, h, VK_FORMAT_R8G8B8A8_UNORM,
+		LuxCreateScreenRenderTarget(m_screenScratch, w, h, RI_FORMAT_RGBA8_UNORM,
 		                            "screen.effectBlurTmp");
 
 	m_screenBgImage = std::make_shared<Image>(Image::SingleImage{m_screenBgColor});
@@ -120,7 +150,7 @@ void cLuxScreenEffect::OnPostRender()
 	if (!mbApplyPending) {
 		return;
 	}
-	if (!m_screenBgColor || m_postProgram.getPipelineLayout() == VK_NULL_HANDLE) {
+	if (!m_screenBgColor || !m_postProgram.isValid()) {
 		return;
 	}
 
@@ -133,10 +163,7 @@ void cLuxScreenEffect::OnPostRender()
 		return;
 	}
 
-	VkCommandBuffer cmd = RI.primary.cmds[0].vk.cmd;
-	if (cmd == VK_NULL_HANDLE) {
-		return; // No active frame to ride on; try again next post-render.
-	}
+	RICmd *cmd = &RI.primary.cmds[0];
 
 	const cVector2l size = pCapture->GetSize();
 	const uint32_t w = static_cast<uint32_t>(size.x);
@@ -155,8 +182,9 @@ void cLuxScreenEffect::OnPostRender()
 	////////////////////////////////////////////////
 	if (mEffect == Effect::Blur)
 	{
-		PostEffectPipelineState blurState{};
-		InitPostEffectPipelineState(blurState, VK_FORMAT_R8G8B8A8_UNORM, false);
+		RIGraphicsPipelineDesc blurState{};
+		blurState.colorCount = 1;
+		blurState.colors[0].format = RI_FORMAT_RGBA8_UNORM; // blend disabled (default)
 		const hash_t kBlurHash = hash_u32(HASH_INITIAL_VALUE, 0u);
 
 		auto samplerDesc = RI.resolve_filter_descriptor(
@@ -166,8 +194,10 @@ void cLuxScreenEffect::OnPostRender()
 
 		struct BlurPC { float blurDir[2]; float _pad[2]; }; // matches BloomBlurPC
 
-		VkViewport viewport = { 0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f };
-		VkRect2D   scissor   = { { 0, 0 }, { w, h } };
+		RIViewport viewport = {};
+		viewport.width = (float)w; viewport.height = (float)h; viewport.depthMax = 1.0f;
+		RIRect scissor = {};
+		scissor.width = (int16_t)w; scissor.height = (int16_t)h;
 
 		auto blurPass = [&](cTexture *dst, const RIDescriptor &srcDesc,
 		                    float dirX, float dirY)
@@ -178,40 +208,39 @@ void cLuxScreenEffect::OnPostRender()
 					RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_FRAGMENT,
 					RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
 
-			VkRenderingAttachmentInfo attach = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-			attach.imageView   = dst->binding.vk.image.imageView;
-			attach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			attach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-			attach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+			RIRenderingAttachment attach = {};
+			attach.view    = &dst->view;
+			attach.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+			attach.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-			VkRenderingInfo render = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-			render.renderArea           = { { 0, 0 }, { w, h } };
-			render.layerCount           = 1;
-			render.colorAttachmentCount = 1;
-			render.pColorAttachments    = &attach;
+			RIBeginRenderingDesc render = {};
+			render.renderArea.width  = (int16_t)w;
+			render.renderArea.height = (int16_t)h;
+			render.colorCount        = 1;
+			render.colors            = &attach;
+			cmd->vk_d3d12_beginRendering(&RI.renderer, render);
+			cmd->mtl_encoderDraw(render);
 
-			vkCmdBeginRendering(cmd, &render);
+			cmd->setViewport(&RI.renderer, viewport);
+			cmd->setScissor(&RI.renderer, scissor);
 
-			vkCmdSetViewport(cmd, 0, 1, &viewport);
-			vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-			m_postProgram.bindPipeline(&RI.device, &RI.primary.cmds[0], kBlurHash,
-			                           "screen.blur", &blurState.createInfo);
+			m_postProgram.bindPipeline(&RI.device, cmd, kBlurHash,
+			                           "screen.blur", blurState);
 
 			RIProgram::DescriptorBinding bindings[2] = {};
 			bindings[0].descriptor = *samplerDesc;
 			bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
 			bindings[1].descriptor = srcDesc;
 			bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-			m_postProgram.bindDescriptors(&RI.device, &RI.primary.cmds[0],
+			m_postProgram.bindDescriptors(&RI.device, cmd,
 			                              RI.frameIndex, bindings, 2);
 
 			BlurPC pc = { { dirX, dirY }, { 0.0f, 0.0f } };
-			vkCmdPushConstants(cmd, m_postProgram.getPipelineLayout(),
-			                   VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+			m_postProgram.pushConstants(cmd, &pc, sizeof(pc));
 
-			vkCmdDraw(cmd, 3, 1, 0, 0);
-			vkCmdEndRendering(cmd);
+			cmd->draw(&RI.renderer, 3, 1, 0, 0);
+			cmd->mtl_encoderEnd();
+			cmd->vk_d3d12_endRendering(&RI.renderer);
 
 			// dst → sampleable for the next pass / the GUI.
 			ImageBarrier(&RI.primary.cmds[0], &dst->handle,
@@ -243,81 +272,37 @@ void cLuxScreenEffect::OnPostRender()
 	// Fullscreen post-effect — sample the shared capture, write m_screenBgColor.
 	////////////////////////////////////////////////
 
-	VkRenderingAttachmentInfo colorAttach = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-	colorAttach.imageView   = m_screenBgColor->binding.vk.image.imageView;
-	colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+	RIRenderingAttachment colorAttach = {};
+	colorAttach.view    = &m_screenBgColor->view;
+	colorAttach.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttach.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-	VkRenderingInfo renderInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-	renderInfo.renderArea = { { 0, 0 }, { w, h } };
-	renderInfo.layerCount = 1;
-	renderInfo.colorAttachmentCount = 1;
-	renderInfo.pColorAttachments = &colorAttach;
+	RIBeginRenderingDesc renderInfo = {};
+	renderInfo.renderArea.width  = (int16_t)w;
+	renderInfo.renderArea.height = (int16_t)h;
+	renderInfo.colorCount        = 1;
+	renderInfo.colors            = &colorAttach;
+	cmd->vk_d3d12_beginRendering(&RI.renderer, renderInfo);
+	cmd->mtl_encoderDraw(renderInfo);
 
-	vkCmdBeginRendering(cmd, &renderInfo);
+	RIViewport viewport = {};
+	viewport.width = (float)w; viewport.height = (float)h; viewport.depthMax = 1.0f;
+	cmd->setViewport(&RI.renderer, viewport);
+	RIRect scissor = {};
+	scissor.width = (int16_t)w; scissor.height = (int16_t)h;
+	cmd->setScissor(&RI.renderer, scissor);
 
-	VkViewport viewport = {};
-	viewport.x = 0.0f; viewport.y = 0.0f;
-	viewport.width = (float)w; viewport.height = (float)h;
-	viewport.minDepth = 0.0f; viewport.maxDepth = 1.0f;
-	vkCmdSetViewport(cmd, 0, 1, &viewport);
-	VkRect2D scissor = { { 0, 0 }, { w, h } };
-	vkCmdSetScissor(cmd, 0, 1, &scissor);
+	// Fullscreen pass: no vertex input (the VS synthesises the triangle from the
+	// vertex index), blend disabled, no depth, cull none — all RIGraphicsPipelineDesc
+	// defaults. Only the color target format needs setting.
+	RIGraphicsPipelineDesc postState{};
+	postState.colorCount = 1;
+	postState.colors[0].format = RI_FORMAT_RGBA8_UNORM;
 
-	// Build the (cached) pipeline. No vertex input — vertex shader synthesises
-	// the fullscreen triangle from gl_VertexIndex.
-	const VkFormat colorFormat = VK_FORMAT_R8G8B8A8_UNORM;
-	VkPipelineRenderingCreateInfo pipelineRendering = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
-	pipelineRendering.colorAttachmentCount    = 1;
-	pipelineRendering.pColorAttachmentFormats = &colorFormat;
-
-	VkPipelineVertexInputStateCreateInfo vertexInputState = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-
-	VkPipelineInputAssemblyStateCreateInfo inputAssemblyState = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
-	inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-	VkPipelineRasterizationStateCreateInfo rasterizationState = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
-	rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
-	rasterizationState.cullMode    = VK_CULL_MODE_NONE;
-	rasterizationState.lineWidth   = 1.0f;
-
-	VkPipelineViewportStateCreateInfo viewportState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
-	viewportState.viewportCount = 1;
-	viewportState.scissorCount  = 1;
-
-	VkPipelineMultisampleStateCreateInfo multisampleState = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
-	multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-
-	VkPipelineDepthStencilStateCreateInfo depthStencilState = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
-
-	VkPipelineColorBlendAttachmentState blendAttachment = {};
-	blendAttachment.colorWriteMask =
-		VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-		VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-	VkPipelineColorBlendStateCreateInfo colorBlendState = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
-	colorBlendState.attachmentCount = 1;
-	colorBlendState.pAttachments    = &blendAttachment;
-
-	VkDynamicState dynamicStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-	VkPipelineDynamicStateCreateInfo dynamicState = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
-	dynamicState.dynamicStateCount = ARRAY_COUNT(dynamicStates);
-	dynamicState.pDynamicStates    = dynamicStates;
-
-	VkGraphicsPipelineCreateInfo pipelineCreateInfo = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
-	pipelineCreateInfo.pNext               = &pipelineRendering;
-	pipelineCreateInfo.pVertexInputState   = &vertexInputState;
-	pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
-	pipelineCreateInfo.pRasterizationState = &rasterizationState;
-	pipelineCreateInfo.pViewportState      = &viewportState;
-	pipelineCreateInfo.pMultisampleState   = &multisampleState;
-	pipelineCreateInfo.pDepthStencilState  = &depthStencilState;
-	pipelineCreateInfo.pColorBlendState    = &colorBlendState;
-	pipelineCreateInfo.pDynamicState       = &dynamicState;
-
-	const hash_t pipelineHash = hash_u32(HASH_INITIAL_VALUE, (uint32_t)colorFormat);
-	m_postProgram.bindPipeline(&RI.device, &RI.primary.cmds[0], pipelineHash,
-	                           "screen.post", &pipelineCreateInfo);
+	const hash_t pipelineHash =
+		hash_u32(HASH_INITIAL_VALUE, (uint32_t)RI_FORMAT_RGBA8_UNORM);
+	m_postProgram.bindPipeline(&RI.device, cmd, pipelineHash,
+	                           "screen.post", postState);
 
 	auto samplerDesc = RI.resolve_filter_descriptor(
 		eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
@@ -329,11 +314,12 @@ void cLuxScreenEffect::OnPostRender()
 	bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
 	bindings[1].descriptor = *pSource;
 	bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-	m_postProgram.bindDescriptors(&RI.device, &RI.primary.cmds[0],
+	m_postProgram.bindDescriptors(&RI.device, cmd,
 	                              RI.frameIndex, bindings, 2);
 
-	vkCmdDraw(cmd, 3, 1, 0, 0);
-	vkCmdEndRendering(cmd);
+	cmd->draw(&RI.renderer, 3, 1, 0, 0);
+	cmd->mtl_encoderEnd();
+	cmd->vk_d3d12_endRendering(&RI.renderer);
 
 	// m_screenBgColor → SHADER_READ_ONLY so subsequent GUI draws can sample it.
 	ImageBarrier(&RI.primary.cmds[0], &m_screenBgColor->handle,

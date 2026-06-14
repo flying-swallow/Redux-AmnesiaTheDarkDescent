@@ -9,9 +9,10 @@
 #include "OALWrapper/OAL_Source.h"
 #include "OALWrapper/OAL_Device.h"
 
-#include <SDL2/SDL_thread.h>
-#include <SDL2/SDL_timer.h>
-#include <SDL2/SDL_version.h>
+#include <SDL3/SDL_thread.h>
+#include <SDL3/SDL_timer.h>
+#include <SDL3/SDL_version.h>
+#include <SDL3/SDL_mutex.h>
 
 //-----------------------------------------------------------------------------------
 
@@ -91,11 +92,7 @@ bool cOAL_SourceManager::Initialize ( bool abManageVoices, int alNumSourcesHint,
 		// This converts the desired frequency in aInput to amount of milliseconds to wait.
 		// Note that this is an int value, so any freq above 1000 will turn mlThreadWaitTime to 0;
 		mlThreadWaitTime = 1000/alUpdateFreq;
-#if SDL_VERSION_ATLEAST(2, 0, 0)
 		mpUpdaterThread = SDL_CreateThread ( UpdaterThread, "OAL Updater", NULL );
-#else
-		mpUpdaterThread = SDL_CreateThread ( UpdaterThread, NULL );
-#endif
 		mpStreamListMutex = SDL_CreateMutex ();
 
 		LogMsg("", eOAL_LogVerbose_Medium, eOAL_LogMsg_Info, "Done\n" );

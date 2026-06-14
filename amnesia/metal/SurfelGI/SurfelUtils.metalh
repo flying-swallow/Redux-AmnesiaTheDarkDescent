@@ -1,0 +1,77 @@
+#pragma once
+// Mirrors amnesia/slang/SurfelGI/SurfelUtils.slang — cell math, oct (en/de)code,
+// tangent-space basis, surfel-depth-atlas UV, radius approximation, neighbour
+// cell iteration, and the diagnostic color ramps. Flattened into each .metal at
+// stage time by cmake/flatten_metal_includes.py.
+
+// Module-owned constants (identical across every including pass). The world-cell
+// grid dimension and the surfel-depth atlas geometry live here because the
+// functions below reference them; including files must NOT redefine these.
+constant float M_PI_                    = 3.14159265358979323846f;
+constant uint  kCellDimension           = 250u;
+constant uint2 kSurfelDepthTextureRes   = uint2(4096u, 4096u);
+constant uint2 kSurfelDepthTextureUnit  = uint2(7u, 7u);
+
+// --- cell math ---------------------------------------------------------------
+static int3 getCellPos(float3 posW, float3 cam, float cu) { return int3(round((posW - cam) / cu)); }
+static bool isCellValid(int3 c) { int h = int(kCellDimension / 2u); return abs(c.x) < h && abs(c.y) < h && abs(c.z) < h; }
+static uint getFlattenCellIndex(int3 c) { uint3 u = uint3(c + int3(int(kCellDimension/2u))); return u.z*kCellDimension*kCellDimension + u.y*kCellDimension + u.x; }
+static int3 surfelNeighborCellPos(int3 cellPos, uint i) { return cellPos + int3(int(i/25u) - 2, int((i/5u)%5u) - 2, int(i%5u) - 2); }
+static bool isSurfelIntersectCell(float3 surfelPos, float surfelRadius, int3 cellPos, float3 cam, float cu) {
+    if (!isCellValid(cellPos)) return false;
+    float3 lo = float3(cellPos) * cu - float3(cu) * 0.5f + cam;
+    float3 hi = float3(cellPos) * cu + float3(cu) * 0.5f + cam;
+    float3 closePoint = clamp(surfelPos, lo, hi);
+    return distance(closePoint, surfelPos) < surfelRadius;
+}
+
+// --- octahedral encode / decode + tangent space ------------------------------
+static float2 octEncode(float3 v) { float l1 = abs(v.x) + abs(v.y) + abs(v.z); float2 r = v.xy * (1.0f / l1); return float2(r.x - r.y, r.x + r.y); }
+static float3 octDecode(float2 uv) {
+    float2 r = float2((uv.x + uv.y) * 0.5f, (uv.y - uv.x) * 0.5f);
+    float3 v = float3(r.x, r.y, 1.0f - abs(r.x) - abs(r.y));
+    return normalize(v);
+}
+static float3x3 get_tangentspace(float3 n) {
+    float3 h = abs(n.x) > 0.99f ? float3(0,0,1) : float3(1,0,0);
+    float3 t = normalize(cross(n, h));
+    float3 b = normalize(cross(n, t));
+    return float3x3(t, b, n);
+}
+static float3 hemispherepoint_uniform(float u, float v) {
+    float phi = v * 2.0f * M_PI_;
+    float ct = 1.0f - u;
+    float st = sqrt(1.0f - ct * ct);
+    return float3(cos(phi) * st, sin(phi) * st, ct);
+}
+
+// --- surfel-depth atlas UV ---------------------------------------------------
+// Slang uses mul(get_tangentspace(n), dirW) == TBN^T * dirW (row-vector
+// convention); replicated below as the matrix-times-vector with the same
+// operand order the Slang lowering produced.
+static float2 getSurfelDepthUV(uint surfelIndex, float3 dirW, float3 normalW) {
+    uint2 lt = uint2(surfelIndex % (kSurfelDepthTextureRes.x / kSurfelDepthTextureUnit.x),
+                     surfelIndex / (kSurfelDepthTextureRes.x / kSurfelDepthTextureUnit.y));
+    lt *= kSurfelDepthTextureUnit; lt += uint2(1u);
+    float2 ltUV = float2(lt) / float2(kSurfelDepthTextureRes);
+    float3 dirTangent = get_tangentspace(normalW) * dirW;
+    float2 s = octEncode(normalize(dirTangent));
+    float2 localUnsigned = (s + float2(1.0f)) * 0.5f;
+    float2 l2g = float2(kSurfelDepthTextureUnit - uint2(2u)) / float2(kSurfelDepthTextureRes);
+    return ltUV + localUnsigned * l2g;
+}
+
+// --- radius approximation ----------------------------------------------------
+static float calcRadiusApprox(float area, float dist, float fovy, uint2 res) {
+    return dist * tan(sqrt(area / M_PI_) * fovy / float(max(res.x, res.y)));
+}
+static float calcSurfelRadius(float dist, float fovy, uint2 res, float area, float cu) {
+    return min(calcRadiusApprox(area, dist, fovy, res), cu * 2.0f);
+}
+
+// --- diagnostic color ramps --------------------------------------------------
+static float3 lerpColor(float t) {
+    if (t <= 0.5f) { float n = t / 0.5f; return float3(0.0f, n, 1.0f - n); }
+    float n = (t - 0.5f) / 0.5f; return float3(n, 1.0f - n, 0.0f);
+}
+static float3 stepColor(float t, float r, float g) { return t > r ? float3(1,0,0) : (t > g ? float3(0,1,0) : float3(0,0,1)); }

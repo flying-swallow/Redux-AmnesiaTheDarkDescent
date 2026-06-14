@@ -554,24 +554,14 @@ namespace hpl {
 		  bool res = RI.guiVertexAlloc.request( RI.frameIndex, numVerts, &vtxReq);
 			assert(res);
 
-			uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-		  VkBufferCreateInfo vertexBufferCreateInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-		  VK_ConfigureBufferQueueFamilies( &vertexBufferCreateInfo , RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
-		  vertexBufferCreateInfo.pNext = NULL;
-		  vertexBufferCreateInfo.flags = 0;
-		  vertexBufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
-		  vertexBufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
-		  VmaAllocationInfo allocationInfo = { 0 };
-		  VmaAllocationCreateInfo allocInfo = { 0 };
-		  allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-		  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-		  
-			if( RI.guiVertexBuffer.vk.buffer) {
+			if( IsRIBufferValid(&RI.renderer, &RI.guiVertexBuffer) ) {
 				cntx->freelist.push_back(RI.guiVertexBuffer);
 			}
-			VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &vertexBufferCreateInfo, &allocInfo, &RI.guiVertexBuffer.vk.buffer, &RI.guiVertexBuffer.vk.allocation, &allocationInfo ) );
-			RI.guiVertexBuffer.mappedAddress = allocationInfo.pMappedData;
+			RIBufferDesc vbDesc = {};
+			vbDesc.size = (uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
+			vbDesc.usage = RI_BUFFER_USAGE_VERTEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_SRC | RI_BUFFER_USAGE_TRANSFER_DST;
+			vbDesc.location = RI_MEMORY_HOST_UPLOAD;
+			RI.guiVertexBuffer = RIBuffer::create( &RI.device, vbDesc );
 		}
 
 		if(!IsRIBufferValid(&RI.renderer, &RI.guiIndexBuffer) || !RI.guiIndexAlloc.request(RI.frameIndex, numIndecies, &idxReq)) {
@@ -584,25 +574,14 @@ namespace hpl {
 			} while( segmentAllocDesc.maxElements < m_setRenderObjects.size() * 6);
 			RI.guiIndexAlloc = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>( &segmentAllocDesc );
 			
-			uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-		  VkBufferCreateInfo indexBufferCreateInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-		  VK_ConfigureBufferQueueFamilies( &indexBufferCreateInfo , RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
-		  indexBufferCreateInfo.pNext = NULL;
-		  indexBufferCreateInfo.flags = 0;
-		  indexBufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
-		  indexBufferCreateInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-		  
-			VmaAllocationInfo allocationInfo = { 0 };
-		  VmaAllocationCreateInfo allocInfo = { 0 };
-		  allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-		  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-			
-			if( RI.guiIndexBuffer.vk.buffer) {
+			if( IsRIBufferValid(&RI.renderer, &RI.guiIndexBuffer) ) {
 				cntx->freelist.push_back(RI.guiIndexBuffer);
 			}
-
-			VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &indexBufferCreateInfo, &allocInfo, &RI.guiIndexBuffer.vk.buffer, &RI.guiIndexBuffer.vk.allocation, &allocationInfo ) );
-			RI.guiIndexBuffer.mappedAddress = allocationInfo.pMappedData;
+			RIBufferDesc ibDesc = {};
+			ibDesc.size = (uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
+			ibDesc.usage = RI_BUFFER_USAGE_INDEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_SRC | RI_BUFFER_USAGE_TRANSFER_DST;
+			ibDesc.location = RI_MEMORY_HOST_UPLOAD;
+			RI.guiIndexBuffer = RIBuffer::create( &RI.device, ibDesc );
 		}
 
 		ml::float4x4 projectionMtx = ml::float4x4::Identity();
@@ -646,8 +625,8 @@ namespace hpl {
 	  	clipRemap.a23 = 0.5f;
 	  	projectionMtx = clipRemap * projectionMtx;
 	  }
-		const VkDeviceSize vkOffset = vtxReq.elementOffset * vtxReq.elementStride; 
-		const VkDeviceSize idxOffset = idxReq.elementOffset * idxReq.elementStride;
+		const RIDeviceSize vkOffset = vtxReq.elementOffset * vtxReq.elementStride;
+		const RIDeviceSize idxOffset = idxReq.elementOffset * idxReq.elementStride;
 
   	void *vboMemory = ( (uint8_t *)RI.guiVertexBuffer.mappedAddress ) + vkOffset;
   	void *eleMemory = ( (uint8_t *)RI.guiIndexBuffer.mappedAddress) + idxOffset ;
@@ -663,14 +642,18 @@ namespace hpl {
 		Image* pTexture = pGfx->mvTextures[0];
 		cGuiClipRegion *pClipRegion = it->mpClipRegion;
 
-		VkViewport viewports[] = {
-			{0,(float)RI.swapchain.height, (float)RI.swapchain.width, -(float)RI.swapchain.height, 0.0f, 1.0f}
-		};
-		VkRect2D scissors[] = {
-			{ {0, 0}, {RI.swapchain.width, RI.swapchain.height} }
-		};
-		vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, ARRAY_COUNT(viewports), viewports);
-		vkCmdSetScissor( RI.primary.cmds[0].vk.cmd, 0, ARRAY_COUNT(scissors), scissors );
+		RIViewport guiViewport = {};
+		guiViewport.x = 0.0f;
+		guiViewport.y = (float)RI.swapchain.height;
+		guiViewport.width = (float)RI.swapchain.width;
+		guiViewport.height = -(float)RI.swapchain.height;
+		guiViewport.depthMin = 0.0f;
+		guiViewport.depthMax = 1.0f;
+		RI.primary.cmds[0].setViewport(&RI.renderer, guiViewport);
+		RIRect guiScissor = {};
+		guiScissor.width = (int16_t)RI.swapchain.width;
+		guiScissor.height = (int16_t)RI.swapchain.height;
+		RI.primary.cmds[0].setScissor(&RI.renderer, guiScissor);
 
 		size_t vertexBufferOffset = 0;
 		size_t indexBufferOffset = 0;
@@ -756,167 +739,65 @@ namespace hpl {
 			                                          : RI_FORMAT_UNKNOWN);
 			hash = hash_u32(hash, RI.swapchain.format);
 			hash = hash_u32(hash, mbIs3D);
-			VkPipelineVertexInputStateCreateInfo vertexInputState = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
-			VkVertexInputAttributeDescription vertextbindingDesc[] = {
-				{ 0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(PositionTexColor, position) },
-				{ 1, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(PositionTexColor, texCoords) },
-				{ 2, 0, VK_FORMAT_R32G32B32A32_SFLOAT, offsetof(PositionTexColor, color) }
-			};
-			VkVertexInputBindingDescription vertexInputStreamsDesc[] = {
-			 	{ 0, sizeof(PositionTexColor), VK_VERTEX_INPUT_RATE_VERTEX }
-			};
-			vertexInputState.pVertexAttributeDescriptions = vertextbindingDesc;
-			vertexInputState.vertexAttributeDescriptionCount = ARRAY_COUNT(vertextbindingDesc);
-			vertexInputState.pVertexBindingDescriptions = vertexInputStreamsDesc;
-			vertexInputState.vertexBindingDescriptionCount = ARRAY_COUNT(vertexInputStreamsDesc);
+			RIGraphicsPipelineDesc pipe{};
+			pipe.topology = RI_TOPOLOGY_TRIANGLE_LIST;
+			pipe.cullMode = RI_CULL_MODE_NONE;
+			// GUI is an overlay: the 3D variant depth-tests (no write) against the
+			// viewport depth when the instance was opened with a depth attachment.
+			pipe.depthStencilFormat =
+				bRenderPassHasDepth ? (uint32_t)RIBootstrap::DepthFormat : RI_FORMAT_UNKNOWN;
+			pipe.depthTestEnable = (mbIs3D && bRenderPassHasDepth);
+			pipe.depthWriteEnable = false;
+			pipe.depthCompareOp = RI_COMPARE_LESS_EQUAL;
+			pipe.colorCount = 1;
+			// Invariant: GUI sets only ever render into the swapchain, so the cache
+			// hash above and this attachment format both key on RI.swapchain.format.
+			pipe.colors[0].format = RI.swapchain.format;
+			pipe.vertexStreamCount = 1;
+			pipe.vertexStreams[0] = { 0, (uint32_t)sizeof(PositionTexColor), false };
+			pipe.vertexAttributeCount = 3;
+			pipe.vertexAttributes[0] = { 0, 0, RI_FORMAT_RGB32_SFLOAT,  (uint32_t)offsetof(PositionTexColor, position) };
+			pipe.vertexAttributes[1] = { 1, 0, RI_FORMAT_RG32_SFLOAT,   (uint32_t)offsetof(PositionTexColor, texCoords) };
+			pipe.vertexAttributes[2] = { 2, 0, RI_FORMAT_RGBA32_SFLOAT, (uint32_t)offsetof(PositionTexColor, color) };
 
-			VkPipelineInputAssemblyStateCreateInfo inputAssemblyState = { VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO };
-			inputAssemblyState.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-			VkPipelineRasterizationStateCreateInfo rasterizationState = { VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
-			rasterizationState.polygonMode = VK_POLYGON_MODE_FILL;
-			rasterizationState.cullMode = VK_CULL_MODE_NONE;
-			rasterizationState.depthBiasEnable = VK_FALSE;
-			rasterizationState.lineWidth = 1.0f;
-		
-			VkDynamicState dynamicStates[] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-			VkPipelineDynamicStateCreateInfo dynamicState = { VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO };
-			dynamicState.dynamicStateCount = ARRAY_COUNT(dynamicStates);
-			dynamicState.pDynamicStates = dynamicStates;
-
-			VkPipelineRenderingCreateInfo pipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
-			pipelineRenderingCreateInfo.colorAttachmentCount = 1;
-			// Invariant: GUI sets are only ever rendered into the swapchain
-			// (Scene.cpp Render3DGui/RenderScreenGui, LuxHelpFuncs DrawSetToScreen).
-			// Both the pipeline cache hash above and the attachment format here key
-			// on RI.swapchain.format; if you ever render a GUI into a non-swapchain
-			// target, this needs to take the actual attachment's format instead.
-			VkFormat colorFormats[1] = { RIFormatToVK((RI_Format_e)RI.swapchain.format) };
-			pipelineRenderingCreateInfo.pColorAttachmentFormats = colorFormats;
-			pipelineRenderingCreateInfo.depthAttachmentFormat =
-				bRenderPassHasDepth ? RIFormatToVK( RIBootstrap::DepthFormat ) : VK_FORMAT_UNDEFINED;
-			pipelineRenderingCreateInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
-
-			VkPipelineViewportStateCreateInfo viewportState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
-			viewportState.viewportCount = 1;
-			viewportState.scissorCount = 1;
-
-			VkPipelineMultisampleStateCreateInfo multisampleState = { VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO };
-			multisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
-		
-			VkPipelineDepthStencilStateCreateInfo depthStencilState = { VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO };
-			depthStencilState.minDepthBounds = 0.0f;
-			depthStencilState.maxDepthBounds = 1.0f;
-			if (mbIs3D && bRenderPassHasDepth) {
-				depthStencilState.depthTestEnable = VK_TRUE;
-				depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+			// Per-material blend (all add, write RGBA) — mirrors the prior
+			// VkPipelineColorBlendAttachmentState variants.
+			RIColorAttachmentDesc &cb = pipe.colors[0];
+			cb.blendEnabled = true;
+			cb.colorBlendOp = RI_BLEND_OP_ADD;
+			cb.alphaBlendOp = RI_BLEND_OP_ADD;
+			cb.writeMask = RI_COLOR_WRITE_RGBA;
+			const char *guiPipeName = "gui.eGuiMaterial_Diffuse";
+			switch (materialType) {
+			case eGuiMaterial_FontNormal:
+			case eGuiMaterial_Alpha:
+				cb.srcColor = RI_BLEND_SRC_ALPHA; cb.dstColor = RI_BLEND_ONE_MINUS_SRC_ALPHA;
+				cb.srcAlpha = RI_BLEND_SRC_ALPHA; cb.dstAlpha = RI_BLEND_ONE_MINUS_SRC_ALPHA;
+				guiPipeName = "gui.eGuiMaterial_Alpha";
+				break;
+			case eGuiMaterial_Additive:
+				cb.srcColor = RI_BLEND_ONE; cb.dstColor = RI_BLEND_ONE;
+				cb.srcAlpha = RI_BLEND_ONE; cb.dstAlpha = RI_BLEND_ONE;
+				guiPipeName = "gui.eGuiMaterial_Additive";
+				break;
+			case eGuiMaterial_Modulative:
+				cb.srcColor = RI_BLEND_DST_COLOR; cb.dstColor = RI_BLEND_ZERO;
+				cb.srcAlpha = RI_BLEND_DST_ALPHA; cb.dstAlpha = RI_BLEND_ZERO;
+				guiPipeName = "gui.eGuiMaterial_Modulative";
+				break;
+			case eGuiMaterial_PremulAlpha:
+				cb.srcColor = RI_BLEND_ONE; cb.dstColor = RI_BLEND_ONE_MINUS_SRC_ALPHA;
+				cb.srcAlpha = RI_BLEND_ONE; cb.dstAlpha = RI_BLEND_ONE_MINUS_SRC_ALPHA;
+				guiPipeName = "gui.eGuiMaterial_PremulAlpha";
+				break;
+			case eGuiMaterial_Diffuse:
+			default:
+				cb.srcColor = RI_BLEND_ONE; cb.dstColor = RI_BLEND_ZERO;
+				cb.srcAlpha = RI_BLEND_ONE; cb.dstAlpha = RI_BLEND_ZERO;
+				guiPipeName = "gui.eGuiMaterial_Diffuse";
+				break;
 			}
-
-			VkGraphicsPipelineCreateInfo pipelineCreateInfo = { VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO };
-			pipelineCreateInfo.pNext = &pipelineRenderingCreateInfo;
-			pipelineCreateInfo.pVertexInputState = &vertexInputState;
-			pipelineCreateInfo.pRasterizationState = &rasterizationState;
-			pipelineCreateInfo.pDynamicState = &dynamicState;
-			pipelineCreateInfo.pInputAssemblyState = &inputAssemblyState;
-			pipelineCreateInfo.pViewportState = &viewportState;
-			pipelineCreateInfo.pDepthStencilState = &depthStencilState;
-			pipelineCreateInfo.pMultisampleState = &multisampleState;
-			
-			switch(materialType)
-			{
-				case eGuiMaterial_FontNormal: 
-				case eGuiMaterial_Alpha: {
-					VkPipelineColorBlendAttachmentState blendAttachmentState[] = { 
-						VK_TRUE,
-						VK_BLEND_FACTOR_SRC_ALPHA,
-					  VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-						VK_BLEND_OP_ADD,
-						VK_BLEND_FACTOR_SRC_ALPHA,
-						VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-						VK_BLEND_OP_ADD,
-				  	VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
-					};
-					VkPipelineColorBlendStateCreateInfo colorBlendState = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
-					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
-					colorBlendState.pAttachments = blendAttachmentState;
-				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_Alpha", &pipelineCreateInfo);
-					break;
-				}
-				case eGuiMaterial_Additive: {
-					VkPipelineColorBlendAttachmentState blendAttachmentState[] = { 
-						VK_TRUE,
-						VK_BLEND_FACTOR_ONE,
-					  VK_BLEND_FACTOR_ONE,
-						VK_BLEND_OP_ADD,
-						VK_BLEND_FACTOR_ONE,
-					  VK_BLEND_FACTOR_ONE,
-						VK_BLEND_OP_ADD,
-				  	VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
-					};
-					VkPipelineColorBlendStateCreateInfo colorBlendState = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
-					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
-					colorBlendState.pAttachments = blendAttachmentState;
-				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_Additive", &pipelineCreateInfo);
-					break;	
-				}
-				case eGuiMaterial_Modulative: {
-					VkPipelineColorBlendAttachmentState blendAttachmentState[] = { 
-						VK_TRUE,
-						VK_BLEND_FACTOR_DST_COLOR,
-					  VK_BLEND_FACTOR_ZERO,
-						VK_BLEND_OP_ADD,
-						VK_BLEND_FACTOR_DST_ALPHA,
-					  VK_BLEND_FACTOR_ZERO,
-						VK_BLEND_OP_ADD,
-				  	VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
-					};
-					VkPipelineColorBlendStateCreateInfo colorBlendState = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
-					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
-					colorBlendState.pAttachments = blendAttachmentState;
-				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_Modulative", &pipelineCreateInfo);
-					break;	
-				}
-				case eGuiMaterial_PremulAlpha: {
-					VkPipelineColorBlendAttachmentState blendAttachmentState[] = { 
-						VK_TRUE,
-						VK_BLEND_FACTOR_ONE,
-					  VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-						VK_BLEND_OP_ADD,
-						VK_BLEND_FACTOR_ONE,
-					  VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-						VK_BLEND_OP_ADD,
-				  	VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
-					};
-					VkPipelineColorBlendStateCreateInfo colorBlendState = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
-					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
-					colorBlendState.pAttachments = blendAttachmentState;
-				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_PremulAlpha", &pipelineCreateInfo);
-					break;	
-				}
-				case eGuiMaterial_Diffuse:{
-				default:
-					VkPipelineColorBlendAttachmentState blendAttachmentState[] = { 
-						VK_TRUE,
-						VK_BLEND_FACTOR_ONE,
-					  VK_BLEND_FACTOR_ZERO,
-						VK_BLEND_OP_ADD,
-						VK_BLEND_FACTOR_ONE,
-					  VK_BLEND_FACTOR_ZERO,
-						VK_BLEND_OP_ADD,
-				  	VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
-					};
-					VkPipelineColorBlendStateCreateInfo colorBlendState = { VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO };
-					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
-					colorBlendState.pAttachments = blendAttachmentState;
-				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_Diffuse", &pipelineCreateInfo);
-					break;
-				}
-			}
+			RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash, guiPipeName, pipe);
 			RI.gui.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, bindings, numBindings);
 			do
 			{
@@ -1000,9 +881,10 @@ namespace hpl {
 
 			uint64_t vbOffset = vkOffset + vertexBufferOffset * sizeof(PositionTexColor);
 			uint64_t ibOffset = idxOffset + indexBufferOffset * sizeof(uint32_t);
-			vkCmdBindVertexBuffers(RI.primary.cmds[0].vk.cmd, 0, 1, &RI.guiVertexBuffer.vk.buffer, &vbOffset);
-			vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, RI.guiIndexBuffer.vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
-			RI.primary.cmds[0].drawIndexed(indexBufferIndex, 1, 0, 0, 0);
+			struct RIBuffer *vbufs[1] = { &RI.guiVertexBuffer };
+			RI.primary.cmds[0].bindVertexBuffers<1>(0, 1, vbufs, &vbOffset);
+			RI.primary.cmds[0].bindIndexBuffer(&RI.renderer, &RI.guiIndexBuffer, ibOffset, RI_INDEX_TYPE_32);
+			RI.primary.cmds[0].drawIndexed(&RI.renderer, indexBufferIndex, 1, 0, 0, 0);
 
 			vertexBufferOffset += vertexBufferIndex;
 			indexBufferOffset += indexBufferIndex;

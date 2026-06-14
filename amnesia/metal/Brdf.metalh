@@ -1,0 +1,228 @@
+#pragma once
+// Shared Metal header — port of amnesia/slang/Brdf.slang.
+// Cook-Torrance GGX BRDF for the surfel-GI shading paths: SurfaceBRDF,
+// fresnel/diffuse-lobe/GGX helpers, evalBrdf, sampleBrdf, prepareSurface +
+// the material-roughness decode. Flattened into each .metal at stage time by
+// cmake/flatten_metal_includes.py.
+//
+// Requires: DiffuseMaterial (declared by the consuming RT .metal / a material
+// header) with the legacy field layout, RNG + rng_next_float from Random.metalh,
+// and a `device Set0&` carrying gTextures2D + gMaterialSampler (so #include this
+// AFTER `struct Set0`). The Slang module selects the diffuse lobe via the
+// kDiffuseBrdf macro; the shipped surfel passes use the Frostbite lobe, mirrored
+// here verbatim (matching the inline diffuseLobeWeight in SurfelRayTrace.rt.metal).
+
+constant float kBrdfPi      = 3.14159265358979323846f;
+constant float kMinRough    = 0.04f;   // roughness floor (no delta-lobe collapse)
+constant float kDielectricF0 = 0.04f;  // dielectric normal-incidence reflectance
+
+struct SurfaceBRDF {
+    float3 N;          // shading normal (world space, unit)
+    float3 albedo;     // diffuse reflectance
+    float3 F0;         // specular reflectance at normal incidence
+    float  rough;      // GGX alpha (already remapped from gloss)
+    float  fresnelPow; // generalized Schlick exponent (artist frenselPow)
+    bool   hasSpecular;
+};
+
+static float brdfLuminance(float3 c) { return dot(c, float3(0.2126f, 0.7152f, 0.0722f)); }
+
+// Rows (T, B, N): local->world via mul(localDir, basis) == localDir * basis.
+static float3x3 brdfTangentToWorld(float3 N) {
+    float3 helper = abs(N.x) > 0.99f ? float3(0, 0, 1) : float3(1, 0, 0);
+    float3 T = normalize(cross(N, helper));
+    float3 B = normalize(cross(N, T));
+    return float3x3(T, B, N);
+}
+
+// Generalized vector Schlick Fresnel (`p` == frenselPow).
+static float3 fresnelSchlick(float cosTheta, float3 F0, float p) {
+    float m = clamp(1.0f - cosTheta, 0.0f, 1.0f);
+    return F0 + (float3(1.0f) - F0) * pow(m, p);
+}
+
+// Scalar Schlick with explicit f0/f90 (Falcor evalFresnelSchlick).
+static float fresnelSchlickF(float f0, float f90, float cosTheta) {
+    float m = clamp(1.0f - cosTheta, 0.0f, 1.0f);
+    float m2 = m * m;
+    return f0 + (f90 - f0) * (m2 * m2 * m);
+}
+
+// Frostbite diffuse lobe (kDiffuseBrdf default), albedo factored OUT. `rough`
+// is PERCEPTUAL roughness. Returns f_d·π/albedo.
+static float diffuseLobeWeight(float NoL, float NoV, float LoH, float rough) {
+    float energyBias   = mix(0.0f, 0.5f, rough);
+    float energyFactor = mix(1.0f, 1.0f / 1.51f, rough);
+    float fd90 = energyBias + 2.0f * LoH * LoH * rough;
+    return fresnelSchlickF(1.0f, fd90, NoL) * fresnelSchlickF(1.0f, fd90, NoV)
+         * energyFactor;
+}
+
+// Demodulated diffuse BRDF value f_d/albedo (carries the 1/π).
+static float evalDiffuseDemodulated(float3 N, float3 V, float3 L, float rough) {
+    float NoL = saturate(dot(N, L));
+    float NoV = max(dot(N, V), 1e-4f);
+    float3 H  = normalize(V + L);
+    float LoH = saturate(dot(L, H));
+    return diffuseLobeWeight(NoL, NoV, LoH, rough) * (1.0f / kBrdfPi);
+}
+
+// Legacy gloss channel -> GGX alpha (Blinn-Phong n = exp2(gloss·10)+1).
+static float glossToGGXAlpha(float gloss) {
+    float n = exp2(gloss * 10.0f) + 1.0f;
+    return sqrt(2.0f / (n + 2.0f));
+}
+
+// GGX / Trowbridge-Reitz NDF.
+static float distGGX(float NoH, float a) {
+    float a2 = a * a;
+    float d  = (NoH * NoH) * (a2 - 1.0f) + 1.0f;
+    return a2 / max(kBrdfPi * d * d, 1e-7f);
+}
+
+// Smith height-correlated visibility (folds in 1/(4 NoL NoV)).
+static float visSmithGGX(float NoV, float NoL, float a) {
+    float a2   = a * a;
+    float ggxV = NoL * sqrt(NoV * NoV * (1.0f - a2) + a2);
+    float ggxL = NoV * sqrt(NoL * NoL * (1.0f - a2) + a2);
+    return 0.5f / max(ggxV + ggxL, 1e-7f);
+}
+
+// Physically based BRDF value f (no N.L factor; diffuse carries 1/π).
+static float3 evalBrdf(SurfaceBRDF s, float3 V, float3 L) {
+    float NoL = dot(s.N, L);
+    float NoV = dot(s.N, V);
+    if (NoL <= 0.0f || NoV <= 0.0f) return float3(0.0f);
+
+    float3 H   = normalize(V + L);
+    float  NoH = saturate(dot(s.N, H));
+    float  VoH = saturate(dot(V, H));
+
+    float3 F       = s.hasSpecular ? fresnelSchlick(VoH, s.F0, s.fresnelPow) : float3(0.0f);
+    float3 diffuse = s.albedo * (float3(1.0f) - F)
+                   * diffuseLobeWeight(NoL, NoV, VoH, sqrt(s.rough))
+                   * (1.0f / kBrdfPi);
+
+    float3 spec = float3(0.0f);
+    if (s.hasSpecular) {
+        float D   = distGGX(NoH, s.rough);
+        float Vis = visSmithGGX(NoV, NoL, s.rough);
+        spec = D * Vis * F;
+    }
+    return diffuse + spec;
+}
+
+// Sample an outgoing direction. Returns false when degenerate. `weight` is
+// f·N.L/pdf (lobe-selection probability folded in).
+static bool sampleBrdf(SurfaceBRDF s, float3 V, thread RNG& rng, thread float3& L, thread float3& weight) {
+    L = s.N;
+    weight = float3(0.0f);
+
+    float NoV = dot(s.N, V);
+    if (NoV <= 0.0f) return false;
+
+    float3 Fv = s.hasSpecular ? fresnelSchlick(NoV, s.F0, s.fresnelPow) : float3(0.0f);
+    float3 kd = s.albedo * (float3(1.0f) - Fv);
+
+    float wDiff = brdfLuminance(kd);
+    float wSpec = s.hasSpecular ? brdfLuminance(Fv) : 0.0f;
+    float sum   = wDiff + wSpec;
+    float pSpec = (s.hasSpecular && sum > 1e-6f) ? clamp(wSpec / sum, 0.05f, 0.95f) : 0.0f;
+
+    float3x3 basis = brdfTangentToWorld(s.N);
+
+    if (rng_next_float(rng) < pSpec) {
+        // Specular: importance-sample the GGX half-vector.
+        float a    = s.rough;
+        float u1   = rng_next_float(rng);
+        float u2   = rng_next_float(rng);
+        float phi  = 2.0f * kBrdfPi * u1;
+        float cosT = sqrt((1.0f - u2) / (1.0f + (a * a - 1.0f) * u2));
+        float sinT = sqrt(max(0.0f, 1.0f - cosT * cosT));
+        float3 Hl  = float3(sinT * cos(phi), sinT * sin(phi), cosT);
+        float3 H   = normalize(Hl * basis);
+
+        L = reflect(-V, H);
+        float NoL = dot(s.N, L);
+        if (NoL <= 0.0f) return false;
+
+        float NoH = saturate(dot(s.N, H));
+        float VoH = saturate(dot(V, H));
+        float Vis = visSmithGGX(max(NoV, 1e-4f), NoL, a);
+        float3 F  = fresnelSchlick(VoH, s.F0, s.fresnelPow);
+
+        weight = (4.0f * Vis * NoL * VoH / max(NoH, 1e-4f)) * F / pSpec;
+        return true;
+    }
+
+    // Diffuse: cosine-weighted hemisphere.
+    float u1   = rng_next_float(rng);
+    float u2   = rng_next_float(rng);
+    float r    = sqrt(u1);
+    float phi  = 2.0f * kBrdfPi * u2;
+    float3 Ll  = float3(r * cos(phi), r * sin(phi), sqrt(max(0.0f, 1.0f - u1)));
+    L = normalize(Ll * basis);
+    float NoL = dot(s.N, L);
+    if (NoL <= 0.0f) return false;
+
+    float3 Hd  = normalize(V + L);
+    float  LoH = saturate(dot(L, Hd));
+    weight = kd * diffuseLobeWeight(NoL, NoV, LoH, sqrt(s.rough))
+                / max(1.0f - pSpec, 1e-4f);
+    return true;
+}
+
+// --- material-driven accessors (need the bindless Set0 for texture sampling) --
+// These take `device Set0&`, so this region is only valid when #included AFTER
+// `struct Set0` (the consuming RT .metal). The constants below mirror the
+// material-config flags / sentinels in amnesia/slang/Constants.h + SceneTypes.slang.
+// kMaterialFlagEnableSpecular / kMaterialFlagEnableCubeMap / kInvalidTextureIndex /
+// kDefaultDiffuseRoughness are defined by the including .metal already; do not
+// redeclare them here.
+
+// Perceptual diffuse-lobe roughness: decoded from the spec-map gloss channel
+// when present, kDefaultDiffuseRoughness (fully rough) otherwise. Lifted from
+// SurfelRayTrace.rt.metal (parity with the shipped surfel path).
+static float decodeMaterialRoughness(DiffuseMaterial m, float2 uv, device Set0& set0) {
+    bool hasSpec = ((m.materialConfig & kMaterialFlagEnableSpecular) != 0u)
+                 && (m.tex[3] != kInvalidTextureIndex);
+    if (!hasSpec) return kDefaultDiffuseRoughness;
+    float gloss = set0.gTextures2D[m.tex[3]].sample(set0.gMaterialSampler, uv, level(0.0f)).y;
+    return clamp(sqrt(glossToGGXAlpha(gloss)), kMinRough, 1.0f);
+}
+
+// Reconstruct PBR surface parameters from a DiffuseMaterial + interpolated
+// UV/normal (port of Brdf.slang prepareSurface). `N` is the world-space shading
+// normal. NOTE: relies on kMaterialFlagEnableCubeMap being defined by the
+// including .metal (only SurfelRayTrace.rt.metal defines the specular flag today;
+// a consumer of prepareSurface must also define kMaterialFlagEnableCubeMap).
+static SurfaceBRDF prepareSurface(DiffuseMaterial m, float3 N, float2 uv, device Set0& set0) {
+    SurfaceBRDF s;
+    s.N = N;
+
+    uint diffuseTex = m.tex[0];
+    s.albedo = (diffuseTex == kInvalidTextureIndex) ? float3(0.5f)
+             : set0.gTextures2D[diffuseTex].sample(set0.gMaterialSampler, uv, level(0.0f)).rgb;
+
+    bool hasSpec = ((m.materialConfig & kMaterialFlagEnableSpecular) != 0u)
+                 && (m.tex[3] != kInvalidTextureIndex);
+    bool hasCube = (m.materialConfig & kMaterialFlagEnableCubeMap) != 0u;
+
+    s.fresnelPow  = max(m.frenselPow, 1.0f);
+    s.hasSpecular = hasSpec;
+
+    if (hasSpec) {
+        float2 spec = set0.gTextures2D[m.tex[3]].sample(set0.gMaterialSampler, uv, level(0.0f)).xy;
+        float specIntensity = spec.x;
+        float gloss         = spec.y;
+        s.rough = clamp(glossToGGXAlpha(gloss), kMinRough, 1.0f);
+        s.F0 = float3(kDielectricF0 * saturate(specIntensity));
+    } else if (hasCube) {
+        s.rough = kMinRough;
+        s.F0    = float3(max(m.frenselBias, 0.0f));
+    } else {
+        s.rough = 1.0f;
+        s.F0    = float3(0.0f);
+    }
+    return s;
+}

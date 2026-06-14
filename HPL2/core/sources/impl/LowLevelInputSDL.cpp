@@ -21,7 +21,6 @@
 
 #include "impl/MouseSDL.h"
 #include "impl/KeyboardSDL.h"
-#include "impl/GamepadSDL.h"
 #include "impl/GamepadSDL2.h"
 
 #include "system/LowLevelSystem.h"
@@ -29,18 +28,7 @@
 
 #include "engine/Engine.h"
 
-#if USE_SDL2
-#include "SDL2/SDL.h"
-#include "SDL2/SDL_syswm.h"
-#else
-#include "SDL/SDL.h"
-#include "SDL/SDL_syswm.h"
-#endif
-
-#if defined _WIN32 && !SDL_VERSION_ATLEAST(2,0,0)
-#include <Windows.h>
-#include <Dbt.h>
-#endif
+#include <SDL3/SDL.h>
 
 namespace hpl {
 
@@ -55,15 +43,7 @@ namespace hpl {
 	{
 		LockInput(true);
 		RelativeMouse(false);
-#if SDL_VERSION_ATLEAST(2, 0, 0)
-        SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER);
-#else
-//		mlConnectedDevices = 0;
-//		mlCheckDeviceChange = 0;
-//		mbDirtyGamepads = true;
-//
-		SDL_EventState(SDL_SYSWMEVENT, SDL_ENABLE);
-#endif
+        SDL_InitSubSystem(SDL_INIT_GAMEPAD);
 	}
 
 	//-----------------------------------------------------------------------
@@ -97,54 +77,32 @@ namespace hpl {
 		SDL_Event sdlEvent;
 
 		mlstEvents.clear();
-		while(SDL_PollEvent(&sdlEvent)!=0)
+		while(SDL_PollEvent(&sdlEvent))
 		{
-#if defined _WIN32 && !SDL_VERSION_ATLEAST(2,0,0)
-			if(sdlEvent.type==SDL_SYSWMEVENT)
-			{
-				SDL_SysWMmsg* pMsg = sdlEvent.syswm.msg;
-				
-				// This is bad, cos it is actually Windows specific code, should not be here. TODO: move it, obviously
-				if(pMsg->msg==WM_DEVICECHANGE)
-				{
-					if(pMsg->wParam==DBT_DEVICEARRIVAL)
-					{
-						cEngine::SetDeviceWasPlugged();
-					}
-					else if(pMsg->wParam==DBT_DEVICEREMOVECOMPLETE)
-					{
-						cEngine::SetDeviceWasRemoved();
-					}
-				}
-			}
-			else
-#endif //WIN32
-#if SDL_VERSION_ATLEAST(2, 0, 0)
-            // built-in SDL2 gamepad hotplug code
+            // built-in SDL gamepad hotplug code
             // this whole contract should be rewritten to allow clean adding/removing
             // of controllers, instead of brute force rescanning
-            if (sdlEvent.type==SDL_CONTROLLERDEVICEADDED)
+            if (sdlEvent.type==SDL_EVENT_GAMEPAD_ADDED)
             {
-                // sdlEvent.cdevice.which is the device #
+                // sdlEvent.gdevice.which is the device #
                 cEngine::SetDeviceWasPlugged();
-            } else if (sdlEvent.type==SDL_CONTROLLERDEVICEREMOVED)
+            } else if (sdlEvent.type==SDL_EVENT_GAMEPAD_REMOVED)
             {
-                // sdlEvent.cdevice.which is the instance # (not device #).
+                // sdlEvent.gdevice.which is the instance # (not device #).
                 // instance # increases as devices are plugged and unplugged.
                 cEngine::SetDeviceWasRemoved();
-            }
-#endif
+            } else
 #if defined (__APPLE__)
-            if (sdlEvent.type==SDL_KEYDOWN)
+            if (sdlEvent.type==SDL_EVENT_KEY_DOWN)
             {
-                if (sdlEvent.key.keysym.sym == SDLK_q && sdlEvent.key.keysym.mod & KMOD_GUI) {
+                if (sdlEvent.key.key == SDLK_Q && sdlEvent.key.mod & SDL_KMOD_GUI) {
                     mbQuitMessagePosted = true;
                 } else {
                     mlstEvents.push_back(sdlEvent);
                 }
             } else
 #endif
-            if (sdlEvent.type==SDL_QUIT)
+            if (sdlEvent.type==SDL_EVENT_QUIT)
             {
                 mbQuitMessagePosted = true;
             } else
@@ -163,16 +121,11 @@ namespace hpl {
 
 	void cLowLevelInputSDL::InitGamepadSupport()
 	{
-#if !SDL_VERSION_ATLEAST(2, 0, 0)
-		SDL_InitSubSystem(SDL_INIT_JOYSTICK);
-#endif
+		// SDL3 initialises the gamepad subsystem in the constructor.
 	}
 
 	void cLowLevelInputSDL::DropGamepadSupport()
 	{
-#if !SDL_VERSION_ATLEAST(2, 0, 0)
-		SDL_QuitSubSystem(SDL_INIT_JOYSTICK);
-#endif
 	}
 
 	int cLowLevelInputSDL::GetPluggedGamepadNum()
@@ -180,7 +133,10 @@ namespace hpl {
 #if USE_XINPUT
 		return cGamepadXInput::GetNumConnected();
 #else
-		return SDL_NumJoysticks();
+		int lNumJoysticks = 0;
+		SDL_JoystickID *pIds = SDL_GetJoysticks(&lNumJoysticks);
+		SDL_free(pIds);
+		return lNumJoysticks;
 #endif
 	}
 
@@ -202,11 +158,7 @@ namespace hpl {
 
 	iGamepad* cLowLevelInputSDL::CreateGamepad(int alIndex)
 	{
-#if USE_SDL2
 		return hplNew( cGamepadSDL2, (this, alIndex) );
-#else
-		return hplNew( cGamepadSDL, (this, alIndex) );
-#endif
 	}
 	
 	//-----------------------------------------------------------------------

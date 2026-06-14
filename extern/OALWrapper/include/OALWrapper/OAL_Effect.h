@@ -39,7 +39,7 @@ protected:
 	ALuint	mlEffectId;
 	bool	mbNeedsUpdate;
 
-	SDL_mutex* mpMutex;
+	SDL_Mutex* mpMutex;
 };
 
 #endif	// _OAL_EFFECT_H

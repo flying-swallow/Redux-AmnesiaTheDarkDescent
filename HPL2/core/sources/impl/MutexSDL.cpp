@@ -19,11 +19,7 @@
 
 #include "impl/MutexSDL.h"
 
-#if USE_SDL2
-#include "SDL2/SDL.h"
-#else
-#include "SDL/SDL.h"
-#endif
+#include <SDL3/SDL.h>
 
 namespace hpl {
 
@@ -57,12 +53,14 @@ namespace hpl {
 	
 	bool cMutexSDL::Lock()
 	{
-		return SDL_LockMutex(mpMutexHandle)!=-1;
+		SDL_LockMutex(mpMutexHandle);
+		return true;
 	}
-	
+
 	bool cMutexSDL::Unlock()
 	{
-		return SDL_UnlockMutex(mpMutexHandle)!=-1;
+		SDL_UnlockMutex(mpMutexHandle);
+		return true;
 	}
 
 	//-----------------------------------------------------------------------

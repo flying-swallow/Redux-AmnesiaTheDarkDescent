@@ -1,0 +1,111 @@
+#pragma once
+// Shared Metal header — port of amnesia/slang/Fog.slang.
+// Screen-space fog: walk the gFogAreas SSBO + world fog, accumulating a
+// multiplicative visibility scalar (1 = no fog, 0 = fully fogged) and an additive
+// premultiplied fog colour. Flattened into each .metal at stage time by
+// cmake/flatten_metal_includes.py.
+//
+// Modeled as free functions taking the gFogAreas device buffer + the per-frame
+// SceneConstants (Slang's gPerFrame / gFogAreas globals). SceneConstants comes
+// from SceneTypes.metalh. `Slang mul(M, v)` -> `M * v` (column-major).
+
+// Mirror of amnesia/slang/SceneTypes.slang FogAreaParams. Scalar device-buffer
+// layout: `color` is a bare float3 in Slang, so packed_float3 (12B/4-align) here.
+struct FogAreaParams {
+    float4x4      invModelMat;   // 64 B
+    packed_float3 color;         // 12 B (linear)
+    float         colorA;        //  4 B
+    float         start;         //  4
+    float         end;           //  4
+    float         falloffExp;    //  4
+    uint          flags;         //  4
+};
+
+struct FogResult {
+    float  visibility;  // 1 = no fog, 0 = fully fogged
+    float3 color;       // accumulated fog colour, premultiplied by its weight
+};
+
+static FogResult computeFog(float3 surfacePosW, float3 cameraPosW,
+                            device FogAreaParams* gFogAreas, constant SceneConstants* gPerFrame) {
+    FogResult r;
+    r.visibility = 1.0f;
+    r.color      = float3(0.0f);
+
+    float3 ray = surfacePosW - cameraPosW;
+    float cameraDist = length(ray);
+    if (cameraDist <= 0.0f) return r;
+    float3 rayDir = ray / cameraDist;
+
+    // World fog — linear distance through the worldFogStart/worldFogLength band.
+    if (gPerFrame->worldFogLength > 0.0f) {
+        float fogAmount = pow(
+            saturate((cameraDist - gPerFrame->worldFogStart) / gPerFrame->worldFogLength),
+            gPerFrame->fogFalloffExp);
+        // gPerFrame.oneMinusFogAlpha = (1 - worldFogColor.a) — recover .a
+        float worldFogAlpha = 1.0f - gPerFrame->oneMinusFogAlpha;
+        float contribution  = fogAmount * worldFogAlpha;
+        r.visibility *= (1.0f - contribution);
+        r.color      += contribution * gPerFrame->worldFogColor.rgb;
+    }
+
+    uint count = gPerFrame->fogAreaCount;
+    for (uint i = 0u; i < count; ++i) {
+        FogAreaParams fa = gFogAreas[i];
+
+        float3 boxCamOrigin = (fa.invModelMat * float4(cameraPosW, 1.0f)).xyz;
+        float3 boxRayDir    = (fa.invModelMat * float4(rayDir,     0.0f)).xyz;
+
+        // Slab method against [-0.5, 0.5]^3 (guard divide-by-zero).
+        float3 invDir = float3(
+            abs(boxRayDir.x) > 1.0e-6f ? 1.0f / boxRayDir.x : 1.0e30f,
+            abs(boxRayDir.y) > 1.0e-6f ? 1.0f / boxRayDir.y : 1.0e30f,
+            abs(boxRayDir.z) > 1.0e-6f ? 1.0f / boxRayDir.z : 1.0e30f);
+        float3 t1 = (float3(-0.5f) - boxCamOrigin) * invDir;
+        float3 t2 = (float3( 0.5f) - boxCamOrigin) * invDir;
+        float3 tmin = min(t1, t2);
+        float3 tmax = max(t1, t2);
+        float  tEntry = max(max(tmin.x, tmin.y), tmin.z);
+        float  tExit  = min(min(tmax.x, tmax.y), tmax.z);
+
+        if (tExit < 0.0f || tExit < tEntry) continue;
+
+        bool cameraInside = all(abs(boxCamOrigin) <= float3(0.5f));
+        if (!cameraInside && cameraDist < tEntry) continue;
+
+        bool showBackInside  = (fa.flags & 1u) != 0u;
+        bool showBackOutside = (fa.flags & 2u) != 0u;
+
+        float fogDist;
+        if (cameraInside) {
+            fogDist = showBackInside ? min(tExit, cameraDist) : cameraDist;
+        } else {
+            fogDist = showBackOutside
+                          ? min(tExit - tEntry, cameraDist - tEntry)
+                          : (cameraDist - tEntry);
+        }
+
+        if (fogDist <= 0.0f || fogDist < fa.start) continue;
+
+        float alpha;
+        if (fogDist > fa.end) {
+            alpha = 1.0f;
+        } else {
+            alpha = saturate((fogDist - fa.start) / max(fa.end - fa.start, 1.0e-6f));
+            if (fa.falloffExp != 1.0f) alpha = pow(alpha, fa.falloffExp);
+        }
+
+        float contribution = alpha * fa.colorA;
+        r.visibility *= (1.0f - contribution);
+        r.color      += contribution * float3(fa.color);
+    }
+
+    return r;
+}
+
+// Convenience wrapper for opaque consumers: returns the composited colour.
+static float3 applyFog(float3 sceneColor, float3 surfacePosW, float3 cameraPosW,
+                       device FogAreaParams* gFogAreas, constant SceneConstants* gPerFrame) {
+    FogResult fog = computeFog(surfacePosW, cameraPosW, gFogAreas, gPerFrame);
+    return fog.visibility * sceneColor + fog.color;
+}

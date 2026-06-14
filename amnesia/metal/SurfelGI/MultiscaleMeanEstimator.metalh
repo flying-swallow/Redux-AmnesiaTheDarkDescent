@@ -1,0 +1,12 @@
+#pragma once
+// Mirrors amnesia/slang/SurfelGI/MultiscaleMeanEstimator.slang — the MSME state.
+// Scalar block layout: packed_float3 == 12B (a plain float3 is 16-aligned and
+// would misplace the following scalar field).
+struct MSMEData {
+    packed_float3 mean;
+    float         _padMean;
+    packed_float3 shortMean;
+    float         vbbr;
+    packed_float3 variance;
+    float         inconsistency;
+};

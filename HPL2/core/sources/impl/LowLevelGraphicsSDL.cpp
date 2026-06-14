@@ -35,11 +35,8 @@
 #include "graphics/VertexBuffer.h"
 #include "graphics/Bitmap.h"
 
-#if USE_SDL2
-#include "SDL2/SDL_syswm.h"
-#else
-#include "SDL/SDL_syswm.h"
-#endif
+// SDL3 removed SDL_syswm.h; native window handles come from the window's
+// property set (see GetWindowHandle). SDL3 itself is included via the header.
 
 #ifdef _WIN32
 #include "impl/TaskKeyHook.h"
@@ -100,44 +97,67 @@ namespace hpl {
 #endif
 		}
 
-#if SDL_VERSION_ATLEAST(2, 0, 0)
-		SDL_DestroyWindow(mpScreen);
+#if DEVICE_IMPL_MTL
+		// Per SDL docs, destroy the Metal view before the window.
+		if (mpMetalView)
+			SDL_Metal_DestroyView(mpMetalView);
 #endif
+		SDL_DestroyWindow(mpScreen);
 	}
 
 	struct RIWindowHandle cLowLevelGraphicsSDL::GetWindowHandle()
 	{
 		struct RIWindowHandle handle = {};
-		SDL_SysWMinfo wmi = {};
-		SDL_VERSION(&wmi.version);
 		handle.type = RI_WINDOW_UNKNOWN;
-		if (SDL_GetWindowWMInfo(mpScreen, &wmi)) {
-			switch (wmi.subsystem) {
-#if defined( SDL_VIDEO_DRIVER_X11 )
-			case SDL_SYSWM_X11:
-				handle.type = RI_WINDOW_X11;
-				handle.x11.window = wmi.info.x11.window;
-				handle.x11.dpy = wmi.info.x11.display;
-				break;
-#endif
-#if defined( SDL_VIDEO_DRIVER_WAYLAND )
-			case SDL_SYSWM_WAYLAND:
-				handle.type = RI_WINDOW_WAYLAND;
-				handle.wayland.display = wmi.info.wl.display;
-				handle.wayland.surface = wmi.info.wl.surface;
-				break;
-#endif
-#if defined( SDL_VIDEO_DRIVER_WINDOWS )
-			case SDL_SYSWM_WINDOWS:
-				handle.type = RI_WINDOW_WIN32;
-				handle.windows.hwnd = wmi.info.win.window;
-				break;
-#endif
-			default:
-				assert(false);
-				break;
-			}
+
+		// SDL3 removed SDL_syswm.h; native window handles now come from the
+		// window's property set. The active video driver tells us which union
+		// member is populated. SDL_VIDEO_DRIVER_* are SDL-internal build-config
+		// macros not exposed by the public headers, so dispatch on the runtime
+		// driver string. The SDL_PROP_WINDOW_* keys are always declared.
+		SDL_PropertiesID props = SDL_GetWindowProperties(mpScreen);
+		const char *driver = SDL_GetCurrentVideoDriver();
+		if (driver == NULL) {
+			assert(false);
+			return handle;
 		}
+
+		if (SDL_strcmp(driver, "x11") == 0) {
+			handle.type = RI_WINDOW_X11;
+			handle.x11.dpy = SDL_GetPointerProperty(
+				props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, NULL);
+			handle.x11.window = (uint64_t)SDL_GetNumberProperty(
+				props, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);
+			return handle;
+		}
+		if (SDL_strcmp(driver, "wayland") == 0) {
+			handle.type = RI_WINDOW_WAYLAND;
+			handle.wayland.display = SDL_GetPointerProperty(
+				props, SDL_PROP_WINDOW_WAYLAND_DISPLAY_POINTER, NULL);
+			handle.wayland.surface = SDL_GetPointerProperty(
+				props, SDL_PROP_WINDOW_WAYLAND_SURFACE_POINTER, NULL);
+			return handle;
+		}
+		if (SDL_strcmp(driver, "windows") == 0) {
+			handle.type = RI_WINDOW_WIN32;
+			handle.windows.hwnd = SDL_GetPointerProperty(
+				props, SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
+			return handle;
+		}
+#if DEVICE_IMPL_MTL
+		if (SDL_strcmp(driver, "cocoa") == 0) {
+			// The Metal view (created in Init) owns the CAMetalLayer; SDL3 hands
+			// it back directly with no Objective-C. The swapchain casts it to
+			// metal-cpp's CA::MetalLayer*.
+			handle.type = RI_WINDOW_METAL;
+			handle.metal.caMetalLayer = SDL_Metal_GetLayer(mpMetalView);
+			return handle;
+		}
+#endif
+
+		Error("Unsupported SDL video driver '%s' for native window handle\n",
+			  driver);
+		assert(false);
 		return handle;
 	}
 
@@ -149,23 +169,38 @@ namespace hpl {
 		mlBpp = alBpp;
 		mbFullscreen = abFullscreen;
 
-		unsigned int mlFlags = SDL_WINDOW_VULKAN;
+		// The window must be created for the active backend: a Metal-usable
+		// view on the Metal backend, a Vulkan-surface-usable window otherwise.
+#if DEVICE_IMPL_MTL
+		SDL_WindowFlags mlFlags = SDL_WINDOW_METAL;
+#else
+		SDL_WindowFlags mlFlags = SDL_WINDOW_VULKAN;
+#endif
+		// SDL3 removed SDL_WINDOW_FULLSCREEN_DESKTOP; a fullscreen window with no
+		// explicit display mode (the default) is borderless-desktop fullscreen.
 		if (alWidth == 0 && alHeight == 0) {
 			mvScreenSize = cVector2l(800, 600);
-			mlFlags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+			mlFlags |= SDL_WINDOW_FULLSCREEN;
 		}
 		else if (abFullscreen)
 			mlFlags |= SDL_WINDOW_FULLSCREEN;
 
+		// SDL3 no longer implicitly activates a new window, so the engine's
+		// "wait until the window has input focus" loop would otherwise spin
+		// forever. Ask SDL to activate the window when shown/raised.
+		SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "1");
+		SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_RAISED, "1");
+
 		Log(" Setting video mode: %d x %d - %d bpp\n", alWidth, alHeight, alBpp);
-		mpScreen = SDL_CreateWindow(asWindowCaption.c_str(), SDL_WINDOWPOS_CENTERED_DISPLAY(mlDisplay), SDL_WINDOWPOS_CENTERED_DISPLAY(mlDisplay), mvScreenSize.x, mvScreenSize.y, mlFlags);
+		// SDL3 SDL_CreateWindow no longer takes a position; set it afterwards.
+		mpScreen = SDL_CreateWindow(asWindowCaption.c_str(), mvScreenSize.x, mvScreenSize.y, mlFlags);
 
 		if (mpScreen == NULL)
 		{
 			// Try disabling FSAA
 			Error("Could not set display mode setting a lower one! %s\n", SDL_GetError());
 			mvScreenSize = cVector2l(640, 480);
-			mpScreen = SDL_CreateWindow(asWindowCaption.c_str(), SDL_WINDOWPOS_CENTERED_DISPLAY(mlDisplay), SDL_WINDOWPOS_CENTERED_DISPLAY(mlDisplay), mvScreenSize.x, mvScreenSize.y, mlFlags);
+			mpScreen = SDL_CreateWindow(asWindowCaption.c_str(), mvScreenSize.x, mvScreenSize.y, mlFlags);
 
 			if (mpScreen == NULL)
 			{
@@ -175,6 +210,22 @@ namespace hpl {
 			else
 				cPlatform::CreateMessageBox(_W("Warning!"), _W("Could not set displaymode and 640x480 is used instead!\n"));
 		}
+
+		SDL_SetWindowPosition(mpScreen, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+		// Ensure the window is mapped and focused: Vulkan windows on some
+		// compositors (notably Wayland) aren't mapped until explicitly shown,
+		// and a new window won't gain input focus without an explicit raise.
+		SDL_ShowWindow(mpScreen);
+		SDL_RaiseWindow(mpScreen);
+
+#if DEVICE_IMPL_MTL
+		// Create the CAMetalLayer-backed view the Metal swapchain draws into.
+		// SDL owns the view (destroyed in the dtor before SDL_DestroyWindow);
+		// GetWindowHandle exposes its layer via SDL_Metal_GetLayer.
+		mpMetalView = SDL_Metal_CreateView(mpScreen);
+		if (mpMetalView == NULL)
+			FatalError("Unable to create SDL Metal view! %s\n", SDL_GetError());
+#endif
 
 		// Update with the screen size ACTUALLY obtained
 		int w, h;
@@ -193,29 +244,27 @@ namespace hpl {
 
 	void cLowLevelGraphicsSDL::ShowCursor(bool abX)
 	{
+		// SDL3: SDL_ShowCursor()/SDL_HideCursor() take no argument.
 		if (abX)
-			SDL_ShowCursor(SDL_ENABLE);
+			SDL_ShowCursor();
 		else
-			SDL_ShowCursor(SDL_DISABLE);
+			SDL_HideCursor();
 	}
 
 	void cLowLevelGraphicsSDL::SetWindowGrab(bool abX)
 	{
 		mbGrab = abX;
-#if SDL_VERSION_ATLEAST(2, 0, 0)
 		if (mpScreen) {
-			SDL_SetWindowGrab(mpScreen, abX ? SDL_TRUE : SDL_FALSE);
+			// SDL3: per-window grab, plain bool (SDL_TRUE/SDL_FALSE removed).
+			SDL_SetWindowMouseGrab(mpScreen, abX);
 		}
-#else
-		SDL_WM_GrabInput(abX ? SDL_GRAB_ON : SDL_GRAB_OFF);
-#endif
 	}
 
 	void cLowLevelGraphicsSDL::SetRelativeMouse(bool abX)
 	{
-#if SDL_VERSION_ATLEAST(2, 0, 0)
-		SDL_SetRelativeMouseMode(abX ? SDL_TRUE : SDL_FALSE);
-#endif
+		// SDL3: relative mouse mode is per-window.
+		if (mpScreen)
+			SDL_SetWindowRelativeMouseMode(mpScreen, abX);
 	}
 
 	void cLowLevelGraphicsSDL::SetWindowCaption(const tString& asName)
@@ -247,11 +296,8 @@ namespace hpl {
 
 	bool cLowLevelGraphicsSDL::GetWindowIsVisible()
 	{
-#if SDL_VERSION_ATLEAST(2, 0, 0)
-		return (SDL_GetWindowFlags(mpScreen) & SDL_WINDOW_SHOWN) != 0;
-#else
-		return (SDL_GetAppState() & SDL_APPACTIVE) != 0;
-#endif
+		// SDL3 removed SDL_WINDOW_SHOWN; a window is visible when not hidden.
+		return (SDL_GetWindowFlags(mpScreen) & SDL_WINDOW_HIDDEN) == 0;
 	}
 
 	cVector2f cLowLevelGraphicsSDL::GetScreenSizeFloat()

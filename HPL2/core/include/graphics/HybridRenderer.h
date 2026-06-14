@@ -79,6 +79,10 @@ private:
   struct RIBuffer m_tlasInstanceBuffer = {};
   uint32_t m_tlasCapacity = 0;
   uint32_t m_tlasStorageCapacity = 0;
+  // Deduplicated BLAS set the current m_tlas instances index into, persisted at
+  // TLAS-build time. The Metal RT pass must make these resident before tracing
+  // (the TLAS traversal reads its BLASes through the argument buffer).
+  std::vector<struct RIAccelStructure *> m_tlasBlasList;
 
   // (The per-viewport frame textures — surfel result, packed hit info,
   // velocity, direct-lighting history + ping-pong index/init, prev-frame
@@ -153,14 +157,14 @@ private:
 	// frame); cHybridRenderer writes the particle VB's BDA into the same
 	// opaque*Handles[] arrays so the VS can pull pos/uv/color via instanceId.
 	// Hardware blend state varies per blend mode — one pipeline per mode is
-	// stamped on demand via the program's PipelineSlot cache.
+	// stamped on demand via the program's RIPipeline cache.
 	RIProgram m_particle;
 
 	// Non-particle translucent meshes (glass, lamp glass, decals tagged
 	// translucent, etc.). Renders in its own pass after the particle pass into
 	// the same pogo "read" half, depth read-only. One pipeline per
 	// eMaterialBlendMode (Add/Mul/MulX2/Alpha/PremulAlpha) is stamped on demand
-	// via the program's PipelineSlot cache, mirroring m_particle. Refraction
+	// via the program's RIPipeline cache, mirroring m_particle. Refraction
 	// and cube-map reflection materials are filtered out at the call site —
 	// those need a screen-color copy + cube-map binding the renderer doesn't
 	// have yet.
@@ -172,7 +176,7 @@ private:
 	// vertex layout, the m_diffuseBindless / m_objectBuffer object pool,
 	// and resolveMaterial (DiffuseMaterial slot — only tex[0] diffuse is used).
 	// One pipeline per eMaterialBlendMode is stamped via the program's
-	// PipelineSlot cache. Port of decal.frag.fsl / decal.vert.fsl.
+	// RIPipeline cache. Port of decal.frag.fsl / decal.vert.fsl.
 	RIProgram m_decal;
 	RIProgram m_water;
 

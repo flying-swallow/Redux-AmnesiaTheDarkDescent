@@ -471,24 +471,18 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
   // Allocate a fresh GPU buffer. Used only on the first submit, on shadow-data
   // growth (ResizeArray / ResizeIndices), or when a CreateCopy'd element still
   // points at its source buffer with a zero capacity tag.
-  auto allocBuffer = [&](VkDeviceSize size, VkBufferUsageFlags usage,
+  auto allocBuffer = [&](uint64_t size, uint32_t usage,
                          const char *label) -> std::shared_ptr<RIBuffer> {
     std::shared_ptr<RIBuffer> buf(new RIBuffer(), [](RIBuffer *b) {
       b->dispose(&RI.device);
       delete b;
     });
 
-    uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-    VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    VK_ConfigureBufferQueueFamilies(&bci, RI.device.queues, RI_QUEUE_LEN,
-                                    queueFamilies, RI_QUEUE_LEN);
-    bci.size = size;
-    bci.usage = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-
-    VmaAllocationCreateInfo aci = {};
-    aci.usage = VMA_MEMORY_USAGE_AUTO;
-    *buf = RIBuffer::VK_createFromVMA(device, &bci, &aci);
+    RIBufferDesc desc = {};
+    desc.size = size;
+    desc.usage = usage | RI_BUFFER_USAGE_TRANSFER_DST | RI_BUFFER_USAGE_DEVICE_ADDRESS;
+    desc.location = RI_MEMORY_DEVICE;
+    *buf = RIBuffer::create(device, desc);
 
     char debugName[128];
     std::snprintf(debugName, sizeof(debugName), "VB[%p]:%s",
@@ -500,7 +494,7 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
   // Stage-copy `src` into an existing buffer. The transaction takes a value
   // copy of the RIBuffer, but the underlying VkBuffer / VmaAllocation handles
   // are shared, so the upload lands in the same GPU memory.
-  auto stageUpload = [&](RIBuffer *target, VkDeviceSize size, const void *src,
+  auto stageUpload = [&](RIBuffer *target, RIDeviceSize size, const void *src,
                          enum RIResourceState_e postState,
                          uint32_t postStages) {
     RIResourceBufferTransaction trans = {};
@@ -527,10 +521,10 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
     if (element.m_shadowData.empty())
       continue;
     const size_t needed = element.m_shadowData.size();
-    VkBufferUsageFlags usage =
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    uint32_t usage =
+        RI_BUFFER_USAGE_VERTEX_BUFFER | RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE;
     if (element.type == eVertexBufferElement_Position) {
-      usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+      usage |= RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT;
     }
     // m_internalBufferSize == 0 with element.buffer set is the CreateCopy
     // sentinel: the shared_ptr was inherited from the source VB but we own no
@@ -553,9 +547,9 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
 
   if (!m_indices.empty()) {
     const size_t needed = m_indices.size() * sizeof(uint32_t);
-    const VkBufferUsageFlags idxUsage =
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+    const uint32_t idxUsage =
+        RI_BUFFER_USAGE_INDEX_BUFFER | RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE |
+        RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT;
     const bool needsAlloc = !m_indexBuffer || m_indexBufferCapacity < needed;
     if (needsAlloc) {
       m_indexBuffer = allocBuffer(needed, idxUsage, "Index");
@@ -640,25 +634,21 @@ void cVertexBuffer::BuildBlas(RICmd *cmd, RIDevice *device,
       new RIBuffer(),
       [](RIBuffer *b) { b->dispose(&RI.device); delete b; });
   {
-    uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-    VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    VK_ConfigureBufferQueueFamilies(&bci, device->queues, RI_QUEUE_LEN,
-                                    queueFamilies, RI_QUEUE_LEN);
-    bci.size = storageSize;
-    bci.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
-                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-    VmaAllocationCreateInfo aci = {};
-    aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    *m_blasStorage = RIBuffer::VK_createFromVMA(device, &bci, &aci);
+    RIBufferDesc desc = {};
+    desc.size = storageSize;
+    desc.usage = RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE |
+                 RI_BUFFER_USAGE_DEVICE_ADDRESS;
+    desc.location = RI_MEMORY_DEVICE;
+    *m_blasStorage = RIBuffer::create(device, desc);
   }
 
   // VK_createFromVMA swallows the VkResult — a failed/marginal allocation leaves
   // vk.buffer null. Building the BLAS on a null storage buffer produces an AS
   // with an invalid device address (the 0xffff8001... value the TLAS rejects),
   // so bail here instead, keeping any previously-built BLAS for this object.
-  assert(m_blasStorage->vk.buffer != VK_NULL_HANDLE &&
+  assert(!m_blasStorage->isEmpty(device) &&
          "BLAS storage allocation failed");
-  if (m_blasStorage->vk.buffer == VK_NULL_HANDLE) {
+  if (m_blasStorage->isEmpty(device)) {
     Error("BLAS storage allocation failed (size=%llu) for VB[%p]; skipping build",
           (unsigned long long)storageSize, static_cast<void *>(this));
     m_blasStorage.reset();
@@ -688,8 +678,11 @@ void cVertexBuffer::BuildBlas(RICmd *cmd, RIDevice *device,
   m_blas->setDebugObjectName(device, dbgName);
   // The AS device address comes straight from vkGetAccelerationStructureDeviceAddress
   // here; if it's zero/garbage every TLAS instance referencing it is invalid.
+  // VK-only diagnostic — Metal accel structures use a different residency model.
+#if (DEVICE_IMPL_VULKAN)
   assert(m_blas->vk.handle != VK_NULL_HANDLE);
   assert(m_blas->vk.deviceAddress != 0);
+#endif
 
   struct RIBufferScratchAllocReq scratchReq = RIAllocBufferFromScratchAlloc(
       device, &cntx->accelScratchAlloc, buildScratchSize);

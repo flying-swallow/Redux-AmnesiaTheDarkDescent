@@ -36,7 +36,8 @@ if (-not $GameDir -and $env:ATDD_DIR) {
     $GameDir = $env:AMNESIA_GAME_DIRECTORY
 }
 
-$cmakeArgs = @('-S', $root, '-B', $buildDir, '-G', 'Visual Studio 17 2022', '-A', 'x64')
+# Generator (VS 2022), architecture and backend flags live in CMakePresets.json.
+$cmakeArgs = @('--preset', 'windows')
 if ($GameDir) {
     $cmakeArgs += "-DAMNESIA_GAME_DIRECTORY=$GameDir"
 }
@@ -44,15 +45,17 @@ if ($ExtraArgs) {
     $cmakeArgs += $ExtraArgs
 }
 
-Write-Host "==> Configuring ($cfgName)"
+$buildPreset = "windows-$Config"
+
+Write-Host "==> Configuring (preset: windows, $cfgName)"
 & cmake @cmakeArgs
 if ($LASTEXITCODE -ne 0) { throw "cmake configure failed" }
 
-& cmake --build $buildDir --config $cfgName
+& cmake --build --preset $buildPreset
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed" }
 
 if (-not $NoDeploy) {
-    & cmake --build $buildDir --config $cfgName --target deploy
+    & cmake --build --preset $buildPreset --target deploy
     if ($LASTEXITCODE -ne 0) { throw "deploy failed" }
 }
 

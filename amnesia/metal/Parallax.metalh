@@ -1,0 +1,56 @@
+#pragma once
+// Shared Metal header — port of amnesia/slang/Parallax.slang.
+// Tangent-space parallax occlusion mapping (relief mapping): a linear march to
+// the first height-field crossing, then a binary refine. Returns the warped UV.
+// Flattened into each .metal at stage time by cmake/flatten_metal_includes.py.
+//
+// LIFTED verbatim from SurfelVBuffer/SurfelVBuffer.rt.metal (parity with the
+// shipped V-buffer parallax path). RT/closest-hit context has no implicit
+// derivatives, so every height sample uses an explicit LOD 0.
+//
+// Requires kInvalidTextureIndex (defined by the including .metal) and a
+// `device Set0&` with gTextures2D + gMaterialSampler — #include AFTER `struct Set0`.
+
+// Sample the height field. Legacy convention: depth in .a, except dedicated
+// grayscale height maps (singleChannel) carry it in .r.
+static float sampleHeight(uint heightTexIdx, float2 uv, bool singleChannel, device Set0& set0) {
+    float4 s = set0.gTextures2D[heightTexIdx].sample(set0.gMaterialSampler, uv, level(0.0f));
+    return singleChannel ? s.r : s.a;
+}
+
+// Parallax-corrected UV. `worldViewDir` is the camera->surface ray direction;
+// N/T/B are the orthonormal world-space TBN. Returns `baseUv` unchanged when
+// there is no height map or the view is too grazing to march safely.
+static float2 parallaxOcclusionUV(uint heightTexIdx, float heightMapScale, bool singleChannel,
+                                  float3 worldViewDir, float3 N, float3 T, float3 B, float2 baseUv,
+                                  device Set0& set0) {
+    if (heightTexIdx == kInvalidTextureIndex) return baseUv;
+
+    float3 eye = float3(dot(worldViewDir, T), dot(worldViewDir, B), dot(-worldViewDir, N));
+    // !(eye.z > k) so a NaN eye.z also bails (degenerate normal guard).
+    if (!(eye.z > 1.0e-3f)) return baseUv;
+
+    eye *= (1.0f / eye.z);
+    eye.xy *= heightMapScale;
+
+    int nSteps = (int)floor((1.0f - eye.z / max(length(eye), 1.0e-6f)) * 18.0f) + 2;
+    nSteps = clamp(nSteps, 2, 20);
+    float fSteps = (float)nSteps;
+
+    float3 pos  = float3(baseUv, 0.0f);
+    float3 step = eye / fSteps;
+
+    // Linear search to the first intersection.
+    for (int i = 0; i < nSteps - 1; ++i) {
+        float h = sampleHeight(heightTexIdx, pos.xy, singleChannel, set0);
+        if (pos.z < h) pos += step;
+    }
+    // Binary refine around the crossing.
+    for (uint i = 0u; i < 6u; ++i) {
+        float h = sampleHeight(heightTexIdx, pos.xy, singleChannel, set0);
+        if (pos.z < h) pos += step;
+        step *= 0.5f;
+        pos  -= step;
+    }
+    return pos.xy;
+}

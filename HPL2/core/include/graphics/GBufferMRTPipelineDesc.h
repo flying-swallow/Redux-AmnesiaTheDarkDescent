@@ -1,41 +1,21 @@
 #ifndef HPL_GBUFFER_MRT_PIPELINE_DESC_H
 #define HPL_GBUFFER_MRT_PIPELINE_DESC_H
 
+#include "graphics/RIProgram.h" // RIGraphicsPipelineDesc
 #include "graphics/RITypes.h"   // RI_Format_e
-
-#if (DEVICE_IMPL_VULKAN)
-#include <volk.h>
-#endif
-
 #include "system/Hasher.h"      // hash_t
 
 namespace hpl {
 
-// Holder for the static portion of the "SurfelGBuffer.3d"
-// VkGraphicsPipelineCreateInfo. Owns every sub-struct so the pointer
-// chain stays valid as long as the holder lives. Non-copyable /
-// non-movable - the pNext / pXxxState pointers would dangle.
+// Backend-neutral static pipeline state for the "SurfelGBuffer.3d" pass. Built
+// once from the attachment formats; bound via the neutral
+// RIProgram::bindPipeline(..., desc) overload (which caches by `hash`).
 struct GBufferMRTPipelineDesc {
-  VkPipelineVertexInputStateCreateInfo vertexInputState;
-  VkPipelineInputAssemblyStateCreateInfo inputAssemblyState;
-  VkPipelineRasterizationStateCreateInfo rasterizationState;
-  VkDynamicState dynamicStates[2];
-  VkPipelineDynamicStateCreateInfo dynamicState;
-  VkFormat colorFormats[2];  // [0] packed visibility (uint4), [1] velocity (RG16F)
-  VkPipelineRenderingCreateInfo pipelineRendering;
-  VkPipelineViewportStateCreateInfo viewportState;
-  VkPipelineMultisampleStateCreateInfo multisampleState;
-  VkPipelineDepthStencilStateCreateInfo depthStencilState;
-  VkPipelineColorBlendAttachmentState blendAttachments[2];
-  VkPipelineColorBlendStateCreateInfo colorBlendState;
-  VkGraphicsPipelineCreateInfo createInfo;
+  RIGraphicsPipelineDesc desc;
   hash_t hash;
 
   GBufferMRTPipelineDesc(RI_Format_e visibilityFormat, RI_Format_e velocityFormat,
                          RI_Format_e depthFormat);
-
-  GBufferMRTPipelineDesc(const GBufferMRTPipelineDesc &) = delete;
-  GBufferMRTPipelineDesc &operator=(const GBufferMRTPipelineDesc &) = delete;
 };
 
 } // namespace hpl

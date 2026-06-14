@@ -39,7 +39,7 @@ namespace hpl {
 // cGui::CreateGfxTexture / RIProgram::bindDescriptors. Shared by the capture
 // (R16G16B16A16_SFLOAT) and the per-state effect (R8G8B8A8_UNORM).
 bool LuxCreateScreenRenderTarget(std::shared_ptr<hpl::cTexture> &outTex,
-		uint32_t width, uint32_t height, VkFormat format, const char *debugName);
+		uint32_t width, uint32_t height, uint32_t format, const char *debugName);
 
 //////////////////////////////////////////////////////////////////////////
 // Shared "primary capture" of the gameplay scene, owned at game scope (as a

@@ -481,9 +481,7 @@ void Exit()
 	int hplMain(const tString &asCommandLine){return -1;}
 #endif
 
-#ifdef __APPLE__
-extern "C" int SDL_main(int argc, char *argv[]);
-int main(int argc, char * argv[]) {
-    return SDL_main(argc, argv);
-}
-#endif
+// On macOS (as on Linux) the real main() lives in LowLevelSystemSDL.cpp and
+// calls hplMain(). The previous __APPLE__ block here defined a second main()
+// that forwarded to an undefined SDL_main(), shadowing the shared entry point
+// and breaking the link.

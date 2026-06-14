@@ -49,7 +49,7 @@ private:
 	int mlNumOfVoices;
 	int mlAvailableVoices;
 
-    SDL_mutex*			mpStreamListMutex;
+    SDL_Mutex*			mpStreamListMutex;
 	SDL_Thread*			mpUpdaterThread;
 	int					mlThreadWaitTime;
 	bool				mbUseThreading;

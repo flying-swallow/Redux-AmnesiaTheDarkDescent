@@ -238,25 +238,30 @@ namespace hpl {
 				// viewport passed into cGuiSet::Render).
 				struct RITextureView *pGuiDepthView = pViewPort->GetDepthView();
 
-				VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-				RI_VK_FillColorAttachmentView( &colorAttachment, &RI.swapchainView[RI.swapchainIndex] , !worldRendered );
-				VkRenderingAttachmentInfo depthStencil = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+				RIRenderingAttachment colorAttachment = {};
+				colorAttachment.view = &RI.swapchainView[RI.swapchainIndex];
+				colorAttachment.loadOp = worldRendered ? RI_ATTACHMENT_LOAD_OP_LOAD
+													  : RI_ATTACHMENT_LOAD_OP_CLEAR;
+				colorAttachment.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+
+				RIRenderingAttachment depthStencil = {};
 				if(pGuiDepthView)
 				{
-					RI_VK_FillDepthAttachment( &depthStencil, pGuiDepthView, false );
+					depthStencil.view = pGuiDepthView;
+					depthStencil.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
+					depthStencil.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 				}
-				VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-				renderingInfo.renderArea = VkRect2D{ { 0, 0 }, { RI.swapchain.width, RI.swapchain.height } };
-				renderingInfo.layerCount = 1;
-				renderingInfo.colorAttachmentCount = 1;
-				renderingInfo.pColorAttachments = &colorAttachment;
-				renderingInfo.pDepthAttachment = pGuiDepthView ? &depthStencil : NULL;
 
 				// GuiSet builds its pipelines for RI.swapchain.format / RIBootstrap::DepthFormat
 				// (see GuiSet.cpp). If the attachments here ever change, update GuiSet to match.
-				assert(colorAttachment.imageView == RI.swapchainView[RI.swapchainIndex].vk.image);
-
-				vkCmdBeginRendering( RI.primary.cmds[0].vk.cmd , &renderingInfo );
+				RIBeginRenderingDesc renderingInfo = {};
+				renderingInfo.renderArea.width = (int16_t)RI.swapchain.width;
+				renderingInfo.renderArea.height = (int16_t)RI.swapchain.height;
+				renderingInfo.colorCount = 1;
+				renderingInfo.colors = &colorAttachment;
+				renderingInfo.depthStencil = pGuiDepthView ? &depthStencil : NULL;
+				RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, renderingInfo);
+				RI.primary.cmds[0].mtl_encoderDraw(renderingInfo);
 
 				if(alFlags & tSceneRenderFlag_World)
 				{
@@ -271,7 +276,9 @@ namespace hpl {
 					STOP_TIMING(RenderGUI)
 				}
 
-				vkCmdEndRendering( RI.primary.cmds[0].vk.cmd );
+				RI.primary.cmds[0].mtl_encoderEnd();
+
+				RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
 			}
 		}
 	}

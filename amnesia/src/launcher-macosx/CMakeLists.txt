@@ -10,7 +10,7 @@ link_directories(
     ${DEP_LIB_DIR}
 )
 
-set(compile_defs "HPL_MINIMAL;USE_SDL2")
+set(compile_defs "HPL_MINIMAL")
 list(APPEND compile_defs ${HPL2_DEFINES})
 
 FILE(GLOB HPL2_MINIMAL_SOURCES
@@ -87,7 +87,7 @@ set_target_properties(Launcher PROPERTIES
 FIND_LIBRARY(COCOA_LIBRARY Cocoa)
 FIND_LIBRARY(OPENGL_LIBRARY OpenGL)
 FIND_LIBRARY(OPENAL_LIBRARY OpenAL)
-FIND_LIBRARY(SDL2_LIBRARY SDL2
+FIND_LIBRARY(SDL3_LIBRARY SDL3
     PATHS ${DEP_LIB_DIR}
     NO_DEFAULT_PATH
 )
@@ -97,12 +97,12 @@ target_link_libraries(Launcher
     ${COCOA_LIBRARY}
     ${OPENGL_LIBRARY}
     ${OPENAL_LIBRARY}
-    ${SDL2_LIBRARY}
+    ${SDL3_LIBRARY}
     HPL2_Minimal
 )
 
 IF(APPLE)
-	PostBuildMacBundle(Launcher "" "libSDL2.dylib")
+	PostBuildMacBundle(Launcher "" "libSDL3.dylib")
 	install(TARGETS Launcher
 		RUNTIME DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/../../redist"
 		BUNDLE DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}/../../redist"

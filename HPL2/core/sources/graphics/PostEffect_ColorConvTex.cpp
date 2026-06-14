@@ -39,12 +39,29 @@ struct ColorConvPushConstants {
 };
 } // namespace
 
+// Explicit binding tables for posteffect_color_conv.frag.slang (set 0):
+//   [vk::binding(0,0)] SamplerState inputSampler
+//   [vk::binding(1,0)] Texture2D<float4> sourceInput
+//   [vk::binding(2,0)] Texture1D<float4> colorConv
+//   [vk::push_constant] ColorConvPC pc
+// Generated MSL (posteffect_color_conv.frag.metal):
+//   sourceInput [[texture(0)]], inputSampler [[sampler(0)]],
+//   colorConv [[texture(1)]], ColorConvPC constant* pc [[buffer(0)]]
+// The fullscreen vertex stage has no descriptors / push constant (vs empty).
+static const RIProgram::RIProgramBinding kColorConv[] = {
+    {"inputSampler", RI_DESCRIPTOR_TYPE_SAMPLER, 1, RI_SHADER_STAGE_FRAGMENT, {0, 0}, {}, {0}},
+    {"sourceInput", RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, RI_SHADER_STAGE_FRAGMENT, {0, 1}, {}, {0}},
+    {"colorConv", RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, RI_SHADER_STAGE_FRAGMENT, {0, 2}, {}, {1}},
+};
+
 cPostEffectType_ColorConvTex::cPostEffectType_ColorConvTex(
     cGraphics *apGraphics, cResources *apResources)
     : iPostEffectType("ColorConvTex", apGraphics, apResources) {
     LoadSlangGraphics(&RI.device, m_program, apResources,
                       "posteffect_fullscreen.vert.spv",
-                      "posteffect_color_conv.frag.spv");
+                      "posteffect_color_conv.frag.spv", "vsMain", "psMain",
+                      /*externalSets*/ {}, kColorConv,
+                      sizeof(ColorConvPushConstants), RI_SHADER_STAGE_FRAGMENT);
 }
 
 cPostEffectType_ColorConvTex::~cPostEffectType_ColorConvTex() {}
@@ -99,40 +116,36 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
         return;
     }
 
-    VkCommandBuffer cmd = ctx.cmd->vk.cmd;
+    RIRenderingAttachment colorAttach = {};
+    colorAttach.view    = ctx.outputView;
+    colorAttach.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+    colorAttach.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-    VkRenderingAttachmentInfo colorAttach = {
-        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    colorAttach.imageView   = ctx.outputView;
-    colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+    RIBeginRenderingDesc renderInfo = {};
+    renderInfo.renderArea.width  = (int16_t)ctx.width;
+    renderInfo.renderArea.height = (int16_t)ctx.height;
+    renderInfo.colorCount        = 1;
+    renderInfo.colors            = &colorAttach;
+    ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, renderInfo);
+    ctx.cmd->mtl_encoderDraw(renderInfo);
 
-    VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-    renderInfo.renderArea           = {{0, 0}, {ctx.width, ctx.height}};
-    renderInfo.layerCount           = 1;
-    renderInfo.colorAttachmentCount = 1;
-    renderInfo.pColorAttachments    = &colorAttach;
+    RIViewport viewport = {};
+    viewport.width    = static_cast<float>(ctx.width);
+    viewport.height   = static_cast<float>(ctx.height);
+    viewport.depthMax = 1.0f;
+    ctx.cmd->setViewport(&RI.renderer, viewport);
+    RIRect scissor = {};
+    scissor.width  = (int16_t)ctx.width;
+    scissor.height = (int16_t)ctx.height;
+    ctx.cmd->setScissor(&RI.renderer, scissor);
 
-    vkCmdBeginRendering(cmd, &renderInfo);
-
-    VkViewport viewport = {0.0f,
-                           0.0f,
-                           static_cast<float>(ctx.width),
-                           static_cast<float>(ctx.height),
-                           0.0f,
-                           1.0f};
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
-    VkRect2D scissor = {{0, 0}, {ctx.width, ctx.height}};
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-    PostEffectPipelineState state{};
-    InitPostEffectPipelineState(state, RIBootstrap::PogoColorFormatVk, false);
+    RIGraphicsPipelineDesc pipeDesc{};
+    pipeDesc.colorCount = 1;
+    pipeDesc.colors[0].format = RIBootstrap::PogoColorFormat;
 
     const hash_t pipelineHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
     mpSpecificType->m_program.bindPipeline(&RI.device, ctx.cmd, pipelineHash,
-                                           "PostEffect_ColorConvTex",
-                                           &state.createInfo);
+                                           "PostEffect_ColorConvTex", pipeDesc);
 
     auto samplerDesc = RI.resolve_filter_descriptor(
         eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
@@ -150,11 +163,11 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
 
     ColorConvPushConstants pc{};
     pc.alphaFade = cMath::Max(mParams.mfFadeAlpha, 0.0f);
-    vkCmdPushConstants(cmd, mpSpecificType->m_program.getPipelineLayout(),
-                       VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+    mpSpecificType->m_program.pushConstants(ctx.cmd, &pc, sizeof(pc));
 
-    vkCmdDraw(cmd, 3, 1, 0, 0);
-    vkCmdEndRendering(cmd);
+    ctx.cmd->draw(&RI.renderer, 3, 1, 0, 0);
+    ctx.cmd->mtl_encoderEnd();
+    ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
 }
 
 } // namespace hpl

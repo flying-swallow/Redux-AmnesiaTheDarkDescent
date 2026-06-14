@@ -5,11 +5,11 @@
 #include "RIFormat.h"
 #include "graphics/GraphicsTypes.h"
 #include <cassert>
-#include <vulkan/vulkan_core.h>
 
 #if DEVICE_IMPL_VULKAN
+#include <vulkan/vulkan_core.h>
 // VkResult RI_VK_InitImageView( struct RIDevice *dev, VkImageViewCreateInfo *info, struct RIDescriptor *desc, VkDescriptorType type );
-#define RI_VK_DESCRIPTOR_IS_IMAGE( desc ) ( desc.vk.type == VK_DESCRIPTOR_TYPE_SAMPLER || desc.vk.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || desc.vk.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE )
+#define RI_VK_DESCRIPTOR_IS_IMAGE( desc ) ( (desc).type == RI_DESCRIPTOR_TYPE_SAMPLER || (desc).type == RI_DESCRIPTOR_TYPE_STORAGE_IMAGE || (desc).type == RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE )
 
 namespace hpl {
 static inline VkSamplerAddressMode RI_VK_TextureWrap(eTextureWrap wrap) {
@@ -32,7 +32,7 @@ static inline VkSamplerAddressMode RI_VK_TextureWrap(eTextureWrap wrap) {
 static inline void RI_VK_FillColorAttachment(VkRenderingAttachmentInfo *info,
                                              struct RIDescriptor *desc,
                                              bool attachAndClear) {
-  info->imageView = desc->vk.image.imageView;
+  info->imageView = desc->vkImageView();
   info->imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
   info->resolveMode = VK_RESOLVE_MODE_NONE;
   info->resolveImageView = VK_NULL_HANDLE;
@@ -109,6 +109,25 @@ static inline VkGeometryInstanceFlagsKHR RI_VK_AccelInstanceFlags(uint32_t flags
   return out;
 }
 
+static inline VkBufferUsageFlags ri_vk_RIBufferUsageToVK(uint32_t usage) {
+  VkBufferUsageFlags out = 0;
+  if (usage & RI_BUFFER_USAGE_SHADER_RESOURCE)         out |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE) out |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_VERTEX_BUFFER)           out |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_INDEX_BUFFER)            out |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_CONSTANT_BUFFER)         out |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_ARGUMENT_BUFFER)         out |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_SCRATCH)                 out |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_BINDING_TABLE)           out |= VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR;
+  if (usage & RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT) out |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+  if (usage & RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE)    out |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
+  if (usage & RI_BUFFER_USAGE_TRANSFER_SRC)            out |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  if (usage & RI_BUFFER_USAGE_TRANSFER_DST)            out |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  if (usage & RI_BUFFER_USAGE_INDIRECT)               out |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_DEVICE_ADDRESS)         out |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+  return out;
+}
+
 static inline VkRect2D RIToVKRect2D(struct RIRect* in) {
 	VkRect2D out;
 	out.extent.width = in->width;
@@ -170,6 +189,21 @@ static inline VkCompareOp ri_vk_RICompareOpToVK(enum RICompareFunc_e func) {
 	}
 	assert(false);
 	return VK_COMPARE_OP_NEVER;
+}
+
+static inline VkStencilOp ri_vk_RIStencilOpToVK(enum RIStencilOp_e op) {
+	switch (op) {
+		case RI_STENCIL_OP_KEEP:            return VK_STENCIL_OP_KEEP;
+		case RI_STENCIL_OP_ZERO:            return VK_STENCIL_OP_ZERO;
+		case RI_STENCIL_OP_REPLACE:         return VK_STENCIL_OP_REPLACE;
+		case RI_STENCIL_OP_INCREMENT_CLAMP: return VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+		case RI_STENCIL_OP_DECREMENT_CLAMP: return VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+		case RI_STENCIL_OP_INVERT:          return VK_STENCIL_OP_INVERT;
+		case RI_STENCIL_OP_INCREMENT_WRAP:  return VK_STENCIL_OP_INCREMENT_AND_WRAP;
+		case RI_STENCIL_OP_DECREMENT_WRAP:  return VK_STENCIL_OP_DECREMENT_AND_WRAP;
+	}
+	assert(false);
+	return VK_STENCIL_OP_KEEP;
 }
 
 static inline VkIndexType ri_vk_RIIndexTypeToVK(enum RIIndexType_e type) {
@@ -238,6 +272,17 @@ static inline VkPrimitiveTopology ri_vk_RITopologyToVK(enum RITopology_e topolog
 	return VK_PRIMITIVE_TOPOLOGY_MAX_ENUM;
 }
 
+static inline VkBlendOp ri_vk_RIBlendOpToVK(enum RIBlendOp_e op) {
+	switch (op) {
+		case RI_BLEND_OP_ADD: return VK_BLEND_OP_ADD;
+		case RI_BLEND_OP_SUBTRACT: return VK_BLEND_OP_SUBTRACT;
+		case RI_BLEND_OP_REVERSE_SUBTRACT: return VK_BLEND_OP_REVERSE_SUBTRACT;
+		case RI_BLEND_OP_MIN: return VK_BLEND_OP_MIN;
+		case RI_BLEND_OP_MAX: return VK_BLEND_OP_MAX;
+	}
+	return VK_BLEND_OP_ADD;
+}
+
 static inline VkBlendFactor ri_vk_RIBlendFactorToVK(enum RIBlendFactor_e factor) {
 	switch (factor) {
 		case RI_BLEND_ZERO:
@@ -295,6 +340,61 @@ static inline VkImageType ri_vk_RITextureTypeToVKImageType( enum RITextureType_e
 	// this shouldn't happen
 	assert( false );
 	return VK_IMAGE_TYPE_MAX_ENUM;
+}
+
+static inline VkImageUsageFlags ri_vk_RITextureUsageToVK(uint32_t usage) {
+	VkImageUsageFlags out = 0;
+	if (usage & RI_USAGE_SHADER_RESOURCE)            out |= VK_IMAGE_USAGE_SAMPLED_BIT;
+	if (usage & RI_USAGE_SHADER_RESOURCE_STORAGE)    out |= VK_IMAGE_USAGE_STORAGE_BIT;
+	if (usage & RI_USAGE_COLOR_ATTACHMENT)           out |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+	if (usage & RI_USAGE_DEPTH_STENCIL_ATTACHMENT)   out |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	if (usage & RI_USAGE_TRANSFER_SRC)               out |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+	if (usage & RI_USAGE_TRANSFER_DST)               out |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	return out;
+}
+
+static inline VkImageViewType ri_vk_RITextureViewTypeToVK(enum RITextureViewType_e v) {
+	switch (v) {
+		case RI_VIEWTYPE_SHADER_RESOURCE_1D:
+		case RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_1D:
+			return VK_IMAGE_VIEW_TYPE_1D;
+		case RI_VIEWTYPE_SHADER_RESOURCE_1D_ARRAY:
+		case RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_1D_ARRAY:
+			return VK_IMAGE_VIEW_TYPE_1D_ARRAY;
+		case RI_VIEWTYPE_SHADER_RESOURCE_2D:
+		case RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_2D:
+		case RI_VIEWTYPE_COLOR_ATTACHMENT:
+		case RI_VIEWTYPE_DEPTH_STENCIL_ATTACHMENT:
+		case RI_VIEWTYPE_DEPTH_READONLY_STENCIL_ATTACHMENT:
+		case RI_VIEWTYPE_DEPTH_ATTACHMENT_STENCIL_READONLY:
+		case RI_VIEWTYPE_DEPTH_STENCIL_READONLY:
+		case RI_VIEWTYPE_SHADING_RATE_ATTACHMENT:
+			return VK_IMAGE_VIEW_TYPE_2D;
+		case RI_VIEWTYPE_SHADER_RESOURCE_2D_ARRAY:
+		case RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_2D_ARRAY:
+			return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+		case RI_VIEWTYPE_SHADER_RESOURCE_CUBE:
+			return VK_IMAGE_VIEW_TYPE_CUBE;
+		case RI_VIEWTYPE_SHADER_RESOURCE_CUBE_ARRAY:
+			return VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+		case RI_VIEWTYPE_SHADER_RESOURCE_3D:
+		case RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_3D:
+			return VK_IMAGE_VIEW_TYPE_3D;
+	}
+	assert(false);
+	return VK_IMAGE_VIEW_TYPE_2D;
+}
+
+static inline VkImageAspectFlags ri_vk_RITextureViewAspect(enum RITextureViewType_e v) {
+	switch (v) {
+		case RI_VIEWTYPE_DEPTH_STENCIL_ATTACHMENT:
+		case RI_VIEWTYPE_DEPTH_READONLY_STENCIL_ATTACHMENT:
+		case RI_VIEWTYPE_DEPTH_ATTACHMENT_STENCIL_READONLY:
+		case RI_VIEWTYPE_DEPTH_STENCIL_READONLY:
+			return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+		default:
+			return VK_IMAGE_ASPECT_COLOR_BIT;
+	}
 }
 
 #endif

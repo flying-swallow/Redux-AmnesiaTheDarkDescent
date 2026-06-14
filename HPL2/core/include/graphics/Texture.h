@@ -20,6 +20,9 @@ public:
   // releases both.
   struct RITexture handle;
   RI_Format format = RI_FORMAT_UNKNOWN;
+  // Sampled-image view over `handle`, owned by this texture (the `binding`
+  // descriptor references it but does not own it).
+  struct RITextureView view;
   struct RIDescriptor binding;
   uint16_t width;
   uint16_t height;

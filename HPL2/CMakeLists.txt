@@ -7,8 +7,17 @@ set(HPL2_VERSION_MINOR 0)
 
 add_definitions(
   -DUSE_OALWRAPPER
-  -DUSE_SDL2
 )
+
+# RI rendering-backend selection. Independent toggles so backends can be mixed
+# per platform in future; today the renderer compiles exactly one at a time
+# (RIDefines.h errors if more than one DEVICE_SUPPORT_* is set), so enable a
+# single backend per build: Vulkan on Linux/Windows, Metal on Apple.
+option(ENABLE_VULKAN "Build the Vulkan RI backend" ON)
+option(ENABLE_METAL  "Build the Metal RI backend (Apple only)" OFF)
+if(ENABLE_METAL AND NOT APPLE)
+    message(FATAL_ERROR "ENABLE_METAL is only supported on Apple platforms")
+endif()
 
 # common shared source
 file(GLOB common_sources RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
@@ -65,7 +74,6 @@ file(GLOB impl_sources RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
     core/sources/impl/*Newton.cpp
     core/sources/impl/LegacyVertexBuffer.cpp
     # SDL
-    core/sources/impl/GamepadSDL.cpp
     core/sources/impl/GamepadSDL2.cpp
     core/sources/impl/KeyboardSDL.cpp
     core/sources/impl/MouseSDL.cpp
@@ -99,12 +107,6 @@ IF(APPLE)
         core/sources/impl/PlatformUnix.cpp
         core/sources/impl/PlatformSDL.cpp
     )
-    IF(NOT USE_SDL2)
-        LIST(APPEND impl_sources
-            core/SDLMain.m
-            core/SDLMain.h
-        )
-    ENDIF()
 ELSEIF(WIN32)
     LIST(APPEND impl_sources
         core/sources/impl/PlatformWin32.cpp
@@ -196,13 +198,21 @@ add_library(HPL2 STATIC
     ${impl_sources}
 )
 
+if(ENABLE_METAL)
+    target_compile_definitions(HPL2 PUBLIC DEVICE_SUPPORT_MTL)
+endif()
+if(ENABLE_VULKAN)
+    target_compile_definitions(HPL2 PUBLIC DEVICE_SUPPORT_VULKAN)
+endif()
+
 set(HPL2_INCLUDES
     PUBLIC core/include
     PUBLIC ${CMAKE_SOURCE_DIR}/amnesia/glsl
     PUBLIC ${CMAKE_SOURCE_DIR}/amnesia/slang
     #Important that this is before dependencies so the correct OpenAL headers are used
     PRIVATE ${OALWRAPPER_INCLUDE_DIR}
-    PRIVATE ${IL_INCLUDE_DIR}
+    PRIVATE ${PNG_INCLUDE_DIRS}
+    PRIVATE ${JPEG_INCLUDE_DIRS}
 )
 
 set(RENDERDOC_PATH "/usr/local" CACHE PATH "Path to RenderDoc.")
@@ -231,7 +241,7 @@ endif()
 # Don't use exceptions
 if(WIN32)
   add_compile_options(/EHs-c-)
-  target_compile_definitions(HPL2 PRIVATE WIN32_LEAN_AND_MEAN SDL_MAIN_HANDLED IL_STATIC_LIB)
+  target_compile_definitions(HPL2 PRIVATE WIN32_LEAN_AND_MEAN SDL_MAIN_HANDLED)
 else()
   add_compile_options(-fno-exceptions)
 endif()
@@ -241,17 +251,36 @@ target_link_libraries(HPL2
   AngelScript
   Newton
   tinyxml2::tinyxml2
-  SDL2::SDL2
+  SDL3::SDL3
   MathLib
   zlib
-  volk
-  GPUOpen::VulkanMemoryAllocator
-  IL
+  png_static
+  jpeg-static
+  tinyddsloader
   ${PLATFORM_LIBS}
   )
 
+# libjpeg-turbo is built as an ExternalProject (extern/CMakeLists.txt); HPL2 must
+# wait for it so jpeglib.h / libjpeg.a are present before HPL2 compiles & links.
+add_dependencies(HPL2 libjpeg_turbo_ep)
+
+# volk (Vulkan loader) + VMA are only needed by the Vulkan backend.
+if(ENABLE_VULKAN)
+  target_link_libraries(HPL2
+    volk
+    GPUOpen::VulkanMemoryAllocator
+  )
+endif()
+
+if(APPLE)
+    target_link_libraries(HPL2 metal-cpp)
+    # PlatformMacOSX.mm uses AppKit (NSAlert, NSWorkspace); Cocoa is the umbrella
+    # framework that pulls in AppKit + Foundation. Propagates to the executables.
+    target_link_libraries(HPL2 "-framework Cocoa")
+endif()
+
 # Route HPL2 + every direct link dependency that is a real local target into
-# build/amnesia/<config>/libs so runtime DLLs (SDL2d.dll, zlibd.dll, ...) end up
+# build/amnesia/<config>/libs so runtime DLLs (SDL3.dll, zlibd.dll, ...) end up
 # alongside Amnesia.exe. Mirrors warfork's qf_set_output_dir_dep pattern.
 set_output_dir_dep(HPL2 "")
   

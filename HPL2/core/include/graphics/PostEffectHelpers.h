@@ -20,8 +20,9 @@ namespace hpl {
 // DestroyPostEffectColorTarget. The owner re-creates when the viewport
 // dimensions change (compare against `width` / `height`).
 struct PostEffectColorTarget {
-    struct RITexture    texture {};
-    struct RIDescriptor descriptor {};
+    struct RITexture     texture {};
+    struct RITextureView view {};
+    struct RIDescriptor  descriptor {};
     uint32_t width = 0;
     uint32_t height = 0;
     bool valid = false;
@@ -32,40 +33,15 @@ struct PostEffectColorTarget {
 // uncommon needs (e.g. TRANSFER_SRC for the ImageTrail accumulator).
 // The caller must destroy via DestroyPostEffectColorTarget before exit.
 void CreatePostEffectColorTarget(PostEffectColorTarget &out, uint32_t width,
-                                 uint32_t height, VkFormat format,
-                                 VkImageUsageFlags additionalUsage,
+                                 uint32_t height, uint32_t format,
+                                 uint32_t additionalUsage,
                                  const char *debugName);
 
 void DestroyPostEffectColorTarget(PostEffectColorTarget &target);
 
-// Bundled pipeline-create state for a fullscreen post-effect pass. The
-// owner stamps one of these on the stack, calls
-// InitPostEffectPipelineState, then passes `state.createInfo` to
-// RIProgram::bindPipeline. Inline state arrays must stay alive across
-// the bindPipeline call; this struct guarantees that.
-struct PostEffectPipelineState {
-    VkPipelineVertexInputStateCreateInfo   vertexInput;
-    VkPipelineInputAssemblyStateCreateInfo inputAssembly;
-    VkPipelineRasterizationStateCreateInfo rasterization;
-    VkPipelineViewportStateCreateInfo      viewportState;
-    VkPipelineMultisampleStateCreateInfo   multisample;
-    VkPipelineDepthStencilStateCreateInfo  depthStencil;
-    VkPipelineColorBlendAttachmentState    blendAttachment;
-    VkPipelineColorBlendStateCreateInfo    colorBlend;
-    VkDynamicState                         dynamicStates[2];
-    VkPipelineDynamicStateCreateInfo       dynamicState;
-    VkFormat                               colorFormat;
-    VkPipelineRenderingCreateInfo          pipelineRendering;
-    VkGraphicsPipelineCreateInfo           createInfo;
-};
-
-// Fill `state` for a fullscreen post-effect: no vertex input, no
-// depth/stencil, cull NONE, dynamic viewport+scissor, single color
-// attachment at `colorFormat`. When `alphaBlend` is true the blend
-// attachment is configured as (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) for both
-// color and alpha; otherwise blend is disabled.
-void InitPostEffectPipelineState(PostEffectPipelineState &state,
-                                 VkFormat colorFormat, bool alphaBlend);
+// Fullscreen post-effect pipeline state is now expressed directly with the
+// backend-neutral RIGraphicsPipelineDesc at each call site (single color
+// attachment, no depth, optional alpha blend); see PostEffect_*.cpp.
 
 } // namespace hpl
 

@@ -59,11 +59,8 @@ if [[ "$(uname -s)" != "Linux" ]]; then
     exit 1
 fi
 
-case "$CONFIG" in
-    release) CMAKE_BUILD_TYPE="Release" ;;
-    debug)   CMAKE_BUILD_TYPE="Debug" ;;
-esac
-
+# Generator, build type and backend flags live in CMakePresets.json.
+PRESET="linux-${CONFIG}"
 BUILD_DIR="$ROOT/build"
 
 if [[ "$CLEAN" == "1" && -d "$BUILD_DIR" ]]; then
@@ -71,17 +68,15 @@ if [[ "$CLEAN" == "1" && -d "$BUILD_DIR" ]]; then
     rm -rf "$BUILD_DIR"
 fi
 
-JOBS="$(nproc 2>/dev/null || echo 4)"
-
-CMAKE_ARGS=(-S "$ROOT" -B "$BUILD_DIR" -DCMAKE_BUILD_TYPE="$CMAKE_BUILD_TYPE")
+CONFIGURE_ARGS=(--preset "$PRESET")
 if [[ -n "$GAME_DIR" ]]; then
-    CMAKE_ARGS+=(-DAMNESIA_GAME_DIRECTORY="$GAME_DIR")
+    CONFIGURE_ARGS+=(-D "AMNESIA_GAME_DIRECTORY=$GAME_DIR")
 fi
-CMAKE_ARGS+=("${EXTRA_ARGS[@]}")
+CONFIGURE_ARGS+=("${EXTRA_ARGS[@]}")
 
-echo "==> Configuring ($CMAKE_BUILD_TYPE)"
-cmake "${CMAKE_ARGS[@]}"
-cmake --build "$BUILD_DIR" --config "$CMAKE_BUILD_TYPE" -j"$JOBS"
-[[ "$DEPLOY" == "1" ]] && cmake --build "$BUILD_DIR" --config "$CMAKE_BUILD_TYPE" --target deploy -j"$JOBS"
+echo "==> Configuring (preset: $PRESET)"
+cmake "${CONFIGURE_ARGS[@]}"
+cmake --build --preset "$PRESET"
+[[ "$DEPLOY" == "1" ]] && cmake --build --preset "$PRESET" --target deploy
 
 echo "==> Build complete: build/bin/"

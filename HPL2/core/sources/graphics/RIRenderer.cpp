@@ -7,6 +7,10 @@
 #include "system/stb_ds.h"
 #include <vector>
 
+#if (DEVICE_IMPL_MTL)
+#include "graphics/RIMTL.h"
+#endif
+
 #if (DEVICE_IMPL_VULKAN)
 
 #include "volk.h"
@@ -243,6 +247,39 @@ static bool __VK_SupportExtension(VkExtensionProperties *properties, size_t len,
 
 int RIRenderer::enumerateAdapters(struct RIPhysicalAdapter *adapters,
                                     uint32_t *numAdapters) {
+#if (DEVICE_IMPL_MTL)
+  if (is_target_selected(RI_DEVICE_API_MTL)) {
+    NS::Array *devs = MTL::CopyAllDevices(); // retained; released below
+    uint32_t deviceNum = devs ? (uint32_t)devs->count() : 0;
+    if (!adapters) {
+      *numAdapters = deviceNum;
+      if (devs)
+        devs->release();
+      return RI_SUCCESS;
+    }
+    assert((*numAdapters) >= deviceNum);
+    for (uint32_t i = 0; i < deviceNum; i++) {
+      MTL::Device *d = devs->object<MTL::Device>(i);
+      struct RIPhysicalAdapter *physicalAdapter = &adapters[i];
+      memset(physicalAdapter, 0, sizeof(struct RIPhysicalAdapter));
+      // The adapter owns a ref to the device until RIDevice::init retains its
+      // own (or the adapter is discarded).
+      physicalAdapter->mtl.device = d->retain();
+      NS::String *deviceName = d->name();
+      if (deviceName)
+        strncpy(physicalAdapter->name, deviceName->utf8String(),
+                sizeof(physicalAdapter->name) - 1);
+      physicalAdapter->videoMemorySize = d->recommendedMaxWorkingSetSize();
+      physicalAdapter->bufferMaxSize = d->maxBufferLength();
+      physicalAdapter->type = d->hasUnifiedMemory()
+                                  ? RI_ADAPTER_TYPE_INTEGRATED_GPU
+                                  : RI_ADAPTER_TYPE_DISCRETE_GPU;
+    }
+    *numAdapters = deviceNum;
+    devs->release();
+    return RI_SUCCESS;
+  }
+#endif
 #if (DEVICE_IMPL_VULKAN)
   {
     uint32_t deviceGroupNum = 0;
@@ -775,6 +812,7 @@ int RIRenderer::enumerateAdapters(struct RIPhysicalAdapter *adapters,
   return RI_SUCCESS;
 }
 
+#if (DEVICE_IMPL_VULKAN)
 static inline VkDeviceQueueCreateInfo *
 __VK_findQueueCreateInfo(VkDeviceQueueCreateInfo *queues, size_t numQueues,
                          uint32_t queueIndex) {
@@ -785,6 +823,7 @@ __VK_findQueueCreateInfo(VkDeviceQueueCreateInfo *queues, size_t numQueues,
   }
   return NULL;
 }
+#endif
 
 int RIDevice::init(struct RIRenderer *renderer,
                      struct RIDeviceDesc *init) {
@@ -797,6 +836,40 @@ int RIDevice::init(struct RIRenderer *renderer,
 
   device->renderer = renderer;
   device->physicalAdapter = *init->physicalAdapter;
+
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    device->mtl.device = physicalAdapter->mtl.device->retain();
+    device->mtl.defaultQueue = device->mtl.device->newCommandQueue();
+    // Shared heap backing the bindless material-texture arrays. Textures flagged
+    // RI_TEXTURE_FLAG_BINDLESS_HEAP sub-allocate from it (HeapTypeAutomatic) so
+    // the whole set is made resident with one useHeap() per RT dispatch. Sized
+    // for the material-texture working set; the single tuning knob. Exhaustion
+    // is fatal (see RITexture::create) — there is no device-allocation fallback.
+    {
+      const uint64_t kBindlessTextureHeapBytes = 1024ull * 1024ull * 1024ull; // 1 GiB
+      MTL::HeapDescriptor *hd = MTL::HeapDescriptor::alloc()->init();
+      hd->setSize(kBindlessTextureHeapBytes);
+      hd->setStorageMode(MTL::StorageModePrivate);
+      hd->setCpuCacheMode(MTL::CPUCacheModeDefaultCache);
+      hd->setType(MTL::HeapTypeAutomatic);
+      device->mtl.textureHeap = device->mtl.device->newHeap(hd);
+      hd->release();
+      if (!device->mtl.textureHeap)
+        hpl::FatalError("Failed to allocate the %llu-byte bindless texture heap.\n",
+                        (unsigned long long)kBindlessTextureHeapBytes);
+    }
+    // Metal command queues are general-purpose; point every RI queue slot at
+    // the one default queue and tag it with all capability bits (the unions
+    // and indexing the rest of the engine does by RIQueueType_e stay valid).
+    for (int q = 0; q < RI_QUEUE_LEN; q++) {
+      device->queues[q].mtl.queue = device->mtl.defaultQueue;
+      device->queues[q].mtl.flags =
+          RI_QUEUE_GRAPHICS_BIT | RI_QUEUE_COMPUTE_BIT | RI_QUEUE_TRANSFER_BIT;
+    }
+    return RI_SUCCESS;
+  }
+#endif
 
 #if (DEVICE_IMPL_VULKAN)
   {
@@ -1348,6 +1421,14 @@ int RIDevice::init(struct RIRenderer *renderer,
 int RIRenderer::init(const struct RIBackendInit *init) {
   memset(this, 0, sizeof(*this));
   api = init->api;
+#if (DEVICE_IMPL_MTL)
+  if (is_target_selected(RI_DEVICE_API_MTL)) {
+    // Metal has no instance/loader object; adapters are enumerated lazily via
+    // MTL::CopyAllDevices() in enumerateAdapters().
+    mtl.reserved = 0;
+    return RI_SUCCESS;
+  }
+#endif
 #if (DEVICE_IMPL_VULKAN)
   {
     volkInitialize();
@@ -1534,92 +1615,284 @@ int RIRenderer::init(const struct RIBackendInit *init) {
   return RI_SUCCESS;
 }
 
-void RIDescriptor::finalize(struct RIDevice *device) {
+void RISampler::dispose(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
-  {
-    switch (vk.type) {
-    case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
-    case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE: {
-      // For sampled/storage images Vulkan ignores the sampler field of
-      // VkDescriptorImageInfo; hashing it wastes entropy and is a foot-gun
-      // if any caller leaves it uninitialised. texture is optional:
-      // callers may attach a long-lived RITexture, or fill the inline
-      // vk.image.imageView directly (e.g. per-pass compute pushes).
-      assert(vk.image.imageView);
-      hash_t hash = hash_u64(HASH_INITIAL_VALUE, vk.type);
-      hash = hash_u64(hash, (uint64_t)vk.image.imageView);
-      hash = hash_u32(hash, (uint32_t)vk.image.imageLayout);
-      cookie = hash;
-      break;
-    }
-    case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER: {
-      // Sampler MATTERS for this type (unlike SAMPLED/STORAGE_IMAGE);
-      // the combined-sampler binding uses both view and sampler.
-      assert(vk.image.imageView);
-      assert(vk.image.sampler);
-      hash_t hash = hash_u64(HASH_INITIAL_VALUE, vk.type);
-      hash = hash_u64(hash, (uint64_t)vk.image.imageView);
-      hash = hash_u64(hash, (uint64_t)vk.image.sampler);
-      hash = hash_u32(hash, (uint32_t)vk.image.imageLayout);
-      cookie = hash;
-      break;
-    }
-    case VK_DESCRIPTOR_TYPE_SAMPLER:
-      cookie = hash_data(hash_u64(HASH_INITIAL_VALUE, vk.type), &vk.image,
-                         sizeof(vk.image));
-      break;
-    case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
-    case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-      assert(buffer);
-      vk.buffer.buffer = buffer->vk.buffer;
-      cookie = hash_data(hash_u64(HASH_INITIAL_VALUE, vk.type), &vk.buffer,
-                         sizeof(vk.buffer));
-      break;
-    case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
-      // accelStructure is optional: callers may attach a
-      // long-lived RIAccelStructure, or fill the inline
-      // vk.accelStructure handle directly (per-pass compute pushes).
-      if (accelStructure) {
-        vk.accelStructure = accelStructure->vk.handle;
-      }
-      assert(vk.accelStructure);
-      cookie = hash_u64(hash_u64(HASH_INITIAL_VALUE, vk.type),
-                        (uint64_t)vk.accelStructure);
-      break;
-    default:
-      assert(false);
-      break;
-    }
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    if (vk.sampler)
+      vkDestroySampler(device->vk.device, vk.sampler, NULL);
+    vk.sampler = VK_NULL_HANDLE;
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    if (mtl.sampler)
+      mtl.sampler->release();
+    mtl.sampler = nullptr;
+    return;
   }
 #endif
 }
 
-void RIDescriptor::dispose(struct RIDevice *device) {
+// ---- RIDescriptor backend accessors -----------------------------------------
+// The pure-payload RIDescriptor stores only references; these pull the backend
+// handle from the referenced RI object at bind time (no stored resolution).
 #if (DEVICE_IMPL_VULKAN)
-  switch (vk.type) {
-  case VK_DESCRIPTOR_TYPE_SAMPLER:
-  case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
-  case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
-    if (vk.image.sampler && (flags & RI_VK_DESC_OWN_SAMPLER))
-      vkDestroySampler(device->vk.device, vk.image.sampler, NULL);
-    if (vk.image.imageView && (flags & RI_VK_DESC_OWN_IMAGE_VIEW))
-      vkDestroyImageView(device->vk.device, vk.image.imageView, NULL);
-    break;
-  case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
-  case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-    break;
-  default:
-    break;
+VkImageView RIDescriptor::vkImageView() const {
+  return view ? view->vk.image : VK_NULL_HANDLE;
+}
+VkBuffer RIDescriptor::vkBuffer() const {
+  return buffer ? buffer->vk.buffer : VK_NULL_HANDLE;
+}
+VkSampler RIDescriptor::vkSampler() const {
+  return samplerRef ? samplerRef->vk.sampler : VK_NULL_HANDLE;
+}
+VkAccelerationStructureKHR RIDescriptor::vkAccel() const {
+  return accelStructure ? accelStructure->vk.handle : VK_NULL_HANDLE;
+}
+VkImageLayout RIDescriptor::vkLayout() const {
+  return ri_vk_RIResourceStateToImageLayout(state);
+}
+#endif
+#if (DEVICE_IMPL_MTL)
+MTL::Resource *RIDescriptor::mtlResource() const {
+  if (buffer)
+    return (MTL::Resource *)buffer->mtl.buffer;
+  if (view)
+    return (MTL::Resource *)view->mtl.view;
+  if (texture)
+    return (MTL::Resource *)texture->mtl.texture;
+  if (accelStructure)
+    return (MTL::Resource *)accelStructure->mtl.handle;
+  return nullptr;
+}
+MTL::SamplerState *RIDescriptor::mtlSampler() const {
+  return samplerRef ? samplerRef->mtl.sampler : nullptr;
+}
+#endif
+
+// ---- Idiomatic descriptor builders ------------------------------------------
+// Each references the RI object + sets the binding params, then assigns the
+// caller-fed `cookie` 1:1. No resolution / ownership: the bind paths pull the
+// backend handle from the referenced RI object via the accessors above. The
+// `device` param is unused (kept for call-site stability).
+
+RIDescriptor RIDescriptor::uniformBuffer(struct RIDevice *device,
+                                         struct RIBuffer *buffer,
+                                         uint64_t offset, uint64_t range,
+                                         hash_t cookie) {
+  (void)device;
+  RIDescriptor d{};
+  d.type = RI_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  d.buffer = buffer;
+  d.offset = offset;
+  d.range = range;
+  d.cookie = cookie;
+  return d;
+}
+
+RIDescriptor RIDescriptor::storageBuffer(struct RIDevice *device,
+                                         struct RIBuffer *buffer,
+                                         uint64_t offset, uint64_t range,
+                                         hash_t cookie) {
+  (void)device;
+  RIDescriptor d{};
+  d.type = RI_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  d.buffer = buffer;
+  d.offset = offset;
+  d.range = range;
+  d.cookie = cookie;
+  return d;
+}
+
+RIDescriptor RIDescriptor::sampledImage(struct RIDevice *device,
+                                        struct RITextureView *view,
+                                        hash_t cookie,
+                                        enum RIResourceState_e state) {
+  (void)device;
+  RIDescriptor d{};
+  d.type = RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+  d.view = view;
+  d.state = state;
+  d.cookie = cookie;
+  return d;
+}
+
+RIDescriptor RIDescriptor::storageImage(struct RIDevice *device,
+                                        struct RITextureView *view,
+                                        hash_t cookie) {
+  (void)device;
+  RIDescriptor d{};
+  d.type = RI_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  d.view = view;
+  d.state = RI_RESOURCE_STATE_GENERAL;
+  d.cookie = cookie;
+  return d;
+}
+
+RIDescriptor RIDescriptor::accelerationStructure(struct RIDevice *device,
+                                                 struct RIAccelStructure *as,
+                                                 hash_t cookie) {
+  (void)device;
+  RIDescriptor d{};
+  d.type = RI_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE;
+  d.accelStructure = as;
+  d.cookie = cookie;
+  return d;
+}
+
+RIDescriptor RIDescriptor::sampler(struct RIDevice *device,
+                                   struct RISampler *sampler, hash_t cookie) {
+  (void)device;
+  RIDescriptor d{};
+  d.type = RI_DESCRIPTOR_TYPE_SAMPLER;
+  d.samplerRef = sampler;
+  d.cookie = cookie;
+  return d;
+}
+
+struct RITexture RITexture::create(struct RIDevice *device,
+                                   const struct RITextureDesc &desc) {
+#if (DEVICE_IMPL_VULKAN)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    VkImageCreateInfo info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    if (desc.flags & RI_TEXTURE_FLAG_MUTABLE_FORMAT)
+      info.flags |= VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT |
+                    VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
+    if (desc.flags & RI_TEXTURE_FLAG_CUBE_COMPATIBLE)
+      info.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+    info.imageType =
+        ri_vk_RITextureTypeToVKImageType((enum RITextureType_e)desc.type);
+    info.format = RIFormatToVK(desc.format);
+    info.extent.width = desc.width;
+    info.extent.height = desc.height ? desc.height : 1;
+    info.extent.depth = desc.depth ? desc.depth : 1;
+    info.mipLevels = desc.mipNum ? desc.mipNum : 1;
+    info.arrayLayers = desc.layerNum ? desc.layerNum : 1;
+    info.samples = VK_SAMPLE_COUNT_1_BIT;
+    info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    info.usage = ri_vk_RITextureUsageToVK(desc.usage);
+    uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
+    info.pQueueFamilyIndices = queueFamilies;
+    VK_ConfigureImageQueueFamilies(&info, device->queues, RI_QUEUE_LEN,
+                                   queueFamilies, RI_QUEUE_LEN);
+    info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VmaAllocationCreateInfo memReqs = {0};
+    memReqs.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    RITexture tex = {};
+    VK_WrapResult(vmaCreateImage(device->vk.vmaAllocator, &info, &memReqs,
+                                 &tex.vk.image, &tex.vk.allocation, NULL));
+    return tex;
   }
 #endif
-  // Leave the descriptor zeroed/empty — pooled slots (cachedFilters) are
-  // probed with isEmpty(), which needs the cookie cleared.
-  memset(this, 0, sizeof(*this));
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    RITexture tex = {};
+    const bool cube = (desc.flags & RI_TEXTURE_FLAG_CUBE_COMPATIBLE) != 0;
+    const uint32_t layers = desc.layerNum ? desc.layerNum : 1;
+    MTL::TextureDescriptor *td = MTL::TextureDescriptor::alloc()->init();
+    td->setTextureType(RIToMTLTextureType(desc.type, layers, cube));
+    td->setPixelFormat(RIToMTLFormat(desc.format));
+    td->setWidth(desc.width);
+    td->setHeight(desc.height ? desc.height : 1);
+    td->setDepth(desc.depth ? desc.depth : 1);
+    td->setMipmapLevelCount(desc.mipNum ? desc.mipNum : 1);
+    // Metal arrayLength counts cubes (6 slices each) for cube types.
+    td->setArrayLength(cube ? ((layers / 6u) ? (layers / 6u) : 1u) : layers);
+    td->setUsage(RIToMTLTextureUsage(desc.usage, desc.flags));
+    td->setStorageMode(MTL::StorageModePrivate);
+    // Bindless material textures sub-allocate from the shared heap so one
+    // useHeap() covers them all; everything else (render targets, atlases) is a
+    // direct device allocation. Heap exhaustion is fatal — a device-allocated
+    // bindless texture wouldn't be resident for the ray-trace pass.
+    if ((desc.flags & RI_TEXTURE_FLAG_BINDLESS_HEAP) != 0) {
+      tex.mtl.texture = device->mtl.textureHeap
+                            ? device->mtl.textureHeap->newTexture(td)
+                            : nullptr;
+      if (!tex.mtl.texture)
+        hpl::FatalError("Bindless texture heap exhausted (raise "
+                        "kBindlessTextureHeapBytes).\n");
+    } else {
+      tex.mtl.texture = device->mtl.device->newTexture(td);
+    }
+    td->release();
+    return tex;
+  }
+#endif
+  assert(false && "unhandled backend");
+  return RITexture{};
+}
+
+void RITexture::setDebugObjectName(struct RIDevice *device, const char *name) {
+#if (DEVICE_IMPL_VULKAN)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    if (vkSetDebugUtilsObjectNameEXT && vk.image) {
+      VkDebugUtilsObjectNameInfoEXT info = {
+          VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, NULL,
+          VK_OBJECT_TYPE_IMAGE, (uint64_t)vk.image, name};
+      VK_WrapResult(vkSetDebugUtilsObjectNameEXT(device->vk.device, &info));
+    }
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    if (mtl.texture)
+      mtl.texture->setLabel(NS::String::string(name, NS::UTF8StringEncoding));
+    return;
+  }
+#endif
+  return;
+}
+
+struct RITextureView RITextureView::create(struct RIDevice *device,
+                                           const struct RITexture *tex,
+                                           const struct RITextureViewDesc &desc) {
+#if (DEVICE_IMPL_VULKAN)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    const struct RIFormatProps *props = GetRIFormatProps(desc.format);
+    VkImageAspectFlags aspect =
+        props->isDepth
+            ? (VK_IMAGE_ASPECT_DEPTH_BIT |
+               (props->isStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0))
+            : VK_IMAGE_ASPECT_COLOR_BIT;
+    VkImageViewCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    ci.image = tex->vk.image;
+    ci.viewType = ri_vk_RITextureViewTypeToVK(desc.viewType);
+    ci.format = RIFormatToVK(desc.format);
+    ci.subresourceRange.aspectMask = aspect;
+    ci.subresourceRange.baseMipLevel = desc.baseMip;
+    ci.subresourceRange.levelCount =
+        desc.mipNum ? desc.mipNum : VK_REMAINING_MIP_LEVELS;
+    ci.subresourceRange.baseArrayLayer = desc.baseLayer;
+    ci.subresourceRange.layerCount =
+        desc.layerNum ? desc.layerNum : VK_REMAINING_ARRAY_LAYERS;
+    RITextureView view = {};
+    VK_WrapResult(
+        vkCreateImageView(device->vk.device, &ci, NULL, &view.vk.image));
+    return view;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    RITextureView view = {};
+    NS::Range levels =
+        NS::Range::Make(desc.baseMip, desc.mipNum ? desc.mipNum : 1);
+    NS::Range slices =
+        NS::Range::Make(desc.baseLayer, desc.layerNum ? desc.layerNum : 1);
+    view.mtl.view = tex->mtl.texture->newTextureView(
+        RIToMTLFormat(desc.format), RIToMTLTextureViewType(desc.viewType),
+        levels, slices);
+    return view;
+  }
+#endif
+  assert(false && "unhandled backend");
+  return RITextureView{};
 }
 
 void RITexture::dispose(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
-  {
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
     if (vk.image) {
       if (vk.allocation) {
         vmaDestroyImage(device->vk.vmaAllocator, vk.image, vk.allocation);
@@ -1629,37 +1902,46 @@ void RITexture::dispose(struct RIDevice *device) {
       }
       vk.image = NULL;
     }
+    return;
   }
 #endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    if (mtl.texture) {
+      mtl.texture->release();
+      mtl.texture = nullptr;
+    }
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
 }
 
 void RITextureView::dispose(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
-  {
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
     if (vk.image) {
       vkDestroyImageView(device->vk.device, vk.image, NULL);
       vk.image = VK_NULL_HANDLE;
     }
   }
 #endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Metal texture views are themselves MTL::Texture (newTextureView).
+    if (mtl.view) {
+      mtl.view->release();
+      mtl.view = nullptr;
+    }
+  }
+#endif
   memset(this, 0, sizeof(*this));
 }
 
-struct RITextureView RIDescriptor::textureView() const {
-  struct RITextureView res = {};
-#if (DEVICE_IMPL_VULKAN)
-  if (vk.type == VK_DESCRIPTOR_TYPE_SAMPLER ||
-      vk.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE ||
-      vk.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) {
-    res.vk.image = vk.image.imageView;
-  }
-#endif
-  return res;
-}
 
 void RIPool::init(struct RIDevice *device, struct RIQueue *queue) {
 #if (DEVICE_IMPL_VULKAN)
-  {
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
     VkCommandPoolCreateInfo cmdPoolCreateInfo = {
         VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
     cmdPoolCreateInfo.queueFamilyIndex = queue->vk.queueFamilyIdx;
@@ -1670,31 +1952,54 @@ void RIPool::init(struct RIDevice *device, struct RIQueue *queue) {
     return;
   }
 #endif
-  assert(false);
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Metal has no command-pool object; command buffers are vended directly by
+    // the queue, so the pool just references it.
+    mtl.queue = queue->mtl.queue;
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
 }
 
 void RIPool::dispose(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
-  {
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
     vkDestroyCommandPool(device->vk.device, vk.pool, NULL);
     vk.pool = VK_NULL_HANDLE;
     return;
   }
 #endif
-  assert(false);
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // The queue is owned by the device; nothing pool-local to free.
+    mtl.queue = nullptr;
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
 }
 
 void RIPool::reset(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
-  {
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
     VK_WrapResult(vkResetCommandPool(device->vk.device, vk.pool, 0));
+    return;
   }
 #endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // No pool to reset; per-command-buffer lifetime handles reuse.
+    return;
+  }
+#endif
+  return;
 }
 
 void RICmd::init(struct RIDevice *device, struct RIPool *pool) {
 #if (DEVICE_IMPL_VULKAN)
-  {
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
     VkCommandBufferAllocateInfo command_allocate_info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
     command_allocate_info.commandPool = pool->vk.pool;
@@ -1706,11 +2011,24 @@ void RICmd::init(struct RIDevice *device, struct RIPool *pool) {
     return;
   }
 #endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Command buffers are vended fresh per recording from the queue; the
+    // handle is (re)acquired in begin(). Encoders start null.
+    mtl.cmd = nullptr;
+    mtl.render = nullptr;
+    mtl.compute = nullptr;
+    mtl.blit = nullptr;
+    mtl.accel = nullptr;
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
 }
 
 void RICmd::begin(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
-  {
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
     VkCommandBufferBeginInfo info = {
         VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -1718,39 +2036,184 @@ void RICmd::begin(struct RIDevice *device) {
     return;
   }
 #endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Acquire a fresh command buffer for this recording. A committed Metal
+    // command buffer cannot be reused, so begin() always vends a new one and
+    // retains it for the lifetime of recording (released in dispose()).
+    if (mtl.cmd)
+      mtl.cmd->release();
+    mtl.cmd = device->mtl.defaultQueue->commandBuffer()->retain();
+    mtl.render = nullptr;
+    mtl.compute = nullptr;
+    mtl.blit = nullptr;
+    mtl.accel = nullptr;
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+// [mtl] (no-op on vk) Ends and releases whatever encoder is open.
+// See the declaration in RITypes.h for the encoder-boundary contract.
+void RICmd::mtl_encoderEnd() {
+#if (DEVICE_IMPL_MTL)
+  if (mtl.render) { mtl.render->endEncoding(); mtl.render->release(); mtl.render = nullptr; }
+  if (mtl.compute) { mtl.compute->endEncoding(); mtl.compute->release(); mtl.compute = nullptr; }
+  if (mtl.blit) { mtl.blit->endEncoding(); mtl.blit->release(); mtl.blit = nullptr; }
+  if (mtl.accel) { mtl.accel->endEncoding(); mtl.accel->release(); mtl.accel = nullptr; }
+#endif
+}
+
+// [mtl] Open a compute encoder (idempotent: keeps the current one if already
+// open). Caller closes any conflicting render/blit encoder first via
+// mtl_encoderEnd().
+void RICmd::mtl_encoderCompute() {
+#if (DEVICE_IMPL_MTL)
+  if (!mtl.compute) {
+    assert(mtl.cmd && "no command buffer for compute encoder");
+    mtl.compute = mtl.cmd->computeCommandEncoder()->retain();
+  }
+#endif
+}
+
+void RICmd::mtl_useAccelStructuresResident(struct RIAccelStructure *const *list,
+                                           uint32_t count) {
+#if (DEVICE_IMPL_MTL)
+  if (mtl.compute) {
+    for (uint32_t i = 0; i < count; ++i) {
+      if (list[i] && list[i]->mtl.handle)
+        mtl.compute->useResource((MTL::Resource *)list[i]->mtl.handle,
+                                 MTL::ResourceUsageRead);
+    }
+  }
+#else
+  (void)list;
+  (void)count;
+#endif
+}
+
+// [mtl] Open a blit encoder (idempotent). Caller closes any conflicting
+// render/compute encoder first via mtl_encoderEnd().
+void RICmd::mtl_encoderBlit() {
+#if (DEVICE_IMPL_MTL)
+  if (!mtl.blit) {
+    assert(mtl.cmd && "no command buffer for blit encoder");
+    mtl.blit = mtl.cmd->blitCommandEncoder()->retain();
+  }
+#endif
+}
+
+void RICmd::mtl_encoderAccel() {
+#if (DEVICE_IMPL_MTL)
+  if (!mtl.accel) {
+    assert(mtl.cmd && "no command buffer for acceleration-structure encoder");
+    mtl.accel = mtl.cmd->accelerationStructureCommandEncoder()->retain();
+  }
+#endif
 }
 
 void RICmd::end(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
-  {
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
     VK_WrapResult(vkEndCommandBuffer(vk.cmd));
     return;
   }
 #endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Close any open encoder; submission (commit) is the queue's job, not
+    // end()'s.
+    mtl_encoderEnd();
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
 }
 
 void RICommandRingElement::wait(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
-  if (vk.fence) {
-    VK_WrapResult(
-        vkWaitForFences(device->vk.device, 1, &vk.fence, VK_TRUE, UINT64_MAX));
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    if (vk.fence) {
+      VK_WrapResult(
+          vkWaitForFences(device->vk.device, 1, &vk.fence, VK_TRUE, UINT64_MAX));
+    }
+    return;
   }
 #endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Host-side block until the GPU signals the timeline event to signalValue.
+    if (mtl.event)
+      mtl.event->waitUntilSignaledValue(mtl.signalValue, UINT64_MAX);
+    return;
+  }
+#endif
+  return;
+}
+
+void RICommandRingElement::submit(struct RIDevice *device,
+                                  struct RIQueue *queue) {
+#if (DEVICE_IMPL_VULKAN)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    // One-shot submit: no wait/signal semaphores, just signal this element's
+    // fence on completion (mirrors RIBootstrap::CloseAndSubmitActiveSet).
+    VkCommandBufferSubmitInfo cmdInfos[RI_COMMAND_RING_CMD_PER_POOL] = {};
+    for (uint32_t i = 0; i < numCmds; i++) {
+      cmdInfos[i].sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+      cmdInfos[i].commandBuffer = cmds[i].vk.cmd;
+    }
+    VkSubmitInfo2 submitInfo = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+    submitInfo.commandBufferInfoCount = numCmds;
+    submitInfo.pCommandBufferInfos = cmdInfos;
+    VK_WrapResult(vkResetFences(device->vk.device, 1, &vk.fence));
+    VK_WrapResult(vkQueueSubmit2(queue->vk.queue, 1, &submitInfo, vk.fence));
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    (void)queue;
+    // Metal: commit() is the submit. Advance the slot's timeline value and
+    // signal it on the last command buffer so a later wait() matches.
+    if (numCmds > 0 && mtl.signalValueSlot) {
+      const uint64_t v = ++(*mtl.signalValueSlot);
+      cmds[numCmds - 1].mtl.cmd->encodeSignalEvent(mtl.event, v);
+    }
+    for (uint32_t i = 0; i < numCmds; i++)
+      cmds[i].mtl.cmd->commit();
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
 }
 
 void RICmd::dispose(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
-  {
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
     if (vk.cmd) {
       vkFreeCommandBuffers(device->vk.device, vk.pool, 1, &vk.cmd);
     }
     vk.cmd = VK_NULL_HANDLE;
     vk.pool = VK_NULL_HANDLE;
+    return;
   }
 #endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    mtl_encoderEnd();
+    if (mtl.cmd) { mtl.cmd->release(); mtl.cmd = nullptr; }
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
 }
 
 void RIRenderer::dispose() {
+#if (DEVICE_IMPL_MTL)
+  if (is_target_selected(RI_DEVICE_API_MTL))
+    return; // Metal has no instance object to destroy.
+#endif
 #if (DEVICE_IMPL_VULKAN)
   if (vk.debugMessageUtils)
     vkDestroyDebugUtilsMessengerEXT(vk.instance, vk.debugMessageUtils, NULL);
@@ -1759,6 +2222,12 @@ void RIRenderer::dispose() {
 }
 
 void ShutdownRIRenderer(struct RIRenderer *renderer) {
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    renderer->dispose();
+    return;
+  }
+#endif
 #if (DEVICE_IMPL_VULKAN)
   renderer->dispose();
   volkFinalize();
@@ -1767,11 +2236,64 @@ void ShutdownRIRenderer(struct RIRenderer *renderer) {
 
 void RIQueue::waitIdle(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
-  VK_WrapResult(vkQueueWaitIdle(vk.queue));
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    VK_WrapResult(vkQueueWaitIdle(vk.queue));
+    return;
+  }
 #endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Metal has no queue-level wait; commit an empty command buffer and block
+    // on its completion (mirrors NRI CommandQueueMTL::WaitForIdle).
+    MTL::CommandBuffer *cb = mtl.queue->commandBuffer();
+    cb->commit();
+    cb->waitUntilCompleted();
+    return;
+  }
+#endif
+  return;
+}
+
+uint32_t RIQueue::getFlags(const struct RIRenderer *renderer) const {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    return (vk.queueFlags & VK_QUEUE_GRAPHICS_BIT ? RI_QUEUE_GRAPHICS_BIT : 0) |
+           (vk.queueFlags & VK_QUEUE_COMPUTE_BIT ? RI_QUEUE_COMPUTE_BIT : 0) |
+           (vk.queueFlags & VK_QUEUE_TRANSFER_BIT ? RI_QUEUE_TRANSFER_BIT : 0) |
+           (vk.queueFlags & VK_QUEUE_SPARSE_BINDING_BIT ? RI_QUEUE_SPARSE_BINDING_BIT : 0) |
+           (vk.queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR ? RI_QUEUE_VIDEO_DECODE_BIT : 0) |
+           (vk.queueFlags & VK_QUEUE_VIDEO_ENCODE_BIT_KHR ? RI_QUEUE_VIDEO_ENCODE_BIT : 0) |
+           (vk.queueFlags & VK_QUEUE_PROTECTED_BIT ? RI_QUEUE_PROTECTED_BIT : 0) |
+           (vk.queueFlags & VK_QUEUE_OPTICAL_FLOW_BIT_NV ? RI_QUEUE_OPTICAL_FLOW_BIT_NV : 0);
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    return mtl.flags;
+  }
+#endif
+  assert(false && "unhandled backend");
+  return 0;
 }
 
 void RIDevice::dispose() {
+#if (DEVICE_IMPL_MTL)
+  if (renderer && renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    if (mtl.textureHeap) {
+      mtl.textureHeap->release();
+      mtl.textureHeap = nullptr;
+    }
+    if (mtl.defaultQueue) {
+      mtl.defaultQueue->release();
+      mtl.defaultQueue = nullptr;
+    }
+    if (mtl.device) {
+      mtl.device->release();
+      mtl.device = nullptr;
+    }
+    return;
+  }
+#endif
 #if (DEVICE_IMPL_VULKAN)
   if (vk.vmaAllocator)
     vmaDestroyAllocator(vk.vmaAllocator);
@@ -1869,10 +2391,81 @@ static void RI_VK_FillGeometry(struct RIDevice *dev,
 
 #endif // DEVICE_IMPL_VULKAN
 
+#if (DEVICE_IMPL_MTL)
+// Build an autoreleased NS::Array of MTL geometry descriptors from RI geometry
+// descs. Everything here is autoreleased — the caller must own an enclosing
+// NS::AutoreleasePool and must NOT release the result.
+static NS::Array *RI_MTL_BuildGeometryArray(
+    const struct RIAccelGeometryDesc *geoms, uint32_t num) {
+  std::vector<NS::Object *> objs(num);
+  for (uint32_t i = 0; i < num; ++i)
+    objs[i] = (NS::Object *)RI_MTL_MakeGeometry(&geoms[i]);
+  return NS::Array::array((const NS::Object *const *)objs.data(), num);
+}
+#endif // DEVICE_IMPL_MTL
+
+uint32_t RI_AccelInstanceStride(const struct RIRenderer *renderer) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    return (uint32_t)sizeof(VkAccelerationStructureInstanceKHR);
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    return (uint32_t)sizeof(MTL::AccelerationStructureUserIDInstanceDescriptor);
+  }
+#endif
+  assert(false && "unhandled backend");
+  return 0;
+}
+
+void RI_WriteAccelInstance(const struct RIRenderer *renderer, void *dst,
+                           const struct RIAccelInstanceDesc *src) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    VkAccelerationStructureInstanceKHR inst = {};
+    // src->transform is row-major 3x4; Vk transform.matrix is also row-major.
+    for (int r = 0; r < 3; ++r)
+      for (int c = 0; c < 4; ++c)
+        inst.transform.matrix[r][c] = src->transform[r][c];
+    inst.instanceCustomIndex = src->instanceCustomIndex & 0xFFFFFFu;
+    inst.mask = src->mask & 0xFFu;
+    inst.instanceShaderBindingTableRecordOffset = 0;
+    inst.flags = RI_VK_AccelInstanceFlags(src->flags);
+    inst.accelerationStructureReference =
+        src->blas ? src->blas->vk.deviceAddress : 0;
+    memcpy(dst, &inst, sizeof(inst));
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    MTL::AccelerationStructureUserIDInstanceDescriptor inst;
+    memset(&inst, 0, sizeof(inst));
+    // src->transform is row-major 3x4 (transform[row][col]); Metal's
+    // PackedFloat4x3 is column-major (columns[col] = {x,y,z}).
+    for (int c = 0; c < 4; ++c) {
+      inst.transformationMatrix.columns[c].x = src->transform[0][c];
+      inst.transformationMatrix.columns[c].y = src->transform[1][c];
+      inst.transformationMatrix.columns[c].z = src->transform[2][c];
+    }
+    inst.options = RIToMTLAccelInstanceOptions(src->flags);
+    inst.mask = src->mask;
+    inst.intersectionFunctionTableOffset = 0;
+    inst.accelerationStructureIndex = src->blasIndex;
+    inst.userID = src->instanceCustomIndex;
+    memcpy(dst, &inst, sizeof(inst));
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
 void RIAccelStructureDesc::getMemoryReqs(
     struct RIDevice *dev, uint64_t *outStorageSize,
     uint64_t *outBuildScratchSize, uint64_t *outUpdateScratchSize) const {
 #if (DEVICE_IMPL_VULKAN)
+  if (dev->renderer->is_target_selected(RI_DEVICE_API_VK)) {
   assert(dev);
   const struct RIAccelStructureDesc *desc = this;
 
@@ -1932,12 +2525,50 @@ void RIAccelStructureDesc::getMemoryReqs(
     *outBuildScratchSize = sizesInfo.buildScratchSize;
   if (outUpdateScratchSize)
     *outUpdateScratchSize = sizesInfo.updateScratchSize;
+  return;
+  }
 #endif
+#if (DEVICE_IMPL_MTL)
+  if (dev->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+  assert(dev);
+  const struct RIAccelStructureDesc *desc = this;
+  NS::AutoreleasePool *pool = NS::AutoreleasePool::alloc()->init();
+  MTL::AccelerationStructureSizes sizes = {0, 0, 0};
+  if (desc->type == RI_ACCEL_STRUCTURE_TYPE_BOTTOM_LEVEL) {
+    MTL::PrimitiveAccelerationStructureDescriptor *p =
+        MTL::PrimitiveAccelerationStructureDescriptor::descriptor();
+    p->setGeometryDescriptors(
+        RI_MTL_BuildGeometryArray(desc->geometries, desc->geometryOrInstanceNum));
+    p->setUsage(RIToMTLAccelUsage(desc->flags));
+    sizes = dev->mtl.device->accelerationStructureSizes(p);
+  } else {
+    // TLAS sizing: instance count + the UserID descriptor layout (the engine
+    // stores the bindless slot in userID).
+    MTL::InstanceAccelerationStructureDescriptor *in =
+        MTL::InstanceAccelerationStructureDescriptor::descriptor();
+    in->setInstanceCount(desc->geometryOrInstanceNum);
+    in->setInstanceDescriptorType(
+        MTL::AccelerationStructureInstanceDescriptorTypeUserID);
+    in->setUsage(RIToMTLAccelUsage(desc->flags));
+    sizes = dev->mtl.device->accelerationStructureSizes(in);
+  }
+  if (outStorageSize)
+    *outStorageSize = sizes.accelerationStructureSize;
+  if (outBuildScratchSize)
+    *outBuildScratchSize = sizes.buildScratchBufferSize;
+  if (outUpdateScratchSize)
+    *outUpdateScratchSize = sizes.refitScratchBufferSize;
+  pool->release();
+  return;
+  }
+#endif
+  assert(false && "unhandled backend");
 }
 
 int RIAccelStructure::init(struct RIDevice *device,
                              const struct RIAccelStructureDesc *desc) {
 #if (DEVICE_IMPL_VULKAN)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
   assert(device);
   assert(desc);
   assert(desc->storage);
@@ -1967,9 +2598,23 @@ int RIAccelStructure::init(struct RIDevice *device,
       vkGetAccelerationStructureDeviceAddressKHR(device->vk.device, &addrInfo);
 
   return RI_SUCCESS;
-#else
-  return RI_FAIL;
+  }
 #endif
+#if (DEVICE_IMPL_MTL)
+  if (device->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+  assert(device);
+  assert(desc);
+  assert(desc->storageSize > 0);
+  type = desc->type;
+  flags = desc->flags;
+  // Metal owns the AS backing memory (allocated from the size returned by
+  // getMemoryReqs); desc->storage / storageOffset are unused on Metal.
+  mtl.handle = device->mtl.device->newAccelerationStructure(desc->storageSize);
+  return mtl.handle ? RI_SUCCESS : RI_FAIL;
+  }
+#endif
+  assert(false && "unhandled backend");
+  return RI_FAIL;
 }
 
 uint64_t RIAccelStructure::getDeviceAddress(struct RIDevice *device) const {
@@ -1981,20 +2626,11 @@ uint64_t RIAccelStructure::getDeviceAddress(struct RIDevice *device) const {
 #endif
 }
 
-void RIDescriptor::finalize(struct RIDevice *device,
-                              struct RIAccelStructure *as) {
-#if (DEVICE_IMPL_VULKAN)
-  assert(as);
-  accelStructure = as;
-  vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-  finalize(device);
-#endif
-}
-
 void RICmd::buildBlas(struct RIDevice *dev,
                         const struct RIBuildBlasDesc *descs,
                         uint32_t numDescs) {
 #if (DEVICE_IMPL_VULKAN)
+  if (dev->renderer->is_target_selected(RI_DEVICE_API_VK)) {
   if (numDescs == 0)
     return;
   assert(dev);
@@ -2073,13 +2709,45 @@ void RICmd::buildBlas(struct RIDevice *dev,
 
   vkCmdBuildAccelerationStructuresKHR(vk.cmd, numDescs, buildInfos.data(),
                                       rangePtrs.data());
+  return;
+  }
 #endif
+#if (DEVICE_IMPL_MTL)
+  if (dev->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+  if (numDescs == 0)
+    return;
+  assert(dev);
+  assert(descs);
+  NS::AutoreleasePool *pool = NS::AutoreleasePool::alloc()->init();
+  mtl_encoderEnd(); // close any open render/compute/blit encoder first
+  mtl_encoderAccel();
+  for (uint32_t i = 0; i < numDescs; ++i) {
+    const struct RIBuildBlasDesc *d = &descs[i];
+    assert(d->dst && d->dst->mtl.handle);
+    assert(d->scratchBuffer && d->scratchBuffer->mtl.buffer);
+    assert(d->geometryNum > 0 && d->geometries);
+    MTL::PrimitiveAccelerationStructureDescriptor *p =
+        MTL::PrimitiveAccelerationStructureDescriptor::descriptor();
+    p->setGeometryDescriptors(
+        RI_MTL_BuildGeometryArray(d->geometries, d->geometryNum));
+    p->setUsage(RIToMTLAccelUsage(d->dst->flags));
+    mtl.accel->buildAccelerationStructure(d->dst->mtl.handle, p,
+                                          d->scratchBuffer->mtl.buffer,
+                                          d->scratchOffset);
+  }
+  mtl_encoderEnd();
+  pool->release();
+  return;
+  }
+#endif
+  assert(false && "unhandled backend");
 }
 
 void RICmd::buildTlas(struct RIDevice *dev,
                         const struct RIBuildTlasDesc *descs,
                         uint32_t numDescs) {
 #if (DEVICE_IMPL_VULKAN)
+  if (dev->renderer->is_target_selected(RI_DEVICE_API_VK)) {
   if (numDescs == 0)
     return;
   assert(dev);
@@ -2152,43 +2820,628 @@ void RICmd::buildTlas(struct RIDevice *dev,
 
   vkCmdBuildAccelerationStructuresKHR(vk.cmd, numDescs, buildInfos.data(),
                                       rangePtrs.data());
+  return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (dev->renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+  if (numDescs == 0)
+    return;
+  assert(dev);
+  assert(descs);
+  NS::AutoreleasePool *pool = NS::AutoreleasePool::alloc()->init();
+  mtl_encoderEnd();
+  mtl_encoderAccel();
+  for (uint32_t i = 0; i < numDescs; ++i) {
+    const struct RIBuildTlasDesc *d = &descs[i];
+    assert(d->dst && d->dst->mtl.handle);
+    assert(d->scratchBuffer && d->scratchBuffer->mtl.buffer);
+    assert(d->instanceBuffer && d->instanceBuffer->mtl.buffer);
+
+    // instancedAccelerationStructures: the BLASes that instances index into via
+    // their accelerationStructureIndex (set by RI_WriteAccelInstance).
+    NS::Array *blasArr = nullptr;
+    if (d->instanceBlasNum) {
+      std::vector<NS::Object *> blasObjs(d->instanceBlasNum);
+      for (uint32_t b = 0; b < d->instanceBlasNum; ++b)
+        blasObjs[b] = (NS::Object *)d->instanceBlases[b]->mtl.handle;
+      blasArr = NS::Array::array((const NS::Object *const *)blasObjs.data(),
+                                 d->instanceBlasNum);
+    }
+
+    MTL::InstanceAccelerationStructureDescriptor *in =
+        MTL::InstanceAccelerationStructureDescriptor::descriptor();
+    in->setInstanceCount(d->instanceNum);
+    in->setInstanceDescriptorType(
+        MTL::AccelerationStructureInstanceDescriptorTypeUserID);
+    in->setInstanceDescriptorBuffer(d->instanceBuffer->mtl.buffer);
+    in->setInstanceDescriptorBufferOffset(d->instanceOffset);
+    in->setInstanceDescriptorStride(
+        sizeof(MTL::AccelerationStructureUserIDInstanceDescriptor));
+    in->setInstancedAccelerationStructures(blasArr);
+    in->setUsage(RIToMTLAccelUsage(d->dst->flags));
+    mtl.accel->buildAccelerationStructure(d->dst->mtl.handle, in,
+                                          d->scratchBuffer->mtl.buffer,
+                                          d->scratchOffset);
+  }
+  mtl_encoderEnd();
+  pool->release();
+  return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+// True when this command buffer holds a live backend command buffer to record
+// into (backend-neutral form of `cmds[0].vk.cmd != VK_NULL_HANDLE`).
+bool RICmd::isOpen(struct RIRenderer *renderer) const {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK))
+    return vk.cmd != VK_NULL_HANDLE;
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL))
+    return mtl.cmd != nullptr;
+#endif
+  return false;
+}
+
+void RICmd::dispatch(struct RIRenderer *renderer, uint32_t groupCountX, uint32_t groupCountY,
+                       uint32_t groupCountZ) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    vkCmdDispatch(vk.cmd, groupCountX, groupCountY, groupCountZ);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    assert(mtl.compute);
+    // groupCount* are threadgroup counts (Vulkan semantics). threadsPerThreadgroup
+    // is the shader's [numthreads], stashed by bindComputePipeline from
+    // RIComputePipelineDesc::numThreads (0 => legacy 8x8x1 fallback).
+    const uint16_t tx = mtl.threadsPerThreadgroup[0];
+    const uint16_t ty = mtl.threadsPerThreadgroup[1];
+    const uint16_t tz = mtl.threadsPerThreadgroup[2];
+    MTL::Size groups = MTL::Size::Make(groupCountX, groupCountY, groupCountZ);
+    MTL::Size threadsPerGroup =
+        (tx == 0 && ty == 0 && tz == 0)
+            ? MTL::Size::Make(8, 8, 1)
+            : MTL::Size::Make(tx ? tx : 1, ty ? ty : 1, tz ? tz : 1);
+    mtl.compute->dispatchThreadgroups(groups, threadsPerGroup);
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+void RICmd::dispatchIndirect(struct RIRenderer *renderer, struct RIBuffer *buffer, RIDeviceSize offset) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    vkCmdDispatchIndirect(vk.cmd, buffer->vk.buffer, offset);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    assert(mtl.compute);
+    // threadsPerThreadgroup is the bound pipeline's [numthreads] (set by
+    // bindComputePipeline); the threadgroup count comes from the indirect
+    // buffer. Same 0 => 8x8x1 fallback as dispatch().
+    const uint16_t tx = mtl.threadsPerThreadgroup[0];
+    const uint16_t ty = mtl.threadsPerThreadgroup[1];
+    const uint16_t tz = mtl.threadsPerThreadgroup[2];
+    MTL::Size threadsPerGroup =
+        (tx == 0 && ty == 0 && tz == 0)
+            ? MTL::Size::Make(8, 8, 1)
+            : MTL::Size::Make(tx ? tx : 1, ty ? ty : 1, tz ? tz : 1);
+    mtl.compute->dispatchThreadgroups(buffer->mtl.buffer, offset,
+                                      threadsPerGroup);
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+void RICmd::draw(struct RIRenderer *renderer, uint32_t vertexCount, uint32_t instanceCount,
+                   uint32_t firstVertex, uint32_t firstInstance) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    vkCmdDraw(vk.cmd, vertexCount, instanceCount, firstVertex, firstInstance);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Goes through the open render encoder; primitiveType is set by
+    // RIProgram::bindPipeline.
+    assert(mtl.render);
+    mtl.render->drawPrimitives(mtl.primitiveType, (NS::UInteger)firstVertex,
+                               (NS::UInteger)vertexCount,
+                               (NS::UInteger)instanceCount,
+                               (NS::UInteger)firstInstance);
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+// [vk/mtl] Buffer-to-buffer copy. On Metal the caller must have closed any
+// conflicting render/compute encoder via mtl_encoderEnd() first.
+void RICmd::copyBuffer(struct RIRenderer *renderer, struct RIBuffer *src, RIDeviceSize srcOffset,
+                       struct RIBuffer *dst, RIDeviceSize dstOffset,
+                       RIDeviceSize size) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    VkBufferCopy region = {};
+    region.srcOffset = srcOffset;
+    region.dstOffset = dstOffset;
+    region.size = size;
+    vkCmdCopyBuffer(vk.cmd, src->vk.buffer, dst->vk.buffer, 1, &region);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Ensure a blit encoder is open (caller closed any other encoder via
+    // mtl_encoderEnd first).
+    mtl_encoderBlit();
+    mtl.blit->copyFromBuffer(src->mtl.buffer, (NS::UInteger)srcOffset,
+                             dst->mtl.buffer, (NS::UInteger)dstOffset,
+                             (NS::UInteger)size);
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+// [vk/mtl] Clear a storage image (full color subresource, GENERAL layout).
+void RICmd::clearStorageImage(struct RIRenderer *renderer, struct RITexture *image, const float color[4]) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    VkClearColorValue clr = {};
+    memcpy(clr.float32, color, sizeof(float) * 4);
+    VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdClearColorImage(vk.cmd, image->vk.image, VK_IMAGE_LAYOUT_GENERAL, &clr,
+                         1, &range);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Metal has no direct storage-image clear (no vkCmdClearColorImage and the
+    // blit encoder can't clear textures); fill via a tiny backend-internal
+    // compute kernel. The pipeline is built once, lazily, from the command
+    // buffer's device. Command recording is single-threaded, so the unguarded
+    // lazy init is safe. This rebinds the compute encoder's pipeline state;
+    // callers bracket clears with barriers and re-bind before the next dispatch.
+    assert(mtl.cmd && image->mtl.texture);
+    static MTL::ComputePipelineState *clearPipeline = nullptr;
+    if (!clearPipeline) {
+      const char *kSrc =
+          "#include <metal_stdlib>\n"
+          "using namespace metal;\n"
+          "kernel void ri_clear_storage(\n"
+          "    texture2d<float, access::write> img [[texture(0)]],\n"
+          "    constant float4 &color [[buffer(0)]],\n"
+          "    uint2 gid [[thread_position_in_grid]]) {\n"
+          "  if (gid.x >= img.get_width() || gid.y >= img.get_height()) return;\n"
+          "  img.write(color, gid);\n"
+          "}\n";
+      MTL::Device *dev = mtl.cmd->device();
+      NS::Error *err = nullptr;
+      MTL::Library *lib = dev->newLibrary(
+          NS::String::string(kSrc, NS::UTF8StringEncoding), nullptr, &err);
+      if (!lib) {
+        hpl::Error("clearStorageImage: clear kernel compile failed: %s\n",
+                   err ? err->localizedDescription()->utf8String() : "unknown");
+        assert(false);
+        return;
+      }
+      MTL::Function *fn = lib->newFunction(
+          NS::String::string("ri_clear_storage", NS::UTF8StringEncoding));
+      clearPipeline = dev->newComputePipelineState(fn, &err);
+      fn->release();
+      lib->release();
+      assert(clearPipeline && "clearStorageImage: pipeline build failed");
+    }
+    mtl_encoderCompute();
+    assert(mtl.compute);
+    mtl.compute->setComputePipelineState(clearPipeline);
+    mtl.compute->setTexture(image->mtl.texture, 0);
+    mtl.compute->setBytes(color, sizeof(float) * 4, 0);
+    const NS::UInteger w = image->mtl.texture->width();
+    const NS::UInteger h = image->mtl.texture->height();
+    MTL::Size groups = MTL::Size::Make((w + 15) / 16, (h + 15) / 16, 1);
+    MTL::Size threadsPerGroup = MTL::Size::Make(16, 16, 1);
+    mtl.compute->dispatchThreadgroups(groups, threadsPerGroup);
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+void RICmd::copyBufferToTexture(struct RIRenderer *renderer, struct RIBuffer *src, struct RITexture *dst,
+                                const struct RIBufferTextureCopyDesc &desc) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    VkBufferImageCopy region = {};
+    region.bufferOffset = desc.bufferOffset;
+    region.bufferRowLength = desc.bufferRowLength;
+    region.bufferImageHeight = desc.bufferImageHeight;
+    region.imageOffset.x = desc.x;
+    region.imageOffset.y = desc.y;
+    region.imageOffset.z = desc.z;
+    region.imageExtent.width = desc.width;
+    region.imageExtent.height = desc.height;
+    region.imageExtent.depth = desc.depth;
+    region.imageSubresource.mipLevel = desc.mipLevel;
+    region.imageSubresource.baseArrayLayer = desc.arrayLayer;
+    region.imageSubresource.layerCount = 1;
+    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    vkCmdCopyBufferToImage(vk.cmd, src->vk.buffer, dst->vk.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Ensure a blit encoder is open (caller closed any other encoder first).
+    mtl_encoderBlit();
+    mtl.blit->copyFromBuffer(
+        src->mtl.buffer, (NS::UInteger)desc.bufferOffset,
+        (NS::UInteger)desc.bytesPerRow, (NS::UInteger)desc.bytesPerImage,
+        MTL::Size::Make(desc.width, desc.height, desc.depth), dst->mtl.texture,
+        (NS::UInteger)desc.arrayLayer, (NS::UInteger)desc.mipLevel,
+        MTL::Origin::Make(desc.x, desc.y, desc.z));
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+// [vk/mtl] Image-to-image 1:1 region copy. On Metal the caller must have closed
+// any conflicting render/compute encoder via mtl_encoderEnd() first.
+void RICmd::copyImage(struct RIRenderer *renderer, struct RITexture *src, struct RITexture *dst,
+                      const struct RIImageCopyDesc &desc) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    VkImageCopy region = {};
+    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, desc.srcMipLevel,
+                             desc.srcArrayLayer, 1};
+    region.srcOffset = {desc.srcX, desc.srcY, desc.srcZ};
+    region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, desc.dstMipLevel,
+                             desc.dstArrayLayer, 1};
+    region.dstOffset = {desc.dstX, desc.dstY, desc.dstZ};
+    region.extent = {desc.width, desc.height, desc.depth};
+    vkCmdCopyImage(vk.cmd, src->vk.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   dst->vk.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                   &region);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Ensure a blit encoder is open (caller closed any other encoder first).
+    mtl_encoderBlit();
+    mtl.blit->copyFromTexture(
+        src->mtl.texture, (NS::UInteger)desc.srcArrayLayer,
+        (NS::UInteger)desc.srcMipLevel,
+        MTL::Origin::Make(desc.srcX, desc.srcY, desc.srcZ),
+        MTL::Size::Make(desc.width, desc.height, desc.depth), dst->mtl.texture,
+        (NS::UInteger)desc.dstArrayLayer, (NS::UInteger)desc.dstMipLevel,
+        MTL::Origin::Make(desc.dstX, desc.dstY, desc.dstZ));
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+void RICmd::drawIndexed(struct RIRenderer *renderer, uint32_t indexCount, uint32_t instanceCount,
+                          uint32_t firstIndex, int32_t vertexOffset,
+                          uint32_t firstInstance) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    vkCmdDrawIndexed(vk.cmd, indexCount, instanceCount, firstIndex,
+                     vertexOffset, firstInstance);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Metal binds the index buffer at draw time; bindIndexBuffer stashed it.
+    // firstIndex is folded into the buffer offset (Metal has no firstIndex arg).
+    assert(mtl.render && mtl.indexBuffer);
+    const NS::UInteger stride =
+        (mtl.indexType == MTL::IndexTypeUInt16) ? 2 : 4;
+    mtl.render->drawIndexedPrimitives(
+        mtl.primitiveType, (NS::UInteger)indexCount, mtl.indexType,
+        mtl.indexBuffer, mtl.indexBufferOffset + (NS::UInteger)firstIndex * stride,
+        (NS::UInteger)instanceCount, (NS::Integer)vertexOffset,
+        (NS::UInteger)firstInstance);
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+void RICmd::drawIndirect(struct RIRenderer *renderer, struct RIBuffer *buffer, RIDeviceSize offset,
+                           uint32_t drawCount, uint32_t stride) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    vkCmdDrawIndirect(vk.cmd, buffer->vk.buffer, offset, drawCount, stride);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // Metal issues one indirect draw per command; replay drawCount times,
+    // advancing by stride (Vulkan's multi-draw semantics).
+    assert(mtl.render);
+    for (uint32_t i = 0; i < drawCount; ++i)
+      mtl.render->drawPrimitives(mtl.primitiveType, buffer->mtl.buffer,
+                                 (NS::UInteger)(offset + (RIDeviceSize)i * stride));
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+void RICmd::drawIndexedIndirect(struct RIRenderer *renderer, struct RIBuffer *buffer,
+                                  RIDeviceSize offset, uint32_t drawCount,
+                                  uint32_t stride) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    vkCmdDrawIndexedIndirect(vk.cmd, buffer->vk.buffer, offset, drawCount,
+                             stride);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    assert(mtl.render && mtl.indexBuffer);
+    for (uint32_t i = 0; i < drawCount; ++i)
+      mtl.render->drawIndexedPrimitives(
+          mtl.primitiveType, mtl.indexType, mtl.indexBuffer,
+          mtl.indexBufferOffset, buffer->mtl.buffer,
+          (NS::UInteger)(offset + (RIDeviceSize)i * stride));
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+void RICmd::bindIndexBuffer(struct RIRenderer *renderer, struct RIBuffer *buffer, RIDeviceSize offset,
+                              enum RIIndexType_e indexType) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    vkCmdBindIndexBuffer(vk.cmd, buffer->vk.buffer, offset,
+                         ri_vk_RIIndexTypeToVK(indexType));
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    // No Metal bind call; stash for the next drawIndexed/drawIndexedIndirect.
+    mtl.indexBuffer = buffer->mtl.buffer;
+    mtl.indexBufferOffset = offset;
+    mtl.indexType = RIToMTLIndexType(indexType);
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+#if (DEVICE_IMPL_VULKAN)
+static inline VkAttachmentLoadOp ri_vk_LoadOp(uint8_t op) {
+  switch ((enum RIAttachmentLoadOp_e)op) {
+  case RI_ATTACHMENT_LOAD_OP_LOAD: return VK_ATTACHMENT_LOAD_OP_LOAD;
+  case RI_ATTACHMENT_LOAD_OP_CLEAR: return VK_ATTACHMENT_LOAD_OP_CLEAR;
+  default: return VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+  }
+}
+static inline VkAttachmentStoreOp ri_vk_StoreOp(uint8_t op) {
+  return op == RI_ATTACHMENT_STORE_OP_STORE ? VK_ATTACHMENT_STORE_OP_STORE
+                                            : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+}
+#endif
+#if (DEVICE_IMPL_MTL)
+static inline MTL::LoadAction ri_mtl_LoadOp(uint8_t op) {
+  switch ((enum RIAttachmentLoadOp_e)op) {
+  case RI_ATTACHMENT_LOAD_OP_LOAD: return MTL::LoadActionLoad;
+  case RI_ATTACHMENT_LOAD_OP_CLEAR: return MTL::LoadActionClear;
+  default: return MTL::LoadActionDontCare;
+  }
+}
+static inline MTL::StoreAction ri_mtl_StoreOp(uint8_t op) {
+  return op == RI_ATTACHMENT_STORE_OP_STORE ? MTL::StoreActionStore
+                                            : MTL::StoreActionDontCare;
+}
+#endif
+
+// [vk/d3d12] Dynamic-rendering scope. Vulkan and D3D12 share this model
+// (begin/end + barriers). Metal is entirely different (stateful encoders) and
+// uses mtl_encoderDraw / mtl_encoderEnd instead — deliberately NOT conflated.
+void RICmd::vk_d3d12_beginRendering(struct RIRenderer *renderer,
+                                    const struct RIBeginRenderingDesc &desc) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    VkRenderingAttachmentInfo colors[8] = {};
+    assert(desc.colorCount <= 8);
+    for (uint32_t i = 0; i < desc.colorCount; i++) {
+      const struct RIRenderingAttachment &src = desc.colors[i];
+      colors[i] = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+      colors[i].imageView = src.view ? src.view->vk.image : VK_NULL_HANDLE;
+      colors[i].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+      colors[i].loadOp = ri_vk_LoadOp(src.loadOp);
+      colors[i].storeOp = ri_vk_StoreOp(src.storeOp);
+      memcpy(colors[i].clearValue.color.float32, src.clearValue.color,
+             sizeof(float) * 4);
+    }
+    VkRenderingAttachmentInfo depth = {
+        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    VkRenderingAttachmentInfo stencil = {
+        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+    const bool hasStencil = desc.depthStencil && desc.depthStencil->hasStencil;
+    if (desc.depthStencil) {
+      depth.imageView = desc.depthStencil->view
+                            ? desc.depthStencil->view->vk.image
+                            : VK_NULL_HANDLE;
+      // With a separate stencil attachment the depth aspect uses the depth-only
+      // layout; otherwise the combined depth/stencil layout.
+      depth.imageLayout =
+          desc.depthStencil->readOnly
+              ? VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL
+              : (hasStencil ? VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL
+                            : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+      depth.loadOp = ri_vk_LoadOp(desc.depthStencil->loadOp);
+      depth.storeOp = ri_vk_StoreOp(desc.depthStencil->storeOp);
+      depth.clearValue.depthStencil.depth = desc.depthStencil->clearValue.depth;
+      depth.clearValue.depthStencil.stencil =
+          desc.depthStencil->clearValue.stencil;
+      if (hasStencil) {
+        stencil.imageView = depth.imageView;
+        stencil.imageLayout =
+            desc.depthStencil->readOnly
+                ? VK_IMAGE_LAYOUT_STENCIL_READ_ONLY_OPTIMAL
+                : VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL;
+        stencil.loadOp = ri_vk_LoadOp(desc.depthStencil->stencilLoadOp);
+        stencil.storeOp = ri_vk_StoreOp(desc.depthStencil->stencilStoreOp);
+        stencil.clearValue.depthStencil.stencil =
+            desc.depthStencil->clearValue.stencil;
+      }
+    }
+    VkRenderingInfo render = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+    render.renderArea.offset = {desc.renderArea.x, desc.renderArea.y};
+    render.renderArea.extent = {(uint32_t)desc.renderArea.width,
+                                (uint32_t)desc.renderArea.height};
+    render.layerCount = 1;
+    render.colorAttachmentCount = desc.colorCount;
+    render.pColorAttachments = desc.colorCount ? colors : NULL;
+    render.pDepthAttachment = desc.depthStencil ? &depth : NULL;
+    render.pStencilAttachment = hasStencil ? &stencil : NULL;
+    vkCmdBeginRendering(vk.cmd, &render);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+// Metal doesn't have an explicit rendering scope like Vulkan/D3D12; the render encoder opened by mtl_encoderDraw() defines the scope instead.
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_D3D12)
+  if (renderer->is_target_selected(RI_DEVICE_API_D3D12)) {
+    assert(false && "vk_d3d12_beginRendering: D3D12 backend not implemented");
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+void RICmd::vk_d3d12_endRendering(struct RIRenderer *renderer) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    vkCmdEndRendering(vk.cmd);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+// Metal doesn't have an explicit rendering scope like Vulkan/D3D12; the render encoder opened by mtl_encoderDraw() defines the scope instead.
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_D3D12)
+  if (renderer->is_target_selected(RI_DEVICE_API_D3D12)) {
+    assert(false && "vk_d3d12_endRendering: D3D12 backend not implemented");
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
+}
+
+// [mtl] Open a render encoder for a batch of draw calls from the attachment
+// descriptors. Metal's render scope; the vk/d3d12 analogue is
+// vk_d3d12_beginRendering. Close it with mtl_encoderEnd().
+void RICmd::mtl_encoderDraw(const struct RIBeginRenderingDesc &desc) {
+#if (DEVICE_IMPL_MTL)
+  MTL::RenderPassDescriptor *pass = MTL::RenderPassDescriptor::alloc()->init();
+  for (uint32_t i = 0; i < desc.colorCount; i++) {
+    const struct RIRenderingAttachment &src = desc.colors[i];
+    MTL::RenderPassColorAttachmentDescriptor *ca =
+        pass->colorAttachments()->object(i);
+    ca->setTexture(src.view ? src.view->mtl.view : nullptr);
+    ca->setLoadAction(ri_mtl_LoadOp(src.loadOp));
+    ca->setStoreAction(ri_mtl_StoreOp(src.storeOp));
+    ca->setClearColor(MTL::ClearColor::Make(
+        src.clearValue.color[0], src.clearValue.color[1],
+        src.clearValue.color[2], src.clearValue.color[3]));
+  }
+  if (desc.depthStencil) {
+    MTL::RenderPassDepthAttachmentDescriptor *da = pass->depthAttachment();
+    da->setTexture(desc.depthStencil->view ? desc.depthStencil->view->mtl.view
+                                           : nullptr);
+    da->setLoadAction(ri_mtl_LoadOp(desc.depthStencil->loadOp));
+    da->setStoreAction(ri_mtl_StoreOp(desc.depthStencil->storeOp));
+    da->setClearDepth(desc.depthStencil->clearValue.depth);
+    if (desc.depthStencil->hasStencil) {
+      MTL::RenderPassStencilAttachmentDescriptor *sa = pass->stencilAttachment();
+      sa->setTexture(desc.depthStencil->view ? desc.depthStencil->view->mtl.view
+                                             : nullptr);
+      sa->setLoadAction(ri_mtl_LoadOp(desc.depthStencil->stencilLoadOp));
+      sa->setStoreAction(ri_mtl_StoreOp(desc.depthStencil->stencilStoreOp));
+      sa->setClearStencil(desc.depthStencil->clearValue.stencil);
+    }
+  }
+  // Encoder is autoreleased; retain it for the rendering scope.
+  mtl.render = mtl.cmd->renderCommandEncoder(pass)->retain();
+  pass->release();
+#else
+  (void)desc;
 #endif
 }
 
-void RICmd::dispatch(uint32_t groupCountX, uint32_t groupCountY,
-                       uint32_t groupCountZ) {
-  vkCmdDispatch(vk.cmd, groupCountX, groupCountY, groupCountZ);
+void RICmd::setViewport(struct RIRenderer *renderer,
+                        const struct RIViewport &viewport) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    VkViewport vp = {viewport.x,        viewport.y,        viewport.width,
+                     viewport.height,   viewport.depthMin, viewport.depthMax};
+    vkCmdSetViewport(vk.cmd, 0, 1, &vp);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    assert(mtl.render);
+    MTL::Viewport vp = {viewport.x,        viewport.y,        viewport.width,
+                        viewport.height,   viewport.depthMin, viewport.depthMax};
+    mtl.render->setViewport(vp);
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
 }
 
-void RICmd::dispatchIndirect(struct RIBuffer *buffer, VkDeviceSize offset) {
-  vkCmdDispatchIndirect(vk.cmd, buffer->vk.buffer, offset);
-}
-
-void RICmd::draw(uint32_t vertexCount, uint32_t instanceCount,
-                   uint32_t firstVertex, uint32_t firstInstance) {
-  vkCmdDraw(vk.cmd, vertexCount, instanceCount, firstVertex, firstInstance);
-}
-
-void RICmd::drawIndexed(uint32_t indexCount, uint32_t instanceCount,
-                          uint32_t firstIndex, int32_t vertexOffset,
-                          uint32_t firstInstance) {
-  vkCmdDrawIndexed(vk.cmd, indexCount, instanceCount, firstIndex, vertexOffset,
-                   firstInstance);
-}
-
-void RICmd::drawIndirect(struct RIBuffer *buffer, VkDeviceSize offset,
-                           uint32_t drawCount, uint32_t stride) {
-  vkCmdDrawIndirect(vk.cmd, buffer->vk.buffer, offset, drawCount, stride);
-}
-
-void RICmd::drawIndexedIndirect(struct RIBuffer *buffer,
-                                  VkDeviceSize offset, uint32_t drawCount,
-                                  uint32_t stride) {
-  vkCmdDrawIndexedIndirect(vk.cmd, buffer->vk.buffer, offset, drawCount,
-                           stride);
-}
-
-void RICmd::bindIndexBuffer(struct RIBuffer *buffer, VkDeviceSize offset,
-                              VkIndexType indexType) {
-  vkCmdBindIndexBuffer(vk.cmd, buffer->vk.buffer, offset, indexType);
+void RICmd::setScissor(struct RIRenderer *renderer, const struct RIRect &scissor) {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK)) {
+    VkRect2D rect = {{scissor.x, scissor.y},
+                     {(uint32_t)scissor.width, (uint32_t)scissor.height}};
+    vkCmdSetScissor(vk.cmd, 0, 1, &rect);
+    return;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (renderer->is_target_selected(RI_DEVICE_API_MTL)) {
+    assert(mtl.render);
+    MTL::ScissorRect rect = {(NS::UInteger)scissor.x, (NS::UInteger)scissor.y,
+                             (NS::UInteger)scissor.width,
+                             (NS::UInteger)scissor.height};
+    mtl.render->setScissorRect(rect);
+    return;
+  }
+#endif
+  assert(false && "unhandled backend");
 }

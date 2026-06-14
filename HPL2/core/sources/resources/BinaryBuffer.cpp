@@ -27,11 +27,7 @@
 #include "math/CRC.h"
 
 // Include SDL Endian code
-#ifdef USE_SDL2
-#include <SDL2/SDL_endian.h>
-#else
-#include <SDL/SDL_endian.h>
-#endif
+#include <SDL3/SDL_endian.h>
 
 #include <zlib.h>
 
@@ -49,12 +45,12 @@ typedef union {
 inline static int SwabFloat32(float f) {
     FloatSwabber dat1;
     dat1.f = f;
-    return SDL_SwapLE32(dat1.i);
+    return SDL_Swap32LE(dat1.i);
 }
 inline static float UnSwabFloat32(int i) {
     FloatSwabber dat1;
     dat1.i = i;
-    dat1.i = SDL_SwapLE32(dat1.i);
+    dat1.i = SDL_Swap32LE(dat1.i);
     return dat1.f;
 }
 
@@ -512,13 +508,13 @@ namespace hpl {
 
 	void cBinaryBuffer::AddShort16(short alX)
 	{
-        alX = SDL_SwapLE16(alX);
+        alX = SDL_Swap16LE(alX);
 		AddData(&alX, sizeof(short));
 	}
 
 	void cBinaryBuffer::AddUnsignedShort16(unsigned short alX)
 	{
-        alX = SDL_SwapLE16(alX);
+        alX = SDL_Swap16LE(alX);
 		AddData(&alX, sizeof(short));
 	}
 
@@ -526,7 +522,7 @@ namespace hpl {
 
 	void cBinaryBuffer::AddInt32(int alX)
 	{
-        alX = SDL_SwapLE32(alX);
+        alX = SDL_Swap32LE(alX);
 		AddData(&alX, sizeof(int));
 	}
 	
@@ -571,7 +567,7 @@ namespace hpl {
 
 	void cBinaryBuffer::AddVector2l(const cVector2l& avX)
 	{
-        int t[2] = { SDL_SwapLE32(avX.v[0]),SDL_SwapLE32(avX.v[1]) };
+        int t[2] = { SDL_Swap32LE(avX.v[0]),SDL_Swap32LE(avX.v[1]) };
 		AddData(t, sizeof(int)*2);
 	}
 
@@ -579,7 +575,7 @@ namespace hpl {
 
 	void cBinaryBuffer::AddVector3l(const cVector3l& avX)
 	{
-        int t[3] = { SDL_SwapLE32(avX.v[0]),SDL_SwapLE32(avX.v[1]), SDL_SwapLE32(avX.v[2]) };
+        int t[3] = { SDL_Swap32LE(avX.v[0]),SDL_Swap32LE(avX.v[1]), SDL_Swap32LE(avX.v[2]) };
 		AddData(t, sizeof(int)*3);
 	}
 
@@ -681,7 +677,7 @@ namespace hpl {
     {
         //Check if requested position exists.
         if (alPos + 4 < mlDataSize) {
-            alX = SDL_SwapLE32(alX);
+            alX = SDL_Swap32LE(alX);
             memcpy(mpData + alPos, &alX, 4);
         }
     }
@@ -717,14 +713,14 @@ namespace hpl {
 	{
 		short lX;
 		GetData(&lX, sizeof(short));
-		return SDL_SwapLE16(lX);
+		return SDL_Swap16LE(lX);
 	}
 
 	unsigned short cBinaryBuffer::GetUnsignedShort16()
 	{
 		unsigned short lX;
 		GetData(&lX, sizeof(unsigned short));
-        return SDL_SwapLE16(lX);
+        return SDL_Swap16LE(lX);
 	}
 	
 	//-----------------------------------------------------------------------
@@ -733,7 +729,7 @@ namespace hpl {
 	{
 		int lX;
 		GetData(&lX, sizeof(int));
-		return SDL_SwapLE32(lX);
+		return SDL_Swap32LE(lX);
 	}
 	
 	//-----------------------------------------------------------------------
@@ -782,8 +778,8 @@ namespace hpl {
 	{
 		GetData(apX->v, sizeof(int)*2);
 #ifdef SDL_BIG_ENDIAN
-        apX->x = SDL_SwapLE32(apX->x);
-        apX->y = SDL_SwapLE32(apX->y);
+        apX->x = SDL_Swap32LE(apX->x);
+        apX->y = SDL_Swap32LE(apX->y);
 #endif
 	}
 
@@ -793,9 +789,9 @@ namespace hpl {
 	{
         GetData(apX->v, sizeof(int)*3);
 #ifdef SDL_BIG_ENDIAN
-        apX->x = SDL_SwapLE32(apX->x);
-        apX->y = SDL_SwapLE32(apX->y);
-        apX->z = SDL_SwapLE32(apX->z);
+        apX->x = SDL_Swap32LE(apX->x);
+        apX->y = SDL_Swap32LE(apX->y);
+        apX->z = SDL_Swap32LE(apX->z);
 #endif
 	}
 

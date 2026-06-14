@@ -20,11 +20,7 @@
 #ifndef HPL_LOWLEVELGRAPHICS_SDL_H
 #define HPL_LOWLEVELGRAPHICS_SDL_H
 
-#if USE_SDL2
-#include "SDL2/SDL.h"
-#else
-#include "SDL/SDL.h"
-#endif
+#include <SDL3/SDL.h>
 
 #include "graphics/LowLevelGraphics.h"
 #include "math/MathTypes.h"
@@ -80,11 +76,11 @@ namespace hpl {
 
 		//////////////////////////////////////
 		//SDL Variables
-#if SDL_VERSION_ATLEAST(2, 0, 0)
 		SDL_Window* mpScreen;
-#else
-		SDL_Surface* mpScreen;
-#endif
+		// Metal builds: the CAMetalLayer-backed view created from the window;
+		// GetWindowHandle hands its layer to the Metal swapchain. (void* on all
+		// platforms — SDL_MetalView is a typedef for void*.)
+		SDL_MetalView mpMetalView = nullptr;
 		bool mbGrab;
 	};
 };

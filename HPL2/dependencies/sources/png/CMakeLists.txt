@@ -21,6 +21,10 @@ target_include_directories(png PRIVATE
 )
 set_target_properties(png PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+if((CMAKE_GENERATOR_PLATFORM MATCHES "ARM64") OR (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64"))
+    target_compile_definitions(png PRIVATE PNG_ARM_NEON_OPT=0)
+endif()
+
 if(MSVC)
     target_compile_definitions(png PRIVATE _CRT_SECURE_NO_WARNINGS)
     target_compile_options(png PRIVATE /wd4267 /wd4244 /wd4018 /wd4996)

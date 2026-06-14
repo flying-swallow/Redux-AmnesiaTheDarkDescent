@@ -1,0 +1,57 @@
+#pragma once
+// Shared Metal header — port of amnesia/slang/DiffuseShading.slang.
+// DiffuseShading surface state + prepareDiffuseShading (decode albedo / emission /
+// roughness from a hit) and the concentric-disk sample used for soft shadows.
+// Flattened into each .metal at stage time by cmake/flatten_metal_includes.py.
+//
+// prepareDiffuseShading is LIFTED from SurfelRayTrace.rt.metal (parity with the
+// shipped surfel path) — it always decodes per-texel roughness via
+// decodeMaterialRoughness (Brdf.metalh), unlike the Slang default that flips to
+// kDefaultDiffuseRoughness for the composite/direct stack. A composite consumer
+// that wants the flat roughness should pass kDefaultDiffuseRoughness directly.
+//
+// Requires: DiffuseMaterial (declared by the consuming .metal), VertexData
+// (SceneTypes.metalh), decodeMaterialRoughness (Brdf.metalh), kInvalidTextureIndex
+// (defined by the including .metal), and a `device Set0&` with gTextures2D +
+// gMaterialSampler — so #include this AFTER `struct Set0` + Brdf.metalh.
+
+struct DiffuseShading {
+    float3 posW;
+    float3 normalW;
+    float3 albedo;
+    float3 emission;
+    float  rough;    // perceptual diffuse-lobe roughness
+};
+
+static DiffuseShading prepareDiffuseShading(VertexData v, uint materialID,
+                                            float illuminationAmount, device Set0& set0) {
+    DiffuseShading sd;
+    sd.posW    = v.posW;
+    sd.normalW = normalize(v.normalW);
+    DiffuseMaterial m = set0.gDiffuseMaterials[materialID];
+
+    uint diffuseTex = m.tex[0];
+    sd.albedo = (diffuseTex == kInvalidTextureIndex) ? float3(0.5f)
+              : set0.gTextures2D[diffuseTex].sample(set0.gMaterialSampler, v.texC, level(0.0f)).rgb;
+
+    uint illumTex = m.tex[5];
+    sd.emission = (illumTex == kInvalidTextureIndex || illuminationAmount <= 0.0f) ? float3(0.0f)
+                : set0.gTextures2D[illumTex].sample(set0.gMaterialSampler, v.texC, level(0.0f)).rgb
+                  * illuminationAmount;
+
+    sd.rough = decodeMaterialRoughness(m, v.texC, set0);
+    return sd;
+}
+
+// Concentric (low-distortion) unit-disk map of two [0,1) samples — used to
+// jitter the soft-shadow disk in the analytic-light shade.
+static float2 concentricDiskSample(float2 u) {
+    float2 o = 2.0f * u - 1.0f;
+    if (o.x == 0.0f && o.y == 0.0f) return float2(0.0f);
+    float r, theta;
+    const float kPiOver4 = 0.78539816f;
+    const float kPiOver2 = 1.57079633f;
+    if (abs(o.x) > abs(o.y)) { r = o.x; theta = kPiOver4 * (o.y / o.x); }
+    else                     { r = o.y; theta = kPiOver2 - kPiOver4 * (o.x / o.y); }
+    return r * float2(cos(theta), sin(theta));
+}

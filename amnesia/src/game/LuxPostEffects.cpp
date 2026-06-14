@@ -36,6 +36,31 @@
 
 //-----------------------------------------------------------------------
 
+namespace {
+// Push constant block for posteffect_insanity.frag (matches the local
+// InsanityPushConstants defined below at the call site).
+struct InsanityPC { float time; float amplitude; float waveAlpha; float zoomAlpha; };
+
+// Explicit per-backend binding tables for cLuxPostEffect_Insanity::m_program.
+// Not bindless: every [vk::binding] is program-managed. The shared fullscreen
+// vert (posteffect_fullscreen.vert) has no descriptors / push constant (vs
+// empty).
+//
+// posteffect_insanity.frag.slang (set 0):
+//   b0 SamplerState inputSampler, b1..b4 Texture2D sourceInput/ampMap0/ampMap1/
+//   zoomMap, [vk::push_constant] InsanityPC pc.
+// posteffect_insanity.frag.metal:
+//   sourceInput [[texture(0)]], ampMap0 [[texture(1)]], inputSampler [[sampler(0)]],
+//   ampMap1 [[texture(2)]], pc [[buffer(0)]], zoomMap [[texture(3)]].
+constexpr hpl::RIProgram::RIProgramBinding kInsanity[] = {
+	{"inputSampler", RI_DESCRIPTOR_TYPE_SAMPLER, 1, RI_SHADER_STAGE_FRAGMENT, {0, 0}, {}, {0}},
+	{"sourceInput", RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, RI_SHADER_STAGE_FRAGMENT, {0, 1}, {}, {0}},
+	{"ampMap0", RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, RI_SHADER_STAGE_FRAGMENT, {0, 2}, {}, {1}},
+	{"ampMap1", RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, RI_SHADER_STAGE_FRAGMENT, {0, 3}, {}, {2}},
+	{"zoomMap", RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, RI_SHADER_STAGE_FRAGMENT, {0, 4}, {}, {3}},
+};
+} // namespace
+
 cLuxPostEffect_Insanity::cLuxPostEffect_Insanity(cGraphics *apGraphics, cResources *apResources) : iLuxPostEffect(apGraphics, apResources)
 {
 	//////////////////////////////
@@ -43,7 +68,10 @@ cLuxPostEffect_Insanity::cLuxPostEffect_Insanity(cGraphics *apGraphics, cResourc
 	// fullscreen-triangle vertex shader with the other post-effects.
 	hpl::LoadSlangGraphics(&RI.device, m_program, apResources,
 	                       "posteffect_fullscreen.vert.spv",
-	                       "posteffect_insanity.frag.spv");
+	                       "posteffect_insanity.frag.spv",
+	                       "vsMain", "psMain", {},
+	                       kInsanity, sizeof(InsanityPC),
+	                       RI_SHADER_STAGE_FRAGMENT);
 
 	//////////////////////////////
 	// Textures
@@ -98,7 +126,6 @@ struct InsanityPushConstants
 void cLuxPostEffect_Insanity::RenderEffect(const hpl::PostEffectRenderCtx &ctx)
 {
 	using namespace hpl;
-	VkCommandBuffer cmd = ctx.cmd->vk.cmd;
 
 	// Animated amp-map pair: ampMap0->1->2->0 as mfAnimCount sweeps [0,3), blended
 	// by its fractional part (matches the legacy afAmpT animation).
@@ -123,31 +150,36 @@ void cLuxPostEffect_Insanity::RenderEffect(const hpl::PostEffectRenderCtx &ctx)
 	RIDescriptor zoomDesc = resolve(mpZoomMap);
 	if (count <= 0) valid = false;
 
-	VkRenderingAttachmentInfo colorAttach = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-	colorAttach.imageView   = ctx.outputView;
-	colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+	RIRenderingAttachment colorAttach = {};
+	colorAttach.view    = ctx.outputView;
+	colorAttach.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+	colorAttach.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-	VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-	renderInfo.renderArea           = {{0, 0}, {ctx.width, ctx.height}};
-	renderInfo.layerCount           = 1;
-	renderInfo.colorAttachmentCount = 1;
-	renderInfo.pColorAttachments    = &colorAttach;
+	RIBeginRenderingDesc renderInfo = {};
+	renderInfo.renderArea.width  = (int16_t)ctx.width;
+	renderInfo.renderArea.height = (int16_t)ctx.height;
+	renderInfo.colorCount        = 1;
+	renderInfo.colors            = &colorAttach;
+	ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, renderInfo);
+	ctx.cmd->mtl_encoderDraw(renderInfo);
 
-	vkCmdBeginRendering(cmd, &renderInfo);
+	RIViewport viewport = {};
+	viewport.width    = static_cast<float>(ctx.width);
+	viewport.height   = static_cast<float>(ctx.height);
+	viewport.depthMax = 1.0f;
+	ctx.cmd->setViewport(&RI.renderer, viewport);
+	RIRect scissor = {};
+	scissor.width  = (int16_t)ctx.width;
+	scissor.height = (int16_t)ctx.height;
+	ctx.cmd->setScissor(&RI.renderer, scissor);
 
-	VkViewport viewport = {0.0f, 0.0f, (float)ctx.width, (float)ctx.height, 0.0f, 1.0f};
-	vkCmdSetViewport(cmd, 0, 1, &viewport);
-	VkRect2D scissor = {{0, 0}, {ctx.width, ctx.height}};
-	vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-	PostEffectPipelineState state{};
-	InitPostEffectPipelineState(state, RIBootstrap::PogoColorFormatVk, false);
+	RIGraphicsPipelineDesc state{};
+	state.colorCount = 1;
+	state.colors[0].format = RIBootstrap::PogoColorFormat; // blend disabled (default)
 
 	const hash_t pipelineHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
 	m_program.bindPipeline(&RI.device, ctx.cmd, pipelineHash, "PostEffect_Insanity",
-	                       &state.createInfo);
+	                       state);
 
 	auto samplerDesc = RI.resolve_filter_descriptor(
 	    eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
@@ -171,11 +203,11 @@ void cLuxPostEffect_Insanity::RenderEffect(const hpl::PostEffectRenderCtx &ctx)
 	pc.amplitude = amplitude;
 	pc.waveAlpha = valid ? mfWaveAlpha : 0.0f;
 	pc.zoomAlpha = valid ? mfZoomAlpha : 0.0f;
-	vkCmdPushConstants(cmd, m_program.getPipelineLayout(),
-	                   VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+	m_program.pushConstants(ctx.cmd, &pc, sizeof(pc));
 
-	vkCmdDraw(cmd, 3, 1, 0, 0);
-	vkCmdEndRendering(cmd);
+	ctx.cmd->draw(&RI.renderer, 3, 1, 0, 0);
+	ctx.cmd->mtl_encoderEnd();
+	ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
 }
 
 

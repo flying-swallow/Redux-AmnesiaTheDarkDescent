@@ -1,0 +1,61 @@
+#pragma once
+// Shared Metal header — port of amnesia/slang/Scene.slang (the accessor subset
+// the raster/compute passes actually use). Slang's `gScene.foo(...)` global
+// becomes free functions over `device Set0&` (bindless set 0) + a
+// `constant SceneConstants* gPerFrame` (set 1), mirroring BindlessTriangle.metalh.
+// Flattened into each .metal at stage time by cmake/flatten_metal_includes.py.
+//
+// Requires: UniformObject / SceneConstants (SceneTypes.metalh), loadMat
+// (BindlessTriangle.metalh), DiffuseMaterial (declared by the consuming .metal),
+// kInvalidTextureIndex / kSolidMaterialCapacity / the kMaterialFlag* alpha flags
+// (defined by the including .metal), and a `device Set0&` carrying gSceneObjects /
+// gDiffuseMaterials / gTextures2D / gDissolveMap / gMaterialSampler — so #include
+// AFTER `struct Set0`. `Slang mul(M, v)` -> `M * v` (column-major).
+
+// --- Objects / materials -----------------------------------------------------
+static UniformObject getObject(uint slot, device Set0& set0) { return set0.gSceneObjects[slot]; }
+static uint getMaterialID(uint objectSlot, device Set0& set0) { return set0.gSceneObjects[objectSlot].materialID; }
+
+// --- Camera (SceneCamera) ----------------------------------------------------
+// No jitter on the engine UBO today, so getViewProj == getViewProjNoJitter
+// (Scene.slang). prevViewProj pairs with UniformObject.prevModelMat for motion.
+static float4x4 cameraGetViewProj(constant SceneConstants* gPerFrame) {
+    return gPerFrame->projMat * gPerFrame->viewMat;
+}
+static float4x4 cameraGetViewProjNoJitter(constant SceneConstants* gPerFrame) {
+    return gPerFrame->projMat * gPerFrame->viewMat;
+}
+static float4x4 cameraGetPrevViewProj(constant SceneConstants* gPerFrame) {
+    return gPerFrame->prevProjMat * gPerFrame->prevViewMat;
+}
+static float3 cameraGetPosition(constant SceneConstants* gPerFrame) {
+    return float3(gPerFrame->posW);
+}
+
+// --- SceneMaterials.alphaTest (Scene.slang:142) ------------------------------
+// true == fragment is transparent (ignore the hit). Lifted from
+// SurfelVBuffer.rt.metal / SurfelRayTrace.rt.metal (parity with the shipped path).
+static bool alphaTest(VertexData v, uint materialID, float lod, float dissolveAmount, device Set0& set0) {
+    if (materialID >= kSolidMaterialCapacity) return false;   // water range: no diffuse entry
+    DiffuseMaterial m = set0.gDiffuseMaterials[materialID];
+    float a = 1.0f; uint alphaIdx = m.tex[2];
+    if (alphaIdx != kInvalidTextureIndex) {
+        float4 s = set0.gTextures2D[alphaIdx].sample(set0.gMaterialSampler, v.texC, level(lod));
+        a = ((m.materialConfig & kMaterialFlagIsAlphaSingleChannel) != 0u) ? s.r : s.a;
+    } else if (dissolveAmount >= 1.0f &&
+               (m.materialConfig & (kMaterialFlagEnableDissolveAlpha | kMaterialFlagUseDissolveFilter)) == 0u) {
+        return false;
+    }
+    bool hasDissolveAlpha  = (m.materialConfig & kMaterialFlagEnableDissolveAlpha) != 0u;
+    bool hasDissolveFilter = (m.materialConfig & kMaterialFlagUseDissolveFilter)  != 0u;
+    if (dissolveAmount < 1.0f || hasDissolveAlpha || hasDissolveFilter) {
+        float d = set0.gDissolveMap.sample(set0.gMaterialSampler, v.texC, level(0.0f)).x;
+        if (hasDissolveAlpha) {
+            d = d * 0.25f + 0.75f; uint dat = m.tex[6]; float da = 1.0f;
+            if (dat != kInvalidTextureIndex) da = set0.gTextures2D[dat].sample(set0.gMaterialSampler, v.texC, level(lod)).r;
+            d -= (0.25f - da * 0.25f);
+        } else { d = d * 0.5f + 0.5f; }
+        a = d - (1.0f - dissolveAmount * a) * 0.5f;
+    }
+    return a < 0.5f;
+}

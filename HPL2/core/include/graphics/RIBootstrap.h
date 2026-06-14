@@ -80,6 +80,7 @@ public:
   // 1x1 white texture used as the default texture binding when no real
   // texture is available.
   struct RITexture whiteTexture2D;
+  struct RITextureView whiteTexture2DView;
   struct RIDescriptor whiteTexture2DBinding;
 
   // Zero-filled vertex buffer bound into vertex input slots that don't have
@@ -131,7 +132,10 @@ public:
   RIBuffer translucentIdxBuffer;
 
   std::array<FrameContext, RI_NUMBER_FRAMES_FLIGHT> frameSets;
-	std::array<RIDescriptor, 1024> cachedFilters; 
+	// Sampler descriptor cache: cachedFilters[i] (keyed by cookie) references the
+	// RISampler at cachedSamplers[i] (which owns the backend sampler handle).
+	std::array<RIDescriptor, 1024> cachedFilters;
+	std::array<RISampler, 1024> cachedSamplers;
   uint32_t swapchainIndex;
   uint32_t frameIndex = 0;
 

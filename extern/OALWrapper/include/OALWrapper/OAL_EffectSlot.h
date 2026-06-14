@@ -49,7 +49,7 @@ private:
 	bool mbAutoAdjust;
 	cOAL_EFXManager* mpEFXManager;
 
-	SDL_mutex*		mpMutex;
+	SDL_Mutex*		mpMutex;
 
 };
 

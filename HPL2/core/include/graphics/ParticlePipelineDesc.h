@@ -1,40 +1,21 @@
 #ifndef HPL_PARTICLE_PIPELINE_DESC_H
 #define HPL_PARTICLE_PIPELINE_DESC_H
 
+#include "graphics/RIProgram.h" // RIGraphicsPipelineDesc
 #include "graphics/RITypes.h"   // RI_Format_e
-
-#if (DEVICE_IMPL_VULKAN)
-#include <volk.h>
-#endif
-
 #include "system/Hasher.h"      // hash_t
 
 #include <cstdint>
 
 namespace hpl {
 
-// Pipeline descriptor for the particle (translucent) pass. One instance per
-// blend mode — the hardware blend factors come from the legacy
-// translucencyBlendTable mapping in RendererDeferred. Depth test is on but
-// depth write is off so particles sort against opaque geometry without
-// occluding each other in the wrong order. Cull mode is NONE because
-// particle billboards may face the camera either way; legacy renderer
-// behaves the same. No vertex input bindings — VS pulls via BDA from
-// opaque*Handles[].
+// Backend-neutral pipeline state for the particle (translucent) pass. One
+// instance per blend mode — the blend factors come from the legacy
+// translucencyBlendTable mapping. Depth test on, depth write off (particles
+// sort against opaque without occluding each other); cull NONE (billboards face
+// either way); no vertex input (VS pulls via BDA from opaque*Handles[]).
 struct ParticlePipelineDesc {
-  VkPipelineVertexInputStateCreateInfo vertexInputState;
-  VkPipelineInputAssemblyStateCreateInfo inputAssemblyState;
-  VkPipelineRasterizationStateCreateInfo rasterizationState;
-  VkDynamicState dynamicStates[2];
-  VkPipelineDynamicStateCreateInfo dynamicState;
-  VkFormat colorFormats[1];
-  VkPipelineRenderingCreateInfo pipelineRendering;
-  VkPipelineViewportStateCreateInfo viewportState;
-  VkPipelineMultisampleStateCreateInfo multisampleState;
-  VkPipelineDepthStencilStateCreateInfo depthStencilState;
-  VkPipelineColorBlendAttachmentState blendAttachment;
-  VkPipelineColorBlendStateCreateInfo colorBlendState;
-  VkGraphicsPipelineCreateInfo createInfo;
+  RIGraphicsPipelineDesc desc;
   hash_t hash;
 
   enum BlendMode : uint32_t {
@@ -48,9 +29,6 @@ struct ParticlePipelineDesc {
 
   ParticlePipelineDesc(RI_Format_e swapchainFormat, RI_Format_e depthFormat,
                        BlendMode mode);
-
-  ParticlePipelineDesc(const ParticlePipelineDesc &) = delete;
-  ParticlePipelineDesc &operator=(const ParticlePipelineDesc &) = delete;
 };
 
 } // namespace hpl

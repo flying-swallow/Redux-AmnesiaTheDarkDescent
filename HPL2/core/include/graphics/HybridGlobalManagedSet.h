@@ -81,41 +81,21 @@ struct BindlessShadowMirror {
 
 namespace detail {
 
-// Allocate a bindless slot buffer: slotCount * elementStride bytes. When
-// deviceLocalOnly the allocation has no host-mapped pointer (out.mappedAddress
-// is null) and must be seeded through RI.uploader; otherwise it is persistently
-// mapped for direct host writes. Shared by HybridGlobalManagedSet (set-0
-// buffers) and cHybridRenderer (the indirect-draw buffer), so it lives in this
-// header rather than a single .cpp.
+// Allocate a bindless slot buffer: slotCount * elementStride bytes. With
+// RI_MEMORY_DEVICE the allocation has no host-mapped pointer (out.mappedAddress
+// is null) and must be seeded through RI.uploader; RI_MEMORY_HOST_UPLOAD is
+// persistently mapped for direct host writes. Backend-neutral — shared by
+// HybridGlobalManagedSet (set-0 buffers) and cHybridRenderer (the indirect-draw
+// buffer), so it lives in this header rather than a single .cpp.
 static inline struct RIBuffer
 CreateBindlessSlotBuffer(RIDevice *device, uint32_t slotCount,
-                         size_t elementStride, VkBufferUsageFlags usage,
-                         bool deviceLocalOnly = false) {
-  uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-  VkBufferCreateInfo bufferCreateInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-  VK_ConfigureBufferQueueFamilies(&bufferCreateInfo, device->queues,
-                                  RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
-  bufferCreateInfo.size = (VkDeviceSize)slotCount * elementStride;
-  bufferCreateInfo.usage = usage;
-
-  VmaAllocationCreateInfo allocInfo = {};
-  if (deviceLocalOnly) {
-    // Pure device-local heap. Caller must seed contents via RI.uploader
-    // (RI_ResourceBeginCopyBuffer / EndCopyBuffer) — out.mappedAddress is null.
-    allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-  } else {
-    allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-    allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
-                      VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-  }
-
-  VmaAllocationInfo allocationInfo = {};
-  struct RIBuffer out;
-  VK_WrapResult(vmaCreateBuffer(device->vk.vmaAllocator, &bufferCreateInfo,
-                                &allocInfo, &out.vk.buffer, &out.vk.allocation,
-                                &allocationInfo));
-  out.mappedAddress = deviceLocalOnly ? nullptr : allocationInfo.pMappedData;
-  return out;
+                         size_t elementStride, uint32_t usage,
+                         RIMemoryLocation_e location = RI_MEMORY_HOST_UPLOAD) {
+  RIBufferDesc desc = {};
+  desc.size = (uint64_t)slotCount * elementStride;
+  desc.usage = usage;
+  desc.location = location;
+  return RIBuffer::create(device, desc);
 }
 
 } // namespace detail

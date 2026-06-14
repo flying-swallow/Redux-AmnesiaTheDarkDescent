@@ -1,0 +1,104 @@
+#pragma once
+// Shared Metal header — port of amnesia/slang/BlendModes.slang.
+// Legacy blend-mode math: re-encode a hardware-sRGB-decoded texel back to the
+// authored display space, fold alpha/light level per blend mode, then decode to
+// linear once at output. Flattened into each .metal at stage time by
+// cmake/flatten_metal_includes.py.
+//
+// Requires sRGBToLinear / linearToSRGB from Utils/Color/ColorHelpers.metalh
+// (let the consuming .metal #include both). The blend-mode enum values mirror
+// amnesia/slang/Constants.h (kBlendMode* push-constant scheme,
+// kMaterialBlendMode* raw eMaterialBlendMode scheme) and kPerceptualBlendExp.
+
+// Push-constant / pipeline blend scheme (Constants.h kBlendMode*).
+constant uint  kBlendModeAdd         = 0u;
+constant uint  kBlendModeMul         = 1u;
+constant uint  kBlendModeMulX2       = 2u;
+constant uint  kBlendModeAlpha       = 3u;
+constant uint  kBlendModePremulAlpha = 4u;
+// Raw hpl::eMaterialBlendMode scheme (Constants.h kMaterialBlendMode*).
+constant uint  kMaterialBlendModeNone        = 0u;
+constant uint  kMaterialBlendModeAdd         = 1u;
+constant uint  kMaterialBlendModeMul         = 2u;
+constant uint  kMaterialBlendModeMulX2       = 3u;
+constant uint  kMaterialBlendModeAlpha       = 4u;
+constant uint  kMaterialBlendModePremulAlpha = 5u;
+constant float kPerceptualBlendExp           = 2.2f;
+
+// Re-encode a hardware-sRGB-decoded texel into the authored display space.
+static float4 displaySpaceSample(float4 s) {
+    return float4(linearToSRGB(s.rgb), s.a);
+}
+
+// Stage 1 — display-space source modulation (legacy per-mode pre-bias).
+// alpha == sceneAlpha * fog visibility; lightLevel == AffectedByLightLevel dim.
+static float4 applyBlendModulation(uint blendMode, float4 displayColor,
+                                   float alpha, float lightLevel) {
+    switch (blendMode) {
+        case kBlendModeAdd: {
+            displayColor.xyz *= alpha * lightLevel;
+            break;
+        }
+        case kBlendModeMul: {
+            displayColor.xyz += (float3(1.0f) - displayColor.xyz) * (1.0f - alpha);
+            break;
+        }
+        case kBlendModeMulX2: {
+            float blendMulAlpha = lightLevel * alpha;
+            displayColor.xyz = displayColor.xyz * blendMulAlpha
+                             + float3(0.5f) * (1.0f - blendMulAlpha);
+            break;
+        }
+        case kBlendModeAlpha: {
+            displayColor.xyz *= lightLevel;
+            displayColor.a   *= alpha;
+            break;
+        }
+        case kBlendModePremulAlpha: {
+            displayColor     *= alpha;
+            displayColor.xyz *= lightLevel;
+            break;
+        }
+    }
+    return displayColor;
+}
+
+// Stage 2 — decode the display-space source to linear for the hardware blender.
+static float4 encodeBlendOutputLinear(uint blendMode, float4 displayColor) {
+    const float k = kPerceptualBlendExp;
+    switch (blendMode) {
+        case kBlendModeAdd:
+        case kBlendModeMul: {
+            displayColor.xyz = sRGBToLinear(displayColor.xyz);
+            break;
+        }
+        case kBlendModeMulX2: {
+            displayColor.xyz = sRGBToLinear(2.0f * displayColor.xyz) * 0.5f;
+            break;
+        }
+        case kBlendModeAlpha:
+        case kBlendModePremulAlpha: {
+            float a = saturate(displayColor.a);
+            displayColor.xyz = sRGBToLinear(displayColor.xyz);
+            if (blendMode == kBlendModeAlpha)
+                displayColor.xyz *= pow(a, k);
+            displayColor.a = 1.0f - pow(1.0f - a, k);
+            break;
+        }
+    }
+    return displayColor;
+}
+
+// EXACT display-space software blend — composite clustered decals (dst in hand).
+// Takes the RAW eMaterialBlendMode numbering (kMaterialBlendMode*).
+static float3 blendDisplaySpaceExact(uint materialBlendMode,
+                                     float3 dstDisplay, float4 srcDisplay) {
+    switch (materialBlendMode) {
+        case kMaterialBlendModeAdd:         return dstDisplay + srcDisplay.rgb;
+        case kMaterialBlendModeMul:         return dstDisplay * srcDisplay.rgb;
+        case kMaterialBlendModeMulX2:       return 2.0f * dstDisplay * srcDisplay.rgb;
+        case kMaterialBlendModeAlpha:       return mix(dstDisplay, srcDisplay.rgb, srcDisplay.a);
+        case kMaterialBlendModePremulAlpha: return srcDisplay.rgb + dstDisplay * (1.0f - srcDisplay.a);
+        default:                            return dstDisplay;   // None
+    }
+}

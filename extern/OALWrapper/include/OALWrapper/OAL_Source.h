@@ -161,7 +161,7 @@ private:
 	unsigned int mlPriority;
 	unsigned int mlRefCount;
 
-	SDL_mutex*	mpSourceMutex;
+	SDL_Mutex*	mpSourceMutex;
 
 	cOAL_SourceManager* mpSourceManager;
 

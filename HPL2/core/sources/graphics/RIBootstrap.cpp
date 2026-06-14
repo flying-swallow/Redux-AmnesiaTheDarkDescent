@@ -3,8 +3,12 @@
 #include "graphics/RIResourceUploader.h"
 #include "graphics/RISwapchain.h"
 #include "graphics/RIVK.h"
+#if (DEVICE_IMPL_MTL)
+#include "graphics/RIMTL.h"
+#endif
 
 #include <algorithm>
+#include <cassert>
 #include <optional>
 
 namespace hpl {
@@ -22,7 +26,7 @@ namespace {
 bool __RequestScratchSegment(RIBootstrap::FrameContext *cntx,
                              RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> &alloc,
                              RIBuffer &buffer, uint16_t elementStride,
-                             VkBufferUsageFlags usage, size_t numElements,
+                             uint32_t usage, size_t numElements,
                              struct RISegmentReq *req) {
   if (IsRIBufferValid(&RI.renderer, &buffer) &&
       alloc.request(RI.frameIndex, numElements, req)) {
@@ -43,27 +47,14 @@ bool __RequestScratchSegment(RIBootstrap::FrameContext *cntx,
     return false;
   }
 
-  uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-  VkBufferCreateInfo bufferCreateInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-  VK_ConfigureBufferQueueFamilies(&bufferCreateInfo, RI.device.queues,
-                                  RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
-  bufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements *
-                          segmentAllocDesc.elementStride;
-  bufferCreateInfo.usage = usage;
-
-  VmaAllocationInfo allocationInfo = {0};
-  VmaAllocationCreateInfo allocInfo = {0};
-  allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
-                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
-  if (buffer.vk.buffer) {
+  if (IsRIBufferValid(&RI.renderer, &buffer)) {
     cntx->freelist.push_back(buffer);
   }
-  VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferCreateInfo,
-                                &allocInfo, &buffer.vk.buffer,
-                                &buffer.vk.allocation, &allocationInfo));
-  buffer.mappedAddress = allocationInfo.pMappedData;
+  RIBufferDesc desc = {};
+  desc.size = (uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
+  desc.usage = usage;
+  desc.location = RI_MEMORY_HOST_UPLOAD;
+  buffer = RIBuffer::create(&RI.device, desc);
   return true;
 }
 } // namespace
@@ -74,8 +65,8 @@ bool RIBootstrap::RequestTranslucentVtx(FrameContext *cntx, size_t numFloats,
   // (segment base address + byte offset fanned into the bindless slot mirrors).
   return __RequestScratchSegment(cntx, translucentVtxAlloc,
                                  translucentVtxBuffer, sizeof(float),
-                                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
-                                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                 RI_BUFFER_USAGE_VERTEX_BUFFER |
+                                     RI_BUFFER_USAGE_DEVICE_ADDRESS,
                                  numFloats, req);
 }
 
@@ -83,24 +74,22 @@ bool RIBootstrap::RequestTranslucentIdx(FrameContext *cntx, size_t numIndices,
                                         struct RISegmentReq *req) {
   return __RequestScratchSegment(cntx, translucentIdxAlloc,
                                  translucentIdxBuffer, sizeof(uint32_t),
-                                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-                                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                 RI_BUFFER_USAGE_INDEX_BUFFER |
+                                     RI_BUFFER_USAGE_DEVICE_ADDRESS,
                                  numIndices, req);
 }
 
 void RIBootstrap::Dispose() {
   device.queues[RI_QUEUE_GRAPHICS].waitIdle(&device);
 
-  if (translucentVtxBuffer.vk.buffer)
+  if (!translucentVtxBuffer.isEmpty(&device))
     translucentVtxBuffer.dispose(&device);
-  if (translucentIdxBuffer.vk.buffer)
+  if (!translucentIdxBuffer.isEmpty(&device))
     translucentIdxBuffer.dispose(&device);
 
-  for (auto &desc : cachedFilters) {
-    if (desc.cookie) {
-      desc.dispose(&device);
-    }
-  }
+  for (auto &s : cachedSamplers)
+    s.dispose(&device); // safe on empty; frees cached backend samplers
+  cachedFilters.fill(RIDescriptor{});
 
   for (auto &set : frameSets) {
     set.resourceLink.clear();
@@ -117,10 +106,16 @@ void RIBootstrap::Dispose() {
 
 void RIBootstrap::CloseAndSubmitActiveSet() {
   RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
+  (void)cntx;
+
+  switch (RI.device.renderer->api) {
+#if (DEVICE_IMPL_VULKAN)
+  case RI_DEVICE_API_VK: {
   struct RIQueue *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
   {
     // Swapchain image: COLOR -> PRESENT for the queue present. The swapchain
     // images are raw VkImage handles, so bridge through a stack RITexture.
+    // Metal needs no layout transition (the drawable texture is render-ready).
     RITexture swapchainTexture = {};
     swapchainTexture.vk.image = RI.swapchain.vk.images[RI.swapchainIndex];
 
@@ -128,7 +123,7 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
     toPresent.texture = &swapchainTexture;
     toPresent.before = RI_RESOURCE_STATE_RENDER_TARGET_READ;
     toPresent.after = RI_RESOURCE_STATE_PRESENT;
-    RI.primary.cmds[0].textureBarrier(toPresent);
+    RI.primary.cmds[0].vk_d3d12_textureBarrier(toPresent);
   }
   RI.primary.cmds[0].end(&RI.device);
   RI.blasSubmit.cmds[0].end(&RI.device);
@@ -213,8 +208,48 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
     VK_WrapResult(vkResetFences(RI.device.vk.device, 1, &RI.primary.vk.fence));
     VK_WrapResult(vkQueueSubmit2(graphicsQueue->vk.queue, 1, &submitInfo,
                                  RI.primary.vk.fence));
-    RISwapchainPresent(&RI.device, &RI.swapchain);
   }
+  break;
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  case RI_DEVICE_API_MTL: {
+  RI.primary.cmds[0].end(&RI.device);
+  RI.blasSubmit.cmds[0].end(&RI.device);
+
+  // Metal: per-element timeline SharedEvents replace the binary semaphores, and
+  // commit() is the submit. Mirrors RI_MTLFlushResourceUpdate's chain
+  // (upload -> BLAS build -> primary). Each command buffer was vended in
+  // RICmd::begin(); the slot value is advanced through signalValueSlot so the
+  // next frame's BeginActiveSet host-wait (RICommandRingElement::wait) matches.
+  RIResourceUploaderVKResult up =
+      RI_MTLFlushResourceUpdate(&RI.device, &RI.uploader);
+
+  // BLAS-build command buffer: wait on uploads, signal its slot, commit.
+  MTL::CommandBuffer *blasCb = RI.blasSubmit.cmds[0].mtl.cmd;
+  if (up.signaled)
+    blasCb->encodeWait(up.mtl.event, up.mtl.value);
+  const uint64_t blasV = ++(*RI.blasSubmit.mtl.signalValueSlot);
+  blasCb->encodeSignalEvent(RI.blasSubmit.mtl.event, blasV);
+  blasCb->commit();
+
+  // Primary command buffer: wait on the BLAS build, signal its slot, commit.
+  // No acquire/finish events: nextDrawable hands back a render-ready drawable
+  // and RISwapchainPresent rides its own command buffer committed after this
+  // one, so single-queue in-order execution presents after rendering.
+  MTL::CommandBuffer *primCb = RI.primary.cmds[0].mtl.cmd;
+  primCb->encodeWait(RI.blasSubmit.mtl.event, blasV);
+  const uint64_t primV = ++(*RI.primary.mtl.signalValueSlot);
+  primCb->encodeSignalEvent(RI.primary.mtl.event, primV);
+  primCb->commit();
+  break;
+  }
+#endif
+  default:
+    assert(false && "unhandled backend");
+  }
+
+  RISwapchainPresent(&RI.device, &RI.swapchain);
   RI.IncrementFrame();
 }
 void RIBootstrap::BeginActiveSet() {
@@ -236,6 +271,20 @@ void RIBootstrap::BeginActiveSet() {
 
   RI.swapchainIndex = RISwapchainAcquireNextTexture(&RI.device, &RI.swapchain);
 
+#if (DEVICE_IMPL_MTL)
+  // Metal vends a fresh drawable every frame, so the swapchain VIEW (created once
+  // over the swapchain texture slot in cGraphics::Init) must be re-pointed at the
+  // current drawable texture each frame. Otherwise render passes that target
+  // RI.swapchainView (the GUI block in cScene::Render, the post-fx tail blit) get
+  // a nil color attachment, renderCommandEncoder() returns nil, and mtl.render
+  // stays null — asserting in the first setViewport/draw inside the pass.
+  // Runtime-gated (not is_target_selected, which is a compile-time gate) so a
+  // dual-backend build running Vulkan never clobbers the .vk union member.
+  if (RI.renderer.api == RI_DEVICE_API_MTL)
+    RI.swapchainView[RI.swapchainIndex].mtl.view =
+        RI.swapchain.textures[RI.swapchainIndex].mtl.texture;
+#endif
+
   // cleanup
   RIResetScratchAlloc(&RI.device, &cntx->uboScratchAlloc);
   RIResetScratchAlloc(&RI.device, &cntx->accelScratchAlloc);
@@ -250,10 +299,12 @@ void RIBootstrap::BeginActiveSet() {
 
   RI.blasSubmit.cmds[0].begin(&RI.device);
   RI.primary.cmds[0].begin(&RI.device);
+#if (DEVICE_IMPL_VULKAN)
   {
     // Swapchain image: UNDEFINED -> COLOR for the frame. (Depth is
     // per-viewport now — each renderer's Draw emits its own first-use
-    // UNDEFINED transition on its viewport's depth target.)
+    // UNDEFINED transition on its viewport's depth target.) Metal needs no
+    // such transition — the drawable texture is render-ready.
     RITexture swapchainTexture = {};
     swapchainTexture.vk.image = RI.swapchain.vk.images[RI.swapchainIndex];
 
@@ -261,8 +312,9 @@ void RIBootstrap::BeginActiveSet() {
     toColor.texture = &swapchainTexture;
     toColor.before = RI_RESOURCE_STATE_UNDEFINED;
     toColor.after = RI_RESOURCE_STATE_RENDER_TARGET_READ;
-    RI.primary.cmds[0].textureBarrier(toColor);
+    RI.primary.cmds[0].vk_d3d12_textureBarrier(toColor);
   }
+#endif
 }
 
 void RIBootstrap::UpdateFrameUBO(RIDescriptor *descriptor, void *data,
@@ -271,13 +323,13 @@ void RIBootstrap::UpdateFrameUBO(RIDescriptor *descriptor, void *data,
   const hash_t hash =
       hash_data_hsieh(HASH_INITIAL_VALUE + frameIndex, data, size);
   if (descriptor->cookie != hash) {
-    descriptor->cookie = hash;
     struct RIBufferScratchAllocReq scratchReq = RIAllocBufferFromScratchAlloc(
         &device, &activeSet->uboScratchAlloc, size);
-    descriptor->vk.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    descriptor->vk.buffer.buffer = scratchReq.block.buffer.vk.buffer;
-    descriptor->vk.buffer.offset = scratchReq.bufferOffset;
-    descriptor->vk.buffer.range = size;
+    // The per-frame content `hash` is the cookie: it changes iff the UBO data
+    // changes (and a new scratch sub-allocation is taken), so it is both the
+    // upload-dedup key and a stable, collision-free descriptor identity.
+    *descriptor = RIDescriptor::uniformBuffer(
+        &device, &scratchReq.block.buffer, scratchReq.bufferOffset, size, hash);
     memcpy((uint8_t *)scratchReq.pMappedAddress + scratchReq.bufferOffset, data,
            size);
     RIFinishScrachReq(&device, &scratchReq);
@@ -323,18 +375,66 @@ std::optional<RIDescriptor> RIBootstrap::resolve_filter_descriptor(eTextureWrap 
       if (cachedFilters[index].cookie == hash) {
         return cachedFilters[index];
       } else if (cachedFilters[index].isEmpty()) {
-        cachedFilters[index].vk.type = VK_DESCRIPTOR_TYPE_SAMPLER;
-        cachedFilters[index].vk.image.imageView = VK_NULL_HANDLE;
-        cachedFilters[index].vk.image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        cachedFilters[index].flags = RI_VK_DESC_OWN_SAMPLER;
+        // The RISampler owns the backend sampler; the descriptor references it.
         VK_WrapResult(vkCreateSampler(device.vk.device, &info, NULL,
-                                      &cachedFilters[index].vk.image.sampler));
-        cachedFilters[index].finalize(&device);
-        cachedFilters[index].cookie = hash;
+                                      &cachedSamplers[index].vk.sampler));
+        cachedFilters[index] =
+            RIDescriptor::sampler(&device, &cachedSamplers[index], hash);
         return cachedFilters[index];
       }
       index = (index + 1) % cachedFilters.size();
     } while (index != startIndex);
+  }
+#endif
+#if (DEVICE_IMPL_MTL)
+  if (device.renderer->api == RI_DEVICE_API_MTL) {
+    MTL::SamplerDescriptor *sd = MTL::SamplerDescriptor::alloc()->init();
+    sd->setSAddressMode(RIToMTLSamplerAddress((int)wrapS));
+    sd->setTAddressMode(RIToMTLSamplerAddress((int)wrapT));
+    sd->setRAddressMode(RIToMTLSamplerAddress((int)wrapR));
+    switch (filter) {
+    case eTextureFilter_Nearest:
+      sd->setMinFilter(MTL::SamplerMinMagFilterNearest);
+      sd->setMagFilter(MTL::SamplerMinMagFilterNearest);
+      sd->setMipFilter(MTL::SamplerMipFilterNearest);
+      break;
+    case eTextureFilter_Bilinear:
+      sd->setMinFilter(MTL::SamplerMinMagFilterLinear);
+      sd->setMagFilter(MTL::SamplerMinMagFilterLinear);
+      sd->setMipFilter(MTL::SamplerMipFilterNearest);
+      break;
+    case eTextureFilter_Trilinear:
+      sd->setMinFilter(MTL::SamplerMinMagFilterLinear);
+      sd->setMagFilter(MTL::SamplerMinMagFilterLinear);
+      sd->setMipFilter(MTL::SamplerMipFilterLinear);
+      break;
+    default:
+      break;
+    }
+    sd->setLodMaxClamp(16.0f);
+    const hash_t hash = hash_data(
+        hash_u32(hash_u32(hash_u32(HASH_INITIAL_VALUE, (uint32_t)wrapS),
+                          (uint32_t)wrapT),
+                 (uint32_t)wrapR),
+        &filter, sizeof(filter));
+    const size_t startIndex = (hash % cachedFilters.size());
+    size_t index = startIndex;
+    do {
+      if (cachedFilters[index].cookie == hash) {
+        sd->release();
+        return cachedFilters[index];
+      } else if (cachedFilters[index].isEmpty()) {
+        // The RISampler owns the backend sampler; the descriptor references it.
+        cachedSamplers[index].mtl.sampler =
+            device.mtl.device->newSamplerState(sd);
+        cachedFilters[index] =
+            RIDescriptor::sampler(&device, &cachedSamplers[index], hash);
+        sd->release();
+        return cachedFilters[index];
+      }
+      index = (index + 1) % cachedFilters.size();
+    } while (index != startIndex);
+    sd->release();
   }
 #endif
   return std::nullopt;

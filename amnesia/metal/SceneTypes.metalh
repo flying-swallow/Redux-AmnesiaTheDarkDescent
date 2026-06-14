@@ -1,0 +1,62 @@
+#pragma once
+// Mirrors amnesia/slang/SceneTypes.slang (the subset the hand-written Metal
+// Surfel passes use). Scalar block layout: packed_float3 == 12B (a plain float3
+// is 16-aligned and would misplace the trailing scalar in posW/cameraU/cameraV).
+
+struct MatStorage { packed_float4 data[4]; };   // scalar float4x4 storage (64B, 4-align)
+
+struct SceneConstants {
+    float4x4 invViewRotationMat, viewMat, invViewMat, projMat, invProjMat, prevViewMat, prevProjMat;
+    float    worldFogStart, worldFogLength, oneMinusFogAlpha, fogFalloffExp;
+    float4   worldFogColor;
+    float2   viewTexel, viewportSize;
+    float    afT;
+    uint     totalFrames;
+    float    cameraFov;
+    uint     pointLightCount;
+    float    fireflyClampThreshold, zNear, zFar;
+    uint     spotLightCount, fogAreaCount, decalCount;
+    packed_float3 posW;  float jitterX;
+    packed_float3 cameraU; float jitterY;
+    packed_float3 cameraV; packed_float3 cameraW;
+};
+
+// Scalar layout: packed_float3 (12B/4-align) — MSL float3 (16-align) would
+// misplace position/color/direction off their scalar offsets.
+struct PointLight {
+    uint   type;
+    uint   goboTextureIndex;
+    packed_float3 position;
+    float  intensity;
+    packed_float3 color;
+    packed_float3 worldToLightX;
+    packed_float3 worldToLightY;
+    packed_float3 worldToLightZ;
+    float  radius;
+    float  sourceRadius;
+};
+
+struct SpotLight {
+    uint       type;
+    uint       goboTextureIndex;
+    packed_float3 position;
+    float      intensity;
+    packed_float3 direction;
+    float      cosOuterAngle;
+    packed_float3 color;
+    uint       shadowEnabled;
+    MatStorage viewProjection;
+    float      radius;
+    float      sourceRadius;
+};
+
+struct UniformObject {
+    float dissolveAmount; uint materialID; float illuminationAmount;
+    MatStorage modelMat; MatStorage invModelMat; MatStorage prevModelMat; MatStorage uvMat;
+    uint decalList;
+};
+
+// HitInfo packing + interpolated vertex (mirrors HitInfo.slang / Scene vertex data).
+struct HitInfo { uint4 packed; };
+struct TriangleHit { uint instanceID; uint primitiveIndex; float2 barycentrics; };
+struct VertexData { float3 posW; float3 normalW; float3 tangentW; float2 texC; };

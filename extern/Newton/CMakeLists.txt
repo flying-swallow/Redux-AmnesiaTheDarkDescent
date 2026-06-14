@@ -8,6 +8,12 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/core)
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/physics)
 
+if((CMAKE_GENERATOR_PLATFORM MATCHES "ARM64") OR (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64"))
+  set(NEWTON_IS_ARM64 TRUE)
+else()
+  set(NEWTON_IS_ARM64 FALSE)
+endif()
+
 if(UNIX)
 	set(CMAKE_CXX_FLAGS "-Wno-extern-c-compat")
 endif()
@@ -115,6 +121,18 @@ elseif(UNIX)
 	if(CMAKE_SIZEOF_VOID_P EQUAL 8)
 		target_compile_definitions(Newton PRIVATE _LINUX_VER_64)
 	endif()
+endif()
+
+if(NEWTON_IS_ARM64)
+  target_compile_definitions(Newton PRIVATE _SCALAR_ARITHMETIC_ONLY)
+  # dgTypes.cpp guards 32-bit x86 inline asm (cpuid) with #ifndef __x86_64__.
+  # On arm64 Linux that block is reachable, so we fake __x86_64__ to skip it.
+  # On Apple the asm is already excluded (its #if omits __APPLE__), and defining
+  # __x86_64__ wrongly pulls libkern's i386 byte-order header alongside the arm
+  # one (redefinition of _OSSwapInt*), so only apply the workaround off Apple.
+  if(NOT APPLE)
+    set_source_files_properties(core/dgTypes.cpp PROPERTIES COMPILE_DEFINITIONS "__x86_64__")
+  endif()
 endif()
 
 target_include_directories(Newton PUBLIC include)

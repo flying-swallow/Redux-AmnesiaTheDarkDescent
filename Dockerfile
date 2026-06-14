@@ -1,6 +1,6 @@
 # Ubuntu 24.04 build environment for Amnesia64.
 #
-# Provides every system dev library the in-tree builds of SDL2, openal-soft,
+# Provides every system dev library the in-tree builds of SDL3, openal-soft,
 # and the HPL2 engine pull in via #include. The Linux CI workflow
 # (.github/workflows/build.yml) installs a smaller set because GitHub's
 # ubuntu-latest image already ships some headers; this Dockerfile lists the
@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl-dev libglu1-mesa-dev libegl1-mesa-dev \
         libwayland-dev libxkbcommon-dev libdecor-0-dev \
         libasound2-dev libpulse-dev libdbus-1-dev libsamplerate0-dev \
+        libudev-dev \
         liblcms2-dev \
     && rm -rf /var/lib/apt/lists/*
 

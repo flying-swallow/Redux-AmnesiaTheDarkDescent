@@ -64,9 +64,8 @@ void cPostEffectComposite::Render(float afFrameTime, struct RICmd *cmd,
         PostEffectRenderCtx ctx{};
         ctx.cmd          = cmd;
         ctx.inputSrv     = RI_PogoBufferShaderResource(pogo);
-        ctx.outputImage  = pogo->textures[pogo->attachmentIndex].vk.image;
-        ctx.outputView   = pogo->pogoAttachment[pogo->attachmentIndex]
-                              .vk.image.imageView;
+        ctx.outputTexture = &pogo->textures[pogo->attachmentIndex];
+        ctx.outputView    = &pogo->views[pogo->attachmentIndex];
         ctx.width        = width;
         ctx.height       = height;
         ctx.frameIndex   = frameIndex;

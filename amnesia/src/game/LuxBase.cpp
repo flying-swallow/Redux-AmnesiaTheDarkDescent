@@ -369,6 +369,41 @@ cLuxBase::cLuxBase()
 
 	mpCurrentMapLoading = NULL;
 
+	///////////////////////////////
+	// Game modules — all created later in InitGame()/Init() via CreateModule().
+	// Null them here so a module ctor that runs during InitGame (e.g. cLuxPreMenu
+	// firing a gamma slider callback into cLuxConfigHandler::SetGamma) can safely
+	// null-check a sibling module that hasn't been created yet (mpMainMenu is
+	// created right AFTER mpPreMenu — was uninitialized garbage on Metal).
+	mpConfigHandler = NULL;
+	mpInputHandler = NULL;
+	mpEffectHandler = NULL;
+	mpMapHandler = NULL;
+	mpMapHelper = NULL;
+	mpDebugHandler = NULL;
+	mpSaveHandler = NULL;
+	mpScriptHandler = NULL;
+	mpHelpFuncs = NULL;
+	mpEffectRenderer = NULL;
+	mpInventory = NULL;
+	mpPreMenu = NULL;
+	mpMainMenu = NULL;
+	mpPlayer = NULL;
+	mpMusicHandler = NULL;
+	mpMessageHandler = NULL;
+	mpJournal = NULL;
+	mpCompletionCountHandler = NULL;
+	mpGlobalDataHandler = NULL;
+	mpHintHandler = NULL;
+	mpPostEffectHandler = NULL;
+	mpInsanityHandler = NULL;
+	mpProgressLogHandler = NULL;
+	mpLoadScreenHandler = NULL;
+	mpCredits = NULL;
+	mpDemoEnd = NULL;
+	mpAchievementHandler = NULL;
+	mpScreenCapture = NULL;
+
 
 	///////////////////////////////
 	// Init string

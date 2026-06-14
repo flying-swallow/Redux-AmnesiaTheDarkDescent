@@ -1,0 +1,29 @@
+#pragma once
+// Shared Metal header — port of amnesia/slang/Utils/Color/ColorHelpers.slang
+// (the subset the Metal passes use: sRGB <-> linear transfer + luminance).
+// Flattened into each .metal at stage time by cmake/flatten_metal_includes.py.
+
+// Relative luminance of a linear RGB color (ITU-R BT.709).
+static float luminance(float3 rgb) { return dot(rgb, float3(0.2126f, 0.7152f, 0.0722f)); }
+
+// sRGB -> linear (per channel; piecewise BT.709 curve).
+static float sRGBToLinear(float srgb) {
+    if (srgb <= 0.04045f) return srgb * (1.0f / 12.92f);
+    return pow((srgb + 0.055f) * (1.0f / 1.055f), 2.4f);
+}
+static float3 sRGBToLinear(float3 srgb) {
+    return float3(sRGBToLinear(srgb.x), sRGBToLinear(srgb.y), sRGBToLinear(srgb.z));
+}
+static float4 sRGBToLinear(float4 srgb) {
+    // Alpha is coverage — passed through unencoded.
+    return float4(sRGBToLinear(srgb.x), sRGBToLinear(srgb.y), sRGBToLinear(srgb.z), srgb.w);
+}
+
+// linear -> sRGB (per channel).
+static float linearToSRGB(float lin) {
+    if (lin <= 0.0031308f) return lin * 12.92f;
+    return pow(lin, (1.0f / 2.4f)) * 1.055f - 0.055f;
+}
+static float3 linearToSRGB(float3 lin) {
+    return float3(linearToSRGB(lin.x), linearToSRGB(lin.y), linearToSRGB(lin.z));
+}

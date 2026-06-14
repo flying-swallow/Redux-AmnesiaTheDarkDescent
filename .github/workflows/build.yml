@@ -18,7 +18,7 @@ jobs:
             libx11-dev libxext-dev libxi-dev \
             libgl-dev libglu1-mesa-dev \
             libwayland-dev libxkbcommon-dev libegl1-mesa-dev \
-            libasound2-dev libpulse-dev
+            libasound2-dev libpulse-dev libudev-dev
       - name: Configure
         run: |
           cmake -S . -B build -G Ninja \

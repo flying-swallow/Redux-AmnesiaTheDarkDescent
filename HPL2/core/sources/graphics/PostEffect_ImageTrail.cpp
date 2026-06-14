@@ -34,6 +34,26 @@ namespace {
 struct ImageTrailPushConstants {
     float alpha;
 };
+
+// Explicit per-backend binding tables for the two ImageTrail programs. These
+// post-effects are not bindless, so every [vk::binding] is program-managed.
+// vk = {name, set, binding, RIDescriptorType_e, count}; mtl = {name, kind,
+// index} read off the generated [[fragment]] signature in
+// build-mtl/.../posteffect_{image_trail,blit}.frag.metal.
+//
+// posteffect_image_trail.frag.metal:
+//   sourceInput [[texture(0)]], inputSampler [[sampler(0)]], pc [[buffer(0)]]
+constexpr RIProgram::RIProgramBinding kUpdate[] = {
+    {"inputSampler", RI_DESCRIPTOR_TYPE_SAMPLER, 1, RI_SHADER_STAGE_FRAGMENT, {0, 0}, {}, {0}},
+    {"sourceInput", RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, RI_SHADER_STAGE_FRAGMENT, {0, 1}, {}, {0}},
+};
+
+// posteffect_blit.frag.metal (no push constant):
+//   sourceInput [[texture(0)]], inputSampler [[sampler(0)]]
+constexpr RIProgram::RIProgramBinding kBlit[] = {
+    {"inputSampler", RI_DESCRIPTOR_TYPE_SAMPLER, 1, RI_SHADER_STAGE_FRAGMENT, {0, 0}, {}, {0}},
+    {"sourceInput", RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, RI_SHADER_STAGE_FRAGMENT, {0, 1}, {}, {0}},
+};
 } // namespace
 
 cPostEffectType_ImageTrail::cPostEffectType_ImageTrail(cGraphics *apGraphics,
@@ -41,10 +61,13 @@ cPostEffectType_ImageTrail::cPostEffectType_ImageTrail(cGraphics *apGraphics,
     : iPostEffectType("ImageTrail", apGraphics, apResources) {
     LoadSlangGraphics(&RI.device, m_updateProgram, apResources,
                       "posteffect_fullscreen.vert.spv",
-                      "posteffect_image_trail.frag.spv");
+                      "posteffect_image_trail.frag.spv", "vsMain", "psMain", {},
+                      kUpdate, sizeof(ImageTrailPushConstants),
+                      RI_SHADER_STAGE_FRAGMENT);
     LoadSlangGraphics(&RI.device, m_blitProgram, apResources,
                       "posteffect_fullscreen.vert.spv",
-                      "posteffect_blit.frag.spv");
+                      "posteffect_blit.frag.spv", "vsMain", "psMain", {},
+                      kBlit);
 }
 
 cPostEffectType_ImageTrail::~cPostEffectType_ImageTrail() {}
@@ -86,29 +109,31 @@ void EmitAccumBarrier(RICmd *cmd, RITexture *texture,
     barrier.beforeStages = beforeStages;
     barrier.after = after;
     barrier.afterStages = afterStages;
-    cmd->textureBarrier(barrier);
+    cmd->vk_d3d12_textureBarrier(barrier);
 }
 } // namespace
 
 void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
-    VkCommandBuffer cmd = ctx.cmd->vk.cmd;
-
     // Lazy-allocate / resize the accumulator. Width / height come from the
     // pogo dimensions (= swapchain dimensions in the current bootstrap).
     if (!m_accum.valid || m_accum.width != ctx.width ||
         m_accum.height != ctx.height) {
         DestroyPostEffectColorTarget(m_accum);
         CreatePostEffectColorTarget(m_accum, ctx.width, ctx.height,
-                                    RIBootstrap::PogoColorFormatVk, 0u,
+                                    RIBootstrap::PogoColorFormat, RI_USAGE_NONE,
                                     "PostEffect_ImageTrail.accum");
         mbClearAccum = true;
     }
 
     const RI_Format_e imageTrailFormat = RIBootstrap::PogoColorFormat;
-    const VkFormat imageTrailVkFormat = RIBootstrap::PogoColorFormatVk;
 
-    VkViewport viewport = { 0.0f, 0.0f, static_cast<float>(ctx.width), static_cast<float>(ctx.height), 0.0f, 1.0f };
-    VkRect2D scissor = { {0, 0}, {ctx.width, ctx.height} };
+    RIViewport viewport = {};
+    viewport.width    = static_cast<float>(ctx.width);
+    viewport.height   = static_cast<float>(ctx.height);
+    viewport.depthMax = 1.0f;
+    RIRect scissor = {};
+    scissor.width  = (int16_t)ctx.width;
+    scissor.height = (int16_t)ctx.height;
     auto samplerDesc = RI.resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 
     // ----- Pass 1: blend new frame into accum (with alpha) -----
@@ -123,34 +148,39 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
             mbClearAccum ? RI_STAGE_NONE : RI_STAGE_FRAGMENT,
             RI_RESOURCE_STATE_RENDER_TARGET_READ, RI_STAGE_NONE);
 
-        VkRenderingAttachmentInfo accumAttach = {
-            VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-        accumAttach.imageView = m_accum.descriptor.vk.image.imageView;
-        accumAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        accumAttach.loadOp = mbClearAccum ? VK_ATTACHMENT_LOAD_OP_CLEAR
-            : VK_ATTACHMENT_LOAD_OP_LOAD;
-        accumAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        accumAttach.clearValue.color = { {0.0f, 0.0f, 0.0f, 1.0f} };
+        RIRenderingAttachment accumAttach = {};
+        accumAttach.view = m_accum.descriptor.view;
+        accumAttach.loadOp = mbClearAccum ? RI_ATTACHMENT_LOAD_OP_CLEAR
+            : RI_ATTACHMENT_LOAD_OP_LOAD;
+        accumAttach.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+        accumAttach.clearValue.color[3] = 1.0f;
 
-        VkRenderingInfo accumRender = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-        accumRender.renderArea = { {0, 0}, {ctx.width, ctx.height} };
-        accumRender.layerCount = 1;
-        accumRender.colorAttachmentCount = 1;
-        accumRender.pColorAttachments = &accumAttach;
+        RIBeginRenderingDesc accumRender = {};
+        accumRender.renderArea.width  = (int16_t)ctx.width;
+        accumRender.renderArea.height = (int16_t)ctx.height;
+        accumRender.colorCount = 1;
+        accumRender.colors = &accumAttach;
+        ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, accumRender);
+        ctx.cmd->mtl_encoderDraw(accumRender);
 
-        vkCmdBeginRendering(cmd, &accumRender);
+        ctx.cmd->setViewport(&RI.renderer, viewport);
+        ctx.cmd->setScissor(&RI.renderer, scissor);
 
-        vkCmdSetViewport(cmd, 0, 1, &viewport);
-        vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-        PostEffectPipelineState blendState{};
-        InitPostEffectPipelineState(blendState, imageTrailVkFormat,
-            /*alphaBlend=*/true);
+        RIGraphicsPipelineDesc blendState{};
+        blendState.colorCount = 1;
+        blendState.colors[0].format = imageTrailFormat;
+        blendState.colors[0].blendEnabled = true;
+        blendState.colors[0].srcColor = RI_BLEND_SRC_ALPHA;
+        blendState.colors[0].dstColor = RI_BLEND_ONE_MINUS_SRC_ALPHA;
+        blendState.colors[0].colorBlendOp = RI_BLEND_OP_ADD;
+        blendState.colors[0].srcAlpha = RI_BLEND_SRC_ALPHA;
+        blendState.colors[0].dstAlpha = RI_BLEND_ONE_MINUS_SRC_ALPHA;
+        blendState.colors[0].alphaBlendOp = RI_BLEND_OP_ADD;
 
         const hash_t blendHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/1u);
         mpImageTrailType->m_updateProgram.bindPipeline(
             &RI.device, ctx.cmd, blendHash, "PostEffect_ImageTrail.update",
-            &blendState.createInfo);
+            blendState);
 
 
 
@@ -177,12 +207,11 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         else {
             pc.alpha = mParams.mfAmount;
         }
-        vkCmdPushConstants(cmd,
-            mpImageTrailType->m_updateProgram.getPipelineLayout(),
-            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+        mpImageTrailType->m_updateProgram.pushConstants(ctx.cmd, &pc, sizeof(pc));
 
-        vkCmdDraw(cmd, 3, 1, 0, 0);
-        vkCmdEndRendering(cmd);
+        ctx.cmd->draw(&RI.renderer, 3, 1, 0, 0);
+        ctx.cmd->mtl_encoderEnd();
+        ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
 
         mbClearAccum = false;
 
@@ -195,32 +224,30 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
 
     {
         // ----- Pass 2: blit accum into pogo output -----
-        VkRenderingAttachmentInfo outAttach = {
-            VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-        outAttach.imageView = ctx.outputView;
-        outAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        outAttach.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        outAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        RIRenderingAttachment outAttach = {};
+        outAttach.view = ctx.outputView;
+        outAttach.loadOp = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+        outAttach.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-        VkRenderingInfo outRender = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-        outRender.renderArea = { {0, 0}, {ctx.width, ctx.height} };
-        outRender.layerCount = 1;
-        outRender.colorAttachmentCount = 1;
-        outRender.pColorAttachments = &outAttach;
+        RIBeginRenderingDesc outRender = {};
+        outRender.renderArea.width  = (int16_t)ctx.width;
+        outRender.renderArea.height = (int16_t)ctx.height;
+        outRender.colorCount = 1;
+        outRender.colors = &outAttach;
+        ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, outRender);
+        ctx.cmd->mtl_encoderDraw(outRender);
 
-        vkCmdBeginRendering(cmd, &outRender);
+        ctx.cmd->setViewport(&RI.renderer, viewport);
+        ctx.cmd->setScissor(&RI.renderer, scissor);
 
-        vkCmdSetViewport(cmd, 0, 1, &viewport);
-        vkCmdSetScissor(cmd, 0, 1, &scissor);
-
-        PostEffectPipelineState blitState{};
-        InitPostEffectPipelineState(blitState, imageTrailVkFormat,
-            /*alphaBlend=*/false);
+        RIGraphicsPipelineDesc blitState{};
+        blitState.colorCount = 1;
+        blitState.colors[0].format = imageTrailFormat; // blend disabled (default)
 
         const hash_t blitHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/2u);
         mpImageTrailType->m_blitProgram.bindPipeline(
             &RI.device, ctx.cmd, blitHash, "PostEffect_ImageTrail.blit",
-            &blitState.createInfo);
+            blitState);
 
         {
             RIProgram::DescriptorBinding bindings[2] = {};
@@ -232,8 +259,9 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
                 &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
         }
 
-        vkCmdDraw(cmd, 3, 1, 0, 0);
-        vkCmdEndRendering(cmd);
+        ctx.cmd->draw(&RI.renderer, 3, 1, 0, 0);
+        ctx.cmd->mtl_encoderEnd();
+        ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
     }
 }
 

@@ -1,9 +1,6 @@
 [submodule "extern/volk"]
 	path = extern/volk
 	url = https://github.com/zeux/volk.git
-[submodule "extern/glslang"]
-	path = extern/glslang
-	url = https://github.com/KhronosGroup/glslang.git
 [submodule "extern/VulkanMemoryAllocator"]
 	path = extern/VulkanMemoryAllocator
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
@@ -25,6 +22,7 @@
 [submodule "extern/SDL"]
 	path = extern/SDL
 	url = https://github.com/libsdl-org/SDL.git
+	branch = release-3.2.x
 [submodule "extern/MathLib"]
 	path = extern/MathLib
 	url = https://github.com/NVIDIA-RTX/MathLib.git
@@ -34,3 +32,15 @@
 [submodule "extern/tracy"]
 	path = extern/tracy
 	url = https://github.com/wolfpld/tracy.git
+[submodule "extern/metal-cpp"]
+	path = extern/metal-cpp
+	url = https://github.com/apple/metal-cpp.git
+[submodule "extern/tinyddsloader"]
+	path = extern/tinyddsloader
+	url = https://github.com/benikabocha/tinyddsloader.git
+[submodule "extern/libpng"]
+	path = extern/libpng
+	url = https://github.com/pnggroup/libpng.git
+[submodule "extern/libjpeg-turbo"]
+	path = extern/libjpeg-turbo
+	url = https://github.com/libjpeg-turbo/libjpeg-turbo.git

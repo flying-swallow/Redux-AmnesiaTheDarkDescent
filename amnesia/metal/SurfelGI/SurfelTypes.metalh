@@ -1,0 +1,34 @@
+#pragma once
+// Mirrors amnesia/slang/SurfelGI/SurfelTypes.slang. Scalar block layout
+// (packed_float3 == 12B). Surfel embeds the MSME state.
+#include "MultiscaleMeanEstimator.metalh"   // MSMEData
+
+struct Surfel {
+    packed_float3 position;
+    uint          rayCount;
+    packed_float3 normal;
+    float         radius;
+    packed_float3 radiance;
+    float         sumLuminance;
+    MSMEData      msmeData;
+    uint          rayOffset;
+    uint          hasHole;
+};
+
+struct CellInfo {
+    uint surfelCount;
+    uint cellToSurfelBufferOffset;
+};
+
+struct SurfelRayResult {
+    packed_float3 dirLocal;
+    float         firstRayLength;
+    packed_float3 dirWorld;
+    float         pdf;
+    packed_float3 radiance;
+    uint          surfelIndex;
+};
+
+struct SurfelRecycleInfo { ushort life; ushort frame; ushort status; };
+
+struct SurfelBounds { packed_float3 position; float radius; packed_float3 normal; };

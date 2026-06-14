@@ -49,8 +49,8 @@ if [[ "$RUNTIME" == "podman" ]]; then
     echo "==> Runtime: podman (rootless) — container root maps to host uid $(id -u)."
 else
     echo "==> Runtime: docker — running as --user $(id -u):$(id -g) to keep artifacts host-owned."
-    USER_ARGS+=(--user "$(id -u):$(id -g)")
 fi
+USER_ARGS+=(--user "$(id -u):$(id -g)")
 
 # Allocate a TTY only when stdout is one, so CI / pipes still work.
 TTY_ARGS=()

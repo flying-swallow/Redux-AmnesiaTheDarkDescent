@@ -214,6 +214,7 @@ namespace hpl {
 		bool mbApplicationHasInputFocus;
 		bool mbApplicationHasMouseFocus;
 		bool mbApplicationIsVisible;
+		bool mbHasHadInputFocus;
 
 		bool mbWaitIfAppOutOfFocus;
 

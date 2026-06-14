@@ -23,11 +23,7 @@
 
 #include "system/LowLevelSystem.h"
 
-#if USE_SDL2
-#include "SDL2/SDL.h"
-#else
-#include "SDL/SDL.h"
-#endif
+#include <SDL3/SDL.h>
 
 #include "impl/TimerSDL.h"
 #include "impl/ThreadSDL.h"
@@ -37,6 +33,25 @@
 #include <algorithm>
 
 namespace hpl {
+
+	// SDL3 addresses displays by SDL_DisplayID rather than a contiguous index;
+	// translate the engine's display index through the live display list.
+	static SDL_DisplayID GetDisplayIDByIndex(int alDisplay)
+	{
+		SDL_DisplayID result = 0;
+		int count = 0;
+		SDL_DisplayID *displays = SDL_GetDisplays(&count);
+		if (displays)
+		{
+			if (alDisplay >= 0 && alDisplay < count)
+				result = displays[alDisplay];
+			else if (count > 0)
+				result = displays[0];
+			SDL_free(displays);
+		}
+		return result;
+	}
+
 	//////////////////////////////////////////////////////////////////////////
 	// APPLICATION
 	//////////////////////////////////////////////////////////////////////////
@@ -45,7 +60,8 @@ namespace hpl {
 
 	unsigned long cPlatform::GetApplicationTime()
 	{
-		return SDL_GetTicks();
+		// SDL3's SDL_GetTicks() returns Uint64 milliseconds since init.
+		return (unsigned long)SDL_GetTicks();
 	}
 
 	//-----------------------------------------------------------------------
@@ -57,10 +73,8 @@ namespace hpl {
 
 	void cPlatform::CopyTextToClipboard(const tWString &asText)
 	{
-#if SDL_VERSION_ATLEAST(2, 0, 0)
         tString tstr = cString::S16BitToUTF8(asText);
         SDL_SetClipboardText(tstr.c_str());
-#endif
 	}
 
 	//-----------------------------------------------------------------------
@@ -68,7 +82,6 @@ namespace hpl {
 	tWString cPlatform::LoadTextFromClipboard()
 	{
         tWString tstr;
-#if SDL_VERSION_ATLEAST(2, 0, 0)
         if (SDL_HasClipboardText()) {
             // Gets utf8 encoded text
             char * clip = SDL_GetClipboardText();
@@ -77,76 +90,72 @@ namespace hpl {
                 SDL_free(clip);
             }
         }
-#endif
 		return tstr;
 	}
 
 	void cPlatform::GetDisplayResolution(int alDisplay, int& alWidth, int& alHeight)
 	{
-	#if SDL_VERSION_ATLEAST(2,0,0)
-		SDL_DisplayMode desktop;
-		SDL_GetDesktopDisplayMode(alDisplay, &desktop);
-		alWidth = desktop.w;
-		alHeight = desktop.h;
-	#else
-		alWidth = 1024;
-		alHeight = 768;
-	#endif
+		const SDL_DisplayMode *desktop = SDL_GetDesktopDisplayMode(GetDisplayIDByIndex(alDisplay));
+		if (desktop)
+		{
+			alWidth = desktop->w;
+			alHeight = desktop->h;
+		}
+		else
+		{
+			alWidth = 1024;
+			alHeight = 768;
+		}
 	}
 
 	//-----------------------------------------------------------------------
 	void cPlatform::GetAvailableVideoModes(tVideoModeVec& avDestVidModes, int alMinBpp, int alMinRefreshRate)
 	{
-#if SDL_VERSION_ATLEAST(2, 0, 0)
-        int ndisplays = SDL_GetNumVideoDisplays();
+        int ndisplays = 0;
+        SDL_DisplayID *displays = SDL_GetDisplays(&ndisplays);
+        if (!displays) return;
 
         std::set<cVideoMode, VideoComp> uniqVideoModes;
 
         for (int d=0; d<ndisplays; ++d)
         {
-            SDL_DisplayMode desktop;
-            SDL_GetDesktopDisplayMode(d, &desktop);
+            SDL_DisplayID did = displays[d];
+            const SDL_DisplayMode *desktop = SDL_GetDesktopDisplayMode(did);
+            if (!desktop) continue;
 
-            int nmodes = SDL_GetNumDisplayModes(d);
-            for (int m = 0; m < nmodes; ++m)
+            int nmodes = 0;
+            SDL_DisplayMode **modes = SDL_GetFullscreenDisplayModes(did, &nmodes);
+            if (modes)
             {
-                SDL_DisplayMode mode;
-                SDL_GetDisplayMode(d, m, &mode);
-
-                if (SDL_BITSPERPIXEL(desktop.format) != (int)SDL_BITSPERPIXEL(mode.format))
+                for (int m = 0; m < nmodes; ++m)
                 {
-                    continue;
+                    SDL_DisplayMode *mode = modes[m];
+
+                    if (SDL_BITSPERPIXEL(desktop->format) != (int)SDL_BITSPERPIXEL(mode->format))
+                    {
+                        continue;
+                    }
+                    cVideoMode vidMode(
+                                       d,
+                                       cVector2l(mode->w, mode->h),
+                                       SDL_BITSPERPIXEL(mode->format),
+                                       1
+                                       );
+                    uniqVideoModes.insert(vidMode);
                 }
-                cVideoMode vidMode(
-                                   d,
-                                   cVector2l(mode.w, mode.h),
-                                   SDL_BITSPERPIXEL(mode.format),
-                                   1
-                                   );
-                uniqVideoModes.insert(vidMode);
+                SDL_free(modes);
             }
             // Add fullscreen desktop mode
-            uniqVideoModes.insert(cVideoMode(d, cVector2l(0,0), SDL_BITSPERPIXEL(desktop.format), 1));
+            uniqVideoModes.insert(cVideoMode(d, cVector2l(0,0), SDL_BITSPERPIXEL(desktop->format), 1));
         }
+        SDL_free(displays);
 
         avDestVidModes.assign(uniqVideoModes.begin(), uniqVideoModes.end());
-#else
-		const SDL_VideoInfo *info = SDL_GetVideoInfo();
-        if (!info) return;
-		SDL_Rect **modes = SDL_ListModes(info->vfmt, SDL_OPENGL | SDL_FULLSCREEN);
-		avDestVidModes.clear();
-		if (modes == NULL) return;
-		for (int i=0; modes[i]; i++)
-		{
-			avDestVidModes.push_back(cVideoMode(cVector2l(modes[i]->w, modes[i]->h),info->vfmt->BitsPerPixel,1));
-		}
-		sort(avDestVidModes.begin(), avDestVidModes.end(), VideoComp());
-#endif
 	}
 
     tWString cPlatform::GetDisplayName(int alDisplay)
     {
-        return cString::To16Char(SDL_GetDisplayName(alDisplay));
+        return cString::To16Char(SDL_GetDisplayName(GetDisplayIDByIndex(alDisplay)));
     }
 
 #ifndef HPL_MINIMAL

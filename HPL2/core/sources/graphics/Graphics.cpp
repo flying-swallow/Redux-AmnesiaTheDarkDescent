@@ -66,6 +66,28 @@
 
 namespace hpl {
 
+	// Selects which renderer backend to create. The compiled-in backends are the
+	// candidates; when more than one is available (a VK+MTL fat binary) prefer
+	// Metal on Apple platforms and Vulkan elsewhere. A future config/env override
+	// (e.g. HPL_RENDER_BACKEND) can be slotted in here without touching the call
+	// site in Init.
+	static RIDeviceAPI_e SelectRenderBackendAPI()
+	{
+#if (DEVICE_IMPL_VULKAN) && (DEVICE_IMPL_MTL)
+	#if defined(__APPLE__)
+		return RI_DEVICE_API_MTL;
+	#else
+		return RI_DEVICE_API_VK;
+	#endif
+#elif (DEVICE_IMPL_VULKAN)
+		return RI_DEVICE_API_VK;
+#elif (DEVICE_IMPL_MTL)
+		return RI_DEVICE_API_MTL;
+#else
+		return RI_DEVICE_API_UNKNOWN;
+#endif
+	}
+
 	//////////////////////////////////////////////////////////////////////////
 	// CONSTRUCTORS
 	//////////////////////////////////////////////////////////////////////////
@@ -149,12 +171,11 @@ namespace hpl {
 		}
 		{
 		struct RIBackendInit backendInit = {};
-		backendInit.api = RI_DEVICE_API_VK;
 		backendInit.applicationName = "HPL2";
-#ifndef NDEBUG
-    	backendInit.vk.enableValidationLayer = false; 
-#else
-		backendInit.vk.enableValidationLayer = false;
+		backendInit.api = SelectRenderBackendAPI();
+#if (DEVICE_IMPL_VULKAN)
+		if(backendInit.api == RI_DEVICE_API_VK)
+			backendInit.vk.enableValidationLayer = false;
 #endif
 
 		if(RI.renderer.init(&backendInit) != RI_SUCCESS) {
@@ -211,20 +232,15 @@ namespace hpl {
 		{
 			assert( RI.swapchain.imageCount > 0 );
 			for( uint32_t i = 0; i < RI.swapchain.imageCount; i++ ) {
-				VkImageViewUsageCreateInfo usageInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO };
-				VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-				createInfo.pNext = &usageInfo;
-				createInfo.subresourceRange = VkImageSubresourceRange{
-					VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
-				};
-				// Mirrors the swapchain's image-level usage. The SurfelGI
-				// composite + post-effect chain write into the viewport
-				// backbuffer, so the swapchain view only needs COLOR_ATTACHMENT.
-				usageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-				createInfo.image = RI.swapchain.vk.images[i];
-				createInfo.format = RIFormatToVK( RI.swapchain.format );
-				createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-				VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &RI.swapchainView[i].vk.image) );
+				// The SurfelGI composite + post-effect chain write into the
+				// viewport backbuffer, so the swapchain view only needs to be a
+				// color attachment over the swapchain's per-image texture.
+				RITextureViewDesc viewDesc = {};
+				viewDesc.viewType = RI_VIEWTYPE_COLOR_ATTACHMENT;
+				viewDesc.format = RI.swapchain.format;
+				viewDesc.mipNum = 1;
+				viewDesc.layerNum = 1;
+				RI.swapchainView[i] = RITextureView::create( &RI.device, &RI.swapchain.textures[i], viewDesc );
 			}
 		}
 
@@ -253,55 +269,29 @@ namespace hpl {
 			initElem.pool->reset( &RI.device );
 			initElem.cmds[0].begin( &RI.device );
 
-			VkBuffer whiteUploadStaging = VK_NULL_HANDLE;
-			VmaAllocation whiteUploadStagingAlloc = VK_NULL_HANDLE;
+			RIBuffer whiteUploadStaging = {};
 
 			// 1x1 white texture — staged upload, then transitioned to SHADER_READ_ONLY_OPTIMAL.
 			{
-				VkImageCreateInfo imageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-				imageInfo.imageType = VK_IMAGE_TYPE_2D;
-				imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-				imageInfo.extent = { 1, 1, 1 };
-				imageInfo.mipLevels = 1;
-				imageInfo.arrayLayers = 1;
-				imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-				imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-				imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-				imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-				imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-				uint32_t imageQueueFamilies[RI_QUEUE_LEN] = { 0 };
-				imageInfo.pQueueFamilyIndices = imageQueueFamilies;
-				VK_ConfigureImageQueueFamilies(&imageInfo, RI.device.queues, RI_QUEUE_LEN, imageQueueFamilies, RI_QUEUE_LEN);
-
-				VmaAllocationCreateInfo imageAllocInfo = {};
-				imageAllocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-				if (!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo, &imageAllocInfo,
-				                                  &RI.whiteTexture2D.vk.image, &RI.whiteTexture2D.vk.allocation, nullptr))) {
-					FatalError("Failed to create white texture image!\n");
-					return false;
-				}
+				RITextureDesc whiteDesc = {};
+				whiteDesc.type = RI_TEXTURE_2D;
+				whiteDesc.format = RI_FORMAT_RGBA8_UNORM;
+				whiteDesc.width = 1;
+				whiteDesc.height = 1;
+				whiteDesc.depth = 1;
+				whiteDesc.mipNum = 1;
+				whiteDesc.layerNum = 1;
+				whiteDesc.usage = RI_USAGE_SHADER_RESOURCE | RI_USAGE_TRANSFER_DST;
+				RI.whiteTexture2D = RITexture::create(&RI.device, whiteDesc);
 
 				const uint8_t whitePixel[4] = { 255, 255, 255, 255 };
-				VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-				bufferInfo.size = sizeof(whitePixel);
-				bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-				bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-				VmaAllocationCreateInfo stagingAllocInfo = {};
-				stagingAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-				stagingAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-				                         VMA_ALLOCATION_CREATE_MAPPED_BIT;
-				VmaAllocationInfo stagingInfo = {};
-				if (!VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferInfo, &stagingAllocInfo,
-				                                   &whiteUploadStaging, &whiteUploadStagingAlloc, &stagingInfo))) {
-					FatalError("Failed to create white texture staging buffer!\n");
-					return false;
-				}
-				memcpy(stagingInfo.pMappedData, whitePixel, sizeof(whitePixel));
-				vmaFlushAllocation(RI.device.vk.vmaAllocator, whiteUploadStagingAlloc, 0, VK_WHOLE_SIZE);
-
-				VkImageSubresourceRange colorRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+				RIBufferDesc stagingDesc = {};
+				stagingDesc.size = sizeof(whitePixel);
+				stagingDesc.usage = RI_BUFFER_USAGE_TRANSFER_SRC;
+				stagingDesc.location = RI_MEMORY_HOST_UPLOAD;
+				whiteUploadStaging = RIBuffer::create(&RI.device, stagingDesc);
+				memcpy(whiteUploadStaging.mappedAddress, whitePixel, sizeof(whitePixel));
+				whiteUploadStaging.flush(&RI.device);
 
 				RITextureBarrier toTransfer = {};
 				toTransfer.texture = &RI.whiteTexture2D;
@@ -310,13 +300,15 @@ namespace hpl {
 				toTransfer.afterStages = RI_STAGE_COPY;
 				toTransfer.mipCount = 1;
 				toTransfer.layerCount = 1;
-				initElem.cmds[0].textureBarrier(toTransfer);
+				initElem.cmds[0].vk_d3d12_textureBarrier(toTransfer);
 
-				VkBufferImageCopy copyRegion = {};
-				copyRegion.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-				copyRegion.imageExtent = { 1, 1, 1 };
-				vkCmdCopyBufferToImage(initElem.cmds[0].vk.cmd, whiteUploadStaging, RI.whiteTexture2D.vk.image,
-				                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
+				RIBufferTextureCopyDesc copyRegion = {};
+				copyRegion.width = 1;
+				copyRegion.height = 1;
+				copyRegion.depth = 1;
+				copyRegion.bytesPerRow = 4;   // Metal: 1px * RGBA8
+				copyRegion.bytesPerImage = 4; // bufferRowLength/Height stay 0 (VK tight-packed)
+				initElem.cmds[0].copyBufferToTexture(&RI.renderer, &whiteUploadStaging, &RI.whiteTexture2D, copyRegion);
 
 				// afterStages 0 derives the all-shader mask — sampled reads can
 				// only happen in shader stages.
@@ -327,50 +319,31 @@ namespace hpl {
 				toShaderRead.after = RI_RESOURCE_STATE_SHADER_RESOURCE;
 				toShaderRead.mipCount = 1;
 				toShaderRead.layerCount = 1;
-				initElem.cmds[0].textureBarrier(toShaderRead);
+				initElem.cmds[0].vk_d3d12_textureBarrier(toShaderRead);
 
-				VkImageViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-				viewInfo.image = RI.whiteTexture2D.vk.image;
-				viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-				viewInfo.format = imageInfo.format;
-				viewInfo.subresourceRange = colorRange;
-				if (!VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, nullptr,
-				                                    &RI.whiteTexture2DBinding.vk.image.imageView))) {
-					FatalError("Failed to create white texture image view!\n");
-					return false;
-				}
-				RI.whiteTexture2DBinding.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
+				RITextureViewDesc whiteView = {};
+				whiteView.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
+				whiteView.format = RI_FORMAT_RGBA8_UNORM;
+				whiteView.mipNum = 1;
+				whiteView.layerNum = 1;
+				RI.whiteTexture2DView = RITextureView::create(&RI.device, &RI.whiteTexture2D, whiteView);
+
+				RI.whiteTexture2DBinding = RIDescriptor::sampledImage(&RI.device, &RI.whiteTexture2DView, hash_random());
 				RI.whiteTexture2DBinding.texture = &RI.whiteTexture2D;
-				RI.whiteTexture2DBinding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-				RI.whiteTexture2DBinding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				RI.whiteTexture2DBinding.finalize(&RI.device);
 			}
 
 			// Zero-filled vertex buffer — small mapped buffer, never modified after init.
 			{
-				constexpr VkDeviceSize kNulVertexSize = 64;
-				uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-				VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-				bufferInfo.size = kNulVertexSize;
-				bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-				VK_ConfigureBufferQueueFamilies(&bufferInfo, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
-
-				VmaAllocationCreateInfo allocInfo = {};
-				allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-				allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
-				                  VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-				VmaAllocationInfo allocationInfo = {};
-				if (!VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferInfo, &allocInfo,
-				                                   &RI.nulVertexBuffer.vk.buffer, &RI.nulVertexBuffer.vk.allocation,
-				                                   &allocationInfo))) {
-					FatalError("Failed to create null vertex buffer!\n");
-					return false;
+				constexpr uint64_t kNulVertexSize = 64;
+				RIBufferDesc nulDesc = {};
+				nulDesc.size = kNulVertexSize;
+				nulDesc.usage = RI_BUFFER_USAGE_VERTEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_DST;
+				nulDesc.location = RI_MEMORY_HOST_UPLOAD;
+				RI.nulVertexBuffer = RIBuffer::create(&RI.device, nulDesc);
+				if (RI.nulVertexBuffer.mappedAddress) {
+					memset(RI.nulVertexBuffer.mappedAddress, 0, kNulVertexSize);
+					RI.nulVertexBuffer.flush(&RI.device);
 				}
-				if (allocationInfo.pMappedData) {
-					memset(allocationInfo.pMappedData, 0, kNulVertexSize);
-					vmaFlushAllocation(RI.device.vk.vmaAllocator, RI.nulVertexBuffer.vk.allocation, 0, VK_WHOLE_SIZE);
-				}
-				RI.nulVertexBuffer.mappedAddress = allocationInfo.pMappedData;
 			}
 
 			// Default-value fallback vertex streams (see RIBootstrap). Each is a
@@ -390,47 +363,26 @@ namespace hpl {
 					{ &RI.fallbackUv0Vertex,     sizeof(float) * 3, { 0.f, 0.f, 0.f, 0.f } }, // origin
 				};
 				for ( const FallbackSpec &s : specs ) {
-					uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-					VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-					bufferInfo.size = s.size;
-					bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-					VK_ConfigureBufferQueueFamilies(&bufferInfo, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
-
-					VmaAllocationCreateInfo allocInfo = {};
-					allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-					allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
-					                  VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-					VmaAllocationInfo allocationInfo = {};
-					if (!VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferInfo, &allocInfo,
-					                                   &s.target->vk.buffer, &s.target->vk.allocation,
-					                                   &allocationInfo))) {
-						FatalError("Failed to create fallback vertex buffer!\n");
-						return false;
+					RIBufferDesc fbDesc = {};
+					fbDesc.size = s.size;
+					fbDesc.usage = RI_BUFFER_USAGE_VERTEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_DST;
+					fbDesc.location = RI_MEMORY_HOST_UPLOAD;
+					*s.target = RIBuffer::create(&RI.device, fbDesc);
+					if (s.target->mappedAddress) {
+						std::memcpy(s.target->mappedAddress, s.value, s.size);
+						s.target->flush(&RI.device);
 					}
-					if (allocationInfo.pMappedData) {
-						std::memcpy(allocationInfo.pMappedData, s.value, s.size);
-						vmaFlushAllocation(RI.device.vk.vmaAllocator, s.target->vk.allocation, 0, VK_WHOLE_SIZE);
-					}
-					s.target->mappedAddress = allocationInfo.pMappedData;
 				}
 			}
 
 			initElem.cmds[0].end( &RI.device );
 
-			VkCommandBufferSubmitInfo cmdSubmitInfo = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO };
-			cmdSubmitInfo.commandBuffer = initElem.cmds[0].vk.cmd;
-
-			VkSubmitInfo2 submitInfo = { VK_STRUCTURE_TYPE_SUBMIT_INFO_2 };
-			submitInfo.commandBufferInfoCount = 1;
-			submitInfo.pCommandBufferInfos = &cmdSubmitInfo;
-
-			VK_WrapResult( vkResetFences( RI.device.vk.device, 1, &initElem.vk.fence ) );
-			VK_WrapResult( vkQueueSubmit2( RI.device.queues[RI_QUEUE_GRAPHICS].vk.queue, 1, &submitInfo, initElem.vk.fence ) );
+			// One-shot init submit: signal the element's fence/event, then block
+			// on the queue until the upload completes.
+			initElem.submit( &RI.device, &RI.device.queues[RI_QUEUE_GRAPHICS] );
 			RI.device.queues[RI_QUEUE_GRAPHICS].waitIdle(&RI.device);
 
-			if (whiteUploadStaging != VK_NULL_HANDLE) {
-				vmaDestroyBuffer(RI.device.vk.vmaAllocator, whiteUploadStaging, whiteUploadStagingAlloc);
-			}
+			whiteUploadStaging.dispose(&RI.device);
 			// The one-time init upload used graphicsCmdRing, but it has completed.
 			// Rewind the ring so the first real frame starts with a clean command pool.
 			RI.graphicsCmdRing.cmdIndex = 0;
@@ -438,22 +390,60 @@ namespace hpl {
 			RI.primary = {};
 		}
 		{
+			// Explicit binding tables for gui.vert.slang / gui.frag.slang (set 0,
+			// all program-managed — no external sets). Host wires these by name in
+			// cGuiSet::Render: "pass" (UBO via UpdateFrameUBO), "diffuseSampler",
+			// "diffuseMap". No push constant (the GuiPass block is a ConstantBuffer).
+			//   Vert (gui.vert.slang):  [vk::binding(0,0)] ConstantBuffer<GuiPass> pass
+			//   Frag (gui.frag.slang):  [vk::binding(0,0)] ConstantBuffer<GuiPass> pass
+			//                           [vk::binding(1,0)] SamplerState diffuseSampler
+			//                           [vk::binding(2,0)] Texture2D     diffuseMap
+			// Generated MSL:
+			//   gui.vert.metal: pass [[buffer(0)]]
+			//   gui.frag.metal: pass [[buffer(0)]], diffuseMap [[texture(0)]],
+			//                   diffuseSampler [[sampler(0)]]
+			static const RIProgram::RIProgramBinding kGui[] = {
+				{"pass", RI_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, RI_SHADER_STAGE_VERTEX | RI_SHADER_STAGE_FRAGMENT, {0, 0}, {}, {0}},
+				{"diffuseSampler", RI_DESCRIPTOR_TYPE_SAMPLER, 1, RI_SHADER_STAGE_FRAGMENT, {0, 1}, {}, {0}},
+				{"diffuseMap", RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, RI_SHADER_STAGE_FRAGMENT, {0, 2}, {}, {0}},
+			};
+
 			auto vert_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "gui.vert.spv");
 			auto frag_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "gui.frag.spv");
 			std::array<RIProgram::ModuleStage, 2> stages = {
 				RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, vert_stage, "vsMain"},
 				RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, frag_stage, "psMain"}
 			};
-			RI.gui.initialize(&RI.device, stages);
+			RIProgram::RIProgramDescriptor desc = {};
+			desc.stages = stages;
+			desc.bindings = kGui;
+			RI.gui.initialize(&RI.device, desc);
 		}
 		{
+			// Explicit binding tables for posteffect_blit.frag.slang (set 0, all
+			// program-managed). Host wires "inputSampler"/"sourceInput" by name in
+			// cViewport::DrawPogoToTarget. No push constant. The fullscreen vertex
+			// stage (posteffect_fullscreen.vert.slang) has no descriptors (vs empty).
+			//   Frag (posteffect_blit.frag.slang):
+			//     [vk::binding(0,0)] SamplerState      inputSampler
+			//     [vk::binding(1,0)] Texture2D<float4> sourceInput
+			// Generated MSL (posteffect_blit.frag.metal):
+			//   sourceInput [[texture(0)]], inputSampler [[sampler(0)]]
+			static const RIProgram::RIProgramBinding kBlit[] = {
+				{"inputSampler", RI_DESCRIPTOR_TYPE_SAMPLER, 1, RI_SHADER_STAGE_FRAGMENT, {0, 0}, {}, {0}},
+				{"sourceInput", RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1, RI_SHADER_STAGE_FRAGMENT, {0, 1}, {}, {0}},
+			};
+
 			auto vert_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "posteffect_fullscreen.vert.spv");
 			auto frag_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "posteffect_blit.frag.spv");
 			std::array<RIProgram::ModuleStage, 2> stages = {
 				RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, vert_stage, "vsMain"},
 				RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, frag_stage, "psMain"}
 			};
-			RI.postEffectBlit.initialize(&RI.device, stages);
+			RIProgram::RIProgramDescriptor desc = {};
+			desc.stages = stages;
+			desc.bindings = kBlit;
+			RI.postEffectBlit.initialize(&RI.device, desc);
 		}
 		////////////////////////////////////////////////
 		// Create systems

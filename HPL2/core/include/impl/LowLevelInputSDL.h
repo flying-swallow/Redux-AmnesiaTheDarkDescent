@@ -23,11 +23,7 @@
 #include <list>
 #include "input/LowLevelInput.h"
 
-#if USE_SDL2
-#include "SDL2/SDL_events.h"
-#else
-#include "SDL/SDL_events.h"
-#endif
+#include <SDL3/SDL_events.h>
 
 namespace hpl {
 

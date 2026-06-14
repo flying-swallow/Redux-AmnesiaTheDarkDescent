@@ -103,18 +103,21 @@ struct PostWorldDrawCtx : WorldDrawCtx {
 // existing pogo-shaped barriers and pipelines keep matching).
 bool CreateViewportColorTexture(struct RIDevice *device, uint32_t width,
                                 uint32_t height, enum RI_Format_e format,
-                                VkImageUsageFlags usage,
+                                uint32_t usage, // RITextureUsageBits_e
                                 struct RITexture *tex,
+                                struct RITextureView *view,
                                 struct RIDescriptor *desc, const char *what);
 void ReleaseViewportColorTexture(std::vector<RIFreeHandle> &freelist,
                                  struct RITexture *tex,
+                                 struct RITextureView *view,
                                  struct RIDescriptor *desc);
 
-// One attachment image + a plain view (depth / visibility targets).
+// One attachment image + a plain view (depth / visibility targets). Aspect is
+// derived from the format (depth/stencil vs color) inside RITextureView::create.
 bool CreateViewportAttachmentTexture(struct RIDevice *device, uint32_t width,
                                      uint32_t height, enum RI_Format_e format,
-                                     VkImageUsageFlags usage,
-                                     VkImageAspectFlags aspect,
+                                     uint32_t usage, // RITextureUsageBits_e
+                                     enum RITextureViewType_e viewType,
                                      struct RITexture *tex,
                                      struct RITextureView *view,
                                      const char *what);
@@ -149,6 +152,10 @@ public:
     uint32_t height;
     struct RITexture renderTarget = {};
     struct RIDescriptor renderTargetDescriptor = {};
+    // Attachment view for the render target (owned by the viewport state).
+    // Nullable; lets consumers bind the backbuffer as a color attachment
+    // without reaching through to the backend-specific image view.
+    struct RITextureView *colorView = nullptr;
   };
 
   // cHybridRenderer: overscan intermediates — renderTarget is a SINGLE image
@@ -166,11 +173,14 @@ public:
     BackBuffer GetBackBuffer() {
       return {(width - targetWidth) / 2, (height - targetHeight) / 2,
               targetWidth, targetHeight, renderTarget[RI.swapchainIndex],
-              renderTargetDescriptor[RI.swapchainIndex]};
+              renderTargetDescriptor[RI.swapchainIndex],
+              &renderTargetColorView[RI.swapchainIndex]};
     }
 
     struct RITexture renderTarget[RI_MAX_SWAPCHAIN_IMAGES] = {};
     struct RIDescriptor renderTargetDescriptor[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    // Color-target view owned here; renderTargetDescriptor references it.
+    struct RITextureView renderTargetColorView[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
     struct RITexture depthTextures[RI_MAX_SWAPCHAIN_IMAGES] = {};
     struct RITextureView depthView[RI_MAX_SWAPCHAIN_IMAGES] = {};
@@ -247,11 +257,14 @@ public:
     void Dispose(RIBootstrap::FrameContext *cntx);
     BackBuffer GetBackBuffer() {
       return {0, 0, width, height, renderTarget[RI.swapchainIndex],
-              renderTargetDescriptor[RI.swapchainIndex]};
+              renderTargetDescriptor[RI.swapchainIndex],
+              &renderTargetColorView[RI.swapchainIndex]};
     }
 
     struct RITexture renderTarget[RI_MAX_SWAPCHAIN_IMAGES] = {};
     struct RIDescriptor renderTargetDescriptor[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    // Color-target view owned here; renderTargetDescriptor references it.
+    struct RITextureView renderTargetColorView[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
     struct RITexture depthTextures[RI_MAX_SWAPCHAIN_IMAGES] = {};
     struct RITextureView depthView[RI_MAX_SWAPCHAIN_IMAGES] = {};
@@ -282,7 +295,7 @@ public:
     // Format of `view` — the delivery draw's color attachment (and pipeline
     // key). Defaults to the pogo format; readback consumers (thumbnails) can
     // hand an RGBA8 target instead.
-    VkFormat format = RIBootstrap::PogoColorFormatVk;
+    uint32_t format = RIBootstrap::PogoColorFormat; // RI_Format_e
   };
   using Target = std::variant<TargetSwapchain, TargetView>;
 

@@ -8,7 +8,7 @@
 #include "OALWrapper/OAL_Effect.h"
 #include "OALWrapper/OAL_Helper.h"
 
-#include <SDL2/SDL_mutex.h>
+#include <SDL3/SDL_mutex.h>
 
 cOAL_Effect::cOAL_Effect() : iOAL_LowLevelObject("Effect"),
 							 mbNeedsUpdate(true),

@@ -1,22 +1,14 @@
 
-option(BUILD_EXTERNAL OFF)
-option(ENABLE_HLSL OFF)
-option(ENABLE_OPT OFF)
-option(ENABLE_PCH OFF)
-option(ENABLE_CTEST OFF)
-
-# OALWrapper references ${SDL2_INCLUDE_DIR} directly. The bundled SDL2 build
-# doesn't export this var (only the SDL2::SDL2 target), and openal-soft's
-# optional find_package(SDL2) caches it as NOTFOUND. Set it explicitly to the
+# OALWrapper references ${SDL3_INCLUDE_DIR} directly. The bundled SDL build
+# doesn't export this var (only the SDL3::SDL3 target). Set it explicitly to the
 # bundled SDL headers before any consumer reads it.
-if(NOT USE_SYSTEM_SDL2)
-  set(SDL2_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/SDL/include" CACHE PATH "" FORCE)
+if(NOT USE_SYSTEM_SDL3)
+  set(SDL3_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/SDL/include" CACHE PATH "" FORCE)
 endif()
 
 add_subdirectory(OALWrapper)
 add_subdirectory(Newton)
 add_subdirectory(AngelScript)
-add_subdirectory(glslang)
 add_subdirectory(VulkanMemoryAllocator)
 
 set(VOLK_STATIC_DEFINES "")
@@ -41,7 +33,25 @@ endif()
 
 set(VULKAN_HEADERS_INSTALL_DIR "${CMAKE_CURRENT_SOURCE_DIR}/Vulkan-Headers" )
 option(VOLK_INSTALL "" OFF)
-add_subdirectory(volk) 
+add_subdirectory(volk)
+
+# metal-cpp: Apple's header-only C++ bindings for Metal/Foundation/QuartzCore.
+# Header-only submodule (no CMakeLists.txt of its own), macOS-only. Exposed as an
+# INTERFACE target so consumers get the include path + the Apple frameworks.
+if(APPLE)
+    add_library(metal-cpp INTERFACE)
+    target_include_directories(metal-cpp INTERFACE
+        ${CMAKE_CURRENT_SOURCE_DIR}/metal-cpp)
+    target_compile_features(metal-cpp INTERFACE cxx_std_20)
+
+    find_library(METAL_FRAMEWORK Metal REQUIRED)
+    find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
+    find_library(QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
+    target_link_libraries(metal-cpp INTERFACE
+        ${METAL_FRAMEWORK}
+        ${FOUNDATION_FRAMEWORK}
+        ${QUARTZCORE_FRAMEWORK})
+endif()
 
 if(USE_SYSTEM_ZLIB)
   find_package(ZLIB REQUIRED GLOBAL)
@@ -53,19 +63,19 @@ else()
   set_output_dir(zlib "")
 endif()
 
-if (USE_SYSTEM_SDL2)
-  find_package(SDL2 REQUIRED GLOBAL)
+if (USE_SYSTEM_SDL3)
+  find_package(SDL3 REQUIRED GLOBAL)
 else()
   option(SDL_RPATH "" OFF)
   option(SDL_SHARED "" ON)
   option(SDL_STATIC "" OFF)
   option(SDL_SHARED_ENABLED_BY_DEFAULT"" OFF)
   option(SDL_TEST "" OFF)
-  option(SDL2_DISABLE_INSTALL "" ON)
-  
+  option(SDL_DISABLE_INSTALL "" ON)
+
   add_subdirectory(SDL)
-  set_output_dir (SDL2 "")
-  set(SDL2_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/SDL/include" CACHE PATH "" FORCE)
+  set_output_dir (SDL3-shared "")
+  set(SDL3_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/SDL/include" CACHE PATH "" FORCE)
 endif()
 
 if(USE_SYSTEM_OGG)
@@ -114,55 +124,61 @@ else()
   target_compile_definitions(OpenAL PUBLIC AL_LIBTYPE_STATIC)
 endif()
 
-if(USE_SYSTEM_DEVIL)
-  find_package(DevIL REQUIRED GLOBAL)
-else()
-  # libjpeg / libpng are vendored under HPL2/dependencies/sources for the VS
-  # build; reuse the same sources from CMake so DevIL can be built with
-  # JPEG/PNG support on platforms that don't ship system codecs (notably
-  # Windows). Without these, DevIL's find_package(JPEG/PNG) fails and
-  # IL_NO_JPG / IL_NO_PNG get baked into config.h, causing JPG/PNG asset
-  # loads to silently return false.
-  add_subdirectory(
-    ${CMAKE_SOURCE_DIR}/HPL2/dependencies/sources/jpeg
-    ${CMAKE_BINARY_DIR}/HPL2/dependencies/jpeg
-  )
-  set_target_properties(jpeg PROPERTIES FOLDER extern)
-  add_subdirectory(
-    ${CMAKE_SOURCE_DIR}/HPL2/dependencies/sources/png
-    ${CMAKE_BINARY_DIR}/HPL2/dependencies/png
-  )
-  set_target_properties(png PROPERTIES FOLDER extern)
+# Image codecs (replaces DevIL): libpng + libjpeg-turbo decode PNG/JPEG, the
+# header-only tinyddsloader parses DDS, and an in-tree decoder handles TGA (see
+# HPL2/core/sources/impl/BitmapLoader{DDS,Image}.cpp). Drops DevIL/ILU and the
+# vendored HPL2/dependencies/sources/{jpeg,png} entirely.
 
-  # Steer DevIL's optional-codec discovery: IL_*_LIB=ON skips its
-  # find_package() calls; the {JPEG,PNG}_INCLUDE_DIRS / *_LIBRARIES vars are
-  # then consumed directly by DevIL/src-IL/CMakeLists.txt.
-  set(IL_JPEG_LIB ON CACHE BOOL "" FORCE)
-  set(JPEG_INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/HPL2/dependencies/sources/jpeg" CACHE PATH "" FORCE)
-  set(JPEG_LIBRARIES jpeg CACHE STRING "" FORCE)
-  set(IL_PNG_LIB ON CACHE BOOL "" FORCE)
-  set(PNG_INCLUDE_DIRS "${CMAKE_SOURCE_DIR}/HPL2/dependencies/sources/png" CACHE PATH "" FORCE)
-  set(PNG_LIBRARIES png CACHE STRING "" FORCE)
-  # FindTIFF and FindJasper transitively call find_package(JPEG); without these
-  # IL_*_LIB skips, that secondary search overwrites JPEG_LIBRARY in the cache
-  # with NOTFOUND and breaks the IL link. Short-circuit the codecs we don't
-  # bundle so DevIL relies entirely on the libs we wired above.
-  set(IL_TIFF_LIB ON CACHE BOOL "" FORCE)
-  set(IL_NO_TIF 1 CACHE STRING "" FORCE)
-  set(IL_JASPER_LIB ON CACHE BOOL "" FORCE)
-  set(IL_NO_JP2 1 CACHE STRING "" FORCE)
-
-  # ILUT is the GL/GLUT/D3D helper layer; HPL2 only uses IL/ILU. Skip it so
-  # CI doesn't need freeglut on Windows or libglut3-dev on Linux.
-  set(IL_BUILD_ILUT OFF CACHE BOOL "" FORCE)
-
-  option(IL_TESTS "" OFF)
-  option(BUILD_SHARED_LIBS "" OFF)
-  add_subdirectory(DevIL/DevIL)
-  # Public IL/*.h headers live next to the other vendored deps' includes,
-  # not inside the DevIL source tree.
-  set(IL_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/DevIL/DevIL/include" CACHE PATH "" FORCE)
+# libpng (static). find_package(ZLIB) is unconditional in libpng; it resolves
+# the system zlib on macOS/Linux. (Windows: point ZLIB_ROOT at extern/zlib.)
+set(PNG_SHARED OFF CACHE BOOL "" FORCE)
+set(PNG_STATIC ON CACHE BOOL "" FORCE)
+set(PNG_FRAMEWORK OFF CACHE BOOL "" FORCE)
+set(PNG_TESTS OFF CACHE BOOL "" FORCE)
+set(PNG_TOOLS OFF CACHE BOOL "" FORCE)
+set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+add_subdirectory(libpng)
+if(TARGET png_static)
+  set_target_properties(png_static PROPERTIES FOLDER extern)
 endif()
+
+# libjpeg-turbo forbids add_subdirectory() integration (hard error in its
+# CMakeLists), so build it as an ExternalProject (its own CMake) and consume the
+# installed static lib + headers through an IMPORTED target. The real consumer
+# must depend on `libjpeg_turbo_ep` so the headers/lib exist before it builds
+# (see HPL2/CMakeLists.txt).
+include(ExternalProject)
+set(_jt_install "${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo-ep/install")
+set(_jt_lib "${_jt_install}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}jpeg${CMAKE_STATIC_LIBRARY_SUFFIX}")
+ExternalProject_Add(libjpeg_turbo_ep
+  SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libjpeg-turbo"
+  PREFIX "${CMAKE_CURRENT_BINARY_DIR}/libjpeg-turbo-ep"
+  CMAKE_ARGS
+    -DCMAKE_INSTALL_PREFIX=${_jt_install}
+    -DCMAKE_INSTALL_LIBDIR=lib
+    -DCMAKE_BUILD_TYPE=$<CONFIG>
+    -DENABLE_SHARED=OFF
+    -DENABLE_STATIC=ON
+    -DWITH_TURBOJPEG=OFF
+    -DREQUIRE_SIMD=OFF
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+  BUILD_BYPRODUCTS "${_jt_lib}"
+)
+file(MAKE_DIRECTORY "${_jt_install}/include")
+add_library(jpeg-static STATIC IMPORTED GLOBAL)
+set_target_properties(jpeg-static PROPERTIES
+  IMPORTED_LOCATION "${_jt_lib}"
+  INTERFACE_INCLUDE_DIRECTORIES "${_jt_install}/include")
+set(JPEG_INCLUDE_DIRS "${_jt_install}/include" CACHE STRING "" FORCE)
+# png.h lives in the source dir; pnglibconf.h is generated into the build dir.
+set(PNG_INCLUDE_DIRS
+    "${CMAKE_CURRENT_SOURCE_DIR}/libpng"
+    "${CMAKE_CURRENT_BINARY_DIR}/libpng" CACHE STRING "" FORCE)
+
+# tinyddsloader: header-only DDS parser exposed as an INTERFACE target.
+add_library(tinyddsloader INTERFACE)
+target_include_directories(tinyddsloader
+    INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/tinyddsloader)
 
 add_subdirectory(MathLib)
 

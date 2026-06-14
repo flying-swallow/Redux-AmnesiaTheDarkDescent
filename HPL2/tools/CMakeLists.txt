@@ -14,7 +14,9 @@ find_file(TOOLINFO_PLIST Tool-Info.plist
 mark_as_advanced(TOOLINFO_PLIST)
 
 function(AddToolTarget target)
-    add_executable(${target} MACOSX_BUNDLE
+    # Flat executable (no macOS .app bundle): staged next to the Amnesia binary
+    # via set_output_dir() below, matching the game's flat deploy model.
+    add_executable(${target}
         ${ARGN}
     )
     target_link_libraries(${target} HPL2)
@@ -33,9 +35,10 @@ function(AddToolTarget target)
         MACOSX_BUNDLE_BUNDLE_NAME "HPL2: ${target}"
     )
 
-    if(APPLE)
-        PostBuildMacBundle(${target} "${HPL2_FRAMEWORKS}" "${HPL2_LIBRARIES}")
-    endif()
+    # No post-build bundle copy: tools are staged into the Amnesia runtime
+    # directory via set_output_dir() above, matching how amnesia/CMakeLists.txt
+    # deploys the game binary (legacy PostBuildMacBundle relied on the removed
+    # target LOCATION property and is not used by this build).
 
 endfunction()
 

@@ -39,7 +39,7 @@ using namespace hpl;
 // all three.
 bool LuxCreateScreenRenderTarget(
 		std::shared_ptr<hpl::cTexture> &outTex,
-		uint32_t width, uint32_t height, VkFormat format, const char *debugName)
+		uint32_t width, uint32_t height, uint32_t format, const char *debugName)
 {
 	auto tex = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
 	tex->width  = static_cast<uint16_t>(width);
@@ -47,43 +47,35 @@ bool LuxCreateScreenRenderTarget(
 	tex->depth  = 1;
 	tex->mipNum = 1;
 
-	VkImageCreateInfo imageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-	imageInfo.imageType   = VK_IMAGE_TYPE_2D;
-	imageInfo.format      = format;
-	imageInfo.extent      = { width, height, 1 };
-	imageInfo.mipLevels   = 1;
-	imageInfo.arrayLayers = 1;
-	imageInfo.samples     = VK_SAMPLE_COUNT_1_BIT;
-	imageInfo.tiling      = VK_IMAGE_TILING_OPTIMAL;
-	imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT |
-	                  VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-	                  VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-	imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-	VmaAllocationCreateInfo memReqs = {};
-	memReqs.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-	if (!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo, &memReqs,
-	                                  &tex->handle.vk.image, &tex->handle.vk.allocation, NULL))) {
+	RITextureDesc texDesc = {};
+	texDesc.type = RI_TEXTURE_2D;
+	texDesc.format = format;
+	texDesc.width = width;
+	texDesc.height = height;
+	texDesc.depth = 1;
+	texDesc.mipNum = 1;
+	texDesc.layerNum = 1;
+	texDesc.usage = RI_USAGE_SHADER_RESOURCE | RI_USAGE_COLOR_ATTACHMENT |
+	                RI_USAGE_TRANSFER_DST;
+	tex->handle = RITexture::create(&RI.device, texDesc);
+	if (tex->handle.isEmpty(&RI.device))
 		return false;
-	}
 
-	VkImageViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-	viewInfo.image    = tex->handle.vk.image;
-	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	viewInfo.format   = format;
-	viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-	tex->binding = {};
-	tex->binding.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-	tex->binding.texture = &tex->handle;
-	tex->binding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-	tex->binding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	if (!VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
-	                                     &tex->binding.vk.image.imageView))) {
-		return false;
-	}
-	tex->binding.finalize(&RI.device);
+	RITextureViewDesc viewDesc = {};
+	viewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
+	viewDesc.format = format;
+	viewDesc.mipNum = 1;
+	viewDesc.layerNum = 1;
+	tex->view = RITextureView::create(&RI.device, &tex->handle, viewDesc);
+	tex->binding = RIDescriptor::sampledImage(&RI.device, &tex->view, hash_random());
+//tex->binding = {};
+//	tex->binding.texture = &tex->handle;
+//	tex->binding.view = &tex->view;
+//	tex->binding.type = RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+//#if (DEVICE_IMPL_VULKAN)
+//	tex->binding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+//#endif
+//	tex->binding.finalize(&RI.device);
 	tex->setDebugName(debugName);
 
 	outTex = std::move(tex);
@@ -100,7 +92,7 @@ static void ImageBarrier(RICmd *cmd, RITexture *texture,
 	RITextureBarrier barrier(texture, before, after, beforeStages, afterStages);
 	barrier.mipCount   = 1;
 	barrier.layerCount = 1;
-	cmd->textureBarrier(barrier);
+	cmd->vk_d3d12_textureBarrier(barrier);
 }
 
 //-----------------------------------------------------------------------
@@ -131,7 +123,7 @@ void cLuxScreenCapture::EnsureTextures()
 
 	// Same format as the pogo so the capture is a straight vkCmdCopyImage.
 	LuxCreateScreenRenderTarget(m_primaryColor, mlWidth, mlHeight,
-	                            RIBootstrap::PogoColorFormatVk, "screen.primaryCapture");
+	                            RIBootstrap::PogoColorFormat, "screen.primaryCapture");
 
 	m_primaryImage = std::make_shared<Image>(Image::SingleImage{m_primaryColor});
 	mpScreenGfx    = mpGui->CreateGfxTexture(m_primaryImage.get(), false, eGuiMaterial_Diffuse);
@@ -167,8 +159,7 @@ void cLuxScreenCapture::OnPostRender(float afFrameTime)
 		return;
 	}
 
-	VkCommandBuffer cmd = RI.primary.cmds[0].vk.cmd;
-	if (cmd == VK_NULL_HANDLE) {
+	if (!RI.primary.cmds || !RI.primary.cmds[0].isOpen(&RI.renderer)) {
 		return; // No active frame to ride on; try again next post-render.
 	}
 
@@ -195,14 +186,11 @@ void cLuxScreenCapture::OnPostRender(float afFrameTime)
 			mbPrimaryEverWritten ? RI_STAGE_FRAGMENT : RI_STAGE_NONE,
 			RI_RESOURCE_STATE_COPY_DST, RI_STAGE_COPY);
 
-	VkImageCopy region = {};
-	region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-	region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
-	region.extent         = { mlWidth, mlHeight, 1 };
-	vkCmdCopyImage(cmd,
-		pSource->vk.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		m_primaryColor->handle.vk.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		1, &region);
+	RIImageCopyDesc region = {};
+	region.width  = (uint32_t)mlWidth;
+	region.height = (uint32_t)mlHeight;
+	region.depth  = 1;
+	RI.primary.cmds[0].copyImage(&RI.renderer, pSource, &m_primaryColor->handle, region);
 
 	// Restore the pogo half for the renderer's reuse; leave the capture
 	// sampleable for the GUI and the per-state effect pass.

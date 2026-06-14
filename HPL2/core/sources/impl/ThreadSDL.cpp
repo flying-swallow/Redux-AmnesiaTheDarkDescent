@@ -19,13 +19,8 @@
 
 #include "impl/ThreadSDL.h"
 
-#if USE_SDL2
-#include "SDL2/SDL.h"
+#include <SDL3/SDL.h>
 #include <typeinfo>
-#else
-#include "SDL/SDL.h"
-#include <pthread.h>
-#endif
 
 namespace hpl {
 
@@ -58,11 +53,7 @@ namespace hpl {
 	void cThreadSDL::Start()
 	{
 		mbThreadActive = true;
-#if SDL_VERSION_ATLEAST(2, 0, 0)
         mpThreadHandle = SDL_CreateThread(iThread::MainThreadFunc, typeid(this).name(), this);
-#else
-		mpThreadHandle = SDL_CreateThread(iThread::MainThreadFunc, this);
-#endif
 	}
 
 	//-----------------------------------------------------------------------
@@ -85,18 +76,8 @@ namespace hpl {
 
 	void cThreadSDL::SetPriority(eThreadPrio aPrio)
 	{
-#if SDL_VERSION_ATLEAST(2, 0, 0)
         int prio = TranslateEnginePrio(aPrio);
-        SDL_SetThreadPriority((SDL_ThreadPriority)prio);
-#else
-		/** investigate further on other linux distros and mac os x
-		 * As right now Priority range seems to be 0 .. 0 in linux */
-#   ifdef __linux__
-		struct sched_param param;
-		param.sched_priority = TranslateEnginePrio(aPrio);
-		int ret = pthread_setschedparam(SDL_GetThreadID(mpThreadHandle),SCHED_OTHER,&param);
-#   endif
-#endif
+        SDL_SetCurrentThreadPriority((SDL_ThreadPriority)prio);
 		iThread::SetPriority(aPrio);
 	}
 
@@ -104,7 +85,6 @@ namespace hpl {
 
 	int cThreadSDL::TranslateEnginePrio(eThreadPrio aPrio)
 	{
-#if SDL_VERSION_ATLEAST(2, 0, 0)
         switch (aPrio) {
             case eThreadPrio_Low:
                 return SDL_THREAD_PRIORITY_LOW;
@@ -114,15 +94,6 @@ namespace hpl {
             default:
                 return SDL_THREAD_PRIORITY_NORMAL;
 		}
-#else
-		switch (aPrio) {
-		case eThreadPrio_Low:
-		case eThreadPrio_Normal:
-		case eThreadPrio_High:
-		default:
-			return 0;
-		}
-#endif
 	}
 
 	//-----------------------------------------------------------------------

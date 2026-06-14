@@ -57,7 +57,7 @@
 #include <list>
 
 // SDL forward declares
-struct SDL_mutex;
+struct SDL_Mutex;
 struct SDL_Thread;
 
 // This expects the headers from the OALWrapper source (to keep things consistent and clean)

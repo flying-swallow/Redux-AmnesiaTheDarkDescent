@@ -7,9 +7,9 @@
 
 struct RIBlockMem {
 	struct RIBuffer buffer;       // VkBuffer + VmaAllocation + mappedAddress
-#if ( DEVICE_IMPL_VULKAN )
-	VkDeviceAddress deviceAddress;  // BDA of buffer offset 0, set at alloc time
-#endif
+	// Buffer-device-address of offset 0, set at alloc time. Backend-neutral
+	// width (== VkDeviceSize); 0 on backends without buffer device addresses.
+	RIDeviceSize deviceAddress;
 };
 
 struct RIScratchAlloc;
@@ -42,7 +42,7 @@ struct RIBufferScratchAllocReq {
 	void* pMappedAddress;
 	size_t bufferOffset;
 	size_t bufferSize;
-	VkDeviceAddress deviceAddress;  // = block.vk.deviceAddress + bufferOffset
+	RIDeviceSize deviceAddress;  // = block.deviceAddress + bufferOffset
 };
 
 size_t RINumberOfUsedBlock(struct RIDevice *device,struct RIScratchAlloc* pool);

@@ -7,69 +7,29 @@
 struct RIBlockMem RIUniformScratchAllocHandler( struct RIDevice *device, struct RIScratchAlloc *scratch, size_t size )
 {
 	struct RIBlockMem mem = {};
-#if ( DEVICE_IMPL_VULKAN )
-	{
-		uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-		VkBufferCreateInfo stageBufferCreateInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-		stageBufferCreateInfo.pNext = NULL;
-		stageBufferCreateInfo.flags = 0;
-		stageBufferCreateInfo.size = size;
-		stageBufferCreateInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
-		                            | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-		VK_ConfigureBufferQueueFamilies( &stageBufferCreateInfo, device->queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
-
-		VmaAllocationInfo allocationInfo = { 0 };
-		VmaAllocationCreateInfo allocInfo = { 0 };
-		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-			VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
-			VMA_ALLOCATION_CREATE_MAPPED_BIT;
-
-		VK_WrapResult(vmaCreateBufferWithAlignment(device->vk.vmaAllocator, &stageBufferCreateInfo, &allocInfo, scratch->alignmentReq, &mem.buffer.vk.buffer, &mem.buffer.vk.allocation, &allocationInfo));
-
-		VkMemoryPropertyFlags memPropFlags;
-		vmaGetAllocationMemoryProperties( device->vk.vmaAllocator, mem.buffer.vk.allocation, &memPropFlags );
-
-		mem.buffer.mappedAddress = allocationInfo.pMappedData;
-
-		VkBufferDeviceAddressInfo bdaInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-		bdaInfo.buffer = mem.buffer.vk.buffer;
-		mem.deviceAddress = vkGetBufferDeviceAddress( device->vk.device, &bdaInfo );
-	}
-#endif
+	// Host-mapped uniform block, addressable as a raw pointer (BDA on Vulkan).
+	RIBufferDesc desc = {};
+	desc.size = size;
+	desc.usage = RI_BUFFER_USAGE_CONSTANT_BUFFER | RI_BUFFER_USAGE_DEVICE_ADDRESS;
+	desc.location = RI_MEMORY_HOST_UPLOAD;
+	desc.alignment = scratch->alignmentReq;
+	mem.buffer = RIBuffer::create( device, desc );
+	mem.deviceAddress = mem.buffer.GetDeviceHandle( device );
 	return mem;
 }
 
 struct RIBlockMem RIAccelScratchAllocHandler( struct RIDevice *device, struct RIScratchAlloc *scratch, size_t size )
 {
 	struct RIBlockMem mem = {};
-#if ( DEVICE_IMPL_VULKAN )
-	{
-		uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-		VkBufferCreateInfo bci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-		bci.pNext = NULL;
-		bci.flags = 0;
-		bci.size  = size;
-		// AS build scratch: storage-buffer access from the AS build, plus BDA so
-		// the build can read it as a raw pointer.
-		bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-		          | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-		VK_ConfigureBufferQueueFamilies( &bci, device->queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
-
-		// GPU-only memory — no host access, no mapping.
-		VmaAllocationCreateInfo aci = { 0 };
-		aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-		VmaAllocationInfo allocationInfo = { 0 };
-		VK_WrapResult( vmaCreateBufferWithAlignment( device->vk.vmaAllocator, &bci, &aci, scratch->alignmentReq, &mem.buffer.vk.buffer, &mem.buffer.vk.allocation, &allocationInfo ) );
-
-		VkBufferDeviceAddressInfo bdaInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-		bdaInfo.buffer = mem.buffer.vk.buffer;
-		mem.deviceAddress = vkGetBufferDeviceAddress( device->vk.device, &bdaInfo );
-
-		// mem.buffer.mappedAddress stays NULL — AS scratch is never read or written by the host.
-	}
-#endif
+	// AS build scratch: GPU-only storage buffer, addressable as a raw pointer so
+	// the build can read it. mappedAddress stays null — never host-touched.
+	RIBufferDesc desc = {};
+	desc.size = size;
+	desc.usage = RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE | RI_BUFFER_USAGE_DEVICE_ADDRESS;
+	desc.location = RI_MEMORY_DEVICE;
+	desc.alignment = scratch->alignmentReq;
+	mem.buffer = RIBuffer::create( device, desc );
+	mem.deviceAddress = mem.buffer.GetDeviceHandle( device );
 	return mem;
 }
 
@@ -83,24 +43,26 @@ void InitRIScratchAlloc( struct RIDevice *device, struct RIScratchAlloc *pool, c
 static inline bool __isPoolSlotEmpty( struct RIDevice *device, struct RIBlockMem *block )
 {
 #if ( DEVICE_IMPL_VULKAN )
-	{
+	if( device->renderer->is_target_selected( RI_DEVICE_API_VK ) ) {
 		return block->buffer.vk.buffer == NULL;
+	}
+#endif
+#if ( DEVICE_IMPL_MTL )
+	if( device->renderer->is_target_selected( RI_DEVICE_API_MTL ) ) {
+		return block->buffer.mtl.buffer == nullptr;
 	}
 #endif
 	return false;
 }
 
 static inline void __FreeRIBlockMem(struct RIDevice *device,struct RIBlockMem *block ) {
-#if ( DEVICE_IMPL_VULKAN )
-	if( block->buffer.vk.buffer ) {
+	if( !__isPoolSlotEmpty( device, block ) ) {
 		block->buffer.dispose( device );
 	}
-#endif
 }
 
 void FreeRIScratchAlloc( struct RIDevice *device, struct RIScratchAlloc *pool ) {
-#if ( DEVICE_IMPL_VULKAN )
-	if( pool->current.buffer.vk.buffer ) {
+	if( !__isPoolSlotEmpty( device, &pool->current ) ) {
 		__FreeRIBlockMem( device, &pool->current );
 	}
 
@@ -115,7 +77,6 @@ void FreeRIScratchAlloc( struct RIDevice *device, struct RIScratchAlloc *pool ) 
 	for( size_t i = 0; i < arrlen( pool->oversized ); i++ ) {
 		__FreeRIBlockMem( device, &pool->oversized[i] );
 	}
-#endif
 	arrfree( pool->recycle );
 	arrfree( pool->pool );
 	arrfree( pool->oversized );
@@ -197,8 +158,8 @@ struct RIBufferScratchAllocReq RIAllocBufferFromScratchAlloc( struct RIDevice *d
 	// it keeps the allocator correct if a future change introduces per-request
 	// alignments stronger than pool->alignmentReq.
 	{
-		VkDeviceAddress curBda     = pool->current.deviceAddress + pool->blockOffset;
-		VkDeviceAddress alignedBda = ALIGN_TO( curBda, pool->alignmentReq );
+		RIDeviceSize curBda     = pool->current.deviceAddress + pool->blockOffset;
+		RIDeviceSize alignedBda = ALIGN_TO( curBda, pool->alignmentReq );
 		pool->blockOffset += (size_t)( alignedBda - curBda );
 	}
 
@@ -213,10 +174,18 @@ struct RIBufferScratchAllocReq RIAllocBufferFromScratchAlloc( struct RIDevice *d
 		}
 		pool->blockOffset = 0;
 		// Re-anchor offset to the new/recycled block's BDA.
-		VkDeviceAddress curBda     = pool->current.deviceAddress + pool->blockOffset;
-		VkDeviceAddress alignedBda = ALIGN_TO( curBda, pool->alignmentReq );
+		RIDeviceSize curBda     = pool->current.deviceAddress + pool->blockOffset;
+		RIDeviceSize alignedBda = ALIGN_TO( curBda, pool->alignmentReq );
 		pool->blockOffset += (size_t)( alignedBda - curBda );
 	}
+
+	// Invariant: both BDA re-anchors above leave blockOffset a no-op pad today
+	// (blocks are created with desc.alignment == alignmentReq, so their BDA is
+	// already aligned) and alignReqSize <= blockSize is guaranteed by the oversized
+	// path. Assert it so a future per-request alignment stronger than alignmentReq
+	// — which would make the re-anchor pad non-zero — can't silently hand back an
+	// out-of-bounds offset.
+	assert( pool->blockOffset + alignReqSize <= pool->blockSize );
 
 	struct RIBufferScratchAllocReq req = {};
 	req.block = pool->current;
@@ -231,7 +200,11 @@ struct RIBufferScratchAllocReq RIAllocBufferFromScratchAlloc( struct RIDevice *d
 void RIFinishScrachReq( struct RIDevice *device, struct RIBufferScratchAllocReq *req )
 {
 #if ( DEVICE_IMPL_VULKAN )
-	VK_WrapResult( vmaFlushAllocation( device->vk.vmaAllocator, req->block.buffer.vk.allocation, req->bufferOffset, req->bufferSize ) );
+	if( device->renderer->is_target_selected( RI_DEVICE_API_VK ) ) {
+		VK_WrapResult( vmaFlushAllocation( device->vk.vmaAllocator, req->block.buffer.vk.allocation, req->bufferOffset, req->bufferSize ) );
+	}
 #endif
+	// Metal: RI_MEMORY_HOST_UPLOAD blocks use StorageModeShared, which is
+	// CPU/GPU-coherent on unified memory — no explicit flush needed.
 }
 

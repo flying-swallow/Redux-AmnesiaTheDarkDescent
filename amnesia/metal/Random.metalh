@@ -1,0 +1,28 @@
+#pragma once
+// Mirrors amnesia/slang/Random.slang — the xoroshiro-style RNG used by the
+// hand-written Metal Surfel passes. Flattened into each .metal at stage time by
+// cmake/flatten_metal_includes.py (the Metal runtime newLibrary has no #include).
+struct RNG { uint2 s; uint2 pixel; uint frame; uint dim; };
+
+static uint rng_hash(uint seed) {
+    uint a = ((seed ^ 61u) ^ (seed >> 16u)) * 9u;
+    a = (a ^ (a >> 4u)) * 668265261u;
+    return a ^ (a >> 15u);
+}
+static uint rng_rotl(uint x, uint k) { return (x << k) | (x >> (32u - k)); }
+static uint rng_next(thread RNG& r) {
+    uint result = r.s.x * 2654435771u;
+    r.s.y = r.s.y ^ r.s.x;
+    uint oldX = r.s.x;
+    r.s.x = (rng_rotl(oldX, 26u) ^ r.s.y) ^ (r.s.y << 9u);
+    r.s.y = rng_rotl(r.s.y, 13u);
+    return result;
+}
+static void rng_init(thread RNG& r, uint2 id, uint frameIndex) {
+    r.pixel = id; r.frame = frameIndex; r.dim = 0u;
+    uint2 v = id + uint2(frameIndex);
+    uint s0 = (v.x << 16u) | v.y;
+    r.s.x = rng_hash(s0); r.s.y = rng_hash(frameIndex); rng_next(r);
+}
+static float rng_next_float(thread RNG& r) { uint u = rng_next(r); return as_type<float>(1065353216u | (u >> 9u)) - 1.0f; }
+static uint rng_next_uint(thread RNG& r, uint nmax) { return uint(floor(rng_next_float(r) * float(nmax))); }

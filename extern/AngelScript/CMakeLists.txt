@@ -10,6 +10,12 @@ set(AngelScript_VERSION_MINOR 19)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
+if((CMAKE_GENERATOR_PLATFORM MATCHES "ARM64") OR (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64|ARM64"))
+  set(ANGELSCRIPT_IS_ARM64 TRUE)
+else()
+  set(ANGELSCRIPT_IS_ARM64 FALSE)
+endif()
+
 set(ASM_SORUCES)
 if (MSVC)
   set(ASM_SORUCES
@@ -18,25 +24,32 @@ if (MSVC)
     set_source_files_properties(${ASM_SORUCES} PROPERTIES COMPILE_DEFINITIONS  "_M_X64")
 endif()
 
+set(ANGELSCRIPT_CALLFUNC_SOURCES)
+if(ANGELSCRIPT_IS_ARM64)
+  # AngelScript 2.19 in this tree does not provide a native Linux aarch64
+  # calling-convention backend. Build in portability mode instead.
+else()
+  list(APPEND ANGELSCRIPT_CALLFUNC_SOURCES
+    sources/as_callfunc_arm.cpp
+    sources/as_callfunc_mips.cpp
+    sources/as_callfunc_ppc_64.cpp
+    sources/as_callfunc_ppc.cpp
+    sources/as_callfunc_sh4.cpp
+    sources/as_callfunc_x64_gcc.cpp
+    sources/as_callfunc_x64_msvc.cpp
+    sources/as_callfunc_x86.cpp
+    sources/as_callfunc_xenon.cpp
+  )
+endif()
+
 add_library(AngelScript STATIC
   ${ASM_SORUCES}
+  ${ANGELSCRIPT_CALLFUNC_SOURCES}
   sources/as_arrayobject.cpp
   sources/as_atomic.cpp
   # sources/as_callfunc_arm_msvc.asm
   sources/as_builder.cpp
   sources/as_bytecode.cpp
-  # skip compiling assembly for arm
-  # sources/as_callfunc_arm_gcc.S 
-  # sources/as_callfunc_arm_xcode.s
-  sources/as_callfunc_arm.cpp
-  sources/as_callfunc_mips.cpp
-  sources/as_callfunc_ppc_64.cpp
-  sources/as_callfunc_ppc.cpp
-  sources/as_callfunc_sh4.cpp
-  sources/as_callfunc_x64_gcc.cpp
-  sources/as_callfunc_x64_msvc.cpp
-  sources/as_callfunc_x86.cpp
-  sources/as_callfunc_xenon.cpp
   sources/as_callfunc.cpp
   sources/as_compiler.cpp
   sources/as_configgroup.cpp
@@ -63,5 +76,9 @@ add_library(AngelScript STATIC
   sources/as_typeinfo.cpp
   sources/as_variablescope.cpp
   )
+
+if(ANGELSCRIPT_IS_ARM64)
+  target_compile_definitions(AngelScript PRIVATE AS_MAX_PORTABILITY)
+endif()
 
 target_include_directories(AngelScript PUBLIC include)

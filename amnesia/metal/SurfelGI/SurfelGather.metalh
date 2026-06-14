@@ -1,0 +1,37 @@
+#pragma once
+// Mirrors amnesia/slang/SurfelGI/SurfelGather.slang — the per-surfel coverage
+// test, kernel/depth weights, and the cell lookup used when gathering surfel
+// radiance. Flattened into each .metal at stage time by
+// cmake/flatten_metal_includes.py.
+#include "SurfelGI/SurfelTypes.metalh"  // CellInfo
+#include "SurfelUtils.metalh"           // getCellPos / isCellValid / getFlattenCellIndex / getSurfelDepthUV
+
+// lookupSurfelCell references the world-cell size kCellUnit, which the including
+// pass defines (identical value everywhere; left in the file per convention).
+
+struct SurfelHit { float dist; float dotN; float3 dirUnit; };
+
+static bool testSurfelCoverage(float3 posW, float3 normalW, float3 surfelPos,
+                               float3 surfelNormal, float radius, thread SurfelHit& hit) {
+    hit = SurfelHit{0.0f, 0.0f, float3(0.0f)};
+    float3 bias = posW - surfelPos; float dist2 = dot(bias, bias);
+    if (dist2 >= radius * radius) return false;
+    float dotN = dot(normalW, surfelNormal); if (dotN <= 0.0f) return false;
+    hit.dist = sqrt(dist2); hit.dotN = dotN; hit.dirUnit = bias / hit.dist; return true;
+}
+static float surfelKernelWeight(float dotN, float dist, float radius) {
+    return smoothstep(0.0f, 1.0f, saturate(dotN) * saturate(1.0f - dist / radius));
+}
+static float surfelDepthWeight(uint surfelIndex, float3 dirUnit, float3 surfelNormal, float dist,
+                               texture2d<float, access::sample> gSurfelDepth, sampler s) {
+    float2 d = gSurfelDepth.sample(s, getSurfelDepthUV(surfelIndex, dirUnit, surfelNormal), level(0.0f)).xy;
+    float mean = d.x, sqrMean = d.y;
+    if (dist > mean) { float v = sqrMean - mean * mean; return v / (v + (dist - mean) * (dist - mean)); }
+    return 1.0f;
+}
+static bool lookupSurfelCell(float3 posW, float3 cam, thread uint& flat, thread CellInfo& ci, device CellInfo* gCellInfoBuffer) {
+    flat = 0u; ci = CellInfo{0u, 0u};
+    int3 c = getCellPos(posW, cam, kCellUnit);
+    if (!isCellValid(c)) return false;
+    flat = getFlattenCellIndex(c); ci = gCellInfoBuffer[flat]; return true;
+}

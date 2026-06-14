@@ -1,0 +1,42 @@
+#pragma once
+// Shared Metal header — port of amnesia/slang/TranslucentPass/WaterCommon.slang.
+// Wave-animated water normal in TANGENT space: two scrolling normal-map samples
+// (slow + base frequency, faster + 1.2x frequency) blended 70/30. Callers rotate
+// it into view (raster) or world (RT) space via their own TBN.
+// Flattened into each .metal at stage time by cmake/flatten_metal_includes.py.
+//
+// LIFTED verbatim from SurfelVBuffer/SurfelVBuffer.rt.metal (parity with the
+// shipped RT water bounce). Uses explicit LOD 0 (valid from a ray-tracing stage).
+//
+// Requires WaterMaterial (declared by the consuming .metal), kInvalidTextureIndex
+// (defined by the including .metal), and a `device Set0&` with gTextures2D +
+// gMaterialSampler — #include AFTER `struct Set0`.
+
+// `waveAmplitude` / `waveFreq` are scaled by these reference constants — material
+// authors small whole numbers that map to a subtle ripple.
+constant float kWaveAmplitudeScale = 0.04f;
+constant float kWaveFrequencyScale = 10.0f;
+
+// `afT` is the engine animation-time accumulator (gPerFrame.afT).
+static float3 waterWaveNormalTangent(WaterMaterial water, float2 baseUv, float afT, device Set0& set0) {
+    float waveT     = afT * water.waveSpeed;
+    float amplitude = water.waveAmplitude * kWaveAmplitudeScale;
+    float frequency = water.waveFreq      * kWaveFrequencyScale;
+
+    float fT1 = waveT * 0.8f;
+    float2 uv1 = baseUv + waveT * 0.01f;
+    uv1.x += sin(fT1 + uv1.y * frequency) * amplitude;
+    uv1.y += sin(fT1 + uv1.x * frequency) * amplitude;
+
+    float fT2 = waveT * -2.6f;
+    float2 uv2 = baseUv + waveT * -0.012f;
+    uv2.x += sin(fT2 + uv2.y * frequency * 1.2f) * amplitude * 0.75f;
+    uv2.y += sin(fT2 + uv2.x * frequency * 1.2f) * amplitude * 0.75f;
+
+    uint normalTex = water.tex[1];
+    if (normalTex == kInvalidTextureIndex) return float3(0.0f, 0.0f, 1.0f);
+
+    float3 n1 = set0.gTextures2D[normalTex].sample(set0.gMaterialSampler, uv1, level(0.0f)).xyz * 2.0f - 1.0f;
+    float3 n2 = set0.gTextures2D[normalTex].sample(set0.gMaterialSampler, uv2, level(0.0f)).xyz * 2.0f - 1.0f;
+    return normalize(n1 * 0.7f + n2 * 0.3f);
+}
