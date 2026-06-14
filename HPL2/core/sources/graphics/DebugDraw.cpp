@@ -595,11 +595,13 @@ namespace hpl {
 		auto drawRun = [&](RIProgram& aProgram, size_t alRunVertexStart, size_t alRunIndexStart,
 						   size_t alRunIndexCount, RIProgram::DescriptorBinding* apBindings, size_t alNumBindings) {
 			aProgram.bindDescriptors(&RI.device, cmd, RI.frameIndex, apBindings, alNumBindings);
-			const VkDeviceSize vbOffset = vtxBase + alRunVertexStart * sizeof(DebugVertex);
-			const VkDeviceSize ibOffset = idxBase + alRunIndexStart * sizeof(uint32_t);
-			vkCmdBindVertexBuffers(cmd->vk.cmd, 0, 1, &m_vertexBuffer.vk.buffer, &vbOffset);
-			vkCmdBindIndexBuffer(cmd->vk.cmd, m_indexBuffer.vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
-			cmd->drawIndexed((uint32_t)alRunIndexCount, 1, 0, 0, 0);
+			const RIDeviceSize vbOffset = vtxBase + alRunVertexStart * sizeof(DebugVertex);
+			const RIDeviceSize ibOffset = idxBase + alRunIndexStart * sizeof(uint32_t);
+			RIBuffer *vertBufs[1] = {&m_vertexBuffer};
+			const RIDeviceSize vertOffsets[1] = {vbOffset};
+			cmd->bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
+			cmd->bindIndexBuffer(&RI.renderer, &m_indexBuffer, ibOffset, RI_INDEX_TYPE_32);
+			cmd->drawIndexed(&RI.renderer, (uint32_t)alRunIndexCount, 1, 0, 0, 0);
 		};
 
 		////////////////////////////////////////////

@@ -393,18 +393,19 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 						  uint32_t alWidth, uint32_t alHeight, VkFormat aFormat,
 						  uint32_t alHashSalt, const char *asLabel)
 	{
-		VkRenderingAttachmentInfo colorAttach = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-		colorAttach.imageView   = aView;
-		colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
-		VkRenderingInfo renderInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-		renderInfo.renderArea = { { 0, 0 }, { alWidth, alHeight } };
-		renderInfo.layerCount = 1;
-		renderInfo.colorAttachmentCount = 1;
-		renderInfo.pColorAttachments    = &colorAttach;
+		RITextureView colorView = {};
+		colorView.vk.image = aView;
+		RIRenderingAttachment color = {};
+		color.view    = colorView;
+		color.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+		color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-		vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
+		RIBeginRenderingDesc beginDesc = {};
+		beginDesc.renderArea.width  = (int16_t)alWidth;
+		beginDesc.renderArea.height = (int16_t)alHeight;
+		beginDesc.colorCount = 1;
+		beginDesc.colors     = &color;
+		RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
 
 		VkViewport vp = { 0.0f, 0.0f, (float)alWidth, (float)alHeight, 0.0f, 1.0f };
 		vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
@@ -432,7 +433,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 		RI.postEffectBlit.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, bindings, 2);
 
 		vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3, 1, 0, 0);
-		vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+		RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
 	}
 
 	} // namespace
@@ -538,7 +539,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 				RI_PogoAttachmentBarrier(
 							 &pPogo->textures[pPogo->attachmentIndex], /*initial=*/true),
 			};
-			RI.primary.cmds[0].textureBarriers<3>(3, pre);
+			RI.primary.cmds[0].vk_d3d12_textureBarriers<3>(3, pre);
 
 			VkImageBlit region = {};
 			region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
@@ -564,7 +565,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 							 RI_RESOURCE_STATE_COPY_DST, RI_STAGE_BLIT,
 							 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT),
 			};
-			RI.primary.cmds[0].textureBarriers<2>(2, post);
+			RI.primary.cmds[0].vk_d3d12_textureBarriers<2>(2, post);
 
 			cPostEffectComposite *pComposite = GetPostEffectComposite();
 			if(pComposite && (alFlags & tSceneRenderFlag_PostEffects) &&
@@ -621,14 +622,14 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 				// rewritten; also covers its first use) -> COLOR for the
 				// delivery draw, then -> SHADER_READ for the consumer.
 				RITexture *pViewTexture = const_cast<RITexture *>(&pView->texture);
-				RI.primary.cmds[0].textureBarrier(ColorBarrier(pViewTexture,
+				RI.primary.cmds[0].vk_d3d12_textureBarrier(ColorBarrier(pViewTexture,
 								 RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_FRAGMENT,
 								 RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE));
 
 				DrawPogoToTarget(pPogo, pView->view.vk.image, pView->width, pView->height,
 								 pView->format, 2u, "PostEffect.targetViewBlit");
 
-				RI.primary.cmds[0].textureBarrier(ColorBarrier(pViewTexture,
+				RI.primary.cmds[0].vk_d3d12_textureBarrier(ColorBarrier(pViewTexture,
 								 RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
 								 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT));
 
@@ -649,7 +650,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 				// a stack RITexture for the barrier.
 				RITexture swapchainTexture = {};
 				swapchainTexture.vk.image = RI.swapchain.vk.images[RI.swapchainIndex];
-				RI.primary.cmds[0].textureBarrier(ColorBarrier(&swapchainTexture,
+				RI.primary.cmds[0].vk_d3d12_textureBarrier(ColorBarrier(&swapchainTexture,
 								 RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_NONE,
 								 RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE));
 

@@ -185,7 +185,6 @@ bool cLuxHelpFuncs::PlayGuiSoundData(const tString& asName,eSoundEntryType aDest
 void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
                                     cGuiSet *apSet) {
 
-  VkRenderingInfo renderingInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
   RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
 
   // Ensure we actually have a live primary command buffer for this frame.
@@ -215,15 +214,16 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
 	  return;
   }
 
-  VkRenderingAttachmentInfo colorAttachment = {
-      VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-  RI_VK_FillColorAttachmentView(&colorAttachment ,
-                                &RI.swapchainView[RI.swapchainIndex],
-                                /*attachAndClear=*/false);
-  colorAttachment.clearValue.color.float32[0] = aCol.r;
-  colorAttachment.clearValue.color.float32[1] = aCol.g;
-  colorAttachment.clearValue.color.float32[2] = aCol.b;
-  colorAttachment.clearValue.color.float32[3] = aCol.a;
+  // Swapchain color LOADs whatever the scene composite left (attachAndClear is
+  // false); the clear color is kept for parity but unused under LOAD.
+  RIRenderingAttachment color = {};
+  color.view = RI.swapchainView[RI.swapchainIndex];
+  color.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
+  color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+  color.clearValue.color[0] = aCol.r;
+  color.clearValue.color[1] = aCol.g;
+  color.clearValue.color[2] = aCol.b;
+  color.clearValue.color[3] = aCol.a;
 
   // Depth comes from the primary viewport's renderer internals; GUI-only
   // frames (menus, loading screens — no world drawn yet) have none and the
@@ -233,10 +233,11 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   struct RITextureView *pDepthView =
       pViewport ? pViewport->GetDepthView() : NULL;
 
-  VkRenderingAttachmentInfo depthStencil = {
-      VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+  RIRenderingAttachment depth = {};
   if (pDepthView) {
-    RI_VK_FillDepthAttachment(&depthStencil, pDepthView, false);
+    depth.view = *pDepthView;
+    depth.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
+    depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
   }
   // Clear screen
   //if (abClearScreen) {
@@ -244,21 +245,16 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   //  mpLowLevelGfx->ClearFrameBuffer(eClearFrameBufferFlag_Color);
   //}
 
-  renderingInfo.flags = 0;
-  renderingInfo.renderArea =
-      VkRect2D{{0, 0}, {RI.swapchain.width, RI.swapchain.height}};
-  renderingInfo.layerCount = 1;
-  renderingInfo.viewMask = 0;
-  renderingInfo.colorAttachmentCount = 1;
-  renderingInfo.pColorAttachments = &colorAttachment;
-  renderingInfo.pDepthAttachment = pDepthView ? &depthStencil : NULL;
-  renderingInfo.pStencilAttachment = NULL;
+  RIBeginRenderingDesc beginDesc = {};
+  beginDesc.renderArea.width = (int16_t)RI.swapchain.width;
+  beginDesc.renderArea.height = (int16_t)RI.swapchain.height;
+  beginDesc.colorCount = 1;
+  beginDesc.colors = &color;
+  beginDesc.depthStencil = pDepthView ? &depth : NULL;
 
   // GuiSet builds its pipelines for RI.swapchain.format / RIBootstrap::DepthFormat
   // (see GuiSet.cpp). If the attachments here ever change, update GuiSet to match.
-  assert(colorAttachment.imageView == RI.swapchainView[RI.swapchainIndex].vk.image);
-
-  vkCmdBeginRendering(cmd, &renderingInfo);
+  RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
 
   ///////////////////////////
   // Draw set
@@ -268,8 +264,8 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
 
   pSet->Render(NULL, pViewport);
   pSet->ClearRenderObjects();
-	
-  vkCmdEndRendering(cmd);
+
+  RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
 
   //mpLowLevelGfx->FlushRendering();
   //mpLowLevelGfx->SwapBuffers();

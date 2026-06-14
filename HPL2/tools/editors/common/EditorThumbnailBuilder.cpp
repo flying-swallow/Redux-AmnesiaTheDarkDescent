@@ -405,7 +405,7 @@ void cEditorThumbnailBuilder::RecordCacheCopy(const WorldDrawCtx& ctx)
 			RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_COPY_DST,
 			RI_STAGE_NONE, RI_STAGE_COPY),
 	};
-	pCmd->textureBarriers<2>(2, pre);
+	pCmd->vk_d3d12_textureBarriers<2>(2, pre);
 
 	VkImageCopy region = {};
 	region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
@@ -424,7 +424,7 @@ void cEditorThumbnailBuilder::RecordCacheCopy(const WorldDrawCtx& ctx)
 			RI_RESOURCE_STATE_COPY_DST, RI_RESOURCE_STATE_SHADER_RESOURCE,
 			RI_STAGE_COPY, RI_STAGE_FRAGMENT),
 	};
-	pCmd->textureBarriers<2>(2, post);
+	pCmd->vk_d3d12_textureBarriers<2>(2, post);
 }
 
 //-------------------------------------------------------------------

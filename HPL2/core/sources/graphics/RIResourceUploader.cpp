@@ -220,7 +220,7 @@ void RI_ResourceEndCopyBuffer( struct RIDevice *device, struct RIResourceUploade
 		pre_barrier.beforeStages = trans->currentStages;
 		pre_barrier.after = RI_RESOURCE_STATE_COPY_DST;
 		pre_barrier.afterStages = RI_STAGE_COPY;
-		barrierCmd->bufferBarrier( pre_barrier );
+		barrierCmd->vk_d3d12_bufferBarrier( pre_barrier );
 	}
 
 	vkCmdCopyBuffer( cmd, trans->mapped.buffer, trans->target.vk.buffer, 1, &region );
@@ -232,7 +232,7 @@ void RI_ResourceEndCopyBuffer( struct RIDevice *device, struct RIResourceUploade
 		post_barrier.beforeStages = RI_STAGE_COPY;
 		post_barrier.after = trans->postState;
 		post_barrier.afterStages = trans->postStages;
-		barrierCmd->bufferBarrier( post_barrier );
+		barrierCmd->vk_d3d12_bufferBarrier( post_barrier );
 	}
 #endif
 }
@@ -304,7 +304,7 @@ void RI_ResourceEndCopyTexture( struct RIDevice *device, struct RIResourceUpload
 		pre_barrier.mipCount = 1;
 		pre_barrier.baseLayer = trans->arrayOffset;
 		pre_barrier.layerCount = 1;
-		barrierCmd->textureBarrier( pre_barrier );
+		barrierCmd->vk_d3d12_textureBarrier( pre_barrier );
 	}
 
 	vkCmdCopyBufferToImage( cmd, trans->mapped.buffer, trans->target.vk.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region );
@@ -320,7 +320,7 @@ void RI_ResourceEndCopyTexture( struct RIDevice *device, struct RIResourceUpload
 		post_barrier.mipCount = 1;
 		post_barrier.baseLayer = trans->arrayOffset;
 		post_barrier.layerCount = 1;
-		barrierCmd->textureBarrier( post_barrier );
+		barrierCmd->vk_d3d12_textureBarrier( post_barrier );
 	}
 #endif
 }

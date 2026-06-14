@@ -69,20 +69,19 @@ cPostEffect_RadialBlur::~cPostEffect_RadialBlur() {}
 void cPostEffect_RadialBlur::RenderEffect(const PostEffectRenderCtx &ctx) {
     VkCommandBuffer cmd = ctx.cmd->vk.cmd;
 
-    VkRenderingAttachmentInfo colorAttach = {
-        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    colorAttach.imageView   = ctx.outputView;
-    colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+    RITextureView outView = {};
+    outView.vk.image = ctx.outputView;
+    RIRenderingAttachment color = {};
+    color.view    = outView;
+    color.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+    color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-    VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-    renderInfo.renderArea           = {{0, 0}, {ctx.width, ctx.height}};
-    renderInfo.layerCount           = 1;
-    renderInfo.colorAttachmentCount = 1;
-    renderInfo.pColorAttachments    = &colorAttach;
-
-    vkCmdBeginRendering(cmd, &renderInfo);
+    RIBeginRenderingDesc beginDesc = {};
+    beginDesc.renderArea.width  = (int16_t)ctx.width;
+    beginDesc.renderArea.height = (int16_t)ctx.height;
+    beginDesc.colorCount = 1;
+    beginDesc.colors     = &color;
+    ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, beginDesc);
 
     VkViewport viewport = {0.0f,
                            0.0f,
@@ -123,7 +122,7 @@ void cPostEffect_RadialBlur::RenderEffect(const PostEffectRenderCtx &ctx) {
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
-    vkCmdEndRendering(cmd);
+    ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
 }
 
 } // namespace hpl

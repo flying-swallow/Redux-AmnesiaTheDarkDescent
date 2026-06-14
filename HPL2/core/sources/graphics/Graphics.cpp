@@ -202,7 +202,7 @@ namespace hpl {
 		swapchainInit.width = alWidth;
 		swapchainInit.height = alHeight;
 		swapchainInit.format = RI_SWAPCHAIN_BT709_G22_8BIT;
-		InitRISwapchain(&RI.device, &swapchainInit, &RI.swapchain);
+		InitRISwapchain(&RI.renderer, &RI.device, &swapchainInit, &RI.swapchain);
 
 		// Per-viewport render targets (backbuffer, overscan render target,
 		// depth, visibility) are created lazily by each renderer's Draw on its
@@ -310,7 +310,7 @@ namespace hpl {
 				toTransfer.afterStages = RI_STAGE_COPY;
 				toTransfer.mipCount = 1;
 				toTransfer.layerCount = 1;
-				initElem.cmds[0].textureBarrier(toTransfer);
+				initElem.cmds[0].vk_d3d12_textureBarrier(toTransfer);
 
 				VkBufferImageCopy copyRegion = {};
 				copyRegion.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
@@ -327,7 +327,7 @@ namespace hpl {
 				toShaderRead.after = RI_RESOURCE_STATE_SHADER_RESOURCE;
 				toShaderRead.mipCount = 1;
 				toShaderRead.layerCount = 1;
-				initElem.cmds[0].textureBarrier(toShaderRead);
+				initElem.cmds[0].vk_d3d12_textureBarrier(toShaderRead);
 
 				VkImageViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 				viewInfo.image = RI.whiteTexture2D.vk.image;

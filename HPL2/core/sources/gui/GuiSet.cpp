@@ -1002,7 +1002,7 @@ namespace hpl {
 			uint64_t ibOffset = idxOffset + indexBufferOffset * sizeof(uint32_t);
 			vkCmdBindVertexBuffers(RI.primary.cmds[0].vk.cmd, 0, 1, &RI.guiVertexBuffer.vk.buffer, &vbOffset);
 			vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, RI.guiIndexBuffer.vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
-			RI.primary.cmds[0].drawIndexed(indexBufferIndex, 1, 0, 0, 0);
+			RI.primary.cmds[0].drawIndexed(&RI.renderer, indexBufferIndex, 1, 0, 0, 0);
 
 			vertexBufferOffset += vertexBufferIndex;
 			indexBufferOffset += indexBufferIndex;

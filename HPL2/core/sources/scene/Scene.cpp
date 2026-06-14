@@ -238,25 +238,32 @@ namespace hpl {
 				// viewport passed into cGuiSet::Render).
 				struct RITextureView *pGuiDepthView = pViewPort->GetDepthView();
 
-				VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-				RI_VK_FillColorAttachmentView( &colorAttachment, &RI.swapchainView[RI.swapchainIndex] , !worldRendered );
-				VkRenderingAttachmentInfo depthStencil = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
+				// Color LOADs the world composite when present, else CLEARs (also
+				// establishes the UNDEFINED → COLOR transition).
+				RIRenderingAttachment color = {};
+				color.view = RI.swapchainView[RI.swapchainIndex];
+				color.loadOp = worldRendered ? RI_ATTACHMENT_LOAD_OP_LOAD
+											  : RI_ATTACHMENT_LOAD_OP_CLEAR;
+				color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+
+				RIRenderingAttachment depth = {};
 				if(pGuiDepthView)
 				{
-					RI_VK_FillDepthAttachment( &depthStencil, pGuiDepthView, false );
+					depth.view = *pGuiDepthView;
+					depth.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
+					depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 				}
-				VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-				renderingInfo.renderArea = VkRect2D{ { 0, 0 }, { RI.swapchain.width, RI.swapchain.height } };
-				renderingInfo.layerCount = 1;
-				renderingInfo.colorAttachmentCount = 1;
-				renderingInfo.pColorAttachments = &colorAttachment;
-				renderingInfo.pDepthAttachment = pGuiDepthView ? &depthStencil : NULL;
+
+				RIBeginRenderingDesc beginDesc = {};
+				beginDesc.renderArea.width = (int16_t)RI.swapchain.width;
+				beginDesc.renderArea.height = (int16_t)RI.swapchain.height;
+				beginDesc.colorCount = 1;
+				beginDesc.colors = &color;
+				beginDesc.depthStencil = pGuiDepthView ? &depth : NULL;
 
 				// GuiSet builds its pipelines for RI.swapchain.format / RIBootstrap::DepthFormat
 				// (see GuiSet.cpp). If the attachments here ever change, update GuiSet to match.
-				assert(colorAttachment.imageView == RI.swapchainView[RI.swapchainIndex].vk.image);
-
-				vkCmdBeginRendering( RI.primary.cmds[0].vk.cmd , &renderingInfo );
+				RI.primary.cmds[0].vk_d3d12_beginRendering( &RI.renderer, beginDesc );
 
 				if(alFlags & tSceneRenderFlag_World)
 				{
@@ -271,7 +278,7 @@ namespace hpl {
 					STOP_TIMING(RenderGUI)
 				}
 
-				vkCmdEndRendering( RI.primary.cmds[0].vk.cmd );
+				RI.primary.cmds[0].vk_d3d12_endRendering( &RI.renderer );
 			}
 		}
 	}

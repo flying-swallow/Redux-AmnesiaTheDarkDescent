@@ -128,7 +128,7 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
     toPresent.texture = &swapchainTexture;
     toPresent.before = RI_RESOURCE_STATE_RENDER_TARGET_READ;
     toPresent.after = RI_RESOURCE_STATE_PRESENT;
-    RI.primary.cmds[0].textureBarrier(toPresent);
+    RI.primary.cmds[0].vk_d3d12_textureBarrier(toPresent);
   }
   RI.primary.cmds[0].end(&RI.device);
   RI.blasSubmit.cmds[0].end(&RI.device);
@@ -261,7 +261,7 @@ void RIBootstrap::BeginActiveSet() {
     toColor.texture = &swapchainTexture;
     toColor.before = RI_RESOURCE_STATE_UNDEFINED;
     toColor.after = RI_RESOURCE_STATE_RENDER_TARGET_READ;
-    RI.primary.cmds[0].textureBarrier(toColor);
+    RI.primary.cmds[0].vk_d3d12_textureBarrier(toColor);
   }
 }
 

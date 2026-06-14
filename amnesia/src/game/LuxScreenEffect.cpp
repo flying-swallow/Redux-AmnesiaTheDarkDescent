@@ -30,19 +30,6 @@ using namespace hpl;
 
 //-----------------------------------------------------------------------
 
-// Lay down a single whole-image color barrier on the active command buffer.
-static void ImageBarrier(RICmd *cmd, RITexture *texture,
-		uint32_t before, uint32_t beforeStages,
-		uint32_t after, uint32_t afterStages)
-{
-	RITextureBarrier barrier(texture, before, after, beforeStages, afterStages);
-	barrier.mipCount   = 1;
-	barrier.layerCount = 1;
-	cmd->textureBarrier(barrier);
-}
-
-//-----------------------------------------------------------------------
-
 void cLuxScreenEffect::Init(hpl::cGui *apGui, Effect effect)
 {
 	mpGui   = apGui;
@@ -174,23 +161,23 @@ void cLuxScreenEffect::OnPostRender()
 		{
 			// dst → color attachment (discard old contents; wait on any prior
 			// sampling of dst — covers the WAR hazard on the ping-pong).
-			ImageBarrier(&RI.primary.cmds[0], &dst->handle,
-					RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_FRAGMENT,
-					RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
+			RITextureBarrier toTarget(&dst->handle,
+					RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_RENDER_TARGET,
+					RI_STAGE_FRAGMENT, RI_STAGE_NONE);
+			RI.primary.cmds[0].vk_d3d12_textureBarrier(toTarget);
 
-			VkRenderingAttachmentInfo attach = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-			attach.imageView   = dst->binding.vk.image.imageView;
-			attach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			attach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-			attach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+			RITextureView dstView = dst->binding.textureView();
+			RIRenderingAttachment color = {};
+			color.view    = dstView;
+			color.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+			color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-			VkRenderingInfo render = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-			render.renderArea           = { { 0, 0 }, { w, h } };
-			render.layerCount           = 1;
-			render.colorAttachmentCount = 1;
-			render.pColorAttachments    = &attach;
-
-			vkCmdBeginRendering(cmd, &render);
+			RIBeginRenderingDesc beginDesc = {};
+			beginDesc.renderArea.width  = (int16_t)w;
+			beginDesc.renderArea.height = (int16_t)h;
+			beginDesc.colorCount = 1;
+			beginDesc.colors     = &color;
+			RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
 
 			vkCmdSetViewport(cmd, 0, 1, &viewport);
 			vkCmdSetScissor(cmd, 0, 1, &scissor);
@@ -211,12 +198,13 @@ void cLuxScreenEffect::OnPostRender()
 			                   VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
 			vkCmdDraw(cmd, 3, 1, 0, 0);
-			vkCmdEndRendering(cmd);
+			RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
 
 			// dst → sampleable for the next pass / the GUI.
-			ImageBarrier(&RI.primary.cmds[0], &dst->handle,
-					RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
-					RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
+			RITextureBarrier toSampled(&dst->handle,
+					RI_RESOURCE_STATE_RENDER_TARGET, RI_RESOURCE_STATE_SHADER_RESOURCE,
+					RI_STAGE_NONE, RI_STAGE_FRAGMENT);
+			RI.primary.cmds[0].vk_d3d12_textureBarrier(toSampled);
 		};
 
 		const float kBlurSize   = 2.0f; // texel multiplier per tap (tunable)
@@ -235,27 +223,27 @@ void cLuxScreenEffect::OnPostRender()
 		return;
 	}
 
-	ImageBarrier(&RI.primary.cmds[0], &m_screenBgColor->handle,
-			RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_NONE,
-			RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
+	RITextureBarrier bgToTarget(&m_screenBgColor->handle,
+			RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_RENDER_TARGET,
+			RI_STAGE_NONE, RI_STAGE_NONE);
+	RI.primary.cmds[0].vk_d3d12_textureBarrier(bgToTarget);
 
 	////////////////////////////////////////////////
 	// Fullscreen post-effect — sample the shared capture, write m_screenBgColor.
 	////////////////////////////////////////////////
 
-	VkRenderingAttachmentInfo colorAttach = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-	colorAttach.imageView   = m_screenBgColor->binding.vk.image.imageView;
-	colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+	RITextureView bgColorView = m_screenBgColor->binding.textureView();
+	RIRenderingAttachment color = {};
+	color.view    = bgColorView;
+	color.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+	color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-	VkRenderingInfo renderInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-	renderInfo.renderArea = { { 0, 0 }, { w, h } };
-	renderInfo.layerCount = 1;
-	renderInfo.colorAttachmentCount = 1;
-	renderInfo.pColorAttachments = &colorAttach;
-
-	vkCmdBeginRendering(cmd, &renderInfo);
+	RIBeginRenderingDesc beginDesc = {};
+	beginDesc.renderArea.width  = (int16_t)w;
+	beginDesc.renderArea.height = (int16_t)h;
+	beginDesc.colorCount = 1;
+	beginDesc.colors     = &color;
+	RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
 
 	VkViewport viewport = {};
 	viewport.x = 0.0f; viewport.y = 0.0f;
@@ -333,12 +321,13 @@ void cLuxScreenEffect::OnPostRender()
 	                              RI.frameIndex, bindings, 2);
 
 	vkCmdDraw(cmd, 3, 1, 0, 0);
-	vkCmdEndRendering(cmd);
+	RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
 
 	// m_screenBgColor → SHADER_READ_ONLY so subsequent GUI draws can sample it.
-	ImageBarrier(&RI.primary.cmds[0], &m_screenBgColor->handle,
-			RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
-			RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
+	RITextureBarrier bgToSampled(&m_screenBgColor->handle,
+			RI_RESOURCE_STATE_RENDER_TARGET, RI_RESOURCE_STATE_SHADER_RESOURCE,
+			RI_STAGE_NONE, RI_STAGE_FRAGMENT);
+	RI.primary.cmds[0].vk_d3d12_textureBarrier(bgToSampled);
 
 	mbApplyPending = false;
 	mbApplied      = true;

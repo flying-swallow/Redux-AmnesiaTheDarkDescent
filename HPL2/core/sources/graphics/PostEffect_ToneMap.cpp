@@ -70,20 +70,22 @@ void cPostEffect_ToneMap::RenderEffect(const PostEffectRenderCtx &ctx) {
     // Single fullscreen pass: sample the (bloom-composited) HDR pogo input, ACES
     // tonemap to linear [0,1], write the pogo output. The composite handles the
     // pogo toggle / barriers around this call.
-    VkRenderingAttachmentInfo outAttach = {
-        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    outAttach.imageView   = ctx.outputView;
-    outAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    outAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    outAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+    // The ctx exposes the output as a raw VkImageView; wrap it in the RI view
+    // type the attachment abstraction expects.
+    RITextureView outView = {};
+    outView.vk.image = ctx.outputView;
 
-    VkRenderingInfo render = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-    render.renderArea           = {{0, 0}, {ctx.width, ctx.height}};
-    render.layerCount           = 1;
-    render.colorAttachmentCount = 1;
-    render.pColorAttachments    = &outAttach;
+    RIRenderingAttachment color = {};
+    color.view    = outView;
+    color.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+    color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-    vkCmdBeginRendering(cmd, &render);
+    RIBeginRenderingDesc beginDesc = {};
+    beginDesc.renderArea.width  = (int16_t)ctx.width;
+    beginDesc.renderArea.height = (int16_t)ctx.height;
+    beginDesc.colorCount = 1;
+    beginDesc.colors     = &color;
+    ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, beginDesc);
 
     VkViewport viewport = {0.0f,
                            0.0f,
@@ -126,7 +128,7 @@ void cPostEffect_ToneMap::RenderEffect(const PostEffectRenderCtx &ctx) {
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
-    vkCmdEndRendering(cmd);
+    ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
 }
 
 } // namespace hpl

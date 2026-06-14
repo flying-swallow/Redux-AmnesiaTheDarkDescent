@@ -701,7 +701,7 @@ void cVertexBuffer::BuildBlas(RICmd *cmd, RIDevice *device,
   buildDesc.geometryNum = 1;
   buildDesc.scratchOffset = scratchReq.bufferOffset;
   buildDesc.scratchBuffer = &scratchReq.block.buffer;
-  cmd->buildBlas(device, &buildDesc, 1);
+  cmd->buildBlas(&RI.renderer, device, &buildDesc, 1);
 
   m_blasGeneration = m_generation;
 }

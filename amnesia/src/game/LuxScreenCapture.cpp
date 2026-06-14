@@ -100,7 +100,7 @@ static void ImageBarrier(RICmd *cmd, RITexture *texture,
 	RITextureBarrier barrier(texture, before, after, beforeStages, afterStages);
 	barrier.mipCount   = 1;
 	barrier.layerCount = 1;
-	cmd->textureBarrier(barrier);
+	cmd->vk_d3d12_textureBarrier(barrier);
 }
 
 //-----------------------------------------------------------------------

@@ -41,17 +41,6 @@ struct BloomAddPushConstants {
     float _pad;
 };
 
-void EmitImageBarrier(RICmd *cmd, RITexture *texture,
-                      enum RIResourceState_e before, uint32_t beforeStages,
-                      enum RIResourceState_e after, uint32_t afterStages) {
-    RITextureBarrier barrier = {};
-    barrier.texture = texture;
-    barrier.before = before;
-    barrier.beforeStages = beforeStages;
-    barrier.after = after;
-    barrier.afterStages = afterStages;
-    cmd->textureBarrier(barrier);
-}
 } // namespace
 
 cPostEffectType_Bloom::cPostEffectType_Bloom(cGraphics *apGraphics,
@@ -109,12 +98,14 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
         // First-time transitions out of UNDEFINED — set the "rest state":
         // blur[0] = SHADER_READ_ONLY (will flip to ATTACH on first H blur),
         // blur[1] = COLOR_ATTACHMENT  (will flip to READ on first H blur).
-        EmitImageBarrier(ctx.cmd, &m_blur[0].texture,
-                         RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_NONE,
-                         RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
-        EmitImageBarrier(ctx.cmd, &m_blur[1].texture,
-                         RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_NONE,
-                         RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
+        RITextureBarrier blur0Init(&m_blur[0].texture,
+                         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_SHADER_RESOURCE,
+                         RI_STAGE_NONE, RI_STAGE_FRAGMENT);
+        ctx.cmd->vk_d3d12_textureBarrier(blur0Init);
+        RITextureBarrier blur1Init(&m_blur[1].texture,
+                         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_RENDER_TARGET,
+                         RI_STAGE_NONE, RI_STAGE_NONE);
+        ctx.cmd->vk_d3d12_textureBarrier(blur1Init);
         m_blurInitialized = true;
     }
 
@@ -149,27 +140,29 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
                         float dirX, float dirY) {
         // Layout flip: dest SHADER_READ → COLOR_ATTACH ; prev dest
         // (which we'll sample next time) COLOR_ATTACH → SHADER_READ.
-        EmitImageBarrier(ctx.cmd, destTexture,
-                         RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT,
-                         RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
-        EmitImageBarrier(ctx.cmd, prevDestTexture,
-                         RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
-                         RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
+        RITextureBarrier destToTarget(destTexture,
+                         RI_RESOURCE_STATE_SHADER_RESOURCE, RI_RESOURCE_STATE_RENDER_TARGET,
+                         RI_STAGE_FRAGMENT, RI_STAGE_NONE);
+        ctx.cmd->vk_d3d12_textureBarrier(destToTarget);
+        RITextureBarrier prevToSampled(prevDestTexture,
+                         RI_RESOURCE_STATE_RENDER_TARGET, RI_RESOURCE_STATE_SHADER_RESOURCE,
+                         RI_STAGE_NONE, RI_STAGE_FRAGMENT);
+        ctx.cmd->vk_d3d12_textureBarrier(prevToSampled);
 
-        VkRenderingAttachmentInfo attach = {
-            VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-        attach.imageView   = destView;
-        attach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        attach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        attach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+        RITextureView destViewRi = {};
+        destViewRi.vk.image = destView;
 
-        VkRenderingInfo render = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-        render.renderArea           = {{0, 0}, {blurW, blurH}};
-        render.layerCount           = 1;
-        render.colorAttachmentCount = 1;
-        render.pColorAttachments    = &attach;
+        RIRenderingAttachment color = {};
+        color.view    = destViewRi;
+        color.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+        color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-        vkCmdBeginRendering(cmd, &render);
+        RIBeginRenderingDesc beginDesc = {};
+        beginDesc.renderArea.width  = (int16_t)blurW;
+        beginDesc.renderArea.height = (int16_t)blurH;
+        beginDesc.colorCount = 1;
+        beginDesc.colors     = &color;
+        ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, beginDesc);
 
         vkCmdSetViewport(cmd, 0, 1, &blurViewport);
         vkCmdSetScissor(cmd, 0, 1, &blurScissor);
@@ -186,7 +179,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
                            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
         vkCmdDraw(cmd, 3, 1, 0, 0);
-        vkCmdEndRendering(cmd);
+        ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
     };
 
     // Iterative blur: first iter samples the pogo input, subsequent
@@ -207,25 +200,26 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
     }
 
     // Flip blur[1] COLOR_ATTACH → SHADER_READ for the add pass to sample.
-    EmitImageBarrier(ctx.cmd, &m_blur[1].texture,
-                     RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
-                     RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
+    RITextureBarrier blur1ToSampled(&m_blur[1].texture,
+                     RI_RESOURCE_STATE_RENDER_TARGET, RI_RESOURCE_STATE_SHADER_RESOURCE,
+                     RI_STAGE_NONE, RI_STAGE_FRAGMENT);
+    ctx.cmd->vk_d3d12_textureBarrier(blur1ToSampled);
 
     // ----- Add pass: sample source + blur, write pogo output -----
-    VkRenderingAttachmentInfo outAttach = {
-        VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    outAttach.imageView   = ctx.outputView;
-    outAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    outAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    outAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+    RITextureView outView = {};
+    outView.vk.image = ctx.outputView;
 
-    VkRenderingInfo outRender = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-    outRender.renderArea           = {{0, 0}, {ctx.width, ctx.height}};
-    outRender.layerCount           = 1;
-    outRender.colorAttachmentCount = 1;
-    outRender.pColorAttachments    = &outAttach;
+    RIRenderingAttachment outColor = {};
+    outColor.view    = outView;
+    outColor.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+    outColor.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-    vkCmdBeginRendering(cmd, &outRender);
+    RIBeginRenderingDesc outBeginDesc = {};
+    outBeginDesc.renderArea.width  = (int16_t)ctx.width;
+    outBeginDesc.renderArea.height = (int16_t)ctx.height;
+    outBeginDesc.colorCount = 1;
+    outBeginDesc.colors     = &outColor;
+    ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, outBeginDesc);
 
     VkViewport viewport = {0.0f,
                            0.0f,
@@ -264,13 +258,14 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(apc), &apc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
-    vkCmdEndRendering(cmd);
+    ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
 
     // Restore the rest state: blur[1] back to COLOR_ATTACH for the next
     // call's swap-and-write pass. blur[0] is already in SHADER_READ_ONLY.
-    EmitImageBarrier(ctx.cmd, &m_blur[1].texture,
-                     RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT,
-                     RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
+    RITextureBarrier blur1Restore(&m_blur[1].texture,
+                     RI_RESOURCE_STATE_SHADER_RESOURCE, RI_RESOURCE_STATE_RENDER_TARGET,
+                     RI_STAGE_FRAGMENT, RI_STAGE_NONE);
+    ctx.cmd->vk_d3d12_textureBarrier(blur1Restore);
 }
 
 } // namespace hpl

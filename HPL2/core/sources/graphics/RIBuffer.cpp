@@ -14,8 +14,12 @@ void RIBuffer::setDebugObjectName(struct RIDevice *device,
 
 
 void RIBuffer::dispose(struct RIDevice *device) {
+#if (DEVICE_IMPL_VULKAN)
+	if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
 		vkDestroyBuffer(device->vk.device, vk.buffer, NULL);
 		vmaFreeMemory(device->vk.vmaAllocator, vk.allocation);
+	}
+#endif
 }
 
 struct RIBuffer

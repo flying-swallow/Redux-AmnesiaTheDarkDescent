@@ -11,7 +11,6 @@
 
 namespace hpl {
 static void vkDescriptorSetAlloc( struct RIDevice *device, struct RIDescriptorSetAlloc *alloc ) {
-	assert( device->renderer->api == RI_DEVICE_API_VK );
 	struct RIProgram::DescriptorSetSlot *programDescriptor = hpl_container_of( alloc, &RIProgram::DescriptorSetSlot::alloc );
   VkDescriptorPoolSize descriptorPoolSize[16] = {};
   size_t descriptorPoolLen = 0;

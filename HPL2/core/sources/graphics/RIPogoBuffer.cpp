@@ -81,5 +81,5 @@ void RI_PogoBufferToggle( struct RIDevice *device, struct RI_PogoBuffer *pogo, s
 	barriers[0] = RI_PogoShaderBarrier( &pogo->textures[pogo->attachmentIndex], false );
 	pogo->attachmentIndex = ( ( pogo->attachmentIndex + 1 ) % 2 );
 	barriers[1] = RI_PogoAttachmentBarrier( &pogo->textures[pogo->attachmentIndex], false );
-	handle->textureBarriers<2>( 2, barriers );
+	handle->vk_d3d12_textureBarriers<2>( 2, barriers );
 }
