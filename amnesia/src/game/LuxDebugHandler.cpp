@@ -89,6 +89,8 @@ cLuxDebugHandler::cLuxDebugHandler() : iLuxUpdateable("LuxDebugHandler")
 	
 	mbFastForward = false;
 	mpCBFastForward = NULL;
+
+	mpCBEvaluationOverlay = NULL;
 }
 
 //-----------------------------------------------------------------------
@@ -961,7 +963,7 @@ void cLuxDebugHandler::CreateGuiWindow()
 
 	///////////////////////////
 	//Window
-	cVector2f vSize = cVector2f(250, 780);
+	cVector2f vSize = cVector2f(250, 845);
 	vGroupSize.x = vSize.x - 20;
 	cVector3f vPos = cVector3f(mpGuiSet->GetVirtualSize().x - vSize.x - 10, 10, 0);
 	mpDebugWindow = mpGuiSet->CreateWidgetWindow(0,vPos,vSize,_W("Debug Toolbar") );
@@ -1175,6 +1177,31 @@ void cLuxDebugHandler::CreateGuiWindow()
 
 
 		//Group end
+		vGroupSize.y = vGroupPos.y + 15;
+		pGroup->SetSize(vGroupSize);
+		vPos.y += vGroupSize.y + 15;
+	}
+
+	//////////////////////////
+	// Evaluation Overlay
+	{
+		// Group
+		vGroupPos = cVector3f(5, 10, 0.1f);
+		pGroup = mpGuiSet->CreateWidgetGroup(vPos, 100, _W("Evaluation Overlay"), mpDebugWindow);
+
+		// Pick overlay
+		mpCBEvaluationOverlay = mpGuiSet->CreateWidgetComboBox(vGroupPos, vSize, _W("Normal"), pGroup);
+		mpCBEvaluationOverlay->AddItem("Normal");
+		mpCBEvaluationOverlay->AddItem("Variance");
+		mpCBEvaluationOverlay->AddItem("Ray Count");
+		mpCBEvaluationOverlay->AddItem("Ref Count");
+		mpCBEvaluationOverlay->AddItem("Life");
+		mpCBEvaluationOverlay->AddItem("Coverage");
+		mpCBEvaluationOverlay->SetSelectedItem(-1);
+		mpCBEvaluationOverlay->AddCallback(eGuiMessage_SelectionChange, this, kGuiCallback(ChangeEvaluationOverlay));
+		vGroupPos.y += 22;
+
+		// Group end
 		vGroupSize.y = vGroupPos.y + 15;
 		pGroup->SetSize(vGroupSize);
 		vPos.y += vGroupSize.y + 15;
@@ -1763,3 +1790,12 @@ kGuiCallbackDeclaredFuncEnd(cLuxDebugHandler, PressLoadBatchLoadFile);
 
 
 //-----------------------------------------------------------------------
+
+bool cLuxDebugHandler::ChangeEvaluationOverlay(iWidget* apWidget, const cGuiMessageData& aData)
+{
+	cHybridRenderer* pHybridRenderer = static_cast<cHybridRenderer*>(gpBase->mpEngine->GetGraphics()->GetRenderer(eRenderer_Main));
+	pHybridRenderer->SetOverlay(aData.mlVal);
+
+	return true;
+}
+kGuiCallbackDeclaredFuncEnd(cLuxDebugHandler, ChangeEvaluationOverlay);

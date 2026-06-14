@@ -1986,6 +1986,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
         bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
 
+    static_assert(sizeof(SurfelGenerationPushConstants) == 4);
+    const SurfelGenerationPushConstants push{ m_surfelOverlayMode };
+    vkCmdPushConstants(RI.primary.cmds[0].vk.cmd, m_surfelGenerate.getPipelineLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+
     const uint32_t fullW = renderWidth;
     const uint32_t fullH = renderHeight;
     RI.primary.cmds[0].dispatch((fullW + 15u) / 16u, (fullH + 15u) / 16u, 1u);

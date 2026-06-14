@@ -144,7 +144,8 @@ private:
 	bool PressLoadBatchLoadFile(iWidget* apWidget,const cGuiMessageData& aData);
 	kGuiCallbackDeclarationEnd(PressLoadBatchLoadFile);
 
-
+	bool ChangeEvaluationOverlay(iWidget* apWidget, const cGuiMessageData& aData);
+	kGuiCallbackDeclarationEnd(ChangeEvaluationOverlay);
 
 	cGui *mpGui;
 
@@ -160,6 +161,8 @@ private:
 	cWidgetFrame *mpScriptOutputFrame;
 
 	cWidgetCheckBox *mpCBFastForward;
+
+	cWidgetComboBox *mpCBEvaluationOverlay;
 	
 	tWidgetList mlstScriptOutputWidgets;
 

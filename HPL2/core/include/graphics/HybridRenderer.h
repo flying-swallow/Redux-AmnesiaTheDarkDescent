@@ -54,6 +54,8 @@ public:
   virtual bool LoadData() override { return true; };
   virtual void DestroyData() override {};
 
+  void SetOverlay(int alOverlay) { m_surfelOverlayMode = (uint32_t)alOverlay; }
+
 private:
   // Owns set 0 — the global bindless descriptor set and every buffer bound to
   // it. The resolve* / flushMirrors operations and all set-0 buffers live here;
@@ -189,6 +191,9 @@ private:
 	// transition once on its first appearance; after that the atlas data
 	// must persist (integrate EMA-blends with the prior frame's values).
 	std::array<bool, RI_MAX_SWAPCHAIN_IMAGES> m_surfelAtlasesInitialized = {};
+
+	struct SurfelGenerationPushConstants { uint32_t overlayMode; };
+	uint32_t m_surfelOverlayMode = kDefaultOverlayMode;
 };
 
 } // namespace hpl

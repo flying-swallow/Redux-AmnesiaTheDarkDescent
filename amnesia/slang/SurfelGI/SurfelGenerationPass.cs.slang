@@ -20,9 +20,17 @@ import SurfelGI.SurfelGather;
 import SurfelGI.SurfelLifecycle;
 
 // CB fields (placement / removal / blending / variance / chance) now come
-// from Constants.h as `kDefault*`, matching the SurfelEvaluationPass /
-// SurfelIntegratePass / SurfelRayTrace convention. Only the per-pixel
-// indirect-lighting output stays pass-private at set 2.
+// from Constants.h as `kDefault*`, matching the SurfelIntegratePass /
+// SurfelRayTrace convention. The runtime overlay selector is supplied through
+// push constants; only the indirect-lighting output stays private at set 2.
+
+struct SurfelGenerationPushConstants
+{
+    uint overlayMode;
+};
+
+[vk::push_constant]
+ConstantBuffer<SurfelGenerationPushConstants> gPushConstants;
 
 [vk::binding(0, 2)]
 RWTexture2D<float4> gOutput;
@@ -40,6 +48,8 @@ void csMain(
     uint3 groupThreadID   : SV_GroupThreadID,
     uint3 groupdId        : SV_GroupID)
 {
+    const uint overlayMode = gPushConstants.overlayMode;
+
     if (groupIndex == 0)
     {
         groupShareMinCoverage     = ~0u;
@@ -183,23 +193,34 @@ void csMain(
             }
         }
 
-        // Per-pixel output + tile-wide election — active threads only (the
-        // original reached this only for valid pixels). Inactive threads would
-        // contribute coverage=0 to the InterlockedMin and could win the
-        // election with garbage state, so they must abstain.
-        if (indirectLighting.w > 0)
-        {
-            indirectLighting.xyz /= indirectLighting.w;
-            indirectLighting.w    = saturate(indirectLighting.w);
-            varianceEx           /= indirectLighting.w;
-            rayCountEx           /= indirectLighting.w;
+        const float totalWeight = indirectLighting.w;
 
-            if      (kDefaultOverlayMode == 0) gOutput[pixelPos] = indirectLighting;
-            else if (kDefaultOverlayMode == 1) gOutput[pixelPos] = float4(stepColor(maxVariance * kDefaultVarianceSensitivity, 0.8f, 0.5f), 1);
-            else if (kDefaultOverlayMode == 2) gOutput[pixelPos] = float4(stepColor(rayCountEx, 48.f, 32.f), 1);
-            else if (kDefaultOverlayMode == 3) gOutput[pixelPos] = float4(lerpColor(refCount / 256.f), 1);
-            else if (kDefaultOverlayMode == 4) gOutput[pixelPos] = float4(step(life, 0u), step(1u, life), 0, 1);
-            else if (kDefaultOverlayMode == 5) gOutput[pixelPos] = float4(lerpColor(smoothstep(kDefaultPlacementThreshold, kDefaultRemovalThreshold, coverage)), 1);
+        if (totalWeight > 0.f)
+        {
+            indirectLighting.xyz /= totalWeight;
+            indirectLighting.w = saturate(totalWeight);
+
+            varianceEx /= totalWeight;
+            rayCountEx /= totalWeight;
+        }
+
+        // Coverage remains meaningful when no surfels contribute filtered lighting.
+        if (overlayMode == 5u)
+        {
+            gOutput[pixelPos] = float4(lerpColor(smoothstep(kDefaultPlacementThreshold, kDefaultRemovalThreshold, coverage)), 1.f);
+        }
+        else if (totalWeight > 0.f)
+        {
+            if (overlayMode == 0u)
+                gOutput[pixelPos] = indirectLighting;
+            else if (overlayMode == 1u)
+                gOutput[pixelPos] = float4(stepColor(maxVariance * kDefaultVarianceSensitivity, 0.8f, 0.5f), 1.f);
+            else if (overlayMode == 2u)
+                gOutput[pixelPos] = float4(stepColor(rayCountEx, 48.f, 32.f), 1.f);
+            else if (overlayMode == 3u)
+                gOutput[pixelPos] = float4(lerpColor(float(refCount) / 256.f), 1.f);
+            else if (overlayMode == 4u)
+                gOutput[pixelPos] = float4(step(float(life), 0.f), step(1.f, float(life)), 0.f, 1.f);
         }
 
         uint covData = 0;

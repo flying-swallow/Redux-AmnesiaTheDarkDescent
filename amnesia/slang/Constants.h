@@ -328,8 +328,8 @@ SHARED_CONST float kWaterReflectionTurbulence = 0.3f;
 // Evaluation overlay (SurfelEvaluationPass). 0 = normal indirect lighting.
 // Non-zero values render diagnostic visualizations:
 //   1 = variance, 2 = ray count, 3 = ref count, 4 = life, 5 = coverage.
-// Flip in source and recompile shaders to enable a debug overlay; no
-// runtime UI hook exists yet.
+// Initial value for the runtime overlay-mode push constant. The host may
+// change the active mode at runtime without recompiling the shader.
 SHARED_CONST uint  kDefaultOverlayMode          = 0u;
 
 // MainCompositePass per-component toggles. 0 = skip that term, 1 = add
