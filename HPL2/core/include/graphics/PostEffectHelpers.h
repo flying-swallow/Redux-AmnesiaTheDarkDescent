@@ -3,9 +3,7 @@
 
 #include "graphics/RITypes.h"
 
-#if (DEVICE_IMPL_VULKAN)
-#include <volk.h>
-#endif
+#include "graphics/RIPreamble.h"
 
 #include <cstdint>
 

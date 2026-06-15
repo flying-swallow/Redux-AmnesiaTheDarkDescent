@@ -7,9 +7,7 @@
 #include <stdint.h>
 #include <vector>
 
-#ifdef DEVICE_SUPPORT_VULKAN
-#include "volk.h"
-#endif
+#include "graphics/RIPreamble.h"
 
 struct RITexture;
 struct RIBuffer;

@@ -3,9 +3,7 @@
 
 #include "graphics/RITypes.h"   // RI_Format_e
 
-#if (DEVICE_IMPL_VULKAN)
-#include <volk.h>
-#endif
+#include "graphics/RIPreamble.h"
 
 #include "system/Hasher.h"      // hash_t
 

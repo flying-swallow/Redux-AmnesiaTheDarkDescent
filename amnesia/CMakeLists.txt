@@ -145,8 +145,12 @@ SHADERS
     ./slang/PostEffect/posteffect_fullscreen.vert.slang
     ./slang/PostEffect/posteffect_blit.frag.slang
     ./slang/PostEffect_ToneMap/posteffect_tonemap.frag.slang
+    # posteffect_bloom_blur is shared: LuxEffectRenderer (outline glow) and
+    # LuxScreenEffect still use it. The mip-chain bloom uses the three below.
     ./slang/PostEffect_Bloom/posteffect_bloom_blur.frag.slang
-    ./slang/PostEffect_Bloom/posteffect_bloom_add.frag.slang
+    ./slang/PostEffect_Bloom/posteffect_bloom_downsample.frag.slang
+    ./slang/PostEffect_Bloom/posteffect_bloom_upsample.frag.slang
+    ./slang/PostEffect_Bloom/posteffect_bloom_composite.frag.slang
     ./slang/PostEffect_ColorConvTex/posteffect_color_conv.frag.slang
     ./slang/PostEffect_ImageTrail/posteffect_image_trail.frag.slang
     ./slang/PostEffect_RadialBlur/posteffect_radial_blur.frag.slang

@@ -25,9 +25,7 @@
 #include "graphics/RITypes.h"
 #include "math/MathTypes.h"
 
-#if (DEVICE_IMPL_VULKAN)
-#include <volk.h>
-#endif
+#include "graphics/RIPreamble.h"
 
 namespace hpl {
 

@@ -26,6 +26,8 @@
 #include "graphics/RIProgram.h"
 #include "math/MathTypes.h"
 
+#include <vector>
+
 namespace hpl {
 
 class cPostEffectParams_Bloom : public iPostEffectParams {
@@ -34,13 +36,28 @@ public:
         : iPostEffectParams("Bloom"),
           mvRgbToIntensity(0.3f, 0.58f, 0.12f),
           mfBlurSize(1.0f),
-          mlBlurIterations(2) {}
+          mlBlurIterations(2),
+          mfThreshold(1.0f),
+          mfSoftKnee(0.5f),
+          mfStrength(0.06f),
+          mfFilterRadius(1.0f),
+          mlMaxMips(6) {}
 
     kPostEffectParamsClassInit(cPostEffectParams_Bloom)
 
+    // Legacy params from the old single-level Gaussian bloom. Kept so existing
+    // .cfg / script setters still compile; the mip-chain implementation ignores
+    // them.
     cVector3f mvRgbToIntensity;
     float     mfBlurSize;
     int       mlBlurIterations;
+
+    // Modern mip-chain bloom params.
+    float mfThreshold;    // soft-knee bright-pass threshold (max-channel)
+    float mfSoftKnee;     // knee width as a fraction of threshold [0,1]
+    float mfStrength;     // overall bloom contribution at composite
+    float mfFilterRadius; // tent-filter spread (texels) during upsample
+    int   mlMaxMips;      // cap on the number of mip-chain levels
 };
 
 class cPostEffectType_Bloom : public iPostEffectType {
@@ -53,10 +70,13 @@ public:
     iPostEffect *CreatePostEffect(iPostEffectParams *apParams) override;
 
 private:
-    // Two programs share the fullscreen vert. blur applies a 5-tap
-    // separable kernel; add combines the source + blurred bright pass.
-    RIProgram m_blurProgram;
-    RIProgram m_addProgram;
+    // Three programs share the fullscreen vert. downsample builds the bloom
+    // mip chain (with prefilter+Karis on the first mip); upsample tent-filters
+    // a coarser mip and additively blends it up; composite adds bloom mip[0]
+    // back into the HDR scene.
+    RIProgram m_downsampleProgram;
+    RIProgram m_upsampleProgram;
+    RIProgram m_compositeProgram;
 };
 
 class cPostEffect_Bloom : public iPostEffect {
@@ -71,11 +91,13 @@ private:
     void OnSetParams() override {}
     iPostEffectParams *GetTypeSpecificParams() override { return &mParams; }
 
-    // Quarter-resolution ping-pong blur scratch targets owned by this
-    // effect instance. Allocated lazily on first RenderEffect (and on
-    // viewport resize).
-    PostEffectColorTarget m_blur[2];
-    bool m_blurInitialized = false;
+    // Bloom mip chain owned by this effect instance. m_mips[0] is half the
+    // viewport resolution, each subsequent mip half again. Allocated lazily on
+    // first RenderEffect and rebuilt when the viewport size changes (compared
+    // against m_mipsW / m_mipsH).
+    std::vector<PostEffectColorTarget> m_mips;
+    uint32_t m_mipsW = 0;
+    uint32_t m_mipsH = 0;
 
     cPostEffectType_Bloom *mpBloomType;
     cPostEffectParams_Bloom mParams;

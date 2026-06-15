@@ -1,3 +1,4 @@
+#pragma once
 
 #ifdef DEVICE_SUPPORT_VULKAN
 #include "volk.h"
