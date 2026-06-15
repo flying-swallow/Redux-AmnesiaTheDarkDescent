@@ -2345,7 +2345,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     const OverlayPushConstants push{ m_overlayMode };
     vkCmdPushConstants(RI.primary.cmds[0].vk.cmd, m_mainComposite.getPipelineLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
 
-    RI.primary.cmds[0].dispatch((renderWidth + 15u) / 16u,
+    RI.primary.cmds[0].dispatch(&RI.device, (renderWidth + 15u) / 16u,
                                 (renderHeight + 15u) / 16u, 1u);
   }
 
