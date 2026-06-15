@@ -31,14 +31,22 @@
 namespace hpl {
 
 namespace {
-struct BloomBlurPushConstants {
-    float blurDir[2];
-    float _pad[2];
+// Must match the [vk::push_constant] blocks in the bloom .frag.slang shaders.
+struct BloomDownsamplePushConstants {
+    float    threshold;
+    float    knee;
+    uint32_t applyThreshold;
+    float    _pad;
 };
 
-struct BloomAddPushConstants {
-    float rgbToIntensity[3];
-    float _pad;
+struct BloomUpsamplePushConstants {
+    float filterRadius;
+    float _pad[3];
+};
+
+struct BloomCompositePushConstants {
+    float strength;
+    float _pad[3];
 };
 
 } // namespace
@@ -46,12 +54,15 @@ struct BloomAddPushConstants {
 cPostEffectType_Bloom::cPostEffectType_Bloom(cGraphics *apGraphics,
                                              cResources *apResources)
     : iPostEffectType("Bloom", apGraphics, apResources) {
-    LoadSlangGraphics(&RI.device, m_blurProgram, apResources,
+    LoadSlangGraphics(&RI.device, m_downsampleProgram, apResources,
                       "posteffect_fullscreen.vert.spv",
-                      "posteffect_bloom_blur.frag.spv");
-    LoadSlangGraphics(&RI.device, m_addProgram, apResources,
+                      "posteffect_bloom_downsample.frag.spv");
+    LoadSlangGraphics(&RI.device, m_upsampleProgram, apResources,
                       "posteffect_fullscreen.vert.spv",
-                      "posteffect_bloom_add.frag.spv");
+                      "posteffect_bloom_upsample.frag.spv");
+    LoadSlangGraphics(&RI.device, m_compositeProgram, apResources,
+                      "posteffect_fullscreen.vert.spv",
+                      "posteffect_bloom_composite.frag.spv");
 }
 
 cPostEffectType_Bloom::~cPostEffectType_Bloom() {}
@@ -73,139 +84,183 @@ cPostEffect_Bloom::cPostEffect_Bloom(cGraphics *apGraphics,
       mpBloomType(static_cast<cPostEffectType_Bloom *>(mpType)) {}
 
 cPostEffect_Bloom::~cPostEffect_Bloom() {
-    DestroyPostEffectColorTarget(m_blur[0]);
-    DestroyPostEffectColorTarget(m_blur[1]);
+    for (auto &mip : m_mips)
+        DestroyPostEffectColorTarget(mip);
+    m_mips.clear();
 }
 
 void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
     VkCommandBuffer cmd = ctx.cmd->vk.cmd;
 
-    const uint32_t blurW = std::max(ctx.width / 4u, 1u);
-    const uint32_t blurH = std::max(ctx.height / 4u, 1u);
+    // ----- (Re)build the bloom mip chain on first use / viewport resize -----
+    // N = number of mips, capped by mlMaxMips and by how far we can halve the
+    // viewport while keeping both dimensions >= 1. mip[i] is (w >> (i+1)).
+    const int maxMips = std::max(mParams.mlMaxMips, 1);
+    int mipCount = 0;
+    while (mipCount < maxMips &&
+           (ctx.width >> (mipCount + 1)) >= 1u &&
+           (ctx.height >> (mipCount + 1)) >= 1u) {
+        ++mipCount;
+    }
+    mipCount = std::max(mipCount, 1);
 
-    // (Re)allocate the quarter-res blur scratch when the viewport changes
-    // or on first use.
-    if (!m_blurInitialized || m_blur[0].width != blurW ||
-        m_blur[0].height != blurH) {
-        DestroyPostEffectColorTarget(m_blur[0]);
-        DestroyPostEffectColorTarget(m_blur[1]);
-        CreatePostEffectColorTarget(m_blur[0], blurW, blurH,
-                                    RIBootstrap::PogoColorFormatVk, 0u,
-                                    "PostEffect_Bloom.blur0");
-        CreatePostEffectColorTarget(m_blur[1], blurW, blurH,
-                                    RIBootstrap::PogoColorFormatVk, 0u,
-                                    "PostEffect_Bloom.blur1");
-        // First-time transitions out of UNDEFINED — set the "rest state":
-        // blur[0] = SHADER_READ_ONLY (will flip to ATTACH on first H blur),
-        // blur[1] = COLOR_ATTACHMENT  (will flip to READ on first H blur).
-        RITextureBarrier blur0Init(&m_blur[0].texture,
-                         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_SHADER_RESOURCE,
-                         RI_STAGE_NONE, RI_STAGE_FRAGMENT);
-        ctx.cmd->vk_d3d12_textureBarrier(blur0Init);
-        RITextureBarrier blur1Init(&m_blur[1].texture,
-                         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_RENDER_TARGET,
-                         RI_STAGE_NONE, RI_STAGE_NONE);
-        ctx.cmd->vk_d3d12_textureBarrier(blur1Init);
-        m_blurInitialized = true;
+    if (m_mips.size() != (size_t)mipCount || m_mipsW != ctx.width ||
+        m_mipsH != ctx.height) {
+        for (auto &mip : m_mips)
+            DestroyPostEffectColorTarget(mip);
+        m_mips.assign((size_t)mipCount, PostEffectColorTarget{});
+        for (int i = 0; i < mipCount; ++i) {
+            const uint32_t mw = std::max(ctx.width >> (i + 1), 1u);
+            const uint32_t mh = std::max(ctx.height >> (i + 1), 1u);
+            char name[48];
+            snprintf(name, sizeof(name), "PostEffect_Bloom.mip%d", i);
+            CreatePostEffectColorTarget(m_mips[(size_t)i], mw, mh,
+                                        RIBootstrap::PogoColorFormatVk, 0u, name);
+            // Rest state: every mip lives in SHADER_RESOURCE between frames.
+            RITextureBarrier init(&m_mips[(size_t)i].texture,
+                             RI_RESOURCE_STATE_UNDEFINED,
+                             RI_RESOURCE_STATE_SHADER_RESOURCE,
+                             RI_STAGE_NONE, RI_STAGE_FRAGMENT);
+            ctx.cmd->vk_d3d12_textureBarrier(init);
+        }
+        m_mipsW = ctx.width;
+        m_mipsH = ctx.height;
     }
 
     auto samplerDesc = RI.resolve_filter_descriptor(
         eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
         eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 
-    PostEffectPipelineState blurState{};
-    InitPostEffectPipelineState(blurState, RIBootstrap::PogoColorFormatVk, false);
-    const hash_t kBlurHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    // Pipelines: downsample + composite are opaque; upsample blends additively
+    // (ONE/ONE/ADD) onto the destination mip's own downsample content.
+    PostEffectPipelineState downState{};
+    InitPostEffectPipelineState(downState, RIBootstrap::PogoColorFormatVk, false);
+    PostEffectPipelineState upState{};
+    InitPostEffectPipelineState(upState, RIBootstrap::PogoColorFormatVk, true);
+    upState.blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    upState.blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    upState.blendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
+    upState.blendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    upState.blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    upState.blendAttachment.alphaBlendOp        = VK_BLEND_OP_ADD;
+    PostEffectPipelineState compState{};
+    InitPostEffectPipelineState(compState, RIBootstrap::PogoColorFormatVk, false);
 
-    VkViewport blurViewport = {0.0f,
-                               0.0f,
-                               static_cast<float>(blurW),
-                               static_cast<float>(blurH),
-                               0.0f,
-                               1.0f};
-    VkRect2D blurScissor = {{0, 0}, {blurW, blurH}};
+    const hash_t kDownHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    const hash_t kUpHash   = hash_u32(HASH_INITIAL_VALUE, /*variant=*/1u);
+    const hash_t kCompHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/2u);
 
-    auto bindBlurInput = [&](const RIDescriptor &inputDesc) {
-        RIProgram::DescriptorBinding bindings[2] = {};
-        bindings[0].descriptor = *samplerDesc;
-        bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
-        bindings[1].descriptor = inputDesc;
-        bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-        mpBloomType->m_blurProgram.bindDescriptors(
-            &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
+    auto barrier = [&](RITexture *tex, enum RIResourceState_e before,
+                       uint32_t beforeStage, enum RIResourceState_e after,
+                       uint32_t afterStage) {
+        RITextureBarrier b(tex, before, after, beforeStage, afterStage);
+        ctx.cmd->vk_d3d12_textureBarrier(b);
     };
 
-    auto blurPass = [&](VkImageView destView, RITexture *destTexture,
-                        RITexture *prevDestTexture, const RIDescriptor &inputDesc,
-                        float dirX, float dirY) {
-        // Layout flip: dest SHADER_READ → COLOR_ATTACH ; prev dest
-        // (which we'll sample next time) COLOR_ATTACH → SHADER_READ.
-        RITextureBarrier destToTarget(destTexture,
-                         RI_RESOURCE_STATE_SHADER_RESOURCE, RI_RESOURCE_STATE_RENDER_TARGET,
-                         RI_STAGE_FRAGMENT, RI_STAGE_NONE);
-        ctx.cmd->vk_d3d12_textureBarrier(destToTarget);
-        RITextureBarrier prevToSampled(prevDestTexture,
-                         RI_RESOURCE_STATE_RENDER_TARGET, RI_RESOURCE_STATE_SHADER_RESOURCE,
-                         RI_STAGE_NONE, RI_STAGE_FRAGMENT);
-        ctx.cmd->vk_d3d12_textureBarrier(prevToSampled);
-
+    // Render a fullscreen-triangle pass into `destView` (size mw x mh) sampling
+    // `inputDesc` through `prog`/`pipeline`, with `pc` push constants. `loadOp`
+    // is LOAD for the additive upsample, DONT_CARE otherwise.
+    auto fullscreenPass = [&](RIProgram &prog, hash_t pipeHash,
+                              VkGraphicsPipelineCreateInfo *pipeCI,
+                              const char *dbgName, VkImageView destView,
+                              uint32_t mw, uint32_t mh,
+                              const RIDescriptor &inputDesc,
+                              enum RIAttachmentLoadOp_e loadOp, const void *pc,
+                              uint32_t pcSize) {
         RITextureView destViewRi = {};
         destViewRi.vk.image = destView;
 
         RIRenderingAttachment color = {};
         color.view    = destViewRi;
-        color.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+        color.loadOp  = loadOp;
         color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
         RIBeginRenderingDesc beginDesc = {};
-        beginDesc.renderArea.width  = (int16_t)blurW;
-        beginDesc.renderArea.height = (int16_t)blurH;
+        beginDesc.renderArea.width  = (int16_t)mw;
+        beginDesc.renderArea.height = (int16_t)mh;
         beginDesc.colorCount = 1;
         beginDesc.colors     = &color;
         ctx.cmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
 
-        vkCmdSetViewport(cmd, 0, 1, &blurViewport);
-        vkCmdSetScissor(cmd, 0, 1, &blurScissor);
+        VkViewport vp = {0.0f, 0.0f, (float)mw, (float)mh, 0.0f, 1.0f};
+        vkCmdSetViewport(cmd, 0, 1, &vp);
+        VkRect2D sc = {{0, 0}, {mw, mh}};
+        vkCmdSetScissor(cmd, 0, 1, &sc);
 
-        mpBloomType->m_blurProgram.bindPipeline(&RI.device, ctx.cmd, kBlurHash,
-                                                "PostEffect_Bloom.blur",
-                                                &blurState.createInfo);
-        bindBlurInput(inputDesc);
+        prog.bindPipeline(&RI.device, ctx.cmd, pipeHash, dbgName, pipeCI);
 
-        BloomBlurPushConstants pc{};
-        pc.blurDir[0] = dirX;
-        pc.blurDir[1] = dirY;
-        vkCmdPushConstants(cmd, mpBloomType->m_blurProgram.getPipelineLayout(),
-                           VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+        RIProgram::DescriptorBinding bindings[2] = {};
+        bindings[0].descriptor = *samplerDesc;
+        bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
+        bindings[1].descriptor = inputDesc;
+        bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
+        prog.bindDescriptors(&RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
+
+        if (pc && pcSize)
+            vkCmdPushConstants(cmd, prog.getPipelineLayout(),
+                               VK_SHADER_STAGE_FRAGMENT_BIT, 0, pcSize, pc);
 
         vkCmdDraw(cmd, 3, 1, 0, 0);
         ctx.cmd->vk_d3d12_endRendering(&RI.device);
     };
 
-    // Iterative blur: first iter samples the pogo input, subsequent
-    // iterations sample blur[1].
-    for (int iter = 0; iter < std::max(mParams.mlBlurIterations, 1); ++iter) {
-        const RIDescriptor firstInput =
-            (iter == 0) ? ctx.inputSrv : m_blur[1].descriptor();
+    auto mipW = [&](int i) { return std::max(ctx.width >> (i + 1), 1u); };
+    auto mipH = [&](int i) { return std::max(ctx.height >> (i + 1), 1u); };
 
-        // Pass H: dest = blur[0], read = firstInput, prevDest = blur[1].
-        blurPass(m_blur[0].view.vk.image,
-                 &m_blur[0].texture, &m_blur[1].texture,
-                 firstInput, mParams.mfBlurSize, 0.0f);
-
-        // Pass V: dest = blur[1], read = blur[0], prevDest = blur[0].
-        blurPass(m_blur[1].view.vk.image,
-                 &m_blur[1].texture, &m_blur[0].texture,
-                 m_blur[0].descriptor(), 0.0f, mParams.mfBlurSize);
+    // ----- 1. Prefilter + downsample the HDR scene into mip[0] -----
+    barrier(&m_mips[0].texture, RI_RESOURCE_STATE_SHADER_RESOURCE,
+            RI_STAGE_FRAGMENT, RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
+    {
+        BloomDownsamplePushConstants pc{};
+        pc.threshold      = mParams.mfThreshold;
+        pc.knee           = mParams.mfThreshold * mParams.mfSoftKnee + 1e-4f;
+        pc.applyThreshold = 1u;
+        fullscreenPass(mpBloomType->m_downsampleProgram, kDownHash,
+                       &downState.createInfo, "PostEffect_Bloom.downsample",
+                       m_mips[0].view.vk.image, mipW(0), mipH(0), ctx.inputSrv,
+                       RI_ATTACHMENT_LOAD_OP_DONT_CARE, &pc, sizeof(pc));
     }
 
-    // Flip blur[1] COLOR_ATTACH → SHADER_READ for the add pass to sample.
-    RITextureBarrier blur1ToSampled(&m_blur[1].texture,
-                     RI_RESOURCE_STATE_RENDER_TARGET, RI_RESOURCE_STATE_SHADER_RESOURCE,
-                     RI_STAGE_NONE, RI_STAGE_FRAGMENT);
-    ctx.cmd->vk_d3d12_textureBarrier(blur1ToSampled);
+    // ----- 2. Downsample chain: mip[i-1] -> mip[i] -----
+    for (int i = 1; i < mipCount; ++i) {
+        barrier(&m_mips[(size_t)(i - 1)].texture, RI_RESOURCE_STATE_RENDER_TARGET,
+                RI_STAGE_NONE, RI_RESOURCE_STATE_SHADER_RESOURCE,
+                RI_STAGE_FRAGMENT);
+        barrier(&m_mips[(size_t)i].texture, RI_RESOURCE_STATE_SHADER_RESOURCE,
+                RI_STAGE_FRAGMENT, RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
 
-    // ----- Add pass: sample source + blur, write pogo output -----
+        BloomDownsamplePushConstants pc{};
+        pc.applyThreshold = 0u;
+        fullscreenPass(mpBloomType->m_downsampleProgram, kDownHash,
+                       &downState.createInfo, "PostEffect_Bloom.downsample",
+                       m_mips[(size_t)i].view.vk.image, mipW(i), mipH(i),
+                       m_mips[(size_t)(i - 1)].descriptor(),
+                       RI_ATTACHMENT_LOAD_OP_DONT_CARE, &pc, sizeof(pc));
+    }
+    // After the loop: mip[N-1] is RENDER_TARGET, mips[0..N-2] are SHADER_RESOURCE.
+
+    // ----- 3. Upsample chain: additively blend mip[i] into mip[i-1] -----
+    for (int i = mipCount - 1; i >= 1; --i) {
+        barrier(&m_mips[(size_t)i].texture, RI_RESOURCE_STATE_RENDER_TARGET,
+                RI_STAGE_NONE, RI_RESOURCE_STATE_SHADER_RESOURCE,
+                RI_STAGE_FRAGMENT);
+        barrier(&m_mips[(size_t)(i - 1)].texture, RI_RESOURCE_STATE_SHADER_RESOURCE,
+                RI_STAGE_FRAGMENT, RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE);
+
+        BloomUpsamplePushConstants pc{};
+        pc.filterRadius = mParams.mfFilterRadius;
+        fullscreenPass(mpBloomType->m_upsampleProgram, kUpHash,
+                       &upState.createInfo, "PostEffect_Bloom.upsample",
+                       m_mips[(size_t)(i - 1)].view.vk.image, mipW(i - 1),
+                       mipH(i - 1), m_mips[(size_t)i].descriptor(),
+                       RI_ATTACHMENT_LOAD_OP_LOAD, &pc, sizeof(pc));
+    }
+    // After the loop: mip[0] is RENDER_TARGET, mips[1..N-1] are SHADER_RESOURCE.
+
+    // ----- 4. Composite: scene + bloom(mip[0]) * strength -> pogo output -----
+    barrier(&m_mips[0].texture, RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
+            RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
+
     RITextureView outView = {};
     outView.vk.image = ctx.outputView;
 
@@ -221,51 +276,35 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
     outBeginDesc.colors     = &outColor;
     ctx.cmd->vk_d3d12_beginRendering(&RI.device, outBeginDesc);
 
-    VkViewport viewport = {0.0f,
-                           0.0f,
-                           static_cast<float>(ctx.width),
-                           static_cast<float>(ctx.height),
-                           0.0f,
+    VkViewport viewport = {0.0f, 0.0f, (float)ctx.width, (float)ctx.height, 0.0f,
                            1.0f};
     vkCmdSetViewport(cmd, 0, 1, &viewport);
     VkRect2D scissor = {{0, 0}, {ctx.width, ctx.height}};
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    PostEffectPipelineState addState{};
-    InitPostEffectPipelineState(addState, RIBootstrap::PogoColorFormatVk, false);
-    const hash_t kAddHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/1u);
-    mpBloomType->m_addProgram.bindPipeline(&RI.device, ctx.cmd, kAddHash,
-                                           "PostEffect_Bloom.add",
-                                           &addState.createInfo);
-
+    mpBloomType->m_compositeProgram.bindPipeline(&RI.device, ctx.cmd, kCompHash,
+                                                 "PostEffect_Bloom.composite",
+                                                 &compState.createInfo);
     {
         RIProgram::DescriptorBinding bindings[3] = {};
         bindings[0].descriptor = *samplerDesc;
         bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
         bindings[1].descriptor = ctx.inputSrv;
         bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-        bindings[2].descriptor = m_blur[1].descriptor();
-        bindings[2].handle     = DescriptorBindingID::Create("blurInput");
-        mpBloomType->m_addProgram.bindDescriptors(
+        bindings[2].descriptor = m_mips[0].descriptor();
+        bindings[2].handle     = DescriptorBindingID::Create("bloomInput");
+        mpBloomType->m_compositeProgram.bindDescriptors(
             &RI.device, ctx.cmd, ctx.frameIndex, bindings, 3);
     }
 
-    BloomAddPushConstants apc{};
-    apc.rgbToIntensity[0] = mParams.mvRgbToIntensity.x;
-    apc.rgbToIntensity[1] = mParams.mvRgbToIntensity.y;
-    apc.rgbToIntensity[2] = mParams.mvRgbToIntensity.z;
-    vkCmdPushConstants(cmd, mpBloomType->m_addProgram.getPipelineLayout(),
-                       VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(apc), &apc);
+    BloomCompositePushConstants cpc{};
+    cpc.strength = mParams.mfStrength;
+    vkCmdPushConstants(cmd, mpBloomType->m_compositeProgram.getPipelineLayout(),
+                       VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(cpc), &cpc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
     ctx.cmd->vk_d3d12_endRendering(&RI.device);
-
-    // Restore the rest state: blur[1] back to COLOR_ATTACH for the next
-    // call's swap-and-write pass. blur[0] is already in SHADER_READ_ONLY.
-    RITextureBarrier blur1Restore(&m_blur[1].texture,
-                     RI_RESOURCE_STATE_SHADER_RESOURCE, RI_RESOURCE_STATE_RENDER_TARGET,
-                     RI_STAGE_FRAGMENT, RI_STAGE_NONE);
-    ctx.cmd->vk_d3d12_textureBarrier(blur1Restore);
+    // Exit invariant restored: every mip is back in SHADER_RESOURCE.
 }
 
 } // namespace hpl
