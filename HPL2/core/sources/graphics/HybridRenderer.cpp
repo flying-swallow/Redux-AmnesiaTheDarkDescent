@@ -1986,8 +1986,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
         bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    static_assert(sizeof(SurfelGenerationPushConstants) == 4);
-    const SurfelGenerationPushConstants push{ m_surfelOverlayMode };
+    static_assert(sizeof(OverlayPushConstants) == 4);
+    const OverlayPushConstants push{ m_overlayMode };
     vkCmdPushConstants(RI.primary.cmds[0].vk.cmd, m_surfelGenerate.getPipelineLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
 
     const uint32_t fullW = renderWidth;
@@ -2357,6 +2357,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_mainComposite.bindDescriptors(
         &RI.device, &RI.primary.cmds[0], RI.frameIndex, bnd.data(),
         bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    static_assert(sizeof(OverlayPushConstants) == 4);
+    const OverlayPushConstants push{ m_overlayMode };
+    vkCmdPushConstants(RI.primary.cmds[0].vk.cmd, m_mainComposite.getPipelineLayout(), VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
 
     RI.primary.cmds[0].dispatch((renderWidth + 15u) / 16u,
                                 (renderHeight + 15u) / 16u, 1u);

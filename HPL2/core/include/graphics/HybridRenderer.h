@@ -54,7 +54,7 @@ public:
   virtual bool LoadData() override { return true; };
   virtual void DestroyData() override {};
 
-  void SetOverlay(int alOverlay) { m_surfelOverlayMode = (uint32_t)alOverlay; }
+  void SetOverlay(int alOverlay) { m_overlayMode = (uint32_t)alOverlay; }
 
 private:
   // Owns set 0 — the global bindless descriptor set and every buffer bound to
@@ -192,8 +192,8 @@ private:
 	// must persist (integrate EMA-blends with the prior frame's values).
 	std::array<bool, RI_MAX_SWAPCHAIN_IMAGES> m_surfelAtlasesInitialized = {};
 
-	struct SurfelGenerationPushConstants { uint32_t overlayMode; };
-	uint32_t m_surfelOverlayMode = kDefaultOverlayMode;
+	struct OverlayPushConstants { uint32_t overlayMode; };
+	uint32_t m_overlayMode = kDefaultOverlayMode;
 };
 
 } // namespace hpl

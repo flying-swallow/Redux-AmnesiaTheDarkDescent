@@ -31,6 +31,14 @@ import Grid;                         // gridCellPos / gridFlattenCellIndex / gri
 import Utils.Color.ColorHelpers;     // linearToSRGB / sRGBToLinear (legacy display-space decal blend)
 import BlendModes;                   // blendDisplaySpaceExact (raw eMaterialBlendMode numbering)
 
+struct MainCompositePushConstants
+{
+    uint overlayMode;
+};
+
+[vk::push_constant]
+ConstantBuffer<MainCompositePushConstants> gPushConstants;
+
 [vk::binding(0, 2)]
 Texture2D<float4> gIndirectLighting;
 
@@ -147,6 +155,8 @@ float3 compositeDecals(float3 albedo, float3 posW, float3 normalW, uint decalLis
 [numthreads(16, 16, 1)]
 void csMain(uint3 tid : SV_DispatchThreadID)
 {
+    const uint overlayMode = gPushConstants.overlayMode;
+    
     uint2 pixelPos = tid.xy;
     uint  outW, outH;
     gOutput.GetDimensions(outW, outH);
@@ -172,6 +182,15 @@ void csMain(uint3 tid : SV_DispatchThreadID)
             return;
         }
     }
+    
+    // Modes 1–5 are already rendered as diagnostic colors by
+    // SurfelGenerationPass. Display them without albedo, direct lighting,
+    // emission, decals, or fog modifying them.
+    if (overlayMode >= 1u && overlayMode <= 5u)
+    {
+        gOutput[pixelPos] = float4(gIndirectLighting[pixelPos].xyz, 1.f);
+        return;
+    }
 
     TriangleHit triangleHit = hitInfo.getTriangleHit();
     uint materialID = gScene.getMaterialID(triangleHit.instanceID);
@@ -194,9 +213,18 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     bool wantDirect   = kDefaultRenderDirectLighting   != 0u;
     bool wantIndirect = kDefaultRenderIndirectLighting != 0u;
 
-    // Direct lighting is now a temporally-accumulated texture (soft shadows),
-    // produced by DirectLightingPass; just read it. Indirect from the surfel cache.
-    float3 direct   = wantDirect   ? gDirectLighting[pixelPos].xyz : float3(0.f);
+    if (overlayMode == 6u) // Direct only
+    {
+        wantDirect   = true;
+        wantIndirect = false;
+    }
+    else if (overlayMode == 7u) // Indirect only
+    {
+        wantDirect   = false;
+        wantIndirect = true;
+    }
+
+    float3 direct = wantDirect ? gDirectLighting[pixelPos].xyz : float3(0.f);
     float3 indirect = wantIndirect ? gIndirectLighting[pixelPos].xyz : float3(0.f);
 
     // Both terms are demodulated irradiance: direct is Σ Li·NdotL·vis from the
@@ -208,14 +236,17 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // inline evalAnalyticLight path and the base game's albedo·color·atten·NdotL).
     float3 finalGather = sd.albedo * (direct + indirect);
 
-    // Emissive (illumination-map) surfaces glow regardless of the direct /
-    // indirect toggles — added on top so glowing textures aren't dark.
-    finalGather += sd.emission;
+    if (!(overlayMode == 6u || overlayMode == 7u))
+    {
+        // Emissive (illumination-map) surfaces glow regardless of the direct /
+        // indirect toggles — added on top so glowing textures aren't dark.
+        finalGather += sd.emission;
 
-    // Per-pixel fog: world fog + each fog-area bounding box from gFogAreas.
-    // Replaces the legacy per-object visibility table (which only existed
-    // for translucents) — applies uniformly to the opaque composite here.
-    finalGather = applyFog(finalGather, v.posW, gPerFrame.posW);
+        // Per-pixel fog: world fog + each fog-area bounding box from gFogAreas.
+        // Replaces the legacy per-object visibility table (which only existed
+        // for translucents) — applies uniformly to the opaque composite here.
+        finalGather = applyFog(finalGather, v.posW, gPerFrame.posW);
+    }
 
     gOutput[pixelPos] = float4(finalGather, 1.f);
 }

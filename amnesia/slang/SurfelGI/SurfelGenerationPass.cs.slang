@@ -211,7 +211,7 @@ void csMain(
         }
         else if (totalWeight > 0.f)
         {
-            if (overlayMode == 0u)
+            if (overlayMode == 0u || overlayMode == 6u || overlayMode == 7u)
                 gOutput[pixelPos] = indirectLighting;
             else if (overlayMode == 1u)
                 gOutput[pixelPos] = float4(stepColor(maxVariance * kDefaultVarianceSensitivity, 0.8f, 0.5f), 1.f);
