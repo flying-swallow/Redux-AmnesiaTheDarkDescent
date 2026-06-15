@@ -25,6 +25,8 @@
 #include "graphics/RIPogoBuffer.h"
 #include "system/LowLevelSystem.h"
 
+#include <algorithm>
+
 namespace hpl {
 
 cPostEffectComposite::cPostEffectComposite(cGraphics *apGraphics)
@@ -43,10 +45,9 @@ void cPostEffectComposite::Render(float afFrameTime, struct RICmd *cmd,
     // so RenderEffect can be told `isLastEffect` (used by effects that
     // would otherwise emit an extra barrier transition).
     iPostEffect *lastEffect = nullptr;
-    for (auto it = m_mapPostEffects.begin(); it != m_mapPostEffects.end();
-         ++it) {
-        if (it->second->IsActive())
-            lastEffect = it->second;
+    for (const auto &entry : m_postEffects) {
+        if (entry._effect->IsActive())
+            lastEffect = entry._effect;
     }
     if (lastEffect == nullptr)
         return;
@@ -55,9 +56,8 @@ void cPostEffectComposite::Render(float afFrameTime, struct RICmd *cmd,
     // pogo's "attach" half. RI_PogoBufferToggle flips the roles and
     // emits the COLOR_ATTACHMENT_OUTPUT ↔ FRAGMENT_SHADER barrier pair
     // before the next effect runs.
-    for (auto it = m_mapPostEffects.begin(); it != m_mapPostEffects.end();
-         ++it) {
-        iPostEffect *effect = it->second;
+    for (const auto &entry : m_postEffects) {
+        iPostEffect *effect = entry._effect;
         if (!effect->IsActive())
             continue;
 
@@ -86,13 +86,20 @@ void cPostEffectComposite::AddPostEffect(iPostEffect *apPostEffect,
     if (apPostEffect == NULL)
         return;
 
-    m_mapPostEffects.insert(tPostEffectMap::value_type(alPrio, apPostEffect));
-    mvPostEffects.push_back(apPostEffect);
+    m_postEffects.push_back({m_postEffects.size(), alPrio, apPostEffect});
+
+    // Highest priority first; ties keep insertion order (matches the
+    // previous std::multimap<int,…,std::greater<int>> behavior).
+    std::stable_sort(m_postEffects.begin(), m_postEffects.end(),
+                     [](const PostEffectEntry &a, const PostEffectEntry &b) {
+                         return a._prio != b._prio ? a._prio > b._prio
+                                                   : a._id < b._id;
+                     });
 }
 
 bool cPostEffectComposite::HasActiveEffects() {
-    for (auto *effect : mvPostEffects) {
-        if (effect->IsActive())
+    for (const auto &entry : m_postEffects) {
+        if (entry._effect->IsActive())
             return true;
     }
     return false;
