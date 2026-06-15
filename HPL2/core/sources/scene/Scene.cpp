@@ -263,7 +263,7 @@ namespace hpl {
 
 				// GuiSet builds its pipelines for RI.swapchain.format / RIBootstrap::DepthFormat
 				// (see GuiSet.cpp). If the attachments here ever change, update GuiSet to match.
-				RI.primary.cmds[0].vk_d3d12_beginRendering( &RI.renderer, beginDesc );
+				RI.primary.cmds[0].vk_d3d12_beginRendering( &RI.device, beginDesc );
 
 				if(alFlags & tSceneRenderFlag_World)
 				{
@@ -278,7 +278,7 @@ namespace hpl {
 					STOP_TIMING(RenderGUI)
 				}
 
-				RI.primary.cmds[0].vk_d3d12_endRendering( &RI.renderer );
+				RI.primary.cmds[0].vk_d3d12_endRendering( &RI.device );
 			}
 		}
 	}

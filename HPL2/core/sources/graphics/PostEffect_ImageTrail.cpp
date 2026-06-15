@@ -111,9 +111,8 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
             mbClearAccum ? RI_STAGE_NONE : RI_STAGE_FRAGMENT, RI_STAGE_NONE);
         ctx.cmd->vk_d3d12_textureBarrier(accumToTarget);
 
-        RITextureView accumView = m_accum.descriptor.textureView();
         RIRenderingAttachment color = {};
-        color.view = accumView;
+        color.view =  m_accum.view;
         color.loadOp = mbClearAccum ? RI_ATTACHMENT_LOAD_OP_CLEAR
                                     : RI_ATTACHMENT_LOAD_OP_LOAD;
         color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
@@ -127,7 +126,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         beginDesc.renderArea.height = (int16_t)ctx.height;
         beginDesc.colorCount = 1;
         beginDesc.colors = &color;
-        ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+        ctx.cmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
 
         vkCmdSetViewport(cmd, 0, 1, &viewport);
         vkCmdSetScissor(cmd, 0, 1, &scissor);
@@ -147,7 +146,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
             RIProgram::DescriptorBinding bindings[2] = {};
             bindings[0].descriptor = *samplerDesc;
             bindings[0].handle = DescriptorBindingID::Create("inputSampler");
-            bindings[1].descriptor = *ctx.inputSrv;
+            bindings[1].descriptor = ctx.inputSrv;
             bindings[1].handle = DescriptorBindingID::Create("sourceInput");
             mpImageTrailType->m_updateProgram.bindDescriptors(
                 &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
@@ -171,7 +170,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
             VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
         vkCmdDraw(cmd, 3, 1, 0, 0);
-        ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
+        ctx.cmd->vk_d3d12_endRendering(&RI.device);
 
         mbClearAccum = false;
 
@@ -197,7 +196,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         outBeginDesc.renderArea.height = (int16_t)ctx.height;
         outBeginDesc.colorCount = 1;
         outBeginDesc.colors = &outColor;
-        ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, outBeginDesc);
+        ctx.cmd->vk_d3d12_beginRendering(&RI.device, outBeginDesc);
 
         vkCmdSetViewport(cmd, 0, 1, &viewport);
         vkCmdSetScissor(cmd, 0, 1, &scissor);
@@ -215,14 +214,14 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
             RIProgram::DescriptorBinding bindings[2] = {};
             bindings[0].descriptor = *samplerDesc;
             bindings[0].handle = DescriptorBindingID::Create("inputSampler");
-            bindings[1].descriptor = m_accum.descriptor;
+            bindings[1].descriptor = m_accum.descriptor();
             bindings[1].handle = DescriptorBindingID::Create("sourceInput");
             mpImageTrailType->m_blitProgram.bindDescriptors(
                 &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
         }
 
         vkCmdDraw(cmd, 3, 1, 0, 0);
-        ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
+        ctx.cmd->vk_d3d12_endRendering(&RI.device);
     }
 }
 

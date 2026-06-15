@@ -78,9 +78,10 @@ public:
 	RIProgram postEffectBlit;
 
   // 1x1 white texture used as the default texture binding when no real
-  // texture is available.
+  // texture is available. Its descriptor is produced on demand via
+  // whiteTexture2DDescriptor() (cookie lives on the view).
   struct RITexture whiteTexture2D;
-  struct RIDescriptor whiteTexture2DBinding;
+  struct RITextureView whiteTexture2DView;
 
   // Zero-filled vertex buffer bound into vertex input slots that don't have
   // a real stream — the vertex fetcher reads zeros for those attributes.
@@ -131,7 +132,10 @@ public:
   RIBuffer translucentIdxBuffer;
 
   std::array<FrameContext, RI_NUMBER_FRAMES_FLIGHT> frameSets;
-	std::array<RIDescriptor, 1024> cachedFilters; 
+	// Open-addressed sampler cache keyed by the VkSamplerCreateInfo content hash
+	// (stored as each slot's cookie; 0 == empty). resolve_filter_descriptor
+	// produces the sampler descriptor on demand. Disposed at shutdown.
+	std::array<RISampler, 1024> cachedSamplers;
   uint32_t swapchainIndex;
   uint32_t frameIndex = 0;
 
@@ -139,6 +143,8 @@ public:
 
   void IncrementFrame();
   std::optional<RIDescriptor> resolve_filter_descriptor(eTextureWrap wrapS, eTextureWrap wrapT, eTextureWrap wrapR, eTextureFilter filter);
+  // Default 1x1 white texture descriptor, produced on demand.
+  RIDescriptor whiteTexture2DDescriptor();
   FrameContext *GetActiveSet() { return &frameSets[frameIndex % RI_NUMBER_FRAMES_FLIGHT]; }
 
   void UpdateFrameUBO(RIDescriptor* descriptor, void* data, size_t size);

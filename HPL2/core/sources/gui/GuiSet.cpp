@@ -542,7 +542,7 @@ namespace hpl {
 		const size_t numIndecies = m_setRenderObjects.size() * 6;
 		RISegmentReq vtxReq = {};
 		RISegmentReq idxReq = {};
-		if(!IsRIBufferValid(&RI.renderer, &RI.guiVertexBuffer) || !RI.guiVertexAlloc.request(RI.frameIndex, numVerts, &vtxReq)) {
+		if(RI.guiVertexBuffer.isEmpty(&RI.renderer) || !RI.guiVertexAlloc.request(RI.frameIndex, numVerts, &vtxReq)) {
 		  struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 		  segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 		  segmentAllocDesc.elementStride = sizeof(PositionTexColor);
@@ -554,27 +554,16 @@ namespace hpl {
 		  bool res = RI.guiVertexAlloc.request( RI.frameIndex, numVerts, &vtxReq);
 			assert(res);
 
-			uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-		  VkBufferCreateInfo vertexBufferCreateInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-		  VK_ConfigureBufferQueueFamilies( &vertexBufferCreateInfo , RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
-		  vertexBufferCreateInfo.pNext = NULL;
-		  vertexBufferCreateInfo.flags = 0;
-		  vertexBufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
-		  vertexBufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
-		  VmaAllocationInfo allocationInfo = { 0 };
-		  VmaAllocationCreateInfo allocInfo = { 0 };
-		  allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-		  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-		  
-			if( RI.guiVertexBuffer.vk.buffer) {
+			if(!RI.guiVertexBuffer.isEmpty(&RI.renderer)) {
 				cntx->freelist.push_back(RI.guiVertexBuffer);
 			}
-			VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &vertexBufferCreateInfo, &allocInfo, &RI.guiVertexBuffer.vk.buffer, &RI.guiVertexBuffer.vk.allocation, &allocationInfo ) );
-			RI.guiVertexBuffer.mappedAddress = allocationInfo.pMappedData;
+			RI.guiVertexBuffer = RIBuffer::create(
+				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
+				             RI_BUFFER_USAGE_VERTEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_SRC | RI_BUFFER_USAGE_TRANSFER_DST,
+				             RI_MEMORY_HOST_UPLOAD, 0});
 		}
 
-		if(!IsRIBufferValid(&RI.renderer, &RI.guiIndexBuffer) || !RI.guiIndexAlloc.request(RI.frameIndex, numIndecies, &idxReq)) {
+		if(RI.guiIndexBuffer.isEmpty(&RI.renderer) || !RI.guiIndexAlloc.request(RI.frameIndex, numIndecies, &idxReq)) {
 			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 			segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 			segmentAllocDesc.elementStride = sizeof(uint32_t);
@@ -584,25 +573,13 @@ namespace hpl {
 			} while( segmentAllocDesc.maxElements < m_setRenderObjects.size() * 6);
 			RI.guiIndexAlloc = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>( &segmentAllocDesc );
 			
-			uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-		  VkBufferCreateInfo indexBufferCreateInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-		  VK_ConfigureBufferQueueFamilies( &indexBufferCreateInfo , RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
-		  indexBufferCreateInfo.pNext = NULL;
-		  indexBufferCreateInfo.flags = 0;
-		  indexBufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
-		  indexBufferCreateInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-		  
-			VmaAllocationInfo allocationInfo = { 0 };
-		  VmaAllocationCreateInfo allocInfo = { 0 };
-		  allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-		  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-			
-			if( RI.guiIndexBuffer.vk.buffer) {
+			if(!RI.guiIndexBuffer.isEmpty(&RI.renderer)) {
 				cntx->freelist.push_back(RI.guiIndexBuffer);
 			}
-
-			VK_WrapResult( vmaCreateBuffer( RI.device.vk.vmaAllocator, &indexBufferCreateInfo, &allocInfo, &RI.guiIndexBuffer.vk.buffer, &RI.guiIndexBuffer.vk.allocation, &allocationInfo ) );
-			RI.guiIndexBuffer.mappedAddress = allocationInfo.pMappedData;
+			RI.guiIndexBuffer = RIBuffer::create(
+				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
+				             RI_BUFFER_USAGE_INDEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_SRC | RI_BUFFER_USAGE_TRANSFER_DST,
+				             RI_MEMORY_HOST_UPLOAD, 0});
 		}
 
 		ml::float4x4 projectionMtx = ml::float4x4::Identity();
@@ -728,9 +705,9 @@ namespace hpl {
 			if (diffuseTexture) {
 				cntx->resourceLink.push_back(diffuseTexture);
 				uniformBlock.textureCfg |= (1 << 0); // Has texture
-				bindings[numBindings].descriptor = diffuseTexture->binding;
+				bindings[numBindings].descriptor = diffuseTexture->descriptor();
 			} else {
-				bindings[numBindings].descriptor = RI.whiteTexture2DBinding;
+				bindings[numBindings].descriptor = RI.whiteTexture2DDescriptor();
 			}
 			bindings[numBindings++].handle = DescriptorBindingID::Create("diffuseMap");
 
@@ -1002,7 +979,7 @@ namespace hpl {
 			uint64_t ibOffset = idxOffset + indexBufferOffset * sizeof(uint32_t);
 			vkCmdBindVertexBuffers(RI.primary.cmds[0].vk.cmd, 0, 1, &RI.guiVertexBuffer.vk.buffer, &vbOffset);
 			vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, RI.guiIndexBuffer.vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
-			RI.primary.cmds[0].drawIndexed(&RI.renderer, indexBufferIndex, 1, 0, 0, 0);
+			RI.primary.cmds[0].drawIndexed(&RI.device, indexBufferIndex, 1, 0, 0, 0);
 
 			vertexBufferOffset += vertexBufferIndex;
 			indexBufferOffset += indexBufferIndex;

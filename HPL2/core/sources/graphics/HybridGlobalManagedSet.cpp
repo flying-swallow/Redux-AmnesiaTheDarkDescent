@@ -331,40 +331,23 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
   // Draw() stages through RI.uploader rather than memcpy'ing into mapped memory
   // the GPU may still be reading from a prior frame.
   {
-    uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-    VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    VK_ConfigureBufferQueueFamilies(&bci, device->queues, RI_QUEUE_LEN,
-                                    queueFamilies, RI_QUEUE_LEN);
-    bci.usage =
-        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
-    VmaAllocationCreateInfo aci = {};
-    aci.usage = VMA_MEMORY_USAGE_AUTO;
-
-    bci.size = (VkDeviceSize)kPointSlotLightCapacity * sizeof(PointLight);
-    VK_WrapResult(vmaCreateBuffer(
-        device->vk.vmaAllocator, &bci, &aci, &m_pointLightBuffer.vk.buffer,
-        &m_pointLightBuffer.vk.allocation, nullptr));
-
-    bci.size = (VkDeviceSize)kSpotSlotLightCapacity * sizeof(SpotLight);
-    VK_WrapResult(vmaCreateBuffer(device->vk.vmaAllocator, &bci, &aci,
-                                  &m_spotLightBuffer.vk.buffer,
-                                  &m_spotLightBuffer.vk.allocation, nullptr));
-
-    bci.size = (VkDeviceSize)kFogAreaCapacity * sizeof(FogAreaParams);
-    VK_WrapResult(vmaCreateBuffer(device->vk.vmaAllocator, &bci, &aci,
-                                  &m_fogAreaBuffer.vk.buffer,
-                                  &m_fogAreaBuffer.vk.allocation, nullptr));
-
-    bci.size = (VkDeviceSize)kMaxDecals * sizeof(GpuDecal);
-    VK_WrapResult(vmaCreateBuffer(device->vk.vmaAllocator, &bci, &aci,
-                                  &m_decalBuffer.vk.buffer,
-                                  &m_decalBuffer.vk.allocation, nullptr));
-
-    bci.size = (VkDeviceSize)kMaxObjectDecalIndices * sizeof(uint32_t);
-    VK_WrapResult(vmaCreateBuffer(device->vk.vmaAllocator, &bci, &aci,
-                                  &m_objectDecalIndexBuffer.vk.buffer,
-                                  &m_objectDecalIndexBuffer.vk.allocation, nullptr));
+    const uint32_t kSsboUsage = RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE |
+                                RI_BUFFER_USAGE_TRANSFER_DST;
+    m_pointLightBuffer = RIBuffer::create(
+        device, {(uint64_t)kPointSlotLightCapacity * sizeof(PointLight),
+                 kSsboUsage, RI_MEMORY_DEVICE, 0});
+    m_spotLightBuffer = RIBuffer::create(
+        device, {(uint64_t)kSpotSlotLightCapacity * sizeof(SpotLight),
+                 kSsboUsage, RI_MEMORY_DEVICE, 0});
+    m_fogAreaBuffer = RIBuffer::create(
+        device, {(uint64_t)kFogAreaCapacity * sizeof(FogAreaParams), kSsboUsage,
+                 RI_MEMORY_DEVICE, 0});
+    m_decalBuffer = RIBuffer::create(
+        device, {(uint64_t)kMaxDecals * sizeof(GpuDecal), kSsboUsage,
+                 RI_MEMORY_DEVICE, 0});
+    m_objectDecalIndexBuffer = RIBuffer::create(
+        device, {(uint64_t)kMaxObjectDecalIndices * sizeof(uint32_t),
+                 kSsboUsage, RI_MEMORY_DEVICE, 0});
   }
 
   m_diffuseMaterialBindless.reset(kSolidMaterialCapacity);
@@ -470,10 +453,8 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
     for (uint32_t i = 0; i < std::size(ssbos); ++i) {
       writes[count].binding = ssbos[i].binding;
       writes[count].arrayElement = 0;
-      writes[count].descriptor.vk.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-      writes[count].descriptor.vk.buffer.buffer = ssbos[i].buffer->vk.buffer;
-      writes[count].descriptor.vk.buffer.offset = 0;
-      writes[count].descriptor.vk.buffer.range = ssbos[i].range;
+      writes[count].descriptor = RIDescriptor::storageBuffer(
+          device, ssbos[i].buffer, 0, ssbos[i].range);
       count++;
     }
     writes[count].binding = kBindingMaterialSampler;
@@ -502,12 +483,7 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
     if (auto lutTex = m_attenuationLut ? m_attenuationLut->GetTexture() : nullptr) {
       writes[count].binding = kBindingAttenuationLut;
       writes[count].arrayElement = 0;
-      writes[count].descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-      writes[count].descriptor.vk.image.sampler = VK_NULL_HANDLE;
-      writes[count].descriptor.vk.image.imageView =
-          lutTex->binding.vk.image.imageView;
-      writes[count].descriptor.vk.image.imageLayout =
-          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      writes[count].descriptor = lutTex->descriptor();
       count++;
     } else {
       Warning("Failed to load core_falloff_linear; light attenuation LUT unbound\n");
@@ -520,12 +496,7 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
     if (auto disTex = m_dissolveMap ? m_dissolveMap->GetTexture() : nullptr) {
       writes[count].binding = kBindingDissolveMap;
       writes[count].arrayElement = 0;
-      writes[count].descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-      writes[count].descriptor.vk.image.sampler = VK_NULL_HANDLE;
-      writes[count].descriptor.vk.image.imageView =
-          disTex->binding.vk.image.imageView;
-      writes[count].descriptor.vk.image.imageLayout =
-          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+      writes[count].descriptor = disTex->descriptor();
       count++;
     } else {
       Warning("Failed to load core_dissolve.tga; dissolve fade unbound\n");
@@ -544,7 +515,7 @@ uint32_t HybridGlobalManagedSet::resolveTextureSlot(
     return kInvalidTextureIndex;
   hash_t texture_cookie =
       hash_u64(HASH_INITIAL_VALUE, img->GetUniqueCookie());
-  texture_cookie = hash_u64(texture_cookie, texture->binding.cookie);
+  texture_cookie = hash_u64(texture_cookie, texture->view.cookie);
   auto req = m_textureBindless.request(texture_cookie, frameIndex);
   if (req.exhausted)
     return kInvalidTextureIndex;
@@ -557,11 +528,7 @@ uint32_t HybridGlobalManagedSet::resolveTextureSlot(
     RIBindlessDescriptorSet::WriteBinding binding = {};
     binding.binding = 0;
     binding.arrayElement = req.id;
-    binding.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    binding.descriptor.vk.image.sampler = VK_NULL_HANDLE;
-    binding.descriptor.vk.image.imageView = texture->binding.vk.image.imageView;
-    binding.descriptor.vk.image.imageLayout =
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    binding.descriptor = texture->descriptor();
     m_bindlessSet.writeDescriptors(&RI.device, {&binding, 1});
   }
   return req.id;
@@ -576,10 +543,10 @@ uint32_t HybridGlobalManagedSet::resolveCubeTextureSlot(
     return kInvalidTextureIndex;
 
   // Same view-identity fold as resolveTextureSlot: keep animated cube Images from
-  // freezing on their first frame's imageView (binding.cookie tracks the view).
+  // freezing on their first frame's imageView (texture->cookie tracks the view).
   hash_t texture_cookie =
       hash_u64(HASH_INITIAL_VALUE, img->GetUniqueCookie());
-  texture_cookie = hash_u64(texture_cookie, texture->binding.cookie);
+  texture_cookie = hash_u64(texture_cookie, texture->view.cookie);
   auto req = m_textureCubeBindless.request(texture_cookie, frameIndex);
   if (req.exhausted)
     return kInvalidTextureIndex;
@@ -588,11 +555,7 @@ uint32_t HybridGlobalManagedSet::resolveCubeTextureSlot(
     RIBindlessDescriptorSet::WriteBinding binding = {};
     binding.binding = kBindingTexturesCube;
     binding.arrayElement = req.id;
-    binding.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    binding.descriptor.vk.image.sampler = VK_NULL_HANDLE;
-    binding.descriptor.vk.image.imageView = texture->binding.vk.image.imageView;
-    binding.descriptor.vk.image.imageLayout =
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    binding.descriptor = texture->descriptor();
     m_bindlessSet.writeDescriptors(&RI.device, {&binding, 1});
   }
   return req.id;
@@ -907,41 +870,20 @@ void HybridGlobalManagedSet::flushMirrors(RIDevice *device) {
 }
 
 void HybridGlobalManagedSet::destroy(RIDevice *device) {
-  if (m_pointLightBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_pointLightBuffer.vk.buffer,
-                     m_pointLightBuffer.vk.allocation);
-    m_pointLightBuffer = {};
-  }
-  if (m_lightGridCountBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_lightGridCountBuffer.vk.buffer,
-                     m_lightGridCountBuffer.vk.allocation);
-    m_lightGridCountBuffer = {};
-  }
-  if (m_lightGridListBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_lightGridListBuffer.vk.buffer,
-                     m_lightGridListBuffer.vk.allocation);
-    m_lightGridListBuffer = {};
-  }
-  if (m_spotLightBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_spotLightBuffer.vk.buffer,
-                     m_spotLightBuffer.vk.allocation);
-    m_spotLightBuffer = {};
-  }
-  if (m_fogAreaBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_fogAreaBuffer.vk.buffer,
-                     m_fogAreaBuffer.vk.allocation);
-    m_fogAreaBuffer = {};
-  }
-  if (m_decalBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_decalBuffer.vk.buffer,
-                     m_decalBuffer.vk.allocation);
-    m_decalBuffer = {};
-  }
-  if (m_objectDecalIndexBuffer.vk.buffer) {
-    vmaDestroyBuffer(device->vk.vmaAllocator, m_objectDecalIndexBuffer.vk.buffer,
-                     m_objectDecalIndexBuffer.vk.allocation);
-    m_objectDecalIndexBuffer = {};
-  }
+  m_pointLightBuffer.dispose(device);
+  m_pointLightBuffer = {};
+  m_lightGridCountBuffer.dispose(device);
+  m_lightGridCountBuffer = {};
+  m_lightGridListBuffer.dispose(device);
+  m_lightGridListBuffer = {};
+  m_spotLightBuffer.dispose(device);
+  m_spotLightBuffer = {};
+  m_fogAreaBuffer.dispose(device);
+  m_fogAreaBuffer = {};
+  m_decalBuffer.dispose(device);
+  m_decalBuffer = {};
+  m_objectDecalIndexBuffer.dispose(device);
+  m_objectDecalIndexBuffer = {};
   m_bindlessSet.destroy(device);
 }
 

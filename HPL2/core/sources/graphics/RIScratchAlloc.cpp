@@ -9,32 +9,11 @@ struct RIBlockMem RIUniformScratchAllocHandler( struct RIDevice *device, struct 
 	struct RIBlockMem mem = {};
 #if ( DEVICE_IMPL_VULKAN )
 	{
-		uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-		VkBufferCreateInfo stageBufferCreateInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-		stageBufferCreateInfo.pNext = NULL;
-		stageBufferCreateInfo.flags = 0;
-		stageBufferCreateInfo.size = size;
-		stageBufferCreateInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
-		                            | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-		VK_ConfigureBufferQueueFamilies( &stageBufferCreateInfo, device->queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
-
-		VmaAllocationInfo allocationInfo = { 0 };
-		VmaAllocationCreateInfo allocInfo = { 0 };
-		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-			VMA_ALLOCATION_CREATE_HOST_ACCESS_ALLOW_TRANSFER_INSTEAD_BIT |
-			VMA_ALLOCATION_CREATE_MAPPED_BIT;
-
-		VK_WrapResult(vmaCreateBufferWithAlignment(device->vk.vmaAllocator, &stageBufferCreateInfo, &allocInfo, scratch->alignmentReq, &mem.buffer.vk.buffer, &mem.buffer.vk.allocation, &allocationInfo));
-
-		VkMemoryPropertyFlags memPropFlags;
-		vmaGetAllocationMemoryProperties( device->vk.vmaAllocator, mem.buffer.vk.allocation, &memPropFlags );
-
-		mem.buffer.mappedAddress = allocationInfo.pMappedData;
-
-		VkBufferDeviceAddressInfo bdaInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-		bdaInfo.buffer = mem.buffer.vk.buffer;
-		mem.deviceAddress = vkGetBufferDeviceAddress( device->vk.device, &bdaInfo );
+		mem.buffer = RIBuffer::create(
+			device, {(uint64_t)size,
+			         RI_BUFFER_USAGE_CONSTANT_BUFFER | RI_BUFFER_USAGE_DEVICE_ADDRESS,
+			         RI_MEMORY_HOST_UPLOAD, scratch->alignmentReq});
+		mem.deviceAddress = mem.buffer.GetDeviceHandle(device);
 	}
 #endif
 	return mem;
@@ -45,29 +24,14 @@ struct RIBlockMem RIAccelScratchAllocHandler( struct RIDevice *device, struct RI
 	struct RIBlockMem mem = {};
 #if ( DEVICE_IMPL_VULKAN )
 	{
-		uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-		VkBufferCreateInfo bci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-		bci.pNext = NULL;
-		bci.flags = 0;
-		bci.size  = size;
 		// AS build scratch: storage-buffer access from the AS build, plus BDA so
-		// the build can read it as a raw pointer.
-		bci.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
-		          | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-		VK_ConfigureBufferQueueFamilies( &bci, device->queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
-
-		// GPU-only memory — no host access, no mapping.
-		VmaAllocationCreateInfo aci = { 0 };
-		aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-		VmaAllocationInfo allocationInfo = { 0 };
-		VK_WrapResult( vmaCreateBufferWithAlignment( device->vk.vmaAllocator, &bci, &aci, scratch->alignmentReq, &mem.buffer.vk.buffer, &mem.buffer.vk.allocation, &allocationInfo ) );
-
-		VkBufferDeviceAddressInfo bdaInfo = { VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO };
-		bdaInfo.buffer = mem.buffer.vk.buffer;
-		mem.deviceAddress = vkGetBufferDeviceAddress( device->vk.device, &bdaInfo );
-
-		// mem.buffer.mappedAddress stays NULL — AS scratch is never read or written by the host.
+		// the build can read it as a raw pointer. GPU-only — mappedAddress stays
+		// NULL (never touched by the host).
+		mem.buffer = RIBuffer::create(
+			device, {(uint64_t)size,
+			         RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE | RI_BUFFER_USAGE_DEVICE_ADDRESS,
+			         RI_MEMORY_DEVICE, scratch->alignmentReq});
+		mem.deviceAddress = mem.buffer.GetDeviceHandle(device);
 	}
 #endif
 	return mem;
@@ -84,7 +48,7 @@ static inline bool __isPoolSlotEmpty( struct RIDevice *device, struct RIBlockMem
 {
 #if ( DEVICE_IMPL_VULKAN )
 	{
-		return block->buffer.vk.buffer == NULL;
+		return block->buffer.isEmpty(device->renderer);
 	}
 #endif
 	return false;
@@ -92,7 +56,7 @@ static inline bool __isPoolSlotEmpty( struct RIDevice *device, struct RIBlockMem
 
 static inline void __FreeRIBlockMem(struct RIDevice *device,struct RIBlockMem *block ) {
 #if ( DEVICE_IMPL_VULKAN )
-	if( block->buffer.vk.buffer ) {
+	if( !block->buffer.isEmpty(device->renderer) ) {
 		block->buffer.dispose( device );
 	}
 #endif
@@ -100,7 +64,7 @@ static inline void __FreeRIBlockMem(struct RIDevice *device,struct RIBlockMem *b
 
 void FreeRIScratchAlloc( struct RIDevice *device, struct RIScratchAlloc *pool ) {
 #if ( DEVICE_IMPL_VULKAN )
-	if( pool->current.buffer.vk.buffer ) {
+	if( !pool->current.buffer.isEmpty(device->renderer) ) {
 		__FreeRIBlockMem( device, &pool->current );
 	}
 

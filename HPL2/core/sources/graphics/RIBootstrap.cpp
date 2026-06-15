@@ -13,6 +13,10 @@ RIBootstrap RI = RIBootstrap{};
 
 void RIBootstrap::IncrementFrame() { frameIndex++; }
 
+RIDescriptor RIBootstrap::whiteTexture2DDescriptor() {
+  return RIDescriptor::sampledImage(&device, &whiteTexture2DView);
+}
+
 namespace {
 // Shared grow-and-recreate for the per-frame scratch buffers (mirrors the
 // GuiSet gui*Alloc blocks / DebugDraw::requestSegments): try to claim a
@@ -22,9 +26,9 @@ namespace {
 bool __RequestScratchSegment(RIBootstrap::FrameContext *cntx,
                              RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> &alloc,
                              RIBuffer &buffer, uint16_t elementStride,
-                             VkBufferUsageFlags usage, size_t numElements,
+                             uint32_t usage, size_t numElements,
                              struct RISegmentReq *req) {
-  if (IsRIBufferValid(&RI.renderer, &buffer) &&
+  if (!buffer.isEmpty(&RI.renderer) &&
       alloc.request(RI.frameIndex, numElements, req)) {
     return true;
   }
@@ -43,27 +47,13 @@ bool __RequestScratchSegment(RIBootstrap::FrameContext *cntx,
     return false;
   }
 
-  uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-  VkBufferCreateInfo bufferCreateInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-  VK_ConfigureBufferQueueFamilies(&bufferCreateInfo, RI.device.queues,
-                                  RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
-  bufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements *
-                          segmentAllocDesc.elementStride;
-  bufferCreateInfo.usage = usage;
-
-  VmaAllocationInfo allocationInfo = {0};
-  VmaAllocationCreateInfo allocInfo = {0};
-  allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-  allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
-                    VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
-  if (buffer.vk.buffer) {
+  if (!buffer.isEmpty(&RI.renderer)) {
     cntx->freelist.push_back(buffer);
   }
-  VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferCreateInfo,
-                                &allocInfo, &buffer.vk.buffer,
-                                &buffer.vk.allocation, &allocationInfo));
-  buffer.mappedAddress = allocationInfo.pMappedData;
+  buffer = RIBuffer::create(
+      &RI.device, {(uint64_t)segmentAllocDesc.maxElements *
+                       segmentAllocDesc.elementStride,
+                   usage, RI_MEMORY_HOST_UPLOAD, 0});
   return true;
 }
 } // namespace
@@ -74,8 +64,8 @@ bool RIBootstrap::RequestTranslucentVtx(FrameContext *cntx, size_t numFloats,
   // (segment base address + byte offset fanned into the bindless slot mirrors).
   return __RequestScratchSegment(cntx, translucentVtxAlloc,
                                  translucentVtxBuffer, sizeof(float),
-                                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
-                                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                 RI_BUFFER_USAGE_VERTEX_BUFFER |
+                                     RI_BUFFER_USAGE_DEVICE_ADDRESS,
                                  numFloats, req);
 }
 
@@ -83,22 +73,24 @@ bool RIBootstrap::RequestTranslucentIdx(FrameContext *cntx, size_t numIndices,
                                         struct RISegmentReq *req) {
   return __RequestScratchSegment(cntx, translucentIdxAlloc,
                                  translucentIdxBuffer, sizeof(uint32_t),
-                                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
-                                     VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+                                 RI_BUFFER_USAGE_INDEX_BUFFER |
+                                     RI_BUFFER_USAGE_DEVICE_ADDRESS,
                                  numIndices, req);
 }
 
 void RIBootstrap::Dispose() {
   device.queues[RI_QUEUE_GRAPHICS].waitIdle(&device);
 
-  if (translucentVtxBuffer.vk.buffer)
+  if (!translucentVtxBuffer.isEmpty(&RI.renderer))
     translucentVtxBuffer.dispose(&device);
-  if (translucentIdxBuffer.vk.buffer)
+  if (!translucentIdxBuffer.isEmpty(&RI.renderer))
     translucentIdxBuffer.dispose(&device);
 
-  for (auto &desc : cachedFilters) {
-    if (desc.cookie) {
-      desc.dispose(&device);
+  // Free the owned samplers (cookie != 0 marks an occupied slot).
+  for (size_t i = 0; i < cachedSamplers.size(); i++) {
+    if (cachedSamplers[i].cookie) {
+      cachedSamplers[i].dispose(&device);
+      cachedSamplers[i] = RISampler{};
     }
   }
 
@@ -268,20 +260,16 @@ void RIBootstrap::BeginActiveSet() {
 void RIBootstrap::UpdateFrameUBO(RIDescriptor *descriptor, void *data,
                                  size_t size) {
   auto *activeSet = GetActiveSet();
-  const hash_t hash =
-      hash_data_hsieh(HASH_INITIAL_VALUE + frameIndex, data, size);
-  if (descriptor->cookie != hash) {
-    descriptor->cookie = hash;
-    struct RIBufferScratchAllocReq scratchReq = RIAllocBufferFromScratchAlloc(
-        &device, &activeSet->uboScratchAlloc, size);
-    descriptor->vk.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    descriptor->vk.buffer.buffer = scratchReq.block.buffer.vk.buffer;
-    descriptor->vk.buffer.offset = scratchReq.bufferOffset;
-    descriptor->vk.buffer.range = size;
-    memcpy((uint8_t *)scratchReq.pMappedAddress + scratchReq.bufferOffset, data,
-           size);
-    RIFinishScrachReq(&device, &scratchReq);
-  }
+  struct RIBufferScratchAllocReq scratchReq = RIAllocBufferFromScratchAlloc(
+      &device, &activeSet->uboScratchAlloc, size);
+  memcpy((uint8_t *)scratchReq.pMappedAddress + scratchReq.bufferOffset, data,
+         size);
+  // The descriptor is a transient shim produced here: its cookie derives from
+  // the scratch buffer identity folded with the sub-allocation offset/range, so
+  // each slice is a distinct, stable descriptor-set cache key.
+  *descriptor = RIDescriptor::uniformBuffer(
+      &device, &scratchReq.block.buffer, scratchReq.bufferOffset, size);
+  RIFinishScrachReq(&device, &scratchReq);
 }
 
 std::optional<RIDescriptor> RIBootstrap::resolve_filter_descriptor(eTextureWrap wrapS,
@@ -317,23 +305,20 @@ std::optional<RIDescriptor> RIBootstrap::resolve_filter_descriptor(eTextureWrap 
     info.maxLod = 16;
     const hash_t hash =
         hash_data(HASH_INITIAL_VALUE, &info, sizeof(VkSamplerCreateInfo));
-    const size_t startIndex = (hash % cachedFilters.size());
+    const size_t startIndex = (hash % cachedSamplers.size());
     size_t index = startIndex;
     do {
-      if (cachedFilters[index].cookie == hash) {
-        return cachedFilters[index];
-      } else if (cachedFilters[index].isEmpty()) {
-        cachedFilters[index].vk.type = VK_DESCRIPTOR_TYPE_SAMPLER;
-        cachedFilters[index].vk.image.imageView = VK_NULL_HANDLE;
-        cachedFilters[index].vk.image.imageLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        cachedFilters[index].flags = RI_VK_DESC_OWN_SAMPLER;
+      if (cachedSamplers[index].cookie == hash) {
+        return RIDescriptor::sampler(&device, &cachedSamplers[index]);
+      } else if (cachedSamplers[index].cookie == 0) {
         VK_WrapResult(vkCreateSampler(device.vk.device, &info, NULL,
-                                      &cachedFilters[index].vk.image.sampler));
-        cachedFilters[index].finalize(&device);
-        cachedFilters[index].cookie = hash;
-        return cachedFilters[index];
+                                      &cachedSamplers[index].vk.sampler));
+        // Key the slot on the create-info content hash so identical sampler
+        // configs dedup; the descriptor cookie derives from this.
+        cachedSamplers[index].cookie = hash;
+        return RIDescriptor::sampler(&device, &cachedSamplers[index]);
       }
-      index = (index + 1) % cachedFilters.size();
+      index = (index + 1) % cachedSamplers.size();
     } while (index != startIndex);
   }
 #endif

@@ -81,7 +81,7 @@ void cPostEffect_RadialBlur::RenderEffect(const PostEffectRenderCtx &ctx) {
     beginDesc.renderArea.height = (int16_t)ctx.height;
     beginDesc.colorCount = 1;
     beginDesc.colors     = &color;
-    ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+    ctx.cmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
 
     VkViewport viewport = {0.0f,
                            0.0f,
@@ -108,7 +108,7 @@ void cPostEffect_RadialBlur::RenderEffect(const PostEffectRenderCtx &ctx) {
     RIProgram::DescriptorBinding bindings[2] = {};
     bindings[0].descriptor = *samplerDesc;
     bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
-    bindings[1].descriptor = *ctx.inputSrv;
+    bindings[1].descriptor = ctx.inputSrv;
     bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
     mpRadialBlurType->m_program.bindDescriptors(&RI.device, ctx.cmd,
                                                 ctx.frameIndex, bindings, 2);
@@ -122,7 +122,7 @@ void cPostEffect_RadialBlur::RenderEffect(const PostEffectRenderCtx &ctx) {
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
-    ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
+    ctx.cmd->vk_d3d12_endRendering(&RI.device);
 }
 
 } // namespace hpl

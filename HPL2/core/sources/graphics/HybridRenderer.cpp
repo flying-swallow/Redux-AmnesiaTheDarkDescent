@@ -94,7 +94,7 @@ static inline bool BindVertexStreams(struct RICmd *cmd, cVertexBuffer *pVB,
       uv ? uv : &RI.fallbackUv0Vertex,
   };
   cmd->bindVertexBuffers<5>(0, 5, vertBufs);
-  cmd->bindIndexBuffer(&RI.renderer, idx, 0, RI_INDEX_TYPE_32);
+  cmd->bindIndexBuffer(&RI.device, idx, 0, RI_INDEX_TYPE_32);
   return true;
 }
 
@@ -314,14 +314,13 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                    &m_surfelDepthTexture[i].vk.allocation,
                                    NULL));
 
-      VkImageViewCreateInfo viewInfo = {
-          VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-      viewInfo.image = m_surfelDepthTexture[i].vk.image;
-      viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-      viewInfo.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-      viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-      VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
-                                      &m_surfelDepthView[i].vk.image));
+      RITextureViewDesc viewDesc = {};
+      viewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
+      viewDesc.format = VKToRIFormat(VK_FORMAT_R16G16B16A16_SFLOAT);
+      viewDesc.mipNum = 1;
+      viewDesc.layerNum = 1;
+      m_surfelDepthView[i] =
+          RITextureView::create(&RI.device, &m_surfelDepthTexture[i], viewDesc);
     }
   }
 }
@@ -364,7 +363,7 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
             VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        &renderTarget[i], &renderTargetDescriptor[i],
+        &renderTarget[i], &renderTargetView[i],
         "HybridViewportState.renderTarget");
 
     // SAMPLED lets surfel_generate / surfel_raytrace bind the depth as
@@ -379,13 +378,13 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
         &RI.device, renderW, renderH, RIBootstrap::DepthFormat,
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
             VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT,
+        RI_VIEWTYPE_DEPTH_STENCIL_ATTACHMENT,
         &depthTextures[i], &depthView[i], "HybridViewportState.depth");
 
     CreateViewportAttachmentTexture(
         &RI.device, renderW, renderH, RIBootstrap::VisibilityFormat,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_IMAGE_ASPECT_COLOR_BIT, &visibilityTexture[i], &visibilityView[i],
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &visibilityTexture[i], &visibilityView[i],
         "HybridViewportState.visibility");
 
     // Surfel-generation output — storage write (surfel_generate), sampled
@@ -394,7 +393,7 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
         &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
             VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        VK_IMAGE_ASPECT_COLOR_BIT, &surfelResultTexture[i],
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &surfelResultTexture[i],
         &surfelResultView[i], "HybridViewportState.surfelResult");
 
     // Stage B packed visibility — RT pipeline storage write, sampled by the
@@ -402,14 +401,14 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
     CreateViewportAttachmentTexture(
         &RI.device, renderW, renderH, RIBootstrap::VisibilityFormat,
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_IMAGE_ASPECT_COLOR_BIT, &packedHitInfoTexture[i],
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &packedHitInfoTexture[i],
         &packedHitInfoView[i], "HybridViewportState.packedHitInfo");
 
     // Screen-space velocity — gbuffer MRT #2, sampled by temporal passes.
     CreateViewportAttachmentTexture(
         &RI.device, renderW, renderH, RIBootstrap::VelocityFormat,
         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VK_IMAGE_ASPECT_COLOR_BIT, &velocityTexture[i], &velocityView[i],
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &velocityTexture[i], &velocityView[i],
         "HybridViewportState.velocity");
   }
 
@@ -421,26 +420,26 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
         &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
             VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        VK_IMAGE_ASPECT_COLOR_BIT, &directLightingTexture[i],
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &directLightingTexture[i],
         &directLightingView[i], "HybridViewportState.directLighting");
     CreateViewportAttachmentTexture(
         &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
             VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        VK_IMAGE_ASPECT_COLOR_BIT, &directKeyTexture[i], &directKeyView[i],
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &directKeyTexture[i], &directKeyView[i],
         "HybridViewportState.directKey");
     CreateViewportAttachmentTexture(
         &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
             VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        VK_IMAGE_ASPECT_COLOR_BIT, &directAtrousTexture[i],
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &directAtrousTexture[i],
         &directAtrousView[i], "HybridViewportState.directAtrous");
     // ReSTIR reservoir history ping-pong (RGBA32F: asfloat(lightIndex), W, M).
     CreateViewportAttachmentTexture(
         &RI.device, renderW, renderH, RI_FORMAT_RGBA32_SFLOAT,
         VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
             VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        VK_IMAGE_ASPECT_COLOR_BIT, &reservoirTexture[i], &reservoirView[i],
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &reservoirTexture[i], &reservoirView[i],
         "HybridViewportState.reservoir");
   }
   // Intra-frame reservoir hand-off (temporal pass → spatial pass), RGBA32F.
@@ -448,7 +447,7 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
       &RI.device, renderW, renderH, RI_FORMAT_RGBA32_SFLOAT,
       VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
           VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-      VK_IMAGE_ASPECT_COLOR_BIT, &reservoirTemporalTexture,
+      RI_VIEWTYPE_SHADER_RESOURCE_2D, &reservoirTemporalTexture,
       &reservoirTemporalView, "HybridViewportState.reservoirTemporal");
 
   // Recreation invalidated every history: re-arm the one-time direct-lighting
@@ -461,7 +460,7 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
 void cViewport::HybridViewportState::Dispose(RIBootstrap::FrameContext *cntx) {
   for (uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; i++) {
     ReleaseViewportColorTexture(cntx->freelist, &renderTarget[i],
-                                &renderTargetDescriptor[i]);
+                                &renderTargetView[i]);
     ReleaseViewportAttachmentTexture(cntx->freelist, &depthTextures[i],
                                      &depthView[i]);
     ReleaseViewportAttachmentTexture(cntx->freelist, &visibilityTexture[i],
@@ -1224,7 +1223,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     const uint32_t instanceCount = (uint32_t)tlasInstances.size();
 
     auto destroyBuffer = [](RIBuffer *b) {
-      if (b->vk.buffer) {
+      if (!b->isEmpty(&RI.renderer)) {
         RI.GetActiveSet()->freelist.push_back(*b);
       }
       delete b;
@@ -1239,29 +1238,19 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       uint32_t newCap = m_tlasCapacity ? m_tlasCapacity : 256;
       while (newCap < instanceCapacityNeeded)
         newCap += (newCap >> 1);
-      if (m_tlasInstanceBuffer.vk.buffer) {
+      if (!m_tlasInstanceBuffer.isEmpty(&RI.renderer)) {
         cntx->freelist.push_back(m_tlasInstanceBuffer);
         m_tlasInstanceBuffer = {};
       }
       // Device-local: the instance buffer is a transfer destination written
       // each frame via the resource uploader. A persistent host mapping would
       // race the GPU's TLAS read for the previous frame still in flight.
-      uint32_t qf[RI_QUEUE_LEN] = {0};
-      VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-      VK_ConfigureBufferQueueFamilies(&bci, RI.device.queues, RI_QUEUE_LEN, qf,
-                                      RI_QUEUE_LEN);
-      bci.size =
-          (VkDeviceSize)newCap * sizeof(VkAccelerationStructureInstanceKHR);
-      bci.usage =
-          VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
-          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-          VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-      VmaAllocationCreateInfo aci = {};
-      aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-      VK_WrapResult(vmaCreateBufferWithAlignment(
-          RI.device.vk.vmaAllocator, &bci, &aci, 16,
-          &m_tlasInstanceBuffer.vk.buffer, &m_tlasInstanceBuffer.vk.allocation,
-          nullptr));
+      m_tlasInstanceBuffer = RIBuffer::create(
+          &RI.device,
+          {(uint64_t)newCap * sizeof(VkAccelerationStructureInstanceKHR),
+           RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT |
+               RI_BUFFER_USAGE_DEVICE_ADDRESS | RI_BUFFER_USAGE_TRANSFER_DST,
+           RI_MEMORY_DEVICE, 16});
       m_tlasCapacity = newCap;
     }
 
@@ -1302,23 +1291,18 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                            nullptr);
 
     if ((m_tlas.vk.handle == VK_NULL_HANDLE) ||
-        (m_tlasStorage.vk.buffer == VK_NULL_HANDLE ||
+        (m_tlasStorage.isEmpty(&RI.renderer) ||
          tlasStorageSize > m_tlasStorageCapacity)) {
       if (m_tlas.vk.handle != VK_NULL_HANDLE) {
         cntx->freelist.push_back(m_tlas);
         cntx->freelist.push_back(m_tlasStorage);
         m_tlas = {};
       }
-      uint32_t qf[RI_QUEUE_LEN] = {0};
-      VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-      VK_ConfigureBufferQueueFamilies(&bci, RI.device.queues, RI_QUEUE_LEN, qf,
-                                      RI_QUEUE_LEN);
-      bci.size = tlasStorageSize;
-      bci.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
-                  VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-      VmaAllocationCreateInfo aci = {};
-      aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-      m_tlasStorage = RIBuffer::VK_createFromVMA(&RI.device, &bci, &aci);
+      m_tlasStorage = RIBuffer::create(
+          &RI.device, {(uint64_t)tlasStorageSize,
+                       RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE |
+                           RI_BUFFER_USAGE_DEVICE_ADDRESS,
+                       RI_MEMORY_DEVICE, 0});
       tlasDesc.storage = &m_tlasStorage;
       tlasDesc.storageOffset = 0;
       tlasDesc.storageSize = tlasStorageSize;
@@ -1346,7 +1330,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       build.instanceOffset = 0;
       build.scratchBuffer = &scratchReq.block.buffer;
       build.scratchOffset = scratchReq.bufferOffset;
-      RI.primary.cmds[0].buildTlas(&RI.renderer, &RI.device, &build, 1);
+      RI.primary.cmds[0].buildTlas(&RI.device, &build, 1);
 
       // Consumed by both the RT pipelines and fragment-stage ray queries —
       // one barrier covers both.
@@ -1363,7 +1347,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Set 1 is allocated from a frame-rotated pool, so each frame's writes
   // land on an idle descriptor set.
 
-  VkCommandBuffer cmd = RI.primary.cmds[0].vk.cmd;
   std::vector<RIProgram::DescriptorBinding> bindings;
   bindings.reserve(16);
   auto pushBinding = [&](const char *name, const RIDescriptor &desc,
@@ -1383,36 +1366,31 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // storage + sampled access). `gRtAccel` is the freshly built TLAS.
   // Each helper appends to a local std::vector<DescriptorBinding> so
   // multiple shaders can mix-and-match the subset they need.
+  // These descriptors are rebuilt every frame, so the cookie (descriptor-set
+  // cache key) must be STABLE per referenced view/accel handle (reproducing the
+  // old finalize hash) — not hash_random(), which would defeat caching. `view`
+  // must be a persistent RITextureView (viewport-state member).
   auto pushSurfelStorageImage =
       [&](std::vector<RIProgram::DescriptorBinding> &v, const char *name,
-          VkImageView view) {
+          RITextureView *view) {
         RIProgram::DescriptorBinding b;
         b.handle = DescriptorBindingID::Create(name);
-        b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-        b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
-        b.descriptor.vk.image.imageView = view;
-        b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        b.descriptor.finalize(&RI.device);
+        b.descriptor = RIDescriptor::storageImage(&RI.device, view);
         v.push_back(b);
       };
   auto pushSurfelSampledImage =
       [&](std::vector<RIProgram::DescriptorBinding> &v, const char *name,
-          VkImageView view) {
+          RITextureView *view) {
         RIProgram::DescriptorBinding b;
         b.handle = DescriptorBindingID::Create(name);
-        b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-        b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
-        b.descriptor.vk.image.imageView = view;
-        b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        b.descriptor.finalize(&RI.device);
+        b.descriptor = RIDescriptor::sampledImage(
+            &RI.device, view, RI_RESOURCE_STATE_GENERAL);
         v.push_back(b);
       };
   auto pushTlas = [&](std::vector<RIProgram::DescriptorBinding> &v) {
     RIProgram::DescriptorBinding b;
     b.handle = DescriptorBindingID::Create("gRtAccel");
-    b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
-    b.descriptor.vk.accelStructure = m_tlas.vk.handle;
-    b.descriptor.finalize(&RI.device);
+    b.descriptor = RIDescriptor::accelerationStructure(&RI.device, &m_tlas);
     v.push_back(b);
   };
 
@@ -1480,7 +1458,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_surfelPrepare.bindBindlessDescriptorSet(&RI.primary.cmds[0],
                                               &m_global.m_bindlessSet, 0,
                                               VK_PIPELINE_BIND_POINT_COMPUTE);
-    RI.primary.cmds[0].dispatch(&RI.renderer, 1u, 1u, 1u);
+    RI.primary.cmds[0].dispatch(&RI.device, 1u, 1u, 1u);
   }
 
   // Ping-pong the surfel-index buffers: copy this frame's previously-valid
@@ -1492,12 +1470,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // (with the prepare-pass writes above) covers the copy's TRANSFER_WRITE and
   // prepare's SHADER_WRITE against update_collect's SHADER_READ.
   {
-    VkBufferCopy region = {};
-    region.srcOffset = 0;
-    region.dstOffset = 0;
-    region.size = (VkDeviceSize)kTotalSurfelLimit * sizeof(uint32_t);
-    vkCmdCopyBuffer(cmd, m_global.m_surfelValidBuffer.vk.buffer,
-                    m_global.m_surfelDirtyIndexBuffer.vk.buffer, 1, &region);
+    RI.primary.cmds[0].copyBuffer(
+        &RI.device, &m_global.m_surfelValidBuffer, 0,
+        &m_global.m_surfelDirtyIndexBuffer, 0,
+        (RIDeviceSize)kTotalSurfelLimit * sizeof(uint32_t));
   }
   {
     RI.primary.cmds[0].vk_d3d12_memoryBarrier(
@@ -1558,7 +1534,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       vbBindings.push_back(b);
     }
     pushSurfelStorageImage(vbBindings, "gPackedHitInfo",
-                           state.packedHitInfoView[RI.swapchainIndex].vk.image);
+                           &state.packedHitInfoView[RI.swapchainIndex]);
     pushTlas(vbBindings);
 
     m_surfelVBuffer.bindDescriptors(
@@ -1628,7 +1604,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                           RI.frameIndex, bnd.data(), bnd.size(),
                                           VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    RI.primary.cmds[0].dispatch(&RI.renderer, (kTotalSurfelLimit + 31u) / 32u,
+    RI.primary.cmds[0].dispatch(&RI.device, (kTotalSurfelLimit + 31u) / 32u,
                                 1u, 1u);
   }
   // RAW: accumulate reads cellInfo.surfelCount (collect-written) and reads
@@ -1651,7 +1627,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         &RI.primary.cmds[0], &m_global.m_bindlessSet, 0,
         VK_PIPELINE_BIND_POINT_COMPUTE);
     const uint32_t groups = (kCellDimension + 3u) / 4u;
-    RI.primary.cmds[0].dispatch(&RI.renderer, groups, groups, groups);
+    RI.primary.cmds[0].dispatch(&RI.device, groups, groups, groups);
   }
   // RAW: scatter reads cellInfo.cellToSurfelBufferOffset (accumulate-written)
   // and RMWs cellInfo.surfelCount (accumulate zeroed it). Scatter's writes are
@@ -1685,7 +1661,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                           RI.frameIndex, bnd.data(), bnd.size(),
                                           VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    RI.primary.cmds[0].dispatch(&RI.renderer, (kTotalSurfelLimit + 31u) / 32u,
+    RI.primary.cmds[0].dispatch(&RI.device, (kTotalSurfelLimit + 31u) / 32u,
                                 1u, 1u);
   }
   {
@@ -1728,7 +1704,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                    VK_PIPELINE_BIND_POINT_COMPUTE);
     // One thread per grid cell (the shader early-outs past
     // kLightGridCellCount).
-    RI.primary.cmds[0].dispatch(&RI.renderer, (kLightGridCellCount + 63u) / 64u,
+    RI.primary.cmds[0].dispatch(&RI.device, (kLightGridCellCount + 63u) / 64u,
                                 1u, 1u);
   }
 
@@ -1766,13 +1742,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                     RI_RESOURCE_STATE_CLEAR_STORAGE}};
     RI.primary.cmds[0].vk_d3d12_textureBarriers<1>(1, toClear);
 
-    VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    VkClearColorValue depthClear = {};
-    depthClear.float32[0] = 0.0f;     // E[z]
-    depthClear.float32[1] = 60000.0f; // E[z^2] seeded high (half-float safe)
-    vkCmdClearColorImage(RI.primary.cmds[0].vk.cmd,
-                         m_surfelDepthTexture[RI.swapchainIndex].vk.image,
-                         VK_IMAGE_LAYOUT_GENERAL, &depthClear, 1, &range);
+    // (E[z], E[z^2] seeded high (half-float safe), 0, 0)
+    const float depthClear[4] = {0.0f, 60000.0f, 0.0f, 0.0f};
+    RI.primary.cmds[0].clearStorageImage(
+        &RI.device, &m_surfelDepthTexture[RI.swapchainIndex], depthClear);
 
     // Clear (transfer) -> integrate's storage RW + ray-trace / generation reads
     // (sampled). Same GENERAL layout, availability/visibility only.
@@ -1837,14 +1810,20 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   gbufferBeginDesc.colorCount = 2;
   gbufferBeginDesc.colors = gbufferColorAttachments;
   gbufferBeginDesc.depthStencil = &depthAttachment;
-  RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, gbufferBeginDesc);
+  RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, gbufferBeginDesc);
 
-  VkViewport vkViewport = {
-      0,   (float)renderHeight, (float)renderWidth, -(float)renderHeight, 0.0f,
-      1.0f};
-  VkRect2D scissor = {{0, 0}, {renderWidth, renderHeight}};
-  vkCmdSetViewport(cmd, 0, 1, &vkViewport);
-  vkCmdSetScissor(cmd, 0, 1, &scissor);
+  RIViewport vkViewport = {};
+  vkViewport.x = 0.0f;
+  vkViewport.y = (float)renderHeight;
+  vkViewport.width = (float)renderWidth;
+  vkViewport.height = -(float)renderHeight;
+  vkViewport.depthMin = 0.0f;
+  vkViewport.depthMax = 1.0f;
+  RIRect scissor = {};
+  scissor.width = (int16_t)renderWidth;
+  scissor.height = (int16_t)renderHeight;
+  RI.primary.cmds[0].setViewport(&RI.device, vkViewport);
+  RI.primary.cmds[0].setScissor(&RI.device, scissor);
 
   if (writtenDraws > 0) {
     GBufferMRTPipelineDesc pipelineDesc(RIBootstrap::VisibilityFormat,
@@ -1857,12 +1836,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_gbuffer.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
                               bindings.data(), bindings.size());
     RI.primary.cmds[0].drawIndirect(
-        &RI.renderer, &m_indirectDrawBuffer,
+        &RI.device, &m_indirectDrawBuffer,
         (VkDeviceSize)indirectReq.elementOffset * sizeof(VkDrawIndirectCommand),
         writtenDraws, (uint32_t)sizeof(VkDrawIndirectCommand));
   }
 
-  RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
+  RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
 
   // Gbuffer output -> SHADER_READ_ONLY for the surfel-generation compute
   // pass (and any later fragment consumer). Includes depth, which the
@@ -1909,12 +1888,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Clear the surfel-result image to zero indirect (see toRead[2] above), then
   // make the clear visible to surfel_generation_pass's storage write.
   {
-    VkClearColorValue clearColor = {};
-    clearColor.float32[3] = 1.0f; // (0,0,0,1): zero radiance, opaque alpha
-    VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-    vkCmdClearColorImage(cmd,
-                         state.surfelResultTexture[RI.swapchainIndex].vk.image,
-                         VK_IMAGE_LAYOUT_GENERAL, &clearColor, 1, &range);
+    // (0,0,0,1): zero radiance, opaque alpha
+    const float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
+    RI.primary.cmds[0].clearStorageImage(
+        &RI.device, &state.surfelResultTexture[RI.swapchainIndex], clearColor);
 
     RI.primary.cmds[0].vk_d3d12_textureBarrier(
         {&state.surfelResultTexture[RI.swapchainIndex],
@@ -1953,13 +1930,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       bnd.push_back(b);
     }
     pushSurfelStorageImage(bnd, "gSurfelDepthMap",
-                           m_surfelDepthView[RI.swapchainIndex].vk.image);
+                           &m_surfelDepthView[RI.swapchainIndex]);
     pushSurfelSampledImage(bnd, "gSurfelDepth",
-                           m_surfelDepthView[RI.swapchainIndex].vk.image);
+                           &m_surfelDepthView[RI.swapchainIndex]);
     m_surfelIntegrate.bindDescriptors(&RI.device, &RI.primary.cmds[0],
                                       RI.frameIndex, bnd.data(), bnd.size(),
                                       VK_PIPELINE_BIND_POINT_COMPUTE);
-    RI.primary.cmds[0].dispatch(&RI.renderer, (kTotalSurfelLimit + 31u) / 32u,
+    RI.primary.cmds[0].dispatch(&RI.device, (kTotalSurfelLimit + 31u) / 32u,
                                 1u, 1u);
   }
   {
@@ -1995,18 +1972,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       bnd.push_back(b);
     }
     pushSurfelStorageImage(bnd, "gPackedHitInfo",
-                           state.packedHitInfoView[RI.swapchainIndex].vk.image);
+                           &state.packedHitInfoView[RI.swapchainIndex]);
     pushSurfelSampledImage(bnd, "gSurfelDepth",
-                           m_surfelDepthView[RI.swapchainIndex].vk.image);
+                           &m_surfelDepthView[RI.swapchainIndex]);
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gOutput");
-      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-      b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
-      b.descriptor.vk.image.imageView =
-          state.surfelResultView[RI.swapchainIndex].vk.image;
-      b.descriptor.vk.image.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-      b.descriptor.finalize(&RI.device);
+      b.descriptor = RIDescriptor::storageImage(
+          &RI.device, &state.surfelResultView[RI.swapchainIndex]);
       bnd.push_back(b);
     }
     m_surfelGenerate.bindDescriptors(&RI.device, &RI.primary.cmds[0],
@@ -2015,13 +1988,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     static_assert(sizeof(SurfelGenerationPushConstants) == 4);
     const SurfelGenerationPushConstants push{m_surfelOverlayMode};
-    vkCmdPushConstants(RI.primary.cmds[0].vk.cmd,
-                       m_surfelGenerate.getPipelineLayout(),
-                       VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+    RI.primary.cmds[0].vk_d3d12_setPushConstants(&RI.device, m_surfelGenerate, 0,
+                                                 sizeof(push), &push);
 
     const uint32_t fullW = renderWidth;
     const uint32_t fullH = renderHeight;
-    RI.primary.cmds[0].dispatch(&RI.renderer, (fullW + 15u) / 16u,
+    RI.primary.cmds[0].dispatch(&RI.device, (fullW + 15u) / 16u,
                                 (fullH + 15u) / 16u, 1u);
   }
 
@@ -2033,7 +2005,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // --------------------------------------------------------------------
   // The image the composite samples for direct lighting: the raw accumulation
   // when à-trous is disabled, else the final à-trous iteration's output.
-  VkImageView directResultView = VK_NULL_HANDLE;
+  RITextureView *directResultView = nullptr;
   {
     const uint32_t dlCur = state.directLightingIndex;
     const uint32_t dlPrev = dlCur ^ 1u;
@@ -2041,15 +2013,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     if (!state.directLightingInit) {
       // First use: the colour + key ping-pong textures UNDEFINED -> GENERAL +
       // cleared so the history reads are defined; they stay GENERAL thereafter.
-      VkImage dirImgs[9] = {state.directLightingTexture[0].vk.image,
-                            state.directLightingTexture[1].vk.image,
-                            state.directKeyTexture[0].vk.image,
-                            state.directKeyTexture[1].vk.image,
-                            state.directAtrousTexture[0].vk.image,
-                            state.directAtrousTexture[1].vk.image,
-                            state.reservoirTexture[0].vk.image,
-                            state.reservoirTexture[1].vk.image,
-                            state.reservoirTemporalTexture.vk.image};
       RITextureBarrier toGen[9] = {
           {&state.directLightingTexture[0], RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE},
@@ -2071,11 +2034,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
            RI_RESOURCE_STATE_CLEAR_STORAGE}};
       RI.primary.cmds[0].vk_d3d12_textureBarriers<9>(9, toGen);
 
-      VkClearColorValue clr = {};
-      VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      const float clr[4] = {0.0f, 0.0f, 0.0f, 0.0f};
       for (uint32_t i = 0; i < 9; ++i)
-        vkCmdClearColorImage(cmd, dirImgs[i], VK_IMAGE_LAYOUT_GENERAL, &clr, 1,
-                             &range);
+        RI.primary.cmds[0].clearStorageImage(&RI.device, toGen[i].texture, clr);
 
       RI.primary.cmds[0].vk_d3d12_memoryBarrier(
           {RI_RESOURCE_STATE_CLEAR_STORAGE,
@@ -2100,15 +2061,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                                &m_global.m_bindlessSet, 0,
                                                VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    auto pushSampled = [&](const char *name, VkImageView view,
+    auto pushSampled = [&](const char *name, RITextureView *view,
                            VkImageLayout layout) {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create(name);
-      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-      b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
-      b.descriptor.vk.image.imageView = view;
-      b.descriptor.vk.image.imageLayout = layout;
-      b.descriptor.finalize(&RI.device);
+      const enum RIResourceState_e st =
+          (layout == VK_IMAGE_LAYOUT_GENERAL) ? RI_RESOURCE_STATE_GENERAL
+                                              : RI_RESOURCE_STATE_SHADER_RESOURCE;
+      b.descriptor = RIDescriptor::sampledImage(&RI.device, view, st);
       return b;
     };
 
@@ -2122,28 +2082,28 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
     // Temporal pass traces no rays — only builds + reprojects reservoirs.
     pushSurfelStorageImage(bnd, "gPackedHitInfo",
-                           state.packedHitInfoView[RI.swapchainIndex].vk.image);
+                           &state.packedHitInfoView[RI.swapchainIndex]);
     bnd.push_back(pushSampled("gPackedHitInfoRaster",
-                              state.visibilityView[RI.swapchainIndex].vk.image,
+                              &state.visibilityView[RI.swapchainIndex],
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
     bnd.push_back(pushSampled("gVelocity",
-                              state.velocityView[RI.swapchainIndex].vk.image,
+                              &state.velocityView[RI.swapchainIndex],
                               VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
     bnd.push_back(pushSampled("gReservoirHistory",
-                              state.reservoirView[dlPrev].vk.image,
+                              &state.reservoirView[dlPrev],
                               VK_IMAGE_LAYOUT_GENERAL));
     bnd.push_back(pushSampled("gDirectKeyHistory",
-                              state.directKeyView[dlPrev].vk.image,
+                              &state.directKeyView[dlPrev],
                               VK_IMAGE_LAYOUT_GENERAL));
     pushSurfelStorageImage(bnd, "gReservoirOut",
-                           state.reservoirTemporalView.vk.image);
+                           &state.reservoirTemporalView);
     pushSurfelStorageImage(bnd, "gDirectKeyOut",
-                           state.directKeyView[dlCur].vk.image);
+                           &state.directKeyView[dlCur]);
 
     m_directLighting.bindDescriptors(&RI.device, &RI.primary.cmds[0],
                                      RI.frameIndex, bnd.data(), bnd.size(),
                                      VK_PIPELINE_BIND_POINT_COMPUTE);
-    RI.primary.cmds[0].dispatch(&RI.renderer, (renderWidth + 15u) / 16u,
+    RI.primary.cmds[0].dispatch(&RI.device, (renderWidth + 15u) / 16u,
                                 (renderHeight + 15u) / 16u, 1u);
 
     // Temporal reservoir + current key writes -> spatial pass sampled reads.
@@ -2175,35 +2135,35 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       }
       pushSurfelStorageImage(
           sb, "gPackedHitInfo",
-          state.packedHitInfoView[RI.swapchainIndex].vk.image);
+          &state.packedHitInfoView[RI.swapchainIndex]);
       pushTlas(sb); // resolve shadow ray
       sb.push_back(pushSampled("gPackedHitInfoRaster",
-                               state.visibilityView[RI.swapchainIndex].vk.image,
+                               &state.visibilityView[RI.swapchainIndex],
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
       sb.push_back(pushSampled("gReservoirIn",
-                               state.reservoirTemporalView.vk.image,
+                               &state.reservoirTemporalView,
                                VK_IMAGE_LAYOUT_GENERAL));
       sb.push_back(pushSampled("gDirectKey",
-                               state.directKeyView[dlCur].vk.image,
+                               &state.directKeyView[dlCur],
                                VK_IMAGE_LAYOUT_GENERAL));
       sb.push_back(pushSampled("gVelocity",
-                               state.velocityView[RI.swapchainIndex].vk.image,
+                               &state.velocityView[RI.swapchainIndex],
                                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL));
       sb.push_back(pushSampled("gDirectHistory",
-                               state.directLightingView[dlPrev].vk.image,
+                               &state.directLightingView[dlPrev],
                                VK_IMAGE_LAYOUT_GENERAL));
       sb.push_back(pushSampled("gDirectKeyHistory",
-                               state.directKeyView[dlPrev].vk.image,
+                               &state.directKeyView[dlPrev],
                                VK_IMAGE_LAYOUT_GENERAL));
       pushSurfelStorageImage(sb, "gReservoirOut",
-                             state.reservoirView[dlCur].vk.image);
+                             &state.reservoirView[dlCur]);
       pushSurfelStorageImage(sb, "gDirectLighting",
-                             state.directLightingView[dlCur].vk.image);
+                             &state.directLightingView[dlCur]);
 
       m_directSpatialReuse.bindDescriptors(&RI.device, &RI.primary.cmds[0],
                                            RI.frameIndex, sb.data(), sb.size(),
                                            VK_PIPELINE_BIND_POINT_COMPUTE);
-      RI.primary.cmds[0].dispatch(&RI.renderer, (renderWidth + 15u) / 16u,
+      RI.primary.cmds[0].dispatch(&RI.device, (renderWidth + 15u) / 16u,
                                   (renderHeight + 15u) / 16u, 1u);
     }
 
@@ -2220,13 +2180,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // reads the accumulation (directLighting[dlCur]); later iterations
     // ping-pong the directAtrous scratch. All textures stay GENERAL.
     // ----------------------------------------------------------------
-    directResultView = state.directLightingView[dlCur].vk.image;
+    directResultView = &state.directLightingView[dlCur];
     for (int it = 0; it < kAtrousIterations; ++it) {
-      VkImageView inView = (it == 0)
-                               ? state.directLightingView[dlCur].vk.image
-                               : state.directAtrousView[(it - 1) & 1].vk.image;
+      RITextureView *inView = (it == 0)
+                               ? &state.directLightingView[dlCur]
+                               : &state.directAtrousView[(it - 1) & 1];
       const uint32_t outIdx = static_cast<uint32_t>(it) & 1u;
-      VkImageView outView = state.directAtrousView[outIdx].vk.image;
+      RITextureView *outView = &state.directAtrousView[outIdx];
 
       m_directAtrous.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
                                          "DirectAtrousPass.cs", &ci);
@@ -2251,13 +2211,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       }
       pushSurfelSampledImage(ab, "gAtrousIn", inView);
       pushSurfelSampledImage(ab, "gDirectKey",
-                             state.directKeyView[dlCur].vk.image);
+                             &state.directKeyView[dlCur]);
       pushSurfelStorageImage(ab, "gAtrousOut", outView);
 
       m_directAtrous.bindDescriptors(&RI.device, &RI.primary.cmds[0],
                                      RI.frameIndex, ab.data(), ab.size(),
                                      VK_PIPELINE_BIND_POINT_COMPUTE);
-      RI.primary.cmds[0].dispatch(&RI.renderer, (renderWidth + 15u) / 16u,
+      RI.primary.cmds[0].dispatch(&RI.device, (renderWidth + 15u) / 16u,
                                   (renderHeight + 15u) / 16u, 1u);
 
       // This iteration's write -> next iteration's / composite's sampled read.
@@ -2349,18 +2309,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       bnd.push_back(b);
     }
     pushSurfelStorageImage(bnd, "gPackedHitInfo",
-                           state.packedHitInfoView[RI.swapchainIndex].vk.image);
+                           &state.packedHitInfoView[RI.swapchainIndex]);
     pushTlas(bnd);
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gIndirectLighting");
-      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-      b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
-      b.descriptor.vk.image.imageView =
-          state.surfelResultView[RI.swapchainIndex].vk.image;
-      b.descriptor.vk.image.imageLayout =
-          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      b.descriptor.finalize(&RI.device);
+      b.descriptor = RIDescriptor::sampledImage(
+          &RI.device, &state.surfelResultView[RI.swapchainIndex]);
       bnd.push_back(b);
     }
     {
@@ -2370,13 +2325,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // to COMPUTE).
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPackedHitInfoRaster");
-      b.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-      b.descriptor.vk.image.sampler = VK_NULL_HANDLE;
-      b.descriptor.vk.image.imageView =
-          state.visibilityView[RI.swapchainIndex].vk.image;
-      b.descriptor.vk.image.imageLayout =
-          VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-      b.descriptor.finalize(&RI.device);
+      b.descriptor = RIDescriptor::sampledImage(
+          &RI.device, &state.visibilityView[RI.swapchainIndex]);
       bnd.push_back(b);
     }
     // gDirectLighting — this frame's direct irradiance the composite multiplies
@@ -2386,13 +2336,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // gOutput — the viewport render target bound as a storage image (GENERAL).
     pushSurfelStorageImage(
         bnd, "gOutput",
-        state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView);
+        &state.renderTargetView[RI.swapchainIndex]);
 
     m_mainComposite.bindDescriptors(&RI.device, &RI.primary.cmds[0],
                                     RI.frameIndex, bnd.data(), bnd.size(),
                                     VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    RI.primary.cmds[0].dispatch(&RI.renderer, (renderWidth + 15u) / 16u,
+    RI.primary.cmds[0].dispatch(&RI.device, (renderWidth + 15u) / 16u,
                                 (renderHeight + 15u) / 16u, 1u);
   }
 
@@ -2459,7 +2409,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
       VkImage pogoReadImage = state.renderTarget[RI.swapchainIndex].vk.image;
       VkImageView pogoReadView =
-          state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
+          state.renderTargetView[RI.swapchainIndex].vk.image;
 
       {
         RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoAttachmentBarrier(
@@ -2485,17 +2435,20 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       beginDesc.colorCount = 1;
       beginDesc.colors = &color;
       beginDesc.depthStencil = &depth;
-      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
 
-      VkViewport vp = {0.0f,
-                       (float)renderHeight,
-                       (float)renderWidth,
-                       -(float)renderHeight,
-                       0.0f,
-                       1.0f};
-      VkRect2D sc = {{0, 0}, {renderWidth, renderHeight}};
-      vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
-      vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
+      RIViewport vp = {};
+      vp.x = 0.0f;
+      vp.y = (float)renderHeight;
+      vp.width = (float)renderWidth;
+      vp.height = -(float)renderHeight;
+      vp.depthMin = 0.0f;
+      vp.depthMax = 1.0f;
+      RIRect sc = {};
+      sc.width = (int16_t)renderWidth;
+      sc.height = (int16_t)renderHeight;
+      RI.primary.cmds[0].setViewport(&RI.device, vp);
+      RI.primary.cmds[0].setScissor(&RI.device, sc);
 
       m_decal.bindBindlessDescriptorSet(&RI.primary.cmds[0],
                                         &m_global.m_bindlessSet, 0);
@@ -2566,15 +2519,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // Decal.frag's per-blend-mode output conversion (display-space source
         // → linear) needs the mode — mirrors the particle pass push block.
         const uint32_t push = (uint32_t)mode;
-        vkCmdPushConstants(
-            RI.primary.cmds[0].vk.cmd, m_decal.getPipelineLayout(),
-            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+        RI.primary.cmds[0].vk_d3d12_setPushConstants(&RI.device, m_decal, 0,
+                                                     sizeof(push), &push);
 
-        vkCmdDrawIndexed(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u,
-                         0u, 0, slot);
+        RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1u,
+                                       0u, 0, slot);
       }
 
-      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
+      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
 
       {
         RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
@@ -2612,7 +2564,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
       VkImage pogoReadImage = state.renderTarget[RI.swapchainIndex].vk.image;
       VkImageView pogoReadView =
-          state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
+          state.renderTargetView[RI.swapchainIndex].vk.image;
 
       {
         RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoAttachmentBarrier(
@@ -2638,17 +2590,20 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       beginDesc.colorCount = 1;
       beginDesc.colors = &color;
       beginDesc.depthStencil = &depth;
-      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
 
-      VkViewport vp = {0.0f,
-                       (float)renderHeight,
-                       (float)renderWidth,
-                       -(float)renderHeight,
-                       0.0f,
-                       1.0f};
-      VkRect2D sc = {{0, 0}, {renderWidth, renderHeight}};
-      vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
-      vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
+      RIViewport vp = {};
+      vp.x = 0.0f;
+      vp.y = (float)renderHeight;
+      vp.width = (float)renderWidth;
+      vp.height = -(float)renderHeight;
+      vp.depthMin = 0.0f;
+      vp.depthMax = 1.0f;
+      RIRect sc = {};
+      sc.width = (int16_t)renderWidth;
+      sc.height = (int16_t)renderHeight;
+      RI.primary.cmds[0].setViewport(&RI.device, vp);
+      RI.primary.cmds[0].setScissor(&RI.device, sc);
 
       m_water.bindBindlessDescriptorSet(&RI.primary.cmds[0],
                                         &m_global.m_bindlessSet, 0);
@@ -2720,15 +2675,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           m_water.bindPipeline(&RI.device, &RI.primary.cmds[0], waterHash,
                                "Water", &pd.createInfo);
           WaterPush push = {pass, 0u, 0u, 0u};
-          vkCmdPushConstants(
-              RI.primary.cmds[0].vk.cmd, m_water.getPipelineLayout(),
-              VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
-          vkCmdDrawIndexed(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u,
-                           0u, 0, slot);
+          RI.primary.cmds[0].vk_d3d12_setPushConstants(&RI.device, m_water, 0,
+                                                       sizeof(push), &push);
+          RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1u,
+                                         0u, 0, slot);
         }
       }
 
-      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
+      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
 
       {
         RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
@@ -2787,7 +2741,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // then back to SHADER_READ after, so the tail blit below can sample it.
       VkImage pogoReadImage = state.renderTarget[RI.swapchainIndex].vk.image;
       VkImageView pogoReadView =
-          state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
+          state.renderTargetView[RI.swapchainIndex].vk.image;
       const RI_Format_e particleTargetFormat = RIBootstrap::PogoColorFormat;
       {
         RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoAttachmentBarrier(
@@ -2813,17 +2767,20 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       beginDesc.colorCount = 1;
       beginDesc.colors = &color;
       beginDesc.depthStencil = &depth;
-      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
 
-      VkViewport vp = {0.0f,
-                       (float)renderHeight,
-                       (float)renderWidth,
-                       -(float)renderHeight,
-                       0.0f,
-                       1.0f};
-      VkRect2D sc = {{0, 0}, {renderWidth, renderHeight}};
-      vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
-      vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
+      RIViewport vp = {};
+      vp.x = 0.0f;
+      vp.y = (float)renderHeight;
+      vp.width = (float)renderWidth;
+      vp.height = -(float)renderHeight;
+      vp.depthMin = 0.0f;
+      vp.depthMax = 1.0f;
+      RIRect sc = {};
+      sc.width = (int16_t)renderWidth;
+      sc.height = (int16_t)renderHeight;
+      RI.primary.cmds[0].setViewport(&RI.device, vp);
+      RI.primary.cmds[0].setScissor(&RI.device, sc);
 
       m_particle.bindBindlessDescriptorSet(&RI.primary.cmds[0],
                                            &m_global.m_bindlessSet, 0);
@@ -2937,15 +2894,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // mesh path and any future per-object alpha gates.
         const float sceneAlpha = 1.0f;
         PushBlock push = {(uint32_t)mode, sceneAlpha};
-        vkCmdPushConstants(
-            RI.primary.cmds[0].vk.cmd, m_particle.getPipelineLayout(),
-            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+        RI.primary.cmds[0].vk_d3d12_setPushConstants(&RI.device, m_particle, 0,
+                                                     sizeof(push), &push);
 
-        vkCmdDraw(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u, 0u,
-                  slot);
+        RI.primary.cmds[0].draw(&RI.device, (uint32_t)indexCount, 1u, 0u, slot);
       }
 
-      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
+      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
 
       // pogo "read" half back to SHADER_READ_ONLY so the tail blit can sample
       // it.
@@ -3011,7 +2966,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
       VkImage pogoReadImage = state.renderTarget[RI.swapchainIndex].vk.image;
       VkImageView pogoReadView =
-          state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
+          state.renderTargetView[RI.swapchainIndex].vk.image;
       const RI_Format_e meshTargetFormat = RIBootstrap::PogoColorFormat;
 
       // SHADER_READ_ONLY → COLOR_ATTACHMENT_OPTIMAL. If the particle pass
@@ -3043,17 +2998,20 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       beginDesc.colorCount = 1;
       beginDesc.colors = &color;
       beginDesc.depthStencil = &depth;
-      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
 
-      VkViewport vp = {0.0f,
-                       (float)renderHeight,
-                       (float)renderWidth,
-                       -(float)renderHeight,
-                       0.0f,
-                       1.0f};
-      VkRect2D sc = {{0, 0}, {renderWidth, renderHeight}};
-      vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
-      vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &sc);
+      RIViewport vp = {};
+      vp.x = 0.0f;
+      vp.y = (float)renderHeight;
+      vp.width = (float)renderWidth;
+      vp.height = -(float)renderHeight;
+      vp.depthMin = 0.0f;
+      vp.depthMax = 1.0f;
+      RIRect sc = {};
+      sc.width = (int16_t)renderWidth;
+      sc.height = (int16_t)renderHeight;
+      RI.primary.cmds[0].setViewport(&RI.device, vp);
+      RI.primary.cmds[0].setScissor(&RI.device, sc);
 
       m_translucentMesh.bindBindlessDescriptorSet(&RI.primary.cmds[0],
                                                   &m_global.m_bindlessSet, 0);
@@ -3164,12 +3122,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // common path.
         const float sceneAlpha = 1.0f;
         PushBlock push = {(uint32_t)mode, sceneAlpha, 0u, 0u};
-        vkCmdPushConstants(
-            RI.primary.cmds[0].vk.cmd, m_translucentMesh.getPipelineLayout(),
-            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(push), &push);
+        RI.primary.cmds[0].vk_d3d12_setPushConstants(&RI.device, m_translucentMesh,
+                                                     0, sizeof(push), &push);
 
-        vkCmdDrawIndexed(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u,
-                         0u, 0, slot);
+        RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1u,
+                                       0u, 0, slot);
 
         // Second draw for the cube-map Fresnel + rim contribution.
         // Reference gates this on `cubeMap && !isRefraction`
@@ -3187,17 +3144,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           PushBlock pushIllum = {
               (uint32_t)TranslucentMeshPipelineDesc::BLEND_ADD, sceneAlpha,
               kTransOptUseIllumination, 0u};
-          vkCmdPushConstants(
-              RI.primary.cmds[0].vk.cmd, m_translucentMesh.getPipelineLayout(),
-              VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pushIllum), &pushIllum);
+          RI.primary.cmds[0].vk_d3d12_setPushConstants(
+              &RI.device, m_translucentMesh, 0, sizeof(pushIllum), &pushIllum);
           // Vertex / index buffers stay bound from the main draw above —
           // same renderable, just a second pipeline + push-constant set.
-          vkCmdDrawIndexed(RI.primary.cmds[0].vk.cmd, (uint32_t)indexCount, 1u,
-                           0u, 0, slot);
+          RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1u,
+                                         0u, 0, slot);
         }
       }
 
-      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
+      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
       RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(&state.renderTarget[RI.swapchainIndex], /*initial=*/false));
     }
   }
@@ -3236,8 +3192,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
          RI_RESOURCE_STATE_RENDER_TARGET_READ, RI_STAGE_FRAGMENT});
 
     {
-      RITextureView colorView =
-          state.renderTargetDescriptor[RI.swapchainIndex].textureView();
+      RITextureView colorView = state.renderTargetView[RI.swapchainIndex];
       RIRenderingAttachment color = {};
       color.view = colorView;
       color.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
@@ -3256,12 +3211,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       beginDesc.colorCount = 1;
       beginDesc.colors = &color;
       beginDesc.depthStencil = &depth;
-      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
 
       debugDraw->flush(cntx, &RI.primary.cmds[0], apFrustum, renderWidth,
                        renderHeight, RIBootstrap::PogoColorFormatVk);
 
-      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
+      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
     }
     RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
         &state.renderTarget[RI.swapchainIndex], /*initial=*/false));
@@ -3285,26 +3240,15 @@ cHybridRenderer::~cHybridRenderer() {
                                       NULL);
     m_tlas = {};
   }
-  if (m_tlasInstanceBuffer.vk.buffer) {
-    vmaDestroyBuffer(RI.device.vk.vmaAllocator, m_tlasInstanceBuffer.vk.buffer,
-                     m_tlasInstanceBuffer.vk.allocation);
-    m_tlasInstanceBuffer = {};
-  }
+  m_tlasInstanceBuffer.dispose(&RI.device);
+  m_tlasInstanceBuffer = {};
   m_global.destroy(&RI.device);
   // Fallback vertex streams are RIBootstrap globals (process-lifetime, like
   // RI.nulVertexBuffer); not freed here.
   for (uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; ++i) {
-    if (m_surfelDepthView[i].vk.image != VK_NULL_HANDLE) {
-      vkDestroyImageView(RI.device.vk.device, m_surfelDepthView[i].vk.image,
-                         NULL);
-      m_surfelDepthView[i] = {};
-    }
-    if (m_surfelDepthTexture[i].vk.image != VK_NULL_HANDLE) {
-      vmaDestroyImage(RI.device.vk.vmaAllocator,
-                      m_surfelDepthTexture[i].vk.image,
-                      m_surfelDepthTexture[i].vk.allocation);
-      m_surfelDepthTexture[i] = {};
-    }
+    m_surfelDepthView[i].dispose(&RI.device);
+    m_surfelDepthTexture[i].dispose(&RI.device);
+    m_surfelDepthTexture[i] = {};
   }
 }
 

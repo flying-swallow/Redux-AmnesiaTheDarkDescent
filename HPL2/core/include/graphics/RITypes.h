@@ -7,6 +7,7 @@
 #include "graphics/RIFormat.h"
 #include <cassert>
 #include <cstring>
+#include <optional>
 
 #ifdef DEVICE_SUPPORT_VULKAN
 #include "volk.h"
@@ -93,6 +94,8 @@ enum RITextureViewType_e {
   RI_VIEWTYPE_SHADER_RESOURCE_CUBE_ARRAY,
   RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_2D,
   RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_2D_ARRAY,
+  RI_VIEWTYPE_SHADER_RESOURCE_3D,
+  RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_3D,
 
   RI_VIEWTYPE_COLOR_ATTACHMENT,
   RI_VIEWTYPE_DEPTH_STENCIL_ATTACHMENT,
@@ -170,6 +173,31 @@ enum RIBufferUsage_e {
   RI_BUFFER_USAGE_BINDING_TABLE = 0x80,
   RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT = 0x100,
   RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE = 0x200,
+  RI_BUFFER_USAGE_TRANSFER_SRC = 0x400,
+  RI_BUFFER_USAGE_TRANSFER_DST = 0x800,
+  RI_BUFFER_USAGE_INDIRECT = 0x1000,
+  // Buffer must be addressable as a raw GPU pointer (Vulkan BDA /
+  // VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT).
+  RI_BUFFER_USAGE_DEVICE_ADDRESS = 0x2000,
+};
+
+// Where a buffer's memory lives, expressed backend-neutrally. Maps to VMA
+// memory usage + flags on Vulkan.
+enum RIMemoryLocation_e {
+  // Device-local, not host-mapped (VMA AUTO_PREFER_DEVICE). mappedAddress is
+  // null; seed via the resource uploader.
+  RI_MEMORY_DEVICE,
+  // Persistently mapped for sequential host writes
+  // (VMA AUTO + MAPPED + HOST_ACCESS_SEQUENTIAL_WRITE).
+  RI_MEMORY_HOST_UPLOAD,
+};
+
+// Backend-neutral buffer creation descriptor consumed by RIBuffer::create.
+struct RIBufferDesc {
+  uint64_t size;
+  uint32_t usage; // RIBufferUsage_e bitmask
+  RIMemoryLocation_e location;
+  uint64_t alignment; // 0 = no special alignment requirement
 };
 
 enum RITextureType_e { RI_TEXTURE_1D, RI_TEXTURE_2D, RI_TEXTURE_3D };
@@ -211,6 +239,18 @@ enum RICullMode_e {
 };
 
 enum RIIndexType_e { RI_INDEX_TYPE_16, RI_INDEX_TYPE_32 };
+
+// Backend-neutral descriptor type (RIDescriptor::type). Mapped to VkDescriptorType
+// at bind via ri_vk_BindlessDescriptorType. The engine uses separate sampled
+// images + samplers (no combined-image-sampler).
+enum RIDescriptorType_e {
+  RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+  RI_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+  RI_DESCRIPTOR_TYPE_SAMPLER,
+  RI_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+  RI_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+  RI_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE,
+};
 
 enum RIAccelStructureType_e {
   RI_ACCEL_STRUCTURE_TYPE_BOTTOM_LEVEL,
@@ -363,11 +403,17 @@ struct RIBuffer {
   RIBuffer() { memset(this, 0, sizeof(*this)); }
 
   void dispose(struct RIDevice *device);
-  static struct RIBuffer VK_createFromVMA(struct RIDevice *device,
-                                          VkBufferCreateInfo *vk,
-                                          VmaAllocationCreateInfo *info);
+  // Backend-neutral buffer factory: does all the VMA work, sets mappedAddress
+  // for host-upload buffers, and stamps the resource cookie. The cookie is a
+  // globally-unique random value (handle reuse makes the backend handle unsafe
+  // as an identity); pass `hash` to override when a stable/shared cookie is
+  // genuinely wanted.
+  static struct RIBuffer create(struct RIDevice *device,
+                                const struct RIBufferDesc &desc,
+                                std::optional<hash_t> hash = {});
   void setDebugObjectName(struct RIDevice *device, const char *name);
   uint64_t GetDeviceHandle(struct RIDevice *device);
+  bool isEmpty(const struct RIRenderer *renderer) const;
 
   union {
 #if (DEVICE_IMPL_VULKAN)
@@ -378,6 +424,9 @@ struct RIBuffer {
 #endif
   };
   void *mappedAddress;
+  // Stable identity / descriptor-set cache key, stamped at creation from the
+  // backend handle (0 == empty). RIDescriptor derives its cookie from this.
+  hash_t cookie;
 };
 
 struct RITexture {
@@ -392,12 +441,30 @@ struct RITexture {
     } vk;
 #endif
   };
+  hash_t cookie;
+};
+
+// Backend-neutral image-view descriptor consumed by RITextureView::create.
+struct RITextureViewDesc {
+  enum RITextureViewType_e viewType;
+  uint32_t format; // RI_Format_e (view format; may reinterpret the image format)
+  uint32_t baseMip;
+  uint32_t mipNum;
+  uint32_t baseLayer;
+  uint32_t layerNum;
 };
 
 struct RITextureView {
   RITextureView() { memset(this, 0, sizeof(*this)); }
+  // Backend-neutral view creation over `tex`. VK: vkCreateImageView. The caller
+  // owns the returned view and disposes it. `cookie` is stamped from the backend
+  // handle for use as a bindless descriptor-set cache key.
+  static struct RITextureView create(struct RIDevice *device,
+                                     const struct RITexture *tex,
+                                     const struct RITextureViewDesc &desc, std::optional<hash_t> hash = {});
   // Destroys the image view and zeroes the struct.
   void dispose(struct RIDevice *device);
+  bool isEmpty(const struct RIRenderer *renderer) const;
   union {
 #if (DEVICE_IMPL_VULKAN)
     struct {
@@ -405,6 +472,7 @@ struct RITextureView {
     } vk;
 #endif
   };
+  hash_t cookie;
 };
 
 enum RIDescriptorFlags_e {
@@ -435,41 +503,80 @@ CreateDescriptorBindingID(const char *name) {
 
 struct RIAccelStructure;
 
-struct RIDescriptor {
-  RIDescriptor() { memset(this, 0, sizeof(*this)); }
-
-  // Call after configuring the descriptor: computes the identity cookie from
-  // the backend handles (type-specific hash) and resolves any attached
-  // buffer/accel-structure handle into the inline vk fields. A descriptor
-  // with cookie == 0 reads as empty (isEmpty()).
-  void finalize(struct RIDevice *device);
-  // Convenience overload: attaches the acceleration structure, then
-  // finalizes as above.
-  void finalize(struct RIDevice *device, struct RIAccelStructure *as);
-
-  // Destroys only the backend objects this descriptor owns (sampler /
-  // image view, per the RI_VK_DESC_OWN_* flags); handles it merely
-  // references are left alone. Leaves the descriptor zeroed so pooled slots
-  // read as empty again (isEmpty() checks cookie == 0).
+// Owned backend sampler object. The only descriptor-referenced resource that
+// owns a backend handle; created/cached once (RIBootstrap filter cache) and
+// referenced by RIDescriptor::sampler. Freed via dispose().
+struct RISampler {
+  RISampler() { memset(this, 0, sizeof(*this)); }
   void dispose(struct RIDevice *device);
-
-  bool isEmpty() const { return cookie == 0; }
-
-  // The backing image view for image-type descriptors; empty otherwise.
-  struct RITextureView textureView() const;
-  // unique id to mark the descriptor
-  hash_t cookie;
-  uint8_t flags;
-  struct RIBuffer *buffer;
-  struct RITexture *texture;
-  struct RIAccelStructure *accelStructure;
   union {
 #if (DEVICE_IMPL_VULKAN)
     struct {
-      VkDescriptorType type;
+      VkSampler sampler;
+    } vk;
+#endif
+#if (DEVICE_IMPL_MTL)
+    struct {
+      MTL::SamplerState *sampler;
+    } mtl;
+#endif
+  };
+  hash_t cookie;
+};
+
+struct RIDescriptor {
+  RIDescriptor() { memset(this, 0, sizeof(*this)); }
+
+  // Backend-neutral descriptor builders: reference the RI object + set the
+  // binding params. The descriptor `cookie` (descriptor-set cache key) is
+  // DERIVED from the referenced resource's own cookie folded with the binding
+  // parameters (descriptor type; buffer offset/range) — callers no longer pass
+  // one. A resource with cookie == 0 (uncreated) yields an empty descriptor, so
+  // isEmpty() still holds. `state` selects the VK image layout. The `device`
+  // param is unused (no resolution here) but kept for call-site stability.
+  static RIDescriptor uniformBuffer(struct RIDevice *device,
+                                    struct RIBuffer *buffer, uint64_t offset,
+                                    uint64_t range);
+  static RIDescriptor storageBuffer(struct RIDevice *device,
+                                    struct RIBuffer *buffer, uint64_t offset,
+                                    uint64_t range);
+  static RIDescriptor sampledImage(struct RIDevice *device,
+                                   struct RITextureView *view,
+                                   enum RIResourceState_e state =
+                                       RI_RESOURCE_STATE_SHADER_RESOURCE);
+  static RIDescriptor storageImage(struct RIDevice *device,
+                                   struct RITextureView *view);
+  static RIDescriptor accelerationStructure(struct RIDevice *device,
+                                            struct RIAccelStructure *as);
+  static RIDescriptor sampler(struct RIDevice *device,
+                              struct RISampler *sampler);
+
+  bool isEmpty() const { return cookie == 0; }
+
+  // Backend handle accessors — read the resolved handle stored inline at build
+  // time (the builders resolve while the referenced RI object is still alive, so
+  // a descriptor never depends on that object outliving it).
+#if (DEVICE_IMPL_VULKAN)
+  VkImageView vkImageView() const;
+  VkBuffer vkBuffer() const;
+  VkSampler vkSampler() const;
+  VkAccelerationStructureKHR vkAccel() const;
+  VkImageLayout vkLayout() const;
+#endif
+
+  // unique id / descriptor-set cache key (0 == empty)
+  hash_t cookie;
+  // Backend-neutral descriptor type (RIDescriptorType_e).
+  uint8_t type;
+  // Resolved backend descriptor info, filled in by the builders. Exactly one
+  // union member is live per `type`; VkDescriptorImageInfo / VkDescriptorBufferInfo
+  // are what the descriptor-set writer consumes directly.
+  union {
+#if (DEVICE_IMPL_VULKAN)
+    struct {
       union {
-        struct VkDescriptorImageInfo image;
-        struct VkDescriptorBufferInfo buffer;
+        VkDescriptorImageInfo image;   // sampler + imageView + imageLayout
+        VkDescriptorBufferInfo buffer; // buffer + offset + range
         VkAccelerationStructureKHR accelStructure;
       };
     } vk;
@@ -504,6 +611,7 @@ struct RIAccelStructure {
     } vk;
 #endif
   };
+  hash_t cookie;
 };
 
 // Deferred-destroy handle for the per-frame freelist: a by-value copy of the
@@ -671,6 +779,12 @@ struct RIImageCopyDesc {
   uint32_t width, height, depth;
 };
 
+// RIProgram lives in namespace hpl; forward-declare it so RICmd can take it by
+// reference (vk_d3d12_setPushConstants) without pulling in RIProgram.h here.
+namespace hpl {
+class RIProgram;
+}
+
 struct RICmd {
   RICmd() { memset(this, 0, sizeof(*this)); }
 
@@ -681,59 +795,69 @@ struct RICmd {
   void end(struct RIDevice *device);
   // Returns the command buffer to its pool and clears the handles.
   void dispose(struct RIDevice *device);
+  bool isEmpty(const struct RIRenderer *renderer) const;
 
   // Leaf dispatch/draw command methods. Pipeline binding is done separately
   // (RIProgram::bindPipeline / bindComputePipeline / bindRayTracingPipeline);
-  // these are the "go" calls that issue the actual work. The renderer selects
-  // the active backend (is_target_selected); on Metal these route through the
-  // open encoder, on Vulkan they record vkCmd* into vk.cmd.
-  void dispatch(struct RIRenderer *renderer, uint32_t groupCountX,
+  // these are the "go" calls that issue the actual work. The device's renderer
+  // selects the active backend (is_target_selected); on Metal these route
+  // through the open encoder, on Vulkan they record vkCmd* into vk.cmd.
+  void dispatch(struct RIDevice *device, uint32_t groupCountX,
                 uint32_t groupCountY, uint32_t groupCountZ);
-  void dispatchIndirect(struct RIRenderer *renderer, struct RIBuffer *buffer,
+  void dispatchIndirect(struct RIDevice *device, struct RIBuffer *buffer,
                         RIDeviceSize offset);
-  void draw(struct RIRenderer *renderer, uint32_t vertexCount,
+  void draw(struct RIDevice *device, uint32_t vertexCount,
             uint32_t instanceCount, uint32_t firstVertex,
             uint32_t firstInstance);
-  void drawIndexed(struct RIRenderer *renderer, uint32_t indexCount,
+  void drawIndexed(struct RIDevice *device, uint32_t indexCount,
                    uint32_t instanceCount, uint32_t firstIndex,
                    int32_t vertexOffset, uint32_t firstInstance);
-  void drawIndirect(struct RIRenderer *renderer, struct RIBuffer *buffer,
+  void drawIndirect(struct RIDevice *device, struct RIBuffer *buffer,
                     RIDeviceSize offset, uint32_t drawCount, uint32_t stride);
-  void drawIndexedIndirect(struct RIRenderer *renderer, struct RIBuffer *buffer,
+  void drawIndexedIndirect(struct RIDevice *device, struct RIBuffer *buffer,
                            RIDeviceSize offset, uint32_t drawCount,
                            uint32_t stride);
 
   // [vk/mtl] Buffer-to-buffer copy. Vulkan records vkCmdCopyBuffer; Metal opens
   // a blit encoder and calls copyFromBuffer.
-  void copyBuffer(struct RIRenderer *renderer, struct RIBuffer *src,
+  void copyBuffer(struct RIDevice *device, struct RIBuffer *src,
                   RIDeviceSize srcOffset, struct RIBuffer *dst,
                   RIDeviceSize dstOffset, RIDeviceSize size);
 
   // [vk/mtl] Buffer-to-texture copy of a single subresource region. The desc
   // carries the staging layout in both texel (Vulkan) and byte (Metal) form.
-  void copyBufferToTexture(struct RIRenderer *renderer, struct RIBuffer *src,
+  void copyBufferToTexture(struct RIDevice *device, struct RIBuffer *src,
                            struct RITexture *dst,
                            const struct RIBufferTextureCopyDesc &desc);
 
   // [vk/mtl] Image-to-image copy of a single 1:1 region (no scaling). Caller
   // owns the surrounding barriers.
-  void copyImage(struct RIRenderer *renderer, struct RITexture *src,
+  void copyImage(struct RIDevice *device, struct RITexture *src,
                  struct RITexture *dst, const struct RIImageCopyDesc &desc);
 
   // [vk/mtl] Clear a storage image (mip 0, layer 0) in GENERAL layout.
-  void clearStorageImage(struct RIRenderer *renderer, struct RITexture *image,
+  void clearStorageImage(struct RIDevice *device, struct RITexture *image,
                          const float color[4]);
 
   // [vk/d3d12] Dynamic-rendering scope (vkCmdBeginRendering/EndRendering).
   // Metal uses mtl_encoderDraw / mtl_encoderEnd instead (kept as separate
   // APIs).
-  void vk_d3d12_beginRendering(struct RIRenderer *renderer,
+  void vk_d3d12_beginRendering(struct RIDevice *device,
                                const struct RIBeginRenderingDesc &desc);
-  void vk_d3d12_endRendering(struct RIRenderer *renderer);
+  void vk_d3d12_endRendering(struct RIDevice *device);
 
-  void setViewport(struct RIRenderer *renderer,
+  void setViewport(struct RIDevice *device,
                    const struct RIViewport &viewport);
-  void setScissor(struct RIRenderer *renderer, const struct RIRect &scissor);
+  void setScissor(struct RIDevice *device, const struct RIRect &scissor);
+
+  // [vk/d3d12] Push constants. Metal supplies the same data inline via the
+  // [[buffer(0)]] push-constant block (setBytes) at bind/draw time, so it has
+  // no discrete command here (vk_d3d12_-prefixed, like beginRendering/barriers).
+  // The stage flags and layout come from the program's reflection, so the call
+  // site only supplies the data range.
+  void vk_d3d12_setPushConstants(struct RIDevice *device,
+                                 hpl::RIProgram &program, uint32_t offset,
+                                 uint32_t size, const void *data);
 
   // Acceleration-structure build commands; numDescs structures are submitted
   // in a single backend call. Caller-supplied scratchBuffer must include
@@ -742,11 +866,12 @@ struct RICmd {
   // minAccelerationStructureScratchOffsetAlignment. Input vertex/index/
   // instance buffers must include
   // VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR and
-  // VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT. Takes the renderer (selects the
-  // backend) and the device (for VMA / device address / scratch alignment).
-  void buildBlas(struct RIRenderer *renderer, struct RIDevice *device,
+  // VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT. Takes the device, which selects
+  // the backend (device->renderer) and supplies VMA / device address / scratch
+  // alignment.
+  void buildBlas(struct RIDevice *device,
                  const struct RIBuildBlasDesc *descs, uint32_t numDescs);
-  void buildTlas(struct RIRenderer *renderer, struct RIDevice *device,
+  void buildTlas(struct RIDevice *device,
                  const struct RIBuildTlasDesc *descs, uint32_t numDescs);
 
   // Emit pipeline barriers from RI resource-state transitions (see
@@ -851,7 +976,7 @@ struct RICmd {
   // Bind a single index buffer. Takes an RIBuffer* (the RI abstraction)
   // rather than a backend handle so the same call site survives a future
   // DX12 backend.
-  void bindIndexBuffer(struct RIRenderer *renderer, struct RIBuffer *buffer,
+  void bindIndexBuffer(struct RIDevice *device, struct RIBuffer *buffer,
                        RIDeviceSize offset, enum RIIndexType_e indexType);
 
   // Bind `count` vertex buffers. The template parameter N is only the stack
@@ -1391,40 +1516,40 @@ struct RIDevice {
   };
 };
 
-static inline bool IsRICmdValid(struct RIRenderer *renderer,
-                                struct RICmd *cmd) {
-#if (DEVICE_IMPL_VULKAN)
-  return cmd->vk.pool && cmd->vk.cmd;
-#endif
-  return false;
-}
-
-static inline bool IsRIBufferValid(struct RIRenderer *renderer,
-                                   const struct RIBuffer *handle) {
-#if (DEVICE_IMPL_VULKAN)
-  return handle && handle->vk.buffer != NULL;
-#endif
-  return false;
-}
-
-static inline bool IsRITextureValid(struct RIRenderer *renderer,
-                                    const struct RITexture *handle) {
-#if (DEVICE_IMPL_VULKAN)
-  return handle && handle->vk.image != NULL;
-#endif
-  return false;
-}
-
 inline bool RITexture::isEmpty(const struct RIRenderer *renderer) const {
-  switch (renderer->api) {
 #if (DEVICE_IMPL_VULKAN)
-  case RI_DEVICE_API_VK:
+  if (renderer->is_target_selected(RI_DEVICE_API_VK))
     return vk.image == VK_NULL_HANDLE;
 #endif
-  default:
-    assert(false && "unhandled backend");
-    return true;
-  }
+  assert(false && "unhandled backend");
+  return true;
+}
+
+inline bool RIBuffer::isEmpty(const struct RIRenderer *renderer) const {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK))
+    return vk.buffer == VK_NULL_HANDLE;
+#endif
+  assert(false && "unhandled backend");
+  return true;
+}
+
+inline bool RITextureView::isEmpty(const struct RIRenderer *renderer) const {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK))
+    return vk.image == VK_NULL_HANDLE;
+#endif
+  assert(false && "unhandled backend");
+  return true;
+}
+
+inline bool RICmd::isEmpty(const struct RIRenderer *renderer) const {
+#if (DEVICE_IMPL_VULKAN)
+  if (renderer->is_target_selected(RI_DEVICE_API_VK))
+    return vk.cmd == VK_NULL_HANDLE || vk.pool == VK_NULL_HANDLE;
+#endif
+  assert(false && "unhandled backend");
+  return true;
 }
 
 template <uint32_t MaxImageCount>

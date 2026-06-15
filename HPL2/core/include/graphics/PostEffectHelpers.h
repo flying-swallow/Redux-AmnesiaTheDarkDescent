@@ -13,18 +13,22 @@ namespace hpl {
 
 // Color attachment + sampled scratch target owned by a single post-effect
 // instance (e.g. Bloom's two quarter-res blur buffers, ImageTrail's
-// accumulator). The descriptor is pre-finalized with type SAMPLED_IMAGE
-// so it can be plugged into RIProgram::DescriptorBinding directly.
+// accumulator). The sampled-image descriptor is produced on demand via
+// descriptor() (cookie lives on the view).
 //
 // Lifecycle: create via CreatePostEffectColorTarget, destroy via
 // DestroyPostEffectColorTarget. The owner re-creates when the viewport
 // dimensions change (compare against `width` / `height`).
 struct PostEffectColorTarget {
-    struct RITexture    texture {};
-    struct RIDescriptor descriptor {};
+    struct RITexture     texture {};
+    struct RITextureView view {};
     uint32_t width = 0;
     uint32_t height = 0;
     bool valid = false;
+
+    RIDescriptor descriptor() {
+        return RIDescriptor::sampledImage(nullptr, &view);
+    }
 };
 
 // Allocate `out` with the given dimensions / format and a usage of

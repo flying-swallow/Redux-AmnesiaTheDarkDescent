@@ -9,7 +9,7 @@
 
 #if DEVICE_IMPL_VULKAN
 // VkResult RI_VK_InitImageView( struct RIDevice *dev, VkImageViewCreateInfo *info, struct RIDescriptor *desc, VkDescriptorType type );
-#define RI_VK_DESCRIPTOR_IS_IMAGE( desc ) ( desc.vk.type == VK_DESCRIPTOR_TYPE_SAMPLER || desc.vk.type == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE || desc.vk.type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE )
+#define RI_VK_DESCRIPTOR_IS_IMAGE( desc ) ( (desc).type == RI_DESCRIPTOR_TYPE_SAMPLER || (desc).type == RI_DESCRIPTOR_TYPE_STORAGE_IMAGE || (desc).type == RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE )
 
 namespace hpl {
 static inline VkSamplerAddressMode RI_VK_TextureWrap(eTextureWrap wrap) {
@@ -32,7 +32,7 @@ static inline VkSamplerAddressMode RI_VK_TextureWrap(eTextureWrap wrap) {
 static inline void RI_VK_FillColorAttachment(VkRenderingAttachmentInfo *info,
                                              struct RIDescriptor *desc,
                                              bool attachAndClear) {
-  info->imageView = desc->vk.image.imageView;
+  info->imageView = desc->vkImageView();
   info->imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
   info->resolveMode = VK_RESOLVE_MODE_NONE;
   info->resolveImageView = VK_NULL_HANDLE;
@@ -71,6 +71,50 @@ static inline void RI_VK_FillDepthAttachment( VkRenderingAttachmentInfo *info, s
 const VkFormat RIFormatToVK(uint32_t format);
 const enum RI_Format_e VKToRIFormat(VkFormat);
 
+static inline VkImageViewType ri_vk_RITextureViewTypeToVK(enum RITextureViewType_e v) {
+	switch (v) {
+		case RI_VIEWTYPE_SHADER_RESOURCE_1D:
+		case RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_1D:
+			return VK_IMAGE_VIEW_TYPE_1D;
+		case RI_VIEWTYPE_SHADER_RESOURCE_1D_ARRAY:
+		case RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_1D_ARRAY:
+			return VK_IMAGE_VIEW_TYPE_1D_ARRAY;
+		case RI_VIEWTYPE_SHADER_RESOURCE_2D:
+		case RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_2D:
+		case RI_VIEWTYPE_COLOR_ATTACHMENT:
+		case RI_VIEWTYPE_DEPTH_STENCIL_ATTACHMENT:
+		case RI_VIEWTYPE_DEPTH_READONLY_STENCIL_ATTACHMENT:
+		case RI_VIEWTYPE_DEPTH_ATTACHMENT_STENCIL_READONLY:
+		case RI_VIEWTYPE_DEPTH_STENCIL_READONLY:
+		case RI_VIEWTYPE_SHADING_RATE_ATTACHMENT:
+			return VK_IMAGE_VIEW_TYPE_2D;
+		case RI_VIEWTYPE_SHADER_RESOURCE_2D_ARRAY:
+		case RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_2D_ARRAY:
+			return VK_IMAGE_VIEW_TYPE_2D_ARRAY;
+		case RI_VIEWTYPE_SHADER_RESOURCE_CUBE:
+			return VK_IMAGE_VIEW_TYPE_CUBE;
+		case RI_VIEWTYPE_SHADER_RESOURCE_CUBE_ARRAY:
+			return VK_IMAGE_VIEW_TYPE_CUBE_ARRAY;
+		case RI_VIEWTYPE_SHADER_RESOURCE_3D:
+		case RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_3D:
+			return VK_IMAGE_VIEW_TYPE_3D;
+	}
+	assert(false);
+	return VK_IMAGE_VIEW_TYPE_2D;
+}
+
+static inline VkImageAspectFlags ri_vk_RITextureViewAspect(enum RITextureViewType_e v) {
+	switch (v) {
+		case RI_VIEWTYPE_DEPTH_STENCIL_ATTACHMENT:
+		case RI_VIEWTYPE_DEPTH_READONLY_STENCIL_ATTACHMENT:
+		case RI_VIEWTYPE_DEPTH_ATTACHMENT_STENCIL_READONLY:
+		case RI_VIEWTYPE_DEPTH_STENCIL_READONLY:
+			return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+		default:
+			return VK_IMAGE_ASPECT_COLOR_BIT;
+	}
+}
+
 static inline VkAccelerationStructureTypeKHR RI_VK_AccelStructureType(enum RIAccelStructureType_e type) {
   switch (type) {
   case RI_ACCEL_STRUCTURE_TYPE_BOTTOM_LEVEL:
@@ -106,6 +150,25 @@ static inline VkGeometryInstanceFlagsKHR RI_VK_AccelInstanceFlags(uint32_t flags
   if (flags & RI_ACCEL_INSTANCE_TRIANGLE_FLIP_FACING)  out |= VK_GEOMETRY_INSTANCE_TRIANGLE_FLIP_FACING_BIT_KHR;
   if (flags & RI_ACCEL_INSTANCE_FORCE_OPAQUE)          out |= VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
   if (flags & RI_ACCEL_INSTANCE_FORCE_NON_OPAQUE)      out |= VK_GEOMETRY_INSTANCE_FORCE_NO_OPAQUE_BIT_KHR;
+  return out;
+}
+
+static inline VkBufferUsageFlags ri_vk_RIBufferUsageToVK(uint32_t usage) {
+  VkBufferUsageFlags out = 0;
+  if (usage & RI_BUFFER_USAGE_SHADER_RESOURCE)         out |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE) out |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_VERTEX_BUFFER)           out |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_INDEX_BUFFER)            out |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_CONSTANT_BUFFER)         out |= VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_ARGUMENT_BUFFER)         out |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_SCRATCH)                 out |= VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_BINDING_TABLE)           out |= VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR;
+  if (usage & RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT) out |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+  if (usage & RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE)    out |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR;
+  if (usage & RI_BUFFER_USAGE_TRANSFER_SRC)            out |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  if (usage & RI_BUFFER_USAGE_TRANSFER_DST)            out |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  if (usage & RI_BUFFER_USAGE_INDIRECT)               out |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+  if (usage & RI_BUFFER_USAGE_DEVICE_ADDRESS)         out |= VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
   return out;
 }
 

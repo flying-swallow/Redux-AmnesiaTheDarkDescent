@@ -340,24 +340,6 @@ namespace hpl {
 		for(int i=0; i<2; ++i)
 			if(mpRenderableContainer[i]) mpRenderableContainer[i]->Compile();
 
-		// Precompute the static decal<->object association. The editor baked decals
-		// as static meshes clipped to specific geometry; reproduce that by tagging
-		// each static renderable with the decals whose oriented-box volume overlaps
-		// its bounding volume. Dynamic/movable objects (e.g. a chair) are never in
-		// the static container, so they get no decals — fixing decals projecting
-		// onto objects that merely pass through the decal volume. The per-object
-		// run [offset,count) indexes mvDecalObjectIndices (== gDecals[] order).
-		// BV-level here; the per-pixel oriented-box test in the GI pass refines it.
-
-		// Reorder decals along a Morton (Z-order) curve so decals that are close in
-		// world space are close in mvDecals (== GetDecals() == gDecals[] upload)
-		// order. The per-pixel GI pass fetches gDecals[di] for every decal a hit
-		// object was clipped to; spatially-coherent ordering makes those fetches —
-		// and neighbouring pixels' fetches at object boundaries — land on adjacent
-		// cache lines. Done here, before the association below indexes this order,
-		// so no remap is needed. Static set only: decals are fixed after Compile,
-		// and other systems reference decals by pointer, not index, so reordering
-		// the vector is safe.
 		if(mvDecals.size() > 1)
 		{
 			cVector3f vBoundsMin(0.0f), vBoundsMax(0.0f);
@@ -403,11 +385,6 @@ namespace hpl {
 				mvDecals[i] = lvOrder[i].second;
 		}
 
-		// Associate each renderable with the decals whose oriented-box volume
-		// overlaps its BV and whose receiverMask includes this container's
-		// category — static container = Static receivers, dynamic container =
-		// Entity/Primitive receivers (matches the editor's OnStatic/OnEntity/
-		// OnPrimitive clipping; e.g. a bloodstain with OnEntity reaches a table).
 		// NOTE: the OOB decal box is world-fixed at this position, so a decal on an
 		// object that later MOVES won't follow it (the old baked mesh did) — fine
 		// for static-placed set-dressing.

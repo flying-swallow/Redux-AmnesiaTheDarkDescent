@@ -26,6 +26,7 @@
 #include "gui/Gui.h"
 #include "scene/Viewport.h"
 #include "graphics/RIPogoBuffer.h"
+#include "graphics/RIVK.h"
 
 using namespace hpl;
 
@@ -68,22 +69,15 @@ bool LuxCreateScreenRenderTarget(
 		return false;
 	}
 
-	VkImageViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-	viewInfo.image    = tex->handle.vk.image;
-	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	viewInfo.format   = format;
-	viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
-
-	tex->binding = {};
-	tex->binding.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-	tex->binding.texture = &tex->handle;
-	tex->binding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-	tex->binding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	if (!VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
-	                                     &tex->binding.vk.image.imageView))) {
+	RITextureViewDesc viewDesc = {};
+	viewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
+	viewDesc.format   = VKToRIFormat(format);
+	viewDesc.mipNum   = 1;
+	viewDesc.layerNum = 1;
+	tex->view = RITextureView::create(&RI.device, &tex->handle, viewDesc);
+	if (tex->view.isEmpty(&RI.renderer)) {
 		return false;
 	}
-	tex->binding.finalize(&RI.device);
 	tex->setDebugName(debugName);
 
 	outTex = std::move(tex);
@@ -151,9 +145,9 @@ void cLuxScreenCapture::RequestCapture()
 
 //-----------------------------------------------------------------------
 
-RIDescriptor* cLuxScreenCapture::PrimaryDescriptor()
+RIDescriptor cLuxScreenCapture::PrimaryDescriptor()
 {
-	return m_primaryColor ? &m_primaryColor->binding : nullptr;
+	return m_primaryColor ? m_primaryColor->descriptor() : RIDescriptor{};
 }
 
 //-----------------------------------------------------------------------

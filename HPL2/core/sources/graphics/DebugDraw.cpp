@@ -457,7 +457,7 @@ namespace hpl {
 	bool DebugDraw::RequestStream(RIBootstrap::FrameContext* cntx, size_t alNumVertices, size_t alNumIndices,
 								  struct RISegmentReq* apVtxReq, struct RISegmentReq* apIdxReq)
 	{
-		if(!IsRIBufferValid(&RI.renderer, &m_vertexBuffer) ||
+		if(m_vertexBuffer.isEmpty(&RI.renderer) ||
 		   !m_vertexAlloc.request(RI.frameIndex, alNumVertices, apVtxReq))
 		{
 			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
@@ -471,26 +471,15 @@ namespace hpl {
 			bool res = m_vertexAlloc.request(RI.frameIndex, alNumVertices, apVtxReq);
 			assert(res);
 
-			uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-			VkBufferCreateInfo bufferCreateInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-			VK_ConfigureBufferQueueFamilies(&bufferCreateInfo, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
-			bufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
-			bufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-
-			VmaAllocationInfo allocationInfo = { 0 };
-			VmaAllocationCreateInfo allocInfo = { 0 };
-			allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-			allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
-			if(m_vertexBuffer.vk.buffer) {
+			if(!m_vertexBuffer.isEmpty(&RI.renderer)) {
 				cntx->freelist.push_back(m_vertexBuffer);
 			}
-			VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferCreateInfo, &allocInfo,
-										  &m_vertexBuffer.vk.buffer, &m_vertexBuffer.vk.allocation, &allocationInfo));
-			m_vertexBuffer.mappedAddress = allocationInfo.pMappedData;
+			m_vertexBuffer = RIBuffer::create(
+				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
+				             RI_BUFFER_USAGE_VERTEX_BUFFER, RI_MEMORY_HOST_UPLOAD, 0});
 		}
 
-		if(!IsRIBufferValid(&RI.renderer, &m_indexBuffer) ||
+		if(m_indexBuffer.isEmpty(&RI.renderer) ||
 		   !m_indexAlloc.request(RI.frameIndex, alNumIndices, apIdxReq))
 		{
 			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
@@ -504,23 +493,12 @@ namespace hpl {
 			bool res = m_indexAlloc.request(RI.frameIndex, alNumIndices, apIdxReq);
 			assert(res);
 
-			uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-			VkBufferCreateInfo bufferCreateInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-			VK_ConfigureBufferQueueFamilies(&bufferCreateInfo, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
-			bufferCreateInfo.size = (VkDeviceSize)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride;
-			bufferCreateInfo.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-
-			VmaAllocationInfo allocationInfo = { 0 };
-			VmaAllocationCreateInfo allocInfo = { 0 };
-			allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-			allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
-			if(m_indexBuffer.vk.buffer) {
+			if(!m_indexBuffer.isEmpty(&RI.renderer)) {
 				cntx->freelist.push_back(m_indexBuffer);
 			}
-			VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferCreateInfo, &allocInfo,
-										  &m_indexBuffer.vk.buffer, &m_indexBuffer.vk.allocation, &allocationInfo));
-			m_indexBuffer.mappedAddress = allocationInfo.pMappedData;
+			m_indexBuffer = RIBuffer::create(
+				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
+				             RI_BUFFER_USAGE_INDEX_BUFFER, RI_MEMORY_HOST_UPLOAD, 0});
 		}
 		return true;
 	}
@@ -600,8 +578,8 @@ namespace hpl {
 			RIBuffer *vertBufs[1] = {&m_vertexBuffer};
 			const RIDeviceSize vertOffsets[1] = {vbOffset};
 			cmd->bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
-			cmd->bindIndexBuffer(&RI.renderer, &m_indexBuffer, ibOffset, RI_INDEX_TYPE_32);
-			cmd->drawIndexed(&RI.renderer, (uint32_t)alRunIndexCount, 1, 0, 0, 0);
+			cmd->bindIndexBuffer(&RI.device, &m_indexBuffer, ibOffset, RI_INDEX_TYPE_32);
+			cmd->drawIndexed(&RI.device, (uint32_t)alRunIndexCount, 1, 0, 0, 0);
 		};
 
 		////////////////////////////////////////////
@@ -775,7 +753,7 @@ namespace hpl {
 				bindings[0].handle = DescriptorBindingID::Create("pass");
 				bindings[1].descriptor = *samplerDesc;
 				bindings[1].handle = DescriptorBindingID::Create("diffuseSampler");
-				bindings[2].descriptor = texture->binding;
+				bindings[2].descriptor = texture->descriptor();
 				bindings[2].handle = DescriptorBindingID::Create("diffuseMap");
 				drawRun(m_uvProgram, runVertexStart, runIndexStart, runIndexCount, bindings, 3);
 			}

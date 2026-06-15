@@ -150,13 +150,13 @@ namespace hpl {
 				&RI.device, w, h, RIBootstrap::PogoColorFormat,
 				VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
 					VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-				&renderTarget[i], &renderTargetDescriptor[i],
+				&renderTarget[i], &renderTargetView[i],
 				"SimpleViewportState.renderTarget");
 
 			CreateViewportAttachmentTexture(
 				&RI.device, w, h, RIBootstrap::DepthFormat,
 				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-				VK_IMAGE_ASPECT_DEPTH_BIT, &depthTextures[i], &depthView[i],
+				RI_VIEWTYPE_DEPTH_STENCIL_ATTACHMENT, &depthTextures[i], &depthView[i],
 				"SimpleViewportState.depth");
 		}
 	}
@@ -165,7 +165,7 @@ namespace hpl {
 	{
 		for(uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; i++)
 		{
-			ReleaseViewportColorTexture(cntx->freelist, &renderTarget[i], &renderTargetDescriptor[i]);
+			ReleaseViewportColorTexture(cntx->freelist, &renderTarget[i], &renderTargetView[i]);
 			ReleaseViewportAttachmentTexture(cntx->freelist, &depthTextures[i], &depthView[i]);
 		}
 		width = height = 0;
@@ -293,10 +293,7 @@ namespace hpl {
 		// Begin rendering into the state's render target at its 1:1 extent —
 		// no overscan; cScene's pogo feed consumes it afterwards.
 		{
-			// The state holds only an RIDescriptor for the color target; its
-			// textureView() exposes the backing image view the attachment needs.
-			RITextureView colorView =
-				state.renderTargetDescriptor[RI.swapchainIndex].textureView();
+			RITextureView colorView = state.renderTargetView[RI.swapchainIndex];
 
 			RIRenderingAttachment color = {};
 			color.view = colorView;
@@ -326,7 +323,7 @@ namespace hpl {
 			beginDesc.colorCount = 1;
 			beginDesc.colors = &color;
 			beginDesc.depthStencil = &depth;
-			RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+			RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
 		}
 
 		// Y-flipped viewport — same convention as the forward passes, so the
@@ -343,8 +340,8 @@ namespace hpl {
 		scissor.y = 0;
 		scissor.width = (int16_t)renderWidth;
 		scissor.height = (int16_t)renderHeight;
-		RI.primary.cmds[0].setViewport(&RI.renderer, viewportRi);
-		RI.primary.cmds[0].setScissor(&RI.renderer, scissor);
+		RI.primary.cmds[0].setViewport(&RI.device, viewportRi);
+		RI.primary.cmds[0].setScissor(&RI.device, scissor);
 
 		////////////////////////////////////////////
 		// Pipeline builder: 3 fixed-function streams (position always present;
@@ -578,10 +575,10 @@ namespace hpl {
 				// can't free the VkImage before this submit retires.
 				Image *pDiffuseImage = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : nullptr;
 				std::shared_ptr<cTexture> texture = pDiffuseImage ? pDiffuseImage->GetTexture() : nullptr;
-				RIDescriptor textureDescriptor = RI.whiteTexture2DBinding;
+				RIDescriptor textureDescriptor = RI.whiteTexture2DDescriptor();
 				if(texture) {
 					cntx->resourceLink.push_back(texture);
-					textureDescriptor = texture->binding;
+					textureDescriptor = texture->descriptor();
 				}
 
 				auto samplerDesc = RI.resolve_filter_descriptor(
@@ -607,8 +604,8 @@ namespace hpl {
 				};
 				const VkDeviceSize vertOffsets[3] = { posOffset, colOffset, uvOffset };
 				RI.primary.cmds[0].bindVertexBuffers<3>(0, 3, vertBufs, vertOffsets);
-				RI.primary.cmds[0].bindIndexBuffer(&RI.renderer, idxBuffer, idxOffset, RI_INDEX_TYPE_32);
-				RI.primary.cmds[0].drawIndexed(&RI.renderer, (uint32_t)indexCount, 1, 0, 0, 0);
+				RI.primary.cmds[0].bindIndexBuffer(&RI.device, idxBuffer, idxOffset, RI_INDEX_TYPE_32);
+				RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1, 0, 0, 0);
 			}
 		}
 
@@ -624,7 +621,7 @@ namespace hpl {
 							 renderHeight, RIBootstrap::PogoColorFormatVk);
 		}
 
-		RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
+		RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
 
 		////////////////////////////////////////////
 		// Hand off: render target COLOR -> SHADER_READ — the finished frame

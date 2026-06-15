@@ -254,7 +254,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
 
   // GuiSet builds its pipelines for RI.swapchain.format / RIBootstrap::DepthFormat
   // (see GuiSet.cpp). If the attachments here ever change, update GuiSet to match.
-  RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+  RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
 
   ///////////////////////////
   // Draw set
@@ -265,7 +265,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   pSet->Render(NULL, pViewport);
   pSet->ClearRenderObjects();
 
-  RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
+  RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
 
   //mpLowLevelGfx->FlushRendering();
   //mpLowLevelGfx->SwapBuffers();

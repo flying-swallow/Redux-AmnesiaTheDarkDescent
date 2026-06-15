@@ -98,23 +98,25 @@ struct PostWorldDrawCtx : WorldDrawCtx {
 // the device; Release hands every GPU handle to the frame freelist (drained
 // once the pipeline is done with them — or at RIBootstrap::Dispose).
 
-// One color image + an owning sampled-image descriptor — the single-image
+// One color image + a cookie-stamped sampled view — the single-image
 // equivalent of RI_PogoBufferInit (same create flags / view usage so the
-// existing pogo-shaped barriers and pipelines keep matching).
+// existing pogo-shaped barriers and pipelines keep matching). The descriptor
+// is produced on demand from the view.
 bool CreateViewportColorTexture(struct RIDevice *device, uint32_t width,
                                 uint32_t height, enum RI_Format_e format,
                                 VkImageUsageFlags usage,
                                 struct RITexture *tex,
-                                struct RIDescriptor *desc, const char *what);
+                                struct RITextureView *view,
+                                const char *what);
 void ReleaseViewportColorTexture(std::vector<RIFreeHandle> &freelist,
                                  struct RITexture *tex,
-                                 struct RIDescriptor *desc);
+                                 struct RITextureView *view);
 
 // One attachment image + a plain view (depth / visibility targets).
 bool CreateViewportAttachmentTexture(struct RIDevice *device, uint32_t width,
                                      uint32_t height, enum RI_Format_e format,
                                      VkImageUsageFlags usage,
-                                     VkImageAspectFlags aspect,
+                                     enum RITextureViewType_e viewType,
                                      struct RITexture *tex,
                                      struct RITextureView *view,
                                      const char *what);
@@ -148,7 +150,7 @@ public:
     uint32_t width;
     uint32_t height;
     struct RITexture renderTarget = {};
-    struct RIDescriptor renderTargetDescriptor = {};
+    struct RITextureView renderTargetView = {};
   };
 
   // cHybridRenderer: overscan intermediates — renderTarget is a SINGLE image
@@ -166,11 +168,11 @@ public:
     BackBuffer GetBackBuffer() {
       return {(width - targetWidth) / 2, (height - targetHeight) / 2,
               targetWidth, targetHeight, renderTarget[RI.swapchainIndex],
-              renderTargetDescriptor[RI.swapchainIndex]};
+              renderTargetView[RI.swapchainIndex]};
     }
 
     struct RITexture renderTarget[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RIDescriptor renderTargetDescriptor[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITextureView renderTargetView[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
     struct RITexture depthTextures[RI_MAX_SWAPCHAIN_IMAGES] = {};
     struct RITextureView depthView[RI_MAX_SWAPCHAIN_IMAGES] = {};
@@ -247,11 +249,11 @@ public:
     void Dispose(RIBootstrap::FrameContext *cntx);
     BackBuffer GetBackBuffer() {
       return {0, 0, width, height, renderTarget[RI.swapchainIndex],
-              renderTargetDescriptor[RI.swapchainIndex]};
+              renderTargetView[RI.swapchainIndex]};
     }
 
     struct RITexture renderTarget[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RIDescriptor renderTargetDescriptor[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    struct RITextureView renderTargetView[RI_MAX_SWAPCHAIN_IMAGES] = {};
 
     struct RITexture depthTextures[RI_MAX_SWAPCHAIN_IMAGES] = {};
     struct RITextureView depthView[RI_MAX_SWAPCHAIN_IMAGES] = {};

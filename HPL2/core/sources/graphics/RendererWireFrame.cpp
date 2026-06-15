@@ -208,13 +208,9 @@ namespace hpl {
 		// Begin rendering into the state's render target at its 1:1 extent —
 		// no overscan; cScene's pogo feed consumes it afterwards.
 		{
-			// The state holds only an RIDescriptor for the color target; its
-			// textureView() exposes the backing image view the attachment needs.
-			RITextureView colorView =
-				state.renderTargetDescriptor[RI.swapchainIndex].textureView();
 
 			RIRenderingAttachment color = {};
-			color.view = colorView;
+			color.view = state.renderTargetView[RI.swapchainIndex];
 			color.loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
 			color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 			color.clearValue.color[0] = 0.0f;
@@ -237,7 +233,7 @@ namespace hpl {
 			beginDesc.colorCount = 1;
 			beginDesc.colors = &color;
 			beginDesc.depthStencil = &depth;
-			RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+			RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
 		}
 
 		// Y-flipped viewport — same convention as the forward passes, so the
@@ -376,10 +372,10 @@ namespace hpl {
 					RIBuffer *vertBufs[1] = { &RI.translucentVtxBuffer };
 					const VkDeviceSize vertOffsets[1] = { (VkDeviceSize)geom.posByteOffset };
 					RI.primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
-					RI.primary.cmds[0].bindIndexBuffer(&RI.renderer, &RI.translucentIdxBuffer,
+					RI.primary.cmds[0].bindIndexBuffer(&RI.device, &RI.translucentIdxBuffer,
 													   (VkDeviceSize)geom.idxByteOffset,
 													   RI_INDEX_TYPE_32);
-					RI.primary.cmds[0].drawIndexed(&RI.renderer, geom.indexCount, 1, 0, 0, 0);
+					RI.primary.cmds[0].drawIndexed(&RI.device, geom.indexCount, 1, 0, 0, 0);
 					continue;
 				}
 
@@ -413,8 +409,8 @@ namespace hpl {
 				RIBuffer *vertBufs[1] = { posElement->buffer.get() };
 				const VkDeviceSize vertOffsets[1] = { 0 };
 				RI.primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
-				RI.primary.cmds[0].bindIndexBuffer(&RI.renderer, indexBuffer.get(), 0, RI_INDEX_TYPE_32);
-				RI.primary.cmds[0].drawIndexed(&RI.renderer, (uint32_t)indexCount, 1, 0, 0, 0);
+				RI.primary.cmds[0].bindIndexBuffer(&RI.device, indexBuffer.get(), 0, RI_INDEX_TYPE_32);
+				RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1, 0, 0, 0);
 			}
 		}
 
@@ -430,7 +426,7 @@ namespace hpl {
 							 renderHeight, RIBootstrap::PogoColorFormatVk);
 		}
 
-		RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
+		RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
 
 		////////////////////////////////////////////
 		// Hand off: render target COLOR -> SHADER_READ — the finished frame

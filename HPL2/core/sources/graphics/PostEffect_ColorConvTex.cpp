@@ -95,7 +95,7 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
     // RIBootstrap::PogoColorFormat). This keeps the composite chain
     // consistent even when the LUT failed to load.
     if (!mpColorConvTex || !mpColorConvTex->GetTexture() ||
-        !mpColorConvTex->GetTexture()->binding.texture) {
+        mpColorConvTex->GetTexture()->view.isEmpty(&RI.renderer)) {
         return;
     }
 
@@ -113,7 +113,7 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
     beginDesc.renderArea.height = (int16_t)ctx.height;
     beginDesc.colorCount = 1;
     beginDesc.colors     = &color;
-    ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+    ctx.cmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
 
     VkViewport viewport = {0.0f,
                            0.0f,
@@ -140,9 +140,9 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
     RIProgram::DescriptorBinding bindings[3] = {};
     bindings[0].descriptor = *samplerDesc;
     bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
-    bindings[1].descriptor = *ctx.inputSrv;
+    bindings[1].descriptor = ctx.inputSrv;
     bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-    bindings[2].descriptor = mpColorConvTex->GetTexture()->binding;
+    bindings[2].descriptor = mpColorConvTex->GetTexture()->descriptor();
     bindings[2].handle     = DescriptorBindingID::Create("colorConv");
     mpSpecificType->m_program.bindDescriptors(&RI.device, ctx.cmd,
                                               ctx.frameIndex, bindings, 3);
@@ -153,7 +153,7 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
-    ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
+    ctx.cmd->vk_d3d12_endRendering(&RI.device);
 }
 
 } // namespace hpl

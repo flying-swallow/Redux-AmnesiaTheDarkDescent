@@ -63,20 +63,10 @@ static void __InitTransferCommandGroup( struct RIDevice *device, struct RITransf
 			group->cmd[i].vk.pool = group->cmd_pool[i].vk.pool;
 		}
 
-		{
-			VmaAllocationCreateInfo allocInfo = { 0 };
-			allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-			allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
-			VkBufferCreateInfo bufInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-			bufInfo.size = RI_RESOURCE_STAGE_BUFFER_SIZE;
-			bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-			bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
-			VmaAllocationInfo vmaInfo = { 0 };
-			VK_WrapResult( vmaCreateBuffer( device->vk.vmaAllocator, &bufInfo, &allocInfo, &group->staging_buffer[i].vk.buffer, &group->staging_buffer[i].vk.allocation, &vmaInfo ) );
-			group->staging_buffer[i].mappedAddress = vmaInfo.pMappedData;
-		}
+		group->staging_buffer[i] = RIBuffer::create(
+			device, {(uint64_t)RI_RESOURCE_STAGE_BUFFER_SIZE,
+			         RI_BUFFER_USAGE_TRANSFER_SRC | RI_BUFFER_USAGE_TRANSFER_DST,
+			         RI_MEMORY_HOST_UPLOAD, 0});
 
 		// Fence starts signalled so the first acquire doesn't block.
 		{
@@ -144,24 +134,16 @@ static bool __AllocateFromStageBuffer( struct RIDevice *device, struct RITransfe
 static void __AllocateTemporaryBuffer( struct RIDevice *device, struct RITransferCommandGroup *group, size_t size, struct RIMappedMemoryRange *out )
 {
 #if ( DEVICE_IMPL_VULKAN )
-	VmaAllocationCreateInfo allocInfo = { 0 };
-	allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-	allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-
-	VkBufferCreateInfo bufInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-	bufInfo.size = size;
-	bufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-	bufInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-
-	struct RIBuffer tmp = {};
-	VmaAllocationInfo vmaInfo = { 0 };
-	VK_WrapResult( vmaCreateBuffer( device->vk.vmaAllocator, &bufInfo, &allocInfo, &tmp.vk.buffer, &tmp.vk.allocation, &vmaInfo ) );
+	struct RIBuffer tmp = RIBuffer::create(
+		device, {(uint64_t)size,
+		         RI_BUFFER_USAGE_TRANSFER_SRC | RI_BUFFER_USAGE_TRANSFER_DST,
+		         RI_MEMORY_HOST_UPLOAD, 0});
 
 	arrpush( group->temporary_buffers[group->active_set], tmp );
 
 	out->offset = 0;
 	out->size = size;
-	out->data = vmaInfo.pMappedData;
+	out->data = tmp.mappedAddress;
 	out->buffer = tmp.vk.buffer;
 	out->alloc = tmp.vk.allocation;
 #endif

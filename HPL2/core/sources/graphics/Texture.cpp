@@ -21,11 +21,15 @@ cTexture::~cTexture() {
   // frame that samples this texture parks a shared_ptr in that frame set's
   // resourceLink, and BeginActiveSet waits the ring fence before clearing it,
   // so by the time the last reference drops the GPU is done with the texture.
-  binding.dispose(&RI.device); // owned image view (RI_VK_DESC_OWN_IMAGE_VIEW)
+  view.dispose(&RI.device);   // owned image view (was binding's inline view)
   handle.dispose(&RI.device);  // image + VMA allocation
 }
 
 void cTexture::cTexture_Delete(cTexture *texture) { delete texture; }
+
+RIDescriptor cTexture::descriptor() {
+  return RIDescriptor::sampledImage(&RI.device, &view);
+}
 
 RI_Format from_hpl_format(ePixelFormat format) {
   switch (format) {
@@ -221,7 +225,7 @@ void cTexture::setDebugName(const tWString& name) {
 }
 
 void cTexture::setDebugName(const char* name) {
-  assert(handle.vk.image);
+  assert(!handle.isEmpty(&RI.renderer));
 	if(vkSetDebugUtilsObjectNameEXT){
 		VkDebugUtilsObjectNameInfoEXT debugName = { 
 			VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, 
@@ -368,38 +372,25 @@ bool cTexture::LoadBitmap(
   VmaAllocationCreateInfo memReqs = {0};
   memReqs.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 	
-	VkImageViewUsageCreateInfo usageInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO };
-	VkImageSubresourceRange subresource = {
-		VK_IMAGE_ASPECT_COLOR_BIT, 0, std::max<uint32_t>(info.mipLevels, 1), 0, info.arrayLayers,
-	};
-	VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
 	if(!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &info, &memReqs, &handle.vk.image, &handle.vk.allocation, NULL))) {
 	  return false;
 	}
 
-	usageInfo.usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
-	createInfo.pNext = &usageInfo;
+	RITextureViewDesc viewDesc = {};
 	// View type must match info.imageType and the bindless array's 2D
 	// OpTypeImage. imageType is only ever 3D (depth>1) or 2D here, so 1xN/Nx1
 	// textures get a 2D view that the textures_2d[] array accepts.
 	if (options.use_cubemap) {
-		createInfo.viewType = options.use_array ? VK_IMAGE_VIEW_TYPE_CUBE_ARRAY : VK_IMAGE_VIEW_TYPE_CUBE;
+		viewDesc.viewType = options.use_array ? RI_VIEWTYPE_SHADER_RESOURCE_CUBE_ARRAY : RI_VIEWTYPE_SHADER_RESOURCE_CUBE;
 	} else if (info.imageType == VK_IMAGE_TYPE_3D) {
-		createInfo.viewType = VK_IMAGE_VIEW_TYPE_3D;
+		viewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_3D;
 	} else {
-		createInfo.viewType = options.use_array ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
+		viewDesc.viewType = options.use_array ? RI_VIEWTYPE_SHADER_RESOURCE_2D_ARRAY : RI_VIEWTYPE_SHADER_RESOURCE_2D;
 	}
-	createInfo.format = RIFormatToVK( destFormat );
-	createInfo.subresourceRange = subresource;
-	createInfo.image = handle.vk.image;
-
-	binding = {};
-	binding.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-	binding.texture = &handle;
-	binding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-	binding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	VK_WrapResult( vkCreateImageView( RI.device.vk.device, &createInfo, NULL, &binding.vk.image.imageView ) );
-	binding.finalize(&RI.device);
+	viewDesc.format = destFormat;
+	viewDesc.mipNum = std::max<uint32_t>(info.mipLevels, 1);
+	viewDesc.layerNum = info.arrayLayers;
+	view = RITextureView::create( &RI.device, &handle, viewDesc );
 	
 	setDebugName(bitmap.GetFileName());
   RI_Format sourceFormat = from_hpl_format(bitmap.GetPixelFormat());
@@ -429,7 +420,7 @@ bool cTexture::UpdateBitmap(cBitmap &bitmap) {
   // Size and format must match the original LoadBitmap — this only refreshes
   // the pixels of mip 0 / layer 0 (the SetRawData replacement for procedural
   // textures like the color picker's box/slider).
-  assert(handle.vk.image != VK_NULL_HANDLE);
+  assert(!handle.isEmpty(&RI.renderer));
   assert(bitmap.GetWidth() == width && bitmap.GetHeight() == height &&
          bitmap.GetDepth() == depth);
   assert(to_image_supported_format(bitmap.GetPixelFormat()) == format);

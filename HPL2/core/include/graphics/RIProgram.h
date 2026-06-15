@@ -219,6 +219,11 @@ public:
       VkPipelineBindPoint bindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS);
 #if (DEVICE_IMPL_VULKAN)
   VkPipelineLayout getPipelineLayout() const { return impl.vk.pipelineLayout; }
+  // Reflected push-constant range stage flags; used by
+  // RICmd::vk_d3d12_setPushConstants so call sites need not respecify the stage.
+  VkShaderStageFlags getPushConstantStageFlags() const {
+    return impl.vk.pushConstant.shaderStageFlags;
+  }
 #endif
   explicit RIProgram() {}
 

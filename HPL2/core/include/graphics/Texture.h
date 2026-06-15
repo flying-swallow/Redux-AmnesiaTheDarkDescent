@@ -20,7 +20,10 @@ public:
   // releases both.
   struct RITexture handle;
   RI_Format format = RI_FORMAT_UNKNOWN;
-  struct RIDescriptor binding;
+  // Sampled-image view over `handle`, owned by this texture. The descriptor is
+  // produced on demand by descriptor(); the bindless cache key (cookie) lives
+  // on the view (stamped at creation).
+  struct RITextureView view;
   uint16_t width;
   uint16_t height;
   uint16_t depth;
@@ -31,6 +34,10 @@ public:
   ~cTexture();
 
   static void cTexture_Delete(cTexture *tex);
+
+  // Sampled-image descriptor, produced on demand. Owns nothing; references
+  // `view`. `cookie` is the stable bindless descriptor-set cache key.
+  RIDescriptor descriptor();
 
   struct BitmapLoadOptions {
   public:

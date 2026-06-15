@@ -162,7 +162,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
         beginDesc.renderArea.height = (int16_t)blurH;
         beginDesc.colorCount = 1;
         beginDesc.colors     = &color;
-        ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+        ctx.cmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
 
         vkCmdSetViewport(cmd, 0, 1, &blurViewport);
         vkCmdSetScissor(cmd, 0, 1, &blurScissor);
@@ -179,24 +179,24 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
                            VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
         vkCmdDraw(cmd, 3, 1, 0, 0);
-        ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
+        ctx.cmd->vk_d3d12_endRendering(&RI.device);
     };
 
     // Iterative blur: first iter samples the pogo input, subsequent
     // iterations sample blur[1].
     for (int iter = 0; iter < std::max(mParams.mlBlurIterations, 1); ++iter) {
-        const RIDescriptor &firstInput =
-            (iter == 0) ? *ctx.inputSrv : m_blur[1].descriptor;
+        const RIDescriptor firstInput =
+            (iter == 0) ? ctx.inputSrv : m_blur[1].descriptor();
 
         // Pass H: dest = blur[0], read = firstInput, prevDest = blur[1].
-        blurPass(m_blur[0].descriptor.vk.image.imageView,
+        blurPass(m_blur[0].view.vk.image,
                  &m_blur[0].texture, &m_blur[1].texture,
                  firstInput, mParams.mfBlurSize, 0.0f);
 
         // Pass V: dest = blur[1], read = blur[0], prevDest = blur[0].
-        blurPass(m_blur[1].descriptor.vk.image.imageView,
+        blurPass(m_blur[1].view.vk.image,
                  &m_blur[1].texture, &m_blur[0].texture,
-                 m_blur[0].descriptor, 0.0f, mParams.mfBlurSize);
+                 m_blur[0].descriptor(), 0.0f, mParams.mfBlurSize);
     }
 
     // Flip blur[1] COLOR_ATTACH → SHADER_READ for the add pass to sample.
@@ -219,7 +219,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
     outBeginDesc.renderArea.height = (int16_t)ctx.height;
     outBeginDesc.colorCount = 1;
     outBeginDesc.colors     = &outColor;
-    ctx.cmd->vk_d3d12_beginRendering(&RI.renderer, outBeginDesc);
+    ctx.cmd->vk_d3d12_beginRendering(&RI.device, outBeginDesc);
 
     VkViewport viewport = {0.0f,
                            0.0f,
@@ -242,9 +242,9 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
         RIProgram::DescriptorBinding bindings[3] = {};
         bindings[0].descriptor = *samplerDesc;
         bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
-        bindings[1].descriptor = *ctx.inputSrv;
+        bindings[1].descriptor = ctx.inputSrv;
         bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-        bindings[2].descriptor = m_blur[1].descriptor;
+        bindings[2].descriptor = m_blur[1].descriptor();
         bindings[2].handle     = DescriptorBindingID::Create("blurInput");
         mpBloomType->m_addProgram.bindDescriptors(
             &RI.device, ctx.cmd, ctx.frameIndex, bindings, 3);
@@ -258,7 +258,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(apc), &apc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
-    ctx.cmd->vk_d3d12_endRendering(&RI.renderer);
+    ctx.cmd->vk_d3d12_endRendering(&RI.device);
 
     // Restore the rest state: blur[1] back to COLOR_ATTACH for the next
     // call's swap-and-write pass. blur[0] is already in SHADER_READ_ONLY.

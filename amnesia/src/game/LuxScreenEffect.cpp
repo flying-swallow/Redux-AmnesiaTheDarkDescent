@@ -115,8 +115,8 @@ void cLuxScreenEffect::OnPostRender()
 	if (!pCapture->IsCaptured()) {
 		return; // The shared capture has not landed yet; try again next frame.
 	}
-	RIDescriptor *pSource = pCapture->PrimaryDescriptor();
-	if (pSource == nullptr) {
+	RIDescriptor source = pCapture->PrimaryDescriptor();
+	if (source.vkImageView() == VK_NULL_HANDLE) {
 		return;
 	}
 
@@ -166,7 +166,7 @@ void cLuxScreenEffect::OnPostRender()
 					RI_STAGE_FRAGMENT, RI_STAGE_NONE);
 			RI.primary.cmds[0].vk_d3d12_textureBarrier(toTarget);
 
-			RITextureView dstView = dst->binding.textureView();
+			RITextureView dstView = dst->view;
 			RIRenderingAttachment color = {};
 			color.view    = dstView;
 			color.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -177,7 +177,7 @@ void cLuxScreenEffect::OnPostRender()
 			beginDesc.renderArea.height = (int16_t)h;
 			beginDesc.colorCount = 1;
 			beginDesc.colors     = &color;
-			RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+			RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
 
 			vkCmdSetViewport(cmd, 0, 1, &viewport);
 			vkCmdSetScissor(cmd, 0, 1, &scissor);
@@ -198,7 +198,7 @@ void cLuxScreenEffect::OnPostRender()
 			                   VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
 			vkCmdDraw(cmd, 3, 1, 0, 0);
-			RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
+			RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
 
 			// dst → sampleable for the next pass / the GUI.
 			RITextureBarrier toSampled(&dst->handle,
@@ -211,10 +211,10 @@ void cLuxScreenEffect::OnPostRender()
 		const int   kIterations = 6;    // H+V pairs; more = heavier blur
 		for (int i = 0; i < kIterations; ++i)
 		{
-			const RIDescriptor &hIn = (i == 0) ? *pSource
-			                                     : m_screenBgColor->binding;
-			blurPass(m_screenScratch.get(), hIn,                     kBlurSize, 0.0f);
-			blurPass(m_screenBgColor.get(), m_screenScratch->binding, 0.0f, kBlurSize);
+			const RIDescriptor hIn = (i == 0) ? source
+			                                  : m_screenBgColor->descriptor();
+			blurPass(m_screenScratch.get(), hIn,                          kBlurSize, 0.0f);
+			blurPass(m_screenBgColor.get(), m_screenScratch->descriptor(), 0.0f, kBlurSize);
 		}
 		// m_screenBgColor ends SHADER_READ_ONLY (last blurPass).
 
@@ -232,7 +232,7 @@ void cLuxScreenEffect::OnPostRender()
 	// Fullscreen post-effect — sample the shared capture, write m_screenBgColor.
 	////////////////////////////////////////////////
 
-	RITextureView bgColorView = m_screenBgColor->binding.textureView();
+	RITextureView bgColorView = m_screenBgColor->view;
 	RIRenderingAttachment color = {};
 	color.view    = bgColorView;
 	color.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -243,7 +243,7 @@ void cLuxScreenEffect::OnPostRender()
 	beginDesc.renderArea.height = (int16_t)h;
 	beginDesc.colorCount = 1;
 	beginDesc.colors     = &color;
-	RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.renderer, beginDesc);
+	RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
 
 	VkViewport viewport = {};
 	viewport.x = 0.0f; viewport.y = 0.0f;
@@ -315,13 +315,13 @@ void cLuxScreenEffect::OnPostRender()
 	RIProgram::DescriptorBinding bindings[2] = {};
 	bindings[0].descriptor = *samplerDesc;
 	bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
-	bindings[1].descriptor = *pSource;
+	bindings[1].descriptor = source;
 	bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
 	m_postProgram.bindDescriptors(&RI.device, &RI.primary.cmds[0],
 	                              RI.frameIndex, bindings, 2);
 
 	vkCmdDraw(cmd, 3, 1, 0, 0);
-	RI.primary.cmds[0].vk_d3d12_endRendering(&RI.renderer);
+	RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
 
 	// m_screenBgColor → SHADER_READ_ONLY so subsequent GUI draws can sample it.
 	RITextureBarrier bgToSampled(&m_screenBgColor->handle,
