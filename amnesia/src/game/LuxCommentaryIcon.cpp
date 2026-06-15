@@ -22,6 +22,9 @@
 #include "LuxMap.h"
 #include "LuxEffectHandler.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 
 //////////////////////////////////////////////////////////////////////////
 // LOADER
@@ -36,14 +39,14 @@ cLuxCommentaryIconLoader::cLuxCommentaryIconLoader(const tString& asName) : cEnt
 
 //-----------------------------------------------------------------------
 
-void cLuxCommentaryIconLoader::BeforeLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+void cLuxCommentaryIconLoader::BeforeLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 {
 
 }
 
 //-----------------------------------------------------------------------
 
-void cLuxCommentaryIconLoader::AfterLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+void cLuxCommentaryIconLoader::AfterLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 {
 	cLuxMap *pMap = gpBase->mpCurrentMapLoading;
 	if(pMap==NULL)	return;
@@ -311,16 +314,16 @@ void cLuxCommentaryIcon::LoadCommentaryFile(const tString& asFile)
 	tString sFile = cString::SetFileExt(asFile,"comment");
 	cResources *pResources = gpBase->mpEngine->GetResources();
 
-	iXmlDocument *pXmlDoc = pResources->LoadXmlDocument(sFile);
+	tinyxml2::XMLElement *pXmlDoc = pResources->LoadXmlDocument(sFile);
 	if(pXmlDoc==NULL)
 	{
 		Error("Could not load flashback file: '%s'\n", sFile.c_str());
 		return;
 	}
 
-	msTalker = pXmlDoc->GetAttributeString("Talker","");
-	msTopic = pXmlDoc->GetAttributeString("Topic","");
-	msSoundFile = pXmlDoc->GetAttributeString("SoundFile","");
+	msTalker = hpl::GetAttributeString(pXmlDoc, "Talker","");
+	msTopic = hpl::GetAttributeString(pXmlDoc, "Topic","");
+	msSoundFile = hpl::GetAttributeString(pXmlDoc, "SoundFile","");
 	
 	pResources->DestroyXmlDocument(pXmlDoc);
 }

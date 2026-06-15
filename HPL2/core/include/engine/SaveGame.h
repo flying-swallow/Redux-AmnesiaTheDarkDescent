@@ -25,7 +25,7 @@
 #include "system/SystemTypes.h"
 #include "system/SerializeClass.h"
 
-class TiXmlElement;
+namespace tinyxml2 { class XMLElement; }
 
 #define kSaveData_LoadFromBegin(aClass) \
 							__super::LoadFromSaveData(apSaveData); \

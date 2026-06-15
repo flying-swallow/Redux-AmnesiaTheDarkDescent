@@ -26,6 +26,9 @@
 #include "LuxHandObject_Melee.h"
 #include "LuxHandObject_LightSource.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 
 /////////////////////////////////////////////////////////////////////////
 // CONSTRUCTORS
@@ -84,14 +87,14 @@ cLuxPlayerHandsLoader::cLuxPlayerHandsLoader(const tString& asName, cLuxPlayerHa
 
 //-----------------------------------------------------------------------
 
-void cLuxPlayerHandsLoader::BeforeLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+void cLuxPlayerHandsLoader::BeforeLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 {
 	
 }
 
 //-----------------------------------------------------------------------
 
-void cLuxPlayerHandsLoader::AfterLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+void cLuxPlayerHandsLoader::AfterLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 {
 	mpPlayerHands->mpHandsEntity = mpEntity;
 	if(mpEntity) mpEntity->SetRenderFlagBit(eRenderableFlag_ShadowCaster,false);
@@ -579,7 +582,7 @@ iLuxHandObject* cLuxPlayerHands::LoadHandObject(const tString& asName)
 
 	/////////////////////
 	// Load XML document
-	iXmlDocument *pDoc = pResources->LoadXmlDocument(sFile);
+	tinyxml2::XMLElement *pDoc = pResources->LoadXmlDocument(sFile);
 	if(pDoc==NULL)
 	{
 		Error("Could not load hand object file: '%s'\n", sFile.c_str());
@@ -587,7 +590,7 @@ iLuxHandObject* cLuxPlayerHands::LoadHandObject(const tString& asName)
 	}
 
 	// Main element
-	cXmlElement *pMainElem = pDoc->GetFirstElement("Main");
+	tinyxml2::XMLElement *pMainElem = pDoc->FirstChildElement("Main");
 	if(pMainElem == NULL){
 		Error("No main element found in hand object file '%s'\n", sFile.c_str());
 		pResources->DestroyXmlDocument(pDoc);
@@ -595,7 +598,7 @@ iLuxHandObject* cLuxPlayerHands::LoadHandObject(const tString& asName)
 	}
 
 	// Settings element
-	cXmlElement *pSettingsElem = pDoc->GetFirstElement("Settings");
+	tinyxml2::XMLElement *pSettingsElem = pDoc->FirstChildElement("Settings");
 	if(pSettingsElem == NULL){
 		Error("No settings element found in hand object file '%s'\n", sFile.c_str());
 		pResources->DestroyXmlDocument(pDoc);
@@ -607,7 +610,7 @@ iLuxHandObject* cLuxPlayerHands::LoadHandObject(const tString& asName)
 	// Create the object
 
 	//Get the type
-	eLuxHandObjectType aType = ToHandObjectType(pMainElem->GetAttributeString("Type",""));
+	eLuxHandObjectType aType = ToHandObjectType(hpl::GetAttributeString(pMainElem, "Type",""));
 	if(aType == eLuxHandObjectType_LastEnum)
 	{
 		pResources->DestroyXmlDocument(pDoc);

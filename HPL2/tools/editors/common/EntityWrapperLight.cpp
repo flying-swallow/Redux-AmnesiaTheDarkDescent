@@ -30,6 +30,8 @@
 
 #include "EntityWrapperBillboard.h"
 
+#include <tinyxml2.h>
+
 #include <algorithm>
 
 //------------------------------------------------------------------------------
@@ -131,7 +133,7 @@ void iEntityWrapperDataLight::CopyToEntity(iEntityWrapper* apEntity, int alCopyF
 
 //------------------------------------------------------------------------------
 
-bool iEntityWrapperDataLight::Load(cXmlElement* apElement)
+bool iEntityWrapperDataLight::Load(tinyxml2::XMLElement* apElement)
 {
 	bool bRet = iEntityWrapperData::Load(apElement);
 
@@ -139,7 +141,7 @@ bool iEntityWrapperDataLight::Load(cXmlElement* apElement)
 	// the reach property, but in old maps "Radius" is the value the PBR model
 	// uses as intensity. Remap to intensity + derive the reach. Mirrors the
 	// runtime path in cEngineFileLoading.
-	if(apElement->GetAttribute("Intensity")==NULL)
+	if(apElement->Attribute("Intensity")==NULL)
 	{
 		const float kLightRadianceFloor       = 0.005f;
 		const float kPointLightSourceRadiusSq = 0.25f;
@@ -708,18 +710,17 @@ void iEntityWrapperLight::AddConnectedBillboard(cEntityWrapperBillboard* apBB)
 	std::list<cEntityWrapperBillboard*>::iterator it = find(mlstConnectedBBs.begin(), mlstConnectedBBs.end(), apBB);
 	if(it!=mlstConnectedBBs.end()) return;
 
+	// The connection is editor/serialization state only — the engine ignores it
+	// (light-billboard color sync was a fake-bloom hack; real bloom replaced it).
 	mlstConnectedBBs.push_back(apBB);
 	apBB->SetConnectedLight(this);
-
-	((iLight*)mpEngineEntity->GetEntity())->AttachBillboard((cBillboard*)apBB->GetEngineEntity()->GetEntity(), apBB->GetBillboardColor());
 }
 
 void iEntityWrapperLight::RemoveConnectedBillboard(cEntityWrapperBillboard* apBB)
 {
 	if(apBB==NULL)return;
-	
+
 	mlstConnectedBBs.remove(apBB);
-	((iLight*)mpEngineEntity->GetEntity())->RemoveBillboard((cBillboard*)apBB->GetEngineEntity()->GetEntity());
 }
 
 //------------------------------------------------------------------------------
@@ -728,18 +729,18 @@ void iEntityWrapperLight::RemoveConnectedBillboard(cEntityWrapperBillboard* apBB
 
 void iEntityWrapperLight::SetFalloffMap(const tString& asFalloffMap)
 {
+	// The engine no longer consumes falloff maps (analytic falloff); load only
+	// to validate the file and keep the attribute round-tripping in the .map.
 	Image* pTex = NULL;
 
 	cEditorHelper::LoadTextureResource(eEditorTextureResourceType_1D, asFalloffMap, &pTex);
 	if(pTex)
-		msFalloffMap = cString::To8Char(GetEditorWorld()->GetEditor()->GetPathRelToWD(asFalloffMap));
-	else
 	{
-		cEditorHelper::LoadTextureResource(eEditorTextureResourceType_1D, "core_falloff_linear", &pTex);
-		msFalloffMap = "";
+		msFalloffMap = cString::To8Char(GetEditorWorld()->GetEditor()->GetPathRelToWD(asFalloffMap));
+		GetEditorWorld()->GetEditor()->GetEngine()->GetResources()->GetTextureManager()->Destroy(pTex);
 	}
-
-	((iLight*)mpEngineEntity->GetEntity())->SetFalloffMap(pTex);	
+	else
+		msFalloffMap = "";
 }
 
 //------------------------------------------------------------------------------

@@ -28,6 +28,8 @@ using namespace hpl;
 
 //-----------------------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
 class iEntityWrapper;
 
 class iEditorWorld;
@@ -53,7 +55,7 @@ public:
 
 	static iEntityWrapper* CreateEntityWrapperFromEntityWrapperData(iEditorWorld* apEditorWorld, iEntityWrapperData* apData);
 
-	static iEntityWrapper* CreateEntityWrapperFromXMLElement(iEditorWorld* apEditorWorld, cXmlElement* apXmlData);
+	static iEntityWrapper* CreateEntityWrapperFromXMLElement(iEditorWorld* apEditorWorld, tinyxml2::XMLElement* apXmlData);
 	
 	///////////////////////////////////////////////////
 	// Destruction

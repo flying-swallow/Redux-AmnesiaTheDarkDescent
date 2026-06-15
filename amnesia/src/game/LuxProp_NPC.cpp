@@ -45,7 +45,7 @@ iLuxProp *cLuxPropLoader_NPC::CreateProp(const tString& asName, int alID, cLuxMa
 
 //-----------------------------------------------------------------------
 
-void cLuxPropLoader_NPC::LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem)
+void cLuxPropLoader_NPC::LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem)
 {
 	cLuxProp_NPC  *pNPC = static_cast<cLuxProp_NPC*>(apProp);
 

@@ -28,18 +28,18 @@
 #include "resources/MaterialManager.h"
 #include "resources/TextureManager.h"
 #include "resources/LowLevelResources.h"
-#include "resources/XmlDocument.h"
 #include "resources/EngineFileLoading.h"
 #include "resources/BinaryBuffer.h"
+#include "resources/XmlHelper.h"
+
+#include <tinyxml2.h>
 
 #include "scene/Scene.h"
 #include "scene/World.h"
 #include "scene/MeshEntity.h"
 #include "scene/Decal.h"
 #include "scene/SubMeshEntity.h"
-#include "scene/LightPoint.h"
-#include "scene/LightSpot.h"
-#include "scene/LightBox.h"
+#include "scene/Light.h"
 #include "scene/BillBoard.h"
 #include "scene/SoundEntity.h"
 #include "scene/ParticleSystem.h"
@@ -180,14 +180,12 @@ namespace hpl {
 
 		///////////////////////
 		//Load the map file
-		iXmlDocument* pDoc = mpResources->GetLowLevel()->CreateXmlDocument();
+		tinyxml2::XMLDocument xmlDoc;
 		tWString sExt = cString::ToLowerCaseW(cString::GetFileExtW(asFile));
 		if(sExt != _W("cmap"))
 		{
-			if(pDoc->CreateFromFile(asFile)==false)
+			if(LoadXmlFile(xmlDoc, asFile)==false)
 			{
-				hplDelete(pDoc);
-
 				return NULL;
 			}
 			bLoadedFromNormalFile = true;
@@ -213,9 +211,8 @@ namespace hpl {
 				return NULL;
 			}
 
-			if(pDoc->CreateFromString(textBuff.GetDataPointer())==false)
+			if(xmlDoc.Parse(textBuff.GetDataPointer())!=tinyxml2::XML_SUCCESS)
 			{
-				hplDelete(pDoc);
 				//Log("Could not parse map!\n");
 				return NULL;
 			}
@@ -231,9 +228,10 @@ namespace hpl {
 			if(	cPlatform::FileExists(sCompFile)==false || 
 				cPlatform::FileModifiedDate(sCompFile) < cPlatform::FileModifiedDate(asFile))
 			{
-				tString sData;
-				pDoc->SaveToString(&sData);
-				
+				tinyxml2::XMLPrinter printer;
+				xmlDoc.Print(&printer);
+				tString sData = printer.CStr();
+
 				cBinaryBuffer textBuff;
 				textBuff.AddCharArray(sData.c_str(), sData.size()+1);
 
@@ -294,24 +292,32 @@ namespace hpl {
 
 
 		////////////////////////////////////
-		// Read map data (name for now)
-		cXmlElement* pXmlMapData = (cXmlElement*) pDoc->GetFirstElement("MapData");
+		// Read map data (name for now). The map root (<Level> for editor-saved
+		// maps) wraps the actual data — the legacy iXmlDocument wrapper exposed
+		// the root element's children, so "MapData" was found one level down.
+		tinyxml2::XMLElement* pXmlMapData =
+			xmlDoc.RootElement() ? xmlDoc.RootElement()->FirstChildElement("MapData") : NULL;
+		if(pXmlMapData==NULL)
+		{
+			Error("File '%s' has no MapData element!\n", cString::To8Char(asFile).c_str());
+			return NULL;
+		}
 
 		////////////////////////////////////
 		// Load fog
-		mpCurrentWorld->SetFogActive(pXmlMapData->GetAttributeBool("FogActive", false));
-		mpCurrentWorld->SetFogColor(pXmlMapData->GetAttributeColor("FogColor", cColor(1,1) ));
-		mpCurrentWorld->SetFogFalloffExp(pXmlMapData->GetAttributeFloat("FogFalloffExp", 1.0f ));
-		mpCurrentWorld->SetFogStart(pXmlMapData->GetAttributeFloat("FogStart", 0.0f ) );
-		mpCurrentWorld->SetFogEnd(pXmlMapData->GetAttributeFloat("FogEnd", 0.0f ) );
-		mpCurrentWorld->SetFogCulling(pXmlMapData->GetAttributeBool("FogCulling", true ) );
+		mpCurrentWorld->SetFogActive(GetAttributeBool(pXmlMapData, "FogActive", false));
+		mpCurrentWorld->SetFogColor(GetAttributeColor(pXmlMapData, "FogColor", cColor(1,1) ));
+		mpCurrentWorld->SetFogFalloffExp(GetAttributeFloat(pXmlMapData, "FogFalloffExp", 1.0f ));
+		mpCurrentWorld->SetFogStart(GetAttributeFloat(pXmlMapData, "FogStart", 0.0f ) );
+		mpCurrentWorld->SetFogEnd(GetAttributeFloat(pXmlMapData, "FogEnd", 0.0f ) );
+		mpCurrentWorld->SetFogCulling(GetAttributeBool(pXmlMapData, "FogCulling", true ) );
 
 		////////////////////////////////////
 		// Load skybox
-		mpCurrentWorld->SetSkyBoxActive(pXmlMapData->GetAttributeBool("SkyBoxActive", false) );
-		mpCurrentWorld->SetSkyBoxColor(pXmlMapData->GetAttributeColor("SkyBoxColor", cColor(1,1)) );
+		mpCurrentWorld->SetSkyBoxActive(GetAttributeBool(pXmlMapData, "SkyBoxActive", false) );
+		mpCurrentWorld->SetSkyBoxColor(GetAttributeColor(pXmlMapData, "SkyBoxColor", cColor(1,1)) );
 
-		tString sSkyBoxTexture = pXmlMapData->GetAttributeString("SkyBoxTexture","");
+		tString sSkyBoxTexture = GetAttributeString(pXmlMapData, "SkyBoxTexture","");
 		if(sSkyBoxTexture!="")
 		{
 			Image *pSkyBoxImage = mpResources->GetTextureManager()->CreateCubeMapImage(sSkyBoxTexture,false);
@@ -321,10 +327,9 @@ namespace hpl {
 
 		//////////////////////////////////////////////
 		// Load map contents
-		cXmlElement* pXmlContents = pXmlMapData->GetFirstElement("MapContents");
+		tinyxml2::XMLElement* pXmlContents = pXmlMapData->FirstChildElement("MapContents");
 		if(pXmlContents==NULL)
 		{
-			hplDelete(pDoc);
 			return NULL;
 		}
 
@@ -368,8 +373,6 @@ namespace hpl {
 		// Final clean up
 		STLDeleteAll(mlstStaticShapeBodies);
 
-		hplDelete(pDoc);
-		
 		lDeltaTime = cPlatform::GetApplicationTime() - lLoadStartTime;
 		if(gbLogTiming) Log("  Total: %d ms\n", lDeltaTime);
 
@@ -899,60 +902,51 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
-	void cWorldLoaderHplMap::LoadFileIndicies(cXmlElement* apXmlContents)
+	void cWorldLoaderHplMap::LoadFileIndicies(tinyxml2::XMLElement* apXmlContents)
 	{
 
 		/////////////////////////////
 		// Decals
-		cXmlElement* pXmlDecals = apXmlContents->GetFirstElement("FileIndex_Decals");
+		tinyxml2::XMLElement* pXmlDecals = apXmlContents->FirstChildElement("FileIndex_Decals");
 		if(pXmlDecals)
 		{
-			mvFileIndices_Decals.resize(pXmlDecals->GetAttributeInt("NumOfFiles",0));
+			mvFileIndices_Decals.resize(GetAttributeInt(pXmlDecals, "NumOfFiles",0));
 
-			cXmlNodeListIterator it= pXmlDecals->GetChildIterator();
-			while(it.HasNext())
+			for(tinyxml2::XMLElement* pXmlFileIdx = pXmlDecals->FirstChildElement(); pXmlFileIdx != NULL; pXmlFileIdx = pXmlFileIdx->NextSiblingElement())
 			{
-				cXmlElement* pXmlFileIdx = it.Next()->ToElement();
+				int lIdx = GetAttributeInt(pXmlFileIdx, "Id", 0);
 
-				int lIdx = pXmlFileIdx->GetAttributeInt("Id", 0);
-
-				mvFileIndices_Decals[lIdx] = pXmlFileIdx->GetAttributeString("Path", "");
+				mvFileIndices_Decals[lIdx] = GetAttributeString(pXmlFileIdx, "Path", "");
 			}
 		}
 
 		/////////////////////////////
 		// Entities
-		cXmlElement* pXmlEntities = apXmlContents->GetFirstElement("FileIndex_Entities");
+		tinyxml2::XMLElement* pXmlEntities = apXmlContents->FirstChildElement("FileIndex_Entities");
 		if(pXmlEntities)
 		{
-			mvFileIndices_Entities.resize(pXmlEntities->GetAttributeInt("NumOfFiles",0));
+			mvFileIndices_Entities.resize(GetAttributeInt(pXmlEntities, "NumOfFiles",0));
 
-			cXmlNodeListIterator it= pXmlEntities->GetChildIterator();
-			while(it.HasNext())
+			for(tinyxml2::XMLElement* pXmlFileIdx = pXmlEntities->FirstChildElement(); pXmlFileIdx != NULL; pXmlFileIdx = pXmlFileIdx->NextSiblingElement())
 			{
-				cXmlElement* pXmlFileIdx = it.Next()->ToElement();
-				
-				int lIdx = pXmlFileIdx->GetAttributeInt("Id", 0);
-				
-				mvFileIndices_Entities[lIdx] = pXmlFileIdx->GetAttributeString("Path", "");
+				int lIdx = GetAttributeInt(pXmlFileIdx, "Id", 0);
+
+				mvFileIndices_Entities[lIdx] = GetAttributeString(pXmlFileIdx, "Path", "");
 			}
 		}
 
 		/////////////////////////////
 		// Static Objects
-		cXmlElement* pXmlStaticObjects = apXmlContents->GetFirstElement("FileIndex_StaticObjects");
+		tinyxml2::XMLElement* pXmlStaticObjects = apXmlContents->FirstChildElement("FileIndex_StaticObjects");
 		if(pXmlStaticObjects)
 		{
-			mvFileIndices_StaticObjects.resize(pXmlStaticObjects->GetAttributeInt("NumOfFiles",0));
+			mvFileIndices_StaticObjects.resize(GetAttributeInt(pXmlStaticObjects, "NumOfFiles",0));
 
-			cXmlNodeListIterator it= pXmlStaticObjects->GetChildIterator();
-			while(it.HasNext())
+			for(tinyxml2::XMLElement* pXmlFileIdx = pXmlStaticObjects->FirstChildElement(); pXmlFileIdx != NULL; pXmlFileIdx = pXmlFileIdx->NextSiblingElement())
 			{
-				cXmlElement* pXmlFileIdx = it.Next()->ToElement();
+				int lIdx = GetAttributeInt(pXmlFileIdx, "Id", 0);
 
-				int lIdx = pXmlFileIdx->GetAttributeInt("Id", 0);
-
-				mvFileIndices_StaticObjects[lIdx] = pXmlFileIdx->GetAttributeString("Path", "");
+				mvFileIndices_StaticObjects[lIdx] = GetAttributeString(pXmlFileIdx, "Path", "");
 			}
 		}
 
@@ -962,7 +956,7 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 	
-	void cWorldLoaderHplMap::LoadStaticObjects(cXmlElement* apXmlContents)
+	void cWorldLoaderHplMap::LoadStaticObjects(tinyxml2::XMLElement* apXmlContents)
 	{
 		unsigned long lStartTime;
 		unsigned long lDeltaTime;
@@ -992,29 +986,26 @@ namespace hpl {
 
 		/////////////////////////////////
 		//Iterate and load static objects to a container
-		lStartTime = cPlatform::GetApplicationTime();
-		cXmlElement* pXmlStaticObjects = apXmlContents->GetFirstElement("StaticObjects");
-		cXmlNodeListIterator it= pXmlStaticObjects->GetChildIterator();
-		while(it.HasNext())
+		tinyxml2::XMLElement* pXmlStaticObjects = apXmlContents->FirstChildElement("StaticObjects");
+		if(pXmlStaticObjects)
 		{
-			cXmlElement* pXmlEntity = it.Next()->ToElement();
-
-			CreateStaticObjectEntity(pXmlEntity, lstMeshEntities, pTempContainer);
+			lStartTime = cPlatform::GetApplicationTime();
+			for(tinyxml2::XMLElement* pXmlEntity = pXmlStaticObjects->FirstChildElement(); pXmlEntity != NULL; pXmlEntity = pXmlEntity->NextSiblingElement())
+			{
+				CreateStaticObjectEntity(pXmlEntity, lstMeshEntities, pTempContainer);
+			}
+			lDeltaTime = cPlatform::GetApplicationTime() - lStartTime;
+			if(gbLogTiming) Log("    MeshEntity Loading: %d ms\n", lDeltaTime);
 		}
-		lDeltaTime = cPlatform::GetApplicationTime() - lStartTime;
-		if(gbLogTiming) Log("    MeshEntity Loading: %d ms\n", lDeltaTime);
 
 		///////////////////////////////////////
 		//Iterate and load primitives
-		cXmlElement* pXmlPrimitives = apXmlContents->GetFirstElement("Primitives");
+		tinyxml2::XMLElement* pXmlPrimitives = apXmlContents->FirstChildElement("Primitives");
 		if(pXmlPrimitives)
 		{
 			lStartTime = cPlatform::GetApplicationTime();
-			cXmlNodeListIterator primIt = pXmlPrimitives->GetChildIterator();
-			while(primIt.HasNext())
+			for(tinyxml2::XMLElement* pXmlEntity = pXmlPrimitives->FirstChildElement(); pXmlEntity != NULL; pXmlEntity = pXmlEntity->NextSiblingElement())
 			{
-				cXmlElement* pXmlEntity = primIt.Next()->ToElement();
-				
 				CreatePrimitive(pXmlEntity, lstMeshEntities, pTempContainer);
 			}
 			lDeltaTime = cPlatform::GetApplicationTime() - lStartTime;
@@ -1023,15 +1014,12 @@ namespace hpl {
 
 		///////////////////////////////////////
 		//Iterate and load decals (skip when fast loading!)
-		cXmlElement* pXmlDecals = apXmlContents->GetFirstElement("Decals");
+		tinyxml2::XMLElement* pXmlDecals = apXmlContents->FirstChildElement("Decals");
 		if(pXmlDecals && !(mlCurrentFlags & eWorldLoadFlag_FastStaticLoad))
 		{
 			lStartTime = cPlatform::GetApplicationTime();
-			cXmlNodeListIterator decalIt = pXmlDecals->GetChildIterator();
-			while(decalIt.HasNext())
+			for(tinyxml2::XMLElement* pXmlEntity = pXmlDecals->FirstChildElement(); pXmlEntity != NULL; pXmlEntity = pXmlEntity->NextSiblingElement())
 			{
-				cXmlElement* pXmlEntity = decalIt.Next()->ToElement();
-
 				CreateDecal(pXmlEntity, lstMeshEntities, pTempContainer);
 			}
 			lDeltaTime = cPlatform::GetApplicationTime() - lStartTime;
@@ -1044,15 +1032,12 @@ namespace hpl {
 
 		///////////////////////////////////////
 		//Iterate and combine groups
-		cXmlElement* pXmlObjectCombos = apXmlContents->GetFirstElement("StaticObjectCombos");
+		tinyxml2::XMLElement* pXmlObjectCombos = apXmlContents->FirstChildElement("StaticObjectCombos");
 		if(pXmlObjectCombos)
 		{
 			lStartTime = cPlatform::GetApplicationTime();
-			cXmlNodeListIterator comboIt = pXmlObjectCombos->GetChildIterator();
-			while(comboIt.HasNext())
+			for(tinyxml2::XMLElement* pXmlCombo = pXmlObjectCombos->FirstChildElement(); pXmlCombo != NULL; pXmlCombo = pXmlCombo->NextSiblingElement())
 			{
-				cXmlElement* pXmlCombo = comboIt.Next()->ToElement();
-
 				CreateStaticObjectCombo(pXmlCombo, lstMeshEntities, pTempContainer);
 			}
 			lDeltaTime = cPlatform::GetApplicationTime() - lStartTime;
@@ -1624,20 +1609,20 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cWorldLoaderHplMap::CreateStaticObjectEntity(cXmlElement* apElement, tMeshEntityList& alstMeshEntities,
+	void cWorldLoaderHplMap::CreateStaticObjectEntity(tinyxml2::XMLElement* apElement, tMeshEntityList& alstMeshEntities,
 														cRenderableContainer_BoxTree *apContainer)
 	{
 		////////////////////////////////
 		//Load properties
-		tString sName = apElement->GetAttributeString("Name");
+		tString sName = GetAttributeString(apElement, "Name");
 		tString sFileName;
-		
+
 		//File name
-		int lFileNameIdx = apElement->GetAttributeInt("FileIndex",-1);
+		int lFileNameIdx = GetAttributeInt(apElement, "FileIndex",-1);
 		if(lFileNameIdx < 0)
 		{
-			apElement->GetAttributeString("MeshFilename");
-			if(sFileName=="") sFileName = apElement->GetAttributeString("Filename");
+			sFileName = GetAttributeString(apElement, "MeshFilename");
+			if(sFileName=="") sFileName = GetAttributeString(apElement, "Filename");
 		}
 		else
 		{
@@ -1652,14 +1637,14 @@ namespace hpl {
 			}
 		}
 		
-		cVector3f vPosition = apElement->GetAttributeVector3f("WorldPos",0);
-		cVector3f vScale = apElement->GetAttributeVector3f("Scale",1);
-		cVector3f vRotation = apElement->GetAttributeVector3f("Rotation",0);
-		
-		bool bCollides = apElement->GetAttributeBool("Collides", true);
-		bool bCastsShadows = apElement->GetAttributeBool("CastShadows", true);
+		cVector3f vPosition = GetAttributeVector3f(apElement, "WorldPos",0);
+		cVector3f vScale = GetAttributeVector3f(apElement, "Scale",1);
+		cVector3f vRotation = GetAttributeVector3f(apElement, "Rotation",0);
 
-		int lID = apElement->GetAttributeInt("ID",-1);
+		bool bCollides = GetAttributeBool(apElement, "Collides", true);
+		bool bCastsShadows = GetAttributeBool(apElement, "CastShadows", true);
+
+		int lID = GetAttributeInt(apElement, "ID",-1);
 
 		//Make sure the transform is valid
 		if(CheckTransformValidity(sName, vPosition, vRotation, vScale)==false)
@@ -1912,27 +1897,27 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cWorldLoaderHplMap::CreatePrimitive(	cXmlElement* apElement, tMeshEntityList& alstMeshEntities,
+	void cWorldLoaderHplMap::CreatePrimitive(	tinyxml2::XMLElement* apElement, tMeshEntityList& alstMeshEntities,
 												cRenderableContainer_BoxTree *apContainer)
 	{
 		////////////////////////////////
 		//Load Main Properties
 		cMeshEntity *pMeshEntity = NULL;
 
-		tString sType = apElement->GetValue();
-		tString sName = apElement->GetAttributeString("Name");
-		tString sMaterial = apElement->GetAttributeString("Material");
+		tString sType = apElement->Value();
+		tString sName = GetAttributeString(apElement, "Name");
+		tString sMaterial = GetAttributeString(apElement, "Material");
 		tString sMaterialName = sMaterial;
-		bool bCastsShadows = apElement->GetAttributeBool("CastShadows", true);
-		bool bCollides = apElement->GetAttributeBool("Collides", true);
-		int lID = apElement->GetAttributeInt("ID",-1);
+		bool bCastsShadows = GetAttributeBool(apElement, "CastShadows", true);
+		bool bCollides = GetAttributeBool(apElement, "Collides", true);
+		int lID = GetAttributeInt(apElement, "ID",-1);
 
 		if((mlCurrentFlags & eWorldLoadFlag_FastStaticLoad))
 			sMaterial = mpResources->GetMeshManager()->GetFastloadMaterial();
-		
-		cVector3f vPosition = apElement->GetAttributeVector3f("WorldPos",0);
-		cVector3f vScale = apElement->GetAttributeVector3f("Scale",1);
-		cVector3f vRotation = apElement->GetAttributeVector3f("Rotation",0);
+
+		cVector3f vPosition = GetAttributeVector3f(apElement, "WorldPos",0);
+		cVector3f vScale = GetAttributeVector3f(apElement, "Scale",1);
+		cVector3f vRotation = GetAttributeVector3f(apElement, "Rotation",0);
 
 		//Make sure the transform is valid
 		if(CheckTransformValidity(sName, vPosition, vRotation, vScale)==false)
@@ -1944,11 +1929,11 @@ namespace hpl {
 		// Plane
 		if(sType == "Plane")
 		{
-			cVector3f vStartCorner = apElement->GetAttributeVector3f("StartCorner",0);
-			cVector3f vEndCorner = apElement->GetAttributeVector3f("EndCorner",0);
+			cVector3f vStartCorner = GetAttributeVector3f(apElement, "StartCorner",0);
+			cVector3f vEndCorner = GetAttributeVector3f(apElement, "EndCorner",0);
 			tVector2fVec vUVCorners;
 			for(int i=0;i<4;++i)
-				vUVCorners.push_back(apElement->GetAttributeVector2f("Corner" + cString::ToString(i+1) + "UV"));
+				vUVCorners.push_back(GetAttributeVector2f(apElement, "Corner" + cString::ToString(i+1) + "UV"));
 
 			//Create the mesh
 			cMesh *pMesh = mpGraphics->GetMeshCreator()->CreatePlane(sName,vStartCorner,vEndCorner,
@@ -2017,23 +2002,23 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cWorldLoaderHplMap::CreateDecal(	cXmlElement* apElement, tMeshEntityList& alstMeshEntities,
+	void cWorldLoaderHplMap::CreateDecal(	tinyxml2::XMLElement* apElement, tMeshEntityList& alstMeshEntities,
 											cRenderableContainer_BoxTree *apDecalContainer)
 	{
 		////////////////////////////////
 		//Load Main Properties
 
 		///Properties
-		tString sName = apElement->GetAttributeString("Name");
-		cColor decalColor = apElement->GetAttributeColor("Color", cColor(1,1));
-		int lID = apElement->GetAttributeInt("ID",-1);
+		tString sName = GetAttributeString(apElement, "Name");
+		cColor decalColor = GetAttributeColor(apElement, "Color", cColor(1,1));
+		int lID = GetAttributeInt(apElement, "ID",-1);
 
 		///Material
 		tString sMaterial="";
-		int lFileNameIdx = apElement->GetAttributeInt("MaterialIndex",-1);
+		int lFileNameIdx = GetAttributeInt(apElement, "MaterialIndex",-1);
 		if(lFileNameIdx < 0)
 		{
-			sMaterial = apElement->GetAttributeString("Material");
+			sMaterial = GetAttributeString(apElement, "Material");
 		}
 		else
 		{
@@ -2055,21 +2040,21 @@ namespace hpl {
 		// full box size; box centered on WorldPos). The world owns the cDecal and
 		// its material; the renderer packs these into a GPU array + grid and
 		// projects them in screen space (no geometry is rasterized here).
-		cVector3f vPosition = apElement->GetAttributeVector3f("WorldPos", 0);
-		cVector3f vScale    = apElement->GetAttributeVector3f("Scale", 1);
-		cVector3f vRotation = apElement->GetAttributeVector3f("Rotation", 0);
-		cVector2f vSubDivF  = apElement->GetAttributeVector2f("SubDiv", cVector2f(1,1));
+		cVector3f vPosition = GetAttributeVector3f(apElement, "WorldPos", 0);
+		cVector3f vScale    = GetAttributeVector3f(apElement, "Scale", 1);
+		cVector3f vRotation = GetAttributeVector3f(apElement, "Rotation", 0);
+		cVector2f vSubDivF  = GetAttributeVector2f(apElement, "SubDiv", cVector2f(1,1));
 		cVector2l vSubDiv((int)vSubDivF.x, (int)vSubDivF.y);
 		// Selected atlas cell (editor's randomized/authored CurrentSubDiv). The
 		// baked mesh carried this in its UVs; the OOB projection re-derives it.
-		int lCurrentSubDiv = apElement->GetAttributeInt("CurrentSubDiv", 0);
+		int lCurrentSubDiv = GetAttributeInt(apElement, "CurrentSubDiv", 0);
 
 		// Receiver filter (was edit-time IsAffectedByDecal clipping). The
 		// projection shader tests the hit object's category against this mask.
 		int lReceiverMask = 0;
-		if(apElement->GetAttributeBool("OnStatic", true))    lReceiverMask |= eDecalReceiver_Static;
-		if(apElement->GetAttributeBool("OnPrimitive", true)) lReceiverMask |= eDecalReceiver_Primitive;
-		if(apElement->GetAttributeBool("OnEntity", true))    lReceiverMask |= eDecalReceiver_Entity;
+		if(GetAttributeBool(apElement, "OnStatic", true))    lReceiverMask |= eDecalReceiver_Static;
+		if(GetAttributeBool(apElement, "OnPrimitive", true)) lReceiverMask |= eDecalReceiver_Primitive;
+		if(GetAttributeBool(apElement, "OnEntity", true))    lReceiverMask |= eDecalReceiver_Entity;
 
 		cDecal* pDecal = mpCurrentWorld->CreateDecal(sName, sMaterial, decalColor, vSubDiv);
 		if(pDecal == NULL)
@@ -2099,16 +2084,16 @@ namespace hpl {
 		return NULL;
 	}
 
-	void cWorldLoaderHplMap::CreateStaticObjectCombo(	cXmlElement* apElement, tMeshEntityList& alstMeshEntities,
+	void cWorldLoaderHplMap::CreateStaticObjectCombo(	tinyxml2::XMLElement* apElement, tMeshEntityList& alstMeshEntities,
 														cRenderableContainer_BoxTree *apContainer)
 	{
 		tMeshEntityList lstCombineMeshes;
 		tRenderableList lstCombineSubMeshes;
-		
+
 		////////////////////////////
 		// Get the list of Ids
-		int lGroupID =  apElement->GetAttributeInt("ID", -1);
-		tString sObjIds = apElement->GetAttributeString("ObjIds","");
+		int lGroupID =  GetAttributeInt(apElement, "ID", -1);
+		tString sObjIds = GetAttributeString(apElement, "ObjIds","");
 		tIntVec vObjIds;
 		cString::GetIntVec(sObjIds, vObjIds);
 
@@ -2156,50 +2141,22 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
-	void cWorldLoaderHplMap::LoadEntities(cXmlElement* apXmlContents)
+	void cWorldLoaderHplMap::LoadEntities(tinyxml2::XMLElement* apXmlContents)
 	{
 		if(mlCurrentFlags & eWorldLoadFlag_FastEntityLoad)
 			mpResources->GetMeshManager()->SetUseFastloadMaterial(true);
 
-		//List that contain light and billboard connections
-		tEFL_LightBillboardConnectionList lstLightBillboardListConnections;
-
 		/////////////////////////////////////
 		//Iterate all entities in contents
-		cXmlElement* pXmlEntities = apXmlContents->GetFirstElement("Entities");
-		cXmlNodeListIterator it = pXmlEntities->GetChildIterator();
-		while(it.HasNext())
+		tinyxml2::XMLElement* pXmlEntities = apXmlContents->FirstChildElement("Entities");
+		if(pXmlEntities)
 		{
-			cXmlElement* pXmlEntity = it.Next()->ToElement();
-
-			CreateLoadedEntity(pXmlEntity, &lstLightBillboardListConnections);
+			for(tinyxml2::XMLElement* pXmlEntity = pXmlEntities->FirstChildElement(); pXmlEntity != NULL; pXmlEntity = pXmlEntity->NextSiblingElement())
+			{
+				CreateLoadedEntity(pXmlEntity);
+			}
 		}
 
-		/////////////////////////////////////
-		//Set up light and billboard connections
-		tEFL_LightBillboardConnectionListIt connIt = lstLightBillboardListConnections.begin();
-		for(; connIt != lstLightBillboardListConnections.end(); ++connIt)
-		{
-			cEFL_LightBillboardConnection& lightConnect = *connIt;
-
-			cBillboard *pBB = mpCurrentWorld->GetBillboardFromUniqueID(lightConnect.msBillboardID);
-			iLight *pLight = mpCurrentWorld->GetLight(lightConnect.msLightName);
-
-			if(pLight==NULL)
-			{
-				Warning("Light with name '%s' does not exist!",lightConnect.msLightName.c_str());
-				continue;
-			}
-			if(pBB==NULL)
-			{
-				Warning("Billboard with id '%d' does not exist!",lightConnect.msBillboardID);
-				continue;
-			}
-
-			pLight->AttachBillboard(pBB, pBB->GetColor());
-		}
-		
-		
 		//Set fast entity load
 		if(mlCurrentFlags & eWorldLoadFlag_FastEntityLoad)
 			mpResources->GetMeshManager()->SetUseFastloadMaterial(false);
@@ -2207,20 +2164,20 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cWorldLoaderHplMap::CreateLoadedEntity(cXmlElement* apElement, tEFL_LightBillboardConnectionList *apLightBillboardList)
+	void cWorldLoaderHplMap::CreateLoadedEntity(tinyxml2::XMLElement* apElement)
 	{
-		tString sObjectType = apElement->GetValue();
+		tString sObjectType = apElement->Value();
 
 		//////////////////////////
 		//Entity or Area
 		if(sObjectType == "Entity" || sObjectType == "Area")
 		{
-			tString sName = apElement->GetAttributeString("Name");
-			int lID = apElement->GetAttributeInt("ID");
-			bool bActive = apElement->GetAttributeBool("Active", true);
-			cVector3f vPosition = apElement->GetAttributeVector3f("WorldPos",0);
-			cVector3f vScale = apElement->GetAttributeVector3f("Scale",1);
-			cVector3f vRotation = apElement->GetAttributeVector3f("Rotation",0);
+			tString sName = GetAttributeString(apElement, "Name");
+			int lID = GetAttributeInt(apElement, "ID");
+			bool bActive = GetAttributeBool(apElement, "Active", true);
+			cVector3f vPosition = GetAttributeVector3f(apElement, "WorldPos",0);
+			cVector3f vScale = GetAttributeVector3f(apElement, "Scale",1);
+			cVector3f vRotation = GetAttributeVector3f(apElement, "Rotation",0);
 
 			//Make sure the transform is valid
 			if(CheckTransformValidity(sName, vPosition, vRotation, vScale)==false)
@@ -2267,7 +2224,7 @@ namespace hpl {
 		//Billboard
 		else if(sObjectType == "Billboard")
 		{
-			cEngineFileLoading::LoadBillboard(apElement,"", mpCurrentWorld, mpResources, true, apLightBillboardList);
+			cEngineFileLoading::LoadBillboard(apElement,"", mpCurrentWorld, mpResources, true);
 		}
 		//////////////////////////
 		//Light
@@ -2289,17 +2246,17 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 	
-	void cWorldLoaderHplMap::LoadEntity(const tString& asName, int alID, bool abActive, const cVector3f& avPos, const cVector3f& avRot, const cVector3f& avScale, cXmlElement* apElement)
+	void cWorldLoaderHplMap::LoadEntity(const tString& asName, int alID, bool abActive, const cVector3f& avPos, const cVector3f& avRot, const cVector3f& avScale, tinyxml2::XMLElement* apElement)
 	{
 		cMatrixf mtxTransform = cMath::MatrixRotate(avRot,eEulerRotationOrder_XYZ);
 		mtxTransform.SetTranslation(avPos);
-		
+
 		//File name
 		tString sFilename;
-		int lFileNameIdx = apElement->GetAttributeInt("FileIndex",-1);
+		int lFileNameIdx = GetAttributeInt(apElement, "FileIndex",-1);
 		if(lFileNameIdx < 0)
 		{
-			sFilename = apElement->GetAttributeString("Filename");
+			sFilename = GetAttributeString(apElement, "Filename");
 		}
 		else
 		{
@@ -2317,7 +2274,7 @@ namespace hpl {
 
 		//User variables
 		cResourceVarsObject userVars;
-		cXmlElement *pUserVarsElem = apElement->GetFirstElement("UserVariables");
+		tinyxml2::XMLElement *pUserVarsElem = apElement->FirstChildElement("UserVariables");
 		if(pUserVarsElem) userVars.LoadVariables(pUserVarsElem);
 		
         //Create in world
@@ -2327,12 +2284,12 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cWorldLoaderHplMap::LoadArea(const tString& asName, int alID, bool abActive,const cVector3f& avPos, const cVector3f& avRot,const cVector3f& avScale, cXmlElement* apElement)
+	void cWorldLoaderHplMap::LoadArea(const tString& asName, int alID, bool abActive,const cVector3f& avPos, const cVector3f& avRot,const cVector3f& avScale, tinyxml2::XMLElement* apElement)
 	{
 		cMatrixf mtxTransform = cMath::MatrixRotate(avRot,eEulerRotationOrder_XYZ);
 		mtxTransform.SetTranslation(avPos);
-		
-        tString sType = apElement->GetAttributeString("AreaType","");
+
+        tString sType = GetAttributeString(apElement, "AreaType","");
 
 		iAreaLoader *pLoader  = mpResources->GetAreaLoader(sType);
 		if(pLoader==NULL) return;
@@ -2341,7 +2298,7 @@ namespace hpl {
 		if( (mlCurrentFlags & eWorldLoadFlag_NoDynamicGameEntities)!=0 && pLoader->GetCreatesStaticArea()==false) return;
 
 		//Load variables
-		cXmlElement *pVarRootElem = apElement->GetFirstElement("UserVariables");
+		tinyxml2::XMLElement *pVarRootElem = apElement->FirstChildElement("UserVariables");
 		if(pVarRootElem) pLoader->LoadVariables(pVarRootElem);
 
 		//Create the area

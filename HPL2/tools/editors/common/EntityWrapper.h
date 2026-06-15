@@ -30,6 +30,8 @@ using namespace hpl;
 
 //-----------------------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
 class iPropVal;
 
 class iEditorBase;
@@ -191,19 +193,19 @@ public:
 
 	/**
 	 * Load value from a XML element
-	 * \param cXmlElement* 
+	 * \param tinyxml2::XMLElement* 
 	 */
-	virtual void Load(cXmlElement*)=0;
+	virtual void Load(tinyxml2::XMLElement*)=0;
 	/**
 	 * Save value to a XML element
-	 * \param cXmlElement* 
+	 * \param tinyxml2::XMLElement* 
 	 */
-	virtual void Save(cXmlElement*);
+	virtual void Save(tinyxml2::XMLElement*);
 	/**
 	 * Type specific saving routines
-	 * \param cXmlElement* 
+	 * \param tinyxml2::XMLElement* 
 	 */
-	virtual void SaveSpecific(cXmlElement*)=0;
+	virtual void SaveSpecific(tinyxml2::XMLElement*)=0;
 
 protected:
 	iProp* mpProp;
@@ -246,8 +248,8 @@ class cPropValInt: public iPropVal
 public:
 	cPropValInt(iProp*);
 
-	void Load(cXmlElement* apElement);
-	void SaveSpecific(cXmlElement* apElement);
+	void Load(tinyxml2::XMLElement* apElement);
+	void SaveSpecific(tinyxml2::XMLElement* apElement);
 
 	void GetFromEntity(iEntityWrapper*);
 	void SetToEntity(iEntityWrapper*);
@@ -291,8 +293,8 @@ public:
 	void GetFromEntity(iEntityWrapper*);
 	void SetToEntity(iEntityWrapper*);
 
-	void Load(cXmlElement* apElement);
-	void SaveSpecific(cXmlElement* apElement);
+	void Load(tinyxml2::XMLElement* apElement);
+	void SaveSpecific(tinyxml2::XMLElement* apElement);
 
 	float& Get() { return mfVal; }
 	void Set(float afX) { mfVal = afX; }
@@ -333,8 +335,8 @@ public:
 	void GetFromEntity(iEntityWrapper*);
 	void SetToEntity(iEntityWrapper*);
 
-	void Load(cXmlElement* apElement);
-	void SaveSpecific(cXmlElement* apElement);
+	void Load(tinyxml2::XMLElement* apElement);
+	void SaveSpecific(tinyxml2::XMLElement* apElement);
 
 	bool& Get() { return mbVal; }
 	void Set(bool abX) { mbVal = abX; }
@@ -375,8 +377,8 @@ public:
 	void GetFromEntity(iEntityWrapper*);
 	void SetToEntity(iEntityWrapper*);
 
-	void Load(cXmlElement* apElement);
-	void SaveSpecific(cXmlElement* apElement);
+	void Load(tinyxml2::XMLElement* apElement);
+	void SaveSpecific(tinyxml2::XMLElement* apElement);
 
 	tString& Get() { return msVal; }
 	void Set(const tString& asX) { msVal = asX; }
@@ -417,8 +419,8 @@ public:
 	void GetFromEntity(iEntityWrapper*);
 	void SetToEntity(iEntityWrapper*);
 
-	void Load(cXmlElement* apElement);
-	void SaveSpecific(cXmlElement* apElement);
+	void Load(tinyxml2::XMLElement* apElement);
+	void SaveSpecific(tinyxml2::XMLElement* apElement);
 
 	cVector2f& Get() { return mvVal; }
 	void Set(const cVector2f& avX) { mvVal = avX; }
@@ -459,8 +461,8 @@ public:
 	void GetFromEntity(iEntityWrapper*);
 	void SetToEntity(iEntityWrapper*);
 
-	void Load(cXmlElement* apElement);
-	void SaveSpecific(cXmlElement* apElement);
+	void Load(tinyxml2::XMLElement* apElement);
+	void SaveSpecific(tinyxml2::XMLElement* apElement);
 
 	cVector3f& Get() { return mvVal; }
 	void Set(const cVector3f& avX) { mvVal = avX; }
@@ -502,8 +504,8 @@ public:
 	void GetFromEntity(iEntityWrapper*);
 	void SetToEntity(iEntityWrapper*);
 
-	void Load(cXmlElement*);
-	void SaveSpecific(cXmlElement*);
+	void Load(tinyxml2::XMLElement*);
+	void SaveSpecific(tinyxml2::XMLElement*);
 
 	cColor& Get() { return mVal; }
 	void Set(const cColor& aX) { mVal = aX; }
@@ -549,8 +551,8 @@ public:
 
 	///////////////////////////////////////////////////
 	// Used when loading an entity, check if data created by this type can load it
-	virtual bool IsAppropriateType(cXmlElement*);
-	virtual bool IsAppropriateDefaultType(cXmlElement*);
+	virtual bool IsAppropriateType(tinyxml2::XMLElement*);
+	virtual bool IsAppropriateDefaultType(tinyxml2::XMLElement*);
 
 	///////////////////////////////////////////////////
 	// Restrictions
@@ -671,9 +673,9 @@ public:
 
 	virtual void CopyFromEntity(iEntityWrapper*);
 	virtual void CopyToEntity(iEntityWrapper*, int alCopyFlags);
-	virtual bool Load(cXmlElement*);
-	virtual bool Save(cXmlElement*);
-	virtual bool SaveSpecific(cXmlElement*);
+	virtual bool Load(tinyxml2::XMLElement*);
+	virtual bool Save(tinyxml2::XMLElement*);
+	virtual bool SaveSpecific(tinyxml2::XMLElement*);
 
 	/**
 	 * Creates an EntityWrapper object
@@ -723,14 +725,14 @@ protected:
 
 	/**
 	 * Helper to save children as xml child elements with an ID attribute
-	 * \param cXmlElement* 
+	 * \param tinyxml2::XMLElement* 
 	 */
-	void SaveChildren(cXmlElement*);
+	void SaveChildren(tinyxml2::XMLElement*);
 	/**
 	 * Helper to load children in the format saved by SaveChildren
-	 * \param cXmlElement* 
+	 * \param tinyxml2::XMLElement* 
 	 */
-	void LoadChildren(cXmlElement*);
+	void LoadChildren(tinyxml2::XMLElement*);
 
 	/**
 	 * Creates an EntityWrapper object of a specific type. All final derived classes must implement this.
@@ -821,11 +823,11 @@ public:
 	bool HasChild(iEntityWrapper* apEntity);
 	tEntityWrapperList& GetChildren() { return mlstChildren; }
 	void ClearChildren();
-	void SaveChildren(cXmlElement* apElement);
+	void SaveChildren(tinyxml2::XMLElement* apElement);
 
 	const tIntVec& GetAttachableTypes() { return mpType->GetAttachableTypes(); }
 
-	void Save(cXmlElement* apParentElement);
+	void Save(tinyxml2::XMLElement* apParentElement);
 
 	///////////////////////////////////////////////
 	// Transforms
@@ -1111,9 +1113,9 @@ public:
 
 	virtual void CopyToEntity(iEntityWrapper* apEntity, int alX);
 	virtual void CopyFromEntity(iEntityWrapper* apEntity);
-	virtual bool Load(cXmlElement* apElement);
+	virtual bool Load(tinyxml2::XMLElement* apElement);
 
-	bool SaveSpecific(cXmlElement* apElement);
+	bool SaveSpecific(tinyxml2::XMLElement* apElement);
 
 protected:
 	cEditorUserClassDefinitionManager* mpDefMgr;
@@ -1189,8 +1191,8 @@ public:
 	void CopyFromEntity(iEntityWrapper*);
 	void CopyToEntity(iEntityWrapper*, int);
 	
-	bool Load(cXmlElement*);
-	bool SaveSpecific(cXmlElement*);
+	bool Load(tinyxml2::XMLElement*);
+	bool SaveSpecific(tinyxml2::XMLElement*);
 
 	void SetComponentsData(const tEntityDataVec& avData) { mvComponentsData = avData; }
 	tEntityDataVec& GetComponentsData() { return mvComponentsData; }

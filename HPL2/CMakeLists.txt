@@ -47,12 +47,8 @@ list(REMOVE_DUPLICATES common_sources)
 
 #setup various IMPL sources
 file(GLOB impl_sources RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
-    core/include/impl/tinyXML/*
     core/include/impl/*.*
 
-    # tinyXML
-    core/sources/impl/tinyXml/*
-    core/sources/impl/XmlDocumentTiny.cpp
     # scripting
     core/sources/impl/SqScript.cpp
     core/sources/impl/scriptarray.cpp

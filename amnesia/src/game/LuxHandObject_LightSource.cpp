@@ -25,6 +25,9 @@
 #include "LuxMapHelper.h"
 #include "LuxHelpFuncs.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //////////////////////////////////////////////////////////////////////////
 // CONSTRUCTORS
 //////////////////////////////////////////////////////////////////////////
@@ -49,28 +52,28 @@ cLuxHandObject_LightSource::~cLuxHandObject_LightSource()
 
 //-----------------------------------------------------------------------
 
-void cLuxHandObject_LightSource::LoadImplementedVars(cXmlElement *apVarsElem)
+void cLuxHandObject_LightSource::LoadImplementedVars(tinyxml2::XMLElement *apVarsElem)
 {
-	float fFadeInTime = apVarsElem->GetAttributeFloat("FadeInTime", 0);
-	float fFadeOutTime = apVarsElem->GetAttributeFloat("FadeOutTime", 0);
+	float fFadeInTime = hpl::GetAttributeFloat(apVarsElem, "FadeInTime", 0);
+	float fFadeOutTime = hpl::GetAttributeFloat(apVarsElem, "FadeOutTime", 0);
 	if(fFadeInTime == 0) fFadeInTime = 0.001f;
 	if(fFadeOutTime == 0) fFadeOutTime = 0.001f;
 	mfFadeInSpeed = 1.0f / fFadeInTime;
 	mfFadeOutSpeed = 1.0f / fFadeOutTime;
 
-	mbHasSwayPhysics = apVarsElem->GetAttributeBool("HasSwayPhysics", false);
-	mfMaxSwayVel = apVarsElem->GetAttributeFloat("MaxSwayVel", 0);
-	mvSwayAngleLimits = cMath::Vector2ToRad(apVarsElem->GetAttributeVector2f("SwayAngleLimits", 0));
-	mvSwayDownAngleLimits= cMath::Vector2ToRad(apVarsElem->GetAttributeVector2f("SwayDownAngleLimits", 0));
-	
-	mfSwayGravity = apVarsElem->GetAttributeFloat("SwayGravity", 0);
-	mfSwayFriction = apVarsElem->GetAttributeFloat("SwayFriction", 0);
-	mvSwayPinDir = apVarsElem->GetAttributeVector3f("SwayPinDir", 1);
-	mvSwayPinDir.Normalize();
-	mfSwayPlayerSpeedMul = apVarsElem->GetAttributeFloat("SwayPlayerSpeedMul", 0);
-	mfSwayCameraRollMul = apVarsElem->GetAttributeFloat("SwayCameraRollMul", 0);
+	mbHasSwayPhysics = hpl::GetAttributeBool(apVarsElem, "HasSwayPhysics", false);
+	mfMaxSwayVel = hpl::GetAttributeFloat(apVarsElem, "MaxSwayVel", 0);
+	mvSwayAngleLimits = cMath::Vector2ToRad(hpl::GetAttributeVector2f(apVarsElem, "SwayAngleLimits", 0));
+	mvSwayDownAngleLimits= cMath::Vector2ToRad(hpl::GetAttributeVector2f(apVarsElem, "SwayDownAngleLimits", 0));
 
-	msSkipSwaySubMesh = apVarsElem->GetAttributeString("SkipSwaySubMesh", "");
+	mfSwayGravity = hpl::GetAttributeFloat(apVarsElem, "SwayGravity", 0);
+	mfSwayFriction = hpl::GetAttributeFloat(apVarsElem, "SwayFriction", 0);
+	mvSwayPinDir = hpl::GetAttributeVector3f(apVarsElem, "SwayPinDir", 1);
+	mvSwayPinDir.Normalize();
+	mfSwayPlayerSpeedMul = hpl::GetAttributeFloat(apVarsElem, "SwayPlayerSpeedMul", 0);
+	mfSwayCameraRollMul = hpl::GetAttributeFloat(apVarsElem, "SwayCameraRollMul", 0);
+
+	msSkipSwaySubMesh = hpl::GetAttributeString(apVarsElem, "SkipSwaySubMesh", "");
 }
 
 //-----------------------------------------------------------------------

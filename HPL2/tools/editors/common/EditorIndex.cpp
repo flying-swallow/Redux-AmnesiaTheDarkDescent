@@ -22,6 +22,9 @@
 #include "EditorBaseClasses.h"
 #include "EditorThumbnailBuilder.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 #include <algorithm>
 
 //-------------------------------------------------------------------
@@ -96,11 +99,11 @@ bool iEditorObjectIndex::Refresh()
 	mpEditor->ClearTempEntities();
 	mpEditor->GetThumbnailBuilder()->PreBuild();
 
-	cResources* pRes = mpEditor->GetEngine()->GetResources();
-	iXmlDocument* pDoc = pRes->GetLowLevel()->CreateXmlDocument();
-	if(pDoc->CreateFromFile(msFilename))
+	tinyxml2::XMLDocument xmlDoc;
+	if(hpl::LoadXmlFile(xmlDoc, msFilename) && xmlDoc.RootElement()!=NULL)
 	{
-		if(pDoc->GetAttributeString("Version")!=gsIndexVersion)
+		tinyxml2::XMLElement* pDoc = xmlDoc.RootElement();
+		if(GetAttributeString(pDoc, "Version")!=gsIndexVersion)
 		{
 			mbUpdated = true;
 			if(mpRootDir)
@@ -108,7 +111,7 @@ bool iEditorObjectIndex::Refresh()
 		}
 		else
 		{
-			cXmlElement* pXmlRootDir = pDoc->GetFirstElement("RootDir");
+			tinyxml2::XMLElement* pXmlRootDir = pDoc->FirstChildElement("RootDir");
 
 			if(mpRootDir && pXmlRootDir)
 				mpRootDir->Refresh(pXmlRootDir, mbCreateSubCategories);
@@ -120,11 +123,11 @@ bool iEditorObjectIndex::Refresh()
 		if(mpRootDir)
 			mpRootDir->CreateFromDir(NULL, _W(""), mbCreateSubCategories);
 	}
-		
+
 	if(mbUpdated)
 	{
 		mbUpdated=false;
-		Save(pDoc);
+		Save(&xmlDoc);
 	}
 
 	/////////////////////////
@@ -136,8 +139,6 @@ bool iEditorObjectIndex::Refresh()
 		
 		mpEditor->GetThumbnailBuilder()->CleanUp();
 	}
-
-	pRes->DestroyXmlDocument(pDoc);
 
 	mpEditor->GetThumbnailBuilder()->PostBuild();
 
@@ -171,20 +172,22 @@ void iEditorObjectIndex::AddFilesInDir(tWStringList& asFileList, const tWString&
 
 //-------------------------------------------------------------------
 
-void iEditorObjectIndex::Save(iXmlDocument* apDoc)
+void iEditorObjectIndex::Save(tinyxml2::XMLDocument* apDoc)
 {
-	apDoc->DestroyChildren();
-	apDoc->SetValue(msIndexTypeName);
-	apDoc->SetAttributeString("Version", gsIndexVersion);
+	apDoc->Clear();
+	tinyxml2::XMLElement* pRoot = apDoc->NewElement(msIndexTypeName.c_str());
+	apDoc->InsertEndChild(pRoot);
+	SetAttributeString(pRoot, "Version", gsIndexVersion);
 
 	if(mpRootDir)
 	{
-		cXmlElement* pElement = apDoc->CreateChildElement("RootDir");
+		tinyxml2::XMLElement* pElement = pRoot->GetDocument()->NewElement("RootDir");
+		pRoot->InsertEndChild(pElement);
 
 		mpRootDir->Save(pElement, mbCreateSubCategories);
 	}
 
-	apDoc->SaveToFile(msFilename);
+	hpl::SaveXmlFile(*apDoc, msFilename);
 }
 
 //-------------------------------------------------------------------
@@ -293,7 +296,7 @@ const tWString& iEditorObjectIndexDir::GetFullPath()
 
 //-------------------------------------------------------------------
 
-bool iEditorObjectIndexDir::Refresh(cXmlElement* apElement, bool abAddSubDirs)
+bool iEditorObjectIndexDir::Refresh(tinyxml2::XMLElement* apElement, bool abAddSubDirs)
 {
 	bool bMapEmpty = mmapEntries.empty();
 	bool bUpdated = false;
@@ -304,7 +307,7 @@ bool iEditorObjectIndexDir::Refresh(cXmlElement* apElement, bool abAddSubDirs)
 	tWStringList lstFiles;
 	tWStringList lstDirs;
 
-	msDirName = cString::To16Char(apElement->GetAttributeString("RelPath"));
+	msDirName = cString::To16Char(GetAttributeString(apElement, "RelPath"));
 
 	const tWString& sFullPath = GetFullPath();
 
@@ -312,16 +315,14 @@ bool iEditorObjectIndexDir::Refresh(cXmlElement* apElement, bool abAddSubDirs)
 
 	mpIndex->AddFilesInDir(lstFiles, sFullPath, _W(""), false);
 
-	cXmlElement* pEntries = apElement->GetFirstElement("Entries");
-	cXmlElement* pDirs = apElement->GetFirstElement("SubDirs");
+	tinyxml2::XMLElement* pEntries = apElement->FirstChildElement("Entries");
+	tinyxml2::XMLElement* pDirs = apElement->FirstChildElement("SubDirs");
 
 	if(pEntries)
 	{
-		cXmlNodeListIterator itEntries = pEntries->GetChildIterator();
-		while(itEntries.HasNext())
+		for(tinyxml2::XMLElement* pXmlEntry = pEntries->FirstChildElement(); pXmlEntry != NULL; pXmlEntry = pXmlEntry->NextSiblingElement())
 		{
 			iEditorObjectIndexEntry* pEntry = CreateEntry();
-			cXmlElement* pXmlEntry = itEntries.Next()->ToElement();
 
 			if(pEntry->CreateFromXmlElement(pXmlEntry))
 			{
@@ -382,11 +383,9 @@ bool iEditorObjectIndexDir::Refresh(cXmlElement* apElement, bool abAddSubDirs)
 		cPlatform::FindFoldersInDir(lstDirs, sFullPath, false, false);
 		if(pDirs)
 		{
-			cXmlNodeListIterator itDirs = pDirs->GetChildIterator();
-			while(itDirs.HasNext())
+			for(tinyxml2::XMLElement* pXmlDir = pDirs->FirstChildElement(); pXmlDir != NULL; pXmlDir = pXmlDir->NextSiblingElement())
 			{
 				iEditorObjectIndexDir* pDir = mpIndex->CreateDir(this);
-				cXmlElement* pXmlDir = itDirs.Next()->ToElement();
 
 				if(pDir->Refresh(pXmlDir, abAddSubDirs))
 				{
@@ -445,16 +444,18 @@ iEditorObjectIndexEntry* iEditorObjectIndexDir::GetEntry(const tString& asIndex)
 
 //-------------------------------------------------------------------
 
-void iEditorObjectIndexDir::Save(cXmlElement* apIndexElement, bool abSaveSubDirs)
+void iEditorObjectIndexDir::Save(tinyxml2::XMLElement* apIndexElement, bool abSaveSubDirs)
 {
-	apIndexElement->SetAttributeString("RelPath", cString::To8Char(msDirName));
+	SetAttributeString(apIndexElement, "RelPath", cString::To8Char(msDirName));
 	if(mmapEntries.empty()==false)
 	{
-		cXmlElement* pEntries = apIndexElement->CreateChildElement("Entries");
+		tinyxml2::XMLElement* pEntries = apIndexElement->GetDocument()->NewElement("Entries");
+		apIndexElement->InsertEndChild(pEntries);
 		tIndexEntryMapConstIt itEntries = mmapEntries.begin();
 		for(;itEntries!=mmapEntries.end();++itEntries)
 		{
-			cXmlElement* pXmlEntry = pEntries->CreateChildElement();
+			tinyxml2::XMLElement* pXmlEntry = pEntries->GetDocument()->NewElement("");
+			pEntries->InsertEndChild(pXmlEntry);
 
 			iEditorObjectIndexEntry* pEntry = itEntries->second;
 			pEntry->Save(pXmlEntry);
@@ -463,14 +464,16 @@ void iEditorObjectIndexDir::Save(cXmlElement* apIndexElement, bool abSaveSubDirs
 
 	if(abSaveSubDirs && mmapSubDirs.empty()==false)
 	{
-		cXmlElement* pDirs = apIndexElement->CreateChildElement("SubDirs");
+		tinyxml2::XMLElement* pDirs = apIndexElement->GetDocument()->NewElement("SubDirs");
+		apIndexElement->InsertEndChild(pDirs);
 		tIndexDirMapIt itSubDirs = mmapSubDirs.begin();
 		for(;itSubDirs!=mmapSubDirs.end();++itSubDirs)
 		{
 			iEditorObjectIndexDir* pDir = itSubDirs->second;
 
-			cXmlElement* pXmlDir = pDirs->CreateChildElement("Dir");
-			
+			tinyxml2::XMLElement* pXmlDir = pDirs->GetDocument()->NewElement("Dir");
+			pDirs->InsertEndChild(pXmlDir);
+
 			pDir->Save(pXmlDir, abSaveSubDirs);
 		}
 	}
@@ -510,11 +513,11 @@ bool iEditorObjectIndexEntry::CreateFromFile(const tWString& asFilename)
 
 //-------------------------------------------------------------------
 
-bool iEditorObjectIndexEntry::CreateFromXmlElement(cXmlElement* apElement)
+bool iEditorObjectIndexEntry::CreateFromXmlElement(tinyxml2::XMLElement* apElement)
 {
-	msFileName = apElement->GetAttributeString("Filename");
-	msEntryName = apElement->GetAttributeString("EntryName");
-	msDateModified = apElement->GetAttributeString("DateModified");
+	msFileName = GetAttributeString(apElement, "Filename");
+	msEntryName = GetAttributeString(apElement, "EntryName");
+	msDateModified = GetAttributeString(apElement, "DateModified");
 
 	if(CheckFileExists()==false)
 		return false;
@@ -579,13 +582,13 @@ const tWString& iEditorObjectIndexEntry::GetThumbnailFilename()
 
 //-------------------------------------------------------------------
 
-void iEditorObjectIndexEntry::Save(cXmlElement* apElement)
+void iEditorObjectIndexEntry::Save(tinyxml2::XMLElement* apElement)
 {
-	apElement->SetValue(mpParentDir->GetIndex()->GetEntryTypeName());
+	apElement->SetValue(mpParentDir->GetIndex()->GetEntryTypeName().c_str());
 
-	apElement->SetAttributeString("Filename", msFileName);
-	apElement->SetAttributeString("EntryName", msEntryName);
-	apElement->SetAttributeString("DateModified", msDateModified);
+	SetAttributeString(apElement, "Filename", msFileName);
+	SetAttributeString(apElement, "EntryName", msEntryName);
+	SetAttributeString(apElement, "DateModified", msDateModified);
 }
 
 //-------------------------------------------------------------------

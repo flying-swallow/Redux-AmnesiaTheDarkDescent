@@ -21,6 +21,9 @@
 
 #include "LuxMap.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //////////////////////////////////////////////////////////////////////////
 // CONSTRUCTORS
 //////////////////////////////////////////////////////////////////////////
@@ -61,12 +64,12 @@ cLuxHandObjectLoader::cLuxHandObjectLoader(const tString& asName) : cEntityLoade
 
 //-----------------------------------------------------------------------
 
-void cLuxHandObjectLoader::BeforeLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+void cLuxHandObjectLoader::BeforeLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 {
 
 }
 
-void cLuxHandObjectLoader::AfterLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+void cLuxHandObjectLoader::AfterLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 {
 	///////////////////////////////
 	// Load mesh
@@ -120,35 +123,35 @@ void cLuxHandObjectLoader::AfterLoad(cXmlElement *apRootElem, const cMatrixf &a_
 
 //-----------------------------------------------------------------------
 
-bool iLuxHandObject::LoadMainData(cXmlElement *apMainElem)
+bool iLuxHandObject::LoadMainData(tinyxml2::XMLElement *apMainElem)
 {
-	msModelFile = apMainElem->GetAttributeString("Model");
+	msModelFile = hpl::GetAttributeString(apMainElem, "Model");
 
 	return true;
 }
 
 //-----------------------------------------------------------------------
 
-void iLuxHandObject::LoadSettings(cXmlElement *apVarsElem)
+void iLuxHandObject::LoadSettings(tinyxml2::XMLElement *apVarsElem)
 {
 	/////////////////////////////
-	//Load base settings 
-	
+	//Load base settings
+
 	//Offset matrix
-	cVector3f vOffsetScale = apVarsElem->GetAttributeVector3f("OffsetScale",1);
-	cVector3f vOffsetRotation =cMath::Vector3ToRad(apVarsElem->GetAttributeVector3f("OffsetRotation",0));
-	cVector3f vOffsetPos = apVarsElem->GetAttributeVector3f("OffsetPosition",0);
+	cVector3f vOffsetScale = hpl::GetAttributeVector3f(apVarsElem, "OffsetScale",1);
+	cVector3f vOffsetRotation =cMath::Vector3ToRad(hpl::GetAttributeVector3f(apVarsElem, "OffsetRotation",0));
+	cVector3f vOffsetPos = hpl::GetAttributeVector3f(apVarsElem, "OffsetPosition",0);
 
 	m_mtxOffset = cMath::MatrixMul(cMath::MatrixRotate(vOffsetRotation,eEulerRotationOrder_XYZ), cMath::MatrixScale(vOffsetScale));
 	m_mtxOffset.SetTranslation(vOffsetPos);
 
 	//Animations
-	msHandsAnim_Idle =		apVarsElem->GetAttributeString("HandsAnim_Idle", "");
-	msHandsAnim_Draw =		apVarsElem->GetAttributeString("HandsAnim_Draw", "");
-	msHandsAnim_Holster =	apVarsElem->GetAttributeString("HandsAnim_Holster", "");
+	msHandsAnim_Idle =		hpl::GetAttributeString(apVarsElem, "HandsAnim_Idle", "");
+	msHandsAnim_Draw =		hpl::GetAttributeString(apVarsElem, "HandsAnim_Draw", "");
+	msHandsAnim_Holster =	hpl::GetAttributeString(apVarsElem, "HandsAnim_Holster", "");
 
 	//Bone that object attaches to
-	msAttachBoneName =	apVarsElem->GetAttributeString("AttachBoneName", "attachpoint");
+	msAttachBoneName =	hpl::GetAttributeString(apVarsElem, "AttachBoneName", "attachpoint");
 	
 
 	/////////////////////////////

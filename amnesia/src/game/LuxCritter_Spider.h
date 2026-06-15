@@ -24,6 +24,8 @@
 
 #include "LuxProp_CritterBase.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 //----------------------------------------------
 
 class cLuxCritter_Spider_SaveData : public iLuxProp_CritterBase_SaveData
@@ -115,7 +117,7 @@ public:
 	virtual ~cLuxPropLoader_Critter_Spider(){}
 
 	iLuxProp *CreateProp(const tString& asName, int alID, cLuxMap *apMap);
-	void LoadCritterVariables(iLuxProp *apProp, cXmlElement *apRootElem);
+	void LoadCritterVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem);
 	void LoadCritterInstanceVariables(iLuxProp *apProp, cResourceVarsObject *apInstanceVars);
 
 private:

@@ -21,7 +21,8 @@
 
 #include "system/String.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include "resources/XmlHelper.h"
+#include <tinyxml2.h>
 
 
 #include "system/LowLevelSystem.h"
@@ -513,22 +514,19 @@ namespace hpl {
 		tWString sPath = mpFileSearcher->GetFilePath(asFile);
 		if(sPath != _W(""))
 		{
-			FILE *pFile = cPlatform::OpenFile(sPath, _W("rb"));
-			if(pFile==NULL) return;
-
-			TiXmlDocument *pDoc = hplNew( TiXmlDocument,() );
-			if(pDoc->LoadFile(pFile))
+			tinyxml2::XMLDocument *pDoc = hplNew( tinyxml2::XMLDocument,() );
+			if(LoadXmlFile(*pDoc, sPath))
 			{
-				TiXmlElement *pRootElem = pDoc->RootElement();
-				
-                TiXmlElement *pMainElem = pRootElem->FirstChildElement("MAIN");
+				tinyxml2::XMLElement *pRootElem = pDoc->RootElement();
+
+				tinyxml2::XMLElement *pMainElem = pRootElem->FirstChildElement("MAIN");
 				if(pMainElem!=NULL)
 				{
-					mbCastShadows = cString::ToBool(pMainElem->Attribute("CastsShadows"),mbCastShadows);
+					mbCastShadows = GetAttributeBool(pMainElem, "CastsShadows", mbCastShadows);
 
-					mDiffuseColor.a = cString::ToFloat(pMainElem->Attribute("Specular"),mDiffuseColor.a);
-					
-					tString sFalloffImage = cString::ToString(pMainElem->Attribute("FalloffImage"),"");
+					mDiffuseColor.a = GetAttributeFloat(pMainElem, "Specular", mDiffuseColor.a);
+
+					tString sFalloffImage = GetAttributeString(pMainElem, "FalloffImage");
 					Image *pImage = mpTextureManager->Create1DImage(sFalloffImage,false);
 					if(pImage) SetFalloffMap(pImage);
 
@@ -543,7 +541,6 @@ namespace hpl {
 			{
 				Error("Couldn't load file '%s'\n",asFile.c_str());
 			}
-			if(pFile) fclose(pFile);
 			hplDelete(pDoc);
 		}
 		else

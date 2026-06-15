@@ -45,7 +45,7 @@ iLuxProp *cLuxPropLoader_Critter_Spider::CreateProp(const tString& asName, int a
 
 //-----------------------------------------------------------------------
 
-void cLuxPropLoader_Critter_Spider::LoadCritterVariables(iLuxProp *apProp, cXmlElement *apRootElem)
+void cLuxPropLoader_Critter_Spider::LoadCritterVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem)
 {
 	cLuxCritter_Spider  *pCritter_Spider = static_cast<cLuxCritter_Spider*>(apProp);
 

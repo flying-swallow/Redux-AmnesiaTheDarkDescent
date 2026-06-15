@@ -43,6 +43,9 @@
 #include "LuxLoadScreenHandler.h"
 #include "LuxMainMenu.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 
 //-----------------------------------------------------------------------
 
@@ -614,26 +617,26 @@ bool cLuxPlayerSpawnPS::LoadSpawnPSFile(const tString& asFileName)
 	tString sFile = cString::SetFileExt(asFileName, "sps");
 	cResources *pResources = gpBase->mpEngine->GetResources();
 
-	iXmlDocument *pXmlDoc = pResources->LoadXmlDocument(sFile);
+	tinyxml2::XMLElement *pXmlDoc = pResources->LoadXmlDocument(sFile);
 	if(pXmlDoc==NULL)
 	{
 		Error("Could not load sps file: '%s'\n", sFile.c_str());
 		return false;
 	}
 
-	msParticleSystem = pXmlDoc->GetAttributeString("ParticleSystem","");
-	mfHeightFromFeet = pXmlDoc->GetAttributeFloat("HeightFromFeet",0);
-	mfHeightAddMin = pXmlDoc->GetAttributeFloat("HeightAddMin",0);
-	mfHeightAddMax = pXmlDoc->GetAttributeFloat("HeightAddMax",0);
-	mfDensity = pXmlDoc->GetAttributeFloat("Density",0);
-	mfRadius = pXmlDoc->GetAttributeFloat("Radius",0);
-	mPSColor = pXmlDoc->GetAttributeColor("PSColor",cColor(0));
-	mbFadePS = pXmlDoc->GetAttributeBool("FadePS",true);
-	mfPSMinFadeStart = pXmlDoc->GetAttributeFloat("PSMinFadeStart",0);
-	mfPSMinFadeEnd = pXmlDoc->GetAttributeFloat("PSMinFadeEnd",0);
-	mfPSMaxFadeStart = pXmlDoc->GetAttributeFloat("PSMaxFadeStart",0);
-	mfPSMaxFadeEnd = pXmlDoc->GetAttributeFloat("PSMaxFadeEnd",0);
-	
+	msParticleSystem = hpl::GetAttributeString(pXmlDoc, "ParticleSystem","");
+	mfHeightFromFeet = hpl::GetAttributeFloat(pXmlDoc, "HeightFromFeet",0);
+	mfHeightAddMin = hpl::GetAttributeFloat(pXmlDoc, "HeightAddMin",0);
+	mfHeightAddMax = hpl::GetAttributeFloat(pXmlDoc, "HeightAddMax",0);
+	mfDensity = hpl::GetAttributeFloat(pXmlDoc, "Density",0);
+	mfRadius = hpl::GetAttributeFloat(pXmlDoc, "Radius",0);
+	mPSColor = hpl::GetAttributeColor(pXmlDoc, "PSColor",cColor(0));
+	mbFadePS = hpl::GetAttributeBool(pXmlDoc, "FadePS",true);
+	mfPSMinFadeStart = hpl::GetAttributeFloat(pXmlDoc, "PSMinFadeStart",0);
+	mfPSMinFadeEnd = hpl::GetAttributeFloat(pXmlDoc, "PSMinFadeEnd",0);
+	mfPSMaxFadeStart = hpl::GetAttributeFloat(pXmlDoc, "PSMaxFadeStart",0);
+	mfPSMaxFadeEnd = hpl::GetAttributeFloat(pXmlDoc, "PSMaxFadeEnd",0);
+
 	pResources->DestroyXmlDocument(pXmlDoc);
 
 	return true;
@@ -998,14 +1001,14 @@ void cLuxPlayerFlashback::LoadAndPlayFlashbackFile(const tString& asFlashbackFil
 	tString sFile = cString::SetFileExt(asFlashbackFile,"flash");
 	cResources *pResources = gpBase->mpEngine->GetResources();
 
-	iXmlDocument *pXmlDoc = pResources->LoadXmlDocument(sFile);
+	tinyxml2::XMLElement *pXmlDoc = pResources->LoadXmlDocument(sFile);
 	if(pXmlDoc==NULL)
 	{
 		Error("Could not load flashback file: '%s'\n", sFile.c_str());
 		return;
 	}
 
-	cXmlElement *pVoicesElem = pXmlDoc->GetFirstElement("Voices");
+	tinyxml2::XMLElement *pVoicesElem = pXmlDoc->FirstChildElement("Voices");
 	if(pVoicesElem==NULL)
 	{
 		Error("Could not find voice element in flashback file '%s'\n", sFile.c_str());
@@ -1013,15 +1016,12 @@ void cLuxPlayerFlashback::LoadAndPlayFlashbackFile(const tString& asFlashbackFil
 		return;
 	}
 
-	cXmlNodeListIterator it = pVoicesElem->GetChildIterator();
-	while(it.HasNext())
+	for(tinyxml2::XMLElement *pChildElem = pVoicesElem->FirstChildElement(); pChildElem != NULL; pChildElem = pChildElem->NextSiblingElement())
 	{
-		cXmlElement *pChildElem = it.Next()->ToElement();
-
-		tString sVoiceFile = pChildElem->GetAttributeString("VoiceSound","");
-		tString sEffectFile = pChildElem->GetAttributeString("EffectSound","");
-		tString sTextCat = pChildElem->GetAttributeString("TextCat","");
-		tString sTextEntry = pChildElem->GetAttributeString("TextEntry","");
+		tString sVoiceFile = hpl::GetAttributeString(pChildElem, "VoiceSound","");
+		tString sEffectFile = hpl::GetAttributeString(pChildElem, "EffectSound","");
+		tString sTextCat = hpl::GetAttributeString(pChildElem, "TextCat","");
+		tString sTextEntry = hpl::GetAttributeString(pChildElem, "TextEntry","");
 
 		gpBase->mpEffectHandler->GetPlayVoice()->AddVoice(sVoiceFile, sEffectFile, sTextCat, sTextEntry, false,0,0,0);
 	}

@@ -42,14 +42,14 @@ iLuxPropLoader::iLuxPropLoader(const tString& asName) : cEntityLoader_Object(asN
 
 //-----------------------------------------------------------------------
 
-void iLuxPropLoader::BeforeLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+void iLuxPropLoader::BeforeLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 {
 
 }
 
 //-----------------------------------------------------------------------
 
-void iLuxPropLoader::AfterLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+void iLuxPropLoader::AfterLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 {
 	cLuxMap *pMap = gpBase->mpCurrentMapLoading;
 	if(pMap==NULL)	return;
@@ -1086,29 +1086,10 @@ void iLuxProp::SetupEffectData()
 		cBillboard *pBillboard = mvBillboards[i];
 		cLuxProp_BillboardData bbData;
 
-		bbData.mbConnectedToLight = BillboardConnectedToLight(pBillboard);
 		bbData.mOnColor = pBillboard->GetColor();
 
-		mvEffectBillboardData.push_back(bbData);	
+		mvEffectBillboardData.push_back(bbData);
 	}
-}
-
-//-----------------------------------------------------------------------
-
-bool iLuxProp::BillboardConnectedToLight(cBillboard *apBB)
-{
-	for(size_t light=0; light<mvLights.size(); ++light)
-	{
-		iLight *pLight = mvLights[light];
-		std::vector<cLightBillboardConnection> *pBBVEc = pLight->GetBillboardVec();
-		if(pBBVEc->empty()) continue;
-        
-		for(size_t i=0; i<pBBVEc->size(); ++i)
-		{
-			if( (*pBBVEc)[i].mpBillboard == apBB) return true;
-		}
-	}
-	return false;
 }
 
 //-----------------------------------------------------------------------
@@ -1153,8 +1134,7 @@ void iLuxProp::UpdateEffectFading(float afTimeStep)
 	for(size_t i=0; i<mvBillboards.size(); ++i)
 	{
 		cBillboard *pBillboard = mvBillboards[i];
-		if(mvEffectBillboardData[i].mbConnectedToLight) continue;
-		
+
 		pBillboard->SetColor(mvEffectBillboardData[i].mOnColor * mfEffectsAlpha);
 	}
 

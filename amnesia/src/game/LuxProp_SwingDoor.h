@@ -26,6 +26,10 @@
 
 //----------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
+//----------------------------------------------
+
 class cLuxProp_SwingDoor_SaveData : public iLuxProp_SaveData
 {
 	kSerializableClassInit(cLuxProp_SwingDoor_SaveData)
@@ -187,7 +191,7 @@ public:
 	virtual ~cLuxPropLoader_SwingDoor(){}
 
 	iLuxProp *CreateProp(const tString& asName, int alID, cLuxMap *apMap);
-	void LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem);
+	void LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem);
 	void LoadInstanceVariables(iLuxProp *apProp, cResourceVarsObject *apInstanceVars);
 
 private:

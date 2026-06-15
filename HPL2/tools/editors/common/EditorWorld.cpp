@@ -25,6 +25,8 @@
 #include "EditorClipPlane.h"
 #include "EditorHelper.h"
 
+#include "resources/XmlHelper.h"
+#include <tinyxml2.h>
 
 #include <algorithm>
 
@@ -302,18 +304,18 @@ bool iEditorWorld::GetGlobalPointLightEnabled()
 
 //----------------------------------------------------------------------------
 
-bool iEditorWorld::Load(iXmlDocument* apDoc)
+bool iEditorWorld::Load(tinyxml2::XMLElement* apDoc)
 {
 	mlIDCounter = 0;
-	if(apDoc->GetValue()!=msElementName)
+	if(apDoc->Value()!=msElementName)
 		return false;
 
-	cXmlElement* pXmlWorldData = GetWorldDataElement(apDoc);
+	tinyxml2::XMLElement* pXmlWorldData = GetWorldDataElement(apDoc);
 	if(pXmlWorldData==NULL)
 		return false;
 	LoadWorldData(pXmlWorldData);
 
-	cXmlElement* pXmlObjectsData = GetWorldObjectsElement(pXmlWorldData);
+	tinyxml2::XMLElement* pXmlObjectsData = GetWorldObjectsElement(pXmlWorldData);
 	if(pXmlObjectsData)
 		LoadWorldObjects(pXmlObjectsData);
 
@@ -330,35 +332,33 @@ bool iEditorWorld::Load(iXmlDocument* apDoc)
 
 //----------------------------------------------------------------------------
 
-void iEditorWorld::LoadWorldData(cXmlElement* apWorldDataElement)
+void iEditorWorld::LoadWorldData(tinyxml2::XMLElement* apWorldDataElement)
 {
-	SetName(apWorldDataElement->GetAttributeString("Name", ""));
+	SetName(GetAttributeString(apWorldDataElement, "Name", ""));
 }
 
 //----------------------------------------------------------------------------
 
-void iEditorWorld::LoadWorldObjects(cXmlElement* apWorldObjectsElement)
+void iEditorWorld::LoadWorldObjects(tinyxml2::XMLElement* apWorldObjectsElement)
 {
 	LoadFileIndices(apWorldObjectsElement);
 
 	mbShowLoadErrorPopUp = false;
 	msLoadErrorMsg = _W("");
-		
+
 	for(int i=0; i<(int)mvEntityCategories.size(); ++i)
 	{
 		//////////////////////////////////////////////////////////////////
 		// Iterate through category strings and all entities in each
-		cXmlElement* pCurrentXmlCategory = apWorldObjectsElement->GetFirstElement(mvEntityCategories[i]);
+		tinyxml2::XMLElement* pCurrentXmlCategory = apWorldObjectsElement->FirstChildElement(mvEntityCategories[i].c_str());
 
-		if(pCurrentXmlCategory==NULL || 
+		if(pCurrentXmlCategory==NULL ||
 			CustomCategoryLoader(apWorldObjectsElement, pCurrentXmlCategory)==true)
 			continue;
 
-		cXmlNodeListIterator it = pCurrentXmlCategory->GetChildIterator();
-		while(it.HasNext())
+		for(tinyxml2::XMLElement* pXmlEntity = pCurrentXmlCategory->FirstChildElement(); pXmlEntity != NULL; pXmlEntity = pXmlEntity->NextSiblingElement())
 		{
 			iEntityWrapper* pEnt = NULL;
-			cXmlElement* pXmlEntity = it.Next()->ToElement();
 
 			pEnt = CreateEntityWrapperFromXMLElement(pXmlEntity);
 			if(pEnt==NULL)
@@ -392,15 +392,15 @@ void iEditorWorld::LoadWorldObjects(cXmlElement* apWorldObjectsElement)
 
 //----------------------------------------------------------------------------
 
-bool iEditorWorld::Save(iXmlDocument* apDoc)
+bool iEditorWorld::Save(tinyxml2::XMLElement* apDoc)
 {
-	apDoc->SetValue(msElementName);
-	cXmlElement* pXmlWorldData = CreateWorldDataElement(apDoc);
+	apDoc->SetValue(msElementName.c_str());
+	tinyxml2::XMLElement* pXmlWorldData = CreateWorldDataElement(apDoc);
 	if(pXmlWorldData==NULL) return true;
 
 	SaveWorldData(pXmlWorldData);
 
-	cXmlElement* pXmlWorldObjects = CreateWorldObjectsElement(pXmlWorldData);
+	tinyxml2::XMLElement* pXmlWorldObjects = CreateWorldObjectsElement(pXmlWorldData);
 	if(pXmlWorldObjects)
 	{
 		tEntityWrapperList lstEntities;
@@ -416,18 +416,22 @@ bool iEditorWorld::Save(iXmlDocument* apDoc)
 
 //----------------------------------------------------------------------------
 
-void iEditorWorld::SaveWorldData(cXmlElement* apWorldDataElement)
+void iEditorWorld::SaveWorldData(tinyxml2::XMLElement* apWorldDataElement)
 {
-	apWorldDataElement->SetAttributeString("Name", msName);	
+	SetAttributeString(apWorldDataElement, "Name", msName);
 }
 
-void iEditorWorld::SaveWorldObjects(cXmlElement* apWorldObjectsElement, tEntityWrapperList& alstEnts)
+void iEditorWorld::SaveWorldObjects(tinyxml2::XMLElement* apWorldObjectsElement, tEntityWrapperList& alstEnts)
 {
     SaveFileIndices(apWorldObjectsElement);
 
-	std::vector<cXmlElement*> vParentElements;
+	std::vector<tinyxml2::XMLElement*> vParentElements;
 	for(int i=0;i<(int)mvEntityCategories.size();++i)
-		vParentElements.push_back(apWorldObjectsElement->CreateChildElement(mvEntityCategories[i]));
+	{
+		tinyxml2::XMLElement* pCategory = apWorldObjectsElement->GetDocument()->NewElement(mvEntityCategories[i].c_str());
+		apWorldObjectsElement->InsertEndChild(pCategory);
+		vParentElements.push_back(pCategory);
+	}
 
 	///////////////////////////////////////////////////
 	// Clear outliers before going through entities
@@ -472,13 +476,13 @@ typedef std::map<tString, tIDRedirector> tMapIDRedirectors;
 
 void iEditorWorld::ImportObjects(const tString& asX, tIntList& alstImportedIDs)
 {
-	iXmlDocument* pDoc = mpEditor->GetEngine()->GetResources()->LoadXmlDocument(asX);
+	tinyxml2::XMLElement* pDoc = mpEditor->GetEngine()->GetResources()->LoadXmlDocument(asX);
 	if(pDoc==NULL)
 		return;
 
-	cXmlElement* pWorldData = pDoc->GetFirstElement("MapData");
+	tinyxml2::XMLElement* pWorldData = pDoc->FirstChildElement("MapData");
 
-	cXmlElement* pXmlObjectsData = pWorldData->GetFirstElement("MapContents");
+	tinyxml2::XMLElement* pXmlObjectsData = pWorldData->FirstChildElement("MapContents");
 	
 	tStringVec vIndexStrings;
 	vIndexStrings.push_back("StaticObjects");
@@ -496,18 +500,16 @@ void iEditorWorld::ImportObjects(const tString& asX, tIntList& alstImportedIDs)
 	for(int i=0;i<(int)vIndexStrings.size();++i)
 	{
 		tString& sIndex = vIndexStrings[i];
-		cXmlElement* pIndex = pXmlObjectsData->GetFirstElement("FileIndex_" + sIndex);
+		tinyxml2::XMLElement* pIndex = pXmlObjectsData->FirstChildElement(("FileIndex_" + sIndex).c_str());
 		if(pIndex)
 		{
-			cXmlNodeListIterator it = pIndex->GetChildIterator();
 			tIDRedirector& mapRedirector = mapFileIndexRedirectors[vElementStrings[i]];
 			tStringVec& vFiles = mmapFileIndices[sIndex];
 
-			while(it.HasNext())
+			for(tinyxml2::XMLElement* pFile = pIndex->FirstChildElement(); pFile != NULL; pFile = pFile->NextSiblingElement())
 			{
-				cXmlElement* pFile = it.Next()->ToElement();
-				int lOldIdx = pFile->GetAttributeInt("Id");
-				tString sFilename = GetFileRelativePath(pFile->GetAttributeString("Path"));
+				int lOldIdx = GetAttributeInt(pFile, "Id");
+				tString sFilename = GetFileRelativePath(GetAttributeString(pFile, "Path"));
 				int lNewIdx = AddFilenameToIndex(vFiles, sFilename);
 				mapRedirector.insert(std::pair<int,int>(lOldIdx, lNewIdx));
 			}
@@ -518,30 +520,28 @@ void iEditorWorld::ImportObjects(const tString& asX, tIntList& alstImportedIDs)
 	{
 		//////////////////////////////////////////////////////////////////
 		// Iterate through category strings and all entities in each
-		cXmlElement* pCurrentXmlCategory = pXmlObjectsData->GetFirstElement(mvEntityCategories[i]);
+		tinyxml2::XMLElement* pCurrentXmlCategory = pXmlObjectsData->FirstChildElement(mvEntityCategories[i].c_str());
 
 		if(pCurrentXmlCategory==NULL)
 			continue;
 
-		cXmlNodeListIterator it = pCurrentXmlCategory->GetChildIterator();
-		while(it.HasNext())
+		for(tinyxml2::XMLElement* pXmlEntity = pCurrentXmlCategory->FirstChildElement(); pXmlEntity != NULL; pXmlEntity = pXmlEntity->NextSiblingElement())
 		{
 			iEntityWrapper* pEnt = NULL;
-			cXmlElement* pXmlEntity = it.Next()->ToElement();
-			tString sVal = pXmlEntity->GetValue();
+			tString sVal = pXmlEntity->Value();
 
-			int lFileIndex=pXmlEntity->GetAttributeInt("FileIndex",-1);
+			int lFileIndex=GetAttributeInt(pXmlEntity, "FileIndex",-1);
 			if(lFileIndex!=-1)
-				pXmlEntity->SetAttributeInt("FileIndex", mapFileIndexRedirectors[sVal][lFileIndex]);
+				SetAttributeInt(pXmlEntity, "FileIndex", mapFileIndexRedirectors[sVal][lFileIndex]);
 
 			int lNewID = GetFreeID();
-			int lID = pXmlEntity->GetAttributeInt("ID", lNewID);
-			tString sName = pXmlEntity->GetAttributeString("Name", "");
+			int lID = GetAttributeInt(pXmlEntity, "ID", lNewID);
+			tString sName = GetAttributeString(pXmlEntity, "Name", "");
 			if(IsNameAvailable(sName)==false)
-				pXmlEntity->SetAttributeString("Name", GenerateName(sName));
+				SetAttributeString(pXmlEntity, "Name", GenerateName(sName));
 
 			mapIDRedirectors.insert(std::pair<int, int>(lID, lNewID));
-			pXmlEntity->SetAttributeInt("ID", lNewID);
+			SetAttributeInt(pXmlEntity, "ID", lNewID);
 
 			pEnt = CreateEntityWrapperFromXMLElement(pXmlEntity);
 			alstImportedIDs.push_back(lNewID);
@@ -561,17 +561,18 @@ void iEditorWorld::ImportObjects(const tString& asX, tIntList& alstImportedIDs)
 
 void iEditorWorld::ExportObjects(const tString& asX, tEntityWrapperList& alstEntsToExport)
 {
-	iXmlDocument* pDoc = mpEditor->GetEngine()->GetResources()->GetLowLevel()->CreateXmlDocument();
-	pDoc->SetValue("Level");
+	tinyxml2::XMLDocument xmlDoc;
+	tinyxml2::XMLElement* pDoc = xmlDoc.NewElement("Level");
+	xmlDoc.InsertEndChild(pDoc);
 
-	cXmlElement* pXmlWorldData = CreateWorldDataElement(pDoc);
+	tinyxml2::XMLElement* pXmlWorldData = CreateWorldDataElement(pDoc);
 	SaveWorldData(pXmlWorldData);
 
-	cXmlElement* pXmlWorldObjects = CreateWorldObjectsElement(pXmlWorldData);
+	tinyxml2::XMLElement* pXmlWorldObjects = CreateWorldObjectsElement(pXmlWorldData);
 	if(pXmlWorldObjects)
 		SaveWorldObjects(pXmlWorldObjects, alstEntsToExport);
 
-	pDoc->SaveToFile(cString::To16Char(asX));
+	hpl::SaveXmlFile(xmlDoc, cString::To16Char(asX));
 }
 
 //----------------------------------------------------------------------------
@@ -677,7 +678,7 @@ iEntityWrapperType* iEditorWorld::GetEntityTypeByID(int alID)
 
 //----------------------------------------------------------------------------
 
-iEntityWrapperType* iEditorWorld::GetEntityTypeByElement(cXmlElement* apElement)
+iEntityWrapperType* iEditorWorld::GetEntityTypeByElement(tinyxml2::XMLElement* apElement)
 {
 	iEntityWrapperType* pDefaultType = NULL;
 	tEntityTypeListIt it = mlstEntityTypes.begin();
@@ -692,8 +693,8 @@ iEntityWrapperType* iEditorWorld::GetEntityTypeByElement(cXmlElement* apElement)
 	}
 
 	SetShowLoadErrorPopUp();
-	Error("No appropriate type found for %s \"%s\" with ID %d\n", apElement->GetValue().c_str(), apElement->GetAttributeString("Name").c_str(),
-																apElement->GetAttributeInt("ID"));
+	Error("No appropriate type found for %s \"%s\" with ID %d\n", apElement->Value(), GetAttributeString(apElement, "Name").c_str(),
+																GetAttributeInt(apElement, "ID"));
 	if(pDefaultType)
 	{
 		Log("Trying default...%s\n", pDefaultType->ToString().c_str());
@@ -880,7 +881,7 @@ void iEditorWorld::AddTypeToCategory(int alCatID, int alType)
 
 //----------------------------------------------------------------------------
 
-cXmlElement* iEditorWorld::GetParentElementForObject(std::vector<cXmlElement*>& avParentElements, iEntityWrapper* apEnt)
+tinyxml2::XMLElement* iEditorWorld::GetParentElementForObject(std::vector<tinyxml2::XMLElement*>& avParentElements, iEntityWrapper* apEnt)
 {
 	int type = apEnt->GetTypeID();
 	for(int i=0;i<(int)mvEntityCategoryTypes.size();++i)
@@ -971,29 +972,27 @@ tString iEditorWorld::GetFileRelativePath(const tString& asX)
 
 //----------------------------------------------------------------------------
 
-void iEditorWorld::LoadFileIndices(cXmlElement* apWorldObjectsElement)
+void iEditorWorld::LoadFileIndices(tinyxml2::XMLElement* apWorldObjectsElement)
 {
 	for(int i=0;i<(int)mvFileIndexNames.size();++i)
 	{
 		const tString& sIndex = mvFileIndexNames[i];
-		cXmlElement* pIndex = apWorldObjectsElement->GetFirstElement("FileIndex_" + sIndex);
+		tinyxml2::XMLElement* pIndex = apWorldObjectsElement->FirstChildElement(("FileIndex_" + sIndex).c_str());
 		if(pIndex)
 		{
 			tStringVec& vFiles = mmapFileIndices[sIndex];
-			vFiles.resize(pIndex->GetAttributeInt("NumOfFiles"));
+			vFiles.resize(GetAttributeInt(pIndex, "NumOfFiles"));
 
-			cXmlNodeListIterator it = pIndex->GetChildIterator();
-			while(it.HasNext())
+			for(tinyxml2::XMLElement* pFile = pIndex->FirstChildElement(); pFile != NULL; pFile = pFile->NextSiblingElement())
 			{
-				cXmlElement* pFile = it.Next()->ToElement();
-				int lIdx = pFile->GetAttributeInt("Id");
-				vFiles[lIdx] = GetFileRelativePath(pFile->GetAttributeString("Path"));
+				int lIdx = GetAttributeInt(pFile, "Id");
+				vFiles[lIdx] = GetFileRelativePath(GetAttributeString(pFile, "Path"));
 			}
 		}
 	}
 }
 
-void iEditorWorld::SaveFileIndices(cXmlElement* apWorldObjectsElement)
+void iEditorWorld::SaveFileIndices(tinyxml2::XMLElement* apWorldObjectsElement)
 {
 	cFileSearcher* pFS = mpEditor->GetEngine()->GetResources()->GetFileSearcher();
 	for(int i=0;i<(int)mvFileIndexNames.size();++i)
@@ -1003,15 +1002,17 @@ void iEditorWorld::SaveFileIndices(cXmlElement* apWorldObjectsElement)
 
 		SanitizeFileIndex(vFiles, mvFileIndexTypeIDs[i]);
 
-		cXmlElement* pIndex = apWorldObjectsElement->CreateChildElement("FileIndex_"+sIndex);
+		tinyxml2::XMLElement* pIndex = apWorldObjectsElement->GetDocument()->NewElement(("FileIndex_"+sIndex).c_str());
+		apWorldObjectsElement->InsertEndChild(pIndex);
 
 		int lSize = (int)vFiles.size();
-		pIndex->SetAttributeInt("NumOfFiles", (lSize));
+		SetAttributeInt(pIndex, "NumOfFiles", (lSize));
 		for(int i=0;i<lSize;++i)
 		{
-			cXmlElement* pFile = pIndex->CreateChildElement("File");
-			pFile->SetAttributeInt("Id", i);
-			pFile->SetAttributeString("Path", vFiles[i]);
+			tinyxml2::XMLElement* pFile = pIndex->GetDocument()->NewElement("File");
+			pIndex->InsertEndChild(pFile);
+			SetAttributeInt(pFile, "Id", i);
+			SetAttributeString(pFile, "Path", vFiles[i]);
 		}
 	}
 }
@@ -1337,7 +1338,7 @@ iEntityWrapper* iEditorWorld::CreateEntityWrapperFromData(iEntityWrapperData* ap
 
 //----------------------------------------------------------------------------
 
-iEntityWrapper* iEditorWorld::CreateEntityWrapperFromXMLElement(cXmlElement* apElement)
+iEntityWrapper* iEditorWorld::CreateEntityWrapperFromXMLElement(tinyxml2::XMLElement* apElement)
 {
 	if(apElement==NULL)
 		return NULL;
@@ -1354,9 +1355,9 @@ iEntityWrapper* iEditorWorld::CreateEntityWrapperFromXMLElement(cXmlElement* apE
 	}
 
 	if(pEnt==NULL)
-		Log("Failed loading entity of type %s named %s with ID %d\n", apElement->GetValue().c_str(), 
-																	  apElement->GetAttributeString("Name").c_str(), 
-																	  apElement->GetAttributeInt("ID"));
+		Log("Failed loading entity of type %s named %s with ID %d\n", apElement->Value(),
+																	  GetAttributeString(apElement, "Name").c_str(),
+																	  GetAttributeInt(apElement, "ID"));
 
 	return pEnt;
 }

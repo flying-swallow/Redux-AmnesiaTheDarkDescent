@@ -27,7 +27,7 @@
 #include "physics/PhysicsJoint.h"
 #include "system/MemoryManager.h"
 
-class TiXmlElement;
+namespace tinyxml2 { class XMLElement; }
 
 namespace hpl {
 
@@ -544,26 +544,26 @@ namespace hpl {
 							tColladaAnimationVec *apColladaAnimVec,
 							cColladaScene *apColladaScene);
 
-		void LoadColladaScene(TiXmlElement* apRootElem,cColladaNode *apParentNode, cColladaScene *apScene,
+		void LoadColladaScene(tinyxml2::XMLElement* apRootElem,cColladaNode *apParentNode, cColladaScene *apScene,
 								tColladaLightVec *apColladaLightVec);
 
-		void LoadAnimations(TiXmlElement* apRootElem, tColladaAnimationVec &avAnimations,
+		void LoadAnimations(tinyxml2::XMLElement* apRootElem, tColladaAnimationVec &avAnimations,
 								cColladaScene *apColladaScene);
 
-		void LoadImages(TiXmlElement* apRootElem, tColladaImageVec &avColladaImageVec);
+		void LoadImages(tinyxml2::XMLElement* apRootElem, tColladaImageVec &avColladaImageVec);
 		
-		void LoadTextures(TiXmlElement* apRootElem, tColladaTextureVec &avColladaTextureVec);
+		void LoadTextures(tinyxml2::XMLElement* apRootElem, tColladaTextureVec &avColladaTextureVec);
 
-		void LoadMaterials(TiXmlElement* apRootElem, tColladaMaterialVec &avColladaMaterialVec);
+		void LoadMaterials(tinyxml2::XMLElement* apRootElem, tColladaMaterialVec &avColladaMaterialVec);
 		
-		void LoadLights(TiXmlElement* apRootElem, tColladaLightVec &avColladaLightVec);
+		void LoadLights(tinyxml2::XMLElement* apRootElem, tColladaLightVec &avColladaLightVec);
 
-		void LoadGeometry(TiXmlElement* apRootElem, tColladaGeometryVec &avColladaGeometryVec);
-		void LoadVertexData(TiXmlElement* apSourceElem, tVector3fVec &avVtxVec);
+		void LoadGeometry(tinyxml2::XMLElement* apRootElem, tColladaGeometryVec &avColladaGeometryVec);
+		void LoadVertexData(tinyxml2::XMLElement* apSourceElem, tVector3fVec &avVtxVec);
 		
-		void LoadControllers(TiXmlElement* apRootElem, tColladaControllerVec &avColladaControllerVec,
+		void LoadControllers(tinyxml2::XMLElement* apRootElem, tColladaControllerVec &avColladaControllerVec,
 							tColladaGeometryVec *apColladaGeometryVec);
-		void LoadJointData(TiXmlElement* apSourceElem, cColladaController &aController);
+		void LoadJointData(tinyxml2::XMLElement* apSourceElem, cColladaController &aController);
 
 		//Helpers
 		void SplitVertices(cColladaGeometry &aGeometry,tColladaExtraVtxListVec &avExtraVtxVec, 

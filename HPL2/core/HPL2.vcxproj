@@ -296,9 +296,9 @@
     <ClInclude Include="include\scene\FogArea.h" />
     <ClInclude Include="include\scene\GuiSetEntity.h" />
     <ClInclude Include="include\scene\Light.h" />
-    <ClInclude Include="include\scene\LightBox.h" />
     <ClInclude Include="include\scene\LightPoint.h" />
     <ClInclude Include="include\scene\LightSpot.h" />
+    <ClInclude Include="include\scene\LightBox.h" />
     <ClInclude Include="include\scene\MeshEntity.h" />
     <ClInclude Include="include\scene\Node3D.h" />
     <ClInclude Include="include\scene\NodeState.h" />
@@ -343,8 +343,6 @@
     <ClInclude Include="include\physics\PhysicsWorld.h" />
     <ClInclude Include="include\physics\SurfaceData.h" />
     <ClInclude Include="include\physics\VerletParticle.h" />
-    <ClInclude Include="include\impl\tinyXML\tinystr.h" />
-    <ClInclude Include="include\impl\tinyXML\tinyxml.h" />
     <ClInclude Include="include\impl\LowLevelGraphicsSDL.h" />
     <ClInclude Include="include\impl\SDLFontData.h" />
     <ClInclude Include="include\impl\BitmapLoaderDevil.h" />
@@ -353,7 +351,6 @@
     <ClInclude Include="include\impl\LowLevelResourcesSDL.h" />
     <ClInclude Include="include\impl\MeshLoaderCollada.h" />
     <ClInclude Include="include\impl\MeshLoaderMSH.h" />
-    <ClInclude Include="include\impl\XmlDocumentTiny.h" />
     <ClInclude Include="include\impl\KeyboardSDL.h" />
     <ClInclude Include="include\impl\LowLevelInputSDL.h" />
     <ClInclude Include="include\impl\MouseSDL.h" />
@@ -453,7 +450,7 @@
     <ClInclude Include="include\resources\WorldLoader.h" />
     <ClInclude Include="include\resources\WorldLoaderHandler.h" />
     <ClInclude Include="include\resources\WorldLoaderHplMap.h" />
-    <ClInclude Include="include\resources\XmlDocument.h" />
+    <ClInclude Include="include\resources\XmlHelper.h" />
     <ClInclude Include="include\ai\AI.h" />
     <ClInclude Include="include\ai\AINodeContainer.h" />
     <ClInclude Include="include\ai\AINodeGenerator.h" />
@@ -628,9 +625,9 @@
     <ClCompile Include="sources\scene\FogArea.cpp" />
     <ClCompile Include="sources\scene\GuiSetEntity.cpp" />
     <ClCompile Include="sources\scene\Light.cpp" />
-    <ClCompile Include="sources\scene\LightBox.cpp" />
     <ClCompile Include="sources\scene\LightPoint.cpp" />
     <ClCompile Include="sources\scene\LightSpot.cpp" />
+    <ClCompile Include="sources\scene\LightBox.cpp" />
     <ClCompile Include="sources\scene\MeshEntity.cpp" />
     <ClCompile Include="sources\scene\Node3D.cpp" />
     <ClCompile Include="sources\scene\NodeState.cpp" />
@@ -666,10 +663,6 @@
     <ClCompile Include="sources\physics\PhysicsWorld.cpp" />
     <ClCompile Include="sources\physics\SurfaceData.cpp" />
     <ClCompile Include="sources\physics\VerletParticle.cpp" />
-    <ClCompile Include="sources\impl\tinyXml\tinystr.cpp" />
-    <ClCompile Include="sources\impl\tinyXml\tinyxml.cpp" />
-    <ClCompile Include="sources\impl\tinyXml\tinyxmlerror.cpp" />
-    <ClCompile Include="sources\impl\tinyXml\tinyxmlparser.cpp" />
     <ClCompile Include="sources\impl\LowLevelGraphicsSDL.cpp" />
     <ClCompile Include="sources\impl\SDLFontData.cpp" />
     <ClCompile Include="sources\impl\BitmapLoaderDevil.cpp" />
@@ -680,7 +673,6 @@
     <ClCompile Include="sources\impl\MeshLoaderColladaHelpers.cpp" />
     <ClCompile Include="sources\impl\MeshLoaderColladaLoader.cpp" />
     <ClCompile Include="sources\impl\MeshLoaderMSH.cpp" />
-    <ClCompile Include="sources\impl\XmlDocumentTiny.cpp" />
     <ClCompile Include="sources\impl\KeyboardSDL.cpp" />
     <ClCompile Include="sources\impl\LowLevelInputSDL.cpp" />
     <ClCompile Include="sources\impl\MouseSDL.cpp" />
@@ -774,7 +766,7 @@
     <ClCompile Include="sources\resources\TextureManager.cpp" />
     <ClCompile Include="sources\resources\WorldLoaderHandler.cpp" />
     <ClCompile Include="sources\resources\WorldLoaderHplMap.cpp" />
-    <ClCompile Include="sources\resources\XmlDocument.cpp" />
+    <ClCompile Include="sources\resources\XmlHelper.cpp" />
     <ClCompile Include="sources\ai\AI.cpp" />
     <ClCompile Include="sources\ai\AINodeContainer.cpp" />
     <ClCompile Include="sources\ai\AINodeGenerator.cpp" />

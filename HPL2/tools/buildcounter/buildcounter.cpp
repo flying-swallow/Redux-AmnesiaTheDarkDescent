@@ -18,8 +18,6 @@
  */
 
 #include "hpl.h"
-#include "impl/tinyXML/tinyxml.h"
-#include "impl/XmlDocumentTiny.h"
 
 using namespace hpl;
 

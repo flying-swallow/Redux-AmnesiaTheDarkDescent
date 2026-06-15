@@ -19,7 +19,7 @@
 
 #include "scene/ParticleSystem.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 #include "system/String.h"
 
@@ -27,7 +27,7 @@
 
 #include "resources/Resources.h"
 #include "resources/LowLevelResources.h"
-#include "resources/XmlDocument.h"
+#include "resources/XmlHelper.h"
 #include "resources/ParticleManager.h"
 
 #include "engine/Engine.h"
@@ -95,53 +95,27 @@ namespace hpl {
 	{
 		SetFullPath(asFile);
 
-		iXmlDocument* pXmlDoc = mpResources->GetLowLevel()->CreateXmlDocument();
-		if(pXmlDoc->CreateFromFile(asFile)==false)
+		tinyxml2::XMLDocument xmlDoc;
+		if(hpl::LoadXmlFile(xmlDoc, asFile)==false || xmlDoc.RootElement()==NULL)
 		{
-			hplDelete(pXmlDoc);
 			return false;
 		}
 
-		bool bRet = LoadFromElement(pXmlDoc);
+		bool bRet = LoadFromElement(xmlDoc.RootElement());
 
-		hplDelete(pXmlDoc);
 		return bRet;
-		/*
-		
-		FILE *pFile = _wfopen(asFile.c_str(),_W("rb"));
-		if(pFile==NULL) return false;
-
-		TiXmlDocument* pXmlDoc = hplNew( TiXmlDocument,() );
-		
-		if(pXmlDoc->LoadFile(pFile)==false)
-		{
-			Warning("Couldn't open XML file %s\n",cString::To8Char(asFile).c_str());
-			fclose(pFile);
-			hplDelete(pXmlDoc);
-			return false;
-		}
-		fclose(pFile);
-		
-		TiXmlElement *pRootElem = pXmlDoc->RootElement();
-
-		bool bRet = LoadFromElement(pRootElem);
-
-        hplDelete(pXmlDoc);
-		return bRet;*/
 	}
 
 	//-----------------------------------------------------------------------
 
-	bool cParticleSystemData::LoadFromElement(cXmlElement* apElement)
+	bool cParticleSystemData::LoadFromElement(tinyxml2::XMLElement* apElement)
 	{
-		if(apElement->GetValue()!="ParticleSystem")
+		if(tString(apElement->Value())!="ParticleSystem")
 			return false;
 
-		cXmlNodeListIterator it = apElement->GetChildIterator();
-		while(it.HasNext())
+		for(tinyxml2::XMLElement* pElem = apElement->FirstChildElement(); pElem != NULL; pElem = pElem->NextSiblingElement())
 		{
-			cXmlElement* pElem = it.Next()->ToElement();
-			if(pElem->GetValue()!="ParticleEmitter")
+			if(tString(pElem->Value())!="ParticleEmitter")
 				continue;
 
 			cParticleEmitterData_UserData *pPE = hplNew( cParticleEmitterData_UserData,("",	mpResources,mpGraphics) );
@@ -149,17 +123,6 @@ namespace hpl {
 
 			mvEmitterData.push_back(pPE);
 		}
-
-		/*cXmlElement *pEmitterElem = apElement->GetFirstElement("ParticleEmitter");
-		for(; pEmitterElem != NULL; pEmitterElem = pEmitterElem->NextSiblingElement("ParticleEmitter"))
-		{
-			cParticleEmitterData_UserData *pPE = hplNew( cParticleEmitterData_UserData,("",
-																	mpResources,mpGraphics) );
-
-            pPE->LoadFromElement(pEmitterElem);
-			
-			mvEmitterData.push_back(pPE);
-		}*/
 
 		return (mvEmitterData.empty()==false);
 	}

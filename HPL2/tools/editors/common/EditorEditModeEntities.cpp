@@ -30,6 +30,9 @@
 
 #include "../leveleditor/LevelEditor.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //-----------------------------------------------------------------
 
 ///////////////////////////////////////////////////////////////////
@@ -115,15 +118,15 @@ iEntityWrapperType* cEditorEditModeEntities::GetTypeFromEntFile(const tString& a
 	tString sType,sSubType;
 
 	cResources* pRes = mpEditor->GetEngine()->GetResources();
-	iXmlDocument* pModelDoc = pRes->LoadXmlDocument(asFile);
+	tinyxml2::XMLElement* pModelDoc = pRes->LoadXmlDocument(asFile);
 	if(pModelDoc==NULL)
 		return NULL;
 
-	cXmlElement* pUserVars = pModelDoc->GetFirstElement("UserDefinedVariables");
+	tinyxml2::XMLElement* pUserVars = pModelDoc->FirstChildElement("UserDefinedVariables");
 	if(pUserVars)
 	{
-		sType = pUserVars->GetAttributeString("EntityType");
-		sSubType = pUserVars->GetAttributeString("EntitySubType");
+		sType = GetAttributeString(pUserVars, "EntityType");
+		sSubType = GetAttributeString(pUserVars, "EntitySubType");
 	}
 	pRes->DestroyXmlDocument(pModelDoc);
 

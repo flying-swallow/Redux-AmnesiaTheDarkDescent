@@ -24,6 +24,8 @@
 
 #include "LuxEnemy.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 //----------------------------------------------
 
 class cLuxEnemy_WaterLurker_SaveData : public iLuxEnemy_SaveData
@@ -129,7 +131,7 @@ public:
 	virtual ~cLuxEnemyLoader_WaterLurker(){}
 
 	iLuxEnemy *CreateEnemy(const tString& asName, int alID, cLuxMap *apMap);
-	void LoadVariables(iLuxEnemy *apEnemy, cXmlElement *apRootElem);
+	void LoadVariables(iLuxEnemy *apEnemy, tinyxml2::XMLElement *apRootElem);
 	void LoadInstanceVariables(iLuxEnemy *apEnemy, cResourceVarsObject *apInstanceVars);
 };
 

@@ -22,6 +22,9 @@ using namespace hpl;
 
 #include "LevelEditor.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 #include "../common/DirectoryHandler.h"
 
 #include "../common/EditorActionHandler.h"
@@ -374,41 +377,37 @@ iEditorWorld* cLevelEditor::CreateSpecificWorld()
 
 //--------------------------------------------------------------------
 
-void cLevelEditor::LoadEditorSession(iXmlDocument* apDoc, cXmlElement** apElement)
+void cLevelEditor::LoadEditorSession(tinyxml2::XMLElement* apDoc, tinyxml2::XMLElement** apElement)
 {
 	iEditorBase::LoadEditorSession(apDoc, apElement);
-	cXmlElement* pSession = *apElement;
+	tinyxml2::XMLElement* pSession = *apElement;
 
 	///////////////////////////////////////
 	// Group Data
-	cXmlElement* pGroups = pSession->GetFirstElement("Groups");
+	tinyxml2::XMLElement* pGroups = pSession->FirstChildElement("Groups");
 	if(pGroups)
 	{
-		cXmlNodeListIterator it = pGroups->GetChildIterator();
-		while(it.HasNext())
+		for(tinyxml2::XMLElement* pGroup = pGroups->FirstChildElement(); pGroup != NULL; pGroup = pGroup->NextSiblingElement())
 		{
-			cXmlElement* pGroup = it.Next()->ToElement();
-			unsigned int lID = pGroup->GetAttributeInt("ID", 0);
-			tString sName = pGroup->GetAttributeString("Name", "");
-			bool bVisible = pGroup->GetAttributeBool("Visible", true);
+			unsigned int lID = GetAttributeInt(pGroup, "ID", 0);
+			tString sName = GetAttributeString(pGroup, "Name", "");
+			bool bVisible = GetAttributeBool(pGroup, "Visible", true);
 
 			AddGroup(lID,sName);
 			GetGroup(lID).SetVisibility(bVisible);
 		}
 	}
 
-	cXmlElement* pClipPlanes = pSession->GetFirstElement("ClipPlanes");
+	tinyxml2::XMLElement* pClipPlanes = pSession->FirstChildElement("ClipPlanes");
 	if(pClipPlanes)
 	{
-		cXmlNodeListIterator it = pClipPlanes->GetChildIterator();
-		while(it.HasNext())
+		for(tinyxml2::XMLElement* pXmlPlane = pClipPlanes->FirstChildElement(); pXmlPlane != NULL; pXmlPlane = pXmlPlane->NextSiblingElement())
 		{
-			cXmlElement* pXmlPlane = it.Next()->ToElement();
 			cEditorClipPlane* pPlane = mpEditorWorld->AddClipPlane();
 			pPlane->Load(pXmlPlane);
 		}
 
-		mpLowerToolbar->SetFocusedClipPlane(pClipPlanes->GetAttributeInt("Focused",0));
+		mpLowerToolbar->SetFocusedClipPlane(GetAttributeInt(pClipPlanes, "Focused",0));
 	}
 }
 
@@ -447,38 +446,42 @@ kGuiCallbackDeclaredFuncEnd(cLevelEditor, ExportFileCallback);
 //--------------------------------------------------------------------
 
 
-void cLevelEditor::SaveEditorSession(iXmlDocument* apDoc, cXmlElement** apElement)
+void cLevelEditor::SaveEditorSession(tinyxml2::XMLElement* apDoc, tinyxml2::XMLElement** apElement)
 {
 	iEditorBase::SaveEditorSession(apDoc, apElement);
-	cXmlElement* pSession = *apElement;
+	tinyxml2::XMLElement* pSession = *apElement;
 
 	///////////////////////////////////////
 	// Group Data
-	cXmlElement* pXmlGroups = pSession->CreateChildElement("Groups");
+	tinyxml2::XMLElement* pXmlGroups = pSession->GetDocument()->NewElement("Groups");
+	pSession->InsertEndChild(pXmlGroups);
 	tGroupMapIt itGroups = mmapGroups.begin();
 	for(;itGroups!=mmapGroups.end();++itGroups)
 	{
 		cLevelEditorGroup* pGroup = &(itGroups->second);
-		cXmlElement* pXmlGroup = pXmlGroups->CreateChildElement("Group");
+		tinyxml2::XMLElement* pXmlGroup = pXmlGroups->GetDocument()->NewElement("Group");
+		pXmlGroups->InsertEndChild(pXmlGroup);
 
-		pXmlGroup->SetAttributeInt("ID", pGroup->GetID());
-		pXmlGroup->SetAttributeString("Name", pGroup->GetName());
-		pXmlGroup->SetAttributeBool("Visible", pGroup->GetVisibility());
+		SetAttributeInt(pXmlGroup, "ID", pGroup->GetID());
+		SetAttributeString(pXmlGroup, "Name", pGroup->GetName());
+		SetAttributeBool(pXmlGroup, "Visible", pGroup->GetVisibility());
 	}
-	
+
 	tEditorClipPlaneVec& vClipPlanes = mpEditorWorld->GetClipPlanes();
 	if(vClipPlanes.empty()==false)
 	{
-		cXmlElement* pXmlClipPlanes = pSession->CreateChildElement("ClipPlanes");
+		tinyxml2::XMLElement* pXmlClipPlanes = pSession->GetDocument()->NewElement("ClipPlanes");
+		pSession->InsertEndChild(pXmlClipPlanes);
 		for(int i=0;i<(int)vClipPlanes.size();++i)
 		{
 			cEditorClipPlane* pPlane = vClipPlanes[i];
-			cXmlElement* pXmlPlane = pXmlClipPlanes->CreateChildElement();
-			
+			tinyxml2::XMLElement* pXmlPlane = pXmlClipPlanes->GetDocument()->NewElement("");
+			pXmlClipPlanes->InsertEndChild(pXmlPlane);
+
 			pPlane->Save(pXmlPlane);
 		}
 
-		pXmlClipPlanes->SetAttributeInt("Focused", mpLowerToolbar->GetFocusedClipPlane());
+		SetAttributeInt(pXmlClipPlanes, "Focused", mpLowerToolbar->GetFocusedClipPlane());
 	}
 }
 

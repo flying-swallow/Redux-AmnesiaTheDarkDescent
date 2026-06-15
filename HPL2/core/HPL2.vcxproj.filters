@@ -28,9 +28,6 @@
     <Filter Include="Impl">
       <UniqueIdentifier>{6f67ed0b-f084-42a4-b8c3-dd9a03fd5a64}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Impl\TinyXml">
-      <UniqueIdentifier>{ebecadac-44e7-4046-a196-1862cbaa18ef}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Impl\Graphics">
       <UniqueIdentifier>{5a6d6c9a-63ae-4027-8540-12b009170da5}</UniqueIdentifier>
     </Filter>
@@ -288,13 +285,13 @@
     <ClInclude Include="include\scene\Light.h">
       <Filter>Scene</Filter>
     </ClInclude>
-    <ClInclude Include="include\scene\LightBox.h">
-      <Filter>Scene</Filter>
-    </ClInclude>
     <ClInclude Include="include\scene\LightPoint.h">
       <Filter>Scene</Filter>
     </ClInclude>
     <ClInclude Include="include\scene\LightSpot.h">
+      <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="include\scene\LightBox.h">
       <Filter>Scene</Filter>
     </ClInclude>
     <ClInclude Include="include\scene\MeshEntity.h">
@@ -429,12 +426,6 @@
     <ClInclude Include="include\physics\VerletParticle.h">
       <Filter>Physics</Filter>
     </ClInclude>
-    <ClInclude Include="include\impl\tinyXML\tinystr.h">
-      <Filter>Impl\TinyXml</Filter>
-    </ClInclude>
-    <ClInclude Include="include\impl\tinyXML\tinyxml.h">
-      <Filter>Impl\TinyXml</Filter>
-    </ClInclude>
     <ClInclude Include="include\impl\LowLevelGraphicsSDL.h">
       <Filter>Impl\Graphics</Filter>
     </ClInclude>
@@ -457,9 +448,6 @@
       <Filter>Resources</Filter>
     </ClInclude>
     <ClInclude Include="include\impl\MeshLoaderMSH.h">
-      <Filter>Resources</Filter>
-    </ClInclude>
-    <ClInclude Include="include\impl\XmlDocumentTiny.h">
       <Filter>Resources</Filter>
     </ClInclude>
     <ClInclude Include="include\impl\KeyboardSDL.h">
@@ -759,7 +747,7 @@
     <ClInclude Include="include\resources\WorldLoaderHplMap.h">
       <Filter>Resources</Filter>
     </ClInclude>
-    <ClInclude Include="include\resources\XmlDocument.h">
+    <ClInclude Include="include\resources\XmlHelper.h">
       <Filter>Resources</Filter>
     </ClInclude>
     <ClInclude Include="include\ai\AI.h">
@@ -1311,13 +1299,13 @@
     <ClCompile Include="sources\scene\Light.cpp">
       <Filter>Scene</Filter>
     </ClCompile>
-    <ClCompile Include="sources\scene\LightBox.cpp">
-      <Filter>Scene</Filter>
-    </ClCompile>
     <ClCompile Include="sources\scene\LightPoint.cpp">
       <Filter>Scene</Filter>
     </ClCompile>
     <ClCompile Include="sources\scene\LightSpot.cpp">
+      <Filter>Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\scene\LightBox.cpp">
       <Filter>Scene</Filter>
     </ClCompile>
     <ClCompile Include="sources\scene\MeshEntity.cpp">
@@ -1425,18 +1413,6 @@
     <ClCompile Include="sources\physics\VerletParticle.cpp">
       <Filter>Physics</Filter>
     </ClCompile>
-    <ClCompile Include="sources\impl\tinyXml\tinystr.cpp">
-      <Filter>Impl\TinyXml</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\impl\tinyXml\tinyxml.cpp">
-      <Filter>Impl\TinyXml</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\impl\tinyXml\tinyxmlerror.cpp">
-      <Filter>Impl\TinyXml</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\impl\tinyXml\tinyxmlparser.cpp">
-      <Filter>Impl\TinyXml</Filter>
-    </ClCompile>
     <ClCompile Include="sources\impl\LowLevelGraphicsSDL.cpp">
       <Filter>Impl\Graphics</Filter>
     </ClCompile>
@@ -1465,9 +1441,6 @@
       <Filter>Resources</Filter>
     </ClCompile>
     <ClCompile Include="sources\impl\MeshLoaderMSH.cpp">
-      <Filter>Resources</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\impl\XmlDocumentTiny.cpp">
       <Filter>Resources</Filter>
     </ClCompile>
     <ClCompile Include="sources\impl\KeyboardSDL.cpp">
@@ -1749,7 +1722,7 @@
     <ClCompile Include="sources\resources\WorldLoaderHplMap.cpp">
       <Filter>Resources</Filter>
     </ClCompile>
-    <ClCompile Include="sources\resources\XmlDocument.cpp">
+    <ClCompile Include="sources\resources\XmlHelper.cpp">
       <Filter>Resources</Filter>
     </ClCompile>
     <ClCompile Include="sources\ai\AI.cpp">

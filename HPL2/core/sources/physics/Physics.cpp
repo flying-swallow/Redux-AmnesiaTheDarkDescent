@@ -29,7 +29,7 @@
 #include "haptic/HapticSurface.h"
 #include "haptic/LowLevelHaptic.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 namespace hpl {
 
@@ -147,21 +147,20 @@ namespace hpl {
 	{
 		//////////////////////////////////
 		//Open document
-		TiXmlDocument* pXmlDoc = hplNew( TiXmlDocument, (asFile.c_str()) );
-		if(pXmlDoc->LoadFile()==false)
+		tinyxml2::XMLDocument xmlDoc;
+		if(xmlDoc.LoadFile(asFile.c_str())!=tinyxml2::XML_SUCCESS)
 		{
 			Error("Couldn't load XML file '%s'!\n",asFile.c_str());
-			hplDelete(pXmlDoc);
 			return false;
 		}
 
 		/////////////////////////
 		//Get the root.
-		TiXmlElement* pRootElem = pXmlDoc->RootElement();
+		tinyxml2::XMLElement* pRootElem = xmlDoc.RootElement();
 
 		//////////////////////////
 		//Iterate children
-		TiXmlElement* pChildElem = pRootElem->FirstChildElement("Material");
+		tinyxml2::XMLElement* pChildElem = pRootElem->FirstChildElement("Material");
 		for(; pChildElem != NULL; pChildElem = pChildElem->NextSiblingElement("Material"))
 		{
 			tString sName = cString::ToString(pChildElem->Attribute("Name"),"");
@@ -216,7 +215,7 @@ namespace hpl {
 
 			/////////////////////////
 			//Get Impact data
-			TiXmlElement* pImpactElem = pChildElem->FirstChildElement("Impact");
+			tinyxml2::XMLElement* pImpactElem = pChildElem->FirstChildElement("Impact");
 			for(; pImpactElem != NULL; pImpactElem = pImpactElem->NextSiblingElement("Impact"))
 			{
 				float fMinSpeed = cString::ToFloat(pImpactElem->Attribute("MinSpeed"),1);
@@ -230,7 +229,7 @@ namespace hpl {
 
 			/////////////////////////
 			//Get Hit data
-			TiXmlElement* pHitElem = pChildElem->FirstChildElement("Hit");
+			tinyxml2::XMLElement* pHitElem = pChildElem->FirstChildElement("Hit");
 			for(; pHitElem != NULL; pHitElem = pHitElem->NextSiblingElement("Hit"))
 			{
 				float fMinSpeed = cString::ToFloat(pHitElem->Attribute("MinSpeed"),1);
@@ -296,8 +295,6 @@ namespace hpl {
 					pData->GetElasticity(), pData->GetStaticFriction(), pData->GetKineticFriction(),
 					pData->GetElasticityCombMode(), pData->GetFrictionCombMode());*/
 		}
-
-		hplDelete(pXmlDoc);
 
 		return true;
 	}

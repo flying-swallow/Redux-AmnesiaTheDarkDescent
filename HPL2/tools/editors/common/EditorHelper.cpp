@@ -24,6 +24,9 @@
 #include "EditorWorld.h"
 #include "EditorWindowViewport.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 
 iEditorBase* cEditorHelper::mpEditor = NULL;
 
@@ -569,30 +572,29 @@ bool cEditorHelper::LoadEntityFile(int alID,
 	tWString sFullPath = pRes->GetFileSearcher()->GetFilePath(asFilename);
 
 	cMeshEntity* pEntity = NULL;
-	cXmlElement* pXmlEntity = NULL;
+	tinyxml2::XMLElement* pXmlEntity = NULL;
 
-	iXmlDocument* pDoc = pRes->GetLowLevel()->CreateXmlDocument();
-	if(pDoc->CreateFromFile(sFullPath)==false)
+	tinyxml2::XMLDocument xmlDoc;
+	if(hpl::LoadXmlFile(xmlDoc, sFullPath)==false || xmlDoc.RootElement()==NULL)
 	{
-		pRes->DestroyXmlDocument(pDoc);
 		if(apEntity)
 			*apEntity = NULL;
 
 		return false;
 	}
 
-	pEntity = (cMeshEntity*) mpEditor->GetEngineEntityLoader()->Load(asName, 
+	tinyxml2::XMLElement* pDoc = xmlDoc.RootElement();
+
+	pEntity = (cMeshEntity*) mpEditor->GetEngineEntityLoader()->Load(asName,
 																	 alID,
-																	 true, 
-																	 pDoc, 
+																	 true,
+																	 pDoc,
 																	 cMatrixf::Identity,
 																	 cVector3f(1),
 																	 pWorld,
-																	 asFilename, 
-																	 sFullPath, 
+																	 asFilename,
+																	 sFullPath,
 																	 NULL);
-
-	pRes->DestroyXmlDocument(pDoc);
 
 	if(apEntity)
 		*apEntity = pEntity;

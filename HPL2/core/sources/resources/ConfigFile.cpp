@@ -21,7 +21,7 @@
 #include "system/String.h"
 #include "system/LowLevelSystem.h"
 #include "resources/FileSearcher.h"
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 #include "resources/BinaryBuffer.h"
 #include "system/Platform.h"
@@ -45,7 +45,7 @@ namespace hpl {
 		} else {
 			msFile = asFile;
 		}
-		mpXmlDoc = hplNew( TiXmlDocument,() );
+		mpXmlDoc = hplNew( tinyxml2::XMLDocument,() );
 		//mpFileSearcher = apFileSearcher;
 
 		mbUseCRC = false;
@@ -111,7 +111,7 @@ namespace hpl {
 				return false;
 			}
 		
-			bool bRet = mpXmlDoc->LoadFile(pFile);
+			bool bRet = (mpXmlDoc->LoadFile(pFile) == tinyxml2::XML_SUCCESS);
 
 			if(pFile) fclose(pFile);
 			return bRet;
@@ -128,8 +128,9 @@ namespace hpl {
 		{
 			/////////////////////////////
 			// Get the data
-			tString sData;
-			sData << *mpXmlDoc;
+			tinyxml2::XMLPrinter printer;
+			mpXmlDoc->Print(&printer);
+			tString sData = printer.CStr();
 
 			/////////////////////////////
 			// Compress the data
@@ -168,7 +169,7 @@ namespace hpl {
 				return false;
 			}
 
-			bool bRet = mpXmlDoc->SaveFile(pFile);
+			bool bRet = (mpXmlDoc->SaveFile(pFile) == tinyxml2::XML_SUCCESS);
 
 			if(pFile) fclose(pFile);
 
@@ -181,14 +182,13 @@ namespace hpl {
 
 	void cConfigFile::SetString(const tString& asLevel, const tString& asName, const tString& asVal)
 	{
-		TiXmlElement *pLevelElem = mpXmlDoc->FirstChildElement(asLevel.c_str());
-		
+		tinyxml2::XMLElement *pLevelElem = mpXmlDoc->FirstChildElement(asLevel.c_str());
+
 		if(pLevelElem==NULL){
-			TiXmlElement *pNodeChild = hplNew( TiXmlElement, (asLevel.c_str()) );
-			pLevelElem = static_cast<TiXmlElement*>(mpXmlDoc->InsertEndChild(*pNodeChild));
-			hplDelete(pNodeChild);
+			pLevelElem = mpXmlDoc->NewElement(asLevel.c_str());
+			mpXmlDoc->InsertEndChild(pLevelElem);
 		}
-		
+
 		pLevelElem->SetAttribute(asName.c_str(),asVal.c_str());
 	}
 	//-----------------------------------------------------------------------
@@ -330,7 +330,7 @@ namespace hpl {
 
 	const char* cConfigFile::GetCharArray(tString asLevel, tString asName)
 	{
-		TiXmlElement *pLevelElem = mpXmlDoc->FirstChildElement(asLevel.c_str());
+		tinyxml2::XMLElement *pLevelElem = mpXmlDoc->FirstChildElement(asLevel.c_str());
 		if(pLevelElem==NULL){
 			return NULL;
 		}

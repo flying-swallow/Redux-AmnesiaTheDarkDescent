@@ -22,6 +22,8 @@
 
 #include "../common/EditorWorld.h"
 
+namespace tinyxml2 { class XMLElement; class XMLDocument; }
+
 class cEntityWrapperParticleEmitter;
 
 //---------------------------------------------------------------
@@ -32,16 +34,16 @@ public:
 	cParticleEditorWorld(iEditorBase* apEditor);
 	~cParticleEditorWorld();
 
-	cXmlElement* CreateWorldDataElement(iXmlDocument* apXmlDoc) { return NULL; }
-	cXmlElement* CreateWorldObjectsElement(cXmlElement* apWorldDataElement) { return NULL; }
+	tinyxml2::XMLElement* CreateWorldDataElement(tinyxml2::XMLElement* apXmlDoc) { return NULL; }
+	tinyxml2::XMLElement* CreateWorldObjectsElement(tinyxml2::XMLElement* apWorldDataElement) { return NULL; }
 
-	cXmlElement* GetWorldDataElement(iXmlDocument* apXmlDoc) { return apXmlDoc; }
-	void LoadWorldData(cXmlElement* apWorldDataElement) {}
-	cXmlElement* GetWorldObjectsElement(cXmlElement* apWorldDataElement) { return NULL; }
-	void LoadWorldObjects(cXmlElement* apWorldObjectsElement) {}
+	tinyxml2::XMLElement* GetWorldDataElement(tinyxml2::XMLElement* apXmlDoc) { return apXmlDoc; }
+	void LoadWorldData(tinyxml2::XMLElement* apWorldDataElement) {}
+	tinyxml2::XMLElement* GetWorldObjectsElement(tinyxml2::XMLElement* apWorldDataElement) { return NULL; }
+	void LoadWorldObjects(tinyxml2::XMLElement* apWorldObjectsElement) {}
 
-	bool Load(iXmlDocument*);
-	bool Save(iXmlDocument*);
+	bool Load(tinyxml2::XMLElement*);
+	bool Save(tinyxml2::XMLElement*);
 
 	void Reset();
 
@@ -67,7 +69,7 @@ protected:
 	bool mbEmittersUpdated;
 	bool mbPSDataUpdated;
 	iPhysicsWorld* mpPhysicsWorld;
-	iXmlDocument* mpTestData;
+	tinyxml2::XMLDocument* mpTestData;
 	cParticleSystem* mpTestPS;
 
 	cColor mBGCol;

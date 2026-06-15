@@ -29,6 +29,8 @@ using namespace hpl;
 
 //------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
 class cLevelEditorWorld;
 class iEntityWrapper;
 class iEditorAction;
@@ -54,8 +56,8 @@ public:
 
 	void Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions);
 
-	bool Load(cXmlElement* apElement);
-	bool Save(cXmlElement* apElement);
+	bool Load(tinyxml2::XMLElement* apElement);
+	bool Save(tinyxml2::XMLElement* apElement);
 
 	iEditorAction* CreateActionAddObject(iEntityWrapper* apObj);
 	iEditorAction* CreateActionRemoveObject(iEntityWrapper* apObj);

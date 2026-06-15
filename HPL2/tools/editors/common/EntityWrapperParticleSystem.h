@@ -120,7 +120,7 @@ public:
 	void Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions,iEditorEditMode* apEditMode,
 						bool abIsSelected, const cColor& aHighlightCol=cColor(1,1), const cColor& aDisabledCol=cColor(0.5f,1));
 
-	//void SaveToElement(cXmlElement* apElement);
+	//void SaveToElement(tinyxml2::XMLElement* apElement);
 
 	cEditorWindowEntityEditBox* CreateEditBox(cEditorEditModeSelect* apEditMode);
 

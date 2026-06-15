@@ -24,7 +24,7 @@
 #include "system/SystemTypes.h"
 #include "system/MemoryManager.h"
 
-class TiXmlElement;
+namespace tinyxml2 { class XMLElement; }
 
 namespace hpl {
 
@@ -319,10 +319,10 @@ namespace hpl {
 		static void PrintMembers(iSerializable* apData);
 
 		static bool SaveToFile(iSerializable* apData, const tWString &asFile,const tString &asRoot, bool abCompressAndCRC=false);
-		static void SaveToElement(iSerializable* apData,const tString &asName, TiXmlElement *apParent, bool abIsPointer=false);
+		static void SaveToElement(iSerializable* apData,const tString &asName, tinyxml2::XMLElement *apParent, bool abIsPointer=false);
 
 		static bool LoadFromFile(iSerializable* apData, const tWString &asFile, bool abCompressedAndCRC=false);
-		static void LoadFromElement(iSerializable* apData, TiXmlElement *apElement, bool abIsPointer=false);
+		static void LoadFromElement(iSerializable* apData, tinyxml2::XMLElement *apElement, bool abIsPointer=false);
 
 		static cSerializeSavedClass * GetClass(const tString &asName);
 
@@ -333,15 +333,15 @@ namespace hpl {
 										const char* asVal);
 
 	private:
-		static void SaveVariable(TiXmlElement *apElement, cSerializeMemberField *apField, iSerializable* apData);
-		static void SaveArray(TiXmlElement *apElement, cSerializeMemberField *apField, iSerializable* apData);
-		static void SaveContainer(TiXmlElement *apElement, cSerializeMemberField *apField, iSerializable* apData);
+		static void SaveVariable(tinyxml2::XMLElement *apElement, cSerializeMemberField *apField, iSerializable* apData);
+		static void SaveArray(tinyxml2::XMLElement *apElement, cSerializeMemberField *apField, iSerializable* apData);
+		static void SaveContainer(tinyxml2::XMLElement *apElement, cSerializeMemberField *apField, iSerializable* apData);
 
-		static void LoadVariable(TiXmlElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass);
-		static void LoadArray(TiXmlElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass);
-		static void LoadClass(TiXmlElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass);
-		static void LoadClassPointer(TiXmlElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass);
-		static void LoadContainer(TiXmlElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass);
+		static void LoadVariable(tinyxml2::XMLElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass);
+		static void LoadArray(tinyxml2::XMLElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass);
+		static void LoadClass(tinyxml2::XMLElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass);
+		static void LoadClassPointer(tinyxml2::XMLElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass);
+		static void LoadContainer(tinyxml2::XMLElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass);
 
 		static void FillSaveClassMembersList(tSerializeSavedClassList *apList, cSerializeSavedClass* apClass);
 		static void SaveSavedClassMembers(cSerializeSavedClass* apClass,iSerializable* apData);

@@ -24,7 +24,7 @@
 
 #include "math/MathTypes.h"
 
-class TiXmlElement;
+namespace tinyxml2 { class XMLElement; }
 
 namespace hpl {
 
@@ -32,7 +32,6 @@ namespace hpl {
 	class cResources;
 	class cParticleSystem;
 	class cParticleSystemData;
-	class cXmlElement;
 
 	//----------------------------------------------------
 	
@@ -52,7 +51,7 @@ namespace hpl {
 
 		/////////////////////////////////////////////////
 		// This method is a hack, just so everyone knows
-		cParticleSystem* CreatePS(const tString& asName, const tString& asDataName, cXmlElement* apElement,cVector3f avSize);
+		cParticleSystem* CreatePS(const tString& asName, const tString& asDataName, tinyxml2::XMLElement* apElement,cVector3f avSize);
 
 		void AddData(cParticleSystemData *apData);
 

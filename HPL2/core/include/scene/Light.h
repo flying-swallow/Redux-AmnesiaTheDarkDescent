@@ -25,7 +25,7 @@
 #include "graphics/ImageResourceWrapper.h"
 #include "graphics/Renderable.h"
 
-class TiXmlElement;
+namespace tinyxml2 { class XMLElement; }
 
 namespace hpl {
 
@@ -229,7 +229,7 @@ namespace hpl {
 		void OnFlickerOn();
 		void OnSetDiffuse();
 
-        virtual void ExtraXMLProperties(TiXmlElement *apMainElem){}
+        virtual void ExtraXMLProperties(tinyxml2::XMLElement *apMainElem){}
 		virtual void UpdateBoundingVolume()=0;
 		
 		eLightType mLightType;

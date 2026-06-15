@@ -20,6 +20,9 @@
 #include "EditorVar.h"
 #include "EditorWindow.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //--------------------------------------------------------------------
 
 
@@ -53,20 +56,20 @@ iEditorVar::iEditorVar(eVariableType aType)
 
 //--------------------------------------------------------------------------------
 
-bool iEditorVar::Create(cXmlElement* apElement)
+bool iEditorVar::Create(tinyxml2::XMLElement* apElement)
 {
 	if(apElement==NULL)
 		return false;
 
-	msName = cString::To16Char(apElement->GetAttributeString("Name"));
+	msName = cString::To16Char(GetAttributeString(apElement, "Name"));
 	if(msName==_W(""))
 		return false;
 
-	msDefaultValue = cString::To16Char(apElement->GetAttributeString("DefaultValue"));
-	msDescription = cString::To16Char(apElement->GetAttributeString("Description"));
+	msDefaultValue = cString::To16Char(GetAttributeString(apElement, "DefaultValue"));
+	msDescription = cString::To16Char(GetAttributeString(apElement, "Description"));
 
 	if(msDefaultValue==_W(""))
-		msDefaultValue = cString::To16Char(apElement->GetAttributeString("Value"));
+		msDefaultValue = cString::To16Char(GetAttributeString(apElement, "Value"));
 
 	return true;
 }
@@ -690,7 +693,7 @@ iEditorVarInput* cEditorVarEnum::CreateSpecificInput(iEditorWindow* apWindow, iW
 
 //--------------------------------------------------------------------------------
 
-bool cEditorVarEnum::Create(cXmlElement* apElement)
+bool cEditorVarEnum::Create(tinyxml2::XMLElement* apElement)
 {
 	if(iEditorVar::Create(apElement)==false)
 		return false;
@@ -698,11 +701,9 @@ bool cEditorVarEnum::Create(cXmlElement* apElement)
 	int lCurrentValue=-1;
 
 	int i=0;
-	cXmlNodeListIterator it = apElement->GetChildIterator();
-	while(it.HasNext())
+	for(tinyxml2::XMLElement* pValue = apElement->FirstChildElement(); pValue != NULL; pValue = pValue->NextSiblingElement())
 	{
-		cXmlElement* pValue = it.Next()->ToElement();
-		tWString sValue = cString::To16Char(pValue->GetAttributeString("Name"));
+		tWString sValue = cString::To16Char(GetAttributeString(pValue, "Name"));
 
 		if(msDefaultValue==sValue)
 			lCurrentValue = i;
@@ -782,7 +783,7 @@ cEditorVarFile::cEditorVarFile() : iEditorVar(eVariableType_String)
 
 //--------------------------------------------------------------------------------
 
-bool cEditorVarFile::Create(cXmlElement* apElement)
+bool cEditorVarFile::Create(tinyxml2::XMLElement* apElement)
 {
 	if(iEditorVar::Create(apElement)==false)
 		return false;
@@ -790,7 +791,7 @@ bool cEditorVarFile::Create(cXmlElement* apElement)
 	mResType = GetBrowserTypeFromElement(apElement);
 	if(mResType==eEditorResourceType_LastEnum)
 	{
-		tString sExtensions = apElement->GetAttributeString("Extensions");
+		tString sExtensions = GetAttributeString(apElement, "Extensions");
 		tStringVec vExtensions;
 		vExtensions = cString::GetStringVec(sExtensions, vExtensions);
 		for(int i=0;i<(int)vExtensions.size();++i)
@@ -802,9 +803,9 @@ bool cEditorVarFile::Create(cXmlElement* apElement)
 
 //--------------------------------------------------------------------------------
 
-eEditorResourceType cEditorVarFile::GetBrowserTypeFromElement(cXmlElement* apElement)
+eEditorResourceType cEditorVarFile::GetBrowserTypeFromElement(tinyxml2::XMLElement* apElement)
 {
-	tString sType = apElement->GetAttributeString("ResType", "Custom");
+	tString sType = GetAttributeString(apElement, "ResType", "Custom");
 
 	tString vResStrings[] = 
 	{
@@ -942,16 +943,13 @@ iEditorClass::iEditorClass()
 
 //-------------------------------------------------------------------
 
-bool iEditorClass::AddVariablesFromElement(iEditorClass* apClass, tEditorVarVec& avVars, cXmlElement* apElement)
+bool iEditorClass::AddVariablesFromElement(iEditorClass* apClass, tEditorVarVec& avVars, tinyxml2::XMLElement* apElement)
 {
 	if(apElement==NULL)
 		return false;
 
-	cXmlNodeListIterator it = apElement->GetChildIterator();
-	while(it.HasNext())
+	for(tinyxml2::XMLElement* pVarData = apElement->FirstChildElement(); pVarData != NULL; pVarData = pVarData->NextSiblingElement())
 	{
-		cXmlElement* pVarData = it.Next()->ToElement();
-
 		iEditorVar* pVar = apClass->CreateClassSpecificVariableFromElement(pVarData);
 		if(pVar)
 			avVars.push_back(pVar);
@@ -964,14 +962,14 @@ bool iEditorClass::AddVariablesFromElement(iEditorClass* apClass, tEditorVarVec&
 
 //-------------------------------------------------------------------
 
-iEditorVar* iEditorClass::CreateClassSpecificVariableFromElement(cXmlElement* apElement)
+iEditorVar* iEditorClass::CreateClassSpecificVariableFromElement(tinyxml2::XMLElement* apElement)
 {
 	return CreateVariableFromElement(apElement);
 }
 
 //-------------------------------------------------------------------
 
-iEditorVar* iEditorClass::CreateVariableFromElement(cXmlElement* apElement)
+iEditorVar* iEditorClass::CreateVariableFromElement(tinyxml2::XMLElement* apElement)
 {
 	if(apElement==NULL)
 		return NULL;
@@ -980,11 +978,11 @@ iEditorVar* iEditorClass::CreateVariableFromElement(cXmlElement* apElement)
 
 	///////////////////////////////////////////
 	// Create Variable according to type
-	tString sName = apElement->GetValue();
+	tString sName = apElement->Value();
 	if(sName!="Var")
 		return NULL;
 
-	tString sType = apElement->GetAttributeString("Type");
+	tString sType = GetAttributeString(apElement, "Type");
 	pVar = CreateVariable(sType);
 
 	////////////////////////////////////////////
@@ -1148,27 +1146,26 @@ void cEditorClassInstance::SetVarValue(const tWString& asName, const tWString& a
 
 //-------------------------------------------------------------------
 
-void cEditorClassInstance::Load(cXmlElement* apElement)
+void cEditorClassInstance::Load(tinyxml2::XMLElement* apElement)
 {
-	cXmlNodeListIterator it = apElement->GetChildIterator();
-	while(it.HasNext())
+	for(tinyxml2::XMLElement* pValue = apElement->FirstChildElement(); pValue != NULL; pValue = pValue->NextSiblingElement())
 	{
-		cXmlElement* pValue = it.Next()->ToElement();
-		SetVarValue(cString::To16Char(pValue->GetAttributeString("Name")),
-					cString::To16Char(pValue->GetAttributeString("Value")));
+		SetVarValue(cString::To16Char(GetAttributeString(pValue, "Name")),
+					cString::To16Char(GetAttributeString(pValue, "Value")));
 	}
 }
 
 //-------------------------------------------------------------------
 
-void cEditorClassInstance::Save(cXmlElement* apElement)
+void cEditorClassInstance::Save(tinyxml2::XMLElement* apElement)
 {
 	for(int i=0;i<GetVarInstanceNum();++i)
 	{
 		cEditorVarInstance* pVar = GetVarInstance(i);
-		cXmlElement* pXmlVar = apElement->CreateChildElement("Var");
-		pXmlVar->SetAttributeString("Name", cString::To8Char(pVar->GetName()));
-		pXmlVar->SetAttributeString("Value", cString::To8Char(pVar->GetValue()));
+		tinyxml2::XMLElement* pXmlVar = apElement->GetDocument()->NewElement("Var");
+		apElement->InsertEndChild(pXmlVar);
+		SetAttributeString(pXmlVar, "Name", cString::To8Char(pVar->GetName()));
+		SetAttributeString(pXmlVar, "Value", cString::To8Char(pVar->GetValue()));
 	}
 }
 

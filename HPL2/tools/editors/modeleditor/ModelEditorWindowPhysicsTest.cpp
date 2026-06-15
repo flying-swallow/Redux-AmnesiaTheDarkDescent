@@ -22,6 +22,8 @@
 #include "ModelEditor.h"
 #include "ModelEditorWorld.h"
 
+#include <tinyxml2.h>
+
 #include <algorithm>
 
 //------------------------------------------------------------------------------------
@@ -343,7 +345,9 @@ void cModelEditorWindowPhysicsTest::SetUpModel()
 	tWString sFullPath = cString::To16Char(pModel->GetMeshFilename());
 	cEngine* pEngine = mpEditor->GetEngine();
 	cResources* pRes = pEngine->GetResources();
-	iXmlDocument* pDoc = pRes->GetLowLevel()->CreateXmlDocument();
+	tinyxml2::XMLDocument xmlDoc;
+	tinyxml2::XMLElement* pDoc = xmlDoc.NewElement("");
+	xmlDoc.InsertEndChild(pDoc);
 	pModel->Save(pDoc);
 
 	cEditorEntityLoader* pLoader = mpEditor->GetEngineEntityLoader();
@@ -386,8 +390,6 @@ void cModelEditorWindowPhysicsTest::SetUpModel()
 		pBody->Enable();
 		pBody->SetActive(true);
 	}
-
-	pRes->DestroyXmlDocument(pDoc);
 
 	UpdateBuoyancy();
 }

@@ -23,6 +23,8 @@
 #include "gui/GuiPopUp.h"
 #include "graphics/Bitmap.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 namespace hpl {
 
 	class cGuiSet;
@@ -39,7 +41,6 @@ namespace hpl {
 	class cWidgetSlider;
 	class cWidgetLabel;
 
-	class cXmlElement;
 	class cGraphics;
 	class Image;
 
@@ -175,8 +176,8 @@ namespace hpl {
 
 		const cColor& GetOldColor();
 
-		static void LoadRecentColorList(cXmlElement* apElem);
-		static void SaveRecentColorList(cXmlElement* apElem);
+		static void LoadRecentColorList(tinyxml2::XMLElement* apElem);
+		static void SaveRecentColorList(tinyxml2::XMLElement* apElem);
 
 		void SetShowTransPreview(bool abX) { mbShowTransPreview = abX; }
 

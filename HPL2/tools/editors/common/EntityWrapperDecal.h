@@ -116,8 +116,8 @@ public:
 
 	void CopyFromEntity(iEntityWrapper* apEntity);
 	void CopyToEntity(iEntityWrapper* apEntity, int alCopyFlags);
-	bool Load(cXmlElement*);
-	bool SaveSpecific(cXmlElement*);
+	bool Load(tinyxml2::XMLElement*);
+	bool SaveSpecific(tinyxml2::XMLElement*);
 
 	cMesh* GetMesh() { return mpMesh; }
 

@@ -24,6 +24,8 @@
 
 class iEditorWorld;
 
+namespace tinyxml2 { class XMLElement; }
+
 
 
 class cEditorClipPlane : public iEditorAxisAlignedPlane
@@ -41,8 +43,8 @@ public:
 	void SetActive(bool abX);
 	bool IsActive() { return mbActive; }
 
-	void Load(cXmlElement* apElement);
-	void Save(cXmlElement* apElement);
+	void Load(tinyxml2::XMLElement* apElement);
+	void Save(tinyxml2::XMLElement* apElement);
 
 protected:
 	void OnPlaneModified();

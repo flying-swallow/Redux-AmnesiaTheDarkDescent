@@ -23,8 +23,6 @@ using namespace hpl;
 
 cEngine *gpEngine=NULL;
 
-#include "impl/tinyXML/tinyxml.h"
-
 //------------------------------------------
 
 int glTypeOfConv = 0; //0=to text, 1=to lang

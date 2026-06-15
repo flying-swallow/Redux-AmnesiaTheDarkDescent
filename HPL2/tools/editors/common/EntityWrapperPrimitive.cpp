@@ -194,14 +194,14 @@ iEngineEntity* iEntityWrapperPrimitive::CreateSpecificEngineEntity()
 }
 
 /*
-void iEntityWrapperPrimitive::SaveToElement(cXmlElement* apElement)
+void iEntityWrapperPrimitive::SaveToElement(tinyxml2::XMLElement* apElement)
 {
 	iEntityWrapper::SaveToElement(apElement);
 
-	apElement->SetAttributeString("Material", mpEditorWorld->GetEditor()->GetFilePathRelativeToWorkingDir(msMaterial));
-	apElement->SetAttributeBool("CastShadows", mbCastShadows);
-	apElement->SetAttributeInt("SubType", mPType);
-	apElement->SetAttributeBool("Collides", mbCollides);
+	hpl::SetAttributeString(apElement, "Material", mpEditorWorld->GetEditor()->GetFilePathRelativeToWorkingDir(msMaterial));
+	hpl::SetAttributeBool(apElement, "CastShadows", mbCastShadows);
+	hpl::SetAttributeInt(apElement, "SubType", mPType);
+	hpl::SetAttributeBool(apElement, "Collides", mbCollides);
 }
 */
 //------------------------------------------------------------------------

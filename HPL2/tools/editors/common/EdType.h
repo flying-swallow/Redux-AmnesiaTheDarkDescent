@@ -24,6 +24,10 @@
 
 //-------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
+//-------------------------------------------------------
+
 class iTypeNode;
 
 //-------------------------------------------------------
@@ -51,7 +55,7 @@ public:
 
 	virtual iTypeNode* GetTypeByName(const tWString&);
 	virtual iTypeNode* GetTypeByID(int);
-	virtual iTypeNode* GetTypeByXmlElement(cXmlElement*);
+	virtual iTypeNode* GetTypeByXmlElement(tinyxml2::XMLElement*);
 
 protected:
 	bool AddChildType(iTypeNode*);

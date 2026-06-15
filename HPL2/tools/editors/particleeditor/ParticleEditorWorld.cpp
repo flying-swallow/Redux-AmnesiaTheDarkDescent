@@ -23,13 +23,15 @@
 #include "../common/EditorBaseClasses.h"
 #include "../common/EditorHelper.h"
 
+#include <tinyxml2.h>
+
 
 //-------------------------------------------------------------------------
 
 cParticleEditorWorld::cParticleEditorWorld(iEditorBase* apEditor) : iEditorWorld(apEditor, "ParticleSystem")
 {
 	mpTestPS = NULL;
-	mpTestData = mpEditor->GetEngine()->GetResources()->GetLowLevel()->CreateXmlDocument();
+	mpTestData = hplNew(tinyxml2::XMLDocument,());
 
 	mbShowFloor = false;
 	mbShowWalls = false;
@@ -119,7 +121,7 @@ cParticleEditorWorld::cParticleEditorWorld(iEditorBase* apEditor) : iEditorWorld
 
 cParticleEditorWorld::~cParticleEditorWorld()
 {
-	mpEditor->GetEngine()->GetResources()->DestroyXmlDocument(mpTestData);
+	hplDelete(mpTestData);
 
 }
 
@@ -127,17 +129,15 @@ cParticleEditorWorld::~cParticleEditorWorld()
 
 //-------------------------------------------------------------------------
 
-bool cParticleEditorWorld::Load(iXmlDocument* apDoc)
+bool cParticleEditorWorld::Load(tinyxml2::XMLElement* apDoc)
 {
 	if(iEditorWorld::Load(apDoc)==false)
 		return false;
 
-	cXmlNodeListIterator it = apDoc->GetChildIterator();
-	while(it.HasNext())
+	for(tinyxml2::XMLElement* pXmlEntity = apDoc->FirstChildElement(); pXmlEntity != NULL; pXmlEntity = pXmlEntity->NextSiblingElement())
 	{
 		iEntityWrapper* pEnt = NULL;
-		cXmlElement* pXmlEntity = it.Next()->ToElement();
-		if(pXmlEntity->GetValue()!="ParticleEmitter")
+		if(tString(pXmlEntity->Value())!="ParticleEmitter")
 			continue;
 
 		iEntityWrapperData* pData = mlstEntityTypes.back()->CreateData();
@@ -195,7 +195,7 @@ void cParticleEditorWorld::LoadWorldObjects(cXmlElement* apWorldObjectsElement)
 */
 //-------------------------------------------------------------------------
 
-bool cParticleEditorWorld::Save(iXmlDocument* apXmlDoc)
+bool cParticleEditorWorld::Save(tinyxml2::XMLElement* apXmlDoc)
 {
 	if(CheckDataIsValid()==false)
 		return false;
@@ -279,8 +279,10 @@ void cParticleEditorWorld::UpdateParticleSystem()
 {
 	///////////////////////////////////////////////////////////
 	// TODO: make it so that only the PS data is updated?
-	mpTestData->DestroyChildren();
-	Save(mpTestData);
+	mpTestData->Clear();
+	tinyxml2::XMLElement* pRoot = mpTestData->NewElement("ParticleSystem");
+	mpTestData->InsertEndChild(pRoot);
+	Save(pRoot);
 
 	///////////////////////////////////////////////////////////
 	// Check if particle actually exists and destroy if so
@@ -352,7 +354,7 @@ void cParticleEditorWorld::OnEditorUpdate()
 	if(mbPSDataUpdated || mpTestPS!=NULL && mpWorld->GetParticleSystem("TestPS")==NULL)
 	{
 		mbPSDataUpdated = false;
-   		mpTestPS = mpWorld->CreateParticleSystem("TestPS", "TestPSData", mpTestData, 1);
+   		mpTestPS = mpWorld->CreateParticleSystem("TestPS", "TestPSData", mpTestData->RootElement(), 1);
 	}
 }
 

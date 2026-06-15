@@ -23,7 +23,9 @@
 #include "system/LowLevelSystem.h"
 #include "resources/Resources.h"
 #include "resources/LowLevelResources.h"
-#include "resources/XmlDocument.h"
+#include "resources/XmlHelper.h"
+
+#include <tinyxml2.h>
 
 
 namespace hpl {
@@ -36,7 +38,7 @@ namespace hpl {
 	
 	cEntFile::cEntFile(const tString& asName, const tWString& asFullPath, cResources *apResources) : iResourceBase(asName, asFullPath, 0)
 	{
-		mpXmlDoc = apResources->GetLowLevel()->CreateXmlDocument(asName);
+		mpXmlDoc = hplNew( tinyxml2::XMLDocument, () );
 	}
 	cEntFile::~cEntFile()
 	{
@@ -45,7 +47,12 @@ namespace hpl {
 
 	bool cEntFile::CreateFromFile()
 	{
-		return mpXmlDoc->CreateFromFile(GetFullPath());
+		return LoadXmlFile(*mpXmlDoc, GetFullPath());
+	}
+
+	tinyxml2::XMLElement* cEntFile::GetXmlDoc()
+	{
+		return mpXmlDoc->RootElement();
 	}
 
 	//-----------------------------------------------------------------------

@@ -22,6 +22,9 @@
 #include "EditorWorld.h"
 #include "EditorHelper.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //------------------------------------------------------------------
 
 cEditorClipPlane::cEditorClipPlane(iEditorWorld* apWorld)
@@ -86,23 +89,23 @@ void cEditorClipPlane::SetActive(bool abX)
 
 //------------------------------------------------------------------
 
-void cEditorClipPlane::Load(cXmlElement* apElement)
+void cEditorClipPlane::Load(tinyxml2::XMLElement* apElement)
 {
-	SetActive(apElement->GetAttributeBool("Active"));
-	SetCullingOnPositiveSide(apElement->GetAttributeBool("CullPos"));
-	SetHeights(apElement->GetAttributeVector3f("Heights"));
-	SetPlaneNormal(GetPlaneNormalFromString(apElement->GetAttributeString("Plane")));
+	SetActive(GetAttributeBool(apElement, "Active"));
+	SetCullingOnPositiveSide(GetAttributeBool(apElement, "CullPos"));
+	SetHeights(GetAttributeVector3f(apElement, "Heights"));
+	SetPlaneNormal(GetPlaneNormalFromString(GetAttributeString(apElement, "Plane")));
 }
 
 //------------------------------------------------------------------
 
-void cEditorClipPlane::Save(cXmlElement* apElement)
+void cEditorClipPlane::Save(tinyxml2::XMLElement* apElement)
 {
 	apElement->SetValue("ClipPlane");
-	apElement->SetAttributeBool("Active", IsActive());
-	apElement->SetAttributeBool("CullPos", GetCullingOnPositiveSide());
-	apElement->SetAttributeVector3f("Heights", GetHeights());
-	apElement->SetAttributeString("Plane", cString::To8Char(GetPlaneString()));
+	SetAttributeBool(apElement, "Active", IsActive());
+	SetAttributeBool(apElement, "CullPos", GetCullingOnPositiveSide());
+	SetAttributeVector3f(apElement, "Heights", GetHeights());
+	SetAttributeString(apElement, "Plane", cString::To8Char(GetPlaneString()));
 }
 
 //------------------------------------------------------------------

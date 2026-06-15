@@ -21,7 +21,7 @@
 #include "system/String.h"
 #include "system/LowLevelSystem.h"
 #include "resources/FileSearcher.h"
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 #include "resources/Resources.h"
 #include "resources/FileSearcher.h"
@@ -58,7 +58,9 @@ namespace hpl {
 	bool cLanguageFile::AddFromFile(const tWString& asFile, bool abAddResourceDirs, const tWString& asAltPath)
 	{
 		const bool bLog =false;
-		TiXmlDocument *pDoc = hplNew(TiXmlDocument,() );
+		// Collapse whitespace like the old TinyXML default did — wrapped entry
+		// text must not keep literal newlines/indentation (only [br] breaks lines).
+		tinyxml2::XMLDocument *pDoc = hplNew(tinyxml2::XMLDocument,(true, tinyxml2::COLLAPSE_WHITESPACE) );
 
 		tWString sPath = asFile;
 		if (asAltPath.length() > 0 && cPlatform::FileExists(asAltPath + asFile)) {
@@ -68,7 +70,7 @@ namespace hpl {
 		FILE *pFile = cPlatform::OpenFile(sPath, _W("rb"));
 		bool bRet = false;
 		if (pFile!=NULL) {
-			bRet = pDoc->LoadFile(pFile);
+			bRet = (pDoc->LoadFile(pFile) == tinyxml2::XML_SUCCESS);
 			fclose(pFile);
 		}
 
@@ -81,16 +83,16 @@ namespace hpl {
 
 		if(bLog) Log("Loading lang file '%ls'\n---------------------\n",asFile.c_str());
 
-		TiXmlElement *pRootElem = pDoc->FirstChildElement();
+		tinyxml2::XMLElement *pRootElem = pDoc->FirstChildElement();
 
 		///////////////////////////
 		//Iterate the resources
 		if(abAddResourceDirs)
 		{
-			TiXmlElement *pResourceElem = pRootElem->FirstChildElement("RESOURCES");
+			tinyxml2::XMLElement *pResourceElem = pRootElem->FirstChildElement("RESOURCES");
 			if(pResourceElem)
 			{
-				TiXmlElement *pDirElem = pResourceElem->FirstChildElement("Directory");
+				tinyxml2::XMLElement *pDirElem = pResourceElem->FirstChildElement("Directory");
 				for(; pDirElem != NULL; pDirElem = pDirElem->NextSiblingElement("Directory"))
 				{
 						tString sPath = pDirElem->Attribute("Path");
@@ -119,7 +121,7 @@ namespace hpl {
 		
 		///////////////////////////
 		//Iterate the categories
-        TiXmlElement *pCatElem = pRootElem->FirstChildElement("CATEGORY");
+        tinyxml2::XMLElement *pCatElem = pRootElem->FirstChildElement("CATEGORY");
 		for(; pCatElem != NULL; pCatElem = pCatElem->NextSiblingElement("CATEGORY"))
 		{
 			tString sCatName = pCatElem->Attribute("Name");
@@ -145,7 +147,7 @@ namespace hpl {
 			
 			///////////////////////////
             //Iterate the entries
-			TiXmlElement *pEntryElem = pCatElem->FirstChildElement("Entry");
+			tinyxml2::XMLElement *pEntryElem = pCatElem->FirstChildElement("Entry");
 			for(; pEntryElem != NULL; pEntryElem = pEntryElem->NextSiblingElement("Entry"))
 			{
 				tString sEntryName = pEntryElem->Attribute("Name");
@@ -170,7 +172,7 @@ namespace hpl {
 				//Add Text
 				if(pEntryElem->FirstChild())
 				{
-					TiXmlText *pTextNode = pEntryElem->FirstChild()->ToText();
+					tinyxml2::XMLText *pTextNode = pEntryElem->FirstChild()->ToText();
 					if(pTextNode)
 					{
 						//pEntry->msText = pTextNode->Value();
