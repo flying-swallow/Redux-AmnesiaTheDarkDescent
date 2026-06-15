@@ -70,6 +70,9 @@
     <Filter Include="Graphics\Materials">
       <UniqueIdentifier>{963a062e-1da6-448f-a10b-999821489d73}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Impl\TinyXML2">
+      <UniqueIdentifier>{8a3300d8-0dee-4eb8-b01f-b8cb338805d7}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\system\BinTree.h">
@@ -1117,6 +1120,9 @@
     <ClInclude Include="include\graphics\Renderer.h">
       <Filter>Graphics</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\extern\tinyxml2\tinyxml2.h">
+      <Filter>Impl\TinyXML2</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="sources\system\Container.cpp">
@@ -2021,6 +2027,9 @@
     </ClCompile>
     <ClCompile Include="sources\gui\GuiGfxElement.cpp">
       <Filter>Gui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\extern\tinyxml2\tinyxml2.cpp">
+      <Filter>Impl\TinyXML2</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>
