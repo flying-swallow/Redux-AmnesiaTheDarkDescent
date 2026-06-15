@@ -10,8 +10,22 @@
 #include "graphics/spirv_reflect.h"
 
 namespace hpl {
+// Map the backend-neutral RIDescriptorType_e to VkDescriptorType for descriptor
+// writes. The engine uses separate sampled-image + sampler (no combined).
+static VkDescriptorType ri_vk_BindlessDescriptorType( uint8_t t ) {
+  switch( (enum RIDescriptorType_e)t ) {
+  case RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE: return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+  case RI_DESCRIPTOR_TYPE_STORAGE_IMAGE: return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  case RI_DESCRIPTOR_TYPE_SAMPLER: return VK_DESCRIPTOR_TYPE_SAMPLER;
+  case RI_DESCRIPTOR_TYPE_UNIFORM_BUFFER: return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+  case RI_DESCRIPTOR_TYPE_STORAGE_BUFFER: return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+  case RI_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE:
+    return VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+  }
+  return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+}
+
 static void vkDescriptorSetAlloc( struct RIDevice *device, struct RIDescriptorSetAlloc *alloc ) {
-	assert( device->renderer->api == RI_DEVICE_API_VK );
 	struct RIProgram::DescriptorSetSlot *programDescriptor = hpl_container_of( alloc, &RIProgram::DescriptorSetSlot::alloc );
   VkDescriptorPoolSize descriptorPoolSize[16] = {};
   size_t descriptorPoolLen = 0;
@@ -309,20 +323,13 @@ void RIProgram::bindRayTracingPipeline(
     const VkDeviceSize sbtSize =
         raygenRegionSize + missRegionSize + hitRegionSize + callableRegionSize;
 
-    VkBufferCreateInfo sbtBufInfo = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    sbtBufInfo.size = sbtSize;
-    sbtBufInfo.usage = VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR |
-                       VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-                       VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-    sbtBufInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    VmaAllocationCreateInfo sbtAllocInfo = {};
-    sbtAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-    sbtAllocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
-                         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-    VmaAllocationInfo sbtAllocOut = {};
-    VK_WrapResult(vmaCreateBufferWithAlignment(device->vk.vmaAllocator, &sbtBufInfo,
-                                  &sbtAllocInfo, baseAlign, &slot.vk.sbtBuffer,
-                                  &slot.vk.sbtAlloc, &sbtAllocOut));
+    RIBuffer sbtBuf = RIBuffer::create(
+        device, {(uint64_t)sbtSize,
+                 RI_BUFFER_USAGE_BINDING_TABLE | RI_BUFFER_USAGE_DEVICE_ADDRESS |
+                     RI_BUFFER_USAGE_TRANSFER_DST,
+                 RI_MEMORY_HOST_UPLOAD, baseAlign});
+    slot.vk.sbtBuffer = sbtBuf.vk.buffer;
+    slot.vk.sbtAlloc = sbtBuf.vk.allocation;
 
     std::vector<uint8_t> handles((size_t)handleSize * groupCount);
     VK_WrapResult(vkGetRayTracingShaderGroupHandlesKHR(
@@ -336,7 +343,7 @@ void RIProgram::bindRayTracingPipeline(
                (size_t)handleSize);
       }
     };
-    uint8_t *sbtMapped = (uint8_t *)sbtAllocOut.pMappedData;
+    uint8_t *sbtMapped = (uint8_t *)sbtBuf.mappedAddress;
     writeRegion(sbtMapped + 0, raygenGroupOffset, raygenGroupCount);
     writeRegion(sbtMapped + raygenRegionSize, missGroupOffset, missGroupCount);
     writeRegion(sbtMapped + raygenRegionSize + missRegionSize, hitGroupOffset,
@@ -427,10 +434,14 @@ void RIProgram::bindDescriptors(struct RIDevice* device, struct RICmd* cmd, uint
 			if( !result.found ) {
 				size_t numWrites = 0;
 				VkWriteDescriptorSet descriptorWrite[32];
-				// Acceleration-structure writes need a pNext payload alive across the
-				// vkUpdateDescriptorSets call; one entry per descriptorWrite[i] keeps
-				// the lifetimes paired through the batch flush.
+				// Transient handle payloads — the new RIDescriptor stores RI-object
+				// pointers, so we build the VkDescriptor*Info / accel handle from the
+				// accessors here and keep them alive (one slot per descriptorWrite[i])
+				// across the vkUpdateDescriptorSets flush.
 				VkWriteDescriptorSetAccelerationStructureKHR accelWrites[32] = {};
+				VkDescriptorImageInfo imageInfos[32] = {};
+				VkDescriptorBufferInfo bufferInfos[32] = {};
+				VkAccelerationStructureKHR accelHandles[32] = {};
 				for( size_t i = 0; i < bindingCount; i++ ) {
 						const struct RIProgram::BindingReflection *refl = findReflection(bindings[i].handle );
 					if( !refl || setIndex != refl->set || bindings[i].descriptor.isEmpty() )
@@ -452,24 +463,28 @@ void RIProgram::bindDescriptors(struct RIDevice* device, struct RICmd* cmd, uint
 						vkDesc->dstArrayElement = 0;
 					}
 					vkDesc->descriptorCount = 1;
-					vkDesc->descriptorType = bindings[i].descriptor.vk.type;
-					switch( bindings[i].descriptor.vk.type ) {
-						case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
-						case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-							vkDesc->pBufferInfo = &bindings[i].descriptor.vk.buffer;
+					const struct RIDescriptor &d = bindings[i].descriptor;
+					const size_t w = numWrites - 1;
+					vkDesc->descriptorType = ri_vk_BindlessDescriptorType( d.type );
+					switch( (enum RIDescriptorType_e)d.type ) {
+						case RI_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+						case RI_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+							bufferInfos[w] = d.vk.buffer;
+							vkDesc->pBufferInfo = &bufferInfos[w];
 							break;
-						case VK_DESCRIPTOR_TYPE_SAMPLER:
-						case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
-						case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
-						case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
-							vkDesc->pImageInfo = &bindings[i].descriptor.vk.image;
+						case RI_DESCRIPTOR_TYPE_SAMPLER:
+						case RI_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+						case RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+							imageInfos[w] = d.vk.image;
+							vkDesc->pImageInfo = &imageInfos[w];
 							break;
-						case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR: {
-							VkWriteDescriptorSetAccelerationStructureKHR *aw = &accelWrites[numWrites - 1];
+						case RI_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE: {
+							accelHandles[w] = d.vkAccel();
+							VkWriteDescriptorSetAccelerationStructureKHR *aw = &accelWrites[w];
 							aw->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
 							aw->pNext = NULL;
 							aw->accelerationStructureCount = 1;
-							aw->pAccelerationStructures = &bindings[i].descriptor.vk.accelStructure;
+							aw->pAccelerationStructures = &accelHandles[w];
 							vkDesc->pNext = aw;
 							break;
 						}
@@ -565,36 +580,43 @@ void RIBindlessDescriptorSet::writeDescriptors(
     return;
 
   std::vector<VkWriteDescriptorSet> vkWrites(writes.size());
-  // Acceleration-structure writes need a pNext-chained struct that must
-  // outlive the vkUpdateDescriptorSets call. Sized for the worst case so
-  // pointers into the vector stay stable across reallocs.
+  // Transient handle payloads must outlive the vkUpdateDescriptorSets call;
+  // sized for the worst case so pointers into the vectors stay stable across
+  // reallocs. The new RIDescriptor stores RI-object pointers, so handles are
+  // pulled here via the accessors.
   std::vector<VkWriteDescriptorSetAccelerationStructureKHR> accelWrites(
       writes.size());
+  std::vector<VkDescriptorImageInfo> imageInfos(writes.size());
+  std::vector<VkDescriptorBufferInfo> bufferInfos(writes.size());
+  std::vector<VkAccelerationStructureKHR> accelHandles(writes.size());
   for (size_t i = 0; i < writes.size(); ++i) {
     const WriteBinding &w = writes[i];
+    const struct RIDescriptor &d = w.descriptor;
     VkWriteDescriptorSet &vkDesc = vkWrites[i];
     vkDesc = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     vkDesc.dstSet = vk.m_bindlessSet;
     vkDesc.dstBinding = w.binding;
     vkDesc.dstArrayElement = w.arrayElement;
     vkDesc.descriptorCount = 1;
-    vkDesc.descriptorType = w.descriptor.vk.type;
-    switch (w.descriptor.vk.type) {
-    case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
-    case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-      vkDesc.pBufferInfo = &w.descriptor.vk.buffer;
+    vkDesc.descriptorType = ri_vk_BindlessDescriptorType(d.type);
+    switch ((enum RIDescriptorType_e)d.type) {
+    case RI_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+    case RI_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+      bufferInfos[i] = d.vk.buffer;
+      vkDesc.pBufferInfo = &bufferInfos[i];
       break;
-    case VK_DESCRIPTOR_TYPE_SAMPLER:
-    case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
-    case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
-    case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
-      vkDesc.pImageInfo = &w.descriptor.vk.image;
+    case RI_DESCRIPTOR_TYPE_SAMPLER:
+    case RI_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+    case RI_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+      imageInfos[i] = d.vk.image;
+      vkDesc.pImageInfo = &imageInfos[i];
       break;
-    case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR: {
+    case RI_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE: {
+      accelHandles[i] = d.vkAccel();
       VkWriteDescriptorSetAccelerationStructureKHR &aw = accelWrites[i];
       aw = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR};
       aw.accelerationStructureCount = 1;
-      aw.pAccelerationStructures = &w.descriptor.vk.accelStructure;
+      aw.pAccelerationStructures = &accelHandles[i];
       vkDesc.pNext = &aw;
       break;
     }

@@ -28,6 +28,7 @@
 #include "graphics/Image.h"
 #include "graphics/RIBootstrap.h"
 #include "graphics/RIRenderer.h"
+#include "graphics/RIVK.h"
 
 #if (DEVICE_IMPL_VULKAN)
 #include <vk_mem_alloc.h>
@@ -905,18 +906,13 @@ static bool CreatePaneTexture(std::shared_ptr<cTexture> &outTexture,
 		return false;
 	}
 
-	VkImageViewCreateInfo viewInfo = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-	viewInfo.image = texture->handle.vk.image;
-	viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	viewInfo.format = imageInfo.format;
-	viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-	texture->binding.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-	texture->binding.texture = &texture->handle;
-	texture->binding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-	texture->binding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	if(!VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, NULL,
-										&texture->binding.vk.image.imageView)))
+	RITextureViewDesc viewDesc = {};
+	viewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
+	viewDesc.format = VKToRIFormat(imageInfo.format);
+	viewDesc.mipNum = 1;
+	viewDesc.layerNum = 1;
+	texture->view = RITextureView::create(&RI.device, &texture->handle, viewDesc);
+	if(texture->view.isEmpty(&RI.renderer))
 	{
 		Error("EditorViewport: failed to create pane image view\n");
 		vmaDestroyImage(RI.device.vk.vmaAllocator, texture->handle.vk.image,
@@ -925,7 +921,6 @@ static bool CreatePaneTexture(std::shared_ptr<cTexture> &outTexture,
 		texture->handle.vk.allocation = NULL;
 		return false;
 	}
-	texture->binding.finalize(&RI.device);
 
 	texture->width = (uint16_t)alWidth;
 	texture->height = (uint16_t)alHeight;
@@ -981,7 +976,7 @@ void iEditorViewport::UpdateViewport()
 	target.width = (uint32_t)vSize.x;
 	target.height = (uint32_t)vSize.y;
 	target.texture = mpPaneTexture->handle;
-	target.view.vk.image = mpPaneTexture->binding.vk.image.imageView;
+	target.view.vk.image = mpPaneTexture->view.vk.image;
 	mpEngineViewport->SetTarget(target);
 
 	////////////////////////////////////////////

@@ -201,30 +201,39 @@ namespace hpl {
 			barriers[1].mipCount = 1;
 			barriers[1].layerCount = 1;
 
-			RI.primary.cmds[0].textureBarriers<2>(2, barriers);
+			RI.primary.cmds[0].vk_d3d12_textureBarriers<2>(2, barriers);
 		}
 
 		////////////////////////////////////////////
 		// Begin rendering into the state's render target at its 1:1 extent —
 		// no overscan; cScene's pogo feed consumes it afterwards.
 		{
-			VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-			colorAttachment.imageView = state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
-			colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-			colorAttachment.clearValue.color = { { 0.0f, 0.0f, 0.0f, 1.0f } };
 
-			VkRenderingAttachmentInfo depthStencil = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-			RI_VK_FillDepthAttachment(&depthStencil, &state.depthView[RI.swapchainIndex], /*attachAndClear=*/true);
+			RIRenderingAttachment color = {};
+			color.view = state.renderTargetView[RI.swapchainIndex];
+			color.loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
+			color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+			color.clearValue.color[0] = 0.0f;
+			color.clearValue.color[1] = 0.0f;
+			color.clearValue.color[2] = 0.0f;
+			color.clearValue.color[3] = 1.0f;
 
-			VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-			renderingInfo.renderArea = VkRect2D{ { 0, 0 }, { renderWidth, renderHeight } };
-			renderingInfo.layerCount = 1;
-			renderingInfo.colorAttachmentCount = 1;
-			renderingInfo.pColorAttachments = &colorAttachment;
-			renderingInfo.pDepthAttachment = &depthStencil;
-			vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderingInfo);
+			RIRenderingAttachment depth = {};
+			depth.view = state.depthView[RI.swapchainIndex];
+			depth.loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
+			depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+			depth.clearValue.depth = 1.0f;
+
+			// renderArea fields are int16_t; viewport sizes stay well under 32767.
+			RIBeginRenderingDesc beginDesc = {};
+			beginDesc.renderArea.x = 0;
+			beginDesc.renderArea.y = 0;
+			beginDesc.renderArea.width = (int16_t)renderWidth;
+			beginDesc.renderArea.height = (int16_t)renderHeight;
+			beginDesc.colorCount = 1;
+			beginDesc.colors = &color;
+			beginDesc.depthStencil = &depth;
+			RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
 		}
 
 		// Y-flipped viewport — same convention as the forward passes, so the
@@ -363,10 +372,10 @@ namespace hpl {
 					RIBuffer *vertBufs[1] = { &RI.translucentVtxBuffer };
 					const VkDeviceSize vertOffsets[1] = { (VkDeviceSize)geom.posByteOffset };
 					RI.primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
-					RI.primary.cmds[0].bindIndexBuffer(&RI.translucentIdxBuffer,
+					RI.primary.cmds[0].bindIndexBuffer(&RI.device, &RI.translucentIdxBuffer,
 													   (VkDeviceSize)geom.idxByteOffset,
-													   VK_INDEX_TYPE_UINT32);
-					RI.primary.cmds[0].drawIndexed(geom.indexCount, 1, 0, 0, 0);
+													   RI_INDEX_TYPE_32);
+					RI.primary.cmds[0].drawIndexed(&RI.device, geom.indexCount, 1, 0, 0, 0);
 					continue;
 				}
 
@@ -400,8 +409,8 @@ namespace hpl {
 				RIBuffer *vertBufs[1] = { posElement->buffer.get() };
 				const VkDeviceSize vertOffsets[1] = { 0 };
 				RI.primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
-				RI.primary.cmds[0].bindIndexBuffer(indexBuffer.get(), 0, VK_INDEX_TYPE_UINT32);
-				RI.primary.cmds[0].drawIndexed((uint32_t)indexCount, 1, 0, 0, 0);
+				RI.primary.cmds[0].bindIndexBuffer(&RI.device, indexBuffer.get(), 0, RI_INDEX_TYPE_32);
+				RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1, 0, 0, 0);
 			}
 		}
 
@@ -417,14 +426,14 @@ namespace hpl {
 							 renderHeight, RIBootstrap::PogoColorFormatVk);
 		}
 
-		vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+		RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
 
 		////////////////////////////////////////////
 		// Hand off: render target COLOR -> SHADER_READ — the finished frame
 		// cScene feeds into the viewport pogo (post processing) and delivers
 		// to the Target.
 		{
-			RI.primary.cmds[0].textureBarrier(RI_PogoShaderBarrier(
+			RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
 				&state.renderTarget[RI.swapchainIndex], /*initial=*/false));
 		}
 	}

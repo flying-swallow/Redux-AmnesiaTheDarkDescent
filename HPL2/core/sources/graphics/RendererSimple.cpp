@@ -150,13 +150,13 @@ namespace hpl {
 				&RI.device, w, h, RIBootstrap::PogoColorFormat,
 				VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
 					VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-				&renderTarget[i], &renderTargetDescriptor[i],
+				&renderTarget[i], &renderTargetView[i],
 				"SimpleViewportState.renderTarget");
 
 			CreateViewportAttachmentTexture(
 				&RI.device, w, h, RIBootstrap::DepthFormat,
 				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-				VK_IMAGE_ASPECT_DEPTH_BIT, &depthTextures[i], &depthView[i],
+				RI_VIEWTYPE_DEPTH_STENCIL_ATTACHMENT, &depthTextures[i], &depthView[i],
 				"SimpleViewportState.depth");
 		}
 	}
@@ -165,7 +165,7 @@ namespace hpl {
 	{
 		for(uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; i++)
 		{
-			ReleaseViewportColorTexture(cntx->freelist, &renderTarget[i], &renderTargetDescriptor[i]);
+			ReleaseViewportColorTexture(cntx->freelist, &renderTarget[i], &renderTargetView[i]);
 			ReleaseViewportAttachmentTexture(cntx->freelist, &depthTextures[i], &depthView[i]);
 		}
 		width = height = 0;
@@ -211,7 +211,7 @@ namespace hpl {
 		};
 
 		////////////////////////////////////////////
-		// Upload vertex/index streams. Must run BEFORE vkCmdBeginRendering — the
+		// Upload vertex/index streams. Must run BEFORE beginRendering — the
 		// uploader records barriers that can't live inside a dynamic-rendering
 		// scope. No BuildBlas: simple never traces.
 		for(eRenderListType listType : lists)
@@ -286,45 +286,62 @@ namespace hpl {
 			barriers[1].mipCount = 1;
 			barriers[1].layerCount = 1;
 
-			RI.primary.cmds[0].textureBarriers<2>(2, barriers);
+			RI.primary.cmds[0].vk_d3d12_textureBarriers<2>(2, barriers);
 		}
 
 		////////////////////////////////////////////
 		// Begin rendering into the state's render target at its 1:1 extent —
 		// no overscan; cScene's pogo feed consumes it afterwards.
 		{
-			VkRenderingAttachmentInfo colorAttachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-			colorAttachment.imageView = state.renderTargetDescriptor[RI.swapchainIndex].vk.image.imageView;
-			colorAttachment.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-			colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-			colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+			RITextureView colorView = state.renderTargetView[RI.swapchainIndex];
+
+			RIRenderingAttachment color = {};
+			color.view = colorView;
+			color.loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
+			color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 			// Honor the viewport's clear color (e.g. the thumbnail builder's
 			// gray backdrop) like the other renderers do.
-			colorAttachment.clearValue.color = { { apSettings->mClearColor.r,
-												   apSettings->mClearColor.g,
-												   apSettings->mClearColor.b,
-												   apSettings->mClearColor.a } };
+			color.clearValue.color[0] = apSettings->mClearColor.r;
+			color.clearValue.color[1] = apSettings->mClearColor.g;
+			color.clearValue.color[2] = apSettings->mClearColor.b;
+			color.clearValue.color[3] = apSettings->mClearColor.a;
 
-			VkRenderingAttachmentInfo depthStencil = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-			RI_VK_FillDepthAttachment(&depthStencil, &state.depthView[RI.swapchainIndex], /*attachAndClear=*/true);
+			RIRenderingAttachment depth = {};
+			depth.view = state.depthView[RI.swapchainIndex];
+			depth.loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
+			depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+			depth.readOnly = false;
+			depth.hasStencil = false;
+			depth.clearValue.depth = 1.0f;
 
-			VkRenderingInfo renderingInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-			renderingInfo.renderArea = VkRect2D{ { 0, 0 }, { renderWidth, renderHeight } };
-			renderingInfo.layerCount = 1;
-			renderingInfo.colorAttachmentCount = 1;
-			renderingInfo.pColorAttachments = &colorAttachment;
-			renderingInfo.pDepthAttachment = &depthStencil;
-			vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderingInfo);
+			// renderArea fields are int16_t; viewport sizes stay well under 32767.
+			RIBeginRenderingDesc beginDesc = {};
+			beginDesc.renderArea.x = 0;
+			beginDesc.renderArea.y = 0;
+			beginDesc.renderArea.width = (int16_t)renderWidth;
+			beginDesc.renderArea.height = (int16_t)renderHeight;
+			beginDesc.colorCount = 1;
+			beginDesc.colors = &color;
+			beginDesc.depthStencil = &depth;
+			RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
 		}
 
 		// Y-flipped viewport — same convention as the forward passes, so the
-		// unmodified projection matrix lands the right way up.
-		VkViewport viewport_vk = { 0.0f, (float)renderHeight,
-								   (float)renderWidth, -(float)renderHeight,
-								   0.0f, 1.0f };
-		VkRect2D scissor = { { 0, 0 }, { renderWidth, renderHeight } };
-		vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &viewport_vk);
-		vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &scissor);
+		// unmodified projection matrix lands the right way up (negative height).
+		RIViewport viewportRi = {};
+		viewportRi.x = 0.0f;
+		viewportRi.y = (float)renderHeight;
+		viewportRi.width = (float)renderWidth;
+		viewportRi.height = -(float)renderHeight;
+		viewportRi.depthMin = 0.0f;
+		viewportRi.depthMax = 1.0f;
+		RIRect scissor = {};
+		scissor.x = 0;
+		scissor.y = 0;
+		scissor.width = (int16_t)renderWidth;
+		scissor.height = (int16_t)renderHeight;
+		RI.primary.cmds[0].setViewport(&RI.device, viewportRi);
+		RI.primary.cmds[0].setScissor(&RI.device, scissor);
 
 		////////////////////////////////////////////
 		// Pipeline builder: 3 fixed-function streams (position always present;
@@ -558,10 +575,10 @@ namespace hpl {
 				// can't free the VkImage before this submit retires.
 				Image *pDiffuseImage = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : nullptr;
 				std::shared_ptr<cTexture> texture = pDiffuseImage ? pDiffuseImage->GetTexture() : nullptr;
-				RIDescriptor textureDescriptor = RI.whiteTexture2DBinding;
+				RIDescriptor textureDescriptor = RI.whiteTexture2DDescriptor();
 				if(texture) {
 					cntx->resourceLink.push_back(texture);
-					textureDescriptor = texture->binding;
+					textureDescriptor = texture->descriptor();
 				}
 
 				auto samplerDesc = RI.resolve_filter_descriptor(
@@ -587,8 +604,8 @@ namespace hpl {
 				};
 				const VkDeviceSize vertOffsets[3] = { posOffset, colOffset, uvOffset };
 				RI.primary.cmds[0].bindVertexBuffers<3>(0, 3, vertBufs, vertOffsets);
-				RI.primary.cmds[0].bindIndexBuffer(idxBuffer, idxOffset, VK_INDEX_TYPE_UINT32);
-				RI.primary.cmds[0].drawIndexed((uint32_t)indexCount, 1, 0, 0, 0);
+				RI.primary.cmds[0].bindIndexBuffer(&RI.device, idxBuffer, idxOffset, RI_INDEX_TYPE_32);
+				RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1, 0, 0, 0);
 			}
 		}
 
@@ -604,14 +621,14 @@ namespace hpl {
 							 renderHeight, RIBootstrap::PogoColorFormatVk);
 		}
 
-		vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+		RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
 
 		////////////////////////////////////////////
 		// Hand off: render target COLOR -> SHADER_READ — the finished frame
 		// cScene feeds into the viewport pogo (post processing) and delivers
 		// to the Target.
 		{
-			RI.primary.cmds[0].textureBarrier(RI_PogoShaderBarrier(
+			RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
 				&state.renderTarget[RI.swapchainIndex], /*initial=*/false));
 		}
 	}

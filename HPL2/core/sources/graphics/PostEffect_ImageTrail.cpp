@@ -76,19 +76,6 @@ void cPostEffect_ImageTrail::OnSetActive(bool abX) {
         Reset();
 }
 
-namespace {
-void EmitAccumBarrier(RICmd *cmd, RITexture *texture,
-                      enum RIResourceState_e before, uint32_t beforeStages,
-                      enum RIResourceState_e after, uint32_t afterStages) {
-    RITextureBarrier barrier = {};
-    barrier.texture = texture;
-    barrier.before = before;
-    barrier.beforeStages = beforeStages;
-    barrier.after = after;
-    barrier.afterStages = afterStages;
-    cmd->textureBarrier(barrier);
-}
-} // namespace
 
 void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
     VkCommandBuffer cmd = ctx.cmd->vk.cmd;
@@ -116,29 +103,30 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
     {
         // The blend pass both reads and writes the attachment, hence
         // RENDER_TARGET_READ (color read|write) rather than write-only.
-        EmitAccumBarrier(
-            ctx.cmd, &m_accum.texture,
+        RITextureBarrier accumToTarget(
+            &m_accum.texture,
             mbClearAccum ? RI_RESOURCE_STATE_UNDEFINED
                          : RI_RESOURCE_STATE_SHADER_RESOURCE,
-            mbClearAccum ? RI_STAGE_NONE : RI_STAGE_FRAGMENT,
-            RI_RESOURCE_STATE_RENDER_TARGET_READ, RI_STAGE_NONE);
+            RI_RESOURCE_STATE_RENDER_TARGET_READ,
+            mbClearAccum ? RI_STAGE_NONE : RI_STAGE_FRAGMENT, RI_STAGE_NONE);
+        ctx.cmd->vk_d3d12_textureBarrier(accumToTarget);
 
-        VkRenderingAttachmentInfo accumAttach = {
-            VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-        accumAttach.imageView = m_accum.descriptor.vk.image.imageView;
-        accumAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        accumAttach.loadOp = mbClearAccum ? VK_ATTACHMENT_LOAD_OP_CLEAR
-            : VK_ATTACHMENT_LOAD_OP_LOAD;
-        accumAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        accumAttach.clearValue.color = { {0.0f, 0.0f, 0.0f, 1.0f} };
+        RIRenderingAttachment color = {};
+        color.view =  m_accum.view;
+        color.loadOp = mbClearAccum ? RI_ATTACHMENT_LOAD_OP_CLEAR
+                                    : RI_ATTACHMENT_LOAD_OP_LOAD;
+        color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+        color.clearValue.color[0] = 0.0f;
+        color.clearValue.color[1] = 0.0f;
+        color.clearValue.color[2] = 0.0f;
+        color.clearValue.color[3] = 1.0f;
 
-        VkRenderingInfo accumRender = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-        accumRender.renderArea = { {0, 0}, {ctx.width, ctx.height} };
-        accumRender.layerCount = 1;
-        accumRender.colorAttachmentCount = 1;
-        accumRender.pColorAttachments = &accumAttach;
-
-        vkCmdBeginRendering(cmd, &accumRender);
+        RIBeginRenderingDesc beginDesc = {};
+        beginDesc.renderArea.width = (int16_t)ctx.width;
+        beginDesc.renderArea.height = (int16_t)ctx.height;
+        beginDesc.colorCount = 1;
+        beginDesc.colors = &color;
+        ctx.cmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
 
         vkCmdSetViewport(cmd, 0, 1, &viewport);
         vkCmdSetScissor(cmd, 0, 1, &scissor);
@@ -158,7 +146,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
             RIProgram::DescriptorBinding bindings[2] = {};
             bindings[0].descriptor = *samplerDesc;
             bindings[0].handle = DescriptorBindingID::Create("inputSampler");
-            bindings[1].descriptor = *ctx.inputSrv;
+            bindings[1].descriptor = ctx.inputSrv;
             bindings[1].handle = DescriptorBindingID::Create("sourceInput");
             mpImageTrailType->m_updateProgram.bindDescriptors(
                 &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
@@ -182,33 +170,33 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
             VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
         vkCmdDraw(cmd, 3, 1, 0, 0);
-        vkCmdEndRendering(cmd);
+        ctx.cmd->vk_d3d12_endRendering(&RI.device);
 
         mbClearAccum = false;
 
         // Accum has been written; flip it to SHADER_READ_ONLY so pass 2 can sample.
-        EmitAccumBarrier(
-            ctx.cmd, &m_accum.texture,
-            RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
-            RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
+        RITextureBarrier accumToSampled(
+            &m_accum.texture,
+            RI_RESOURCE_STATE_RENDER_TARGET, RI_RESOURCE_STATE_SHADER_RESOURCE,
+            RI_STAGE_NONE, RI_STAGE_FRAGMENT);
+        ctx.cmd->vk_d3d12_textureBarrier(accumToSampled);
     }
 
     {
         // ----- Pass 2: blit accum into pogo output -----
-        VkRenderingAttachmentInfo outAttach = {
-            VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-        outAttach.imageView = ctx.outputView;
-        outAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        outAttach.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        outAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        RITextureView outView = {};
+        outView.vk.image = ctx.outputView;
+        RIRenderingAttachment outColor = {};
+        outColor.view = outView;
+        outColor.loadOp = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+        outColor.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-        VkRenderingInfo outRender = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-        outRender.renderArea = { {0, 0}, {ctx.width, ctx.height} };
-        outRender.layerCount = 1;
-        outRender.colorAttachmentCount = 1;
-        outRender.pColorAttachments = &outAttach;
-
-        vkCmdBeginRendering(cmd, &outRender);
+        RIBeginRenderingDesc outBeginDesc = {};
+        outBeginDesc.renderArea.width = (int16_t)ctx.width;
+        outBeginDesc.renderArea.height = (int16_t)ctx.height;
+        outBeginDesc.colorCount = 1;
+        outBeginDesc.colors = &outColor;
+        ctx.cmd->vk_d3d12_beginRendering(&RI.device, outBeginDesc);
 
         vkCmdSetViewport(cmd, 0, 1, &viewport);
         vkCmdSetScissor(cmd, 0, 1, &scissor);
@@ -226,14 +214,14 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
             RIProgram::DescriptorBinding bindings[2] = {};
             bindings[0].descriptor = *samplerDesc;
             bindings[0].handle = DescriptorBindingID::Create("inputSampler");
-            bindings[1].descriptor = m_accum.descriptor;
+            bindings[1].descriptor = m_accum.descriptor();
             bindings[1].handle = DescriptorBindingID::Create("sourceInput");
             mpImageTrailType->m_blitProgram.bindDescriptors(
                 &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
         }
 
         vkCmdDraw(cmd, 3, 1, 0, 0);
-        vkCmdEndRendering(cmd);
+        ctx.cmd->vk_d3d12_endRendering(&RI.device);
     }
 }
 

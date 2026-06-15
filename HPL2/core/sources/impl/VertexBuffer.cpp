@@ -471,24 +471,17 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
   // Allocate a fresh GPU buffer. Used only on the first submit, on shadow-data
   // growth (ResizeArray / ResizeIndices), or when a CreateCopy'd element still
   // points at its source buffer with a zero capacity tag.
-  auto allocBuffer = [&](VkDeviceSize size, VkBufferUsageFlags usage,
+  auto allocBuffer = [&](VkDeviceSize size, uint32_t usage,
                          const char *label) -> std::shared_ptr<RIBuffer> {
     std::shared_ptr<RIBuffer> buf(new RIBuffer(), [](RIBuffer *b) {
       b->dispose(&RI.device);
       delete b;
     });
 
-    uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-    VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    VK_ConfigureBufferQueueFamilies(&bci, RI.device.queues, RI_QUEUE_LEN,
-                                    queueFamilies, RI_QUEUE_LEN);
-    bci.size = size;
-    bci.usage = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-
-    VmaAllocationCreateInfo aci = {};
-    aci.usage = VMA_MEMORY_USAGE_AUTO;
-    *buf = RIBuffer::VK_createFromVMA(device, &bci, &aci);
+    *buf = RIBuffer::create(
+        device, {(uint64_t)size,
+                 usage | RI_BUFFER_USAGE_TRANSFER_DST | RI_BUFFER_USAGE_DEVICE_ADDRESS,
+                 RI_MEMORY_DEVICE, 0});
 
     char debugName[128];
     std::snprintf(debugName, sizeof(debugName), "VB[%p]:%s",
@@ -527,10 +520,10 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
     if (element.m_shadowData.empty())
       continue;
     const size_t needed = element.m_shadowData.size();
-    VkBufferUsageFlags usage =
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+    uint32_t usage =
+        RI_BUFFER_USAGE_VERTEX_BUFFER | RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE;
     if (element.type == eVertexBufferElement_Position) {
-      usage |= VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+      usage |= RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT;
     }
     // m_internalBufferSize == 0 with element.buffer set is the CreateCopy
     // sentinel: the shared_ptr was inherited from the source VB but we own no
@@ -553,9 +546,9 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
 
   if (!m_indices.empty()) {
     const size_t needed = m_indices.size() * sizeof(uint32_t);
-    const VkBufferUsageFlags idxUsage =
-        VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
-        VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+    const uint32_t idxUsage =
+        RI_BUFFER_USAGE_INDEX_BUFFER | RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE |
+        RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT;
     const bool needsAlloc = !m_indexBuffer || m_indexBufferCapacity < needed;
     if (needsAlloc) {
       m_indexBuffer = allocBuffer(needed, idxUsage, "Index");
@@ -639,26 +632,19 @@ void cVertexBuffer::BuildBlas(RICmd *cmd, RIDevice *device,
   m_blasStorage = std::shared_ptr<RIBuffer>(
       new RIBuffer(),
       [](RIBuffer *b) { b->dispose(&RI.device); delete b; });
-  {
-    uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
-    VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    VK_ConfigureBufferQueueFamilies(&bci, device->queues, RI_QUEUE_LEN,
-                                    queueFamilies, RI_QUEUE_LEN);
-    bci.size = storageSize;
-    bci.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
-                VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-    VmaAllocationCreateInfo aci = {};
-    aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-    *m_blasStorage = RIBuffer::VK_createFromVMA(device, &bci, &aci);
-  }
+  *m_blasStorage = RIBuffer::create(
+      device, {(uint64_t)storageSize,
+               RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE |
+                   RI_BUFFER_USAGE_DEVICE_ADDRESS,
+               RI_MEMORY_DEVICE, 0});
 
-  // VK_createFromVMA swallows the VkResult — a failed/marginal allocation leaves
+  // create() swallows the VkResult — a failed/marginal allocation leaves
   // vk.buffer null. Building the BLAS on a null storage buffer produces an AS
   // with an invalid device address (the 0xffff8001... value the TLAS rejects),
   // so bail here instead, keeping any previously-built BLAS for this object.
-  assert(m_blasStorage->vk.buffer != VK_NULL_HANDLE &&
+  assert(!m_blasStorage->isEmpty(&RI.renderer) &&
          "BLAS storage allocation failed");
-  if (m_blasStorage->vk.buffer == VK_NULL_HANDLE) {
+  if (m_blasStorage->isEmpty(&RI.renderer)) {
     Error("BLAS storage allocation failed (size=%llu) for VB[%p]; skipping build",
           (unsigned long long)storageSize, static_cast<void *>(this));
     m_blasStorage.reset();

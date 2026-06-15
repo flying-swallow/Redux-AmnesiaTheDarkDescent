@@ -151,11 +151,7 @@ namespace hpl {
 		struct RIBackendInit backendInit = {};
 		backendInit.api = RI_DEVICE_API_VK;
 		backendInit.applicationName = "HPL2";
-#ifndef NDEBUG
-    	backendInit.vk.enableValidationLayer = false; 
-#else
 		backendInit.vk.enableValidationLayer = false;
-#endif
 
 		if(RI.renderer.init(&backendInit) != RI_SUCCESS) {
 			return false;
@@ -202,7 +198,7 @@ namespace hpl {
 		swapchainInit.width = alWidth;
 		swapchainInit.height = alHeight;
 		swapchainInit.format = RI_SWAPCHAIN_BT709_G22_8BIT;
-		InitRISwapchain(&RI.device, &swapchainInit, &RI.swapchain);
+		InitRISwapchain(&RI.renderer, &RI.device, &swapchainInit, &RI.swapchain);
 
 		// Per-viewport render targets (backbuffer, overscan render target,
 		// depth, visibility) are created lazily by each renderer's Draw on its
@@ -253,8 +249,7 @@ namespace hpl {
 			initElem.pool->reset( &RI.device );
 			initElem.cmds[0].begin( &RI.device );
 
-			VkBuffer whiteUploadStaging = VK_NULL_HANDLE;
-			VmaAllocation whiteUploadStagingAlloc = VK_NULL_HANDLE;
+			RIBuffer whiteUploadStaging = {};
 
 			// 1x1 white texture — staged upload, then transitioned to SHADER_READ_ONLY_OPTIMAL.
 			{
@@ -283,25 +278,15 @@ namespace hpl {
 				}
 
 				const uint8_t whitePixel[4] = { 255, 255, 255, 255 };
-				VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-				bufferInfo.size = sizeof(whitePixel);
-				bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-				bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-				VmaAllocationCreateInfo stagingAllocInfo = {};
-				stagingAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-				stagingAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT |
-				                         VMA_ALLOCATION_CREATE_MAPPED_BIT;
-				VmaAllocationInfo stagingInfo = {};
-				if (!VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferInfo, &stagingAllocInfo,
-				                                   &whiteUploadStaging, &whiteUploadStagingAlloc, &stagingInfo))) {
+				whiteUploadStaging = RIBuffer::create(
+					&RI.device, {(uint64_t)sizeof(whitePixel),
+					             RI_BUFFER_USAGE_TRANSFER_SRC, RI_MEMORY_HOST_UPLOAD, 0});
+				if (whiteUploadStaging.isEmpty(&RI.renderer)) {
 					FatalError("Failed to create white texture staging buffer!\n");
 					return false;
 				}
-				memcpy(stagingInfo.pMappedData, whitePixel, sizeof(whitePixel));
-				vmaFlushAllocation(RI.device.vk.vmaAllocator, whiteUploadStagingAlloc, 0, VK_WHOLE_SIZE);
-
-				VkImageSubresourceRange colorRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+				memcpy(whiteUploadStaging.mappedAddress, whitePixel, sizeof(whitePixel));
+				vmaFlushAllocation(RI.device.vk.vmaAllocator, whiteUploadStaging.vk.allocation, 0, VK_WHOLE_SIZE);
 
 				RITextureBarrier toTransfer = {};
 				toTransfer.texture = &RI.whiteTexture2D;
@@ -310,12 +295,12 @@ namespace hpl {
 				toTransfer.afterStages = RI_STAGE_COPY;
 				toTransfer.mipCount = 1;
 				toTransfer.layerCount = 1;
-				initElem.cmds[0].textureBarrier(toTransfer);
+				initElem.cmds[0].vk_d3d12_textureBarrier(toTransfer);
 
 				VkBufferImageCopy copyRegion = {};
 				copyRegion.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
 				copyRegion.imageExtent = { 1, 1, 1 };
-				vkCmdCopyBufferToImage(initElem.cmds[0].vk.cmd, whiteUploadStaging, RI.whiteTexture2D.vk.image,
+				vkCmdCopyBufferToImage(initElem.cmds[0].vk.cmd, whiteUploadStaging.vk.buffer, RI.whiteTexture2D.vk.image,
 				                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
 				// afterStages 0 derives the all-shader mask — sampled reads can
@@ -327,50 +312,36 @@ namespace hpl {
 				toShaderRead.after = RI_RESOURCE_STATE_SHADER_RESOURCE;
 				toShaderRead.mipCount = 1;
 				toShaderRead.layerCount = 1;
-				initElem.cmds[0].textureBarrier(toShaderRead);
+				initElem.cmds[0].vk_d3d12_textureBarrier(toShaderRead);
 
-				VkImageViewCreateInfo viewInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-				viewInfo.image = RI.whiteTexture2D.vk.image;
-				viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-				viewInfo.format = imageInfo.format;
-				viewInfo.subresourceRange = colorRange;
-				if (!VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, nullptr,
-				                                    &RI.whiteTexture2DBinding.vk.image.imageView))) {
+				RITextureViewDesc whiteViewDesc = {};
+				whiteViewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
+				whiteViewDesc.format = VKToRIFormat(imageInfo.format);
+				whiteViewDesc.mipNum = 1;
+				whiteViewDesc.layerNum = 1;
+				RI.whiteTexture2DView =
+					RITextureView::create(&RI.device, &RI.whiteTexture2D, whiteViewDesc);
+				if (RI.whiteTexture2DView.isEmpty(&RI.renderer)) {
 					FatalError("Failed to create white texture image view!\n");
 					return false;
 				}
-				RI.whiteTexture2DBinding.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-				RI.whiteTexture2DBinding.texture = &RI.whiteTexture2D;
-				RI.whiteTexture2DBinding.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-				RI.whiteTexture2DBinding.vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-				RI.whiteTexture2DBinding.finalize(&RI.device);
 			}
 
 			// Zero-filled vertex buffer — small mapped buffer, never modified after init.
 			{
 				constexpr VkDeviceSize kNulVertexSize = 64;
-				uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-				VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-				bufferInfo.size = kNulVertexSize;
-				bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-				VK_ConfigureBufferQueueFamilies(&bufferInfo, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
-
-				VmaAllocationCreateInfo allocInfo = {};
-				allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-				allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
-				                  VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-				VmaAllocationInfo allocationInfo = {};
-				if (!VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferInfo, &allocInfo,
-				                                   &RI.nulVertexBuffer.vk.buffer, &RI.nulVertexBuffer.vk.allocation,
-				                                   &allocationInfo))) {
+				RI.nulVertexBuffer = RIBuffer::create(
+					&RI.device, {(uint64_t)kNulVertexSize,
+					             RI_BUFFER_USAGE_VERTEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_DST,
+					             RI_MEMORY_HOST_UPLOAD, 0});
+				if (RI.nulVertexBuffer.isEmpty(&RI.renderer)) {
 					FatalError("Failed to create null vertex buffer!\n");
 					return false;
 				}
-				if (allocationInfo.pMappedData) {
-					memset(allocationInfo.pMappedData, 0, kNulVertexSize);
+				if (RI.nulVertexBuffer.mappedAddress) {
+					memset(RI.nulVertexBuffer.mappedAddress, 0, kNulVertexSize);
 					vmaFlushAllocation(RI.device.vk.vmaAllocator, RI.nulVertexBuffer.vk.allocation, 0, VK_WHOLE_SIZE);
 				}
-				RI.nulVertexBuffer.mappedAddress = allocationInfo.pMappedData;
 			}
 
 			// Default-value fallback vertex streams (see RIBootstrap). Each is a
@@ -390,28 +361,18 @@ namespace hpl {
 					{ &RI.fallbackUv0Vertex,     sizeof(float) * 3, { 0.f, 0.f, 0.f, 0.f } }, // origin
 				};
 				for ( const FallbackSpec &s : specs ) {
-					uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
-					VkBufferCreateInfo bufferInfo = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
-					bufferInfo.size = s.size;
-					bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-					VK_ConfigureBufferQueueFamilies(&bufferInfo, RI.device.queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN);
-
-					VmaAllocationCreateInfo allocInfo = {};
-					allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-					allocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
-					                  VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-					VmaAllocationInfo allocationInfo = {};
-					if (!VK_WrapResult(vmaCreateBuffer(RI.device.vk.vmaAllocator, &bufferInfo, &allocInfo,
-					                                   &s.target->vk.buffer, &s.target->vk.allocation,
-					                                   &allocationInfo))) {
+					*s.target = RIBuffer::create(
+						&RI.device, {(uint64_t)s.size,
+						             RI_BUFFER_USAGE_VERTEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_DST,
+						             RI_MEMORY_HOST_UPLOAD, 0});
+					if (s.target->isEmpty(&RI.renderer)) {
 						FatalError("Failed to create fallback vertex buffer!\n");
 						return false;
 					}
-					if (allocationInfo.pMappedData) {
-						std::memcpy(allocationInfo.pMappedData, s.value, s.size);
+					if (s.target->mappedAddress) {
+						std::memcpy(s.target->mappedAddress, s.value, s.size);
 						vmaFlushAllocation(RI.device.vk.vmaAllocator, s.target->vk.allocation, 0, VK_WHOLE_SIZE);
 					}
-					s.target->mappedAddress = allocationInfo.pMappedData;
 				}
 			}
 
@@ -428,8 +389,8 @@ namespace hpl {
 			VK_WrapResult( vkQueueSubmit2( RI.device.queues[RI_QUEUE_GRAPHICS].vk.queue, 1, &submitInfo, initElem.vk.fence ) );
 			RI.device.queues[RI_QUEUE_GRAPHICS].waitIdle(&RI.device);
 
-			if (whiteUploadStaging != VK_NULL_HANDLE) {
-				vmaDestroyBuffer(RI.device.vk.vmaAllocator, whiteUploadStaging, whiteUploadStagingAlloc);
+			if (!whiteUploadStaging.isEmpty(&RI.renderer)) {
+				whiteUploadStaging.dispose(&RI.device);
 			}
 			// The one-time init upload used graphicsCmdRing, but it has completed.
 			// Rewind the ring so the first real frame starts with a clean command pool.

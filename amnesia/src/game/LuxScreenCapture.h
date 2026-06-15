@@ -86,7 +86,9 @@ public:
 	hpl::cGuiGfxElement* GetScreenGfx() { return mpScreenGfx; }
 
 	// The captured color, for the per-state effect passes (cLuxScreenEffect).
-	RIDescriptor* PrimaryDescriptor();
+	// Produced on demand; an empty descriptor (.view == nullptr) means no
+	// capture texture exists yet.
+	RIDescriptor PrimaryDescriptor();
 	cVector2l GetSize() const { return cVector2l(mlWidth, mlHeight); }
 
 	// Release the gfx and texture.

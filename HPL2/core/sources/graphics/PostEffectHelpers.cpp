@@ -40,21 +40,12 @@ void CreatePostEffectColorTarget(PostEffectColorTarget &out, uint32_t width,
                                  &memReqs, &out.texture.vk.image,
                                  &out.texture.vk.allocation, nullptr));
 
-    VkImageViewCreateInfo viewInfo = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    viewInfo.image    = out.texture.vk.image;
-    viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    viewInfo.format   = format;
-    viewInfo.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-
-    out.descriptor = RIDescriptor{};
-    out.descriptor.flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-    out.descriptor.texture = &out.texture;
-    out.descriptor.vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-    out.descriptor.vk.image.imageLayout =
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    VK_WrapResult(vkCreateImageView(RI.device.vk.device, &viewInfo, nullptr,
-                                    &out.descriptor.vk.image.imageView));
-    out.descriptor.finalize(&RI.device);
+    RITextureViewDesc viewDesc = {};
+    viewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
+    viewDesc.format   = VKToRIFormat(format);
+    viewDesc.mipNum   = 1;
+    viewDesc.layerNum = 1;
+    out.view = RITextureView::create(&RI.device, &out.texture, viewDesc);
 
     if (debugName && vkSetDebugUtilsObjectNameEXT) {
         VkDebugUtilsObjectNameInfoEXT name = {
@@ -73,15 +64,8 @@ void DestroyPostEffectColorTarget(PostEffectColorTarget &target) {
 #if (DEVICE_IMPL_VULKAN)
     if (!target.valid)
         return;
-    if (target.descriptor.vk.image.imageView != VK_NULL_HANDLE) {
-        vkDestroyImageView(RI.device.vk.device,
-                           target.descriptor.vk.image.imageView, nullptr);
-    }
-    if (target.texture.vk.image != VK_NULL_HANDLE) {
-        vmaDestroyImage(RI.device.vk.vmaAllocator, target.texture.vk.image,
-                        target.texture.vk.allocation);
-    }
-    target.descriptor = RIDescriptor{};
+    target.view.dispose(&RI.device);
+    target.texture.dispose(&RI.device);
     target.texture    = RITexture{};
     target.valid      = false;
     target.width = target.height = 0;

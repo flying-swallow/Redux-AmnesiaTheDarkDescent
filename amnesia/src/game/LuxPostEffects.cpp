@@ -113,29 +113,30 @@ void cLuxPostEffect_Insanity::RenderEffect(const hpl::PostEffectRenderCtx &ctx)
 	// desyncs and presents a stale, pre-tonemap buffer (the brightness bug).
 	bool valid = (count >= 2);
 	auto resolve = [&](Image *img) -> RIDescriptor {
-		if (img && img->GetTexture() && img->GetTexture()->binding.texture)
-			return img->GetTexture()->binding;
+		if (img && img->GetTexture() &&
+		    !img->GetTexture()->view.isEmpty(&RI.renderer))
+			return img->GetTexture()->descriptor();
 		valid = false;
-		return *ctx.inputSrv;
+		return ctx.inputSrv;
 	};
-	RIDescriptor amp0Desc = (count > 0) ? resolve(mvAmpMaps[i0]) : *ctx.inputSrv;
-	RIDescriptor amp1Desc = (count > 0) ? resolve(mvAmpMaps[i1]) : *ctx.inputSrv;
+	RIDescriptor amp0Desc = (count > 0) ? resolve(mvAmpMaps[i0]) : ctx.inputSrv;
+	RIDescriptor amp1Desc = (count > 0) ? resolve(mvAmpMaps[i1]) : ctx.inputSrv;
 	RIDescriptor zoomDesc = resolve(mpZoomMap);
 	if (count <= 0) valid = false;
 
-	VkRenderingAttachmentInfo colorAttach = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-	colorAttach.imageView   = ctx.outputView;
-	colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-	colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-	colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
+	RITextureView outView = {};
+	outView.vk.image = ctx.outputView;
+	RIRenderingAttachment color = {};
+	color.view    = outView;
+	color.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+	color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-	VkRenderingInfo renderInfo = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-	renderInfo.renderArea           = {{0, 0}, {ctx.width, ctx.height}};
-	renderInfo.layerCount           = 1;
-	renderInfo.colorAttachmentCount = 1;
-	renderInfo.pColorAttachments    = &colorAttach;
-
-	vkCmdBeginRendering(cmd, &renderInfo);
+	RIBeginRenderingDesc beginDesc = {};
+	beginDesc.renderArea.width  = (int16_t)ctx.width;
+	beginDesc.renderArea.height = (int16_t)ctx.height;
+	beginDesc.colorCount = 1;
+	beginDesc.colors     = &color;
+	ctx.cmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
 
 	VkViewport viewport = {0.0f, 0.0f, (float)ctx.width, (float)ctx.height, 0.0f, 1.0f};
 	vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -156,7 +157,7 @@ void cLuxPostEffect_Insanity::RenderEffect(const hpl::PostEffectRenderCtx &ctx)
 	RIProgram::DescriptorBinding bindings[5] = {};
 	bindings[0].descriptor = *samplerDesc;
 	bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
-	bindings[1].descriptor = *ctx.inputSrv;
+	bindings[1].descriptor = ctx.inputSrv;
 	bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
 	bindings[2].descriptor = amp0Desc;
 	bindings[2].handle     = DescriptorBindingID::Create("ampMap0");
@@ -175,7 +176,7 @@ void cLuxPostEffect_Insanity::RenderEffect(const hpl::PostEffectRenderCtx &ctx)
 	                   VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
 	vkCmdDraw(cmd, 3, 1, 0, 0);
-	vkCmdEndRendering(cmd);
+	ctx.cmd->vk_d3d12_endRendering(&RI.device);
 }
 
 

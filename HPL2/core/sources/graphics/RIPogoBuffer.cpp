@@ -40,25 +40,12 @@ void RI_PogoBufferInit( struct RIDevice *device, struct RI_PogoBuffer *pogo, uin
 	for( size_t p = 0; p < 2; p++ ) {
 		VK_WrapResult( vmaCreateImage( device->vk.vmaAllocator, &info, &mem_reqs, &pogo->textures[p].vk.image, &pogo->textures[p].vk.allocation, NULL ) );
 
-		VkImageViewUsageCreateInfo usageInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO };
-		usageInfo.usage = ( VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-		                    VK_IMAGE_USAGE_STORAGE_BIT );
-
-		VkImageViewCreateInfo createInfo = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
-		createInfo.pNext = &usageInfo;
-		createInfo.subresourceRange = VkImageSubresourceRange{
-			VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
-		};
-		createInfo.image = pogo->textures[p].vk.image;
-		createInfo.format = RIFormatToVK( format );
-		createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-
-		pogo->pogoAttachment[p].flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-		pogo->pogoAttachment[p].texture = &pogo->textures[p];
-		pogo->pogoAttachment[p].vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-		pogo->pogoAttachment[p].vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		VK_WrapResult( vkCreateImageView( device->vk.device, &createInfo, NULL, &pogo->pogoAttachment[p].vk.image.imageView ) );
-		pogo->pogoAttachment[p].finalize( device );
+		RITextureViewDesc viewDesc = {};
+		viewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
+		viewDesc.format = format;
+		viewDesc.mipNum = 1;
+		viewDesc.layerNum = 1;
+		pogo->pogoView[p] = RITextureView::create( device, &pogo->textures[p], viewDesc );
 	}
 #endif
 }
@@ -67,9 +54,8 @@ void RI_PogoBufferDestroy( struct RIDevice *device, struct RI_PogoBuffer *pogo )
 {
 #if ( DEVICE_IMPL_VULKAN )
 	for( size_t p = 0; p < 2; p++ ) {
-		vkDestroyImageView( device->vk.device, pogo->pogoAttachment[p].vk.image.imageView, NULL );
+		pogo->pogoView[p].dispose( device );
 		vmaDestroyImage( device->vk.vmaAllocator, pogo->textures[p].vk.image, pogo->textures[p].vk.allocation );
-		pogo->pogoAttachment[p] = RIDescriptor{};
 		pogo->textures[p] = RITexture{};
 	}
 #endif
@@ -81,5 +67,5 @@ void RI_PogoBufferToggle( struct RIDevice *device, struct RI_PogoBuffer *pogo, s
 	barriers[0] = RI_PogoShaderBarrier( &pogo->textures[pogo->attachmentIndex], false );
 	pogo->attachmentIndex = ( ( pogo->attachmentIndex + 1 ) % 2 );
 	barriers[1] = RI_PogoAttachmentBarrier( &pogo->textures[pogo->attachmentIndex], false );
-	handle->textureBarriers<2>( 2, barriers );
+	handle->vk_d3d12_textureBarriers<2>( 2, barriers );
 }

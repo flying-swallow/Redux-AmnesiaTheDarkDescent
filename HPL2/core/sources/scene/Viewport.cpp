@@ -160,7 +160,8 @@ bool CreateViewportColorTexture(struct RIDevice *device, uint32_t width,
 								uint32_t height, enum RI_Format_e format,
 								VkImageUsageFlags usage,
 								struct RITexture *tex,
-								struct RIDescriptor *desc, const char *what) {
+								struct RITextureView *view,
+								const char *what) {
 	uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
 
 	VmaAllocationCreateInfo memReqs = {};
@@ -189,58 +190,43 @@ bool CreateViewportColorTexture(struct RIDevice *device, uint32_t width,
 		return false;
 	}
 
-	VkImageViewUsageCreateInfo usageInfo = {
-		VK_STRUCTURE_TYPE_IMAGE_VIEW_USAGE_CREATE_INFO};
-	usageInfo.usage =
-		usage & (VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-				 VK_IMAGE_USAGE_STORAGE_BIT);
-
-	VkImageViewCreateInfo createInfo = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-	createInfo.pNext = &usageInfo;
-	createInfo.subresourceRange =
-		VkImageSubresourceRange{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-	createInfo.image = tex->vk.image;
-	createInfo.format = RIFormatToVK(format);
-	createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-
-	desc->flags |= RI_VK_DESC_OWN_IMAGE_VIEW;
-	desc->texture = tex;
-	desc->vk.type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-	desc->vk.image.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-	if (!VK_WrapResult(vkCreateImageView(device->vk.device, &createInfo, NULL,
-										 &desc->vk.image.imageView))) {
+	RITextureViewDesc viewDesc = {};
+	viewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
+	viewDesc.format = format;
+	viewDesc.mipNum = 1;
+	viewDesc.layerNum = 1;
+	*view = RITextureView::create(device, tex, viewDesc);
+	if (view->isEmpty(device->renderer)) {
 		Error("%s: failed to create image view\n", what);
 		vmaDestroyImage(device->vk.vmaAllocator, tex->vk.image,
 						tex->vk.allocation);
 		*tex = RITexture{};
-		*desc = RIDescriptor{};
+		*view = RITextureView{};
 		return false;
 	}
-	desc->finalize(device);
 	return true;
 }
 
 void ReleaseViewportColorTexture(std::vector<RIFreeHandle> &freelist,
 								 struct RITexture *tex,
-								 struct RIDescriptor *desc) {
-	if (desc->vk.image.imageView) {
-		RITextureView view = {};
-		view.vk.image = desc->vk.image.imageView;
-		freelist.push_back(view);
+								 struct RITextureView *view) {
+	if (!view->isEmpty(&RI.renderer)) {
+		freelist.push_back(*view);
 	}
-	if (tex->vk.image) {
+	if (!tex->isEmpty(&RI.renderer)) {
 		freelist.push_back(*tex);
 	}
-	*desc = RIDescriptor{};
+	*view = RITextureView{};
 	*tex = RITexture{};
 }
 
 // Depth / visibility creation — ported verbatim from the retired swapchain-init
-// block in Graphics.cpp, parameterized by extent.
+// block in Graphics.cpp, parameterized by extent. The view aspect is derived
+// from the format inside RITextureView::create.
 bool CreateViewportAttachmentTexture(struct RIDevice *device, uint32_t width,
 									 uint32_t height, enum RI_Format_e format,
 									 VkImageUsageFlags usage,
-									 VkImageAspectFlags aspect,
+									 enum RITextureViewType_e viewType,
 									 struct RITexture *tex,
 									 struct RITextureView *view,
 									 const char *what) {
@@ -271,13 +257,13 @@ bool CreateViewportAttachmentTexture(struct RIDevice *device, uint32_t width,
 		return false;
 	}
 
-	VkImageViewCreateInfo createInfo = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-	createInfo.format = RIFormatToVK(format);
-	createInfo.subresourceRange = VkImageSubresourceRange{aspect, 0, 1, 0, 1};
-	createInfo.image = tex->vk.image;
-	createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	if (!VK_WrapResult(vkCreateImageView(device->vk.device, &createInfo, NULL,
-										 &view->vk.image))) {
+	RITextureViewDesc viewDesc = {};
+	viewDesc.viewType = viewType;
+	viewDesc.format = format;
+	viewDesc.mipNum = 1;
+	viewDesc.layerNum = 1;
+	*view = RITextureView::create(device, tex, viewDesc);
+	if (view->isEmpty(device->renderer)) {
 		Error("%s: failed to create image view\n", what);
 		vmaDestroyImage(device->vk.vmaAllocator, tex->vk.image,
 						tex->vk.allocation);
@@ -290,10 +276,10 @@ bool CreateViewportAttachmentTexture(struct RIDevice *device, uint32_t width,
 void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 									  struct RITexture *tex,
 									  struct RITextureView *view) {
-	if (view->vk.image) {
+	if (!view->isEmpty(&RI.renderer)) {
 		freelist.push_back(*view);
 	}
-	if (tex->vk.image) {
+	if (!tex->isEmpty(&RI.renderer)) {
 		freelist.push_back(*tex);
 	}
 	*view = RITextureView{};
@@ -340,17 +326,15 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 
 		for(size_t p = 0; p < 2; p++)
 		{
-			if(mPogoBuffer.pogoAttachment[p].vk.image.imageView)
+			if(!mPogoBuffer.pogoView[p].isEmpty(&RI.renderer))
 			{
-				RITextureView view = {};
-				view.vk.image = mPogoBuffer.pogoAttachment[p].vk.image.imageView;
-				cntx->freelist.push_back(view);
+				cntx->freelist.push_back(mPogoBuffer.pogoView[p]);
 			}
-			if(mPogoBuffer.textures[p].vk.image)
+			if(!mPogoBuffer.textures[p].isEmpty(&RI.renderer))
 			{
 				cntx->freelist.push_back(mPogoBuffer.textures[p]);
 			}
-			mPogoBuffer.pogoAttachment[p] = RIDescriptor{};
+			mPogoBuffer.pogoView[p] = RITextureView{};
 			mPogoBuffer.textures[p] = RITexture{};
 		}
 		mPogoBuffer.attachmentIndex = 0;
@@ -393,18 +377,19 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 						  uint32_t alWidth, uint32_t alHeight, VkFormat aFormat,
 						  uint32_t alHashSalt, const char *asLabel)
 	{
-		VkRenderingAttachmentInfo colorAttach = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
-		colorAttach.imageView   = aView;
-		colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		colorAttach.loadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		colorAttach.storeOp     = VK_ATTACHMENT_STORE_OP_STORE;
-		VkRenderingInfo renderInfo = { VK_STRUCTURE_TYPE_RENDERING_INFO };
-		renderInfo.renderArea = { { 0, 0 }, { alWidth, alHeight } };
-		renderInfo.layerCount = 1;
-		renderInfo.colorAttachmentCount = 1;
-		renderInfo.pColorAttachments    = &colorAttach;
+		RITextureView colorView = {};
+		colorView.vk.image = aView;
+		RIRenderingAttachment color = {};
+		color.view    = colorView;
+		color.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+		color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-		vkCmdBeginRendering(RI.primary.cmds[0].vk.cmd, &renderInfo);
+		RIBeginRenderingDesc beginDesc = {};
+		beginDesc.renderArea.width  = (int16_t)alWidth;
+		beginDesc.renderArea.height = (int16_t)alHeight;
+		beginDesc.colorCount = 1;
+		beginDesc.colors     = &color;
+		RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
 
 		VkViewport vp = { 0.0f, 0.0f, (float)alWidth, (float)alHeight, 0.0f, 1.0f };
 		vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
@@ -427,12 +412,12 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 		RIProgram::DescriptorBinding bindings[2] = {};
 		bindings[0].descriptor = *samplerDesc;
 		bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
-		bindings[1].descriptor = *RI_PogoBufferShaderResource(apPogo);
+		bindings[1].descriptor = RI_PogoBufferShaderResource(apPogo);
 		bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
 		RI.postEffectBlit.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, bindings, 2);
 
 		vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3, 1, 0, 0);
-		vkCmdEndRendering(RI.primary.cmds[0].vk.cmd);
+		RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
 	}
 
 	} // namespace
@@ -512,7 +497,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 		// after, per the viewport's Target.
 		BackBuffer backBuffer = GetBackBuffer();
 		RI_PogoBuffer *pPogo = nullptr;
-		if(worldRendered && backBuffer.renderTarget.vk.image != VK_NULL_HANDLE)
+		if(worldRendered && !backBuffer.renderTarget.isEmpty(&RI.renderer))
 		{
 			const cVector2l vTargetSize = GetTargetSize();
 			pPogo = PreparePogoBuffer(cntx);
@@ -538,7 +523,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 				RI_PogoAttachmentBarrier(
 							 &pPogo->textures[pPogo->attachmentIndex], /*initial=*/true),
 			};
-			RI.primary.cmds[0].textureBarriers<3>(3, pre);
+			RI.primary.cmds[0].vk_d3d12_textureBarriers<3>(3, pre);
 
 			VkImageBlit region = {};
 			region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
@@ -564,7 +549,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 							 RI_RESOURCE_STATE_COPY_DST, RI_STAGE_BLIT,
 							 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT),
 			};
-			RI.primary.cmds[0].textureBarriers<2>(2, post);
+			RI.primary.cmds[0].vk_d3d12_textureBarriers<2>(2, post);
 
 			cPostEffectComposite *pComposite = GetPostEffectComposite();
 			if(pComposite && (alFlags & tSceneRenderFlag_PostEffects) &&
@@ -614,21 +599,21 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 		deliverCtx.frameTime  = afFrameTime;
 		if(const auto *pView = std::get_if<TargetView>(&mTarget))
 		{
-			if(pView->view.vk.image != VK_NULL_HANDLE &&
+			if(!pView->view.isEmpty(&RI.renderer) &&
 			   worldRendered && pPogo != nullptr)
 			{
 				// Caller texture: discard previous contents (fully
 				// rewritten; also covers its first use) -> COLOR for the
 				// delivery draw, then -> SHADER_READ for the consumer.
 				RITexture *pViewTexture = const_cast<RITexture *>(&pView->texture);
-				RI.primary.cmds[0].textureBarrier(ColorBarrier(pViewTexture,
+				RI.primary.cmds[0].vk_d3d12_textureBarrier(ColorBarrier(pViewTexture,
 								 RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_FRAGMENT,
 								 RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE));
 
 				DrawPogoToTarget(pPogo, pView->view.vk.image, pView->width, pView->height,
 								 pView->format, 2u, "PostEffect.targetViewBlit");
 
-				RI.primary.cmds[0].textureBarrier(ColorBarrier(pViewTexture,
+				RI.primary.cmds[0].vk_d3d12_textureBarrier(ColorBarrier(pViewTexture,
 								 RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
 								 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT));
 
@@ -649,7 +634,7 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 				// a stack RITexture for the barrier.
 				RITexture swapchainTexture = {};
 				swapchainTexture.vk.image = RI.swapchain.vk.images[RI.swapchainIndex];
-				RI.primary.cmds[0].textureBarrier(ColorBarrier(&swapchainTexture,
+				RI.primary.cmds[0].vk_d3d12_textureBarrier(ColorBarrier(&swapchainTexture,
 								 RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_NONE,
 								 RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE));
 

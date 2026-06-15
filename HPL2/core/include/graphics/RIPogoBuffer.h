@@ -8,7 +8,7 @@ struct FrameState_s;
 
 struct RI_PogoBuffer {
 	struct RITexture textures[2];
-	struct RIDescriptor pogoAttachment[2];
+	struct RITextureView pogoView[2];
 	uint16_t attachmentIndex;
 };
 
@@ -40,14 +40,15 @@ void RI_PogoBufferInit( struct RIDevice *device, struct RI_PogoBuffer *pogo, uin
 void RI_PogoBufferDestroy( struct RIDevice *device, struct RI_PogoBuffer *pogo );
 void RI_PogoBufferToggle( struct RIDevice *device, struct RI_PogoBuffer *pogo, struct RICmd *handle );
 
-static inline struct RIDescriptor *RI_PogoBufferAttachment( struct RI_PogoBuffer *pogo )
+// Produced on demand: the pogo views carry their cookie (stamped at init).
+static inline struct RIDescriptor RI_PogoBufferAttachment( struct RI_PogoBuffer *pogo )
 {
-	return pogo->pogoAttachment + pogo->attachmentIndex;
+	return RIDescriptor::sampledImage( nullptr, &pogo->pogoView[pogo->attachmentIndex] );
 }
 
-static inline struct RIDescriptor *RI_PogoBufferShaderResource( struct RI_PogoBuffer *pogo )
+static inline struct RIDescriptor RI_PogoBufferShaderResource( struct RI_PogoBuffer *pogo )
 {
-	return pogo->pogoAttachment + ( ( pogo->attachmentIndex + 1 ) % 2 );
+	return RIDescriptor::sampledImage( nullptr, &pogo->pogoView[( pogo->attachmentIndex + 1 ) % 2] );
 }
 
 #endif

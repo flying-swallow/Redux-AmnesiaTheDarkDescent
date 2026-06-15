@@ -111,7 +111,7 @@ protected:
 	// into (sRGB attachment write = free linear->display encoding;
 	// TRANSFER_SRC backs the cache copy).
 	struct RITexture mTargetTexture;
-	struct RIDescriptor mTargetDescriptor;
+	struct RITextureView mTargetView;
 
 	struct cThumbnailJob
 	{

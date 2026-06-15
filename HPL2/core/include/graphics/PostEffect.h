@@ -71,7 +71,7 @@ private:
 // (color attachment) or to its own owned target before copying back.
 struct PostEffectRenderCtx {
     struct RICmd        *cmd;
-    struct RIDescriptor *inputSrv;
+    struct RIDescriptor  inputSrv;
     VkImage                outputImage;
     VkImageView            outputView;
     uint32_t               width;

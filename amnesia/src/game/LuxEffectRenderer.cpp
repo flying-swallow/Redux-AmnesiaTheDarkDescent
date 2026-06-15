@@ -103,7 +103,7 @@ void EmitImageBarrier(RICmd *apCmd, RITexture *apTex,
 	barrier.beforeStages = alBeforeStages;
 	barrier.after = aAfter;
 	barrier.afterStages = alAfterStages;
-	apCmd->textureBarrier(barrier);
+	apCmd->vk_d3d12_textureBarrier(barrier);
 }
 
 // Build (and cache on the program) a geometry pipeline for the given pass.
@@ -355,7 +355,7 @@ bool BindGeomStreams(RICmd *apCmd, cVertexBuffer *apVB, bool *abNormalPresent) {
 		*abNormalPresent = (nrm != nullptr);
 	RIBuffer *vertBufs[2] = {pos, nrm ? nrm : &RI.fallbackNormalVertex};
 	apCmd->bindVertexBuffers<2>(0, 2, vertBufs);
-	apCmd->bindIndexBuffer(idx, 0, VK_INDEX_TYPE_UINT32);
+	apCmd->bindIndexBuffer(&RI.device, idx, 0, RI_INDEX_TYPE_32);
 	return true;
 }
 
@@ -376,7 +376,7 @@ bool BindGeomStreamsUv(RICmd *apCmd, cVertexBuffer *apVB) {
 		return false;
 	RIBuffer *vertBufs[2] = {pos, uv};
 	apCmd->bindVertexBuffers<2>(0, 2, vertBufs);
-	apCmd->bindIndexBuffer(idx, 0, VK_INDEX_TYPE_UINT32);
+	apCmd->bindIndexBuffer(&RI.device, idx, 0, RI_INDEX_TYPE_32);
 	return true;
 }
 
@@ -583,27 +583,28 @@ void cLuxEffectRenderer::OnPostWorldDraw(const PostWorldDrawCtx &ctx)
 	// Composite the blurred outline into the pogo read half (post-tonemap).
 	const uint32_t readIdx = (pPogo->attachmentIndex + 1u) % 2u;
 	RITexture *pReadTex = &pPogo->textures[readIdx];
-	VkImageView readView = RI_PogoBufferShaderResource(pPogo)->vk.image.imageView;
+	VkImageView readView = RI_PogoBufferShaderResource(pPogo).vkImageView();
 
 	// Read half: SHADER_RESOURCE -> RENDER_TARGET (composite appends).
-	pCmd->textureBarrier(RI_PogoAttachmentBarrier(pReadTex, /*initial=*/false));
+	pCmd->vk_d3d12_textureBarrier(RI_PogoAttachmentBarrier(pReadTex, /*initial=*/false));
 
 	const VkRect2D scissor = {{0, 0}, {w, h}};
 
 	// (a) Composite the blurred outline — fullscreen, no depth.
 	{
-		VkRenderingAttachmentInfo colorAttach = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-		colorAttach.imageView = readView;
-		colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		colorAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-		colorAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		RITextureView readViewRi = {};
+		readViewRi.vk.image = readView;
+		RIRenderingAttachment color = {};
+		color.view = readViewRi;
+		color.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
+		color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-		VkRenderingInfo render = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-		render.renderArea = {{0, 0}, {w, h}};
-		render.layerCount = 1;
-		render.colorAttachmentCount = 1;
-		render.pColorAttachments = &colorAttach;
-		vkCmdBeginRendering(pCmd->vk.cmd, &render);
+		RIBeginRenderingDesc beginDesc = {};
+		beginDesc.renderArea.width = (int16_t)w;
+		beginDesc.renderArea.height = (int16_t)h;
+		beginDesc.colorCount = 1;
+		beginDesc.colors = &color;
+		pCmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
 
 		const VkViewport fsViewport = {0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f};
 		vkCmdSetViewport(pCmd->vk.cmd, 0, 1, &fsViewport);
@@ -618,12 +619,12 @@ void cLuxEffectRenderer::OnPostWorldDraw(const PostWorldDrawCtx &ctx)
 		RIProgram::DescriptorBinding bindings[2] = {};
 		bindings[0].descriptor = *pSampler;
 		bindings[0].handle = DescriptorBindingID::Create("inputSampler");
-		bindings[1].descriptor = m_blur[1].descriptor;
+		bindings[1].descriptor = m_blur[1].descriptor();
 		bindings[1].handle = DescriptorBindingID::Create("blurInput");
 		mCompositeProgram.bindDescriptors(ctx.device, pCmd, ctx.frameIndex, bindings, 2);
 		vkCmdDraw(pCmd->vk.cmd, 3, 1, 0, 0);
 
-		vkCmdEndRendering(pCmd->vk.cmd);
+		pCmd->vk_d3d12_endRendering(&RI.device);
 
 		// Restore blur[1]'s rest state (RENDER_TARGET) for the next frame's
 		// ping-pong — matches the Bloom blur convention.
@@ -632,7 +633,7 @@ void cLuxEffectRenderer::OnPostWorldDraw(const PostWorldDrawCtx &ctx)
 	}
 
 	// Read half back to SHADER_RESOURCE for delivery.
-	pCmd->textureBarrier(RI_PogoShaderBarrier(pReadTex, /*initial=*/false));
+	pCmd->vk_d3d12_textureBarrier(RI_PogoShaderBarrier(pReadTex, /*initial=*/false));
 }
 
 //-----------------------------------------------------------------------
@@ -664,8 +665,8 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 	// If the guard band is ever enabled, this pass must switch to the
 	// renderer's widened projection and the full overscan extent.
 	cViewport::BackBuffer bb = ctx.viewport->GetBackBuffer();
-	if (bb.renderTarget.vk.image == VK_NULL_HANDLE) return;
-	VkImageView hdrView = bb.renderTargetDescriptor.vk.image.imageView;
+	if (bb.renderTarget.isEmpty(&RI.renderer)) return;
+	VkImageView hdrView = bb.renderTargetView.vk.image;
 
 	/////////////////////////////
 	// Per-frame view/viewProj UBO (HDR-space, plain frustum)
@@ -690,26 +691,27 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 	const VkRect2D scissor = {{0, 0}, {w, h}};
 
 	{
-		VkRenderingAttachmentInfo colorAttach = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-		colorAttach.imageView = hdrView;
-		colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		colorAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-		colorAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		RITextureView hdrViewRi = {};
+		hdrViewRi.vk.image = hdrView;
+		RIRenderingAttachment color = {};
+		color.view = hdrViewRi;
+		color.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
+		color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-		// Scene depth, read-only (left in DEPTH_ATTACHMENT_OPTIMAL by Draw).
-		VkRenderingAttachmentInfo depthAttach = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-		depthAttach.imageView = pDepthView->vk.image;
-		depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-		depthAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-		depthAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		// Scene depth, read-only (left in DEPTH_ATTACHMENT_OPTIMAL by Draw): the
+		// glow depth-tests but the pipeline disables depth writes.
+		RIRenderingAttachment depth = {};
+		depth.view = *pDepthView;
+		depth.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
+		depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
-		VkRenderingInfo render = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-		render.renderArea = {{0, 0}, {w, h}};
-		render.layerCount = 1;
-		render.colorAttachmentCount = 1;
-		render.pColorAttachments = &colorAttach;
-		render.pDepthAttachment = &depthAttach;
-		vkCmdBeginRendering(pCmd->vk.cmd, &render);
+		RIBeginRenderingDesc beginDesc = {};
+		beginDesc.renderArea.width = (int16_t)w;
+		beginDesc.renderArea.height = (int16_t)h;
+		beginDesc.colorCount = 1;
+		beginDesc.colors = &color;
+		beginDesc.depthStencil = &depth;
+		pCmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
 
 		vkCmdSetViewport(pCmd->vk.cmd, 0, 1, &flippedViewport);
 		vkCmdSetScissor(pCmd->vk.cmd, 0, 1, &scissor);
@@ -765,12 +767,12 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 				bindings[0].handle = DescriptorBindingID::Create("pass");
 				bindings[1].descriptor = *pDiffSampler;
 				bindings[1].handle = DescriptorBindingID::Create("diffuseSampler");
-				bindings[2].descriptor = diffTex->binding;
+				bindings[2].descriptor = diffTex->descriptor();
 				bindings[2].handle = DescriptorBindingID::Create("diffuseMap");
 				mGlowProgram.bindDescriptors(ctx.device, pCmd, ctx.frameIndex, bindings, 3);
 
 				for (int d = 0; d < alDrawCount; ++d)
-					pCmd->drawIndexed((uint32_t)pVB->GetIndexNum(), 1, 0, 0, 0);
+					pCmd->drawIndexed(&RI.device, (uint32_t)pVB->GetIndexNum(), 1, 0, 0, 0);
 			}
 		};
 
@@ -783,7 +785,7 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 			drawObjects(mvEnemyGlowObjects, kEnemyGlow, fGlobalAlpha,
 						/*alphaTest=*/false, /*drawCount=*/1);
 
-		vkCmdEndRendering(pCmd->vk.cmd);
+		pCmd->vk_d3d12_endRendering(&RI.device);
 	}
 
 	// Return the BackBuffer to SHADER_RESOURCE for the feed blit.
@@ -850,34 +852,33 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 	}
 
 	{
-		VkRenderingAttachmentInfo colorAttach = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-		colorAttach.imageView = m_outlineColor.descriptor.vk.image.imageView;
-		colorAttach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		colorAttach.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-		colorAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		colorAttach.clearValue.color = {{0.0f, 0.0f, 0.0f, 0.0f}};
+		RITextureView outlineColorView = m_outlineColor.view;
+		RIRenderingAttachment color = {};
+		color.view = outlineColorView;
+		color.loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
+		color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+		// clearValue.color defaults to {0,0,0,0}.
 
-		VkRenderingAttachmentInfo depthAttach = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-		depthAttach.imageView = pDepthView->vk.image;
-		depthAttach.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-		depthAttach.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-		depthAttach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		// Depth LOADs (DEPTH_ATTACHMENT_OPTIMAL); stencil CLEARs to 0 and is not
+		// stored. hasStencil binds the depth aspect as DEPTH_ATTACHMENT_OPTIMAL
+		// and the stencil aspect as STENCIL_ATTACHMENT_OPTIMAL, matching the
+		// original split attachments.
+		RIRenderingAttachment depth = {};
+		depth.view = *pDepthView;
+		depth.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
+		depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+		depth.hasStencil = true;
+		depth.stencilLoadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
+		depth.stencilStoreOp = RI_ATTACHMENT_STORE_OP_DONT_CARE;
+		depth.clearValue.stencil = 0;
 
-		VkRenderingAttachmentInfo stencilAttach = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-		stencilAttach.imageView = pDepthView->vk.image;
-		stencilAttach.imageLayout = VK_IMAGE_LAYOUT_STENCIL_ATTACHMENT_OPTIMAL;
-		stencilAttach.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-		stencilAttach.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-		stencilAttach.clearValue.depthStencil.stencil = 0;
-
-		VkRenderingInfo render = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-		render.renderArea = {{0, 0}, {alWidth, alHeight}};
-		render.layerCount = 1;
-		render.colorAttachmentCount = 1;
-		render.pColorAttachments = &colorAttach;
-		render.pDepthAttachment = &depthAttach;
-		render.pStencilAttachment = &stencilAttach;
-		vkCmdBeginRendering(apCmd->vk.cmd, &render);
+		RIBeginRenderingDesc beginDesc = {};
+		beginDesc.renderArea.width = (int16_t)alWidth;
+		beginDesc.renderArea.height = (int16_t)alHeight;
+		beginDesc.colorCount = 1;
+		beginDesc.colors = &color;
+		beginDesc.depthStencil = &depth;
+		apCmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
 
 		const VkViewport flippedViewport = {0.0f, (float)alHeight, (float)alWidth,
 											-(float)alHeight, 0.0f, 1.0f};
@@ -946,11 +947,11 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 					bindings[0].handle = DescriptorBindingID::Create("pass");
 					bindings[1].descriptor = *pSampler;
 					bindings[1].handle = DescriptorBindingID::Create("alphaSampler");
-					bindings[2].descriptor = alphaTex->binding;
+					bindings[2].descriptor = alphaTex->descriptor();
 					bindings[2].handle = DescriptorBindingID::Create("alphaMap");
 					mAlphaProgram.bindDescriptors(ctx.device, apCmd, ctx.frameIndex, bindings, 3);
 
-					apCmd->drawIndexed((uint32_t)pVB->GetIndexNum(), 1, 0, 0, 0);
+					apCmd->drawIndexed(&RI.device, (uint32_t)pVB->GetIndexNum(), 1, 0, 0, 0);
 					bDrewAlpha = true;
 				}
 				if (bDrewAlpha) continue;
@@ -976,11 +977,11 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 				b.handle = DescriptorBindingID::Create("pass");
 				mGeomProgram.bindDescriptors(ctx.device, apCmd, ctx.frameIndex, &b, 1);
 
-				apCmd->drawIndexed((uint32_t)pVB->GetIndexNum(), 1, 0, 0, 0);
+				apCmd->drawIndexed(&RI.device, (uint32_t)pVB->GetIndexNum(), 1, 0, 0, 0);
 			}
 		}
 
-		vkCmdEndRendering(apCmd->vk.cmd);
+		apCmd->vk_d3d12_endRendering(&RI.device);
 	}
 
 	// Offscreen color -> SHADER_RESOURCE for the blur to sample.
@@ -1019,17 +1020,18 @@ void cLuxEffectRenderer::BlurOutline(RICmd *apCmd, uint32_t alBlurW, uint32_t al
 		EmitImageBarrier(apCmd, prevDestTexture, RI_RESOURCE_STATE_RENDER_TARGET,
 						 RI_STAGE_NONE, RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
 
-		VkRenderingAttachmentInfo attach = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-		attach.imageView = destView;
-		attach.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-		attach.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-		attach.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-		VkRenderingInfo render = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-		render.renderArea = {{0, 0}, {alBlurW, alBlurH}};
-		render.layerCount = 1;
-		render.colorAttachmentCount = 1;
-		render.pColorAttachments = &attach;
-		vkCmdBeginRendering(apCmd->vk.cmd, &render);
+		RITextureView destViewRi = {};
+		destViewRi.vk.image = destView;
+		RIRenderingAttachment color = {};
+		color.view = destViewRi;
+		color.loadOp = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
+		color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+		RIBeginRenderingDesc beginDesc = {};
+		beginDesc.renderArea.width = (int16_t)alBlurW;
+		beginDesc.renderArea.height = (int16_t)alBlurH;
+		beginDesc.colorCount = 1;
+		beginDesc.colors = &color;
+		apCmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
 
 		vkCmdSetViewport(apCmd->vk.cmd, 0, 1, &viewport);
 		vkCmdSetScissor(apCmd->vk.cmd, 0, 1, &scissor);
@@ -1049,19 +1051,19 @@ void cLuxEffectRenderer::BlurOutline(RICmd *apCmd, uint32_t alBlurW, uint32_t al
 		vkCmdPushConstants(apCmd->vk.cmd, mBlurProgram.getPipelineLayout(),
 						   VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 		vkCmdDraw(apCmd->vk.cmd, 3, 1, 0, 0);
-		vkCmdEndRendering(apCmd->vk.cmd);
+		apCmd->vk_d3d12_endRendering(&RI.device);
 	};
 
 	const float fBlurSize = 1.0f;
 	for (int iter = 0; iter < 2; ++iter) {
-		const RIDescriptor &firstInput =
-			(iter == 0) ? m_outlineColor.descriptor : m_blur[1].descriptor;
+		const RIDescriptor firstInput =
+			(iter == 0) ? m_outlineColor.descriptor() : m_blur[1].descriptor();
 		// H: dest blur[0], read firstInput, prevDest blur[1].
-		blurPass(m_blur[0].descriptor.vk.image.imageView, &m_blur[0].texture,
+		blurPass(m_blur[0].view.vk.image, &m_blur[0].texture,
 				 &m_blur[1].texture, firstInput, fBlurSize, 0.0f);
 		// V: dest blur[1], read blur[0], prevDest blur[0].
-		blurPass(m_blur[1].descriptor.vk.image.imageView, &m_blur[1].texture,
-				 &m_blur[0].texture, m_blur[0].descriptor, 0.0f, fBlurSize);
+		blurPass(m_blur[1].view.vk.image, &m_blur[1].texture,
+				 &m_blur[0].texture, m_blur[0].descriptor(), 0.0f, fBlurSize);
 	}
 
 	// blur[1] COLOR_ATTACH -> SHADER_RESOURCE for the composite to sample.
