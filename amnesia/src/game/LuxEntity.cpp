@@ -23,6 +23,9 @@
 #include "LuxPlayer.h"
 #include "LuxMapHelper.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //////////////////////////////////////////////////////////////////////////
 // CONSTRUCTORS
 //////////////////////////////////////////////////////////////////////////
@@ -352,18 +355,18 @@ void iLuxEntity::PreloadEntityModel(const tString &asFile)
 	
 	//////////////////////
 	// Load XML document
-	iXmlDocument *pEntityDoc = pResources->LoadXmlDocument(sFileName);
+	tinyxml2::XMLElement *pEntityDoc = pResources->LoadXmlDocument(sFileName);
 	if(pEntityDoc==NULL){
 		Error("Could not load xml file '%s'\n", sFileName.c_str());
 		return;
 	}
-	
+
 	//////////////////////
 	// Get Model File name
-	cXmlElement *pModelDataElem = pEntityDoc->GetFirstElement("ModelData");
-	cXmlElement *pMeshElem = pModelDataElem->GetFirstElement("Mesh");
+	tinyxml2::XMLElement *pModelDataElem = pEntityDoc->FirstChildElement("ModelData");
+	tinyxml2::XMLElement *pMeshElem = pModelDataElem->FirstChildElement("Mesh");
 
-	tString sModelFile = pMeshElem->GetAttributeString("Filename","");
+	tString sModelFile = hpl::GetAttributeString(pMeshElem, "Filename","");
 
 	//////////////////////
 	// Load Mesh

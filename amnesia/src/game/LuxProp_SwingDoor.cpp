@@ -45,7 +45,7 @@ iLuxProp *cLuxPropLoader_SwingDoor::CreateProp(const tString& asName, int alID, 
 
 //-----------------------------------------------------------------------
 
-void cLuxPropLoader_SwingDoor::LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem)
+void cLuxPropLoader_SwingDoor::LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem)
 {
 	cLuxProp_SwingDoor  *pSwingDoor = static_cast<cLuxProp_SwingDoor*>(apProp);
 

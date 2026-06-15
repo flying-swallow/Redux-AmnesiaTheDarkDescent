@@ -32,6 +32,8 @@ namespace hpl {
 	class Image;
 }
 
+namespace tinyxml2 { class XMLElement; }
+
 //----------------------------------------------------------
 
 class iEditorBase;
@@ -55,7 +57,7 @@ public:
 	iEditorObjectIndexEntryMeshObject(iEditorObjectIndexDir* apDir);
 
 	bool CreateFromFile(const tWString& asFilename);
-	bool CreateFromXmlElement(cXmlElement* apElement);
+	bool CreateFromXmlElement(tinyxml2::XMLElement* apElement);
 
 	const cVector3f& GetBVMin() { return mvBVMin; }
 	const cVector3f& GetBVMax() { return mvBVMax; }
@@ -63,7 +65,7 @@ public:
 
 	virtual tWString& GetMeshFileName();
 
-	void Save(cXmlElement* apElement);
+	void Save(tinyxml2::XMLElement* apElement);
 
 	virtual cMeshEntity* CreateTempEntity(cWorld* apWorld);
 

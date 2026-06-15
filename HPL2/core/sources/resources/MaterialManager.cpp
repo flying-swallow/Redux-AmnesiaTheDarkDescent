@@ -33,9 +33,9 @@
 #include "resources/TextureManager.h"
 #include "resources/Resources.h"
 #include "resources/LowLevelResources.h"
-#include "resources/XmlDocument.h"
+#include "resources/XmlHelper.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 
 
@@ -200,30 +200,21 @@ namespace hpl {
 
 		if(pMaterial==NULL && sPath!=_W(""))
 		{
-			FILE *pFile = cPlatform::OpenFile(sPath, _W("rb"));
-			if(pFile==NULL) return "";
-
-			TiXmlDocument *pDoc = hplNew( TiXmlDocument, () );
-			if(!pDoc->LoadFile(pFile))
+			tinyxml2::XMLDocument xmlDoc;
+			if(LoadXmlFile(xmlDoc, sPath)==false || xmlDoc.RootElement()==NULL)
 			{
-				fclose(pFile);
-				hplDelete(pDoc);
 				return "";
 			}
-			fclose(pFile);
 
-			TiXmlElement *pRoot = pDoc->RootElement();
+			tinyxml2::XMLElement *pRoot = xmlDoc.RootElement();
 
-			TiXmlElement *pMain = pRoot->FirstChildElement("Main");
+			tinyxml2::XMLElement *pMain = pRoot->FirstChildElement("Main");
 			if(pMain==NULL){
-				hplDelete(pDoc);
 				Error("Main child not found in '%s'\n",sPath.c_str());
 				return "";
 			}
 
 			tString sPhysicsName = cString::ToString(pMain->Attribute("PhysicsMaterial"),"Default");
-
-			hplDelete(pDoc);
 
 			return sPhysicsName;
 		}
@@ -255,35 +246,33 @@ namespace hpl {
 	{
 		//Log("Load material: %s\n", asName.c_str());
 
-		iXmlDocument* pDoc = mpResources->GetLowLevel()->CreateXmlDocument();
-		if(pDoc->CreateFromFile(asPath)==false)
+		tinyxml2::XMLDocument xmlDoc;
+		if(LoadXmlFile(xmlDoc, asPath)==false || xmlDoc.RootElement()==NULL)
 		{
-			mpResources->DestroyXmlDocument(pDoc);
 			return NULL;
 		}
+		tinyxml2::XMLElement* pDoc = xmlDoc.RootElement();
 
-		cXmlElement* pMain = pDoc->GetFirstElement("Main");
+		tinyxml2::XMLElement* pMain = pDoc->FirstChildElement("Main");
 		if(pMain==NULL)
 		{
-			mpResources->DestroyXmlDocument(pDoc);
 			Error("Main child not found.\n");
 			return NULL;
 		}
 
-		tString sType = pMain->GetAttributeString("Type");
+		tString sType = GetAttributeString(pMain, "Type");
 		if(sType=="")
 		{
-			mpResources->DestroyXmlDocument(pDoc);
 			Error("Type not found.\n");
 			return NULL;
 		}
-        
+
 		/////////////////////////////
 		// Get General Propertries
-		bool bDepthTest = pMain->GetAttributeBool("DepthTest", true);
-		float fValue = pMain->GetAttributeFloat("Value", 1);
-		tString sPhysicsMatName = pMain->GetAttributeString("PhysicsMaterial", "Default");
-		tString sBlendMode = pMain->GetAttributeString("BlendMode", "Add");
+		bool bDepthTest = GetAttributeBool(pMain, "DepthTest", true);
+		float fValue = GetAttributeFloat(pMain, "Value", 1);
+		tString sPhysicsMatName = GetAttributeString(pMain, "PhysicsMaterial", "Default");
+		tString sBlendMode = GetAttributeString(pMain, "BlendMode", "Add");
 
 		/////////////////////////////
 		// Make a "fake" material, with a blank type
@@ -291,8 +280,7 @@ namespace hpl {
 		{
 			cMaterial* pMat = hplNew( cMaterial, (asName, asPath, mpGraphics, mpResources, &gBlankMaterialType) );
 			pMat->SetPhysicsMaterial(sPhysicsMatName);
-			
-			mpResources->DestroyXmlDocument(pDoc);
+
 			return pMat;
 		}
 
@@ -301,7 +289,6 @@ namespace hpl {
 		iMaterialType *pMatType = mpGraphics->GetMaterialType(sType);
 		if(pMatType ==NULL)
 		{
-			mpResources->DestroyXmlDocument(pDoc);
 			Error("Invalid material type '%s'!\n",sType.c_str());
 			return NULL;
 		}
@@ -314,9 +301,8 @@ namespace hpl {
 
 		///////////////////////////
 		//Textures
-		cXmlElement* pTexRoot = pDoc->GetFirstElement("TextureUnits");
+		tinyxml2::XMLElement* pTexRoot = pDoc->FirstChildElement("TextureUnits");
 		if(pTexRoot==NULL){
-			mpResources->DestroyXmlDocument(pDoc);
 			Error("TextureUnits child not found.\n");
 			return NULL;
 		}
@@ -336,19 +322,19 @@ namespace hpl {
 
 			tString sTextureType = GetTextureString(pUsedTexture->mType);
 
-			cXmlElement* pTexChild = pTexRoot->GetFirstElement(sTextureType.c_str());
+			tinyxml2::XMLElement* pTexChild = pTexRoot->FirstChildElement(sTextureType.c_str());
 			if(pTexChild==NULL){
 				continue;
 			}
 
-			eTextureType type = GetType(pTexChild->GetAttributeString("Type", ""));
-			tString sFile = pTexChild->GetAttributeString("File", "");
-			bool bMipMaps = pTexChild->GetAttributeBool("MipMaps", true);
-			bool bCompress = pTexChild->GetAttributeBool("Compress", false);
-			eTextureWrap wrap = GetWrap(pTexChild->GetAttributeString("Wrap", ""));
+			eTextureType type = GetType(GetAttributeString(pTexChild, "Type", ""));
+			tString sFile = GetAttributeString(pTexChild, "File", "");
+			bool bMipMaps = GetAttributeBool(pTexChild, "MipMaps", true);
+			bool bCompress = GetAttributeBool(pTexChild, "Compress", false);
+			eTextureWrap wrap = GetWrap(GetAttributeString(pTexChild, "Wrap", ""));
 
-			eTextureAnimMode animMode = GetAnimMode(pTexChild->GetAttributeString("AnimMode", "None"));
-			float fFrameTime = pTexChild->GetAttributeFloat("AnimFrameTime", 1.0f);
+			eTextureAnimMode animMode = GetAnimMode(GetAttributeString(pTexChild, "AnimMode", "None"));
+			float fFrameTime = GetAttributeFloat(pTexChild, "AnimFrameTime", 1.0f);
 
 			if(sFile=="") continue;
 
@@ -400,7 +386,6 @@ namespace hpl {
 
 			if(pImage==NULL)
 			{
-				mpResources->DestroyXmlDocument(pDoc);
 				hplDelete(pMat);
 				return NULL;
 			}
@@ -416,18 +401,15 @@ namespace hpl {
 
 		///////////////////////////
 		//Animations
-		cXmlElement* pUvAnimRoot = pDoc->GetFirstElement("UvAnimations");
+		tinyxml2::XMLElement* pUvAnimRoot = pDoc->FirstChildElement("UvAnimations");
 		if(pUvAnimRoot)
 		{
-			cXmlNodeListIterator it = pUvAnimRoot->GetChildIterator();
-			while(it.HasNext())
+			for(tinyxml2::XMLElement* pAnimElem = pUvAnimRoot->FirstChildElement(); pAnimElem != NULL; pAnimElem = pAnimElem->NextSiblingElement())
 			{
-				cXmlElement* pAnimElem = it.Next()->ToElement();
-
-				eMaterialUvAnimation animType = GetUvAnimType(pAnimElem->GetAttributeString("Type").c_str());	
-				eMaterialAnimationAxis animAxis = GetAnimAxis(pAnimElem->GetAttributeString("Axis").c_str());	
-				float fSpeed = pAnimElem->GetAttributeFloat("Speed",0);
-				float fAmp = pAnimElem->GetAttributeFloat("Amplitude",0);
+				eMaterialUvAnimation animType = GetUvAnimType(GetAttributeString(pAnimElem, "Type").c_str());
+				eMaterialAnimationAxis animAxis = GetAnimAxis(GetAttributeString(pAnimElem, "Axis").c_str());
+				float fSpeed = GetAttributeFloat(pAnimElem, "Speed",0);
+				float fAmp = GetAttributeFloat(pAnimElem, "Amplitude",0);
 
 				pMat->AddUvAnimation(animType,fSpeed,fAmp, animAxis);
 			}
@@ -436,18 +418,16 @@ namespace hpl {
 
 		///////////////////////////
 		//Variables
-		cXmlElement* pUserVarsRoot = pDoc->GetFirstElement("SpecificVariables");
+		tinyxml2::XMLElement* pUserVarsRoot = pDoc->FirstChildElement("SpecificVariables");
 		cResourceVarsObject userVars;
 		if(pUserVarsRoot) userVars.LoadVariables(pUserVarsRoot);
-		
+
 		pMatType->LoadVariables(pMat, &userVars);
-		
-		
+
+
 		///////////////////////////
 		//End
-		
-		mpResources->DestroyXmlDocument(pDoc);
-			
+
 		pMat->Compile();
 		
 		return pMat;

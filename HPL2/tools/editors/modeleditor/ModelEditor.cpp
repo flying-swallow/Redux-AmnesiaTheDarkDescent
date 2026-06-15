@@ -19,6 +19,8 @@
 
 #include "ModelEditor.h"
 
+#include <tinyxml2.h>
+
 #include "../common/DirectoryHandler.h"
 
 #include "../common/EditorActionHandler.h"
@@ -512,26 +514,26 @@ kGuiCallbackDeclaredFuncEnd(cModelEditor, MeshImport_Callback);
 
 //--------------------------------------------------------------------
 
-void cModelEditor::AppSpecificLoad(iXmlDocument* apDoc)
+void cModelEditor::AppSpecificLoad(tinyxml2::XMLElement* apDoc)
 {
-	
+
 }
 
-void cModelEditor::AppSpecificSave(iXmlDocument* apDoc)
+void cModelEditor::AppSpecificSave(tinyxml2::XMLElement* apDoc)
 {
 	apDoc->SetValue("Entity");
-	
+
 	////////////////////////////////////////
 	// TODO: Save user settings data here
 	/*
-	cXmlElement* pXmlUserVars = apDoc->CreateChildElement("UserDefinedVariables");
-	pXmlUserVars->SetAttributeString("EntityType", msCurrentTypeName);
-	pXmlUserVars->SetAttributeString("EntitySubType", msCurrentSubTypeName);
+	tinyxml2::XMLElement* pXmlUserVars = apDoc->GetDocument()->NewElement("UserDefinedVariables"); apDoc->InsertEndChild(pXmlUserVars);
+	hpl::SetAttributeString(pXmlUserVars, "EntityType", msCurrentTypeName);
+	hpl::SetAttributeString(pXmlUserVars, "EntitySubType", msCurrentSubTypeName);
 	tCustomVarListIt it = mlstCurrentUserVars.begin();
 	for(;it!=mlstCurrentUserVars.end();++it)
 	{
 		iCustomVar* pVar = *it;
-		cXmlElement* pXmlVar = pXmlUserVars->CreateChildElement("");
+		tinyxml2::XMLElement* pXmlVar = pXmlUserVars->GetDocument()->NewElement(""); pXmlUserVars->InsertEndChild(pXmlVar);
 		pVar->SaveValueToElement(pXmlVar);
 	}
 	*/

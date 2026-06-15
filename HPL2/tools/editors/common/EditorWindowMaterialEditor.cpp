@@ -24,6 +24,9 @@
 #include "EditorVar.h"
 #include "EditorHelper.h"
 
+#include "resources/XmlHelper.h"
+#include <tinyxml2.h>
+
 #include <algorithm>
 
 //------------------------------------------------------------------------------------
@@ -80,25 +83,30 @@ bool cEditorClassMaterial::Create(void *apData)
 
 	cEngine* pEng = mpWindow->GetEditor()->GetEngine();
 	cResources* pRes = pEng->GetResources();
-	iXmlDocument* pTempDoc = pRes->GetLowLevel()->CreateXmlDocument();
+	tinyxml2::XMLDocument xmlDoc;
+	tinyxml2::XMLElement* pTempDoc = xmlDoc.NewElement("");
+	xmlDoc.InsertEndChild(pTempDoc);
 
 	for(int i=0;i<pMat->GetUserVariableNum();++i)
 	{
 		cMaterialUserVariable* pMatVar = pMat->GetUserVariable(i);
-		cXmlElement* pVarData = pTempDoc->CreateChildElement("Var");
+		tinyxml2::XMLElement* pVarData = pTempDoc->GetDocument()->NewElement("Var");
+		pTempDoc->InsertEndChild(pVarData);
 
-		pVarData->SetAttributeString("Name", pMatVar->msName);
-		pVarData->SetAttributeString("Type", pEng->GetEngineTypeString(pMatVar->mType));
-		pVarData->SetAttributeString("DefaultValue", pMatVar->msValue);
-		pVarData->SetAttributeString("Description", pMatVar->msDescription);
+		hpl::SetAttributeString(pVarData, "Name", pMatVar->msName);
+		hpl::SetAttributeString(pVarData, "Type", pEng->GetEngineTypeString(pMatVar->mType));
+		hpl::SetAttributeString(pVarData, "DefaultValue", pMatVar->msValue);
+		hpl::SetAttributeString(pVarData, "Description", pMatVar->msDescription);
 
 		if(pMatVar->mvEnumValues.empty()==false)
 		{
-            cXmlElement* pEnumValues = pVarData->CreateChildElement("EnumValues");
+            tinyxml2::XMLElement* pEnumValues = pVarData->GetDocument()->NewElement("EnumValues");
+            pVarData->InsertEndChild(pEnumValues);
 			for(int j=0;j<(int)pMatVar->mvEnumValues.size();++j)
 			{
-				cXmlElement* pValue = pEnumValues->CreateChildElement("Value");
-				pValue->SetAttributeString("Name", pMatVar->mvEnumValues[j]);
+				tinyxml2::XMLElement* pValue = pEnumValues->GetDocument()->NewElement("Value");
+				pEnumValues->InsertEndChild(pValue);
+				hpl::SetAttributeString(pValue, "Name", pMatVar->mvEnumValues[j]);
 			}
 		}
 
@@ -112,8 +120,6 @@ bool cEditorClassMaterial::Create(void *apData)
 		mvVariables.push_back(pVar);
 	}
 
-	pRes->DestroyXmlDocument(pTempDoc);
-    
 	return bSuccessfullyCreated;
 }
 //-------------------------------------------------------------------
@@ -187,30 +193,30 @@ void cTextureWrapper::Reset()
 
 //------------------------------------------------------------------------------------
 
-void cTextureWrapper::Load(cXmlElement* apElement)
+void cTextureWrapper::Load(tinyxml2::XMLElement* apElement)
 {
-    mbMipMaps = apElement->GetAttributeBool("MipMaps");
-	mbCompressed = apElement->GetAttributeBool("Compress");
-	msFile = cString::To16Char(apElement->GetAttributeString("File"));
-	msWrap = apElement->GetAttributeString("Wrap", "Repeat");
-	msAnimMode = apElement->GetAttributeString("AnimMode", "None");
-	mfFrameTime = apElement->GetAttributeFloat("AnimFrameTime");
+    mbMipMaps = hpl::GetAttributeBool(apElement, "MipMaps");
+	mbCompressed = hpl::GetAttributeBool(apElement, "Compress");
+	msFile = cString::To16Char(hpl::GetAttributeString(apElement, "File"));
+	msWrap = hpl::GetAttributeString(apElement, "Wrap", "Repeat");
+	msAnimMode = hpl::GetAttributeString(apElement, "AnimMode", "None");
+	mfFrameTime = hpl::GetAttributeFloat(apElement, "AnimFrameTime");
 }
 
 //------------------------------------------------------------------------------------
 
-void cTextureWrapper::Save(cXmlElement* apElement)
+void cTextureWrapper::Save(tinyxml2::XMLElement* apElement)
 {
 	cMaterialManager* pManMgr = mpMat->mpMatEditor->GetEditor()->GetEngine()->GetResources()->GetMaterialManager();
-	apElement->SetValue(pManMgr->GetTextureString(mUnit));
+	apElement->SetValue(pManMgr->GetTextureString(mUnit).c_str());
 
-	apElement->SetAttributeBool("MipMaps", mbMipMaps);
-	apElement->SetAttributeBool("Compress", mbCompressed);
-	apElement->SetAttributeString("File", cString::To8Char(msFile));
-	apElement->SetAttributeString("Type", msType);
-	apElement->SetAttributeString("Wrap", msWrap);
-	apElement->SetAttributeString("AnimMode", msAnimMode);
-	apElement->SetAttributeFloat("AnimFrameTime", mfFrameTime);
+	hpl::SetAttributeBool(apElement, "MipMaps", mbMipMaps);
+	hpl::SetAttributeBool(apElement, "Compress", mbCompressed);
+	hpl::SetAttributeString(apElement, "File", cString::To8Char(msFile));
+	hpl::SetAttributeString(apElement, "Type", msType);
+	hpl::SetAttributeString(apElement, "Wrap", msWrap);
+	hpl::SetAttributeString(apElement, "AnimMode", msAnimMode);
+	hpl::SetAttributeFloat(apElement, "AnimFrameTime", mfFrameTime);
 }
 
 //------------------------------------------------------------------------------------
@@ -600,18 +606,21 @@ void cMaterialWrapper::Save(const tWString& asFilename)
 {
 	cResources* pRes = mpMatEditor->GetEditor()->GetEngine()->GetResources();
 	cMaterialManager* pManager = pRes->GetMaterialManager();
-	iXmlDocument* pDoc = pRes->GetLowLevel()->CreateXmlDocument();
+	tinyxml2::XMLDocument xmlDoc;
+	tinyxml2::XMLElement* pDoc = xmlDoc.NewElement("Material");
+	xmlDoc.InsertEndChild(pDoc);
 
-	pDoc->SetValue("Material");
-	cXmlElement* pMain = pDoc->CreateChildElement("Main");
-	pMain->SetAttributeString("Type", cString::To8Char(msType));
-	pMain->SetAttributeBool("DepthTest", mbDepthTest);
-	pMain->SetAttributeBool("UseAlpha", mbUseAlpha);
-	pMain->SetAttributeString("PhysicsMaterial", cString::To8Char(msPhysicsMat));
-	pMain->SetAttributeString("BlendMode", cString::To8Char(msBlendMode));
+	tinyxml2::XMLElement* pMain = pDoc->GetDocument()->NewElement("Main");
+	pDoc->InsertEndChild(pMain);
+	hpl::SetAttributeString(pMain, "Type", cString::To8Char(msType));
+	hpl::SetAttributeBool(pMain, "DepthTest", mbDepthTest);
+	hpl::SetAttributeBool(pMain, "UseAlpha", mbUseAlpha);
+	hpl::SetAttributeString(pMain, "PhysicsMaterial", cString::To8Char(msPhysicsMat));
+	hpl::SetAttributeString(pMain, "BlendMode", cString::To8Char(msBlendMode));
 
 	bool bSave = true;
-	cXmlElement* pUnits = pDoc->CreateChildElement("TextureUnits");
+	tinyxml2::XMLElement* pUnits = pDoc->GetDocument()->NewElement("TextureUnits");
+	pDoc->InsertEndChild(pUnits);
 
 	iMaterialType* pType = GetTypePointer();
 	for(int i=0;i<pType->GetUsedTextureNum();++i)
@@ -620,7 +629,8 @@ void cMaterialWrapper::Save(const tWString& asFilename)
 		if(pTex->IsEnabled()==false || pTex->IsValid()==false)
 			continue;
 
-		cXmlElement* pUnit = pUnits->CreateChildElement();
+		tinyxml2::XMLElement* pUnit = pUnits->GetDocument()->NewElement("");
+		pUnits->InsertEndChild(pUnit);
 		pTex->Save(pUnit);
 	}
 
@@ -628,14 +638,15 @@ void cMaterialWrapper::Save(const tWString& asFilename)
 	// Save UV animations
 	if(mvUVAnimations.empty()==false)
 	{
-		cXmlElement* pXmlAnims = pDoc->CreateChildElement("UvAnimations");
-		tString sTypeStrings[] = 
+		tinyxml2::XMLElement* pXmlAnims = pDoc->GetDocument()->NewElement("UvAnimations");
+		pDoc->InsertEndChild(pXmlAnims);
+		tString sTypeStrings[] =
 		{
 			"Translate",
 			"Sin",
 			"Rotate"
 		};
-		tString sAxisStrings[] = 
+		tString sAxisStrings[] =
 		{
 			"X",
 			"Y",
@@ -645,11 +656,12 @@ void cMaterialWrapper::Save(const tWString& asFilename)
 		for(int i=0;i<(int)mvUVAnimations.size();++i)
 		{
 			cMaterialUvAnimation* pAnim = &(mvUVAnimations[i]);
-			cXmlElement* pXmlAnim = pXmlAnims->CreateChildElement("Animation");
-			pXmlAnim->SetAttributeString("Type", sTypeStrings[pAnim->mType]);
-			pXmlAnim->SetAttributeString("Axis", sAxisStrings[pAnim->mAxis]);
-			pXmlAnim->SetAttributeFloat("Speed", pAnim->mfSpeed);
-			pXmlAnim->SetAttributeFloat("Amplitude", pAnim->mfAmp);
+			tinyxml2::XMLElement* pXmlAnim = pXmlAnims->GetDocument()->NewElement("Animation");
+			pXmlAnims->InsertEndChild(pXmlAnim);
+			hpl::SetAttributeString(pXmlAnim, "Type", sTypeStrings[pAnim->mType]);
+			hpl::SetAttributeString(pXmlAnim, "Axis", sAxisStrings[pAnim->mAxis]);
+			hpl::SetAttributeFloat(pXmlAnim, "Speed", pAnim->mfSpeed);
+			hpl::SetAttributeFloat(pXmlAnim, "Amplitude", pAnim->mfAmp);
 		}
 	}
 
@@ -657,15 +669,14 @@ void cMaterialWrapper::Save(const tWString& asFilename)
 	// Save user variables
 	if(mpClass)
 	{
-		cXmlElement* pXmlUserVars = pDoc->CreateChildElement("SpecificVariables");
+		tinyxml2::XMLElement* pXmlUserVars = pDoc->GetDocument()->NewElement("SpecificVariables");
+		pDoc->InsertEndChild(pXmlUserVars);
 
 		mpClass->Save(pXmlUserVars);
 	}
 
 	if(bSave)
-		pDoc->SaveToFile(asFilename);
-
-	pRes->DestroyXmlDocument(pDoc);
+		hpl::SaveXmlFile(xmlDoc, asFilename);
 
 	UpdateMaterialInMemory(cString::To8Char(asFilename));
 }

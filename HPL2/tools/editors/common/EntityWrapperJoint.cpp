@@ -32,6 +32,9 @@
 
 #include "EntityIcon.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //-------------------------------------------------------------------
 
 iEntityWrapperTypeJoint::iEntityWrapperTypeJoint(eEditorEntityJointType aSubType, const tString& asElementName) : iEntityWrapperType(eEditorEntityType_Joint, _W("Joint"), asElementName)
@@ -129,14 +132,14 @@ iEntityWrapperDataJoint::iEntityWrapperDataJoint(iEntityWrapperType* apType) : i
 
 //-------------------------------------------------------------------
 
-bool iEntityWrapperDataJoint::SaveSpecific(cXmlElement* apElement)
+bool iEntityWrapperDataJoint::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperData::SaveSpecific(apElement)==false)
 		return false;
 
 	cMatrixf mtxOrientation = cMath::MatrixRotate(GetVec3f(eObjVec3f_Rotation), eEulerRotationOrder_XYZ).GetTranspose();
 
-	apElement->SetAttributeVector3f("PinDir", mtxOrientation.GetUp());
+	SetAttributeVector3f(apElement, "PinDir", mtxOrientation.GetUp());
 
 	return true;
 }

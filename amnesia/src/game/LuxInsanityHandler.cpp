@@ -27,6 +27,9 @@
 #include "LuxEffectHandler.h"
 #include "LuxMessageHandler.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //////////////////////////////////////////////////////////////////////////
 // INSANITY EVENT INTERFACE
 //////////////////////////////////////////////////////////////////////////
@@ -49,11 +52,11 @@ iLuxInstanityEvent::~iLuxInstanityEvent()
 
 //-----------------------------------------------------------------------
 
-void iLuxInstanityEvent::LoadData(cXmlElement * apVarElem)
+void iLuxInstanityEvent::LoadData(tinyxml2::XMLElement * apVarElem)
 {
-	msName = apVarElem->GetAttributeString("Name","Unknown");
-	msSet = apVarElem->GetAttributeString("Set","");
-	mfMaxSanity = apVarElem->GetAttributeFloat("MaxSanity",100);
+	msName = hpl::GetAttributeString(apVarElem,"Name","Unknown");
+	msSet = hpl::GetAttributeString(apVarElem,"Set","");
+	mfMaxSanity = hpl::GetAttributeFloat(apVarElem,"MaxSanity",100);
 
 	OnLoadData(apVarElem);
 }
@@ -92,25 +95,25 @@ cLuxInstanityEvent_Bugs::~cLuxInstanityEvent_Bugs()
 
 //-----------------------------------------------------------------------
 
-void cLuxInstanityEvent_Bugs::OnLoadData(cXmlElement * apVarElem)
+void cLuxInstanityEvent_Bugs::OnLoadData(tinyxml2::XMLElement * apVarElem)
 {
-	tString sImage = apVarElem->GetAttributeString("BugImage","");
+	tString sImage = hpl::GetAttributeString(apVarElem,"BugImage","");
 	if(sImage != "")
 		mpBugImage = gpBase->mpEngine->GetGui()->CreateGfxImage(sImage, eGuiMaterial_Alpha);
 
-	mlNumOfBugs = apVarElem->GetAttributeInt("NumOfBugs",10);
+	mlNumOfBugs = hpl::GetAttributeInt(apVarElem,"NumOfBugs",10);
 
-	mfMinSizeMul = apVarElem->GetAttributeFloat("MinSizeMul",1);
-	mfMaxSizeMul = apVarElem->GetAttributeFloat("MaxSizeMul",1);
+	mfMinSizeMul = hpl::GetAttributeFloat(apVarElem,"MinSizeMul",1);
+	mfMaxSizeMul = hpl::GetAttributeFloat(apVarElem,"MaxSizeMul",1);
 
-	mfWanderCircleDist = apVarElem->GetAttributeFloat("WanderCircleDist",1);
-	mfWanderCircleRadius = apVarElem->GetAttributeFloat("WanderCircleRadius",1);
-	mfSwarmPointMul = apVarElem->GetAttributeFloat("SwarmPointMul",1);
-	mfMaxSpeed = apVarElem->GetAttributeFloat("MaxSpeed",1);
+	mfWanderCircleDist = hpl::GetAttributeFloat(apVarElem,"WanderCircleDist",1);
+	mfWanderCircleRadius = hpl::GetAttributeFloat(apVarElem,"WanderCircleRadius",1);
+	mfSwarmPointMul = hpl::GetAttributeFloat(apVarElem,"SwarmPointMul",1);
+	mfMaxSpeed = hpl::GetAttributeFloat(apVarElem,"MaxSpeed",1);
 
-	msLoopSound = apVarElem->GetAttributeString("LoopSound","");
-	mfSoundVolume = apVarElem->GetAttributeFloat("SoundVolume",1);
-	mfDuration = apVarElem->GetAttributeFloat("Duration",5);
+	msLoopSound = hpl::GetAttributeString(apVarElem,"LoopSound","");
+	mfSoundVolume = hpl::GetAttributeFloat(apVarElem,"SoundVolume",1);
+	mfDuration = hpl::GetAttributeFloat(apVarElem,"Duration",5);
 }
 
 //-----------------------------------------------------------------------
@@ -324,17 +327,17 @@ cLuxInstanityEvent_Particles::~cLuxInstanityEvent_Particles()
 
 //-----------------------------------------------------------------------
 
-void cLuxInstanityEvent_Particles::OnLoadData(cXmlElement * apVarElem)
+void cLuxInstanityEvent_Particles::OnLoadData(tinyxml2::XMLElement * apVarElem)
 {
-	msSoundFile = apVarElem->GetAttributeString("SoundFile", "");
-	mbLoopSound = apVarElem->GetAttributeBool("LoopSound", false);
-	mfSoundVolume = apVarElem->GetAttributeFloat("SoundVolume", 0);
-	mfSoundFadeInTime = apVarElem->GetAttributeFloat("SoundFadeInTime", 1);
-	mfSoundFadeOutTime = apVarElem->GetAttributeFloat("SoundFadeOutTime", 1);
+	msSoundFile = hpl::GetAttributeString(apVarElem,"SoundFile", "");
+	mbLoopSound = hpl::GetAttributeBool(apVarElem,"LoopSound", false);
+	mfSoundVolume = hpl::GetAttributeFloat(apVarElem,"SoundVolume", 0);
+	mfSoundFadeInTime = hpl::GetAttributeFloat(apVarElem,"SoundFadeInTime", 1);
+	mfSoundFadeOutTime = hpl::GetAttributeFloat(apVarElem,"SoundFadeOutTime", 1);
 
-	msParticleSystem = apVarElem->GetAttributeString("ParticleSystem", "");
+	msParticleSystem = hpl::GetAttributeString(apVarElem,"ParticleSystem", "");
 
-	mfDuration = apVarElem->GetAttributeFloat("Duration", 1);
+	mfDuration = hpl::GetAttributeFloat(apVarElem,"Duration", 1);
 }
 
 //-----------------------------------------------------------------------
@@ -448,28 +451,28 @@ cLuxInstanityEvent_SoundStream::~cLuxInstanityEvent_SoundStream()
 
 //-----------------------------------------------------------------------
 
-void cLuxInstanityEvent_SoundStream::OnLoadData(cXmlElement * apVarElem)
+void cLuxInstanityEvent_SoundStream::OnLoadData(tinyxml2::XMLElement * apVarElem)
 {
-	msFile = apVarElem->GetAttributeString("File", "");
-	mfVolume = apVarElem->GetAttributeFloat("Volume", 1);
-	mfSoundDelayTime = apVarElem->GetAttributeFloat("SoundDelayTime", 0);
+	msFile = hpl::GetAttributeString(apVarElem,"File", "");
+	mfVolume = hpl::GetAttributeFloat(apVarElem,"Volume", 1);
+	mfSoundDelayTime = hpl::GetAttributeFloat(apVarElem,"SoundDelayTime", 0);
 	if(mfSoundDelayTime <=0) mfSoundDelayTime = 0.001f;
-	
-	mbFadeScreen = apVarElem->GetAttributeBool("FadeScreen", false);
-	mFadeColor = apVarElem->GetAttributeColor("FadeColor", cColor(1));
-	mfFadeInSpeed = apVarElem->GetAttributeFloat("FadeInTime", 0);
-	mfFadeOutSpeed = apVarElem->GetAttributeFloat("FadeOutTime", 0);
-	
+
+	mbFadeScreen = hpl::GetAttributeBool(apVarElem,"FadeScreen", false);
+	mFadeColor = hpl::GetAttributeColor(apVarElem,"FadeColor", cColor(1));
+	mfFadeInSpeed = hpl::GetAttributeFloat(apVarElem,"FadeInTime", 0);
+	mfFadeOutSpeed = hpl::GetAttributeFloat(apVarElem,"FadeOutTime", 0);
+
 	if(mfFadeInSpeed<=0) mfFadeInSpeed = 0.001f;
 	if(mfFadeOutSpeed<=0) mfFadeOutSpeed = 0.001f;
 	mfFadeInSpeed = 1.0f / mfFadeInSpeed;
 	mfFadeOutSpeed = 1.0f / mfFadeOutSpeed;
 
-	msSubtitleCat = apVarElem->GetAttributeString("SubtitleCat", "");
-	msSubtitleEntry = apVarElem->GetAttributeString("SubtitleEntry", "");
-	
-	msFadeImageFile = apVarElem->GetAttributeString("FadeImageFile", "");
-	mbDisablePlayer = apVarElem->GetAttributeBool("DisablePlayer", false);
+	msSubtitleCat = hpl::GetAttributeString(apVarElem,"SubtitleCat", "");
+	msSubtitleEntry = hpl::GetAttributeString(apVarElem,"SubtitleEntry", "");
+
+	msFadeImageFile = hpl::GetAttributeString(apVarElem,"FadeImageFile", "");
+	mbDisablePlayer = hpl::GetAttributeBool(apVarElem,"DisablePlayer", false);
 }
 
 //-----------------------------------------------------------------------
@@ -601,15 +604,15 @@ cLuxInstanityEvent_Steps::~cLuxInstanityEvent_Steps()
 
 //-----------------------------------------------------------------------
 
-void cLuxInstanityEvent_Steps::OnLoadData(cXmlElement * apVarElem)
+void cLuxInstanityEvent_Steps::OnLoadData(tinyxml2::XMLElement * apVarElem)
 {
-	msSound = apVarElem->GetAttributeString("Sound", "");
-	mfStepTime = apVarElem->GetAttributeFloat("StepTime", 1);
-	mlStepNum = apVarElem->GetAttributeInt("StepNum", 0);
-	mfDistance = apVarElem->GetAttributeFloat("Distance", 0); 
-		
-	mfTimeMulPerStep = apVarElem->GetAttributeFloat("TimeMulPerStep", 0); 
-	mfDistanceMulPerStep = apVarElem->GetAttributeFloat("DistanceMulPerStep", 0); 
+	msSound = hpl::GetAttributeString(apVarElem,"Sound", "");
+	mfStepTime = hpl::GetAttributeFloat(apVarElem,"StepTime", 1);
+	mlStepNum = hpl::GetAttributeInt(apVarElem,"StepNum", 0);
+	mfDistance = hpl::GetAttributeFloat(apVarElem,"Distance", 0);
+
+	mfTimeMulPerStep = hpl::GetAttributeFloat(apVarElem,"TimeMulPerStep", 0);
+	mfDistanceMulPerStep = hpl::GetAttributeFloat(apVarElem,"DistanceMulPerStep", 0);
 }
 
 //-----------------------------------------------------------------------
@@ -944,7 +947,7 @@ void cLuxInsanityHandler::LoadEvents(const tString& asFile)
 	///////////////////////
 	// Load document 
 	cResources *pResources = gpBase->mpEngine->GetResources();
-	iXmlDocument *pXmlDoc = pResources->LoadXmlDocument(asFile);
+	tinyxml2::XMLElement *pXmlDoc = pResources->LoadXmlDocument(asFile);
 	if(pXmlDoc==NULL)
 	{
 		Error("Could not load sanity events file: '%s'\n", asFile.c_str());
@@ -953,12 +956,9 @@ void cLuxInsanityHandler::LoadEvents(const tString& asFile)
 
 	///////////////////////
 	// Iterate children and create events
-    cXmlNodeListIterator it = pXmlDoc->GetChildIterator();
-	while(it.HasNext())
+	for(tinyxml2::XMLElement *pChildElem = pXmlDoc->FirstChildElement(); pChildElem != NULL; pChildElem = pChildElem->NextSiblingElement())
 	{
-		cXmlElement *pChildElem = it.Next()->ToElement();
-
-		tString sType = pChildElem->GetValue();
+		tString sType = pChildElem->Value();
 		iLuxInstanityEvent* pEvent = EventTypeToData(sType);
 		if(pEvent)
 		{

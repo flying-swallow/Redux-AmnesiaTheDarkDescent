@@ -32,6 +32,8 @@ using namespace hpl;
 
 //--------------------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
 class iEditorWindow;
 
 class iEditorEditMode;
@@ -69,8 +71,8 @@ protected:
 	void OnNew();
 	void OnPostWorldLoad();
 	void AppSpecificReset();
-	void AppSpecificLoad(iXmlDocument* apDoc);
-	void AppSpecificSave(iXmlDocument* apDoc);
+	void AppSpecificLoad(tinyxml2::XMLElement* apDoc);
+	void AppSpecificSave(tinyxml2::XMLElement* apDoc);
 
 	void UpdateMenu();
 	void UpdateEditMenu();

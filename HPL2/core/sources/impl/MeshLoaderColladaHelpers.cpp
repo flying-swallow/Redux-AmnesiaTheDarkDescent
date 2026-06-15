@@ -34,7 +34,7 @@
 #include "graphics/Animation.h"
 #include "graphics/AnimationTrack.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 #include "math/Math.h"
 
@@ -709,22 +709,22 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
-	void cMeshLoaderCollada::LoadLights(TiXmlElement* apRootElem, tColladaLightVec &avColladaLightVec)
+	void cMeshLoaderCollada::LoadLights(tinyxml2::XMLElement* apRootElem, tColladaLightVec &avColladaLightVec)
 	{
-		TiXmlElement* pLightElem = apRootElem->FirstChildElement("light");
+		tinyxml2::XMLElement* pLightElem = apRootElem->FirstChildElement("light");
 		for(;pLightElem!=NULL;	pLightElem = pLightElem->NextSiblingElement("light"))
 		{
 			cColladaLight Light;
 			Light.msId = cString::ToString(pLightElem->Attribute("id"),"");
 			Light.msName = cString::ToString(pLightElem->Attribute("name"),"");
 			
-			TiXmlElement *pTechniqueCommonElem = pLightElem->FirstChildElement("technique_common");
+			tinyxml2::XMLElement *pTechniqueCommonElem = pLightElem->FirstChildElement("technique_common");
 
 			//////////////////////////////////////////////
 			//COLLADA 1.4
 			if(pTechniqueCommonElem)
 			{
-				TiXmlElement *pTypeElem = pTechniqueCommonElem->FirstChildElement();
+				tinyxml2::XMLElement *pTypeElem = pTechniqueCommonElem->FirstChildElement();
 				if(pTypeElem==NULL){
 					Log("No Type element found!\n");
 					continue;
@@ -734,10 +734,10 @@ namespace hpl {
 				
 				/////////////
 				//Color
-				TiXmlElement *pParamElem = pTypeElem->FirstChildElement("color");
+				tinyxml2::XMLElement *pParamElem = pTypeElem->FirstChildElement("color");
 				if(pParamElem)
 				{
-					TiXmlText *pText = pParamElem->FirstChild()->ToText();
+					tinyxml2::XMLText *pText = pParamElem->FirstChild()->ToText();
 					tFloatVec vColor;
 					cString::GetFloatVec(pText->Value(), vColor);
 					Light.mDiffuseColor.r = vColor[0];
@@ -754,7 +754,7 @@ namespace hpl {
 				pParamElem = pTypeElem->FirstChildElement("falloff_angle");
 				if(pParamElem)
 				{
-					TiXmlText *pText = pParamElem->FirstChild()->ToText();
+					tinyxml2::XMLText *pText = pParamElem->FirstChild()->ToText();
 					Light.mfAngle = cString::ToFloat(pText->Value(),0);
 				}
 				else
@@ -768,11 +768,11 @@ namespace hpl {
 			{
 				Light.msType = cString::ToLowerCase(cString::ToString(pLightElem->Attribute("type"),""));
 
-				TiXmlElement *pParamElem = pLightElem->FirstChildElement("param");
+				tinyxml2::XMLElement *pParamElem = pLightElem->FirstChildElement("param");
 				for(; pParamElem; pParamElem = pParamElem->NextSiblingElement("param"))
 				{
 					tString sName = cString::ToString(pParamElem->Attribute("name"),"");
-					TiXmlText *pText = pParamElem->FirstChild()->ToText();
+					tinyxml2::XMLText *pText = pParamElem->FirstChild()->ToText();
 
 					if(sName == "COLOR")
 					{
@@ -818,10 +818,10 @@ namespace hpl {
 		return Anim;
 	}
 
-	void cMeshLoaderCollada::LoadAnimations(TiXmlElement* apRootElem, tColladaAnimationVec &avAnimations,
+	void cMeshLoaderCollada::LoadAnimations(tinyxml2::XMLElement* apRootElem, tColladaAnimationVec &avAnimations,
 		cColladaScene *apColladaScene)
 	{
-		TiXmlElement* pAnimElem = apRootElem->FirstChildElement("animation");
+		tinyxml2::XMLElement* pAnimElem = apRootElem->FirstChildElement("animation");
 		for(;pAnimElem!=NULL; pAnimElem = pAnimElem->NextSiblingElement("animation"))
 		{
 			/////////////////////////////////////////////
@@ -836,7 +836,7 @@ namespace hpl {
 
 			/////////////////////////////////////////////
 			//Check what animation to use.
-			TiXmlElement *pTestChannelElem = pAnimElem->FirstChildElement("channel");
+			tinyxml2::XMLElement *pTestChannelElem = pAnimElem->FirstChildElement("channel");
 			if(pTestChannelElem==NULL){Warning("Animation missing channel!\n");	continue;}
 			
 			//Get target node name
@@ -853,7 +853,7 @@ namespace hpl {
 						
 			//////////////////////////////////
 			// Load all Channels
-			TiXmlElement *pChannelElem = pAnimElem->FirstChildElement("channel");
+			tinyxml2::XMLElement *pChannelElem = pAnimElem->FirstChildElement("channel");
 			for(; pChannelElem!=NULL ; pChannelElem = pChannelElem->NextSiblingElement("channel"))
 			{
 				cColladaChannel	Channel;
@@ -867,14 +867,14 @@ namespace hpl {
 
 			//////////////////////////////////
 			// Load all Samplers
-			TiXmlElement *pSamplerElem = pAnimElem->FirstChildElement("sampler");
+			tinyxml2::XMLElement *pSamplerElem = pAnimElem->FirstChildElement("sampler");
 			for(; pSamplerElem!=NULL ; pSamplerElem = pSamplerElem->NextSiblingElement("sampler"))
 			{
 				cColladaSampler Sampler;
 				Sampler.msId = cString::ToString(pSamplerElem->Attribute("id"),"");
 
 				//Iterate the inputs and find the needed types.
-				TiXmlElement *pInput = pSamplerElem->FirstChildElement("input");
+				tinyxml2::XMLElement *pInput = pSamplerElem->FirstChildElement("input");
 				for(; pInput!=NULL ; pInput = pInput->NextSiblingElement("input"))
 				{
 					tString sSemantic = cString::ToString(pInput->Attribute("semantic"),"");
@@ -910,7 +910,7 @@ namespace hpl {
 
 			//////////////////////////////////
 			// Iterate through all the sources
-			TiXmlElement *pSourceElem = pAnimElem->FirstChildElement("source");
+			tinyxml2::XMLElement *pSourceElem = pAnimElem->FirstChildElement("source");
 			for(; pSourceElem!=NULL ; pSourceElem = pSourceElem->NextSiblingElement("source"))
 			{
 				Anim.mvSources.push_back(cColladaAnimSource());
@@ -918,7 +918,7 @@ namespace hpl {
 
 				Source.msId = cString::ToString(pSourceElem->Attribute("id"),"");
 
-				TiXmlElement *pArrayElem = pSourceElem->FirstChildElement("float_array");
+				tinyxml2::XMLElement *pArrayElem = pSourceElem->FirstChildElement("float_array");
 				if(pArrayElem == NULL){
 					//Warning("No array element found for animation data (shouldn't be anything bad)!\n"); 
 					continue;
@@ -930,7 +930,7 @@ namespace hpl {
 				// Count can be 0, check to avoid crashes
 				if(lCount>0)	
 				{
-					TiXmlText *pText = pArrayElem->FirstChild()->ToText();
+					tinyxml2::XMLText *pText = pArrayElem->FirstChild()->ToText();
 					cString::GetFloatVec(pText->Value(),Source.mvValues);
 				}
 			}
@@ -941,7 +941,7 @@ namespace hpl {
 
 
 
-	void cMeshLoaderCollada::LoadColladaScene(TiXmlElement* apRootElem,cColladaNode *apParentNode, 
+	void cMeshLoaderCollada::LoadColladaScene(tinyxml2::XMLElement* apRootElem,cColladaNode *apParentNode, 
 											cColladaScene *apScene,tColladaLightVec *apColladaLightVec)
 	{
 		cColladaNode *pNode = apParentNode->CreateChild();
@@ -971,7 +971,7 @@ namespace hpl {
 
 		/////////////////////////////////////////////
 		//Get source, if there is any.
-		TiXmlElement *pInstanceElem = apRootElem->FirstChildElement("instance_geometry");
+		tinyxml2::XMLElement *pInstanceElem = apRootElem->FirstChildElement("instance_geometry");
 		if(pInstanceElem==NULL) pInstanceElem = apRootElem->FirstChildElement("instance_light");
 		if(pInstanceElem==NULL) pInstanceElem = apRootElem->FirstChildElement("instance_controller");
 		if(pInstanceElem==NULL) pInstanceElem = apRootElem->FirstChildElement("instance");
@@ -989,13 +989,13 @@ namespace hpl {
 
 			/////////////////////////////////////////////
 			//Get Material instance, if any
-			TiXmlElement *pBindMaterialElem = pInstanceElem->FirstChildElement("bind_material");
+			tinyxml2::XMLElement *pBindMaterialElem = pInstanceElem->FirstChildElement("bind_material");
 			if(pBindMaterialElem)
 			{
-				TiXmlElement *pTechniqueCommonElem = pBindMaterialElem->FirstChildElement("technique_common");
+				tinyxml2::XMLElement *pTechniqueCommonElem = pBindMaterialElem->FirstChildElement("technique_common");
                 if(pTechniqueCommonElem)
 				{
-					TiXmlElement *pInstanceMaterialElem = pTechniqueCommonElem->FirstChildElement("instance_material");
+					tinyxml2::XMLElement *pInstanceMaterialElem = pTechniqueCommonElem->FirstChildElement("instance_material");
                     if(pInstanceMaterialElem)
 					{
 						pNode->msInstanceMaterial = cString::ToString(pInstanceMaterialElem->Attribute("target"),"");
@@ -1013,13 +1013,13 @@ namespace hpl {
 		
 		///////////////////////////////////////////////////////////
 		//Iterate through all of the transforms.
-		TiXmlElement *pTransformElem = apRootElem->FirstChildElement();
+		tinyxml2::XMLElement *pTransformElem = apRootElem->FirstChildElement();
 		while(pTransformElem)
 		{
 			tString sVal = pTransformElem->Value();
 			tString sSid = cString::ToString(pTransformElem->Attribute("sid"),"");
 
-			TiXmlNode *pChildElem = pTransformElem->FirstChild();
+			tinyxml2::XMLNode *pChildElem = pTransformElem->FirstChild();
 			if(pChildElem==NULL){
 				pTransformElem = pTransformElem->NextSiblingElement();
 				continue;
@@ -1027,7 +1027,7 @@ namespace hpl {
 
 			//Log("val: %s\n",sVal.c_str());
 
-			TiXmlText *pText= pChildElem->ToText();
+			tinyxml2::XMLText *pText= pChildElem->ToText();
 			if(pText==NULL)
 			{
 				pTransformElem = pTransformElem->NextSiblingElement();
@@ -1107,7 +1107,7 @@ namespace hpl {
 		pNode->m_mtxWorldTransform = cMath::MatrixMul(apParentNode->m_mtxWorldTransform, mtxTransform);
 
 		//Load all children
-		TiXmlElement *pNodeElem = apRootElem->FirstChildElement("node");
+		tinyxml2::XMLElement *pNodeElem = apRootElem->FirstChildElement("node");
 		while(pNodeElem)
 		{
 			LoadColladaScene(pNodeElem, pNode,apScene,apColladaLightVec);
@@ -1119,11 +1119,11 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 
-	void cMeshLoaderCollada::LoadControllers(TiXmlElement* apRootElem,
+	void cMeshLoaderCollada::LoadControllers(tinyxml2::XMLElement* apRootElem,
 		tColladaControllerVec &avColladaControllerVec,
 		tColladaGeometryVec *apColladaGeometryVec)
 	{
-		TiXmlElement* pCtrlElem = apRootElem->FirstChildElement("controller");
+		tinyxml2::XMLElement* pCtrlElem = apRootElem->FirstChildElement("controller");
 		for(;pCtrlElem!=NULL; pCtrlElem = pCtrlElem->NextSiblingElement("controller"))
 		{
 			avColladaControllerVec.push_back(cColladaController());
@@ -1134,17 +1134,17 @@ namespace hpl {
 			
 			///////////////////////////////////////
 			// Get Skin element.
-			TiXmlElement *pSkinElem = pCtrlElem->FirstChildElement("skin");
+			tinyxml2::XMLElement *pSkinElem = pCtrlElem->FirstChildElement("skin");
 			if(pSkinElem==NULL){ Error("No Skin found in controller!\n"); continue;}
 			
 			Controller.msTarget = cString::ToString(pSkinElem->Attribute("source"),"");
 			GetAdress(Controller.msTarget);
 
 			//Get the bind matrix
-			TiXmlElement *pBindMatrixElem = pSkinElem->FirstChildElement("bind_shape_matrix");
+			tinyxml2::XMLElement *pBindMatrixElem = pSkinElem->FirstChildElement("bind_shape_matrix");
 			if(pBindMatrixElem)
 			{
-				TiXmlText *pText = pBindMatrixElem->FirstChild()->ToText();
+				tinyxml2::XMLText *pText = pBindMatrixElem->FirstChild()->ToText();
 				tFloatVec vValues;
 				cString::GetFloatVec(pText->Value(), vValues);
 
@@ -1167,10 +1167,10 @@ namespace hpl {
 			////////////////////////////////////////
 			// Load Joint information
 			{
-				TiXmlElement *pJointsElem = pSkinElem->FirstChildElement("joints");
+				tinyxml2::XMLElement *pJointsElem = pSkinElem->FirstChildElement("joints");
 				if(pJointsElem==NULL){ Warning("Couldn't find joint element for controller!\n"); continue;}
 				
-				TiXmlElement *pInputElem = pJointsElem->FirstChildElement("input");
+				tinyxml2::XMLElement *pInputElem = pJointsElem->FirstChildElement("input");
 				for(; pInputElem != NULL; pInputElem = pInputElem->NextSiblingElement("input"))
 				{
 					tString sSemantic = cString::ToString(pInputElem->Attribute("semantic"),"");
@@ -1192,10 +1192,10 @@ namespace hpl {
 			////////////////////////////////////////
 			// Load Joint weight info
 			{
-				TiXmlElement *pJointWeightElem = pSkinElem->FirstChildElement("vertex_weights");
+				tinyxml2::XMLElement *pJointWeightElem = pSkinElem->FirstChildElement("vertex_weights");
 				if(pJointWeightElem==NULL){ Warning("Couldn't find vertex_weights element for controller!\n"); continue;}
 
-				TiXmlElement *pInputElem = pJointWeightElem->FirstChildElement("input");
+				tinyxml2::XMLElement *pInputElem = pJointWeightElem->FirstChildElement("input");
 				for(; pInputElem != NULL; pInputElem = pInputElem->NextSiblingElement("input"))
 				{
 					tString sSemantic = cString::ToString(pInputElem->Attribute("semantic"),"");
@@ -1219,7 +1219,7 @@ namespace hpl {
 
 			////////////////////////////////////////
 			// Get the sources and load / apply them
-			TiXmlElement *pSourceElem = pSkinElem->FirstChildElement("source");
+			tinyxml2::XMLElement *pSourceElem = pSkinElem->FirstChildElement("source");
 			while(pSourceElem)
 			{
 				tString sId = cString::ToString(pSourceElem->Attribute("id"),"");
@@ -1228,7 +1228,7 @@ namespace hpl {
 				//Name of joints
 				if(sId == sJointNameSource)
 				{
-					TiXmlElement *pNameArrayElem = pSourceElem->FirstChildElement("Name_array");
+					tinyxml2::XMLElement *pNameArrayElem = pSourceElem->FirstChildElement("Name_array");
 					if(pNameArrayElem==NULL){ Warning("Couldn't find name array!\n"); continue;}
                     
 					int lCount = cString::ToInt(pNameArrayElem->Attribute("count"),0);
@@ -1236,7 +1236,7 @@ namespace hpl {
 					//Reserve for faster push_back
 					Controller.mvJoints.reserve(lCount);
 					
-					TiXmlText *pNameText = pNameArrayElem->FirstChild()->ToText();
+					tinyxml2::XMLText *pNameText = pNameArrayElem->FirstChild()->ToText();
 					if(pNameText==NULL){ Error("No joint name data found!\n"); continue;}
 					
 					tStringVec vJoints;
@@ -1284,13 +1284,13 @@ namespace hpl {
 				//Joint weights or matrices
 				else if(sId == sJointWeightSource || sId == sJointMatrixSource)
 				{
-					TiXmlElement *pFloatArrayElem = pSourceElem->FirstChildElement("float_array");
+					tinyxml2::XMLElement *pFloatArrayElem = pSourceElem->FirstChildElement("float_array");
 					if(pFloatArrayElem==NULL){ Warning("Couldn't find name array!\n"); continue;}
 					
 					int lCount = cString::ToInt(pFloatArrayElem->Attribute("count"),0);
 
 					//Get the text data
-					TiXmlText *pText = pFloatArrayElem->FirstChild()->ToText();
+					tinyxml2::XMLText *pText = pFloatArrayElem->FirstChild()->ToText();
 					if(pText==NULL){ Error("No value data found!\n"); return;}
 					
 					//Convert text to floats
@@ -1322,16 +1322,16 @@ namespace hpl {
 			////////////////////////////////////////
 			// Get joint - vertex pairs.
 			{
-				TiXmlElement *pJointWeightElem = pSkinElem->FirstChildElement("vertex_weights");
+				tinyxml2::XMLElement *pJointWeightElem = pSkinElem->FirstChildElement("vertex_weights");
 				if(pJointWeightElem==NULL){ Warning("Couldn't find vertex_weights element for controller!\n"); continue;}
 				
 				////////////////////////////
 				// Vcount - get the number of joints for each vertex.
-				TiXmlElement *pVCountElem = pJointWeightElem->FirstChildElement("vcount");
+				tinyxml2::XMLElement *pVCountElem = pJointWeightElem->FirstChildElement("vcount");
 				if(pVCountElem==NULL){ Warning("Couldn't find vertex_weights vcount element for controller!\n"); continue;}
 
 				//Get the text data
-				TiXmlText *pVCountText = pVCountElem->FirstChild()->ToText();
+				tinyxml2::XMLText *pVCountText = pVCountElem->FirstChild()->ToText();
 				if(pVCountText==NULL){ Error("No value data found!\n"); continue;}
 
                 tIntVec vVCount;
@@ -1339,11 +1339,11 @@ namespace hpl {
 
 				/////////////////////////////
 				//V - Get the pairs
-				TiXmlElement *pVElem = pJointWeightElem->FirstChildElement("v");
+				tinyxml2::XMLElement *pVElem = pJointWeightElem->FirstChildElement("v");
 				if(pVElem==NULL){ Warning("Couldn't find vertex_weights v element for controller!\n"); continue;}
 
 				//Get the text data
-				TiXmlText *pVText = pVElem->FirstChild()->ToText();
+				tinyxml2::XMLText *pVText = pVElem->FirstChild()->ToText();
 				if(pVText==NULL){ Error("No value data found!\n"); continue;}
 
 				tIntVec vV;
@@ -1450,13 +1450,13 @@ namespace hpl {
 
 	///////////////////////////////////////////
 
-	void cMeshLoaderCollada::LoadGeometry(TiXmlElement* apRootElem, tColladaGeometryVec &avColladaGeometryVec)
+	void cMeshLoaderCollada::LoadGeometry(tinyxml2::XMLElement* apRootElem, tColladaGeometryVec &avColladaGeometryVec)
 	{
-		TiXmlElement* pGeomElem = apRootElem->FirstChildElement("geometry");
+		tinyxml2::XMLElement* pGeomElem = apRootElem->FirstChildElement("geometry");
 		for(; pGeomElem!=NULL; pGeomElem = pGeomElem->NextSiblingElement("geometry"))
 		{
 			//There should only be one mesh
-			TiXmlElement* pMeshElem = pGeomElem->FirstChildElement("mesh");
+			tinyxml2::XMLElement* pMeshElem = pGeomElem->FirstChildElement("mesh");
 			if(pMeshElem==NULL){ 
 				//Warning("No Mesh element found in geometry element '%s'!\n",Geometry.msName.c_str()); 
 				continue;
@@ -1489,7 +1489,7 @@ namespace hpl {
 
 			///////////////////////////////////////////////////
 			//Iterate through all sources (the vertices)
-			TiXmlElement* pSourceElem = pMeshElem->FirstChildElement("source");
+			tinyxml2::XMLElement* pSourceElem = pMeshElem->FirstChildElement("source");
 			while(pSourceElem)
 			{
 				//Add a new array
@@ -1517,11 +1517,11 @@ namespace hpl {
 			///////////////////////////////////////////////////
 			//Get the "real" name for the vertices
 			//This always includes postions and can include normals and tex coords aswell.
-			TiXmlElement* pVerticesElem = pMeshElem->FirstChildElement("vertices");
+			tinyxml2::XMLElement* pVerticesElem = pMeshElem->FirstChildElement("vertices");
 			if(pVerticesElem==NULL){ Error("Vertices not found!\n"); return;}
 
 			//Iterate the inputs
-			TiXmlElement* pVtxInput = pVerticesElem->FirstChildElement("input");
+			tinyxml2::XMLElement* pVtxInput = pVerticesElem->FirstChildElement("input");
 			while(pVtxInput)
 			{
 				tString sSemantic = cString::ToString(pVtxInput->Attribute("semantic"),"");
@@ -1566,17 +1566,17 @@ namespace hpl {
 
 			///////////////////////////////////////////////////
 			//Get the Triangles, save them in a row
-			TiXmlElement* pTriElem = pMeshElem->FirstChildElement("triangles");
+			tinyxml2::XMLElement* pTriElem = pMeshElem->FirstChildElement("triangles");
 			if(pTriElem==NULL)
 			{
 				pTriElem = pMeshElem->FirstChildElement("polylist");
-				if(pTriElem && pTriElem->NextSibling("polylist"))
+				if(pTriElem && pTriElem->NextSiblingElement("polylist"))
 					Warning("Geometry '%s' seem to have multitexturing!\n",Geometry.msName.c_str());
 
 			}
 			else
 			{
-				if(pTriElem->NextSibling("triangles"))
+				if(pTriElem->NextSiblingElement("triangles"))
 					Warning("Geometry '%s' seem to have multitexturing!\n",Geometry.msName.c_str());
 				
 			}
@@ -1596,7 +1596,7 @@ namespace hpl {
 			GetAdress(Geometry.msMaterial);
 
 			//Get the inputs to figure what the indices in he triangles mean.
-			TiXmlElement* pTriInputElem = pTriElem->FirstChildElement("input");
+			tinyxml2::XMLElement* pTriInputElem = pTriElem->FirstChildElement("input");
 			while(pTriInputElem)
 			{
 				tString sSemantic = cString::ToString(pTriInputElem->Attribute("semantic"),"");
@@ -1696,10 +1696,10 @@ namespace hpl {
 			tColladaTestTriMap map_TestTris;
 
 			// Load all the Indices
-			TiXmlElement* pPElem = pTriElem->FirstChildElement("p");
+			tinyxml2::XMLElement* pPElem = pTriElem->FirstChildElement("p");
 			while(pPElem)
 			{
-				TiXmlText *pText = pPElem->FirstChild()->ToText();
+				tinyxml2::XMLText *pText = pPElem->FirstChild()->ToText();
 				if(pText==NULL){ Error("No tri data found!\n"); return;}
 
 				//Get the indices for the triangle
@@ -1803,15 +1803,15 @@ namespace hpl {
 
 	//////////////////////////////////////
 
-	void cMeshLoaderCollada::LoadVertexData(TiXmlElement* apSourceElem, tVector3fVec &avVtxVec)
+	void cMeshLoaderCollada::LoadVertexData(tinyxml2::XMLElement* apSourceElem, tVector3fVec &avVtxVec)
 	{
 		//Get some info on the build up of the array
-		TiXmlElement* pTechniqueElem = apSourceElem->FirstChildElement("technique_common");
+		tinyxml2::XMLElement* pTechniqueElem = apSourceElem->FirstChildElement("technique_common");
 		if(pTechniqueElem==NULL) pTechniqueElem = apSourceElem->FirstChildElement("technique");
 		if(pTechniqueElem==NULL){ Warning("No technique or technique_common element found!\n"); return;}
 
 		//Get some attributes from the accessor
-		TiXmlElement* pAccessor = pTechniqueElem->FirstChildElement("accessor");
+		tinyxml2::XMLElement* pAccessor = pTechniqueElem->FirstChildElement("accessor");
 		if(pAccessor==NULL){ Warning("No accessor element for source data found!\n"); return;}
 
 		int lElements = cString::ToInt(pAccessor->Attribute("stride"),0);
@@ -1820,7 +1820,7 @@ namespace hpl {
 		//Log("Elems: %d Count: %d\n",lElements,lVtxCount);
 
 		//Load the array
-		TiXmlElement* pDataElem = apSourceElem->FirstChildElement("float_array");
+		tinyxml2::XMLElement* pDataElem = apSourceElem->FirstChildElement("float_array");
 		if(pDataElem==NULL)
 		{
 			//try with array as well.
@@ -1830,7 +1830,7 @@ namespace hpl {
 			}
 		}
 
-		TiXmlText* pTextElem = pDataElem->FirstChild()->ToText();
+		tinyxml2::XMLText* pTextElem = pDataElem->FirstChild()->ToText();
 		if(pTextElem==NULL){ Warning("No text found!\n"); return;}
 
 		const char* pChars = pTextElem->Value();
@@ -1840,22 +1840,22 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cMeshLoaderCollada::LoadImages(TiXmlElement* apRootElem, tColladaImageVec &avColladaImageVec)
+	void cMeshLoaderCollada::LoadImages(tinyxml2::XMLElement* apRootElem, tColladaImageVec &avColladaImageVec)
 	{
-		TiXmlElement* pImageElem = apRootElem->FirstChildElement("image");
+		tinyxml2::XMLElement* pImageElem = apRootElem->FirstChildElement("image");
 		while(pImageElem)
 		{
 			cColladaImage Image;
 			Image.msId = cString::ToString(pImageElem->Attribute("id"),"");
 			Image.msName = cString::ToString(pImageElem->Attribute("name"),"");
 			
-			TiXmlElement* pInitFromElem = pImageElem->FirstChildElement("init_from");
+			tinyxml2::XMLElement* pInitFromElem = pImageElem->FirstChildElement("init_from");
 			//COLLADA 1.4	           
 			if(pInitFromElem)
 			{
 				if(pInitFromElem->FirstChild())
 				{
-					TiXmlText *pText = pInitFromElem->FirstChild()->ToText();
+					tinyxml2::XMLText *pText = pInitFromElem->FirstChild()->ToText();
 					Image.msSource = cString::ToString(pText->Value(),"");
 				}
 				else
@@ -1898,9 +1898,9 @@ namespace hpl {
 		return &asId;
 	}
 
-	void cMeshLoaderCollada::LoadTextures(TiXmlElement* apRootElem, tColladaTextureVec &avColladaTextureVec)
+	void cMeshLoaderCollada::LoadTextures(tinyxml2::XMLElement* apRootElem, tColladaTextureVec &avColladaTextureVec)
 	{
-		TiXmlElement* pTextureElem = apRootElem->FirstChildElement();
+		tinyxml2::XMLElement* pTextureElem = apRootElem->FirstChildElement();
 		for(;pTextureElem!=NULL; pTextureElem = pTextureElem->NextSiblingElement())
 		{	
 			cColladaTexture Texture;
@@ -1910,13 +1910,13 @@ namespace hpl {
 			
 			/////////////////////////////////////////
 			//COLLADA 1.4
-			TiXmlElement *pProfileCommon = pTextureElem->FirstChildElement("profile_COMMON");
+			tinyxml2::XMLElement *pProfileCommon = pTextureElem->FirstChildElement("profile_COMMON");
 			if(pProfileCommon)
 			{
 				std::vector<cEffectNewParam> vNewParams;
 				//////////////////////////
 				//Iterate all newparams
-				TiXmlElement *pNewParamElem = pProfileCommon->FirstChildElement("newparam");
+				tinyxml2::XMLElement *pNewParamElem = pProfileCommon->FirstChildElement("newparam");
 				for(; pNewParamElem != NULL; pNewParamElem = pNewParamElem->NextSiblingElement("newparam"))
 				{
 					vNewParams.push_back(cEffectNewParam());
@@ -1924,7 +1924,7 @@ namespace hpl {
 					
 					newParam.msId = pNewParamElem->Attribute("sid");
 
-					TiXmlElement *pChildElem = pNewParamElem->FirstChildElement();
+					tinyxml2::XMLElement *pChildElem = pNewParamElem->FirstChildElement();
 					if(pChildElem)
 					{
 						newParam.msType = pChildElem->Value();
@@ -1935,10 +1935,10 @@ namespace hpl {
 						else if(newParam.msType == "sampler2D")	sDataName = "source";
 
 						if(sDataName == "") continue;
-						TiXmlElement *pValueElem = pChildElem->FirstChildElement(sDataName.c_str());
+						tinyxml2::XMLElement *pValueElem = pChildElem->FirstChildElement(sDataName.c_str());
 						if(pValueElem)
 						{
-							TiXmlText *pText = pValueElem->FirstChild()->ToText();
+							tinyxml2::XMLText *pText = pValueElem->FirstChild()->ToText();
                             newParam.msData = pText->Value();
 						}
 						else
@@ -1953,13 +1953,13 @@ namespace hpl {
 				
 				//////////////////////////
 				//Get the first technique
-				TiXmlElement *pTechniqueElem = pProfileCommon->FirstChildElement("technique");
+				tinyxml2::XMLElement *pTechniqueElem = pProfileCommon->FirstChildElement("technique");
 				if(pTechniqueElem==NULL){
 					Warning("No effect technique element found!\n");
 					continue;
 				}
 
-				TiXmlElement *pTypeElem = pTechniqueElem->FirstChildElement();
+				tinyxml2::XMLElement *pTypeElem = pTechniqueElem->FirstChildElement();
 				if(pTypeElem==NULL){
 					Warning("No effect type element found!\n");
 					continue;
@@ -1974,10 +1974,10 @@ namespace hpl {
 				
 				///////////////////////
                 //Diffuse
-                TiXmlElement *pDiffuseElem = pTypeElem->FirstChildElement("diffuse");
+                tinyxml2::XMLElement *pDiffuseElem = pTypeElem->FirstChildElement("diffuse");
 				if(pDiffuseElem)
 				{
-					TiXmlElement *pLocalTexture = pDiffuseElem->FirstChildElement("texture");
+					tinyxml2::XMLElement *pLocalTexture = pDiffuseElem->FirstChildElement("texture");
                     if(pLocalTexture)
 					{
 						tString _tstr = cString::ToString(pLocalTexture->Attribute("texture"),"");
@@ -2001,7 +2001,7 @@ namespace hpl {
 			{
 				////////////////////////////
 				//Iterate root params
-				TiXmlElement* pParamElem = pTextureElem->FirstChildElement("param");
+				tinyxml2::XMLElement* pParamElem = pTextureElem->FirstChildElement("param");
 				while(pParamElem)
 				{
 
@@ -2010,14 +2010,14 @@ namespace hpl {
 
 				///////////////////////////
 				//Iterate techniques
-				TiXmlElement* pTechniqueElem = pTextureElem->FirstChildElement("technique");
+				tinyxml2::XMLElement* pTechniqueElem = pTextureElem->FirstChildElement("technique");
 				while(pTechniqueElem)
 				{
 					tString sProfile = cString::ToString(pTechniqueElem->Attribute("profile"),"");
 
 					////////////////////////////
 					//Technique params:
-					TiXmlElement* pTechParam = pTechniqueElem->FirstChildElement("param");
+					tinyxml2::XMLElement* pTechParam = pTechniqueElem->FirstChildElement("param");
 					while(pTechParam)
 					{
 						pTechParam = pTechParam->NextSiblingElement("param");
@@ -2025,7 +2025,7 @@ namespace hpl {
 
 					///////////////////////////////
 					//Technique inputs:
-					TiXmlElement* pTechInput = pTechniqueElem->FirstChildElement("input");
+					tinyxml2::XMLElement* pTechInput = pTechniqueElem->FirstChildElement("input");
 					while(pTechInput)
 					{
 						tString sSemantic = cString::ToString(pTechInput->Attribute("semantic"),"");
@@ -2051,9 +2051,9 @@ namespace hpl {
 	}
 	//-----------------------------------------------------------------------
 
-	void cMeshLoaderCollada::LoadMaterials(TiXmlElement* apRootElem, tColladaMaterialVec &avColladaMaterialVec)
+	void cMeshLoaderCollada::LoadMaterials(tinyxml2::XMLElement* apRootElem, tColladaMaterialVec &avColladaMaterialVec)
 	{
-		TiXmlElement* pMaterialElem = apRootElem->FirstChildElement("material");
+		tinyxml2::XMLElement* pMaterialElem = apRootElem->FirstChildElement("material");
 		while(pMaterialElem)
 		{
 			cColladaMaterial Material;
@@ -2062,7 +2062,7 @@ namespace hpl {
 
 			///////////////////////////////////////////
 			// COLLADA 1.4
-			TiXmlElement *pIstanceEffectElem = pMaterialElem->FirstChildElement("instance_effect");
+			tinyxml2::XMLElement *pIstanceEffectElem = pMaterialElem->FirstChildElement("instance_effect");
 			if(pIstanceEffectElem)
 			{
 				Material.msTexture = cString::ToString(pIstanceEffectElem->Attribute("url"),"");
@@ -2074,17 +2074,17 @@ namespace hpl {
 				//The rest of the material loader is gonna be a little lame
 				//Just gonna look for a texture.
 
-				TiXmlElement* pShaderElem = pMaterialElem->FirstChildElement("shader");
+				tinyxml2::XMLElement* pShaderElem = pMaterialElem->FirstChildElement("shader");
 				if(pShaderElem==NULL){ Warning("No shader found!\n"); continue;}
 
-				TiXmlElement* pTechElem = pShaderElem->FirstChildElement("technique");
+				tinyxml2::XMLElement* pTechElem = pShaderElem->FirstChildElement("technique");
 				if(pTechElem==NULL){ Warning("No technique found!\n"); continue;}
 
-				TiXmlElement* pPassElem = pTechElem->FirstChildElement("pass");
+				tinyxml2::XMLElement* pPassElem = pTechElem->FirstChildElement("pass");
 				if(pPassElem==NULL){ Warning("No pass found!\n"); continue;}
 
 				//Iterate through the inputs and try to find a texture
-				TiXmlElement* pInputElem = pPassElem->FirstChildElement("input");
+				tinyxml2::XMLElement* pInputElem = pPassElem->FirstChildElement("input");
 				while(pInputElem)
 				{
 					tString sSemantic =  cString::ToString(pInputElem->Attribute("semantic"),"");

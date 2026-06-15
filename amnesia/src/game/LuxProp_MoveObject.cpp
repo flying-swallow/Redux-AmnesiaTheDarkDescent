@@ -44,7 +44,7 @@ iLuxProp *cLuxPropLoader_MoveObject::CreateProp(const tString& asName, int alID,
 
 //-----------------------------------------------------------------------
 
-void cLuxPropLoader_MoveObject::LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem)
+void cLuxPropLoader_MoveObject::LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem)
 {
 	cLuxProp_MoveObject  *pMoveObject = static_cast<cLuxProp_MoveObject*>(apProp);
 

@@ -24,7 +24,7 @@
 #include "math/MathTypes.h"
 #include "graphics/GraphicsTypes.h"
 
-class TiXmlDocument;
+namespace tinyxml2 { class XMLDocument; }
 
 namespace hpl {
 	class cFileSearcher;
@@ -82,7 +82,7 @@ namespace hpl {
 		tWString msFile;
 		cFileSearcher *mpFileSearcher;
 
-		TiXmlDocument *mpXmlDoc;
+		tinyxml2::XMLDocument *mpXmlDoc;
 
 		bool mbUseCRC;
 

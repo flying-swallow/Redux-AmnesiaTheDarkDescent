@@ -26,6 +26,8 @@
 
 //----------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
 class cLuxPlayer;
 class iLuxHandObject;
 class cLuxHandObjectLoader;
@@ -39,8 +41,8 @@ class cLuxPlayerHandsLoader : public cEntityLoader_Object
 public:
 	cLuxPlayerHandsLoader(const tString& asName, cLuxPlayerHands *apPlayerHands);
 
-	void BeforeLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars);
-	void AfterLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars);
+	void BeforeLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars);
+	void AfterLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars);
 
 private:
 	cLuxPlayerHands *mpPlayerHands;

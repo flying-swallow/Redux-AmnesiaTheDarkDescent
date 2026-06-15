@@ -22,6 +22,8 @@
 
 #include "EntityWrapperLight.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 //---------------------------------------------------------------------
 
 class cIconEntityLightBox : public iIconEntityLight
@@ -95,7 +97,7 @@ public:
 
 	void DrawLightTypeSpecific(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected);
 
-	void SaveToElement(cXmlElement* apElement);
+	void SaveToElement(tinyxml2::XMLElement* apElement);
 
 protected:
 	iEngineEntity* CreateSpecificEngineEntity();

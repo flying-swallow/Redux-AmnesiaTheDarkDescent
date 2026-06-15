@@ -24,6 +24,8 @@
 
 #include "EditorBaseClasses.h"
 
+namespace tinyxml2 { class XMLElement; class XMLDocument; }
+
 class iEditorBase;
 class iEditorObjectIndex;
 class iEditorObjectIndexEntry;
@@ -52,7 +54,7 @@ public:
 	void AddFileFilter(const tWString& asFilter) { mvFileFilters.push_back(asFilter); }
 	const tWStringVec& GetFileFilters() { return mvFileFilters; }
 
-	virtual void Save(iXmlDocument* apDoc);
+	virtual void Save(tinyxml2::XMLDocument* apDoc);
 
 	virtual void Create();
 	virtual bool Refresh();
@@ -125,13 +127,13 @@ public:
 	const tWString& GetRelPath();
 	const tWString& GetFullPath();
 
-	bool Refresh(cXmlElement* apElement, bool abAddSubDirs);
+	bool Refresh(tinyxml2::XMLElement* apElement, bool abAddSubDirs);
 	
 	virtual bool CreateFromDir(iEditorObjectIndexDir* apParentDir, const tWString& asRelPath, bool abCreateSubCategories);
 
 	virtual iEditorObjectIndexEntry* CreateEntry()=0;
 
-	virtual void Save(cXmlElement* apIndexElement, bool abSaveSubDirs);
+	virtual void Save(tinyxml2::XMLElement* apIndexElement, bool abSaveSubDirs);
 
 	void SetExpanded(bool abX) { mbExpanded = abX; }
 	bool IsExpanded() { return mbExpanded; }
@@ -173,12 +175,12 @@ public:
 	virtual ~iEditorObjectIndexEntry(){}
 
 	virtual bool CreateFromFile(const tWString& asFilename);
-	virtual bool CreateFromXmlElement(cXmlElement* apElement);
+	virtual bool CreateFromXmlElement(tinyxml2::XMLElement* apElement);
 
 	bool CheckFileExists();
 	bool CheckNeedsUpdate();
 
-	virtual void Save(cXmlElement* apElement);
+	virtual void Save(tinyxml2::XMLElement* apElement);
 
 	const tString& GetEntryName() { return msEntryName; }
 	virtual const tString& GetFileName() { return msFileName; }

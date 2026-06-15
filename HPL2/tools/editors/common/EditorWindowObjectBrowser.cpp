@@ -23,6 +23,9 @@
 
 #include "EditorWorld.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 #include <algorithm>
 
 //-------------------------------------------------------------------
@@ -70,27 +73,27 @@ bool iEditorObjectIndexEntryMeshObject::CreateFromFile(const tWString& asFilenam
 
 //-------------------------------------------------------------------
 
-bool iEditorObjectIndexEntryMeshObject::CreateFromXmlElement(cXmlElement* apElement)
+bool iEditorObjectIndexEntryMeshObject::CreateFromXmlElement(tinyxml2::XMLElement* apElement)
 {
 	if(iEditorObjectIndexEntry::CreateFromXmlElement(apElement)==false)
 		return false;
 
-	mlTriangleCount = apElement->GetAttributeInt("TriCount");
-	mvBVMin = apElement->GetAttributeVector3f("BVMin");
-	mvBVMax = apElement->GetAttributeVector3f("BVMax");
+	mlTriangleCount = GetAttributeInt(apElement, "TriCount");
+	mvBVMin = GetAttributeVector3f(apElement, "BVMin");
+	mvBVMax = GetAttributeVector3f(apElement, "BVMax");
 
 	return true;
 }
 
 //-------------------------------------------------------------------
 
-void iEditorObjectIndexEntryMeshObject::Save(cXmlElement* apElement)
+void iEditorObjectIndexEntryMeshObject::Save(tinyxml2::XMLElement* apElement)
 {
 	iEditorObjectIndexEntry::Save(apElement);
 
-	apElement->SetAttributeInt("TriCount", mlTriangleCount);
-	apElement->SetAttributeVector3f("BVMin", mvBVMin);
-	apElement->SetAttributeVector3f("BVMax", mvBVMax);
+	SetAttributeInt(apElement, "TriCount", mlTriangleCount);
+	SetAttributeVector3f(apElement, "BVMin", mvBVMin);
+	SetAttributeVector3f(apElement, "BVMax", mvBVMax);
 }
 
 //-------------------------------------------------------------------

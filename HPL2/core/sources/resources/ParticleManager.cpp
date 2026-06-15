@@ -26,7 +26,7 @@
 #include "system/LowLevelSystem.h"
 #include "system/String.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 namespace hpl {
 
@@ -116,7 +116,7 @@ namespace hpl {
     
 	//-----------------------------------------------------------------------
 
-	cParticleSystem* cParticleManager::CreatePS(const tString& asName, const tString& asDataName, cXmlElement* apElement, cVector3f avSize)
+	cParticleSystem* cParticleManager::CreatePS(const tString& asName, const tString& asDataName, tinyxml2::XMLElement* apElement, cVector3f avSize)
 	{
 		cParticleSystemData *pPSData = NULL;
 

@@ -29,6 +29,8 @@ using namespace hpl;
 
 //-------------------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
 class iEditorWorld;
 class cEntityWrapperBody;
 class cEditorWindowEntityEditBox;
@@ -105,12 +107,12 @@ class iEntityWrapperDataJoint : public iEntityWrapperData
 public:
 	iEntityWrapperDataJoint(iEntityWrapperType*);
 
-	bool SaveSpecific(cXmlElement*);
+	bool SaveSpecific(tinyxml2::XMLElement*);
 
 	//void CopyFromEntity(iEntityWrapper* apEntity);
 	//void CopyToEntity(iEntityWrapper* apEntity);
-	//bool Load(cXmlElement*);
-	//bool SaveSpecific(cXmlElement*);
+	//bool Load(tinyxml2::XMLElement*);
+	//bool SaveSpecific(tinyxml2::XMLElement*);
 
 protected:
 };
@@ -221,7 +223,7 @@ public:
 
 	cEditorWindowEntityEditBox* CreateEditBox(cEditorEditModeSelect* apEditMode);
 
-	//void SaveToElement(cXmlElement* apElement);
+	//void SaveToElement(tinyxml2::XMLElement* apElement);
 	
 	void Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol);
 protected:

@@ -28,7 +28,9 @@
 #include "math/Math.h"
 
 
-#include "impl/tinyXML/tinyxml.h"
+#include "resources/XmlHelper.h"
+
+#include <tinyxml2.h>
 
 #include <algorithm>
 
@@ -556,14 +558,16 @@ namespace hpl {
 	
 	void cAINodeContainer::SaveToFile(const tWString &asFile)
 	{
-		TiXmlDocument* pXmlDoc = hplNew( TiXmlDocument,() );
-		
-		TiXmlElement *pRootElem = static_cast<TiXmlElement*>(pXmlDoc->InsertEndChild(TiXmlElement("AINodes")));
+		tinyxml2::XMLDocument xmlDoc;
+
+		tinyxml2::XMLElement *pRootElem = xmlDoc.NewElement("AINodes");
+		xmlDoc.InsertEndChild(pRootElem);
 
 		for(size_t i=0; i< mvNodes.size(); ++i)
 		{
 			cAINode * pNode = mvNodes[i];
-			TiXmlElement *pNodeElem = static_cast<TiXmlElement*>(pRootElem->InsertEndChild(TiXmlElement("Node")));
+			tinyxml2::XMLElement *pNodeElem = xmlDoc.NewElement("Node");
+			pRootElem->InsertEndChild(pNodeElem);
 
 			pNodeElem->SetAttribute("Name", pNode->GetName().c_str());
 			pNodeElem->SetAttribute("ID", cString::ToString(pNode->GetID()).c_str());
@@ -571,7 +575,8 @@ namespace hpl {
 			for(int edge =0; edge < pNode->GetEdgeNum(); ++edge)
 			{
 				cAINodeEdge *pEdge = pNode->GetEdge(edge);
-				TiXmlElement *pEdgeElem = static_cast<TiXmlElement*>(pNodeElem->InsertEndChild(TiXmlElement("Edge")));
+				tinyxml2::XMLElement *pEdgeElem = xmlDoc.NewElement("Edge");
+				pNodeElem->InsertEndChild(pEdgeElem);
 
 				pEdgeElem->SetAttribute("Node", pEdge->mpNode->GetName().c_str());
 				tString sDistance = cString::ToString(pEdge->mfDistance);
@@ -579,15 +584,11 @@ namespace hpl {
 			}
 		}
 
-		FILE *pFile = cPlatform::OpenFile(asFile, _W("w+"));
-		if(pFile==NULL || pXmlDoc->SaveFile(pFile)==false)
+		if(hpl::SaveXmlFile(xmlDoc, asFile)==false)
 		{
 			Error("Couldn't save XML file %s\n",asFile.c_str());
-			hplDelete(pXmlDoc);
 			return;
 		}
-		fclose(pFile);
-		hplDelete(pXmlDoc);
 	}
 	
 	//-----------------------------------------------------------------------
@@ -596,33 +597,27 @@ namespace hpl {
 	{
 		BuildNodeGridMap();
 
-		FILE *pFile = cPlatform::OpenFile(asFile, _W("rb"));
-		if(pFile==NULL) return;
-		
-		TiXmlDocument* pXmlDoc = hplNew( TiXmlDocument, () );
-		if(pXmlDoc->LoadFile(pFile)==false)
+		tinyxml2::XMLDocument xmlDoc;
+		if(hpl::LoadXmlFile(xmlDoc, asFile)==false || xmlDoc.RootElement()==NULL)
 		{
 			Warning("Couldn't open XML file %s\n",cString::To8Char(asFile).c_str());
-			fclose(pFile);
-			hplDelete(pXmlDoc);
 			return;
 		}
-		fclose(pFile);
 
-		TiXmlElement *pRootElem = pXmlDoc->RootElement();
+		tinyxml2::XMLElement *pRootElem = xmlDoc.RootElement();
 
-		TiXmlElement *pNodeElem = pRootElem->FirstChildElement("Node");
+		tinyxml2::XMLElement *pNodeElem = pRootElem->FirstChildElement("Node");
 		for(; pNodeElem != NULL; pNodeElem = pNodeElem->NextSiblingElement("Node"))
 		{
 			tString sName = cString::ToString(pNodeElem->Attribute("Name"),"");
 			int alID = cString::ToInt(pNodeElem->Attribute("ID"),-1);
 
 			cAINode *pNode = GetNodeFromID(alID);
-            
-			TiXmlElement *pEdgeElem = pNodeElem->FirstChildElement("Edge");
+
+			tinyxml2::XMLElement *pEdgeElem = pNodeElem->FirstChildElement("Edge");
 			for(; pEdgeElem != NULL; pEdgeElem = pEdgeElem->NextSiblingElement("Edge"))
 			{
-				tString sNodeName = cString::ToString(pEdgeElem->Attribute("Node"),"");			
+				tString sNodeName = cString::ToString(pEdgeElem->Attribute("Node"),"");
 				cAINode *pEdgeNode = GetNodeFromName(sNodeName);
 
 				cAINodeEdge Edge;
@@ -633,8 +628,6 @@ namespace hpl {
 				pNode->mvEdges.push_back(Edge);
 			}
 		}
-
-		hplDelete(pXmlDoc);
 	}
 	//-----------------------------------------------------------------------
 	

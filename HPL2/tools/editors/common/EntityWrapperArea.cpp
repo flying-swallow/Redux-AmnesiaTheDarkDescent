@@ -31,6 +31,9 @@
 
 #include "EditorWindowEntityEditBoxArea.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //------------------------------------------------------------------------------
 
 cEntityWrapperTypeArea::cEntityWrapperTypeArea(cEditorUserClassSubType* apType) : iEntityWrapperTypeUserDefinedEntity(eEditorEntityType_Area, 
@@ -97,12 +100,12 @@ tString cEntityWrapperTypeArea::ToString()
 
 //------------------------------------------------------------------------------
 
-bool cEntityWrapperTypeArea::IsAppropriateType(cXmlElement* apElement)
+bool cEntityWrapperTypeArea::IsAppropriateType(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperType::IsAppropriateType(apElement)==false)
 		return false;
 
-	return apElement->GetAttributeString("AreaType")==GetAreaType();
+	return hpl::GetAttributeString(apElement, "AreaType")==GetAreaType();
 }
 
 //------------------------------------------------------------------------------

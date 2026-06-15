@@ -18,7 +18,7 @@
  */
 
 #include "impl/OpenALSoundEnvironment.h"
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 namespace hpl
 {
@@ -55,11 +55,11 @@ namespace hpl
 	bool cOpenALSoundEnvironment::CreateFromFile(const tString &asFile)
 	{
 		tString strType;
-		TiXmlDocument doc;
-		if (!doc.LoadFile(asFile.c_str()))
+		tinyxml2::XMLDocument doc;
+		if (doc.LoadFile(asFile.c_str()) != tinyxml2::XML_SUCCESS)
 			return false;
 
-		TiXmlElement* pMain = doc.FirstChildElement("SoundEnvironment")->FirstChildElement("Main");
+		tinyxml2::XMLElement* pMain = doc.FirstChildElement("SoundEnvironment")->FirstChildElement("Main");
 		if (pMain)
 		{
 			strType = pMain->Attribute("Type");
@@ -69,7 +69,7 @@ namespace hpl
 
 		float* pfTemp;
 
-		TiXmlElement* pParams = doc.FirstChildElement("SoundEnvironment")->FirstChildElement("Parameters");
+		tinyxml2::XMLElement* pParams = doc.FirstChildElement("SoundEnvironment")->FirstChildElement("Parameters");
 
 		if ( (pParams == NULL) || (strType.compare("OpenAL")!=0) )
 		{

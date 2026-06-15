@@ -26,6 +26,9 @@
 #include "LuxDebugHandler.h"
 #include "LuxLoadScreenHandler.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //-----------------------------------------------------------------------
 
 static eFontAlign ToFontAlign(const tString& asX)
@@ -88,30 +91,27 @@ cGuiGfxElement* cLuxPreMenuSection::CreateBackground(cGui* apGui, cTextureManage
 
 //-----------------------------------------------------------------------
 
-bool cLuxPreMenuSection::Load(cXmlElement* apElement, const cVector2f& avGuiSetSize)
+bool cLuxPreMenuSection::Load(tinyxml2::XMLElement* apElement, const cVector2f& avGuiSetSize)
 {
 	if(apElement==NULL)
 		return false;
 
-	mBackgroundColor = apElement->GetAttributeColor("Color", cColor(0,1));
-	msBackgroundFile = apElement->GetAttributeString("Image", ""); 
-	mfTime = apElement->GetAttributeFloat("Time", 2);
-	mbShowFirstStartOnly = apElement->GetAttributeBool("ShowFirstStartOnly", false);
-	mbHasGammaSettings = apElement->GetAttributeBool("HasGammaSettings", false);
-	
-	msMusic = apElement->GetAttributeString("Music", "");
-	mfMusicVolume = apElement->GetAttributeFloat("MusicVolume", 0);
-	mfMusicFadeTime = apElement->GetAttributeFloat("MusicFadeTime", 0);
+	mBackgroundColor = hpl::GetAttributeColor(apElement, "Color", cColor(0,1));
+	msBackgroundFile = hpl::GetAttributeString(apElement, "Image", "");
+	mfTime = hpl::GetAttributeFloat(apElement, "Time", 2);
+	mbShowFirstStartOnly = hpl::GetAttributeBool(apElement, "ShowFirstStartOnly", false);
+	mbHasGammaSettings = hpl::GetAttributeBool(apElement, "HasGammaSettings", false);
 
-	mbAllowSkipping = apElement->GetAttributeBool("AllowSkipping", true);
-				
+	msMusic = hpl::GetAttributeString(apElement, "Music", "");
+	mfMusicVolume = hpl::GetAttributeFloat(apElement, "MusicVolume", 0);
+	mfMusicFadeTime = hpl::GetAttributeFloat(apElement, "MusicFadeTime", 0);
+
+	mbAllowSkipping = hpl::GetAttributeBool(apElement, "AllowSkipping", true);
+
 	//////////////////////////////
 	// Retrieve text elements
-	cXmlNodeListIterator itText = apElement->GetChildIterator();
-	while(itText.HasNext())
+	for(tinyxml2::XMLElement* pTextElement = apElement->FirstChildElement(); pTextElement != NULL; pTextElement = pTextElement->NextSiblingElement())
 	{
-		cXmlElement* pTextElement = itText.Next()->ToElement();
-
 		// Create and set up text element
 		cLuxPreMenuTextElement* pText = hplNew(cLuxPreMenuTextElement,());
 		if(pText->Load(pTextElement, avGuiSetSize))
@@ -125,23 +125,23 @@ bool cLuxPreMenuSection::Load(cXmlElement* apElement, const cVector2f& avGuiSetS
 
 //-----------------------------------------------------------------------
 
-bool cLuxPreMenuTextElement::Load(cXmlElement* apElement, const cVector2f& avGuiSetSize)
+bool cLuxPreMenuTextElement::Load(tinyxml2::XMLElement* apElement, const cVector2f& avGuiSetSize)
 {
 	if(apElement==NULL)
 		return false;
 
 	// Load text data
-	tString sCat = apElement->GetAttributeString("TextCat");
-	tString sEntry = apElement->GetAttributeString("TextEntry");
-	
-	msText = kTranslate(sCat, sEntry);
-	mvPos = apElement->GetAttributeVector3f("Pos") + cVector3f(0,0,1);
-	mvFrameSize = apElement->GetAttributeVector2f("FrameSize");
-	mvFontSize = apElement->GetAttributeVector2f("FontSize", cVector2f(0));
-	mColor = apElement->GetAttributeColor("Color");
-	mAlign = ToFontAlign(apElement->GetAttributeString("Align", "Left"));
+	tString sCat = hpl::GetAttributeString(apElement, "TextCat");
+	tString sEntry = hpl::GetAttributeString(apElement, "TextEntry");
 
-	mfTime = apElement->GetAttributeFloat("time", 2);
+	msText = kTranslate(sCat, sEntry);
+	mvPos = hpl::GetAttributeVector3f(apElement, "Pos") + cVector3f(0,0,1);
+	mvFrameSize = hpl::GetAttributeVector2f(apElement, "FrameSize");
+	mvFontSize = hpl::GetAttributeVector2f(apElement, "FontSize", cVector2f(0));
+	mColor = hpl::GetAttributeColor(apElement, "Color");
+	mAlign = ToFontAlign(hpl::GetAttributeString(apElement, "Align", "Left"));
+
+	mfTime = hpl::GetAttributeFloat(apElement, "time", 2);
 
 	return true;
 }
@@ -734,7 +734,6 @@ void cLuxPreMenu::LoadPreMenuSections()
 
 	//////////////////////////////////////////////////////////////////////////////
 	// Check file pointed by config file and retrieve image files from there
-	iXmlDocument* pDoc = pRes->GetLowLevel()->CreateXmlDocument();
 	tWString sConfigPath = gpBase->msPreMenuConfigPath;
 #ifdef USERDIR_RESOURCES
 	if (gpBase->msUserResourceDir.length()
@@ -742,18 +741,18 @@ void cLuxPreMenu::LoadPreMenuSections()
 		sConfigPath = gpBase->msUserResourceDir + sConfigPath;
 	}
 #endif
-	if(pDoc->CreateFromFile(sConfigPath))
+	tinyxml2::XMLDocument xmlDoc;
+	if(hpl::LoadXmlFile(xmlDoc, sConfigPath) && xmlDoc.RootElement()!=NULL)
 	{
+		tinyxml2::XMLElement* pDoc = xmlDoc.RootElement();
+
 		/////////////////////////////////////////////////////
 		// Set up skin
-		tString sSkinFile = pDoc->GetAttributeString("skin", "gui_default.skin");
+		tString sSkinFile = hpl::GetAttributeString(pDoc, "skin", "gui_default.skin");
 		mpGuiSet->SetSkin(mpGui->CreateSkin(sSkinFile));
 
-		cXmlNodeListIterator it = pDoc->GetChildIterator();
-		while(it.HasNext())
+		for(tinyxml2::XMLElement* pSectionElement = pDoc->FirstChildElement(); pSectionElement != NULL; pSectionElement = pSectionElement->NextSiblingElement())
 		{
-			cXmlElement* pSectionElement = it.Next()->ToElement();
-
 			cLuxPreMenuSection* pSection = hplNew(cLuxPreMenuSection, ());
 			if(pSection->Load(pSectionElement, mvGuiSetCenterSize))
 				mvSections.push_back(pSection);
@@ -761,8 +760,6 @@ void cLuxPreMenu::LoadPreMenuSections()
 				hplDelete(pSection);
 		}
 	}
-
-	pRes->DestroyXmlDocument(pDoc);
 }
 
 //-----------------------------------------------------------------------

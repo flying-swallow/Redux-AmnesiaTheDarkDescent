@@ -19,7 +19,7 @@
 
 #include "scene/World.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 #include "system/Script.h"
 #include "system/String.h"
@@ -49,7 +49,7 @@
 #include "resources/Resources.h"
 #include "resources/SoundEntityManager.h"
 #include "resources/LowLevelResources.h"
-#include "resources/XmlDocument.h"
+#include "resources/XmlHelper.h"
 
 #include "scene/Scene.h"
 #include "scene/Node3D.h"
@@ -517,17 +517,17 @@ namespace hpl {
 		mlstEntFileCache.push_back(pEntFile);
 		
 		tString sEntityType = "";
-		iXmlDocument *pDoc = pEntFile->GetXmlDoc();
+		tinyxml2::XMLElement *pDoc = pEntFile->GetXmlDoc();
 
 		//////////////////////////////////
 		// Get Root element
-		cXmlElement *pVarRootElem = pDoc->GetFirstElement("UserDefinedVariables");
+		tinyxml2::XMLElement *pVarRootElem = pDoc->FirstChildElement("UserDefinedVariables");
 		if(pVarRootElem==NULL){
 			Warning("Can not find a UserDefinedVariables element in '%s'. Using default entity type\n", asFile.c_str());
 		}
 		else
 		{
-			sEntityType = pVarRootElem->GetAttributeString("EntityType");
+			sEntityType = GetAttributeString(pVarRootElem, "EntityType");
 		}
 
 		
@@ -664,8 +664,6 @@ namespace hpl {
 		return pLight;
 	}
 
-	//-----------------------------------------------------------------------
-
 	cLightSpot* cWorld::CreateLightSpot(const tString &asName, const tString &asGobo,
 										bool abStatic)
 	{
@@ -683,13 +681,11 @@ namespace hpl {
 
 		pLight->SetStatic(abStatic);
 		AddRenderableToContainer(pLight);
-		
+
 		pLight->SetWorld(this);
-		
+
 		return pLight;
 	}
-
-	//-----------------------------------------------------------------------
 
 	cLightBox* cWorld::CreateLightBox(const tString &asName,bool abStatic)
 	{
@@ -698,7 +694,7 @@ namespace hpl {
 
 		pLight->SetStatic(abStatic);
 		AddRenderableToContainer(pLight);
-		
+
 		pLight->SetWorld(this);
 
 		return pLight;
@@ -882,7 +878,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cParticleSystem* cWorld::CreateParticleSystem(const tString& asName, const tString& asDataName, cXmlElement* apElement, const cVector3f& avSize)
+	cParticleSystem* cWorld::CreateParticleSystem(const tString& asName, const tString& asDataName, tinyxml2::XMLElement* apElement, const cVector3f& avSize)
 	{
 		cParticleSystem* pPS = mpResources->GetParticleManager()->CreatePS(asName,asDataName, apElement, avSize);
 		if(pPS == NULL){

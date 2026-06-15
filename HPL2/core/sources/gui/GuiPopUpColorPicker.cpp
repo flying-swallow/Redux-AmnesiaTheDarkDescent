@@ -52,7 +52,9 @@
 #include "gui/WidgetImage.h"
 
 #include "resources/Resources.h"
-#include "resources/XmlDocument.h"
+#include "resources/XmlHelper.h"
+
+#include <tinyxml2.h>
 
 
 namespace hpl {
@@ -749,17 +751,17 @@ namespace hpl {
 
 	//-------------------------------------------------------------------------------
 
-	void cGuiPopUpColorPicker::LoadRecentColorList(cXmlElement* apElem)
+	void cGuiPopUpColorPicker::LoadRecentColorList(tinyxml2::XMLElement* apElem)
 	{
 		mlstRecentColors.clear();
 		for(int i=1; i<=10; ++i)
 		{
-			cColor c = apElem->GetAttributeColor("RecentColor"+cString::ToString(i, 1), cColor(0,1));
-			mlstRecentColors.push_back(c);			
+			cColor c = GetAttributeColor(apElem, "RecentColor"+cString::ToString(i, 1), cColor(0,1));
+			mlstRecentColors.push_back(c);
 		}
 	}
 
-	void cGuiPopUpColorPicker::SaveRecentColorList(cXmlElement* apElem)
+	void cGuiPopUpColorPicker::SaveRecentColorList(tinyxml2::XMLElement* apElem)
 	{
 		int i=1;
 		tColorListIt it = mlstRecentColors.begin();
@@ -767,7 +769,7 @@ namespace hpl {
 		{
 			const cColor& c = *it;
 
-			apElem->SetAttributeColor("RecentColor"+cString::ToString(i, 1), c);
+			SetAttributeColor(apElem, "RecentColor"+cString::ToString(i, 1), c);
 		}
 	}
 

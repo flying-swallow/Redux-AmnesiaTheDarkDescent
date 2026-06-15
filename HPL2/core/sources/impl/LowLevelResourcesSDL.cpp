@@ -21,7 +21,6 @@
 #include "impl/MeshLoaderMSH.h"
 #include "impl/MeshLoaderFBX.h"
 #include "impl/MeshLoaderCollada.h"
-#include "impl/XmlDocumentTiny.h"
 #include "impl/BitmapLoaderDevilDDS.h"
 #include "impl/BitmapLoaderDevilMisc.h"
 
@@ -83,11 +82,6 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 	
-	iXmlDocument* cLowLevelResourcesSDL::CreateXmlDocument(const tString& asName)
-	{
-		return hplNew( cXmlDocumentTiny,(asName) );
-	}
-
 	//-----------------------------------------------------------------------
 
 }

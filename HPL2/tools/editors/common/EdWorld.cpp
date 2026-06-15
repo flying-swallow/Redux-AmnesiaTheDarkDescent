@@ -99,7 +99,7 @@ iTypeNode* iTypeNode::GetTypeByID(int alID)
 	return NULL;
 }
 
-iTypeNode* iTypeNode::GetTypeByXmlElement(cXmlElement* apElement)
+iTypeNode* iTypeNode::GetTypeByXmlElement(tinyxml2::XMLElement* apElement)
 {
 	// TODO: Implement !!
 	return NULL;
@@ -146,7 +146,7 @@ iTypeNode* iEdWorld::GetTypeByID(int alID)
 			NULL;
 }
 
-iTypeNode* iEdWorld::GetTypeByXmlElement(cXmlElement* apElement)
+iTypeNode* iEdWorld::GetTypeByXmlElement(tinyxml2::XMLElement* apElement)
 {
 	return mpRootType ? 
 			mpRootType->GetTypeByXmlElement(apElement) : 

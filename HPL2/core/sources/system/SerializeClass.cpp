@@ -29,7 +29,7 @@
 #include "math/MathTypes.h"
 #include "system/Container.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 #include "resources/BinaryBuffer.h"
 
@@ -209,11 +209,11 @@ namespace hpl {
 
 		glTabs=0;
 
-		TiXmlDocument* pXmlDoc = hplNew( TiXmlDocument, () );
+		tinyxml2::XMLDocument* pXmlDoc = hplNew( tinyxml2::XMLDocument, () );
 
 		//Create root
-		TiXmlElement XmlRoot(asRoot.c_str());
-		TiXmlElement* pRootElem = static_cast<TiXmlElement*>(pXmlDoc->InsertEndChild(XmlRoot));
+		tinyxml2::XMLElement* pRootElem = pXmlDoc->NewElement(asRoot.c_str());
+		pXmlDoc->InsertEndChild(pRootElem);
 
 		SaveToElement(apData,"",pRootElem);
 
@@ -232,10 +232,10 @@ namespace hpl {
 			char buffer[8*1024];
 			setvbuf(pFile, buffer, _IOFBF, 8*1024);
 
-			bool bRet = pXmlDoc->SaveFile(pFile);
+			bool bRet = pXmlDoc->SaveFile(pFile) == tinyxml2::XML_SUCCESS;
 			if(bRet==false)
 				Error("Couldn't save class to '%s'\n", asFile.c_str());
-		
+
 			if(pFile) fclose(pFile);
 
 			hplDelete(pXmlDoc);
@@ -247,8 +247,9 @@ namespace hpl {
 		{
 			/////////////////////////////
 			// Get the data
-			tString sData;
-			sData << *pXmlDoc;
+			tinyxml2::XMLPrinter printer;
+			pXmlDoc->Print(&printer);
+			tString sData = printer.CStr();
 
 			/////////////////////////////
 			// Compress the data
@@ -279,7 +280,7 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 
-	void cSerializeClass::SaveToElement(iSerializable* apData,const tString &asName, TiXmlElement *apParent,
+	void cSerializeClass::SaveToElement(iSerializable* apData,const tString &asName, tinyxml2::XMLElement *apParent,
 										bool abIsPointer)
 	{
 		SetUpData();
@@ -287,17 +288,17 @@ namespace hpl {
 		if(apData==NULL) return;
 
 		//Create element
-		TiXmlElement* pClassElem=NULL;
+		tinyxml2::XMLElement* pClassElem=NULL;
 
 		if(abIsPointer)
 		{
-			TiXmlElement XmlClassElem("class_ptr");
-			pClassElem = static_cast<TiXmlElement*>(apParent->InsertEndChild(XmlClassElem));
+			pClassElem = apParent->GetDocument()->NewElement("class_ptr");
+			apParent->InsertEndChild(pClassElem);
 		}
 		else
 		{
-			TiXmlElement XmlClassElem("class");
-			pClassElem = static_cast<TiXmlElement*>(apParent->InsertEndChild(XmlClassElem));
+			pClassElem = apParent->GetDocument()->NewElement("class");
+			apParent->InsertEndChild(pClassElem);
 		}
 
 		
@@ -350,7 +351,7 @@ namespace hpl {
 		glTabs=0;
 
 		//Load document
-		TiXmlDocument* pXmlDoc = hplNew( TiXmlDocument,() );
+		tinyxml2::XMLDocument* pXmlDoc = hplNew( tinyxml2::XMLDocument,() );
 
 		///////////////////////////////
 		//Normal Load
@@ -367,11 +368,11 @@ namespace hpl {
 				Error("Unable to open serialized file '%s' as rb! Invalid filepointer returned!\n", cString::To8Char(asFile).c_str());
 				return false;
 			}
-			if(pXmlDoc->LoadFile(pFile)==false)
+			if(pXmlDoc->LoadFile(pFile)!=tinyxml2::XML_SUCCESS)
 			{
 				Error("Couldn't load saved class file '%s' from %s!\n",
 										cString::To8Char(asFile).c_str(),
-										pXmlDoc->ErrorDesc());
+										pXmlDoc->ErrorStr());
 				if(pFile) fclose(pFile);
 				hplDelete(pXmlDoc);
 				return false;
@@ -418,10 +419,10 @@ namespace hpl {
 
 
 		//Get root
-		TiXmlElement* pRootElem = pXmlDoc->RootElement();
+		tinyxml2::XMLElement* pRootElem = pXmlDoc->RootElement();
 
 		//Get first, there should only be ONE class at the root.
-		TiXmlElement* pClassElem = pRootElem->FirstChildElement("class");
+		tinyxml2::XMLElement* pClassElem = pRootElem->FirstChildElement("class");
 
 		LoadFromElement(apData,pClassElem);
 
@@ -431,7 +432,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cSerializeClass::LoadFromElement(iSerializable* apData, TiXmlElement *apElement,
+	void cSerializeClass::LoadFromElement(iSerializable* apData, tinyxml2::XMLElement *apElement,
 											bool abIsPointer)
 	{
 		SetUpData();
@@ -444,7 +445,7 @@ namespace hpl {
 			++glTabs;
 		}
 
-		TiXmlElement *pMemberElem = apElement->FirstChildElement();
+		tinyxml2::XMLElement *pMemberElem = apElement->FirstChildElement();
 		for(; pMemberElem != NULL; pMemberElem = pMemberElem->NextSiblingElement())
 		{
 			tString sMainType = pMemberElem->Value();
@@ -793,7 +794,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cSerializeClass::SaveVariable(TiXmlElement *apElement, cSerializeMemberField *apField,
+	void cSerializeClass::SaveVariable(tinyxml2::XMLElement *apElement, cSerializeMemberField *apField,
 										iSerializable* apData)
 	{
 		//CLASS
@@ -813,8 +814,8 @@ namespace hpl {
 		//NORMAL VAR
 		else
 		{
-			TiXmlElement XmlVarElem("var");
-			TiXmlElement* pVarElem = static_cast<TiXmlElement*>(apElement->InsertEndChild(XmlVarElem));
+			tinyxml2::XMLElement* pVarElem = apElement->GetDocument()->NewElement("var");
+			apElement->InsertEndChild(pVarElem);
 
 			pVarElem->SetAttribute("type",apField->mType);
 			pVarElem->SetAttribute("name",apField->msName.c_str());
@@ -824,13 +825,13 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cSerializeClass::SaveArray(TiXmlElement *apElement, cSerializeMemberField *apField,
+	void cSerializeClass::SaveArray(tinyxml2::XMLElement *apElement, cSerializeMemberField *apField,
 									iSerializable* apData)
 	{
 		void *pArrayData = ValuePointer(apData,apField->mlOffset);
 
-		TiXmlElement XmlArrayElem("array");
-		TiXmlElement* pArrayElem = static_cast<TiXmlElement*>(apElement->InsertEndChild(XmlArrayElem));
+		tinyxml2::XMLElement* pArrayElem = apElement->GetDocument()->NewElement("array");
+		apElement->InsertEndChild(pArrayElem);
 
 		pArrayElem->SetAttribute("type",apField->mType);
 		pArrayElem->SetAttribute("name",apField->msName.c_str());
@@ -877,8 +878,8 @@ namespace hpl {
 			{
 				size_t lOffset = SizeOfType(apField->mType)* i;
 
-				TiXmlElement XmlClassElem("var");
-				TiXmlElement* pVarElem = static_cast<TiXmlElement*>(pArrayElem->InsertEndChild(XmlClassElem));
+				tinyxml2::XMLElement* pVarElem = pArrayElem->GetDocument()->NewElement("var");
+				pArrayElem->InsertEndChild(pVarElem);
 
 				pVarElem->SetAttribute("val",ValueToString(pArrayData,lOffset,apField->mType));
 			}
@@ -887,15 +888,15 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cSerializeClass::SaveContainer(TiXmlElement *apElement, cSerializeMemberField *apField,
+	void cSerializeClass::SaveContainer(tinyxml2::XMLElement *apElement, cSerializeMemberField *apField,
 		iSerializable* apData)
 	{
 		iContainer* pCont = (iContainer*)ValuePointer(apData,apField->mlOffset);
 
 		iContainerIterator* pContIt = pCont->CreateIteratorPtr();
 
-		TiXmlElement XmlArrayElem("container");
-		TiXmlElement* pArrayElem = static_cast<TiXmlElement*>(apElement->InsertEndChild(XmlArrayElem));
+		tinyxml2::XMLElement* pArrayElem = apElement->GetDocument()->NewElement("container");
+		apElement->InsertEndChild(pArrayElem);
 
 		pArrayElem->SetAttribute("type",apField->mType);
 		pArrayElem->SetAttribute("name",apField->msName.c_str());
@@ -927,8 +928,8 @@ namespace hpl {
 		{
 			while(pContIt->HasNext())
 			{
-				TiXmlElement XmlClassElem("var");
-				TiXmlElement* pVarElem = static_cast<TiXmlElement*>(pArrayElem->InsertEndChild(XmlClassElem));
+				tinyxml2::XMLElement* pVarElem = pArrayElem->GetDocument()->NewElement("var");
+				pArrayElem->InsertEndChild(pVarElem);
 
 				 void *pData = const_cast<void *>(pContIt->NextPtr());
 
@@ -943,7 +944,7 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 
-	void cSerializeClass::LoadVariable(TiXmlElement *apElement, iSerializable* apData,
+	void cSerializeClass::LoadVariable(tinyxml2::XMLElement *apElement, iSerializable* apData,
 										cSerializeSavedClass *apClass)
 	{
 		tString sName = cString::ToString(apElement->Attribute("name"),"");
@@ -960,7 +961,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cSerializeClass::LoadArray(TiXmlElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass)
+	void cSerializeClass::LoadArray(tinyxml2::XMLElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass)
 	{
 		tString sName = cString::ToString(apElement->Attribute("name"),"");
 		tString sClassType = cString::ToString(apElement->Attribute("class_type"),"");
@@ -984,7 +985,7 @@ namespace hpl {
 			size_t lClassSize = pClass->mlSize;
 
 			size_t lCount=0;
-			TiXmlElement *pVarElem = apElement->FirstChildElement();
+			tinyxml2::XMLElement *pVarElem = apElement->FirstChildElement();
 			for(; pVarElem != NULL; pVarElem = pVarElem->NextSiblingElement(),++lCount)
 			{
 				size_t lOffset = lCount * lClassSize;
@@ -996,7 +997,7 @@ namespace hpl {
 		else if(pField->mType == eSerializeType_ClassPointer)
 		{
 			size_t lCount=0;
-			TiXmlElement *pVarElem = apElement->FirstChildElement();
+			tinyxml2::XMLElement *pVarElem = apElement->FirstChildElement();
 			for(; pVarElem != NULL; pVarElem = pVarElem->NextSiblingElement(),++lCount)
 			{
 				size_t lOffset = sizeof(void*) * lCount;
@@ -1025,7 +1026,7 @@ namespace hpl {
 		else
 		{
 			size_t lCount=0;
-			TiXmlElement *pVarElem = apElement->FirstChildElement();
+			tinyxml2::XMLElement *pVarElem = apElement->FirstChildElement();
 			for(; pVarElem != NULL; pVarElem = pVarElem->NextSiblingElement(),++lCount)
 			{
 				const char* sVal = pVarElem->Attribute("val");
@@ -1044,7 +1045,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cSerializeClass::LoadClass(TiXmlElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass)
+	void cSerializeClass::LoadClass(tinyxml2::XMLElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass)
 	{
 		tString sName = cString::ToString(apElement->Attribute("name"),"");
 
@@ -1060,7 +1061,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cSerializeClass::LoadClassPointer(TiXmlElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass)
+	void cSerializeClass::LoadClassPointer(tinyxml2::XMLElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass)
 	{
 		tString sName = cString::ToString(apElement->Attribute("name"),"");
 		tString sType = cString::ToString(apElement->Attribute("type"),"");
@@ -1093,7 +1094,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cSerializeClass::LoadContainer(TiXmlElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass)
+	void cSerializeClass::LoadContainer(tinyxml2::XMLElement *apElement, iSerializable* apData,cSerializeSavedClass *apClass)
 	{
 		tString sName = cString::ToString(apElement->Attribute("name"),"");
 		eSerializeType type = cString::ToInt(apElement->Attribute("type"),eSerializeMainType_NULL);
@@ -1117,7 +1118,7 @@ namespace hpl {
 			cSerializeSavedClass *pSavedClass = GetClass(sClassType);
 			if(pSavedClass==NULL) return;
 
-			TiXmlElement *pVarElem = apElement->FirstChildElement();
+			tinyxml2::XMLElement *pVarElem = apElement->FirstChildElement();
 			for(; pVarElem != NULL; pVarElem = pVarElem->NextSiblingElement())
 			{
 				if(gbLog) Log("%sCreating element class %s\n",GetTabs(),sClassType.c_str());
@@ -1148,7 +1149,7 @@ namespace hpl {
 			    pCont->Clear();
             }
 
-			TiXmlElement *pVarElem = apElement->FirstChildElement();
+			tinyxml2::XMLElement *pVarElem = apElement->FirstChildElement();
 			for(; pVarElem != NULL; pVarElem = pVarElem->NextSiblingElement())
 			{
 				tString sClassType = cString::ToString(pVarElem->Attribute("type"),"");
@@ -1168,7 +1169,7 @@ namespace hpl {
 		{
 			pCont->Clear();
 
-			TiXmlElement *pVarElem = apElement->FirstChildElement();
+			tinyxml2::XMLElement *pVarElem = apElement->FirstChildElement();
 			for(; pVarElem != NULL; pVarElem = pVarElem->NextSiblingElement())
 			{
 				const char* sVal = pVarElem->Attribute("val");

@@ -23,11 +23,9 @@
 #include "scene/ParticleEmitter.h"
 #include "physics/PhysicsTypes.h"
 
-class TiXmlElement;
+namespace tinyxml2 { class XMLElement; }
 
 namespace hpl {
-
-	class cXmlElement;
 
 	enum ePEStartPosType
 	{
@@ -80,7 +78,7 @@ namespace hpl {
 
 		iParticleEmitter* Create(tString asName, cVector3f avSize);
 
-		void LoadFromElement(cXmlElement *apElement);
+		void LoadFromElement(tinyxml2::XMLElement *apElement);
 
 		bool CheckCollision(const cVector3f& avStart, const cVector3f &avEnd,
 									iPhysicsWorld *apPhysicsWorld,

@@ -122,7 +122,7 @@ public:
 
 	cEditorWindowEntityEditBox* CreateEditBox(cEditorEditModeSelect* apEditMode);
 	void Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, iEditorEditMode* apEditMode, bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol);
-	//void SaveToElement(cXmlElement* apElement);
+	//void SaveToElement(tinyxml2::XMLElement* apElement);
 
 protected:
 	iEngineEntity* CreateSpecificEngineEntity();

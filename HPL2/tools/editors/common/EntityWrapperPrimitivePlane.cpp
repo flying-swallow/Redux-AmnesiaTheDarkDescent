@@ -26,6 +26,9 @@
 
 #include "EngineEntity.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 
 //---------------------------------------------------------------------------
 
@@ -65,7 +68,7 @@ void cEntityWrapperDataPrimitivePlane::CopyFromEntity(iEntityWrapper* apEnt)
 
 //---------------------------------------------------------------------------
 
-bool cEntityWrapperDataPrimitivePlane::Load(cXmlElement* apElement)
+bool cEntityWrapperDataPrimitivePlane::Load(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperData::Load(apElement)==false)
 		return false;
@@ -89,7 +92,7 @@ bool cEntityWrapperDataPrimitivePlane::Load(cXmlElement* apElement)
 
 //---------------------------------------------------------------------------
 
-bool cEntityWrapperDataPrimitivePlane::SaveSpecific(cXmlElement* apElement)
+bool cEntityWrapperDataPrimitivePlane::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperData::SaveSpecific(apElement)==false)
 		return false;
@@ -109,11 +112,11 @@ bool cEntityWrapperDataPrimitivePlane::SaveSpecific(cXmlElement* apElement)
 	}
 	//Log("\tStartCorner: %s EndCorner: %s\n", vStartCorner.ToFileString().c_str(), vEndCorner.ToFileString().c_str());
 
-	apElement->SetAttributeVector3f("EndCorner", vEndCorner);
-	apElement->SetAttributeVector3f("Scale", cVector3f(1));
+	hpl::SetAttributeVector3f(apElement, "EndCorner", vEndCorner);
+	hpl::SetAttributeVector3f(apElement, "Scale", cVector3f(1));
 
 	for(int i=0;i<4;++i)
-		apElement->SetAttributeVector2f("Corner" + cString::ToString(i+1) + "UV", mvUVCorners[i]);
+		hpl::SetAttributeVector2f(apElement, "Corner" + cString::ToString(i+1) + "UV", mvUVCorners[i]);
 
 	return true;
 }

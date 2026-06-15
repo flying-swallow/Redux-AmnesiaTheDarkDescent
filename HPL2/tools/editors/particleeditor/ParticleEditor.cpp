@@ -41,6 +41,8 @@ using namespace hpl;
 
 #include "ParticleEditorWorld.h"
 
+#include <tinyxml2.h>
+
 #include <algorithm>
 
 
@@ -199,9 +201,9 @@ void cParticleEditor::OnPostWorldLoad()
 
 //--------------------------------------------------------------------
 
-void cParticleEditor::AppSpecificLoad(iXmlDocument* apDoc)
+void cParticleEditor::AppSpecificLoad(tinyxml2::XMLElement* apDoc)
 {
-	cXmlElement* pXmlSession = apDoc->GetFirstElement("EditorSession");
+	tinyxml2::XMLElement* pXmlSession = apDoc->FirstChildElement("EditorSession");
 	if(pXmlSession==NULL) return;
 
 	/*
@@ -216,7 +218,7 @@ void cParticleEditor::AppSpecificLoad(iXmlDocument* apDoc)
 	// Global Lighting
 }
 
-void cParticleEditor::AppSpecificSave(iXmlDocument* apDoc)
+void cParticleEditor::AppSpecificSave(tinyxml2::XMLElement* apDoc)
 {
 	apDoc->SetValue("ParticleSystem");
 	//iEditorBase::AppSpecificSave(apDoc);

@@ -45,7 +45,7 @@ iLuxProp *cLuxPropLoader_OilBarrel::CreateProp(const tString& asName, int alID, 
 
 //-----------------------------------------------------------------------
 
-void cLuxPropLoader_OilBarrel::LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem)
+void cLuxPropLoader_OilBarrel::LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem)
 {
 	cLuxProp_OilBarrel  *pOilBarrel = static_cast<cLuxProp_OilBarrel*>(apProp);
 

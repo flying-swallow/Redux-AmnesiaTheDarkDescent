@@ -26,6 +26,8 @@
 
 //----------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
 class cLuxPlayerHands;
 
 //----------------------------------------------
@@ -39,8 +41,8 @@ public:
 
 	void SetHandObject(iLuxHandObject *apHandObject){ mpHandObject = apHandObject; }
 
-	void BeforeLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars);
-	void AfterLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars);
+	void BeforeLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars);
+	void AfterLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars);
 
 private:
 	iLuxHandObject *mpHandObject;
@@ -59,8 +61,8 @@ public:
 	//General
 	virtual void Update(float afTimeStep)=0;
 
-	bool LoadMainData(cXmlElement *apMainElem);
-	void LoadSettings(cXmlElement *apVarsElem);
+	bool LoadMainData(tinyxml2::XMLElement *apMainElem);
+	void LoadSettings(tinyxml2::XMLElement *apVarsElem);
 
 	void CreateEntity(cLuxMap *apMap);
 	void DestroyEntity(cLuxMap *apMap);
@@ -95,7 +97,7 @@ public:
 	const tString& GetAnimHolster(){ return msHandsAnim_Holster;}
 	
 protected:
-	virtual void LoadImplementedVars(cXmlElement *apVarsElem)=0;
+	virtual void LoadImplementedVars(tinyxml2::XMLElement *apVarsElem)=0;
 
 	virtual void ImplementedCreateEntity(cLuxMap *apMap)=0;
 	virtual void ImplementedDestroyEntity(cLuxMap *apMap)=0;

@@ -23,6 +23,9 @@
 
 #include "../common/EntityWrapperStaticObject.h"
 
+#include "resources/XmlHelper.h"
+#include <tinyxml2.h>
+
 #include <algorithm>
 
 //-----------------------------------------------------------------------
@@ -115,14 +118,14 @@ void cLevelEditorStaticObjectCombo::Draw(cEditorWindowViewport* apViewport, Debu
 
 //-----------------------------------------------------------------------
 
-bool cLevelEditorStaticObjectCombo::Load(cXmlElement* apElement)
+bool cLevelEditorStaticObjectCombo::Load(tinyxml2::XMLElement* apElement)
 {
-	mlComboID = apElement->GetAttributeInt("ID", mlComboID);
-	mColor = apElement->GetAttributeColor("Color", mColor);
+	mlComboID = GetAttributeInt(apElement, "ID", mlComboID);
+	mColor = GetAttributeColor(apElement, "Color", mColor);
 
 	//////////////////////////////////////////
 	// Load combined object ids
-	tString sObjIds = apElement->GetAttributeString("ObjIds");
+	tString sObjIds = GetAttributeString(apElement, "ObjIds");
 	tIntVec vObjIds;
 	cString::GetIntVec(sObjIds, vObjIds);
 
@@ -137,11 +140,12 @@ bool cLevelEditorStaticObjectCombo::Load(cXmlElement* apElement)
 	return true;
 }
 
-bool cLevelEditorStaticObjectCombo::Save(cXmlElement* apElement)
+bool cLevelEditorStaticObjectCombo::Save(tinyxml2::XMLElement* apElement)
 {
-	cXmlElement* pData = apElement->CreateChildElement("Combo");
-	pData->SetAttributeInt("ID", mlComboID);
-	pData->SetAttributeColor("Color", mColor);
+	tinyxml2::XMLElement* pData = apElement->GetDocument()->NewElement("Combo");
+	apElement->InsertEndChild(pData);
+	SetAttributeInt(pData, "ID", mlComboID);
+	SetAttributeColor(pData, "Color", mColor);
 
 	//////////////////////////////////////////
 	// Save combined object ids
@@ -155,7 +159,7 @@ bool cLevelEditorStaticObjectCombo::Save(cXmlElement* apElement)
 	// Cut space at the end of the string
 	sObjIds = cString::Sub(sObjIds, 0, (int)sObjIds.length()-1);
 
-	pData->SetAttributeString("ObjIds", sObjIds);
+	SetAttributeString(pData, "ObjIds", sObjIds);
 
 	return true;
 }

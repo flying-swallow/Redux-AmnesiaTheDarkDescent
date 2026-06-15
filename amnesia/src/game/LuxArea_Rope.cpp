@@ -23,6 +23,9 @@
 
 #include "LuxProp.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //-----------------------------------------------------------------------
 
 //////////////////////////////////////////////////////////////////////////
@@ -56,7 +59,7 @@ void cLuxAreaRopeLoader::Load(const tString &asName, int alID, bool abActive, co
 
 	//Load settings file
 	tString sFile = GetVarString("RopeFile", "");
-	iXmlDocument *pDoc = NULL;
+	tinyxml2::XMLElement *pDoc = NULL;
     if(sFile != "")
 	{
 		pDoc = gpBase->mpEngine->GetResources()->LoadXmlDocument(sFile);
@@ -64,20 +67,20 @@ void cLuxAreaRopeLoader::Load(const tString &asName, int alID, bool abActive, co
 			Error("Could not load '%s' for rope '%s'. Using set variables instead!\n", sFile.c_str(), asName.c_str());
 	}
 
-	// From XML 
+	// From XML
 	if(pDoc)
 	{
-		pRope->mfSegmentLength = pDoc->GetAttributeFloat("SegmentLength",0); 
-		pRope->mfDamping = pDoc->GetAttributeFloat("Damping",0); 
-		pRope->mfStrength = pDoc->GetAttributeFloat("Strength",0); 
-		pRope->mfStiffness = pDoc->GetAttributeFloat("Stiffness",0); 
-		pRope->msMaterial = pDoc->GetAttributeString("Material",""); 
-		pRope->mfRadius = pDoc->GetAttributeFloat("Radius",0); 
-		pRope->mfLengthTileAmount = pDoc->GetAttributeFloat("LengthTileAmount",0); 
-		pRope->mfLengthTileSize = pDoc->GetAttributeFloat("LengthTileSize",0); 
-		pRope->msSound = pDoc->GetAttributeString("Sound",""); 
-		pRope->mfSoundStartSpeed = pDoc->GetAttributeFloat("SoundStartSpeed",0); 
-		pRope->mfSoundStopSpeed = pDoc->GetAttributeFloat("SoundStopSpeed",0); 
+		pRope->mfSegmentLength = hpl::GetAttributeFloat(pDoc, "SegmentLength",0);
+		pRope->mfDamping = hpl::GetAttributeFloat(pDoc, "Damping",0);
+		pRope->mfStrength = hpl::GetAttributeFloat(pDoc, "Strength",0);
+		pRope->mfStiffness = hpl::GetAttributeFloat(pDoc, "Stiffness",0);
+		pRope->msMaterial = hpl::GetAttributeString(pDoc, "Material","");
+		pRope->mfRadius = hpl::GetAttributeFloat(pDoc, "Radius",0);
+		pRope->mfLengthTileAmount = hpl::GetAttributeFloat(pDoc, "LengthTileAmount",0);
+		pRope->mfLengthTileSize = hpl::GetAttributeFloat(pDoc, "LengthTileSize",0);
+		pRope->msSound = hpl::GetAttributeString(pDoc, "Sound","");
+		pRope->mfSoundStartSpeed = hpl::GetAttributeFloat(pDoc, "SoundStartSpeed",0);
+		pRope->mfSoundStopSpeed = hpl::GetAttributeFloat(pDoc, "SoundStopSpeed",0);
 
 		gpBase->mpEngine->GetResources()->DestroyXmlDocument(pDoc);
 	}

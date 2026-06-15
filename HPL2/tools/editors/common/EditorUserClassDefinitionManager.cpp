@@ -20,6 +20,9 @@
 #include "EditorUserClassDefinitionManager.h"
 #include "EditorWindow.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //------------------------------------------------------------------------------
 
 ////////////////////////////////////////////
@@ -71,8 +74,8 @@ bool cEditorUserClass::Create(void* apData)
 {
 	if(apData)
 	{
-		cXmlElement* pElement = (cXmlElement*)apData;
-        msName = pElement->GetAttributeString("Name");
+		tinyxml2::XMLElement* pElement = (tinyxml2::XMLElement*)apData;
+        msName = GetAttributeString(pElement, "Name");
 
 		for(int i=0;i<eEditorVarCategory_LastEnum;++i)
 		{
@@ -80,7 +83,7 @@ bool cEditorUserClass::Create(void* apData)
 			if(mpDefinition->IsLoadableCategory(cat))
 			{
 				const tString& sCatName = mpDefinition->GetManager()->GetVarCategoryName(cat);
-				cXmlElement* pVarCategory = pElement->GetFirstElement(sCatName);
+				tinyxml2::XMLElement* pVarCategory = pElement->FirstChildElement(sCatName.c_str());
 				if(pVarCategory==NULL)
 					continue;
 
@@ -91,7 +94,7 @@ bool cEditorUserClass::Create(void* apData)
 		//////////////////////////////////////////////////////////////
 		// Area compatibility
 		{
-			cXmlElement* pVarCategory = pElement->GetFirstElement("Vars");
+			tinyxml2::XMLElement* pVarCategory = pElement->FirstChildElement("Vars");
 			if(pVarCategory==NULL)
 				return true;
 
@@ -104,16 +107,16 @@ bool cEditorUserClass::Create(void* apData)
 
 //------------------------------------------------------------------------------
 
-iEditorVar* cEditorUserClass::CreateClassSpecificVariableFromElement(cXmlElement* apElement)
+iEditorVar* cEditorUserClass::CreateClassSpecificVariableFromElement(tinyxml2::XMLElement* apElement)
 {
 	if(apElement==NULL)
 		return NULL;
 
 	tString sGroupName = "Uncategorized";
 
-	if(apElement->GetValue()=="Group")
+	if(tString(apElement->Value())=="Group")
 	{
-		sGroupName = apElement->GetAttributeString("Name");
+		sGroupName = GetAttributeString(apElement, "Name");
 
 		tEditorVarVec vTempVars;
 		AddVariablesFromElement(this, vTempVars, apElement);
@@ -218,22 +221,20 @@ bool cEditorUserClassType::Create(void* apData)
 	if(cEditorUserClass::Create(apData)==false)
 		return false;
 
-	cXmlElement* pElement = (cXmlElement*)apData;
+	tinyxml2::XMLElement* pElement = (tinyxml2::XMLElement*)apData;
 
-	tString sBaseClassName = pElement->GetAttributeString("BaseClass");
+	tString sBaseClassName = GetAttributeString(pElement, "BaseClass");
 	mpBaseClass = mpDefinition->GetBaseClass(sBaseClassName);
 
-	tString sDefaultSubType = pElement->GetAttributeString("Default");
+	tString sDefaultSubType = GetAttributeString(pElement, "Default");
 	mlDefaultSubType = 0;
 
-	cXmlElement* pSubTypes = pElement->GetFirstElement("SubTypes");
+	tinyxml2::XMLElement* pSubTypes = pElement->FirstChildElement("SubTypes");
 	if(pSubTypes)
 	{
-		cXmlNodeListIterator it = pSubTypes->GetChildIterator();
 		int i=0;
-		while(it.HasNext())
+		for(tinyxml2::XMLElement* pSubTypeData = pSubTypes->FirstChildElement(); pSubTypeData != NULL; pSubTypeData = pSubTypeData->NextSiblingElement())
 		{
-			cXmlElement* pSubTypeData = it.Next()->ToElement();
 			cEditorUserClassSubType* pSubType = hplNew(cEditorUserClassSubType, (this));
 			if(pSubType->Create(pSubTypeData)==false)
 			{
@@ -496,20 +497,18 @@ bool cEditorUserClassDefinition::Create(const tString& asFilename, int alLoadFla
 	mlLoadFlags = alLoadFlags;
 
 	cResources* pRes = mpManager->GetEditor()->GetEngine()->GetResources();
-	iXmlDocument* pDoc = pRes->LoadXmlDocument(asFilename);
+	tinyxml2::XMLElement* pDoc = pRes->LoadXmlDocument(asFilename);
 
 	////////////////////////////////////////////
 	// Check XML validity
 	if(pDoc==NULL ||
-		pDoc->GetFirstElement("Types")==NULL)
+		pDoc->FirstChildElement("Types")==NULL)
 	{
-		int lRow = pDoc->GetErrorRow();
-		int lCol = pDoc->GetErrorCol();
+		tString sError = (pDoc==NULL)?"file not found":"error found in file";
 		pRes->DestroyXmlDocument(pDoc);
 
-		tString sError = (pDoc==NULL)?"file not found":("error found in line " + cString::ToString(lRow) + ", column " + cString::ToString(lCol));
-		FatalError("Failed compilation of Custom Variable definition %s: %s\n", 
-					cString::GetFileName(asFilename).c_str(), 
+		FatalError("Failed compilation of Custom Variable definition %s: %s\n",
+					cString::GetFileName(asFilename).c_str(),
 					sError.c_str());
 
 		return false;
@@ -519,15 +518,12 @@ bool cEditorUserClassDefinition::Create(const tString& asFilename, int alLoadFla
 
 	////////////////////////////////////////////
 	// Create Base Classes
-	cXmlElement* pBaseClasses = pDoc->GetFirstElement("BaseClasses");
+	tinyxml2::XMLElement* pBaseClasses = pDoc->FirstChildElement("BaseClasses");
 	if(pBaseClasses)
 	{
-		cXmlNodeListIterator it = pBaseClasses->GetChildIterator();
 		int i=0;
-		while(it.HasNext())
+		for(tinyxml2::XMLElement* pXmlBaseClass = pBaseClasses->FirstChildElement(); pXmlBaseClass != NULL; pXmlBaseClass = pXmlBaseClass->NextSiblingElement())
 		{
-			cXmlElement* pXmlBaseClass = it.Next()->ToElement();
-
 			cEditorUserClassBase* pBaseClass = hplNew(cEditorUserClassBase, (this));
 			if(pBaseClass->Create(pXmlBaseClass)==false)
 			{
@@ -543,15 +539,12 @@ bool cEditorUserClassDefinition::Create(const tString& asFilename, int alLoadFla
 
 	////////////////////////////////////////////
 	// Create Types
-	cXmlElement* pTypes = pDoc->GetFirstElement("Types");
+	tinyxml2::XMLElement* pTypes = pDoc->FirstChildElement("Types");
 	if(pTypes)
 	{
-		cXmlNodeListIterator it = pTypes->GetChildIterator();
 		int i=0;
-		while(it.HasNext())
+		for(tinyxml2::XMLElement* pXmlType = pTypes->FirstChildElement(); pXmlType != NULL; pXmlType = pXmlType->NextSiblingElement())
 		{
-			cXmlElement* pXmlType = it.Next()->ToElement();
-
 			cEditorUserClassType* pType = hplNew(cEditorUserClassType, (this));
 			if(pType->Create(pXmlType)==false)
 			{

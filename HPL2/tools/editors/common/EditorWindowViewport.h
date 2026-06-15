@@ -38,6 +38,8 @@ class cEditorWindowViewportCamera;
 
 namespace hpl { struct WorldDrawCtx; }
 
+namespace tinyxml2 { class XMLElement; }
+
 
 
 enum eEditorWindowViewportPreset
@@ -110,8 +112,8 @@ public:
 	void LookAtEntity(iEntityWrapper* apEntity);
 	void FocusOnSelection(cEditorSelection* apSelection);
 
-	void Load(cXmlElement* apElement);
-	void Save(cXmlElement* apElement);
+	void Load(tinyxml2::XMLElement* apElement);
+	void Save(tinyxml2::XMLElement* apElement);
 
 	void SetNormalSize(const cVector2f& avX) { mvNormalSize = avX; }
 	void SetNormalPosition(const cVector3f& avX) { mvNormalPosition = avX; }

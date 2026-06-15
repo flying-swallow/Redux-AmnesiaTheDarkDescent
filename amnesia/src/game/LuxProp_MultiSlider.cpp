@@ -44,7 +44,7 @@ iLuxProp *cLuxPropLoader_MultiSlider::CreateProp(const tString& asName, int alID
 
 //-----------------------------------------------------------------------
 
-void cLuxPropLoader_MultiSlider::LoadVariables(iLuxProp *apProp, cXmlElement *apRootElem)
+void cLuxPropLoader_MultiSlider::LoadVariables(iLuxProp *apProp, tinyxml2::XMLElement *apRootElem)
 {
 	cLuxProp_MultiSlider  *pMultiSlider = static_cast<cLuxProp_MultiSlider*>(apProp);
 

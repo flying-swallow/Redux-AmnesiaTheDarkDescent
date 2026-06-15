@@ -20,7 +20,7 @@
 #include "scene/LightSpot.h"
 #include "graphics/Image.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include "resources/XmlHelper.h"
 #include "math/Math.h"
 #include "math/Frustum.h"
 #include "resources/TextureManager.h"
@@ -141,29 +141,12 @@ namespace hpl {
 	{
 		if(mbProjectionUpdated)
 		{
-			float fFar = GetReach();
-			float fNear = mfNearClipPlane;
-			float fTop = tan(mfFOV*0.5f) * fNear;
-			float fBottom = -fTop;
-			float fRight = mfAspect * fTop;
-			float fLeft = mfAspect * fBottom;
+			// VK clip convention (z in [0,1]), same form as the camera path —
+			// cFrustum::UpdatePlanes extracts the near plane as row2 alone.
+			m_mtxProjection = cMath::MatrixPerspectiveProjection(
+				mfNearClipPlane, GetReach(), mfFOV, mfAspect, false);
 
-			float A = (2.0f*fNear) / (fRight - fLeft);
-			float B = (2.0f*fNear) / (fTop - fBottom);
-			float D = -1.0f;
-			float C = -(2.0f*fFar*fNear) / (fFar - fNear);
-			float Z = -(fFar + fNear)/(fFar - fNear);
-			
-			float X = 0;
-			float Y = 0;
-			
-			m_mtxProjection = cMatrixf(
-				A,0,X,0,
-				0,B,Y,0,
-				0,0,Z,C,
-				0,0,D,0);
-
-			mbProjectionUpdated = false;	
+			mbProjectionUpdated = false;
 			mbViewProjUpdated = true;
 			mbFrustumUpdated = true;
 		}
@@ -251,12 +234,12 @@ namespace hpl {
 		return eTextureAnimMode_None;
 	}
 
-	void cLightSpot::ExtraXMLProperties(TiXmlElement *apMainElem)
+	void cLightSpot::ExtraXMLProperties(tinyxml2::XMLElement *apMainElem)
 	{
-		tString sTexture = cString::ToString(apMainElem->Attribute("ProjectionImage"),"");
+		tString sTexture = GetAttributeString(apMainElem, "ProjectionImage");
 
-		eTextureAnimMode animMode = GetAnimMode(cString::ToString(apMainElem->Attribute("ProjectionAnimMode"),"None"));
-		float fFrameTime = cString::ToFloat(apMainElem->Attribute("ProjectionFrameTime"),1.0f);
+		eTextureAnimMode animMode = GetAnimMode(GetAttributeString(apMainElem, "ProjectionAnimMode", "None"));
+		float fFrameTime = GetAttributeFloat(apMainElem, "ProjectionFrameTime", 1.0f);
 		Image *pImage = NULL;
 
 		if(animMode != eTextureAnimMode_None)
@@ -278,9 +261,9 @@ namespace hpl {
 			SetGoboTexture(pImage);
 		}
 
-		mfAspect = cString::ToFloat(apMainElem->Attribute("Aspect"),mfAspect);
+		mfAspect = GetAttributeFloat(apMainElem, "Aspect", mfAspect);
 
-		mfNearClipPlane = cString::ToFloat(apMainElem->Attribute("NearClipPlane"),mfNearClipPlane);
+		mfNearClipPlane = GetAttributeFloat(apMainElem, "NearClipPlane", mfNearClipPlane);
 	}
 
 	//-----------------------------------------------------------------------

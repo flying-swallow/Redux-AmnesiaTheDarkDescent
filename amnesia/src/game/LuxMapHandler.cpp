@@ -19,6 +19,9 @@
 
 #include "LuxMapHandler.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 #include "LuxMap.h"
 #include "LuxPlayer.h"
 #include "LuxEffectRenderer.h"
@@ -45,7 +48,7 @@ cMapHandlerSoundCallback::cMapHandlerSoundCallback()
 	///////////////////////
 	//Load document
 	tString sFile = "sounds/EnemySounds.dat";
-	iXmlDocument* pXmlDoc = gpBase->mpEngine->GetResources()->LoadXmlDocument(sFile);
+	tinyxml2::XMLElement* pXmlDoc = gpBase->mpEngine->GetResources()->LoadXmlDocument(sFile);
 	if(pXmlDoc ==NULL)
 	{
 		Error("Couldn't load XML file '%s'!\n",sFile.c_str());
@@ -54,12 +57,9 @@ cMapHandlerSoundCallback::cMapHandlerSoundCallback()
 
 	//////////////////////
 	// Load data
-	cXmlNodeListIterator it = pXmlDoc->GetChildIterator();
-	while(it.HasNext())
+	for(tinyxml2::XMLElement* pChildElem = pXmlDoc->FirstChildElement(); pChildElem != NULL; pChildElem = pChildElem->NextSiblingElement())
 	{
-		cXmlElement *pChildElem = it.Next()->ToElement();
-
-		tString sName = pChildElem->GetAttributeString("name");
+		tString sName = hpl::GetAttributeString(pChildElem, "name");
 		mvEnemyHearableSounds.push_back(sName);
 	}
 

@@ -24,6 +24,8 @@
 #include "EditorViewport.h"
 #include "EditorVar.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 class cEditorWindowMaterialEditor;
 class cTextureUnitWrapper;
 class cTextureUnitPanel;
@@ -60,8 +62,8 @@ public:
 
 	void Reset();
 
-	void Load(cXmlElement* apElement);
-	void Save(cXmlElement* apElement);
+	void Load(tinyxml2::XMLElement* apElement);
+	void Save(tinyxml2::XMLElement* apElement);
 
 	void Reload();
 	void Update();

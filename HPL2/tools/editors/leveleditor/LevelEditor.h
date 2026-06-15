@@ -30,6 +30,8 @@ using namespace hpl;
 
 //--------------------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; }
+
 class iEditorWindow;
 
 class iEditorEditMode;
@@ -143,11 +145,11 @@ protected:
 	kGuiCallbackDeclarationEnd(MainMenu_UndoRedo);
 
 	void AppSpecificReset();
-	//void AppSpecificLoad(iXmlDocument* apDoc);
-	//void AppSpecificSave(iXmlDocument* apDoc);
+	//void AppSpecificLoad(tinyxml2::XMLElement* apDoc);
+	//void AppSpecificSave(tinyxml2::XMLElement* apDoc);
 
-	void LoadEditorSession(iXmlDocument* apDoc, cXmlElement** apElement);
-	void SaveEditorSession(iXmlDocument* apDoc, cXmlElement** apElement);
+	void LoadEditorSession(tinyxml2::XMLElement* apDoc, tinyxml2::XMLElement** apElement);
+	void SaveEditorSession(tinyxml2::XMLElement* apDoc, tinyxml2::XMLElement** apElement);
 
 	bool ImportFileCallback(iWidget* apWidget, const cGuiMessageData& aData);
 	kGuiCallbackDeclarationEnd(ImportFileCallback);

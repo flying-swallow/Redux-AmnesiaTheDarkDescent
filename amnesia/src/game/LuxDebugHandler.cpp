@@ -1190,13 +1190,15 @@ void cLuxDebugHandler::CreateGuiWindow()
 		pGroup = mpGuiSet->CreateWidgetGroup(vPos, 100, _W("Evaluation Overlay"), mpDebugWindow);
 
 		// Pick overlay
-		mpCBEvaluationOverlay = mpGuiSet->CreateWidgetComboBox(vGroupPos, vSize, _W("Normal"), pGroup);
-		mpCBEvaluationOverlay->AddItem("Normal");
+		mpCBEvaluationOverlay = mpGuiSet->CreateWidgetComboBox(vGroupPos, vSize, _W("None"), pGroup);
+		mpCBEvaluationOverlay->AddItem("None");
 		mpCBEvaluationOverlay->AddItem("Variance");
 		mpCBEvaluationOverlay->AddItem("Ray Count");
 		mpCBEvaluationOverlay->AddItem("Ref Count");
 		mpCBEvaluationOverlay->AddItem("Life");
 		mpCBEvaluationOverlay->AddItem("Coverage");
+		mpCBEvaluationOverlay->AddItem("Direct Only");
+		mpCBEvaluationOverlay->AddItem("Indirect Only");
 		mpCBEvaluationOverlay->SetSelectedItem(-1);
 		mpCBEvaluationOverlay->AddCallback(eGuiMessage_SelectionChange, this, kGuiCallback(ChangeEvaluationOverlay));
 		vGroupPos.y += 22;

@@ -95,7 +95,7 @@ iLuxEnemyLoader::iLuxEnemyLoader(const tString& asName) : cEntityLoader_Object(a
 
 //-----------------------------------------------------------------------
 
-void iLuxEnemyLoader::BeforeLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+void iLuxEnemyLoader::BeforeLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 {
 
 }
@@ -115,7 +115,7 @@ static eLuxEnemyPoseType ToPoseType(const tString& asPose)
 
 //-----------------------------------------------------------------------
 
-void iLuxEnemyLoader::AfterLoad(cXmlElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
+void iLuxEnemyLoader::AfterLoad(tinyxml2::XMLElement *apRootElem, const cMatrixf &a_mtxTransform,cWorld *apWorld, cResourceVarsObject *apInstanceVars)
 {
 	cLuxMap *pMap = gpBase->mpCurrentMapLoading;
 	if(pMap==NULL) return;

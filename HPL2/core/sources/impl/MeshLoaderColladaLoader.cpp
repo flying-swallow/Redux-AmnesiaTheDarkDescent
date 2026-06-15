@@ -36,7 +36,7 @@
 
 #include "resources/MaterialManager.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 #include "math/Math.h"
 
@@ -101,8 +101,8 @@ namespace hpl {
 		FILE *pFile = cPlatform::OpenFile(asFile, _W("rb"));
 		if(pFile==NULL) return false;
 
-		TiXmlDocument* pXmlDoc = hplNew(TiXmlDocument, () );
-		if(pXmlDoc->LoadFile(pFile)==false)
+		tinyxml2::XMLDocument* pXmlDoc = hplNew(tinyxml2::XMLDocument, (true, tinyxml2::COLLAPSE_WHITESPACE) );
+		if(pXmlDoc->LoadFile(pFile)!=tinyxml2::XML_SUCCESS)
 		{
 			Error("Couldn't load Collada XML file '%s'!\n",asFile.c_str());
 			fclose(pFile);
@@ -116,7 +116,7 @@ namespace hpl {
 		//Log("Loading collada XML file for '%s' took: %d ms\n",asFile.c_str(),lTime);
 
 		//Get the root.
-		TiXmlElement* pRootElem = pXmlDoc->RootElement();
+		tinyxml2::XMLElement* pRootElem = pXmlDoc->RootElement();
 
 		/////////////////////////////////////////////////
 		// FIRST SETUP
@@ -126,13 +126,13 @@ namespace hpl {
 		mfUnitScale = 1.0f;
 
 		//Load assets element.
-		TiXmlElement *pAssetElem = pRootElem->FirstChildElement("asset");
+		tinyxml2::XMLElement *pAssetElem = pRootElem->FirstChildElement("asset");
 		if(pAssetElem)
 		{
-			TiXmlElement *pUpAxisElem = pAssetElem->FirstChildElement("up_axis");
+			tinyxml2::XMLElement *pUpAxisElem = pAssetElem->FirstChildElement("up_axis");
 			if(pUpAxisElem)
 			{
-				TiXmlText *pAxisText = pUpAxisElem->FirstChild()->ToText();
+				tinyxml2::XMLText *pAxisText = pUpAxisElem->FirstChild()->ToText();
 
 				if(tString(pAxisText->Value())=="Z_UP"){
 					mbZToY = true;
@@ -144,7 +144,7 @@ namespace hpl {
 			bool bGetUnit = false;
 
 			// Only get unit from 3ds max files!
-			TiXmlElement *pCont = pAssetElem->FirstChildElement("contributor");
+			tinyxml2::XMLElement *pCont = pAssetElem->FirstChildElement("contributor");
 			
 			if(pCont)
 			{
@@ -165,14 +165,14 @@ namespace hpl {
 				}
 			}
 
-			TiXmlElement *pUnitElem = pAssetElem->FirstChildElement("unit");
+			tinyxml2::XMLElement *pUnitElem = pAssetElem->FirstChildElement("unit");
 
 			if(pUnitElem && bGetUnit && mbConvertUnit)
 			{
 				float fUnitTypeScale = 1.0f;
 				float fUnitValue = 1.0f;
 
-				TiXmlAttribute *pFirstAttri = pUnitElem->FirstAttribute();
+				const tinyxml2::XMLAttribute *pFirstAttri = pUnitElem->FirstAttribute();
 
 				for(;pFirstAttri; pFirstAttri = pFirstAttri->Next())
 				{
@@ -201,7 +201,7 @@ namespace hpl {
 
 		/////////////////////////////////////////////////
 		// ITERATE THE LIBRARIES BEFORE SCENE LIBRARIES
-		TiXmlElement* pLibraryElem = pRootElem->FirstChildElement();
+		tinyxml2::XMLElement* pLibraryElem = pRootElem->FirstChildElement();
 		while(pLibraryElem)
 		{
 			tString sType = cString::ToString(pLibraryElem->Attribute("type"),"");
@@ -222,7 +222,7 @@ namespace hpl {
 		// LOAD SCENE
 		if(apColladaScene)
 		{
-			TiXmlElement* pSceneElem = pRootElem->FirstChildElement("library_visual_scenes");
+			tinyxml2::XMLElement* pSceneElem = pRootElem->FirstChildElement("library_visual_scenes");
 			if(pSceneElem){
 				pSceneElem = pSceneElem->FirstChildElement("visual_scene");
 				if(pSceneElem==NULL) Warning("No visual scene element found!\n");
@@ -237,11 +237,11 @@ namespace hpl {
 			else
 			{
 				//Get start and end time (MAYA ONLY!)
-				TiXmlElement* pExtraElem = pSceneElem->FirstChildElement("extra");
+				tinyxml2::XMLElement* pExtraElem = pSceneElem->FirstChildElement("extra");
 				if(pExtraElem)
-				{	
+				{
 					// Get techniques
-					TiXmlElement* pExtraTechElem = pExtraElem->FirstChildElement("technique");
+					tinyxml2::XMLElement* pExtraTechElem = pExtraElem->FirstChildElement("technique");
 					for(;pExtraTechElem; pExtraTechElem = pExtraTechElem->NextSiblingElement("technique"))
 					{
 						//Check for maya profile
@@ -249,7 +249,7 @@ namespace hpl {
 						if(sProfile == "MAYA" || sProfile == "FCOLLADA")
 						{
 							//Iterate params
-							TiXmlElement *pParam = pExtraTechElem->FirstChildElement();
+							tinyxml2::XMLElement *pParam = pExtraTechElem->FirstChildElement();
 							for(;pParam; pParam = pParam->NextSiblingElement())
 							{
 								tString sName = cString::ToString(pParam->Attribute("name"),"");
@@ -260,7 +260,7 @@ namespace hpl {
 
 								sName = cString::ToLowerCase(sName);
 
-								TiXmlText *pText = pParam->FirstChild()->ToText();
+								tinyxml2::XMLText *pText = pParam->FirstChild()->ToText();
 								float fValue = cString::ToFloat(pText->Value(),0);
 
 								if(sName == "start_time") apColladaScene->mfStartTime = fValue;
@@ -282,7 +282,7 @@ namespace hpl {
 				}
 
 				//Load all nodes in the scene.
-				TiXmlElement* pNodeElem = pSceneElem->FirstChildElement("node");
+				tinyxml2::XMLElement* pNodeElem = pSceneElem->FirstChildElement("node");
 				while(pNodeElem)
 				{
 					LoadColladaScene(pNodeElem, &apColladaScene->mRoot, apColladaScene, apColladaLightVec);
@@ -363,20 +363,20 @@ namespace hpl {
 	// SAVE COLLADA DATA
 	//////////////////////////////////////////////////////////////////////////
 
-	#define CreateXMLChild(parent, name) static_cast<TiXmlElement*>(parent->InsertEndChild(TiXmlElement(name)));
+	#define CreateXMLChild(parent, name) static_cast<tinyxml2::XMLElement*>(parent->InsertEndChild(parent->GetDocument()->NewElement(name)));
 
-	#define CreateXMLTextChild(parent, name) static_cast<TiXmlText*>(parent->InsertEndChild(TiXmlText(name)));
+	#define CreateXMLTextChild(parent, name) static_cast<tinyxml2::XMLText*>(parent->InsertEndChild(parent->GetDocument()->NewText(name)));
 
 	//-----------------------------------------------------------------------
 
-	static void SaveImageVec(TiXmlElement *apRootElem, tColladaImageVec *apColladaImageVec);
-	static void SaveTextureVec(TiXmlElement *apRootElem, tColladaTextureVec *apColladaTextureVec);
-	static void SaveMaterialVec(TiXmlElement *apRootElem, tColladaMaterialVec *apColladaMaterialVec);
-	static void SaveLightVec(TiXmlElement *apRootElem, tColladaLightVec *apColladaLightVec);
-	static void SaveAnimationVec(TiXmlElement *apRootElem, tColladaAnimationVec *apColladaAnimationVec);
-	static void SaveControllerVec(TiXmlElement *apRootElem, tColladaControllerVec *apColladaControllerVec);
-	static void SaveGeometryVec(TiXmlElement *apRootElem, tColladaGeometryVec *apColladaGeometryVec);
-	static void SaveScene(TiXmlElement *apRootElem, cColladaScene *apColladaScene);
+	static void SaveImageVec(tinyxml2::XMLElement *apRootElem, tColladaImageVec *apColladaImageVec);
+	static void SaveTextureVec(tinyxml2::XMLElement *apRootElem, tColladaTextureVec *apColladaTextureVec);
+	static void SaveMaterialVec(tinyxml2::XMLElement *apRootElem, tColladaMaterialVec *apColladaMaterialVec);
+	static void SaveLightVec(tinyxml2::XMLElement *apRootElem, tColladaLightVec *apColladaLightVec);
+	static void SaveAnimationVec(tinyxml2::XMLElement *apRootElem, tColladaAnimationVec *apColladaAnimationVec);
+	static void SaveControllerVec(tinyxml2::XMLElement *apRootElem, tColladaControllerVec *apColladaControllerVec);
+	static void SaveGeometryVec(tinyxml2::XMLElement *apRootElem, tColladaGeometryVec *apColladaGeometryVec);
+	static void SaveScene(tinyxml2::XMLElement *apRootElem, cColladaScene *apColladaScene);
 	
 	bool cMeshLoaderCollada::SaveStructures(const tWString &asFile,
 											tColladaImageVec *apColladaImageVec,
@@ -388,9 +388,9 @@ namespace hpl {
 											tColladaAnimationVec *apColladaAnimVec,
 											cColladaScene *apColladaScene)
 	{
-		TiXmlDocument* pXmlDoc = hplNew(TiXmlDocument, () );
+		tinyxml2::XMLDocument* pXmlDoc = hplNew(tinyxml2::XMLDocument, () );
 
-		TiXmlElement *pRootElem = CreateXMLChild(pXmlDoc,"ColladaCache");
+		tinyxml2::XMLElement *pRootElem = CreateXMLChild(pXmlDoc,"ColladaCache");
 		
 		if(apColladaImageVec)		SaveImageVec(pRootElem,apColladaImageVec);
 		if(apColladaTextureVec)		SaveTextureVec(pRootElem,apColladaTextureVec);
@@ -402,7 +402,7 @@ namespace hpl {
 		if(apColladaScene)			SaveScene(pRootElem,apColladaScene);
 
 		FILE *pFile = cPlatform::OpenFile(asFile, _W("w+"));
-		if(pFile==NULL || pXmlDoc->SaveFile(pFile)==false)
+		if(pFile==NULL || pXmlDoc->SaveFile(pFile)!=tinyxml2::XML_SUCCESS)
 		{
 			Error("Couldn't save XML file %s\n",asFile.c_str());
 			hplDelete(pXmlDoc);		
@@ -415,9 +415,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void SaveImageVec(TiXmlElement *apRootElem, tColladaImageVec *apColladaImageVec)
+	static void SaveImageVec(tinyxml2::XMLElement *apRootElem, tColladaImageVec *apColladaImageVec)
 	{
-		TiXmlElement *pImageRootElem =  CreateXMLChild(apRootElem,"ImageRoot");
+		tinyxml2::XMLElement *pImageRootElem =  CreateXMLChild(apRootElem,"ImageRoot");
 
 		pImageRootElem->SetAttribute("Size",(int)apColladaImageVec->size());
 
@@ -425,7 +425,7 @@ namespace hpl {
 		{
 			cColladaImage *pImage = &(*apColladaImageVec)[i];
             
-			TiXmlElement *pImageElem = CreateXMLChild(pImageRootElem,"Image");
+			tinyxml2::XMLElement *pImageElem = CreateXMLChild(pImageRootElem,"Image");
 
             pImageElem->SetAttribute("Id",pImage->msId.c_str());
 			pImageElem->SetAttribute("Name",pImage->msName.c_str());
@@ -435,9 +435,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void SaveTextureVec(TiXmlElement *apRootElem, tColladaTextureVec *apColladaTextureVec)
+	static void SaveTextureVec(tinyxml2::XMLElement *apRootElem, tColladaTextureVec *apColladaTextureVec)
 	{
-		TiXmlElement *pTextureRootElem =  CreateXMLChild(apRootElem,"TextureRoot");
+		tinyxml2::XMLElement *pTextureRootElem =  CreateXMLChild(apRootElem,"TextureRoot");
 
 		pTextureRootElem->SetAttribute("Size",(int)apColladaTextureVec->size());
 
@@ -445,7 +445,7 @@ namespace hpl {
 		{
 			cColladaTexture *pTexture = &(*apColladaTextureVec)[i];
 
-			TiXmlElement *pTextureElem = CreateXMLChild(pTextureRootElem,"Texture");
+			tinyxml2::XMLElement *pTextureElem = CreateXMLChild(pTextureRootElem,"Texture");
 
 			pTextureElem->SetAttribute("Id",pTexture->msId.c_str());
 			pTextureElem->SetAttribute("Name",pTexture->msName.c_str());
@@ -455,9 +455,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void SaveMaterialVec(TiXmlElement *apRootElem, tColladaMaterialVec *apColladaMaterialVec)
+	static void SaveMaterialVec(tinyxml2::XMLElement *apRootElem, tColladaMaterialVec *apColladaMaterialVec)
 	{
-		TiXmlElement *pMaterialRootElem =  CreateXMLChild(apRootElem,"MaterialRoot");
+		tinyxml2::XMLElement *pMaterialRootElem =  CreateXMLChild(apRootElem,"MaterialRoot");
 
 		pMaterialRootElem->SetAttribute("Size",(int)apColladaMaterialVec->size());
 
@@ -465,7 +465,7 @@ namespace hpl {
 		{
 			cColladaMaterial *pMaterial = &(*apColladaMaterialVec)[i];
 
-			TiXmlElement *pMaterialElem = CreateXMLChild(pMaterialRootElem,"Material");
+			tinyxml2::XMLElement *pMaterialElem = CreateXMLChild(pMaterialRootElem,"Material");
 
 			pMaterialElem->SetAttribute("Id",pMaterial->msId.c_str());
 			pMaterialElem->SetAttribute("Name",pMaterial->msName.c_str());
@@ -476,9 +476,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void SaveLightVec(TiXmlElement *apRootElem, tColladaLightVec *apColladaLightVec)
+	static void SaveLightVec(tinyxml2::XMLElement *apRootElem, tColladaLightVec *apColladaLightVec)
 	{
-		TiXmlElement *pLightRootElem =  CreateXMLChild(apRootElem,"LightRoot");
+		tinyxml2::XMLElement *pLightRootElem =  CreateXMLChild(apRootElem,"LightRoot");
 
 		pLightRootElem->SetAttribute("Size",(int)apColladaLightVec->size());
 
@@ -486,7 +486,7 @@ namespace hpl {
 		{
 			cColladaLight *pLight = &(*apColladaLightVec)[i];
 
-			TiXmlElement *pLightElem = CreateXMLChild(pLightRootElem,"Light");
+			tinyxml2::XMLElement *pLightElem = CreateXMLChild(pLightRootElem,"Light");
 
 			//Log("Light %s\n",pLight->msName.c_str());
 
@@ -501,9 +501,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void SaveAnimationVec(TiXmlElement *apRootElem, tColladaAnimationVec *apColladaAnimationVec)
+	static void SaveAnimationVec(tinyxml2::XMLElement *apRootElem, tColladaAnimationVec *apColladaAnimationVec)
 	{
-		TiXmlElement *pAnimationRootElem =  CreateXMLChild(apRootElem,"AnimationRoot");
+		tinyxml2::XMLElement *pAnimationRootElem =  CreateXMLChild(apRootElem,"AnimationRoot");
 
 		pAnimationRootElem->SetAttribute("Size",(int)apColladaAnimationVec->size());
 
@@ -511,7 +511,7 @@ namespace hpl {
 		{
 			cColladaAnimation *pAnimation = &(*apColladaAnimationVec)[i];
 
-			TiXmlElement *pAnimationElem = CreateXMLChild(pAnimationRootElem,"Animation");
+			tinyxml2::XMLElement *pAnimationElem = CreateXMLChild(pAnimationRootElem,"Animation");
 
 			pAnimationElem->SetAttribute("Id",pAnimation->msId.c_str());
 			pAnimationElem->SetAttribute("TargetNode",pAnimation->msTargetNode.c_str());
@@ -519,13 +519,13 @@ namespace hpl {
             /////////////////////////////////////
 			// Channels
 			{
-				TiXmlElement *pChannelVecElem =  CreateXMLChild(pAnimationElem,"ChannelVec");
+				tinyxml2::XMLElement *pChannelVecElem =  CreateXMLChild(pAnimationElem,"ChannelVec");
 				pChannelVecElem->SetAttribute("Size",(int)pAnimation->mvChannels.size());
 
 				for(size_t idx =0; idx < pAnimation->mvChannels.size(); ++idx)
 				{
 					cColladaChannel *pChannel = &pAnimation->mvChannels[idx];
-					TiXmlElement *pChannelElem =  CreateXMLChild(pChannelVecElem,"Channel");
+					tinyxml2::XMLElement *pChannelElem =  CreateXMLChild(pChannelVecElem,"Channel");
 					
 					pChannelElem->SetAttribute("Id",pChannel->msId.c_str());
 					pChannelElem->SetAttribute("Target",pChannel->msTarget.c_str());
@@ -535,13 +535,13 @@ namespace hpl {
 			/////////////////////////////////////
 			// Samplers
 			{
-				TiXmlElement *pSamplerVecElem =  CreateXMLChild(pAnimationElem,"SamplerVec");
+				tinyxml2::XMLElement *pSamplerVecElem =  CreateXMLChild(pAnimationElem,"SamplerVec");
 				pSamplerVecElem->SetAttribute("Size",(int)pAnimation->mvSamplers.size());
 
 				for(size_t idx =0; idx < pAnimation->mvSamplers.size(); ++idx)
 				{
 					cColladaSampler *pSampler = &pAnimation->mvSamplers[idx];
-					TiXmlElement *pSamplerElem =  CreateXMLChild(pSamplerVecElem,"Sampler");
+					tinyxml2::XMLElement *pSamplerElem =  CreateXMLChild(pSamplerVecElem,"Sampler");
 
 					pSamplerElem->SetAttribute("Id",pSampler->msId.c_str());
 					pSamplerElem->SetAttribute("TimeArray",pSampler->msTimeArray.c_str());
@@ -552,13 +552,13 @@ namespace hpl {
 			/////////////////////////////////////
 			// Sources
 			{
-				TiXmlElement *pSourceVecElem =  CreateXMLChild(pAnimationElem,"SourceVec");
+				tinyxml2::XMLElement *pSourceVecElem =  CreateXMLChild(pAnimationElem,"SourceVec");
 				pSourceVecElem->SetAttribute("Size",(int)pAnimation->mvSources.size());
 
 				for(size_t idx =0; idx < pAnimation->mvSources.size(); ++idx)
 				{
 					cColladaAnimSource *pSource = &pAnimation->mvSources[idx];
-					TiXmlElement *pSourceElem =  CreateXMLChild(pSourceVecElem,"Source");
+					tinyxml2::XMLElement *pSourceElem =  CreateXMLChild(pSourceVecElem,"Source");
 
 					pSourceElem->SetAttribute("Id",pSource->msId.c_str());
 					tString sData ="";
@@ -573,9 +573,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void SaveControllerVec(TiXmlElement *apRootElem, tColladaControllerVec *apColladaControllerVec)
+	static void SaveControllerVec(tinyxml2::XMLElement *apRootElem, tColladaControllerVec *apColladaControllerVec)
 	{
-		TiXmlElement *pControllerRootElem =  CreateXMLChild(apRootElem,"ControllerRoot");
+		tinyxml2::XMLElement *pControllerRootElem =  CreateXMLChild(apRootElem,"ControllerRoot");
 
 		pControllerRootElem->SetAttribute("Size",(int)apColladaControllerVec->size());
 
@@ -583,7 +583,7 @@ namespace hpl {
 		{
 			cColladaController *pController = &(*apColladaControllerVec)[i];
 
-			TiXmlElement *pControllerElem = CreateXMLChild(pControllerRootElem,"Controller");
+			tinyxml2::XMLElement *pControllerElem = CreateXMLChild(pControllerRootElem,"Controller");
 
 			pControllerElem->SetAttribute("Id",pController->msId.c_str());
 			pControllerElem->SetAttribute("Target",pController->msTarget.c_str());
@@ -596,7 +596,7 @@ namespace hpl {
 			///////////////////////
 			// Joints
 			{
-				TiXmlElement *pJointsElem = CreateXMLChild(pControllerElem,"Joints");
+				tinyxml2::XMLElement *pJointsElem = CreateXMLChild(pControllerElem,"Joints");
 				pJointsElem->SetAttribute("Size",(int)pController->mvJoints.size());
 				
 				tString sData=""; sData.reserve(pController->mvJoints.size()*10);
@@ -609,7 +609,7 @@ namespace hpl {
 			///////////////////////
 			// Weights
 			{
-				TiXmlElement *pWeightsElem = CreateXMLChild(pControllerElem,"Weights");
+				tinyxml2::XMLElement *pWeightsElem = CreateXMLChild(pControllerElem,"Weights");
 				pWeightsElem->SetAttribute("Size",(int)pController->mvWeights.size());
 
 				tString sData=""; sData.reserve(pController->mvWeights.size()*5);
@@ -622,7 +622,7 @@ namespace hpl {
 			///////////////////////
 			// Matrices
 			{
-				TiXmlElement *pMatricesElem = CreateXMLChild(pControllerElem,"Matrices");
+				tinyxml2::XMLElement *pMatricesElem = CreateXMLChild(pControllerElem,"Matrices");
 				pMatricesElem->SetAttribute("Size",(int)pController->mvMatrices.size());
 
 				tString sData=""; sData.reserve(pController->mvMatrices.size()*5);
@@ -635,7 +635,7 @@ namespace hpl {
 			///////////////////////
 			// Pairs
 			{
-				TiXmlElement *pPairVecElem = CreateXMLChild(pControllerElem,"PairVec");
+				tinyxml2::XMLElement *pPairVecElem = CreateXMLChild(pControllerElem,"PairVec");
 				pPairVecElem->SetAttribute("Size",(int)pController->mvPairs.size());
 
 				tIntVec vPairNumVec; vPairNumVec.resize(pController->mvPairs.size(),0);
@@ -643,7 +643,7 @@ namespace hpl {
 				////////////////////////////////
 				//The pair connections
 				int lCount =0;
-                TiXmlElement *pPairsElem = CreateXMLChild(pPairVecElem,"Pairs");
+                tinyxml2::XMLElement *pPairsElem = CreateXMLChild(pPairVecElem,"Pairs");
 				tString sData=""; sData.reserve(pController->mvPairs.size()*4*2);
 				for(size_t idx =0; idx < pController->mvPairs.size(); ++idx)
 				{
@@ -662,7 +662,7 @@ namespace hpl {
 
 				////////////////////////////////
 				//The pair numbers
-				TiXmlElement *pPairNumElem = CreateXMLChild(pPairVecElem,"PairNum");
+				tinyxml2::XMLElement *pPairNumElem = CreateXMLChild(pPairVecElem,"PairNum");
 				sData=""; sData.reserve(pController->mvPairs.size()*4);
 				for(size_t idx =0; idx < pController->mvPairs.size(); ++idx)
 				{
@@ -676,9 +676,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void SaveGeometryVec(TiXmlElement *apRootElem, tColladaGeometryVec *apColladaGeometryVec)
+	static void SaveGeometryVec(tinyxml2::XMLElement *apRootElem, tColladaGeometryVec *apColladaGeometryVec)
 	{
-		TiXmlElement *pGeometryRootElem =  CreateXMLChild(apRootElem,"GeometryRoot");
+		tinyxml2::XMLElement *pGeometryRootElem =  CreateXMLChild(apRootElem,"GeometryRoot");
 
 		pGeometryRootElem->SetAttribute("Size",(int)apColladaGeometryVec->size());
 
@@ -686,7 +686,7 @@ namespace hpl {
 		{
 			cColladaGeometry *pGeometry = &(*apColladaGeometryVec)[i];
 
-			TiXmlElement *pGeometryElem = CreateXMLChild(pGeometryRootElem,"Geometry");
+			tinyxml2::XMLElement *pGeometryElem = CreateXMLChild(pGeometryRootElem,"Geometry");
 
 			/////////////////////////////////7
 			//Main properties
@@ -708,11 +708,11 @@ namespace hpl {
 
 			/////////////////////////////////
 			// Index Vec
-			TiXmlElement *pIndexVecElem = CreateXMLChild(pGeometryElem,"IndexVec");
+			tinyxml2::XMLElement *pIndexVecElem = CreateXMLChild(pGeometryElem,"IndexVec");
             
 			pIndexVecElem->SetAttribute("Size",(int)pGeometry->mvIndexVec.size());
 
-			TiXmlElement *pIndicesDataElem = CreateXMLChild(pIndexVecElem,"Indices");
+			tinyxml2::XMLElement *pIndicesDataElem = CreateXMLChild(pIndexVecElem,"Indices");
 
 			tString sIndexVec = "";
 			sIndexVec.reserve(pGeometry->mvIndexVec.size() * 5);
@@ -720,12 +720,12 @@ namespace hpl {
 			{
 				sIndexVec += cString::ToString((int)pGeometry->mvIndexVec[j])+" ";
 			}
-			TiXmlText *pIndecVecText = CreateXMLTextChild(pIndicesDataElem,"Data");
+			tinyxml2::XMLText *pIndecVecText = CreateXMLTextChild(pIndicesDataElem,"Data");
             pIndecVecText->SetValue(sIndexVec.c_str());
 
 			/////////////////////////////////
 			// Vertex vec
-			TiXmlElement *pVertexVecElem = CreateXMLChild(pGeometryElem,"VertexVec");
+			tinyxml2::XMLElement *pVertexVecElem = CreateXMLChild(pGeometryElem,"VertexVec");
 			pVertexVecElem->SetAttribute("Size",(int)pGeometry->mvVertexVec.size());
 			{
 				/////////////////////////////////
@@ -736,8 +736,8 @@ namespace hpl {
 				{
 					sData += pGeometry->mvVertexVec[j].pos.ToFileString()+" ";
 				}
-				TiXmlElement *pDataElem = CreateXMLChild(pVertexVecElem,"Positions");
-				TiXmlText *pVecText = CreateXMLTextChild(pDataElem,"Data");
+				tinyxml2::XMLElement *pDataElem = CreateXMLChild(pVertexVecElem,"Positions");
+				tinyxml2::XMLText *pVecText = CreateXMLTextChild(pDataElem,"Data");
 				pVecText->SetValue(sData.c_str());
 				
 				/////////////////////////////////
@@ -782,7 +782,7 @@ namespace hpl {
 			// Extra vertex vec
 			//if(false)
 			{
-				TiXmlElement *pExtraVertexVecElem = CreateXMLChild(pGeometryElem,"ExtraVertexVec");
+				tinyxml2::XMLElement *pExtraVertexVecElem = CreateXMLChild(pGeometryElem,"ExtraVertexVec");
 				pExtraVertexVecElem->SetAttribute("Size",(int)pGeometry->mvExtraVtxVec.size());
 				
 				tUIntVec vExtraNum; vExtraNum.resize(pGeometry->mvExtraVtxVec.size(),0);
@@ -791,7 +791,7 @@ namespace hpl {
 				//Extra vertices
 				tString sData = ""; sData.reserve(pGeometry->mvExtraVtxVec.size()*4*4 *4);
 				int lExtraCount =0;
-				TiXmlElement *pExtraElem = CreateXMLChild(pExtraVertexVecElem,"ExtraVertex");
+				tinyxml2::XMLElement *pExtraElem = CreateXMLChild(pExtraVertexVecElem,"ExtraVertex");
 				for(size_t idx=0; idx < pGeometry->mvExtraVtxVec.size(); ++idx)
 				{
 					tColladaExtraVtxList *pList = &pGeometry->mvExtraVtxVec[idx];
@@ -815,7 +815,7 @@ namespace hpl {
 				////////////////////////////
 				//Extra num
 				sData = ""; sData.reserve(pGeometry->mvExtraVtxVec.size()*4 *4);
-				TiXmlElement *pExtraNumElem = CreateXMLChild(pExtraVertexVecElem,"ExtraNum");
+				tinyxml2::XMLElement *pExtraNumElem = CreateXMLChild(pExtraVertexVecElem,"ExtraNum");
 				for(size_t idx=0; idx < pGeometry->mvExtraVtxVec.size(); ++idx)
 				{
 					sData += cString::ToString((int)vExtraNum[idx]) + " ";
@@ -828,13 +828,13 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void SaveIterativeNode(TiXmlElement *apParentElem, cColladaNode *apParentNode)
+	static void SaveIterativeNode(tinyxml2::XMLElement *apParentElem, cColladaNode *apParentNode)
 	{
 		tColladaNodeListIt it = apParentNode->mlstChildren.begin();
 		for(; it != apParentNode->mlstChildren.end(); ++it)
 		{
 			cColladaNode *pNode = *it;
-			TiXmlElement *pNodeElem =  CreateXMLChild(apParentElem,"Node");
+			tinyxml2::XMLElement *pNodeElem =  CreateXMLChild(apParentElem,"Node");
 
 			pNodeElem->SetAttribute("Id",pNode->msId.c_str());
 			pNodeElem->SetAttribute("Sid",pNode->msSid.c_str());
@@ -854,13 +854,13 @@ namespace hpl {
 			pNodeElem->SetAttribute("Count", pNode->mlCount);
 
 
-			TiXmlElement *pTransformRootElem =  CreateXMLChild(pNodeElem,"TransformRoot");
+			tinyxml2::XMLElement *pTransformRootElem =  CreateXMLChild(pNodeElem,"TransformRoot");
 			//tColladaTransformList mlstTransforms;
 			tColladaTransformListIt transIt = pNode->mlstTransforms.begin();
 			for(; transIt != pNode->mlstTransforms.end(); ++transIt)
 			{
 				cColladaTransform & transform = *transIt;
-				TiXmlElement *pTransformElem =  CreateXMLChild(pTransformRootElem,"Transform");
+				tinyxml2::XMLElement *pTransformElem =  CreateXMLChild(pTransformRootElem,"Transform");
 
 				pTransformElem->SetAttribute("Sid",transform.msSid.c_str());
 				pTransformElem->SetAttribute("Type",transform.msType.c_str());
@@ -876,15 +876,15 @@ namespace hpl {
 		}
 	}
 
-	static void SaveScene(TiXmlElement *apRootElem, cColladaScene *apColladaScene)
+	static void SaveScene(tinyxml2::XMLElement *apRootElem, cColladaScene *apColladaScene)
 	{
-		TiXmlElement *pSceneElem =  CreateXMLChild(apRootElem,"Scene");
+		tinyxml2::XMLElement *pSceneElem =  CreateXMLChild(apRootElem,"Scene");
 
 		pSceneElem->SetAttribute("StartTime",cString::ToString(apColladaScene->mfStartTime).c_str());
 		pSceneElem->SetAttribute("EndTime",cString::ToString(apColladaScene->mfEndTime).c_str());
 		pSceneElem->SetAttribute("DeltaTime",cString::ToString(apColladaScene->mfDeltaTime).c_str());
 		
-		TiXmlElement *pSceneRootElem =  CreateXMLChild(pSceneElem,"Root");
+		tinyxml2::XMLElement *pSceneRootElem =  CreateXMLChild(pSceneElem,"Root");
 		
 		SaveIterativeNode(pSceneRootElem,&apColladaScene->mRoot);
 	}
@@ -897,14 +897,14 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void LoadImageVec(TiXmlElement *apRootElem, tColladaImageVec *apColladaImageVec);
-	static void LoadTextureVec(TiXmlElement *apRootElem, tColladaTextureVec *apColladaTextureVec);
-	static void LoadMaterialVec(TiXmlElement *apRootElem, tColladaMaterialVec *apColladaMaterialVec);
-	static void LoadLightVec(TiXmlElement *apRootElem, tColladaLightVec *apColladaLightVec);
-	static void LoadAnimationVec(TiXmlElement *apRootElem, tColladaAnimationVec *apColladaAnimVec);
-	static void LoadControllerVec(TiXmlElement *apRootElem, tColladaControllerVec *apColladaControllerVec);
-	static void LoadGeometryVec(TiXmlElement *apRootElem, tColladaGeometryVec *apColladaGeometryVec);
-	static void LoadScene(TiXmlElement *apRootElem, cColladaScene *apColladaScene);
+	static void LoadImageVec(tinyxml2::XMLElement *apRootElem, tColladaImageVec *apColladaImageVec);
+	static void LoadTextureVec(tinyxml2::XMLElement *apRootElem, tColladaTextureVec *apColladaTextureVec);
+	static void LoadMaterialVec(tinyxml2::XMLElement *apRootElem, tColladaMaterialVec *apColladaMaterialVec);
+	static void LoadLightVec(tinyxml2::XMLElement *apRootElem, tColladaLightVec *apColladaLightVec);
+	static void LoadAnimationVec(tinyxml2::XMLElement *apRootElem, tColladaAnimationVec *apColladaAnimVec);
+	static void LoadControllerVec(tinyxml2::XMLElement *apRootElem, tColladaControllerVec *apColladaControllerVec);
+	static void LoadGeometryVec(tinyxml2::XMLElement *apRootElem, tColladaGeometryVec *apColladaGeometryVec);
+	static void LoadScene(tinyxml2::XMLElement *apRootElem, cColladaScene *apColladaScene);
 
 	bool cMeshLoaderCollada::LoadStructures(const tWString &asFile,
 		tColladaImageVec *apColladaImageVec,
@@ -921,8 +921,8 @@ namespace hpl {
 		FILE *pFile = cPlatform::OpenFile(asFile, _W("rb"));
 		if(pFile==NULL) return false;
 
-		TiXmlDocument* pXmlDoc = hplNew(TiXmlDocument, () );
-		if(pXmlDoc->LoadFile(pFile)==false)
+		tinyxml2::XMLDocument* pXmlDoc = hplNew(tinyxml2::XMLDocument, (true, tinyxml2::COLLAPSE_WHITESPACE) );
+		if(pXmlDoc->LoadFile(pFile)!=tinyxml2::XML_SUCCESS)
 		{
 			Warning("Couldn't open XML file %s\n",cString::To8Char(asFile).c_str());
 			fclose(pFile);
@@ -934,7 +934,7 @@ namespace hpl {
 		//unsigned long lTime = mpSystem->GetLowLevel()->GetTime() - lStartTime;
 		//Log("Loading cached collada XML file '%s' took: %d ms\n",asFile.c_str(),lTime);
 
-		TiXmlElement *pRootElem = pXmlDoc->RootElement();
+		tinyxml2::XMLElement *pRootElem = pXmlDoc->RootElement();
 
 		if(apColladaImageVec)		LoadImageVec(pRootElem,apColladaImageVec);
 		if(apColladaTextureVec)		LoadTextureVec(pRootElem,apColladaTextureVec);
@@ -951,9 +951,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void LoadImageVec(TiXmlElement *apRootElem, tColladaImageVec *apColladaImageVec)
+	static void LoadImageVec(tinyxml2::XMLElement *apRootElem, tColladaImageVec *apColladaImageVec)
 	{
-		TiXmlElement *pImageRootElem = apRootElem->FirstChildElement("ImageRoot");
+		tinyxml2::XMLElement *pImageRootElem = apRootElem->FirstChildElement("ImageRoot");
 		
 		int lSize = cString::ToInt(pImageRootElem->Attribute("Size"),0);
 
@@ -961,7 +961,7 @@ namespace hpl {
 		apColladaImageVec->resize(lSize);
 	
 		int lCount =0;
-		TiXmlElement *pImageElem = pImageRootElem->FirstChildElement();
+		tinyxml2::XMLElement *pImageElem = pImageRootElem->FirstChildElement();
 		for(; pImageElem != NULL; pImageElem = pImageElem->NextSiblingElement(),++lCount)
 		{
 			cColladaImage* pImage = &(*apColladaImageVec)[lCount];
@@ -974,9 +974,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void LoadTextureVec(TiXmlElement *apRootElem, tColladaTextureVec *apColladaTextureVec)
+	static void LoadTextureVec(tinyxml2::XMLElement *apRootElem, tColladaTextureVec *apColladaTextureVec)
 	{
-		TiXmlElement *pTextureRootElem = apRootElem->FirstChildElement("TextureRoot");
+		tinyxml2::XMLElement *pTextureRootElem = apRootElem->FirstChildElement("TextureRoot");
 
 		int lSize = cString::ToInt(pTextureRootElem->Attribute("Size"),0);
 
@@ -984,7 +984,7 @@ namespace hpl {
 		apColladaTextureVec->resize(lSize);
 
 		int lCount =0;
-		TiXmlElement *pTextureElem = pTextureRootElem->FirstChildElement();
+		tinyxml2::XMLElement *pTextureElem = pTextureRootElem->FirstChildElement();
 		for(; pTextureElem != NULL; pTextureElem = pTextureElem->NextSiblingElement(),++lCount)
 		{
 			cColladaTexture* pTexture = &(*apColladaTextureVec)[lCount];
@@ -997,9 +997,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 	
-	static void LoadMaterialVec(TiXmlElement *apRootElem, tColladaMaterialVec *apColladaMaterialVec)
+	static void LoadMaterialVec(tinyxml2::XMLElement *apRootElem, tColladaMaterialVec *apColladaMaterialVec)
 	{
-		TiXmlElement *pMaterialRootElem = apRootElem->FirstChildElement("MaterialRoot");
+		tinyxml2::XMLElement *pMaterialRootElem = apRootElem->FirstChildElement("MaterialRoot");
 
 		int lSize = cString::ToInt(pMaterialRootElem->Attribute("Size"),0);
 
@@ -1007,7 +1007,7 @@ namespace hpl {
 		apColladaMaterialVec->resize(lSize);
 
 		int lCount =0;
-		TiXmlElement *pMaterialElem = pMaterialRootElem->FirstChildElement();
+		tinyxml2::XMLElement *pMaterialElem = pMaterialRootElem->FirstChildElement();
 		for(; pMaterialElem != NULL; pMaterialElem = pMaterialElem->NextSiblingElement(),++lCount)
 		{
 			cColladaMaterial* pMaterial = &(*apColladaMaterialVec)[lCount];
@@ -1021,9 +1021,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void LoadControllerVec(TiXmlElement *apRootElem, tColladaControllerVec *apColladaControllerVec)
+	static void LoadControllerVec(tinyxml2::XMLElement *apRootElem, tColladaControllerVec *apColladaControllerVec)
 	{
-		TiXmlElement *pControllerRootElem = apRootElem->FirstChildElement("ControllerRoot");
+		tinyxml2::XMLElement *pControllerRootElem = apRootElem->FirstChildElement("ControllerRoot");
 
 		int lSize = cString::ToInt(pControllerRootElem->Attribute("Size"),0);
 		
@@ -1031,7 +1031,7 @@ namespace hpl {
 		apColladaControllerVec->resize(lSize);
 
 		int lCount =0;
-		TiXmlElement *pControllerElem = pControllerRootElem->FirstChildElement();
+		tinyxml2::XMLElement *pControllerElem = pControllerRootElem->FirstChildElement();
 		for(; pControllerElem != NULL; pControllerElem = pControllerElem->NextSiblingElement(),++lCount)
 		{
 			cColladaController* pController = &(*apColladaControllerVec)[lCount];
@@ -1047,9 +1047,9 @@ namespace hpl {
 			////////////////////////////
 			//Joints
 			{
-				TiXmlElement * pJointsElem = pControllerElem->FirstChildElement("Joints");
+				tinyxml2::XMLElement * pJointsElem = pControllerElem->FirstChildElement("Joints");
 				int lSize = cString::ToInt(pJointsElem->Attribute("Size"),0);
-				TiXmlText *pJointsText = pJointsElem->FirstChild()->ToText();
+				tinyxml2::XMLText *pJointsText = pJointsElem->FirstChild()->ToText();
                 
 				tString sData = pJointsText->Value();
                 tString sSepp = " "; pController->mvJoints.reserve(lSize);
@@ -1058,9 +1058,9 @@ namespace hpl {
 			////////////////////////////
 			//Weights
 			{
-				TiXmlElement * pWeightsElem = pControllerElem->FirstChildElement("Weights");
+				tinyxml2::XMLElement * pWeightsElem = pControllerElem->FirstChildElement("Weights");
 				int lSize = cString::ToInt(pWeightsElem->Attribute("Size"),0);
-				TiXmlText *pWeightsText = pWeightsElem->FirstChild()->ToText();
+				tinyxml2::XMLText *pWeightsText = pWeightsElem->FirstChild()->ToText();
 
 				//tString sData = pWeightsText->Value();
 				//tString sSepp = " "; pController->mvWeights.reserve(lSize);
@@ -1072,9 +1072,9 @@ namespace hpl {
 			////////////////////////////
 			//Matrices
 			{
-				TiXmlElement * pMatricesElem = pControllerElem->FirstChildElement("Matrices");
+				tinyxml2::XMLElement * pMatricesElem = pControllerElem->FirstChildElement("Matrices");
 				int lSize = cString::ToInt(pMatricesElem->Attribute("Size"),0);
-				TiXmlText *pMatricesText = pMatricesElem->FirstChild()->ToText();
+				tinyxml2::XMLText *pMatricesText = pMatricesElem->FirstChild()->ToText();
 
 				//tString sData = pMatricesText->Value();
 				//tString sSepp = " "; 
@@ -1098,13 +1098,13 @@ namespace hpl {
 			////////////////////////////
 			//Pairs
 			{
-				TiXmlElement * pPairVecElem = pControllerElem->FirstChildElement("PairVec");
+				tinyxml2::XMLElement * pPairVecElem = pControllerElem->FirstChildElement("PairVec");
 				int lSize = cString::ToInt(pPairVecElem->Attribute("Size"),0);
 
 				/////////////////////////////////////////
 				// Get number of connections per pair
-				TiXmlElement* pPairNumElem = pPairVecElem->FirstChildElement("PairNum");
-				TiXmlText *pPairNumText = pPairNumElem->FirstChild()->ToText();
+				tinyxml2::XMLElement* pPairNumElem = pPairVecElem->FirstChildElement("PairNum");
+				tinyxml2::XMLText *pPairNumText = pPairNumElem->FirstChild()->ToText();
 
 				tUIntVec vPairNum; vPairNum.resize(lSize);
 				//tString sData = pPairNumText->Value();
@@ -1114,9 +1114,9 @@ namespace hpl {
 
 				/////////////////////////////////////////
 				// Get pairs
-				TiXmlElement* pPairsElem = pPairVecElem->FirstChildElement("Pairs");
+				tinyxml2::XMLElement* pPairsElem = pPairVecElem->FirstChildElement("Pairs");
 				int lPairSize = cString::ToInt(pPairsElem->Attribute("Size"),0);
-				TiXmlText *pPairsText = pPairsElem->FirstChild()->ToText();
+				tinyxml2::XMLText *pPairsText = pPairsElem->FirstChild()->ToText();
 
 				tUIntVec vPairs; vPairs.resize(lPairSize*2);
 				//sData = pPairsText->Value();
@@ -1141,9 +1141,9 @@ namespace hpl {
 	}
 	//-----------------------------------------------------------------------
 
-	static void LoadLightVec(TiXmlElement *apRootElem, tColladaLightVec *apColladaLightVec)
+	static void LoadLightVec(tinyxml2::XMLElement *apRootElem, tColladaLightVec *apColladaLightVec)
 	{
-		TiXmlElement *pLightRootElem = apRootElem->FirstChildElement("LightRoot");
+		tinyxml2::XMLElement *pLightRootElem = apRootElem->FirstChildElement("LightRoot");
 
 		int lSize = cString::ToInt(pLightRootElem->Attribute("Size"),0);
 
@@ -1151,7 +1151,7 @@ namespace hpl {
 		apColladaLightVec->resize(lSize);
 
 		int lCount =0;
-		TiXmlElement *pLightElem = pLightRootElem->FirstChildElement();
+		tinyxml2::XMLElement *pLightElem = pLightRootElem->FirstChildElement();
 		for(; pLightElem != NULL; pLightElem = pLightElem->NextSiblingElement(),++lCount)
 		{
 			cColladaLight* pLight = &(*apColladaLightVec)[lCount];
@@ -1166,9 +1166,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void LoadAnimationVec(TiXmlElement *apRootElem, tColladaAnimationVec *apColladaAnimationVec)
+	static void LoadAnimationVec(tinyxml2::XMLElement *apRootElem, tColladaAnimationVec *apColladaAnimationVec)
 	{
-		TiXmlElement *pAnimationRootElem = apRootElem->FirstChildElement("AnimationRoot");
+		tinyxml2::XMLElement *pAnimationRootElem = apRootElem->FirstChildElement("AnimationRoot");
 
 		int lSize = cString::ToInt(pAnimationRootElem->Attribute("Size"),0);
 
@@ -1176,7 +1176,7 @@ namespace hpl {
 		apColladaAnimationVec->resize(lSize);
 
 		int lCount =0;
-		TiXmlElement *pAnimationElem = pAnimationRootElem->FirstChildElement();
+		tinyxml2::XMLElement *pAnimationElem = pAnimationRootElem->FirstChildElement();
 		for(; pAnimationElem != NULL; pAnimationElem = pAnimationElem->NextSiblingElement(),++lCount)
 		{
 			cColladaAnimation* pAnimation = &(*apColladaAnimationVec)[lCount];
@@ -1187,12 +1187,12 @@ namespace hpl {
 			/////////////////////////////////////
 			//Channels
 			{
-				TiXmlElement *pChannelVecElem = pAnimationElem->FirstChildElement("ChannelVec");
+				tinyxml2::XMLElement *pChannelVecElem = pAnimationElem->FirstChildElement("ChannelVec");
 				int lSize = cString::ToInt(pChannelVecElem->Attribute("Size"),0);
 				pAnimation->mvChannels.resize(lSize);
 
 				int idx=0;
-				TiXmlElement *pChannelElem = pChannelVecElem->FirstChildElement("Channel");
+				tinyxml2::XMLElement *pChannelElem = pChannelVecElem->FirstChildElement("Channel");
 				for(; pChannelElem != NULL; pChannelElem = pChannelElem->NextSiblingElement("Channel"),++idx)
 				{
 					cColladaChannel *pChannel = &pAnimation->mvChannels[idx];
@@ -1206,12 +1206,12 @@ namespace hpl {
 			/////////////////////////////////////
 			//Samplers
 			{
-				TiXmlElement *pSamplerVecElem = pAnimationElem->FirstChildElement("SamplerVec");
+				tinyxml2::XMLElement *pSamplerVecElem = pAnimationElem->FirstChildElement("SamplerVec");
 				int lSize = cString::ToInt(pSamplerVecElem->Attribute("Size"),0);
 				pAnimation->mvSamplers.resize(lSize);
 
 				int idx=0;
-				TiXmlElement *pSamplerElem = pSamplerVecElem->FirstChildElement("Sampler");
+				tinyxml2::XMLElement *pSamplerElem = pSamplerVecElem->FirstChildElement("Sampler");
 				for(; pSamplerElem != NULL; pSamplerElem = pSamplerElem->NextSiblingElement("Sampler"),++idx)
 				{
 					cColladaSampler *pSampler = &pAnimation->mvSamplers[idx];
@@ -1226,12 +1226,12 @@ namespace hpl {
 			/////////////////////////////////////
 			//Sources
 			{
-				TiXmlElement *pSourceVecElem = pAnimationElem->FirstChildElement("SourceVec");
+				tinyxml2::XMLElement *pSourceVecElem = pAnimationElem->FirstChildElement("SourceVec");
 				int lSize = cString::ToInt(pSourceVecElem->Attribute("Size"),0);
 				pAnimation->mvSources.resize(lSize);
 
 				int idx=0;
-				TiXmlElement *pSourceElem = pSourceVecElem->FirstChildElement("Source");
+				tinyxml2::XMLElement *pSourceElem = pSourceVecElem->FirstChildElement("Source");
 				for(; pSourceElem != NULL; pSourceElem = pSourceElem->NextSiblingElement("Source"),++idx)
 				{
 					cColladaAnimSource *pSource = &pAnimation->mvSources[idx];
@@ -1250,16 +1250,16 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void LoadGeometryVec(TiXmlElement *apRootElem, tColladaGeometryVec *apColladaGeometryVec)
+	static void LoadGeometryVec(tinyxml2::XMLElement *apRootElem, tColladaGeometryVec *apColladaGeometryVec)
 	{
-		TiXmlElement *pGeometryRootElem = apRootElem->FirstChildElement("GeometryRoot");
+		tinyxml2::XMLElement *pGeometryRootElem = apRootElem->FirstChildElement("GeometryRoot");
 		int lSize = cString::ToInt(pGeometryRootElem->Attribute("Size"),0);
 		
 		apColladaGeometryVec->clear();
 		apColladaGeometryVec->resize(lSize);
 
 		int lCount =0;
-		TiXmlElement *pGeometryElem = pGeometryRootElem->FirstChildElement();
+		tinyxml2::XMLElement *pGeometryElem = pGeometryRootElem->FirstChildElement();
 		for(; pGeometryElem != NULL; pGeometryElem = pGeometryElem->NextSiblingElement(),++lCount)
 		{
 			cColladaGeometry* pGeometry = &(*apColladaGeometryVec)[lCount];
@@ -1278,13 +1278,13 @@ namespace hpl {
 			/////////////////////////////////
 			// Index Vec
 			{
-				TiXmlElement *pIndexVecElem = pGeometryElem->FirstChildElement("IndexVec");
+				tinyxml2::XMLElement *pIndexVecElem = pGeometryElem->FirstChildElement("IndexVec");
 				int lSize = cString::ToInt(pIndexVecElem->Attribute("Size"),0);
 				
 				if(lSize>0)
 				{
-					TiXmlElement *pIndicesDataElem = pIndexVecElem->FirstChildElement("Indices");
-					TiXmlText *pVecText = pIndicesDataElem->FirstChild()->ToText();
+					tinyxml2::XMLElement *pIndicesDataElem = pIndexVecElem->FirstChildElement("Indices");
+					tinyxml2::XMLText *pVecText = pIndicesDataElem->FirstChild()->ToText();
 					
 					pGeometry->mvIndexVec.resize(lSize);
 
@@ -1299,7 +1299,7 @@ namespace hpl {
 			/////////////////////////////////
 			// Vertex vec
 			{
-				TiXmlElement *pVertexVecElem = pGeometryElem->FirstChildElement("VertexVec");
+				tinyxml2::XMLElement *pVertexVecElem = pGeometryElem->FirstChildElement("VertexVec");
 				int lSize = cString::ToInt(pVertexVecElem->Attribute("Size"),0);
 				
 				if(lSize>0)
@@ -1312,8 +1312,8 @@ namespace hpl {
 					/////////////////////////////////
 					// Positions
 					{
-						TiXmlElement *pDataElem = pVertexVecElem->FirstChildElement("Positions");
-						TiXmlText *pVecText = pDataElem->FirstChild()->ToText();
+						tinyxml2::XMLElement *pDataElem = pVertexVecElem->FirstChildElement("Positions");
+						tinyxml2::XMLText *pVecText = pDataElem->FirstChild()->ToText();
 
 						//tString sData = pVecText->Value();
 						//tString sSepp = " ";
@@ -1334,8 +1334,8 @@ namespace hpl {
 					/////////////////////////////////
 					// Normals
 					{
-						TiXmlElement *pDataElem = pVertexVecElem->FirstChildElement("Normals");
-						TiXmlText *pVecText = pDataElem->FirstChild()->ToText();
+						tinyxml2::XMLElement *pDataElem = pVertexVecElem->FirstChildElement("Normals");
+						tinyxml2::XMLText *pVecText = pDataElem->FirstChild()->ToText();
 
 						//tString sData = pVecText->Value();
 						//tString sSepp = " ";
@@ -1356,8 +1356,8 @@ namespace hpl {
 					/////////////////////////////////
 					// UVs
 					{
-						TiXmlElement *pDataElem = pVertexVecElem->FirstChildElement("UV");
-						TiXmlText *pVecText = pDataElem->FirstChild()->ToText();
+						tinyxml2::XMLElement *pDataElem = pVertexVecElem->FirstChildElement("UV");
+						tinyxml2::XMLText *pVecText = pDataElem->FirstChild()->ToText();
 
 						//tString sData = pVecText->Value();
 						//tString sSepp = " ";
@@ -1378,8 +1378,8 @@ namespace hpl {
 					/////////////////////////////////
 					// Tangents
 					{
-						TiXmlElement *pDataElem = pVertexVecElem->FirstChildElement("Tangents");
-						TiXmlText *pVecText = pDataElem->FirstChild()->ToText();
+						tinyxml2::XMLElement *pDataElem = pVertexVecElem->FirstChildElement("Tangents");
+						tinyxml2::XMLText *pVecText = pDataElem->FirstChild()->ToText();
 
 						//tString sData = pVecText->Value();
 						//tString sSepp = " ";
@@ -1396,7 +1396,7 @@ namespace hpl {
 			/////////////////////////////////
 			// Extra vertex vec
 			{
-				TiXmlElement *pVertexVecElem = pGeometryElem->FirstChildElement("ExtraVertexVec");
+				tinyxml2::XMLElement *pVertexVecElem = pGeometryElem->FirstChildElement("ExtraVertexVec");
 				int lSize = cString::ToInt(pVertexVecElem->Attribute("Size"),0);
 
 				if(lSize>0)
@@ -1408,8 +1408,8 @@ namespace hpl {
 					//////////////////////////////////////////////
 					// Extra num
 					{
-						TiXmlElement *pExtraNumElem = pVertexVecElem->FirstChildElement("ExtraNum");
-						TiXmlText* pExtraNumText = pExtraNumElem->FirstChild()->ToText(); 
+						tinyxml2::XMLElement *pExtraNumElem = pVertexVecElem->FirstChildElement("ExtraNum");
+						tinyxml2::XMLText* pExtraNumText = pExtraNumElem->FirstChild()->ToText(); 
                     
 						cString::UIntStringToArray(&mvExtraNum[0],pExtraNumText->Value(),lSize);
 					}
@@ -1417,8 +1417,8 @@ namespace hpl {
 					//////////////////////////////////////////////
 					// Extra vertex
 					{
-						TiXmlElement *pExtraVertexElem = pVertexVecElem->FirstChildElement("ExtraVertex");
-						TiXmlText* pExtraVertexText = pExtraVertexElem->FirstChild()->ToText();
+						tinyxml2::XMLElement *pExtraVertexElem = pVertexVecElem->FirstChildElement("ExtraVertex");
+						tinyxml2::XMLText* pExtraVertexText = pExtraVertexElem->FirstChild()->ToText();
 						int lExtraVtxSize = cString::ToInt(pExtraVertexElem->Attribute("Size"),0);
 						 mvExtraVtx.resize(lExtraVtxSize*4);
 
@@ -1443,7 +1443,7 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
-	static void LoadIterativeNode(TiXmlElement *apNodeElem,cColladaNode *apParentNode, cColladaScene *apColladaScene)
+	static void LoadIterativeNode(tinyxml2::XMLElement *apNodeElem,cColladaNode *apParentNode, cColladaScene *apColladaScene)
 	{
 		cColladaNode *pNode = apParentNode->CreateChild();
 		apColladaScene->mlstNodes.push_back(pNode);
@@ -1464,8 +1464,8 @@ namespace hpl {
 		pNode->mvScale = cString::ToVector3f(apNodeElem->Attribute("Scale"),1);
 		pNode->mlCount = cString::ToInt(apNodeElem->Attribute("Count"),1);
 
-		TiXmlElement *pTransformRootElem = apNodeElem->FirstChildElement("TransformRoot");
-		TiXmlElement *pTransformElem = pTransformRootElem->FirstChildElement("Transform");
+		tinyxml2::XMLElement *pTransformRootElem = apNodeElem->FirstChildElement("TransformRoot");
+		tinyxml2::XMLElement *pTransformElem = pTransformRootElem->FirstChildElement("Transform");
 		for(; pTransformElem != NULL; pTransformElem = pTransformElem->NextSiblingElement("Transform"))
 		{
 			pNode->mlstTransforms.push_back(cColladaTransform());
@@ -1479,7 +1479,7 @@ namespace hpl {
 			cString::GetFloatVec(sData,transform.mvValues,&sSepp);
 		}
 
-		TiXmlElement *pChildElem = apNodeElem->FirstChildElement("Node");
+		tinyxml2::XMLElement *pChildElem = apNodeElem->FirstChildElement("Node");
 		for(; pChildElem != NULL; pChildElem = pChildElem->NextSiblingElement("Node"))
 		{
 			LoadIterativeNode(pChildElem,pNode,apColladaScene);
@@ -1488,9 +1488,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static void LoadScene(TiXmlElement *apRootElem, cColladaScene *apColladaScene)
+	static void LoadScene(tinyxml2::XMLElement *apRootElem, cColladaScene *apColladaScene)
 	{
-		TiXmlElement *pSceneElem = apRootElem->FirstChildElement("Scene");
+		tinyxml2::XMLElement *pSceneElem = apRootElem->FirstChildElement("Scene");
 		
 		//Delete all nodes.
 		apColladaScene->ResetNodes();
@@ -1499,8 +1499,8 @@ namespace hpl {
 		apColladaScene->mfEndTime = cString::ToFloat(pSceneElem->Attribute("EndTime"),0);
 		apColladaScene->mfDeltaTime = cString::ToFloat(pSceneElem->Attribute("DeltaTime"),0);
 
-        TiXmlElement *pSceneRootElem = pSceneElem->FirstChildElement("Root");
-		TiXmlElement *pNodeElem = pSceneRootElem->FirstChildElement("Node");
+        tinyxml2::XMLElement *pSceneRootElem = pSceneElem->FirstChildElement("Root");
+		tinyxml2::XMLElement *pNodeElem = pSceneRootElem->FirstChildElement("Node");
 		for(; pNodeElem != NULL; pNodeElem = pNodeElem->NextSiblingElement("Node"))
 		{
 			LoadIterativeNode(pNodeElem,&apColladaScene->mRoot,apColladaScene);

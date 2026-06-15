@@ -30,6 +30,9 @@
 
 #include "EditorActionsBodies.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 //---------------------------------------------------------------------------
 
 cEntityWrapperTypeBodyShape::cEntityWrapperTypeBodyShape() : iEntityWrapperType(eEditorEntityType_BodyShape, _W("Shape"), "BodyShape")
@@ -92,7 +95,7 @@ void cEntityWrapperDataBodyShape::CopyFromEntity(iEntityWrapper* apEntity)
 
 //---------------------------------------------------------------------------
 
-bool cEntityWrapperDataBodyShape::SaveSpecific(cXmlElement* apElement)
+bool cEntityWrapperDataBodyShape::SaveSpecific(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperData::SaveSpecific(apElement)==false)
 		return false;
@@ -109,9 +112,9 @@ bool cEntityWrapperDataBodyShape::SaveSpecific(cXmlElement* apElement)
 	cMatrixf mtxScale = cMath::MatrixScale(vScale);
 	cMatrixf mtxRotate = cMath::MatrixMul(mtxRelativeTransform.GetRotation(), cMath::MatrixInverse(mtxScale));
 
-	apElement->SetAttributeVector3f("RelativeTranslation", mtxRelativeTransform.GetTranslation());
-	apElement->SetAttributeVector3f("RelativeRotation", cMath::MatrixToEulerAngles(mtxRotate, eEulerRotationOrder_XYZ));
-	apElement->SetAttributeVector3f("RelativeScale", vScale);
+	SetAttributeVector3f(apElement, "RelativeTranslation", mtxRelativeTransform.GetTranslation());
+	SetAttributeVector3f(apElement, "RelativeRotation", cMath::MatrixToEulerAngles(mtxRotate, eEulerRotationOrder_XYZ));
+	SetAttributeVector3f(apElement, "RelativeScale", vScale);
 
 	return true;
 }

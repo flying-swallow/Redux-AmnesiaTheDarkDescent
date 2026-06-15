@@ -26,6 +26,9 @@
 #include "../common/EditorBaseClasses.h"
 #include "../common/EditorHelper.h"
 
+#include <tinyxml2.h>
+#include "resources/XmlHelper.h"
+
 
 //-------------------------------------------------------------------------
 
@@ -51,56 +54,53 @@ cLevelEditorWorld::~cLevelEditorWorld()
 
 //-------------------------------------------------------------------------
 
-cXmlElement* cLevelEditorWorld::GetWorldDataElement(iXmlDocument* apXmlDoc)
+tinyxml2::XMLElement* cLevelEditorWorld::GetWorldDataElement(tinyxml2::XMLElement* apXmlDoc)
 {
-	return apXmlDoc->GetFirstElement("MapData");
+	return apXmlDoc->FirstChildElement("MapData");
 }
 
 //-------------------------------------------------------------------------
 
-cXmlElement* cLevelEditorWorld::GetWorldObjectsElement(cXmlElement* apWorldDataElement)
+tinyxml2::XMLElement* cLevelEditorWorld::GetWorldObjectsElement(tinyxml2::XMLElement* apWorldDataElement)
 {
-	return apWorldDataElement->GetFirstElement("MapContents");
+	return apWorldDataElement->FirstChildElement("MapContents");
 }
 
 //-------------------------------------------------------------------------
 
-void cLevelEditorWorld::LoadWorldObjects(cXmlElement* apWorldObjectsElement)
+void cLevelEditorWorld::LoadWorldObjects(tinyxml2::XMLElement* apWorldObjectsElement)
 {
 	iEditorWorld::LoadWorldObjects(apWorldObjectsElement);
 
-	cXmlElement* pMapData = apWorldObjectsElement->GetParent()->ToElement();
+	tinyxml2::XMLElement* pMapData = apWorldObjectsElement->Parent()->ToElement();
 
 	//////////////////////////////////////////////////////
 	// Load skybox params
-	SetSkyboxActive(pMapData->GetAttributeBool("SkyBoxActive", false));
-	SetSkyboxTexture(pMapData->GetAttributeString("SkyBoxTexture"));
-	SetSkyboxColor(pMapData->GetAttributeColor("SkyBoxColor", cColor(1)));
+	SetSkyboxActive(GetAttributeBool(pMapData, "SkyBoxActive", false));
+	SetSkyboxTexture(GetAttributeString(pMapData, "SkyBoxTexture"));
+	SetSkyboxColor(GetAttributeColor(pMapData, "SkyBoxColor", cColor(1)));
 
 	//////////////////////////////////////////////////////
 	// Load global fog params
-	SetFogActive(pMapData->GetAttributeBool("FogActive", false));
-	SetFogCulling(pMapData->GetAttributeBool("FogCulling", true));
-	SetFogStart(pMapData->GetAttributeFloat("FogStart", 0));
-	SetFogEnd(pMapData->GetAttributeFloat("FogEnd", 20));
-	SetFogFalloffExp(pMapData->GetAttributeFloat("FogFalloffExp", 1));
-	SetFogColor(pMapData->GetAttributeColor("FogColor", cColor(1)));
+	SetFogActive(GetAttributeBool(pMapData, "FogActive", false));
+	SetFogCulling(GetAttributeBool(pMapData, "FogCulling", true));
+	SetFogStart(GetAttributeFloat(pMapData, "FogStart", 0));
+	SetFogEnd(GetAttributeFloat(pMapData, "FogEnd", 20));
+	SetFogFalloffExp(GetAttributeFloat(pMapData, "FogFalloffExp", 1));
+	SetFogColor(GetAttributeColor(pMapData, "FogColor", cColor(1)));
 
 	//////////////////////////////////////////////////////
 	// Load global Max triangles per decal
-	cEntityWrapperTypeDecal::SetGlobalMaxTriangles(pMapData->GetAttributeInt("GlobalDecalMaxTris", cEntityWrapperTypeDecal::GetGlobalMaxTriangles()));
+	cEntityWrapperTypeDecal::SetGlobalMaxTriangles(GetAttributeInt(pMapData, "GlobalDecalMaxTris", cEntityWrapperTypeDecal::GetGlobalMaxTriangles()));
 
 	//////////////////////////////////////////////////////
 	// Load static object combos
 	int lMaxComboID = -1;
-	cXmlElement* pXmlCombos = apWorldObjectsElement->GetFirstElement("StaticObjectCombos");
+	tinyxml2::XMLElement* pXmlCombos = apWorldObjectsElement->FirstChildElement("StaticObjectCombos");
 	if(pXmlCombos)
 	{
-		cXmlNodeListIterator it = pXmlCombos->GetChildIterator();
-		while(it.HasNext())
+		for(tinyxml2::XMLElement* pXmlCombo = pXmlCombos->FirstChildElement(); pXmlCombo != NULL; pXmlCombo = pXmlCombo->NextSiblingElement())
 		{
-			cXmlElement* pXmlCombo = it.Next()->ToElement();
-
 			cLevelEditorStaticObjectCombo* pCombo = CreateStaticObjectCombo(-1);
 			if(pCombo->Load(pXmlCombo))
 			{
@@ -116,48 +116,53 @@ void cLevelEditorWorld::LoadWorldObjects(cXmlElement* apWorldObjectsElement)
 
 //-------------------------------------------------------------------------
 
-cXmlElement* cLevelEditorWorld::CreateWorldDataElement(iXmlDocument* apXmlDoc)
+tinyxml2::XMLElement* cLevelEditorWorld::CreateWorldDataElement(tinyxml2::XMLElement* apXmlDoc)
 {
-	return apXmlDoc->CreateChildElement("MapData");
+	tinyxml2::XMLElement* pChild = apXmlDoc->GetDocument()->NewElement("MapData");
+	apXmlDoc->InsertEndChild(pChild);
+	return pChild;
 }
 
 //-------------------------------------------------------------------------
 
-cXmlElement* cLevelEditorWorld::CreateWorldObjectsElement(cXmlElement* apWorldDataElement)
+tinyxml2::XMLElement* cLevelEditorWorld::CreateWorldObjectsElement(tinyxml2::XMLElement* apWorldDataElement)
 {
 
-	return apWorldDataElement->CreateChildElement("MapContents");
+	tinyxml2::XMLElement* pChild = apWorldDataElement->GetDocument()->NewElement("MapContents");
+	apWorldDataElement->InsertEndChild(pChild);
+	return pChild;
 }
 
 //-------------------------------------------------------------------------
 
-void cLevelEditorWorld::SaveWorldObjects(cXmlElement* apWorldObjectsElement, tEntityWrapperList& alstEnts)
+void cLevelEditorWorld::SaveWorldObjects(tinyxml2::XMLElement* apWorldObjectsElement, tEntityWrapperList& alstEnts)
 {
 	iEditorWorld::SaveWorldObjects(apWorldObjectsElement, alstEnts);
 
 	//////////////////////////////////////////////////////
 	// Save skybox params
-	cXmlElement* pMapData = apWorldObjectsElement->GetParent()->ToElement();
-	pMapData->SetAttributeBool("SkyBoxActive", GetSkyboxActive());
-	pMapData->SetAttributeString("SkyBoxTexture", cString::To8Char(mpEditor->GetPathRelToWD(GetSkyboxTexture())));
-	pMapData->SetAttributeColor("SkyBoxColor", GetSkyboxColor());
+	tinyxml2::XMLElement* pMapData = apWorldObjectsElement->Parent()->ToElement();
+	SetAttributeBool(pMapData, "SkyBoxActive", GetSkyboxActive());
+	SetAttributeString(pMapData, "SkyBoxTexture", cString::To8Char(mpEditor->GetPathRelToWD(GetSkyboxTexture())));
+	SetAttributeColor(pMapData, "SkyBoxColor", GetSkyboxColor());
 
 	//////////////////////////////////////////////////////
 	// Save global fog params
-	pMapData->SetAttributeBool("FogActive", GetFogActive());
-	pMapData->SetAttributeBool("FogCulling", GetFogCulling());
-	pMapData->SetAttributeFloat("FogStart", GetFogStart());
-	pMapData->SetAttributeFloat("FogEnd", GetFogEnd());
-	pMapData->SetAttributeFloat("FogFalloffExp", GetFogFalloffExp());
-	pMapData->SetAttributeColor("FogColor", GetFogColor());
+	SetAttributeBool(pMapData, "FogActive", GetFogActive());
+	SetAttributeBool(pMapData, "FogCulling", GetFogCulling());
+	SetAttributeFloat(pMapData, "FogStart", GetFogStart());
+	SetAttributeFloat(pMapData, "FogEnd", GetFogEnd());
+	SetAttributeFloat(pMapData, "FogFalloffExp", GetFogFalloffExp());
+	SetAttributeColor(pMapData, "FogColor", GetFogColor());
 
 	//////////////////////////////////////////////////////
 	// Save global Decal params
-	pMapData->SetAttributeInt("GlobalDecalMaxTris", cEntityWrapperTypeDecal::GetGlobalMaxTriangles());
+	SetAttributeInt(pMapData, "GlobalDecalMaxTris", cEntityWrapperTypeDecal::GetGlobalMaxTriangles());
 
 	////////////////////////////////////////////////////////
 	// Save Static object Combinations
-	cXmlElement* pXmlCombos = apWorldObjectsElement->CreateChildElement("StaticObjectCombos");
+	tinyxml2::XMLElement* pXmlCombos = apWorldObjectsElement->GetDocument()->NewElement("StaticObjectCombos");
+	apWorldObjectsElement->InsertEndChild(pXmlCombos);
 	tStaticObjectComboList::const_iterator itCombos = mlstStaticObjectCombos.begin();
 	for(;itCombos!=mlstStaticObjectCombos.end();++itCombos)
 	{
@@ -307,23 +312,23 @@ void cLevelEditorWorld::DestroyDataCallback(iEntityWrapperData* apData)
 
 //-------------------------------------------------------------------------
 
-void cLevelEditorWorld::SaveDataCallback(iEntityWrapperData* apData, cXmlElement* apElement)
+void cLevelEditorWorld::SaveDataCallback(iEntityWrapperData* apData, tinyxml2::XMLElement* apElement)
 {
 	cLevelEditorEntityExtData* pDataExtData = (cLevelEditorEntityExtData*)apData->GetExtData();
 	if(pDataExtData)
 	{
-		apElement->SetAttributeInt("Group", pDataExtData->mlGroupID);
+		SetAttributeInt(apElement, "Group", pDataExtData->mlGroupID);
 	}
 }
 
 //-------------------------------------------------------------------------
 
-void cLevelEditorWorld::LoadDataCallback(iEntityWrapperData* apData, cXmlElement* apElement)
+void cLevelEditorWorld::LoadDataCallback(iEntityWrapperData* apData, tinyxml2::XMLElement* apElement)
 {
 	cLevelEditorEntityExtData* pDataExtData = (cLevelEditorEntityExtData*)apData->GetExtData();
 	if(pDataExtData)
 	{
-		pDataExtData->mlGroupID = apElement->GetAttributeInt("Group", 0);
+		pDataExtData->mlGroupID = GetAttributeInt(apElement, "Group", 0);
 	}
 }
 

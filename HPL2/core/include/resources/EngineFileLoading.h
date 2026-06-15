@@ -25,11 +25,11 @@
 #include "graphics/GraphicsTypes.h"
 #include "resources/ResourcesTypes.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 namespace hpl {
 
 	//----------------------------
-
-	class cXmlElement;
 
 	class iEntity3D;
 	class iLight;
@@ -47,17 +47,16 @@ namespace hpl {
 	class cEngineFileLoading
 	{
 	public:
-		static cFogArea* LoadFogArea(cXmlElement* apElement, const tString& asNamePrefix, cWorld *apWorld, bool abStatic);
-		static cParticleSystem* LoadParticleSystem(cXmlElement* apElement, const tString& asNamePrefix, cWorld *apWorld);
-		static cSoundEntity* LoadSound(cXmlElement* apElement, const tString& asNamePrefix, cWorld *apWorld);
-		static cBillboard* LoadBillboard(	cXmlElement* apElement, const tString& asNamePrefix, cWorld *apWorld, cResources *apResources, bool abStatic,
-											tEFL_LightBillboardConnectionList *apLightBillboardList=NULL);
-		static iLight* LoadLight(cXmlElement* apElement, const tString& asNamePrefix, cWorld *apWorld, cResources *apResources, bool abStatic);
+		static cFogArea* LoadFogArea(tinyxml2::XMLElement* apElement, const tString& asNamePrefix, cWorld *apWorld, bool abStatic);
+		static cParticleSystem* LoadParticleSystem(tinyxml2::XMLElement* apElement, const tString& asNamePrefix, cWorld *apWorld);
+		static cSoundEntity* LoadSound(tinyxml2::XMLElement* apElement, const tString& asNamePrefix, cWorld *apWorld);
+		static cBillboard* LoadBillboard(	tinyxml2::XMLElement* apElement, const tString& asNamePrefix, cWorld *apWorld, cResources *apResources, bool abStatic);
+		static iLight* LoadLight(tinyxml2::XMLElement* apElement, const tString& asNamePrefix, cWorld *apWorld, cResources *apResources, bool abStatic);
 
-		static cMesh* LoadDecalMeshHelper(cXmlElement* apElement, cGraphics* apGraphics, cResources* apResources, const tString& asName, const tString& asMaterial, const cColor& aColor);
-			
+		static cMesh* LoadDecalMeshHelper(tinyxml2::XMLElement* apElement, cGraphics* apGraphics, cResources* apResources, const tString& asName, const tString& asMaterial, const cColor& aColor);
+
 	private:
-		static void SetupWorldEntity(iEntity3D *apEntity, cXmlElement* apElement);
+		static void SetupWorldEntity(iEntity3D *apEntity, tinyxml2::XMLElement* apElement);
 		
 	};
 };

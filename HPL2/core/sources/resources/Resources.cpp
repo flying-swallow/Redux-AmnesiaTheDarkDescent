@@ -35,7 +35,7 @@
 #include "resources/EntFileManager.h"
 #include "resources/ConfigFile.h"
 #include "resources/LanguageFile.h"
-#include "resources/XmlDocument.h"
+#include "resources/XmlHelper.h"
 #include "resources/BitmapLoaderHandler.h"
 #include "resources/WorldLoaderHandler.h"
 #include "resources/BinaryBuffer.h"
@@ -47,7 +47,7 @@
 #include "system/String.h"
 #include "system/Platform.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 namespace hpl {
 
@@ -124,7 +124,7 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 
-	void cResourceVarsObject::LoadVariables(cXmlElement *apRootElem)
+	void cResourceVarsObject::LoadVariables(tinyxml2::XMLElement *apRootElem)
 	{
 		//////////////////////
 		//Clear any existing variables
@@ -132,13 +132,10 @@ namespace hpl {
 
 		////////////////////
 		//Iterate variables and add them to map.
-		cXmlNodeListIterator varIt = apRootElem->GetChildIterator();
-		while(varIt.HasNext())
+		for(tinyxml2::XMLElement *pVarElem = apRootElem->FirstChildElement(); pVarElem != NULL; pVarElem = pVarElem->NextSiblingElement())
 		{
-			cXmlElement *pVarElem = varIt.Next()->ToElement();
-
-			tString sName = pVarElem->GetAttributeString("Name");
-			tString sValue = pVarElem->GetAttributeString("Value");
+			tString sName = GetAttributeString(pVarElem, "Name");
+			tString sValue = GetAttributeString(pVarElem, "Value");
 
 			m_mapVars.insert(tResourceVarMap::value_type(sName, sValue));
 		}
@@ -447,26 +444,23 @@ namespace hpl {
 
 	bool cResources::LoadResourceDirsFile(const tString &asFile, const tWString &asAltPath)
 	{
-		iXmlDocument* pDoc = mpLowLevelResources->CreateXmlDocument();
-		if(pDoc->CreateFromFile(cString::To16Char(asFile))==false)
+		tinyxml2::XMLDocument xmlDoc;
+		if(LoadXmlFile(xmlDoc, cString::To16Char(asFile))==false)
 		{
 			Error("Couldn't load XML file '%s'!\n",asFile.c_str());
-			hplDelete( pDoc);
 			return false;
 		}
 
 		//Get the root.
-		cXmlNodeListIterator it = pDoc->GetChildIterator();
-		while(it.HasNext())
+		tinyxml2::XMLElement* pRootElem = xmlDoc.RootElement();
+		for(tinyxml2::XMLElement *pChildElem = pRootElem ? pRootElem->FirstChildElement() : NULL; pChildElem != NULL; pChildElem = pChildElem->NextSiblingElement())
 		{
-			cXmlElement *pChildElem = it.Next()->ToElement();
-
-			tString sPath = pChildElem->GetAttributeString("Path");
+			tString sPath = GetAttributeString(pChildElem, "Path");
 			if(sPath==""){
 				continue;
 			}
 
-			bool bAddSubDirs = pChildElem->GetAttributeBool("AddSubDirs",false);
+			bool bAddSubDirs = GetAttributeBool(pChildElem, "AddSubDirs",false);
 
 			if(sPath[0]=='/' || sPath[0]=='\\') sPath = cString::Sub(sPath, 1);
 
@@ -477,22 +471,21 @@ namespace hpl {
 			AddResourceDir(tsPath,bAddSubDirs);
 		}
 
-		hplDelete( pDoc);
 		return true;
 	}
 
 	//-----------------------------------------------------------------------
 
-	iXmlDocument* cResources::LoadXmlDocument(const tString& asFile)
+	tinyxml2::XMLElement* cResources::LoadXmlDocument(const tString& asFile)
 	{
 		tWString sPath = mpFileSearcher->GetFilePath(asFile);
 		if(sPath == _W("")){
 			Error("Could not load XML document '%s'\n",asFile.c_str());
 			return NULL;
 		}
-		
-        iXmlDocument *pDoc = mpLowLevelResources->CreateXmlDocument();
-		if(pDoc->CreateFromFile(sPath)==false)
+
+		tinyxml2::XMLDocument *pDoc = hplNew( tinyxml2::XMLDocument, () );
+		if(LoadXmlFile(*pDoc, sPath)==false || pDoc->RootElement()==NULL)
 		{
 			Error("Could not parse/load XML from %s\n",cString::To8Char(sPath).c_str());
 			hplDelete( pDoc );
@@ -501,12 +494,13 @@ namespace hpl {
 
 		mlstXmlDocuments.push_back(pDoc);
 
-		return pDoc;
+		return pDoc->RootElement();
 	}
-	
-	void cResources::DestroyXmlDocument(iXmlDocument* apDoc)
+
+	void cResources::DestroyXmlDocument(tinyxml2::XMLElement* apDocRoot)
 	{
-		STLFindAndDelete(mlstXmlDocuments,apDoc);
+		if(apDocRoot==NULL) return;
+		STLFindAndDelete(mlstXmlDocuments, apDocRoot->GetDocument());
 	}
 
 	//-----------------------------------------------------------------------

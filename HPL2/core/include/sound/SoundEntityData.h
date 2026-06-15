@@ -24,10 +24,11 @@
 #include "resources/ResourceBase.h"
 #include "sound/SoundTypes.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 namespace hpl {
 
 	class cResources;
-	class cXmlElement;
 	class cSound;
 
 	class cSoundEntityData : public iResourceBase
@@ -86,7 +87,7 @@ namespace hpl {
 		void Destroy(){}
 	
 	protected:
-		void LoadSoundsInElement(cXmlElement *apElement, tStringVec *apStringVec);
+		void LoadSoundsInElement(tinyxml2::XMLElement *apElement, tStringVec *apStringVec);
 		void PreloadSoundsOfType(eSoundEntityType aType);
 
 		cResources *mpResources;

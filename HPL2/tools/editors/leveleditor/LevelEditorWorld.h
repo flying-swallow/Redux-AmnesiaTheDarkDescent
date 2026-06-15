@@ -25,6 +25,10 @@
 
 //---------------------------------------------------------------
 
+namespace tinyxml2 { class XMLElement; class XMLDocument; }
+
+//---------------------------------------------------------------
+
 class cLevelEditorStaticObjectCombo;
 
 //---------------------------------------------------------------
@@ -54,13 +58,13 @@ public:
 	cLevelEditorWorld(iEditorBase* apEditor);
 	~cLevelEditorWorld();
 
-	cXmlElement* GetWorldDataElement(iXmlDocument* apXmlDoc);
-	cXmlElement* GetWorldObjectsElement(cXmlElement* apWorldDataElement);
-	void LoadWorldObjects(cXmlElement* apWorldObjectsElement);
+	tinyxml2::XMLElement* GetWorldDataElement(tinyxml2::XMLElement* apXmlDoc);
+	tinyxml2::XMLElement* GetWorldObjectsElement(tinyxml2::XMLElement* apWorldDataElement);
+	void LoadWorldObjects(tinyxml2::XMLElement* apWorldObjectsElement);
 
-	cXmlElement* CreateWorldDataElement(iXmlDocument* apXmlDoc);
-	cXmlElement* CreateWorldObjectsElement(cXmlElement* apWorldDataElement);
-	void SaveWorldObjects(cXmlElement* apWorldObjectsElement, tEntityWrapperList& alstEnts);
+	tinyxml2::XMLElement* CreateWorldDataElement(tinyxml2::XMLElement* apXmlDoc);
+	tinyxml2::XMLElement* CreateWorldObjectsElement(tinyxml2::XMLElement* apWorldDataElement);
+	void SaveWorldObjects(tinyxml2::XMLElement* apWorldObjectsElement, tEntityWrapperList& alstEnts);
 
 	void Reset();
 
@@ -84,8 +88,8 @@ public:
 	void CopyDataToEntityCallback(iEntityWrapperData* apData, iEntityWrapper* apEnt, int alCopyStep);
 	void DestroyDataCallback(iEntityWrapperData* apData);
 
-	void SaveDataCallback(iEntityWrapperData* apData, cXmlElement* apElement);
-	void LoadDataCallback(iEntityWrapperData* apData, cXmlElement* apElement);
+	void SaveDataCallback(iEntityWrapperData* apData, tinyxml2::XMLElement* apElement);
+	void LoadDataCallback(iEntityWrapperData* apData, tinyxml2::XMLElement* apElement);
 
 	void DestroyEntityWrapperCallback(iEntityWrapper* apEnt);
 

@@ -23,7 +23,7 @@
 #include "system/String.h"
 #include "system/Platform.h"
 
-#include "impl/tinyXML/tinyxml.h"
+#include <tinyxml2.h>
 
 #include "gui/Gui.h"
 #include "gui/GuiGfxElement.h"
@@ -132,8 +132,8 @@ namespace hpl {
 			Error("Couldn't load skin file '%s'!\n",asFile.c_str());
 			return false;
 		}
-		TiXmlDocument* pXmlDoc = hplNew( TiXmlDocument, () );
-		if(pXmlDoc->LoadFile(pFile)==false)
+		tinyxml2::XMLDocument* pXmlDoc = hplNew( tinyxml2::XMLDocument, () );
+		if(pXmlDoc->LoadFile(pFile)!=tinyxml2::XML_SUCCESS)
 		{
 			Error("Couldn't load skin file '%s'!\n",asFile.c_str());
 			fclose(pFile);
@@ -144,18 +144,18 @@ namespace hpl {
 
 		/////////////////////////
 		//Get the root.
-		TiXmlElement* pRootElem = pXmlDoc->RootElement();
+		tinyxml2::XMLElement* pRootElem = pXmlDoc->RootElement();
 
 
 		//////////////////////////////////////
 		// ATTRIBUTES
-		TiXmlElement* pAttributesElement = pRootElem->FirstChildElement("Attributes");
+		tinyxml2::XMLElement* pAttributesElement = pRootElem->FirstChildElement("Attributes");
 
 		tBoolVec vAttribLoaded;
 		vAttribLoaded.resize(eGuiSkinAttribute_LastEnum, false);
 
 		//Iterate font elements
-		TiXmlElement* pAttributeElem = pAttributesElement->FirstChildElement();
+		tinyxml2::XMLElement* pAttributeElem = pAttributesElement->FirstChildElement();
 		for(; pAttributeElem != NULL; pAttributeElem = pAttributeElem->NextSiblingElement())
 		{
 			tString sType = cString::ToString(pAttributeElem->Attribute("type"),"");
@@ -188,10 +188,10 @@ namespace hpl {
 
 		//////////////////////////////////////
 		// FONTS
-		TiXmlElement* pFontsElement = pRootElem->FirstChildElement("Fonts");
+		tinyxml2::XMLElement* pFontsElement = pRootElem->FirstChildElement("Fonts");
 
 		//Iterate font elements
-		TiXmlElement* pFontElem = pFontsElement->FirstChildElement();
+		tinyxml2::XMLElement* pFontElem = pFontsElement->FirstChildElement();
 		for(; pFontElem != NULL; pFontElem = pFontElem->NextSiblingElement())
 		{
 			tString sType = cString::ToString(pFontElem->Attribute("type"),"");
@@ -224,10 +224,10 @@ namespace hpl {
 		// GFX ELEMENTS
 		
 		//Get gfx element
-		TiXmlElement* pGfxElementsElement = pRootElem->FirstChildElement("GfxElements");
+		tinyxml2::XMLElement* pGfxElementsElement = pRootElem->FirstChildElement("GfxElements");
 
 		//Iterate gfx elements
-		TiXmlElement* pGfxElem = pGfxElementsElement->FirstChildElement();
+		tinyxml2::XMLElement* pGfxElem = pGfxElementsElement->FirstChildElement();
 		for(; pGfxElem != NULL; pGfxElem = pGfxElem->NextSiblingElement())
 		{
 			tString sType = cString::ToString(pGfxElem->Attribute("type"),"");

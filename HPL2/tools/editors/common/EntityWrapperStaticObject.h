@@ -26,6 +26,8 @@ using namespace hpl;
 
 #include "EntityWrapper.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 //---------------------------------------------------------------
 
 #define StaticObjectPropIdStart 140
@@ -60,7 +62,7 @@ class cEntityWrapperDataStaticObject : public iEntityWrapperData
 {
 public:
 	cEntityWrapperDataStaticObject(iEntityWrapperType*);
-	bool Load(cXmlElement* apElement);
+	bool Load(tinyxml2::XMLElement* apElement);
 
 	iEntityWrapper* CreateSpecificEntity();
 };

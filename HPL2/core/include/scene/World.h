@@ -26,7 +26,7 @@
 #include "engine/EngineTypes.h"
 #include "scene/SceneTypes.h"
 
-class TiXmlElement;
+namespace tinyxml2 { class XMLElement; }
 
 namespace hpl {
 
@@ -45,10 +45,10 @@ namespace hpl {
 	class cCamera;
 	class cNode3D;
 	class iEntity3D;
+	class iLight;
 	class cLightSpot;
 	class cLightPoint;
 	class cLightBox;
-	class iLight;
 	class cImageEntity;
 	class cParticleManager;
 	class cParticleSystem;
@@ -73,7 +73,6 @@ namespace hpl {
 	class iPhysicsRope;
 	class cResourceVarsObject;
 	class cFogArea;
-	class cXmlElement;
 	class cEntFile;
 	class cDummyRenderable;
 	
@@ -290,7 +289,7 @@ namespace hpl {
 		///// PARTICLE METHODS ////////////////////
 
 		cParticleSystem* CreateParticleSystem(	const tString& asName,const tString& asType, const cVector3f& avSize, bool abRemoveWhenDead=true);
-		cParticleSystem* CreateParticleSystem(	const tString& asName,const tString& asDataName, cXmlElement* apElement, const cVector3f& avSize);
+		cParticleSystem* CreateParticleSystem(	const tString& asName,const tString& asDataName, tinyxml2::XMLElement* apElement, const cVector3f& avSize);
 		void DestroyParticleSystem(cParticleSystem* apPS);
 		cParticleSystem* GetParticleSystem(const tString& asName);
 		cParticleSystem* GetParticleSystemFromUniqueID(int alID);
@@ -374,7 +373,7 @@ namespace hpl {
 	private:
 		void AddRenderableToContainer(iRenderable *apObject);
 		void RemoveRenderableFromContainer(iRenderable *apObject);
-		
+
 		void UpdateEntities(float afTimeStep);
 		void UpdateParticles(float afTimeStep);
 		void UpdateLights(float afTimeStep);

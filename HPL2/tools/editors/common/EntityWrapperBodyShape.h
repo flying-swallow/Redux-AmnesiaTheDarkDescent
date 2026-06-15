@@ -26,6 +26,8 @@ using namespace hpl;
 
 #include "EntityWrapper.h"
 
+namespace tinyxml2 { class XMLElement; }
+
 //---------------------------------------------------------------
 
 class cEntityWrapperBody;
@@ -71,7 +73,7 @@ public:
 	void CopyFromEntity(iEntityWrapper* apEntity);
 	//void CopyToEntity(iEntityWrapper* apEntity);
 
-	bool SaveSpecific(cXmlElement*);
+	bool SaveSpecific(tinyxml2::XMLElement*);
 	
 protected:
 	iEntityWrapper* CreateSpecificEntity();
