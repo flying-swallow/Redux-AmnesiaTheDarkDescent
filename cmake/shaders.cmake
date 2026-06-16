@@ -1,31 +1,3 @@
-function(_target_shaders_compile_glsl target shader_file)
-    get_filename_component(shader_output_name ${shader_file} NAME)
-    cmake_path(
-        REPLACE_EXTENSION
-            shader_file
-        LAST_ONLY
-        ".spv"
-        OUTPUT_VARIABLE
-            output_file)
-
-    add_custom_command(
-        COMMENT
-            "Build shader file ${shader_file}"
-        MAIN_DEPENDENCY
-            "${shader_file}"
-        DEPENDS
-            glslang-standalone
-        VERBATIM
-        WORKING_DIRECTORY
-            "${CMAKE_CURRENT_SOURCE_DIR}"
-        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${target}>/compiled_shaders
-        COMMAND
-            $<TARGET_FILE:glslang-standalone> --target-env vulkan1.3 -V ${shader_file} -o $<TARGET_FILE_DIR:${target}>/compiled_shaders/${shader_output_name}.spv
-        OUTPUT
-            ${shader_output_name}.spv
-    )
-endfunction()
-
 function(_target_shaders_compile_slang target shader_file include_dirs)
     # cmake_path STEM LAST_ONLY strips only the trailing `.slang`, so
     # `foo.vert.slang` → `foo.vert` and the .spv name matches the convention
@@ -81,7 +53,7 @@ function(target_shaders target)
         if(_ext STREQUAL ".slang")
             _target_shaders_compile_slang("${target}" "${shader_file}" "${target_shaders_INCLUDE_DIRS}")
         else()
-            _target_shaders_compile_glsl("${target}" "${shader_file}")
+            message(FATAL_ERROR "target_shaders: unsupported shader '${shader_file}' — only .slang is supported (glslang was removed)")
         endif()
     endforeach()
 endfunction()

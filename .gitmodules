@@ -1,9 +1,6 @@
 [submodule "extern/volk"]
 	path = extern/volk
 	url = https://github.com/zeux/volk.git
-[submodule "extern/glslang"]
-	path = extern/glslang
-	url = https://github.com/KhronosGroup/glslang.git
 [submodule "extern/VulkanMemoryAllocator"]
 	path = extern/VulkanMemoryAllocator
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
