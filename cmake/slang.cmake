@@ -7,7 +7,7 @@
 # Override with `-DSLANGC_EXECUTABLE=/path/to/slangc` to use a local install
 # (e.g. the one bundled in the Vulkan SDK) and skip the download entirely.
 
-set(SLANG_VERSION "2026.9.1" CACHE STRING
+set(SLANG_VERSION "2026.11" CACHE STRING
     "Slang release tag to download (without leading 'v'). Asset filename must exist at https://github.com/shader-slang/slang/releases.")
 set(SLANGC_EXECUTABLE "" CACHE FILEPATH
     "Override: path to a slangc executable. Empty => download the pinned prebuilt release.")
