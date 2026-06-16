@@ -16,7 +16,6 @@ endif()
 add_subdirectory(OALWrapper)
 add_subdirectory(Newton)
 add_subdirectory(AngelScript)
-add_subdirectory(glslang)
 add_subdirectory(VulkanMemoryAllocator)
 
 set(VOLK_STATIC_DEFINES "")
