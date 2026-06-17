@@ -22,7 +22,12 @@ static VkDescriptorType ri_vk_BindlessDescriptorType( uint8_t t ) {
   case RI_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE:
     return VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
   }
-  return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+  FatalError("Invalid RIDescriptor type: %u\n", static_cast<unsigned>(t));
+  return VK_DESCRIPTOR_TYPE_MAX_ENUM;
+}
+
+static bool IsValidRIDescriptorType( uint8_t t ) {
+    return t <= RI_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE;
 }
 
 static void vkDescriptorSetAlloc( struct RIDevice *device, struct RIDescriptorSetAlloc *alloc ) {

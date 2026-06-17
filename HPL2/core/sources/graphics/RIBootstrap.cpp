@@ -303,23 +303,38 @@ std::optional<RIDescriptor> RIBootstrap::resolve_filter_descriptor(eTextureWrap 
       break;
     }
     info.maxLod = 16;
-    const hash_t hash =
-        hash_data(HASH_INITIAL_VALUE, &info, sizeof(VkSamplerCreateInfo));
-    const size_t startIndex = (hash % cachedSamplers.size());
-    size_t index = startIndex;
-    do {
-      if (cachedSamplers[index].cookie == hash) {
-        return RIDescriptor::sampler(&device, &cachedSamplers[index]);
-      } else if (cachedSamplers[index].cookie == 0) {
-        VK_WrapResult(vkCreateSampler(device.vk.device, &info, NULL,
-                                      &cachedSamplers[index].vk.sampler));
-        // Key the slot on the create-info content hash so identical sampler
-        // configs dedup; the descriptor cookie derives from this.
-        cachedSamplers[index].cookie = hash;
-        return RIDescriptor::sampler(&device, &cachedSamplers[index]);
-      }
-      index = (index + 1) % cachedSamplers.size();
-    } while (index != startIndex);
+    constexpr uint32_t kWrapCount = static_cast<uint32_t>(eTextureWrap_LastEnum);
+    constexpr uint32_t kFilterCount = static_cast<uint32_t>(eTextureFilter_LastEnum);
+
+    const uint32_t wrapSIndex = static_cast<uint32_t>(wrapS);
+    const uint32_t wrapTIndex = static_cast<uint32_t>(wrapT);
+    const uint32_t wrapRIndex = static_cast<uint32_t>(wrapR);
+    const uint32_t filterIndex = static_cast<uint32_t>(filter);
+
+    if (wrapSIndex >= kWrapCount || wrapTIndex >= kWrapCount || wrapRIndex >= kWrapCount || filterIndex >= kFilterCount) {
+        assert(false && "Invalid sampler configuration");
+        return std::nullopt;
+    }
+
+    // Collision-free mixed-radix key in the range [0, 191].
+    const size_t cacheIndex = (((static_cast<size_t>(wrapSIndex) * kWrapCount + wrapTIndex) * kWrapCount + wrapRIndex) * kFilterCount + filterIndex);
+    assert(cacheIndex < cachedSamplers.size());
+    RISampler& sampler = cachedSamplers[cacheIndex];
+
+    // cookie == 0 means the slot has not been created.
+    // Add one because cacheIndex itself can be zero.
+    const hash_t samplerCookie = static_cast<hash_t>(cacheIndex) + 1;
+
+    if (sampler.cookie == 0) {
+        VK_WrapResult(vkCreateSampler(device.vk.device, &info, nullptr, &sampler.vk.sampler));
+        sampler.cookie = samplerCookie;
+    }
+    else {
+        // Direct indexing guarantees this slot belongs to this configuration.
+        assert(sampler.cookie == samplerCookie);
+    }
+
+    return RIDescriptor::sampler(&device, &sampler);
   }
 #endif
   return std::nullopt;

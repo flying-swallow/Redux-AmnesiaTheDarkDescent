@@ -132,10 +132,17 @@ public:
   RIBuffer translucentIdxBuffer;
 
   std::array<FrameContext, RI_NUMBER_FRAMES_FLIGHT> frameSets;
-	// Open-addressed sampler cache keyed by the VkSamplerCreateInfo content hash
-	// (stored as each slot's cookie; 0 == empty). resolve_filter_descriptor
-	// produces the sampler descriptor on demand. Disposed at shutdown.
-	std::array<RISampler, 1024> cachedSamplers;
+  // Direct-indexed sampler cache keyed by the three wrap modes and filter mode.
+  // There are currently 4 * 4 * 4 * 3 = 192 possible configurations.
+  // The array index encodes the configuration; cookie == 0 means the slot has
+  // not yet been initialized. resolve_filter_descriptor() creates samplers on
+  // demand, and all created samplers are disposed at shutdown.
+  static constexpr size_t kSamplerCombinationCount = static_cast<size_t>(eTextureWrap_LastEnum) *
+													 static_cast<size_t>(eTextureWrap_LastEnum) *
+													 static_cast<size_t>(eTextureWrap_LastEnum) *
+													 static_cast<size_t>(eTextureFilter_LastEnum);
+  std::array<RISampler, kSamplerCombinationCount> cachedSamplers;
+
   uint32_t swapchainIndex;
   uint32_t frameIndex = 0;
 
