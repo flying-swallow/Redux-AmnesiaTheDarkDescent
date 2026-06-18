@@ -49,7 +49,6 @@ VSOut vsMain(VSIn vin)
     VSOut o;
     float4 worldPos = mul(pc.model, float4(vin.a_position, 1.0f));
     o.posH = mul(pass.viewProj, worldPos);
-    o.posH.z -= 0.0001f; // depth bias toward camera (matches dds_flash/enemy)
     o.v_uv = vin.a_uv;
     return o;
 }

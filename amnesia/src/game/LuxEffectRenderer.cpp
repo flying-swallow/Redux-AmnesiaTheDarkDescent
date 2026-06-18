@@ -176,6 +176,10 @@ void BindGeomPipeline(RIProgram &aProgram, RICmd *apCmd, eGeomPassMode aMode,
 		VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
 	depthStencil.depthTestEnable = VK_TRUE;
 	depthStencil.depthWriteEnable = VK_FALSE;
+	rasterization.depthBiasEnable = VK_TRUE;
+	rasterization.depthBiasConstantFactor = -1.0f;
+	rasterization.depthBiasSlopeFactor = -1.0f;
+	rasterization.depthBiasClamp = 0.0f;
 	depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 	depthStencil.minDepthBounds = 0.0f;
 	depthStencil.maxDepthBounds = 1.0f;
