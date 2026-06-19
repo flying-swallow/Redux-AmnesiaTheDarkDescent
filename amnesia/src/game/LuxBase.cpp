@@ -357,6 +357,10 @@ cLuxBase::cLuxBase()
 	// Init pointers
 	mpEngine = NULL;
 
+	// PreMenu's gamma slider fires SetGamma during InitGame (before MainMenu is
+	// created), which reads gpBase->mpMainMenu — must be NULL until then.
+	mpMainMenu = NULL;
+
 	mpMainConfig = NULL;
 	mpUserConfig = NULL;
 	mpUserKeyConfig = NULL;
@@ -1173,6 +1177,7 @@ bool cLuxBase::InitEngine()
 
 void cLuxBase::ExitEngine()
 {
+	mpDefaultFont = {};
 	if(mpEngine) DestroyHPLEngine(mpEngine);
 }
 
@@ -1209,6 +1214,8 @@ bool cLuxBase::InitGame()
 	// Load another font if game is in chinese, 
 	// might want to fix this later since some debug text is tiny now
 
+	// Owned as a raw pointer (read widely as iFontData*); released in ExitEngine
+	// before the font manager is torn down.
 	if (msCurrentLanguage == "chinese.lang")
 		mpDefaultFont = mpEngine->GetResources()->GetFontManager()->CreateFontData("game_default.fnt");
 	else

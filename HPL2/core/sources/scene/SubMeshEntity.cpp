@@ -73,8 +73,6 @@ namespace hpl {
 		mpEntityCallback = hplNew( cSubMeshEntityBodyUpdate, () );
 		mbUpdateBody = false;
 
-		mpMaterial = NULL;
-
 		mpUserData = NULL;
 
 		//This is used to see if null should be returned.
@@ -90,8 +88,7 @@ namespace hpl {
 
 		if(mpDynVtxBuffer) hplDelete(mpDynVtxBuffer);
 
-		/* Clear any custom textures here*/	
-		if(mpMaterial) mpMaterialManager->Destroy(mpMaterial);
+		/* Custom material (SharedResourceHandle) releases its reference automatically. */
 	}
 
 	//-----------------------------------------------------------------------
@@ -137,14 +134,14 @@ namespace hpl {
 
 	cMaterial* cSubMeshEntity::GetMaterial()
 	{
-		if(mpMaterial==NULL && mpSubMesh->GetMaterial()==NULL)
+		if(!mpMaterial && mpSubMesh->GetMaterial()==NULL)
 		{
 			//Error("Materials for sub entity %s are NULL!\n",GetName().c_str());
 		}
 
-		if(mpMaterial) 
-			return mpMaterial;
-		else 
+		if(mpMaterial)
+			return mpMaterial.Get();
+		else
 			return mpSubMesh->GetMaterial();
 	}
 
@@ -424,14 +421,14 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 	
-	void cSubMeshEntity::SetCustomMaterial(cMaterial *apMaterial, bool abDestroyOldCustom)
+	void cSubMeshEntity::SetCustomMaterial(SharedResourceHandle<cMaterial> apMaterial, bool abDestroyOldCustom)
 	{
-		if(abDestroyOldCustom)
-		{
-			if(mpMaterial) mpMaterialManager->Destroy(mpMaterial);
-		}
+		// abDestroyOldCustom == false: relinquish the old custom material without
+		// releasing its reference (the caller still owns it elsewhere).
+		if(!abDestroyOldCustom)
+			mpMaterial.Release();
 
-        mpMaterial = apMaterial;
+		mpMaterial = std::move(apMaterial);
 	}
 	
 	//-----------------------------------------------------------------------

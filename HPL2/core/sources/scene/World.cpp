@@ -190,11 +190,6 @@ namespace hpl {
 			mpResources->GetTextureManager()->Destroy(mpSkyBoxImage);
 		}
 
-		for(tEntFileListIt it = mlstEntFileCache.begin(); it != mlstEntFileCache.end(); ++it)
-		{
-			mpResources->GetEntFileManager()->Destroy(*it);
-		}
-
 		DestroyAllEntities(0);
 		
 		for(int i=0; i<2; ++i)
@@ -219,10 +214,8 @@ namespace hpl {
 		{
 			STLDeleteAll(mlstStaticMeshEntities);
 
-			// Decals are static. Release each decal's material (the world created
-			// it via the material manager) then delete the decals themselves.
-			for(size_t i=0; i<mvDecals.size(); ++i)
-				mpResources->GetMaterialManager()->Destroy(mvDecals[i]->GetMaterial());
+			// Decals are static. Each cDecal owns its material via a
+			// SharedResourceHandle, released automatically when the decal is deleted.
 			STLDeleteAll(mvDecals);
 		}
 
@@ -511,15 +504,17 @@ namespace hpl {
 	{
 		iEntity3D *pEntity = NULL;
 		
-		cEntFile *pEntFile = mpResources->GetEntFileManager()->CreateEntFile(asFile);
-		if(pEntFile==NULL) return NULL;
-
-		mlstEntFileCache.push_back(pEntFile);
+		// World owns the cEntFile via mlstEntFileCache (raw list, Destroyed in ~cWorld);
+		// take the reference out of the handle as a raw pointer.
+		SharedResourceHandle<cEntFile> pEntFile = mpResources->GetEntFileManager()->CreateEntFile(asFile);
+		if(!pEntFile.IsValid()) {
+			return NULL;
+		}
+		entityCache.push_back(pEntFile);
 		
 		tString sEntityType = "";
 		tinyxml2::XMLElement *pDoc = pEntFile->GetXmlDoc();
 
-		//////////////////////////////////
 		// Get Root element
 		tinyxml2::XMLElement *pVarRootElem = pDoc->FirstChildElement("UserDefinedVariables");
 		if(pVarRootElem==NULL){
@@ -587,11 +582,11 @@ namespace hpl {
 	cDecal* cWorld::CreateDecal(const tString& asName, const tString& asMaterial,
 								const cColor& aColor, const cVector2l& avSubDiv)
 	{
-		cMaterial* pMaterial = mpResources->GetMaterialManager()->CreateMaterial(asMaterial);
-		if(pMaterial == NULL)
+		SharedResourceHandle<cMaterial> pMaterial = mpResources->GetMaterialManager()->CreateMaterial(asMaterial);
+		if(!pMaterial)
 			return NULL;
 
-		cDecal* pDecal = hplNew( cDecal, (asName, mpGraphics, pMaterial, aColor, avSubDiv) );
+		cDecal* pDecal = hplNew( cDecal, (asName, mpGraphics, std::move(pMaterial), aColor, avSubDiv) );
 		pDecal->SetStatic(true);
 
 		mvDecals.push_back(pDecal);
@@ -649,7 +644,7 @@ namespace hpl {
 
 		if(asGobo != "")
 		{
-			Image *pImage = mpResources->GetTextureManager()->CreateCubeMapImage(asGobo,true);
+			Image *pImage = mpResources->GetTextureManager()->CreateCubeMapImage(asGobo,true).Release();
 			if(pImage!=NULL)
 				pLight->SetGoboTexture(pImage);
 			else
@@ -672,7 +667,7 @@ namespace hpl {
 
 		if(asGobo != "")
 		{
-			Image *pImage = mpResources->GetTextureManager()->Create2DImage(asGobo,true);
+			Image *pImage = mpResources->GetTextureManager()->Create2DImage(asGobo,true).Release();
 			if(pImage!=NULL)
 				pLight->SetGoboTexture(pImage);
 			else
@@ -745,8 +740,7 @@ namespace hpl {
 
 		if(asMaterial!="")
 		{
-			cMaterial *pMat = mpResources->GetMaterialManager()->CreateMaterial(asMaterial);
-			pBillboard->SetMaterial(pMat);
+			pBillboard->SetMaterial(mpResources->GetMaterialManager()->CreateMaterial(asMaterial));
 		}
 
 		pBillboard->SetStatic(abStatic);

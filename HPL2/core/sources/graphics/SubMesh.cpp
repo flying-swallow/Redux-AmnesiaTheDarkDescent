@@ -53,7 +53,7 @@ namespace hpl {
 
 	cSubMesh::~cSubMesh()
 	{
-		if(mpMaterial)mpMaterialManager->Destroy(mpMaterial);
+		// mpMaterial (SharedResourceHandle) releases its reference automatically.
 		if(mpVtxBuffer) hplDelete(mpVtxBuffer);
 		// mvVertexWeights / mvVertexBones / mvColliders own their storage (RAII).
 	}
@@ -66,10 +66,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cSubMesh::SetMaterial(cMaterial* apMaterial)
+	void cSubMesh::SetMaterial(SharedResourceHandle<cMaterial> apMaterial)
 	{
-		if(mpMaterial) mpMaterialManager->Destroy(mpMaterial);
-		mpMaterial = apMaterial;
+		mpMaterial = std::move(apMaterial);
 	}
 	
 	//-----------------------------------------------------------------------
@@ -85,7 +84,7 @@ namespace hpl {
 
 	cMaterial *cSubMesh::GetMaterial()
 	{
-		return mpMaterial;
+		return mpMaterial.Get();
 	}
 
 	//-----------------------------------------------------------------------

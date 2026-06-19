@@ -116,7 +116,7 @@ cSimpleCamera::cSimpleCamera(const tString& asAppName,cEngine *apGame, cWorld *a
 	/////////////////////////////////
 	// Font setup
 	if(abShowFPS)
-		mpFont = mpEngine->GetResources()->GetFontManager()->CreateFontData("viewer.fnt",12,32,128);
+		mpFont = mpEngine->GetResources()->GetFontManager()->CreateFontData("viewer.fnt",12,32,128).Release();
 	else
 		mpFont = NULL;
 

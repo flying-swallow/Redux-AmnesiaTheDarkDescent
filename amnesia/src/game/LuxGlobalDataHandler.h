@@ -62,7 +62,7 @@ public:
 
 private:
 	tLuxScriptVarMap m_mapVars;
-	iScript *mpScript;
+	SharedResourceHandle<iScript> mpScript;
 
 	float mfEnemyActivateSoundCount;
 

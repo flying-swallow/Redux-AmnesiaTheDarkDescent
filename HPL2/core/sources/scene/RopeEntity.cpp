@@ -51,8 +51,6 @@ namespace hpl {
 		
 		mColor = cColor(1,1,1,1);
 
-		mpMaterial = NULL;
-		
 		mpRope = apRope;
 		mlMaxSegments = alMaxSegments;
 
@@ -98,7 +96,7 @@ namespace hpl {
 
 	cRopeEntity::~cRopeEntity()
 	{
-		if(mpMaterial) mpMaterialManager->Destroy(mpMaterial);
+		// mpMaterial (SharedResourceHandle) releases its reference automatically.
 		if(mpVtxBuffer) hplDelete(mpVtxBuffer);
 	}
 
@@ -149,9 +147,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cRopeEntity::SetMaterial(cMaterial * apMaterial)
+	void cRopeEntity::SetMaterial(SharedResourceHandle<cMaterial> apMaterial)
 	{
-		mpMaterial = apMaterial;
+		mpMaterial = std::move(apMaterial);
 	}
 
 	//-----------------------------------------------------------------------

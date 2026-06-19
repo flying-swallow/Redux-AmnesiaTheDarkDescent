@@ -156,7 +156,7 @@ namespace hpl {
 
 		cVector2f mvSizeRatio;
 
-		cGlyph* CreateGlyph(cFrameSubImage* apImage, const cVector2l &avOffset,const cVector2l &avSize,
+		cGlyph* CreateGlyph(const SharedResourceHandle<cFrameSubImage>& apImage, const cVector2l &avOffset,const cVector2l &avSize,
 							const cVector2l& avFontSize, int alAdvance);
 		void AddGlyph(cGlyph *apGlyph);
 	};

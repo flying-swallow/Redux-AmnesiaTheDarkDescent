@@ -21,6 +21,7 @@
 #define HPL_ANIMATION_MANAGER_H
 
 #include "resources/ResourceManager.h"
+#include "resources/ResourceBase.h"
 
 namespace hpl {
 
@@ -34,9 +35,8 @@ namespace hpl {
 		cAnimationManager(cGraphics* apGraphics,cResources *apResources);
 		~cAnimationManager();
 
-		cAnimation* CreateAnimation(const tString& asName);
+		SharedResourceHandle<cAnimation> CreateAnimation(const tString& asName);
 
-		void Destroy(iResourceBase* apResource);
 		void Unload(iResourceBase* apResource);
 
 	private:

@@ -75,7 +75,7 @@ cLuxMap::cLuxMap(const tString& asName)
 
 	mpLatestAddedEntity = NULL;
 
-	mpScript = NULL;
+	mpScript = {};
 
 	msLanternLitCallback = "";
 
@@ -109,10 +109,9 @@ cLuxMap::~cLuxMap()
 	STLDeleteAll(mlstUseItemCallbacks);
 	STLDeleteAll(mlstDissolveEntities);
 
-	mpEngine->GetScene()->DestroyWorld(mpWorld);	
+	mpEngine->GetScene()->DestroyWorld(mpWorld);
 
-	if(mpScript)
-		mpEngine->GetResources()->GetScriptManager()->Destroy(mpScript);
+	// mpScript handle auto-releases.
 }
 
 //-----------------------------------------------------------------------
@@ -166,7 +165,7 @@ bool cLuxMap::LoadFromFile(const tString & asFile, bool abLoadEntities)
 	{
 		tString sCompileMessages = "";
 		mpScript = mpEngine->GetResources()->GetScriptManager()->CreateScript(sScriptFile, &sCompileMessages);
-		if(mpScript==NULL)
+		if(!mpScript)
 		{
 			//Only get errors!
 			tStringVec sMessRows;
@@ -403,7 +402,7 @@ void cLuxMap::Update(float afTimeStep)
 
 void cLuxMap::RunScript(const tString& asCommand)
 {
-	if(mpScript==NULL) return;
+	if(!mpScript) return;
 	if(this != gpBase->mpMapHandler->GetCurrentMap()) return;
 
     mpScript->Run(asCommand);
@@ -411,16 +410,14 @@ void cLuxMap::RunScript(const tString& asCommand)
 
 bool cLuxMap::RecompileScript(tString *apOutput)
 {
-	if(mpScript)
-		mpEngine->GetResources()->GetScriptManager()->Destroy(mpScript);
-	mpScript = NULL;
+	mpScript = {}; // release old script
 
 	tString sScriptFile = cString::SetFileExt(msFileName,"hps");
 	if(gpBase->mpEngine->GetResources()->GetFileSearcher()->GetFilePath(sScriptFile)!=_W(""))
 	{
 		mpScript = mpEngine->GetResources()->GetScriptManager()->CreateScript(sScriptFile, apOutput);
-		
-		return mpScript != NULL;
+
+		return mpScript.IsValid();
 	}
 	else
 	{
@@ -1118,7 +1115,7 @@ void cLuxMap::AddCompletionAmount(int alAmount, float afDelay)
 void cLuxMap::AddDissolveEntity(cMeshEntity *apMeshEntity, float afTime)
 {
 	cMesh *pMesh = apMeshEntity->GetMesh();
-	pMesh->IncUserCount();
+	pMesh->AddReference();
 
 	cMeshEntity *pNewEntity = mpWorld->CreateMeshEntity(apMeshEntity->GetName()+"_Dissolve", pMesh);
 	pNewEntity->SetIlluminationAmount(apMeshEntity->GetIlluminationAmount());

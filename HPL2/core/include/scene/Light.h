@@ -22,7 +22,7 @@
 
 #include "scene/Entity3D.h"
 #include "graphics/GraphicsTypes.h"
-#include "graphics/ImageResourceWrapper.h"
+#include "resources/ResourceBase.h"
 #include "graphics/Renderable.h"
 
 namespace tinyxml2 { class XMLElement; }
@@ -239,8 +239,8 @@ namespace hpl {
 		cWorld *mpWorld;
 
 		// Image* texture storage.
-		ImageResourceWrapper m_falloffMap;
-		ImageResourceWrapper m_goboImage;
+		SharedResourceHandle<Image> m_falloffMap;
+		SharedResourceHandle<Image> m_goboImage;
 
 		eShadowMapResolution mShadowMapResolution;
 		float mfShadowMapBlurAmount;

@@ -23,6 +23,7 @@
 #include "math/MathTypes.h"
 #include "graphics/GraphicsTypes.h"
 #include "system/SystemTypes.h"
+#include "resources/ResourceBase.h"
 
 #include "scene/Entity3D.h"
 #include "graphics/Renderable.h"
@@ -44,7 +45,7 @@ namespace hpl {
 		cBillboard(const tString asName,const cVector2f& avSize,eBillboardType aType, cResources *apResources,cGraphics *apGraphics);
 		~cBillboard();
 
-		void SetMaterial(cMaterial * apMaterial);
+		void SetMaterial(SharedResourceHandle<cMaterial> apMaterial);
 
 		void SetSize(const cVector2f& avSize);
 		cVector2f GetSize(){ return mvSize;}
@@ -78,7 +79,7 @@ namespace hpl {
 		bool IsVisible();
 		
 		//Renderable implementations
-		cMaterial *GetMaterial(){ return mpMaterial;}
+		cMaterial *GetMaterial(){ return mpMaterial.Get();}
 		cVertexBuffer* GetVertexBuffer(){return mpVtxBuffer;}
 
 		cMatrixf* GetModelMatrix(cFrustum *apFrustum);
@@ -91,7 +92,7 @@ namespace hpl {
 		cMaterialManager* mpMaterialManager;
 		iLowLevelGraphics* mpLowLevelGraphics;
 		
-		cMaterial *mpMaterial;
+		SharedResourceHandle<cMaterial> mpMaterial;
 		cVertexBuffer* mpVtxBuffer;
 
 		cMatrixf m_mtxTempTransform;

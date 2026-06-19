@@ -30,6 +30,7 @@
 
 #include "resources/Resources.h"
 #include "resources/FontManager.h"
+#include "graphics/FontData.h"
 
 namespace hpl {
 
@@ -47,7 +48,7 @@ namespace hpl {
 	}
 	cGuiSkinFont::~cGuiSkinFont()
 	{
-		//Skip deleting font...
+		// mpFont (SharedResourceHandle) releases its reference automatically.
 	}
 
 	//-----------------------------------------------------------------------

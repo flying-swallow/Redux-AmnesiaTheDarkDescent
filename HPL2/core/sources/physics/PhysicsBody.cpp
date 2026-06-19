@@ -53,7 +53,7 @@ namespace hpl {
 		mpShape = apShape;
 		
 		//Increment user count for the shape
-		apShape->IncUserCount();
+		apShape->AddReference();
 
 		mBoundingVolume.SetLocalMinMax(apShape->GetBoundingVolume().GetMin(),
 										apShape->GetBoundingVolume().GetMax());

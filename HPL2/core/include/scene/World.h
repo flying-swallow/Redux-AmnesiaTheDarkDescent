@@ -20,6 +20,7 @@
 #ifndef HPL_WORLD_H
 #define HPL_WORLD_H
 
+#include "resources/ResourceBase.h"
 #include "system/SystemTypes.h"
 #include "graphics/GraphicsTypes.h"
 #include "math/MathTypes.h"
@@ -431,11 +432,8 @@ namespace hpl {
 		tDummyRenderableList mlstDummyRenderables;
 
 		int mlSoundCreationIDCount;
+		std::vector<SharedResourceHandle<cEntFile>> entityCache;
 
-		//tSoundEntityList mlstSoundEntityPool;<-Debugging
-
-		tEntFileList mlstEntFileCache;
-		
 		tAINodeContainerList mlstAINodeContainers;
 		tAStarHandlerList mlstAStarHandlers;
 		tTempNodeContainerMap m_mapTempNodes;

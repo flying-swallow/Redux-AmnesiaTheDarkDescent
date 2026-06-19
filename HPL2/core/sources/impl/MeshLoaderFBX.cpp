@@ -204,11 +204,11 @@ namespace hpl {
 				pSubMesh->AddVertexBonePair(VBPair);
 			}
 
-			cMaterial *pMaterial = mpMaterialManager->CreateMaterial(subData.msMaterial);
+			SharedResourceHandle<cMaterial> pMaterial = mpMaterialManager->CreateMaterial(subData.msMaterial);
 			if(pMaterial)
 			{
-				pSubMesh->SetMaterial(pMaterial);
 				pSubMesh->SetMaterialName(pMaterial->GetName());
+				pSubMesh->SetMaterial(std::move(pMaterial));
 			}
 			else
 			{

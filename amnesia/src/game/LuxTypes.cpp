@@ -113,7 +113,7 @@ void iLuxUpdateable::ClearFonts()
 iFontData* iLuxUpdateable::LoadFont(const tString& asFile)
 {
 	iFontData* pFont = NULL;
-	pFont = gpBase->mpEngine->GetResources()->GetFontManager()->CreateFontData(asFile);
+	pFont = gpBase->mpEngine->GetResources()->GetFontManager()->CreateFontData(asFile).Release();
 
 	if(pFont)
 		mvFonts.push_back(pFont);

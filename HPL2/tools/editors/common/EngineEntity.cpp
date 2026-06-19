@@ -244,8 +244,8 @@ void iEngineEntityMesh::SetCoverage(float afX)
 
 bool iEngineEntityMesh::SetMaterial(const tString& asX)
 {
-	cMaterial* pMat = NULL;
-	if(cEditorHelper::LoadResourceFile(eEditorResourceType_Material, asX,(void**) &pMat))
+	SharedResourceHandle<cMaterial> hMat = cEditorHelper::LoadResourceFile<cMaterial>(asX);
+	if(hMat)
 	{
 		cMesh* pMesh = ((cMeshEntity*)mpEntity)->GetMesh();
 		if(pMesh)
@@ -253,7 +253,7 @@ bool iEngineEntityMesh::SetMaterial(const tString& asX)
 			for(int i=0;i<pMesh->GetSubMeshNum();++i)
 			{
 				cSubMesh* pSubMesh = pMesh->GetSubMesh(i);
-				pSubMesh->SetMaterial(pMat);
+				pSubMesh->SetMaterial(hMat); // copy: each submesh takes its own reference
 			}
 		}
 
@@ -267,8 +267,8 @@ bool iEngineEntityMesh::SetMaterial(const tString& asX)
 
 bool iEngineEntityMesh::SetCustomMaterial(const tString& asX, bool abDelete)
 {
-	cMaterial* pMat = NULL;
-	if(cEditorHelper::LoadResourceFile(eEditorResourceType_Material, asX,(void**) &pMat))
+	SharedResourceHandle<cMaterial> hMat = cEditorHelper::LoadResourceFile<cMaterial>(asX);
+	if(hMat)
 	{
 		cMeshEntity* pMeshEnt = ((cMeshEntity*)mpEntity);
 		if(pMeshEnt)
@@ -276,7 +276,7 @@ bool iEngineEntityMesh::SetCustomMaterial(const tString& asX, bool abDelete)
 			for(int i=0;i<pMeshEnt->GetSubMeshEntityNum();++i)
 			{
 				cSubMeshEntity* pSubMeshEnt = pMeshEnt->GetSubMeshEntity(i);
-				pSubMeshEnt->SetCustomMaterial(pMat, abDelete);
+				pSubMeshEnt->SetCustomMaterial(hMat, abDelete); // copy: each takes its own reference
 			}
 		}
 
@@ -299,10 +299,12 @@ bool iEngineEntityMesh::SetCustomMaterial(cMaterial* apMat, bool abDelete)
 		if(pSubMeshEntity->GetCustomMaterial()==apMat)
 			return false;
 	}
+	cMaterialManager* pMatMgr = mpParent->GetEditorWorld()->GetEditor()->GetEngine()->GetResources()->GetMaterialManager();
 	for(int i=0;i<pMeshEnt->GetSubMeshEntityNum();++i)
 	{
 		cSubMeshEntity* pSubMeshEnt = pMeshEnt->GetSubMeshEntity(i);
-		pSubMeshEnt->SetCustomMaterial(apMat, abDelete);
+		// apMat is borrowed (caller-owned); each sub-entity takes its own reference.
+		pSubMeshEnt->SetCustomMaterial(RetainResource<cMaterial>(pMatMgr, apMat), abDelete);
 	}
 	return true;
 }

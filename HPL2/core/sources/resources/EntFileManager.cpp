@@ -84,7 +84,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cEntFile* cEntFileManager::CreateEntFile(const tString& asName)
+	SharedResourceHandle<cEntFile> cEntFileManager::CreateEntFile(const tString& asName)
 	{
 		tWString sPath;
 		cEntFile* pEntFile;
@@ -103,19 +103,17 @@ namespace hpl {
 				hplDelete(pEntFile);
 
 				EndLoad();
-				return NULL;
+				return {};
 			}
-			
+
 			AddResource(pEntFile);
 		}
-		
-		if(pEntFile)
-			pEntFile->IncUserCount();
-		else
+
+		if(pEntFile==NULL)
 			Error("Couldn't create ent file '%s'\n",asNewName.c_str());
-		
+
 		EndLoad();
-		return pEntFile;
+		return AcquireResource<cEntFile>(this, pEntFile); // handle takes the reference (empty if null)
 	}
 
 	//-----------------------------------------------------------------------
@@ -125,16 +123,6 @@ namespace hpl {
 
 	}
 	//-----------------------------------------------------------------------
-
-	void cEntFileManager::Destroy(iResourceBase* apResource)
-	{
-		apResource->DecUserCount();
-
-		if(apResource->HasUsers()==false){
-			RemoveResource(apResource);
-			hplDelete(apResource);
-		}
-	}
 
 	//-----------------------------------------------------------------------
 

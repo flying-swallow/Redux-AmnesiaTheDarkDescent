@@ -406,7 +406,7 @@ private:
 	cGuiSkin *mpGuiSkin;
 	cGuiSet *mpGuiSet;
 
-	iScript *mpScript;
+	SharedResourceHandle<iScript> mpScript;
 
 	iFontData *mpFontDefault;
 	iFontData *mpFontHeader;

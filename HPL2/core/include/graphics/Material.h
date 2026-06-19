@@ -23,7 +23,6 @@
 #include "system/SystemTypes.h"
 #include "math/MathTypes.h"
 #include "graphics/GraphicsTypes.h"
-#include "graphics/ImageResourceWrapper.h"
 #include "graphics/IndexPool.h"
 #include "resources/ResourceBase.h"
 
@@ -288,7 +287,7 @@ namespace hpl {
 		bool mbUseAlphaDissolveFilter;
 
 		// Image* binding storage, indexed by eMaterialTexture.
-		std::array<ImageResourceWrapper, eMaterialTexture_LastEnum> m_image;
+		std::array<SharedResourceHandle<Image>, eMaterialTexture_LastEnum> m_image;
 
 		// Per-material sampler state.
 		eTextureWrap m_textureWrap = eTextureWrap_Repeat;

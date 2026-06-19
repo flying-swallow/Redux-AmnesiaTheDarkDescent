@@ -24,6 +24,7 @@
 #include "system/SystemTypes.h"
 #include "graphics/GraphicsTypes.h"
 #include "math/BoundingVolume.h"
+#include "resources/ResourceBase.h"
 
 namespace hpl {
 
@@ -77,7 +78,7 @@ namespace hpl {
 		int GetCurrentSubDiv() { return mlCurrentSubDiv; }
 
 		cVertexBuffer* GetVB() { return mpDecalVB; }
-		cMaterial* GetMaterial() { return mpDecalMaterial; }
+		cMaterial* GetMaterial() { return mpDecalMaterial.Get(); }
 
 		// Legacy-renderer-only: kept for the un-built NewEditors tree; the RI
 		// editors use the DebugDraw overload below.
@@ -136,7 +137,7 @@ namespace hpl {
 		int		mlCurrentSubDiv;
 		cColor mColor;
 		
-		cMaterial* mpDecalMaterial;
+		SharedResourceHandle<cMaterial> mpDecalMaterial;
 		cVertexBuffer* mpDecalVB;
 
 		tVector3fVec mvTransformedBases;

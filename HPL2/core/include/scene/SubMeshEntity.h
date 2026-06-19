@@ -26,6 +26,7 @@
 #include "math/MathTypes.h"
 #include "graphics/GraphicsTypes.h"
 #include "system/SystemTypes.h"
+#include "resources/ResourceBase.h"
 #include "scene/Entity3D.h"
 #include "graphics/Renderable.h"
 #include "math/MeshTypes.h"
@@ -101,8 +102,8 @@ namespace hpl {
 		void SetUpdateBody(bool abX);
 		bool GetUpdateBody();
 
-		void SetCustomMaterial(cMaterial *apMaterial, bool abDestroyOldCustom=true);
-		cMaterial* GetCustomMaterial(){ return mpMaterial;}
+		void SetCustomMaterial(SharedResourceHandle<cMaterial> apMaterial, bool abDestroyOldCustom=true);
+		cMaterial* GetCustomMaterial(){ return mpMaterial.Get();}
 
 	private:
 		void OnTransformUpdated();
@@ -110,7 +111,7 @@ namespace hpl {
 		cSubMesh *mpSubMesh;
 		cMeshEntity *mpMeshEntity;
 
-		cMaterial *mpMaterial;
+		SharedResourceHandle<cMaterial> mpMaterial;
 
 		cNode3D *mpLocalNode;
 

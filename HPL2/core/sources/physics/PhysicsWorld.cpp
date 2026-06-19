@@ -179,8 +179,8 @@ namespace hpl {
 
 	void iPhysicsWorld::DestroyShape(iCollideShape *apShape)
 	{
-		apShape->DecUserCount();
-		if(apShape->HasUsers()==false)
+		apShape->DropReference();
+		if(apShape->HasReferences()==false)
 		{
 			STLFindAndDelete(mlstShapes, apShape);
 		}

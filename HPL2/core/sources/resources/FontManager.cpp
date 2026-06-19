@@ -59,7 +59,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	iFontData* cFontManager::CreateFontData(const tString& asName, int alSize,unsigned short alFirstChar,
+	SharedResourceHandle<iFontData> cFontManager::CreateFontData(const tString& asName, int alSize,unsigned short alFirstChar,
 											unsigned short alLastChar)
 	{
 		tWString sPath;
@@ -85,7 +85,7 @@ namespace hpl {
 				if(pFont->CreateFromFontFile(sPath,alSize,alFirstChar,alLastChar)==false){
 					hplDelete(pFont);
 					EndLoad();
-					return NULL;
+					return {};
 				}
 			}
 			//Angel code font type
@@ -94,7 +94,7 @@ namespace hpl {
 				if(pFont->CreateFromBitmapFile(sPath)==false){
 					hplDelete(pFont);
 					EndLoad();
-					return NULL;
+					return {};
 				}
 			}
 			else
@@ -102,18 +102,18 @@ namespace hpl {
 				Error("Font '%s' has an unkown extension!\n",asName.c_str());
 				hplDelete(pFont);
 				EndLoad();
-				return NULL;
+				return {};
 			}
 			
 			//mpResources->GetImageManager()->FlushAll();
 			AddResource(pFont);
 		}
 
-		if(pFont)pFont->IncUserCount();
+		if(pFont)pFont->AddReference();
 		else Error("Couldn't create font '%s'\n",asNewName.c_str());
-		
+
 		EndLoad();
-		return pFont;
+		return SharedResourceHandle<iFontData>(this, pFont); // adopt the reference taken above
 	}
 
 	//-----------------------------------------------------------------------
@@ -123,16 +123,6 @@ namespace hpl {
 
 	}
 	//-----------------------------------------------------------------------
-
-	void cFontManager::Destroy(iResourceBase* apResource)
-	{
-		apResource->DecUserCount();
-
-		if(apResource->HasUsers()==false){
-			RemoveResource(apResource);
-			hplDelete(apResource);
-		}
-	}
 
 	//-----------------------------------------------------------------------
 

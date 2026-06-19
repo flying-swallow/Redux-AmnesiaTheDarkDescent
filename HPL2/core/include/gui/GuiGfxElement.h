@@ -21,9 +21,10 @@
 #define HPL_GUI_GFX_ELEMENT_H
 
 #include "gui/GuiTypes.h"
+#include "resources/ResourceBase.h"
 
 namespace hpl {
-	
+
 	class iGuiMaterial;
 	class cFrameSubImage;
 	class cResources;
@@ -72,11 +73,11 @@ namespace hpl {
 
 		void Update(float afTimeStep);
 
-		void AddImage(cFrameSubImage* apImage);
+		void AddImage(const SharedResourceHandle<cFrameSubImage>& apImage);
 		void AddTexture(Image* apTexture, const cVector2f& avStartUV=0, const cVector2f& avEndUV=1);
 		void AddTexture(Image* apTexture, const cVector2f& avUVUpperLeft, const cVector2f& avUVUpperRight, const cVector2f& avUVLowerRight, const cVector2f& avUVLowerLeft);
 
-		void AddImageToBuffer(cFrameSubImage* apImage);
+		void AddImageToBuffer(const SharedResourceHandle<cFrameSubImage>& apImage);
 
 		int GetTextureNum(){ return mlTextureNum;}
 
@@ -84,7 +85,7 @@ namespace hpl {
 		bool GetDestroyTexture(){ return mbDestroyTexture;}
 		
 		Image* GetTexture(int alIdx){ return mvTextures[alIdx];}
-		cFrameSubImage * GetImage(int alIdx){ return mvImages[alIdx];}
+		cFrameSubImage * GetImage(int alIdx){ return mvImages[alIdx].Get();}
 
 		void SetOffset(const cVector3f& avOffset){mvOffset = avOffset;}
 		const cVector3f& GetOffset()const { return mvOffset;}
@@ -111,7 +112,7 @@ namespace hpl {
 
 		void Flush();
 	private:
-		void SetImage(cFrameSubImage* apImage, int alNum);
+		void SetImage(const SharedResourceHandle<cFrameSubImage>& apImage, int alNum);
 
 		cVector2f mvImageSize;
 		cGui *mpGui;
@@ -122,11 +123,11 @@ namespace hpl {
 
 		eGuiMaterial mpMaterial = eGuiMaterial_LastEnum;
 		Image* mvTextures[kMaxGuiTextures];
-		cFrameSubImage* mvImages[kMaxGuiTextures];
+		SharedResourceHandle<cFrameSubImage> mvImages[kMaxGuiTextures];
 
 		bool mbDestroyTexture;
 
-		std::vector<cFrameSubImage*> mvImageBufferVec;
+		std::vector<SharedResourceHandle<cFrameSubImage>> mvImageBufferVec;
 		
 		std::vector<cGuiGfxAnimation*> mvAnimations;
 		int mlCurrentAnimation;

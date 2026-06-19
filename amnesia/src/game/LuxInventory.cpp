@@ -158,7 +158,7 @@ cLuxInventory::cLuxInventory() : iLuxUpdateable("LuxInventory")
 	mpFontDefault = NULL;
 	mpFontHeader = NULL;
 
-	mpScript = NULL;
+	mpScript = {};
 
 	CreateGui();
 
@@ -175,10 +175,7 @@ cLuxInventory::~cLuxInventory()
 	STLDeleteAll(mvItems);
 	STLDeleteAll(mvItemTypes);
 
-	if(mpScript)
-	{
-		gpBase->mpEngine->GetResources()->GetScriptManager()->Destroy(mpScript);
-	}
+	// mpScript handle auto-releases.
 }
 
 //-----------------------------------------------------------------------
@@ -634,8 +631,7 @@ void cLuxInventory::Reset()
 
 	///////////////////////////////
 	//Reset data
-	if(mpScript) gpBase->mpEngine->GetResources()->GetScriptManager()->Destroy(mpScript);
-	mpScript = NULL;
+	mpScript = {};
 
 	STLDeleteAll(mvItems);
 	STLDeleteAll(mlstCombineCallbacks);
@@ -1018,19 +1014,12 @@ void cLuxInventory::ExitPressed()
 
 void cLuxInventory::LoadScript()
 {
-	/////////////////////
-	// Destroy old
-	if(mpScript)
-	{
-		gpBase->mpEngine->GetResources()->GetScriptManager()->Destroy(mpScript);
-		mpScript = NULL;
-	}
 
 	/////////////////////
 	// Load script
 	tString sFile = gpBase->mpMapHandler->GetMapFolder() + "inventory.hps";
-	mpScript  = gpBase->mpEngine->GetResources()->GetScriptManager()->CreateScript(sFile);
-	if(mpScript==NULL)
+	mpScript = gpBase->mpEngine->GetResources()->GetScriptManager()->CreateScript(sFile);
+	if(!mpScript)
 	{
 		Error("Inventory script '%s' not found!\n", sFile.c_str());
 	}
@@ -1325,20 +1314,16 @@ cLuxCombineItemsCallback*  cLuxInventory::GetCombineCallback(const tString& asIt
 
 void cLuxInventory::RunScript(const tString& asCommand)
 {
-	if(mpScript==NULL) return;
+	if(!mpScript) return;
 
     mpScript->Run(asCommand);
 }
 
 bool cLuxInventory::RecompileScript(tString *apOutput)
 {
-	if(mpScript)
-		gpBase->mpEngine->GetResources()->GetScriptManager()->Destroy(mpScript);
-	
 	tString sFile = gpBase->mpMapHandler->GetMapFolder() + "inventory.hps";
 	mpScript = gpBase->mpEngine->GetResources()->GetScriptManager()->CreateScript(sFile, apOutput);
-
-	return mpScript != NULL;
+	return mpScript.IsValid();
 }
 
 //-----------------------------------------------------------------------

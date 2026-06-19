@@ -36,11 +36,10 @@ namespace hpl {
 		cMaterialManager(cGraphics* apGraphics,cResources *apResources);
 		~cMaterialManager();
 
-		cMaterial* CreateMaterial(const tString& asName);
+		SharedResourceHandle<cMaterial> CreateMaterial(const tString& asName);
 
 		void Update(float afTimeStep);
 		
-		void Destroy(iResourceBase* apResource);
 		void Unload(iResourceBase* apResource);
 
 		void SetTextureSizeDownScaleLevel(unsigned int alLevel){ mlTextureSizeDownScaleLevel = alLevel;}
@@ -54,7 +53,7 @@ namespace hpl {
 
 		tString GetPhysicsMaterialName(const tString& asName);
 
-		cMaterial* CreateCustomMaterial(const tString& asName, iMaterialType *apMaterialType);
+		SharedResourceHandle<cMaterial> CreateCustomMaterial(const tString& asName, iMaterialType *apMaterialType);
 
 		tString GetTextureString(eMaterialTexture aType);
 

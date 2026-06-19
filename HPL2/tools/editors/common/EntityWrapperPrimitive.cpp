@@ -149,8 +149,7 @@ cEditorWindowEntityEditBox* iEntityWrapperPrimitive::CreateEditBox(cEditorEditMo
 
 void iEntityWrapperPrimitive::SetMaterial(const tString& asMaterial)
 {
-	cMaterial* pMat = NULL;
-	if(cEditorHelper::LoadResourceFile(eEditorResourceType_Material, asMaterial, NULL))
+	if(cEditorHelper::LoadResourceFile<cMaterial>(asMaterial))
 	{
 		msMaterial = asMaterial;
 

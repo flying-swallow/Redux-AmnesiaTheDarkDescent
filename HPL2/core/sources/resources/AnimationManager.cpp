@@ -59,7 +59,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cAnimation* cAnimationManager::CreateAnimation(const tString& asName)
+	SharedResourceHandle<cAnimation> cAnimationManager::CreateAnimation(const tString& asName)
 	{
 		tWString sPath;
 		cAnimation *pAnimation=NULL;
@@ -88,7 +88,7 @@ namespace hpl {
 			if(bFound == false){
 				Error("Couldn't find animation file '%s' in any supported format!\n",asName.c_str());
 				EndLoad();
-				return NULL;
+				return {};
 			}
 		}
 
@@ -102,11 +102,11 @@ namespace hpl {
 			AddResource(pAnimation);
 		}
 
-		if(pAnimation) pAnimation->IncUserCount();
-		else Error("Couldn't create animation '%s'\n",asNewName.c_str());
-		
+		if(pAnimation==NULL)
+			Error("Couldn't create animation '%s'\n",asNewName.c_str());
+
 		EndLoad();
-		return pAnimation;
+		return AcquireResource<cAnimation>(this, pAnimation); // handle takes the reference (empty if null)
 	}
 
 	//-----------------------------------------------------------------------
@@ -116,16 +116,6 @@ namespace hpl {
 
 	}
 	//-----------------------------------------------------------------------
-
-	void cAnimationManager::Destroy(iResourceBase* apResource)
-	{
-		apResource->DecUserCount();
-
-		if(apResource->HasUsers()==false){
-			RemoveResource(apResource);
-			hplDelete(apResource);
-		}
-	}
 
 	//-----------------------------------------------------------------------
 

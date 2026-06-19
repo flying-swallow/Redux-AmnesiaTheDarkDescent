@@ -20,6 +20,7 @@
 #include "gui/Gui.h"
 
 #include "graphics/Graphics.h"
+#include "graphics/Image.h"
 #include "graphics/LowLevelGraphics.h"
 
 #include "sound/Sound.h"
@@ -31,6 +32,7 @@
 #include "resources/Resources.h"
 #include "resources/TextureManager.h"
 #include "resources/ImageManager.h"
+#include "resources/ResourceBase.h"
 #include "graphics/FrameSubImage.h"
 #include "graphics/FrameBitmap.h"
 #include "resources/FileSearcher.h"
@@ -374,7 +376,7 @@ namespace hpl {
 
 		pGfxElem->SetColor(aColor);
 		pGfxElem->SetMaterial(aMaterial);
-		pGfxElem->AddImage(pImage);
+		pGfxElem->AddImage(SharedResourceHandle<cFrameSubImage>(mpResources->GetImageManager(), pImage));
 
 		if(abAddToList) mlstGfxElements.push_back(pGfxElem);
 
@@ -401,7 +403,7 @@ namespace hpl {
 
 		///////////////////
 		// Load texture
-		Image *pTexture = mpResources->GetTextureManager()->Create2DImage(asFile,abMipMaps,aTextureType);
+		Image *pTexture = mpResources->GetTextureManager()->Create2DImage(asFile,abMipMaps,aTextureType).Release();
 		if(pTexture==NULL)
 		{
 			Error("Could not load texture '%s'!\n",asFile.c_str());
@@ -480,8 +482,10 @@ namespace hpl {
 
 		for(size_t i=0; i< vImages.size(); ++i)
 		{
-			if(i==0) pGfxElem->AddImage(vImages[i]);
-			pGfxElem->AddImageToBuffer(vImages[i]);
+			// Adopt the count-1 image from CreateImage, then add (copies take refs).
+			SharedResourceHandle<cFrameSubImage> hImage(mpResources->GetImageManager(), vImages[i]);
+			if(i==0) pGfxElem->AddImage(hImage);
+			pGfxElem->AddImageToBuffer(hImage);
 		}
 
 		if(abAddToList) mlstGfxElements.push_back(pGfxElem);

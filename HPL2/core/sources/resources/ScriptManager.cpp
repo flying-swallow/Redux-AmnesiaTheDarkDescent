@@ -56,39 +56,39 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	iScript* cScriptManager::CreateScript(const tString& asName, tString *apCompileMessages)
+	SharedResourceHandle<iScript> cScriptManager::CreateScript(const tString& asName, tString *apCompileMessages)
 	{
 		tWString sPath;
 		iScript* pScript;
 		tString asNewName;
 
 		BeginLoad(asName);
-		
+
 		if(cString::GetFileExt(asName) != "chps")
 			asNewName = cString::SetFileExt(asName,"hps");
 		else
 			asNewName = cString::SetFileExt(asName,"chps");
-		
+
 		pScript = static_cast<iScript*>(this->FindLoadedResource(asNewName,sPath));
-		
+
 		if(pScript==NULL && sPath!=_W(""))
 		{
 			pScript = mpSystem->GetLowLevel()->CreateScript(asNewName);
-			
+
 			if(pScript->CreateFromFile(sPath, apCompileMessages)==false){
 				hplDelete(pScript);
 				EndLoad();
-				return NULL;
+				return {};
 			}
-			
+
 			AddResource(pScript);
 		}
 
-		if(pScript)pScript->IncUserCount();
-		else Error("Couldn't create script '%s'\n",asNewName.c_str());
-		
+		if(pScript==NULL)
+			Error("Couldn't create script '%s'\n",asNewName.c_str());
+
 		EndLoad();
-		return pScript;
+		return AcquireResource<iScript>(this, pScript); // handle takes the reference (empty if null)
 	}
 
 	//-----------------------------------------------------------------------
@@ -98,16 +98,6 @@ namespace hpl {
 
 	}
 	//-----------------------------------------------------------------------
-
-	void cScriptManager::Destroy(iResourceBase* apResource)
-	{
-		apResource->DecUserCount();
-
-		if(apResource->HasUsers()==false){
-			RemoveResource(apResource);
-			hplDelete(apResource);
-		}
-	}
 
 	//-----------------------------------------------------------------------
 

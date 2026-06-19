@@ -44,7 +44,6 @@ namespace hpl {
 		 */
 		cVertexBuffer* CreateVertexBufferFromMesh(const tString& asName, tVertexElementFlag alVtxToCopy);
 	
-		void Destroy(iResourceBase* apResource);
 		void Unload(iResourceBase* apResource);
 
 		void SetFastloadMaterial(const tString& asFile){ msFastloadMaterial = asFile;}

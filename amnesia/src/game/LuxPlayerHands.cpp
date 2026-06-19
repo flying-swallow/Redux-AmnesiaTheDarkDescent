@@ -101,7 +101,7 @@ void cLuxPlayerHandsLoader::AfterLoad(tinyxml2::XMLElement *apRootElem, const cM
 	
 	if(mpMesh && mpPlayerHands->mpHandsMesh==NULL)
 	{
-		mpMesh->IncUserCount();
+		mpMesh->AddReference();
 		mpPlayerHands->mpHandsMesh = mpMesh;
 	}
 
@@ -111,7 +111,7 @@ void cLuxPlayerHandsLoader::AfterLoad(tinyxml2::XMLElement *apRootElem, const cM
 		{
 			cAnimationState *pAnimState = mpEntity->GetAnimationState(i);
             cAnimation *pAnim = pAnimState->GetAnimation();
-			pAnim->IncUserCount();
+			pAnim->AddReference();
 			mpPlayerHands->mvHandAnimations.push_back(pAnim);
 		}
 

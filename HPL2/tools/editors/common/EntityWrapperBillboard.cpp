@@ -78,9 +78,7 @@ void cIconEntityBB::Update()
 		if(pParent->mbMatUpdated)
 		{
 			cMaterialManager* pManager = pParent->GetEditorWorld()->GetEditor()->GetEngine()->GetResources()->GetMaterialManager();
-			cMaterial* pMat = pManager->CreateMaterial(pParent->GetMaterialFile());
-
-			pBB->SetMaterial(pMat);
+			pBB->SetMaterial(pManager->CreateMaterial(pParent->GetMaterialFile()));
 			pParent->mbMatUpdated=false;
 		}
 

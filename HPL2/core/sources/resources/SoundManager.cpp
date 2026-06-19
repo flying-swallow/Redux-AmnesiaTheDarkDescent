@@ -44,6 +44,21 @@ namespace hpl {
 		mpSound->GetLowLevel()->GetSupportedFormats(mlstFileFormats);
 	}
 
+	void cSoundManager::FreeResource(iResourceBase* apResource)
+	{
+		iSoundData *pData = static_cast<iSoundData *>(apResource);
+		if(pData->IsStream())
+		{
+			// Streams live only in the stream list (added with abAddToSet=false).
+			STLFindAndDelete(mlstStreamData, pData);
+		}
+		else
+		{
+			RemoveResource(apResource);
+			hplDelete(apResource);
+		}
+	}
+
 	cSoundManager::~cSoundManager()
 	{
 		DestroyAll();
@@ -113,16 +128,6 @@ namespace hpl {
 	}
 	//-----------------------------------------------------------------------
 
-	void cSoundManager::Destroy(iResourceBase* apResource)
-	{
-		apResource->DecUserCount();
-			
-		iSoundData *pData = static_cast<iSoundData *>(apResource);
-		if(pData->IsStream() && pData->HasUsers()==false)
-		{
-			STLFindAndDelete(mlstStreamData, pData);
-		}
-	}
 
 	//-----------------------------------------------------------------------
 

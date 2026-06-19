@@ -490,7 +490,7 @@ void cLuxInstanityEvent_SoundStream::OnStart()
 
 	if(msSubtitleCat != "" && msSubtitleEntry !="")
 	{
-		gpBase->mpDefaultFont->GetWordWrapRows(600,20,18, kTranslate(msSubtitleCat,msSubtitleEntry), &mvCurrentTextRows);
+		gpBase->mpDefaultFont.Get()->GetWordWrapRows(600,20,18, kTranslate(msSubtitleCat,msSubtitleEntry), &mvCurrentTextRows);
 	}
 	
 	if(msFadeImageFile != "")
@@ -570,7 +570,7 @@ void cLuxInstanityEvent_SoundStream::OnDraw(float afFrameTime)
 
 		for(size_t i=0; i<mvCurrentTextRows.size(); ++i)
 		{
-			gpBase->mpGameHudSet->DrawFont(mvCurrentTextRows[i],gpBase->mpDefaultFont, vStartPos, 18,cColor(1,1));
+			gpBase->mpGameHudSet->DrawFont(mvCurrentTextRows[i],gpBase->mpDefaultFont.Get(), vStartPos, 18,cColor(1,1));
 			vStartPos.y+= 18+2;
 		}
 	}

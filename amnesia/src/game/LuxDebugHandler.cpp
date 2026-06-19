@@ -391,7 +391,7 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 	// FPS
 	if(mbShowFPS)
 	{
-		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 			_W("FrameTime: %.1fms FPS: %.1f\n"),gpBase->mpEngine->GetAvgFrameTimeInMS(), gpBase->mpEngine->GetFPS());
 		fY+=13.0f;
 	}
@@ -405,7 +405,7 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 		{
 			cLuxDebugMessage& debugMessage = *it;
 			
-			gpBase->mpGameDebugSet->DrawFont(debugMessage.msText,gpBase->mpDefaultFont,cVector3f(5,fY,10),14,cColor(1,1));
+			gpBase->mpGameDebugSet->DrawFont(debugMessage.msText,gpBase->mpDefaultFont.Get(),cVector3f(5,fY,10),14,cColor(1,1));
 			fY -= 17;
 		}
 	}
@@ -418,57 +418,57 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 		cLuxPlayer *pPlayer = gpBase->mpPlayer;
 		iCharacterBody *pCharBody = pPlayer->GetCharacterBody();
 
-		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 			_W("Position: %ls OnGround: %d Moved: %d Mass: %f ActiveSize: %d\n"),cString::To16Char(pCharBody->GetPosition().ToString()).c_str(), 
 															pCharBody->IsOnGround(),pCharBody->GetMovedLastUpdate(),
 															pCharBody->GetMass(),
 															pCharBody->GetActiveSize());
 		fY+=15.0f;
-		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 			_W("MoveSpeed: %f, %f (%f) Mul: %f AvgSpeed: %f\n"), pCharBody->GetMoveSpeed(eCharDir_Forward), pCharBody->GetMoveSpeed(eCharDir_Right),
 																	pCharBody->GetVelocity(gpBase->mpEngine->GetStepSize()).Length(),
 																	pPlayer->GetInteractionMoveSpeedMul(),
 																	pPlayer->GetAvgSpeed());
 		fY+=15.0f;
 
-		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 			_W("Climbing: %d\n"), pCharBody->IsClimbing());
 		fY+=15.0f;
 
 		if(pPlayer->GetCurrentMoveState()==eLuxMoveState_Normal)
 		{
 			cLuxMoveState_Normal *pMoveNormal = static_cast<cLuxMoveState_Normal*>(pPlayer->GetCurrentMoveStateData());
-			gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+			gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 				_W("Crouching: %d Running: %d MoveSpeedMul %f RunSpeedMul %f\n"), pMoveNormal->IsCrouching(), pMoveNormal->IsRunning(), 
 								pMoveNormal->GetMoveSpeedMul(), pMoveNormal->GetRunSpeedMul());
 			fY+=15.0f;
 		}
 
-		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 			_W("ForceVel: %ls\n"), cString::To16Char(pCharBody->GetForceVelocity().ToString()).c_str());
 		fY+=15.0f;
-		//gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,0),12,cColor(1,1),
+		//gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,0),12,cColor(1,1),
 		//							_W("Force Vel: %ls\n"), cString::To16Char(pCharBody->GetForceVelocity().ToString()).c_str() );
 
 		//fY+=13.0f;
-		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 							_W("ExtLightLevel: %f NormalLightlevel: %f\n"), pPlayer->GetHelperLightLevel()->GetExtendedLightLevel(), pPlayer->GetHelperLightLevel()->GetNormalLightLevel() );
 		fY+=15.0f;
 
-		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 							_W("Health: %f Terror: %f\n"), pPlayer->GetHealth(), pPlayer->GetTerror() );
 		fY+=15.0f;
 
-		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 							_W("Oil: %f Sanity: %f Tinderboxes: %d"), pPlayer->GetLampOil() , pPlayer->GetSanity(), pPlayer->GetTinderboxes());
 		fY+=15.0f;
 
 
-		//gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,0),12,cColor(1,1),
+		//gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,0),12,cColor(1,1),
 		//					_W("FlashbackCount: %f Pulse: %f"), pPlayer->GetFlashbackCount() , pPlayer->GetFlashbackPulseCount());
 		//fY+=13.0f;
 
-		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 										_W("State: %d\n"), pPlayer->GetCurrentState() );
 		fY+=15.0f;
 
@@ -476,7 +476,7 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 		cAnimationState *pAnim = pPlayer->GetHands()->GetHandsEntity()->GetAnimationStateFromName(sHandAnim);
 		if(pAnim)
 		{
-			gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+			gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 				_W("HandAnim: '%ls' Time: %f/%f\n"), cString::To16Char(sHandAnim).c_str(), pAnim->GetTimePosition(), pAnim->GetRelativeTimePosition() );
 			fY+=15.0f;
 		}
@@ -488,22 +488,22 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 			cLuxMoveState_Normal* pNormalMoveState = static_cast<cLuxMoveState_Normal*>(pPlayer->GetMoveStateData(moveState));
 
 			float fBob = pNormalMoveState->GetHeadBobCount();
-			gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+			gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 									_W("HeadBob: %f cos: %f sin: %f\n"), fBob, cos(fBob), sin(fBob) );
 			fY+=15.0f;
 		}
 
-		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 			_W("Sanity Between event time: %f AtLowSanityCount: %f\n"), gpBase->mpInsanityHandler->GetNewEventCount() , pPlayer->GetHelperSanity()->GetAtLowSanityCount());
 		fY+=15.0f;
 
 		////////////////////
 		// HARDMODE
-		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),
+		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 			_W("Hardcore mode: %d "), gpBase->mbHardMode);
 		fY+=15.0f;
 
-        fY = pPlayer->GetStateData(pPlayer->GetCurrentState())->DrawDebug(gpBase->mpGameDebugSet,gpBase->mpDefaultFont, fY);		
+        fY = pPlayer->GetStateData(pPlayer->GetCurrentState())->DrawDebug(gpBase->mpGameDebugSet,gpBase->mpDefaultFont.Get(), fY);		
 	}
 
 	////////////////////
@@ -517,7 +517,7 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 			iLuxEntity *pEntity = entIt.Next();
 
 			if(pEntity->IsActive())
-				fY = pEntity->DrawDebug(gpBase->mpGameDebugSet,gpBase->mpDefaultFont, fY);
+				fY = pEntity->DrawDebug(gpBase->mpGameDebugSet,gpBase->mpDefaultFont.Get(), fY);
 		}
 	}
 
@@ -538,7 +538,7 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 		{
 			fY+=5.0f;
 			iSoundChannel *pChannel = pMusic->mpStream;
-			gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont,cVector3f(5,fY,10),14,cColor(1,1),
+			gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(),cVector3f(5,fY,10),14,cColor(1,1),
 				_W("Music: '%ls' vol: %.2f playing: %d prio: %d elapsed: %.2f total time: %.2f %ls"),
 				cString::To16Char(pChannel->GetData()->GetName()).c_str(),
 				pChannel->GetVolume(),
@@ -565,7 +565,7 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 		}
 		
 		//Draw number of sounds
-		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),_W("Num of sounds: %d"),vSoundNames.size());
+		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),_W("Num of sounds: %d"),vSoundNames.size());
 		fY+=15.0f;
 
 		//Iterate sound entries and names
@@ -579,7 +579,7 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 				continue;
 			}
 			iSoundChannel* pChannel = pEntry->GetChannel();
-			gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont,cVector3f((float)lCol*250,fY+(float)lRow*15,10),14,cColor(1,1),
+			gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(),cVector3f((float)lCol*250,fY+(float)lRow*15,10),14,cColor(1,1),
 				_W("%ls%ls%ls(%.2f)(%d) (%.2f/%.2f)"),
 				cString::To16Char(vSoundNames[i]).c_str(),
 				pChannel->GetData()->IsStream()? _W("*st*") : _W(""),
@@ -610,13 +610,13 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 		/////////////////////////////
 		// Add text for the mesh entity
 		cMaterial *pMaterial = mpInspectMeshEntity->GetMaterial();
-		pSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),_W("EntityName: '%ls'"), cString::To16Char(mpInspectMeshEntity->GetName()).c_str()); 
+		pSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),_W("EntityName: '%ls'"), cString::To16Char(mpInspectMeshEntity->GetName()).c_str()); 
 		fY += 15;
 		
-		pSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),_W("MaterialFile: '%ls'"), pMaterial->GetFullPath().c_str()); 
+		pSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),_W("MaterialFile: '%ls'"), pMaterial->GetFullPath().c_str()); 
 		fY += 15;
 
-		pSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),_W("---------------------")); 
+		pSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),_W("---------------------")); 
 		fY += 15;
 
 		//for(int i=0; i<eMaterialTexture_LastEnum; ++i)
@@ -627,7 +627,7 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 		//	//TODO: memory statstics ....
 		//	//float fMemSize = ((float)pTex->GetMemorySize()) / (1024*1024);
 
-		//	//pSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,10),14,cColor(1,1),_W(" %d size: %d x %d x %d mem: %.2fmb type: %ls file: '%ls'"), 
+		//	//pSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),_W(" %d size: %d x %d x %d mem: %.2fmb type: %ls file: '%ls'"), 
 		//	//	i, pTex->GetSize().x, pTex->GetSize().y, pTex->GetSize().z, fMemSize,
 		//	//	cString::To16Char(PixelFormatToString(pTex->GetPixelFormat())).c_str(),
 		//	//	pTex->GetFullPath().c_str()); 
@@ -920,7 +920,7 @@ void cLuxDebugHandler::CreateScriptOutputWindowText(const tWString& asOutput)
 	//////////////////////////
 	// Create text widgets
 	cWidgetLabel *pLabel = NULL;
-	iFontData *pFont =mpGuiSet->GetSkin()->GetFont(eGuiSkinFont_Default)->mpFont;
+	iFontData *pFont =mpGuiSet->GetSkin()->GetFont(eGuiSkinFont_Default)->mpFont.Get();
 	
 	cVector3f vGroupPos = cVector3f(5, 10, 1);
 	cVector2f vGroupSize = cVector2f(200, 16);

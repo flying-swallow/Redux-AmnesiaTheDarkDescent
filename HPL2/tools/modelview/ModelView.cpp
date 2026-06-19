@@ -770,7 +770,7 @@ public:
 				Log(" Already found material data!\n");
 				if(pMat==NULL) 
 				{
-					pExistingMatData->mpMat->IncUserCount();
+					pExistingMatData->mpMat->AddReference();
 					pSubMesh->SetMaterial(pExistingMatData->mpMat);
 				}
 				continue;
@@ -856,7 +856,7 @@ public:
 			for(size_t i=0; i<mvMaterialData.size(); ++i)
 			{
 				cMaterialData& matData =mvMaterialData[i];
-				//Log("UserCount%d: %d\n", i, matData.mpMat->GetUserCount());
+				//Log("UserCount%d: %d\n", i, matData.mpMat->GetReferenceCount());
 			}
 			mvMaterialData.clear();
 		}
@@ -1930,7 +1930,7 @@ public:
 
 		tString sAnimFile = cString::To8Char(cString::GetFileNameW(sFilePath));
 		
-		cAnimation *pAnim = gpEngine->GetResources()->GetAnimationManager()->CreateAnimation(sAnimFile);
+		cAnimation *pAnim = gpEngine->GetResources()->GetAnimationManager()->CreateAnimation(sAnimFile).Release();
 		if(pAnim == NULL)
 		{
 			cPlatform::CreateMessageBox(_W("Error"),_W("Could not load animation '%ls'"), sFilePath.c_str());

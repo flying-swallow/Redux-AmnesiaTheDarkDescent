@@ -772,7 +772,7 @@ namespace hpl {
 								const cVector3f& avPosition,eFontAlign aAlign)
 	{
 		cGuiSkinFont *pFont = mpSkin->GetFont(aFont);
-		mpSet->DrawFont(asText,pFont->mpFont,avPosition,pFont->mvSize,pFont->mColor*mColorMul,
+		mpSet->DrawFont(asText,pFont->mpFont.Get(),avPosition,pFont->mvSize,pFont->mColor*mColorMul,
 						aAlign);
 	}
 
@@ -857,7 +857,7 @@ namespace hpl {
 		{
 			mpDefaultFont = mpSkin->GetFont(eGuiSkinFont_Default);
 
-			mpDefaultFontType = mpDefaultFont->mpFont;
+			mpDefaultFontType = mpDefaultFont->mpFont.Get();
 			mDefaultFontColor = mpDefaultFont->mColor;
 			mvDefaultFontSize = mpDefaultFont->mvSize;
 

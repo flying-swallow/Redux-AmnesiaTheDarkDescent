@@ -51,6 +51,16 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
+	// Default free: unregister + delete. Managers needing extra cleanup
+	// (texture/image/sound) override this.
+	void iResourceManager::FreeResource(iResourceBase* apResource)
+	{
+		RemoveResource(apResource);
+		hplDelete(apResource);
+	}
+
+	//-----------------------------------------------------------------------
+
 	//////////////////////////////////////////////////////////////////////////
 	// PUBLIC METHODS
 	//////////////////////////////////////////////////////////////////////////
@@ -89,9 +99,9 @@ namespace hpl {
 	public:
 		bool operator()(iResourceBase* apResourceA, iResourceBase* apResourceB)
 		{
-			if(apResourceA->GetUserCount() != apResourceB->GetUserCount())
+			if(apResourceA->GetReferenceCount() != apResourceB->GetReferenceCount())
 			{
-				return apResourceA->GetUserCount() > apResourceB->GetUserCount();
+				return apResourceA->GetReferenceCount() > apResourceB->GetReferenceCount();
 			}
 			
 			return apResourceA->GetTime() > apResourceB->GetTime();
@@ -124,10 +134,10 @@ namespace hpl {
 		{
 			iResourceBase *pRes = vResources[i];
 			//Log("%s count:%d time:%d\n",pRes->GetName().c_str(), 
-			//							pRes->GetUserCount(), 
+			//							pRes->GetReferenceCount(), 
 			//							pRes->GetTime());
 
-			if(pRes->HasUsers()==false)
+			if(pRes->HasReferences()==false)
 			{
 				RemoveResource(pRes);
 				hplDelete(pRes);
@@ -140,25 +150,35 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 	
+	// Reference counting lives in SharedResourceHandle now; this is the bridge for
+	// callers still holding raw pointers. Drop one reference and free at zero.
+	void iResourceManager::Destroy(iResourceBase* apResource)
+	{
+		if(apResource==NULL) return;
+
+		apResource->DropReference();
+
+		if(apResource->HasReferences()==false)
+			FreeResource(apResource);
+	}
+
+	//-----------------------------------------------------------------------
+
 	void iResourceManager::DestroyAll()
 	{
-		tResourceBaseMapIt it = m_mapResources.begin();
-		while(it != m_mapResources.end())
+		// Teardown: free every resource regardless of remaining references (any
+		// surviving handles must already be gone by shutdown). The loop relies on
+		// FreeResource unregistering the entry so the map shrinks each iteration.
+		size_t lPrevSize = m_mapResources.size();
+		while(m_mapResources.empty()==false)
 		{
-			//Log("Start destroy...");
-			
-			iResourceBase* pResource = it->second;
-			
-			//Log(" res: %d ...", pResource);
-			//Log(" res: '%s' / '%s': %d ...",pResource->GetName().c_str(), cString::To8Char(pResource->GetFullPath()).c_str(),pResource->GetUserCount());
+			FreeResource(m_mapResources.begin()->second);
 
-			while(pResource->HasUsers()) pResource->DecUserCount();
-			
-			Destroy(pResource);
-
-			it = m_mapResources.begin();
-			
-			//Log(" Done!\n");
+			// Guard against a FreeResource override that fails to unregister, which
+			// would otherwise spin forever on the same entry.
+			if(m_mapResources.size() >= lPrevSize)
+				break;
+			lPrevSize = m_mapResources.size();
 		}
 	}
 
@@ -235,6 +255,9 @@ namespace hpl {
 
 	void iResourceManager::RemoveResource(iResourceBase* apResource)
 	{
+		if(apResource->HasReferences())
+			Warning("Deleting resource '%s' that still has %d reference(s)\n",
+					apResource->GetName().c_str(), apResource->GetReferenceCount());
 		//Log("Removing resource name: '%s' path: '%s' ", apResource->GetName().c_str(), cString::To8Char(apResource->GetFullPath()).c_str());
 
 		unsigned int lHash = cString::GetHashW(apResource->GetFullPath());

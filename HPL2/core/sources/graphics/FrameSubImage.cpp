@@ -75,7 +75,7 @@ namespace hpl {
 		if(mpFrameBitmapImage) mpFrameBitmapImage->mpSubImage = NULL; //Since we are deleting, it is no longer valid.
 
 		mvVtx.clear();
-		//mpFrameTexture->DecPicCount();
+		//mpFrameTexture->DropReference();
 		mpFrameTexture = NULL;
 		mlHandle = -1;
 	}

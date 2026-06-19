@@ -50,7 +50,7 @@ namespace hpl {
 		for(;it != m_mapResources.end(); ++it)
 		{
 			iResourceBase* pResource = it->second;
-			while(pResource->HasUsers()) pResource->DecUserCount();
+			while(pResource->HasReferences()) pResource->DropReference();
 		}
 
 		DestroyUnused(0);
@@ -103,7 +103,7 @@ namespace hpl {
 		}
 				
 
-		pData->IncUserCount();
+		pData->AddReference();
         cParticleSystem* pPS = pData->Create(asName,avSize);
 		pPS->SetDataName(asType);
 		pPS->SetDataSize(avSize);
@@ -138,7 +138,7 @@ namespace hpl {
 			AddData(pPSData);
 		}
 
-		pPSData->IncUserCount();
+		pPSData->AddReference();
         cParticleSystem* pPS = pPSData->Create(asName,avSize);
 		pPS->SetDataName(asDataName);
 		pPS->SetDataSize(avSize);
@@ -193,13 +193,6 @@ namespace hpl {
 	}
 	//-----------------------------------------------------------------------
 
-	void cParticleManager::Destroy(iResourceBase* apResource)
-	{
-		if(apResource->HasUsers())
-		{
-			apResource->DecUserCount();
-		}
-	}
 	
 	//-----------------------------------------------------------------------
 

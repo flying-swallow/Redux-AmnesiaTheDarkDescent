@@ -28,6 +28,10 @@ HybridGlobalManagedSet::HybridGlobalManagedSet()
       m_textureBindless(kTextureSlotCapacity, RI_NUMBER_FRAMES_FLIGHT),
       m_textureCubeBindless(kTextureSlotCapacity, RI_NUMBER_FRAMES_FLIGHT) {}
 
+// Out-of-line so the SharedResourceHandle<Image> members release here, where
+// Image is complete.
+HybridGlobalManagedSet::~HybridGlobalManagedSet() = default;
+
 void HybridGlobalManagedSet::initialize(RIDevice *device,
                                         cResources *resources) {
   {

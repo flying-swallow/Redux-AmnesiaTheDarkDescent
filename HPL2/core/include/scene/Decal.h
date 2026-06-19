@@ -25,6 +25,7 @@
 #include "graphics/Graphics.h"
 #include "graphics/Color.h"
 #include "math/MathTypes.h"
+#include "resources/ResourceBase.h"
 
 namespace hpl {
 
@@ -58,7 +59,7 @@ namespace hpl {
 	class cDecal : public iRenderable
 	{
 	public:
-		cDecal(const tString& asName, cGraphics* apGraphics, cMaterial* apMaterial,
+		cDecal(const tString& asName, cGraphics* apGraphics, SharedResourceHandle<cMaterial> apMaterial,
 			   const cColor& aColor, const cVector2l& avSubDiv);
 		virtual ~cDecal();
 
@@ -68,7 +69,7 @@ namespace hpl {
 
 		///////////////////////////////
 		//Renderable implementation:
-		cMaterial *GetMaterial(){ return mpMaterial; }
+		cMaterial *GetMaterial(){ return mpMaterial.Get(); }
 		cVertexBuffer* GetVertexBuffer(){ return NULL; }
 
 		eRenderableType GetRenderType(){ return eRenderableType_Decal; }
@@ -93,7 +94,7 @@ namespace hpl {
 
 	private:
 		cGraphics* mpGraphics;
-		cMaterial* mpMaterial;
+		SharedResourceHandle<cMaterial> mpMaterial;
 		cColor mColor;
 		cVector2l mvSubDiv;
 		int mlCurrentSubDiv = 0;

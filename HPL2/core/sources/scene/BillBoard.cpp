@@ -61,8 +61,6 @@ namespace hpl {
 	
 		mType = aType;
 
-		mpMaterial = NULL;
-
 		mlLastRenderCount = -1;
 
 		mpVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware,eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic,4,6);
@@ -115,7 +113,7 @@ namespace hpl {
 
 	cBillboard::~cBillboard()
 	{
-		if(mpMaterial) mpMaterialManager->Destroy(mpMaterial);
+		// mpMaterial (SharedResourceHandle) releases its reference automatically.
 		if(mpVtxBuffer) hplDelete(mpVtxBuffer);
 		if(mpHaloSourceBV) hplDelete(mpHaloSourceBV);
 	}
@@ -232,9 +230,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cBillboard::SetMaterial(cMaterial * apMaterial)
+	void cBillboard::SetMaterial(SharedResourceHandle<cMaterial> apMaterial)
 	{
-		mpMaterial = apMaterial;
+		mpMaterial = std::move(apMaterial);
 	}
 
 	//-----------------------------------------------------------------------

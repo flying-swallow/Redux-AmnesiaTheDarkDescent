@@ -7,6 +7,7 @@
 #include "graphics/RIRenderer.h"
 #include "graphics/RITypes.h"
 #include "math/MathTypes.h"
+#include "resources/ResourceBase.h"
 #include "system/Event.h"
 #include "system/Hasher.h"
 
@@ -155,6 +156,10 @@ enum ObjectSubmitFlags : uint32_t {
 class HybridGlobalManagedSet {
 public:
   HybridGlobalManagedSet();
+  // Defined out-of-line in the .cpp (where Image is complete) so the
+  // SharedResourceHandle<Image> member destructors instantiate there, keeping
+  // owners that hold this set by value free of an Image.h dependency.
+  ~HybridGlobalManagedSet();
 
   // Build the descriptor-set layout + pool, create and seed all set-0 buffers,
   // and run the one-time descriptor write batch.
@@ -332,11 +337,11 @@ public:
 
   // Default light falloff LUT (core_falloff_linear), bound once to set 0 as the
   // immutable gAttenuationLut. Held resident for the renderer's lifetime.
-  Image *m_attenuationLut = nullptr;
+  SharedResourceHandle<Image> m_attenuationLut;
 
   // Legacy dissolve noise (core_dissolve.tga), bound once to set 0 as the
   // immutable gDissolveMap — the CoverageAmount fade's screen-space dither.
-  Image *m_dissolveMap = nullptr;
+  SharedResourceHandle<Image> m_dissolveMap;
 
   LRUCache m_textureBindless;
   // Separate LRU for cube textures. Slot ids index textures_cube[] (set 0,

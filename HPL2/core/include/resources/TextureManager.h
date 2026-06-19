@@ -21,6 +21,7 @@
 #define HPL_TEXTURE_MANAGER_H
 
 #include "resources/ResourceManager.h"
+#include "resources/ResourceBase.h"
 #include "graphics/GraphicsTypes.h"
 
 #include <functional>
@@ -45,17 +46,17 @@ namespace hpl {
 		// abSRGB requests an sRGB-format view: the sampler decodes sRGB→linear
 		// on read. Set on perceptual color sources (diffuse, illumination);
 		// leave false for linear data (normals, packed specular, height, LUTs).
-		Image* Create1DImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage=eTextureUsage_Normal,
+		SharedResourceHandle<Image> Create1DImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage=eTextureUsage_Normal,
 							unsigned int alTextureSizeLevel=0, bool abSRGB=false);
 
-		Image* Create2DImage(const tString& asName,bool abUseMipMaps,eTextureType aType= eTextureType_2D,
+		SharedResourceHandle<Image> Create2DImage(const tString& asName,bool abUseMipMaps,eTextureType aType= eTextureType_2D,
 							eTextureUsage aUsage=eTextureUsage_Normal,unsigned int alTextureSizeLevel=0,
 							bool abSRGB=false);
 
-		Image* Create3DImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage=eTextureUsage_Normal,
+		SharedResourceHandle<Image> Create3DImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage=eTextureUsage_Normal,
 							unsigned int alTextureSizeLevel=0, bool abSRGB=false);
 
-		Image* CreateCubeMapImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage=eTextureUsage_Normal,
+		SharedResourceHandle<Image> CreateCubeMapImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage=eTextureUsage_Normal,
 					unsigned int alTextureSizeLevel=0, bool abSRGB=false);
 
 		/**
@@ -64,12 +65,14 @@ namespace hpl {
 		 * The returned Image holds an Image::AnimatedImage variant; cTextureManager::Update
 		 * advances the frame index over time.
 		 */
-		Image* CreateAnimImage(const tString& asName, bool abUseMipMaps, eTextureType aType,
+		SharedResourceHandle<Image> CreateAnimImage(const tString& asName, bool abUseMipMaps, eTextureType aType,
 								eTextureUsage aUsage=eTextureUsage_Normal,
 								unsigned int alTextureSizeLevel=0, bool abSRGB=false);
 
-		void Destroy(iResourceBase* apResource);
 		void Unload(iResourceBase* apResource);
+
+		// Drops the parallel Image-resource tracking entry before the base free.
+		void FreeResource(iResourceBase* apResource) override;
 
 		void Update(float afTimeStep);
 
@@ -78,7 +81,7 @@ namespace hpl {
 		int GetMemoryUsage(){ return 0; }
 
 	private:
-		Image* _wrapperImageResource(const tString& asName, std::function<Image*(const tString& asName, const tWString& path, cBitmap* bitmap)> createImageHandler);
+		SharedResourceHandle<Image> _wrapperImageResource(const tString& asName, std::function<Image*(const tString& asName, const tWString& path, cBitmap* bitmap)> createImageHandler);
 		Image* FindImageResource(const tString &asName, tWString &asFilePath);
 
 		tStringVec mvCubeSideSuffixes;

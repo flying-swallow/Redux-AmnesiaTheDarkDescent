@@ -62,7 +62,6 @@ namespace hpl {
 		SetCurrentSubDiv(0);
 		SetColor(1);
 
-		mpDecalMaterial = NULL;
 		mpDecalVB = NULL;
 
 		mlMaxDecalTriangleCount = 250;
@@ -213,25 +212,15 @@ namespace hpl {
 			return;
 
 		cMaterialManager* pManager = mpResources->GetMaterialManager();
-		cMaterial* pMat = pManager->CreateMaterial(asMat);
+		SharedResourceHandle<cMaterial> pMat = pManager->CreateMaterial(asMat);
 		if(pMat)
 		{
-			if(mpDecalMaterial==pMat)
-				pManager->Destroy(pMat);
-			else
-			{
-				if(mpDecalMaterial)
-					pManager->Destroy(mpDecalMaterial);
-
-				mpDecalMaterial = pMat;
-				msMaterial = asMat;
-			}
+			mpDecalMaterial = std::move(pMat); // old handle releases its reference
+			msMaterial = asMat;
 		}
 		else
 		{
-			if(mpDecalMaterial)
-					pManager->Destroy(mpDecalMaterial);
-			mpDecalMaterial = NULL;
+			mpDecalMaterial = {};
 			msMaterial = "";
 		}
 
@@ -380,14 +369,15 @@ namespace hpl {
 		if(CanCreateDecal()==false)
 			return NULL;
 
-		cMaterial* pMat = mpResources->GetMaterialManager()->CreateMaterial(msMaterial);
-		if(pMat==NULL)
+		SharedResourceHandle<cMaterial> pMat = mpResources->GetMaterialManager()->CreateMaterial(msMaterial);
+		if(!pMat)
 			return NULL;
 
-		cMesh *pMesh = hplNew( cMesh, ("", _W(""), mpResources->GetMaterialManager(), mpResources->GetAnimationManager()) ); 
+		cMesh *pMesh = hplNew( cMesh, ("", _W(""), mpResources->GetMaterialManager(), mpResources->GetAnimationManager()) );
+		pMesh->AddReference(); // hand-built mesh: take the one owning reference the entity drops
 		cSubMesh* pSubMesh = pMesh->CreateSubMesh("Decal");
 		pSubMesh->SetVertexBuffer(mpDecalVB->CreateCopy(eVertexBufferType_Hardware, eVertexBufferUsageType_Static, mpDecalVB->GetVertexElementFlags()));
-		pSubMesh->SetMaterial(pMat);
+		pSubMesh->SetMaterial(std::move(pMat));
 
 		return pMesh;
 	}

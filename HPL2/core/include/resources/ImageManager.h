@@ -48,10 +48,13 @@ namespace hpl {
 						iLowLevelSystem *apLowLevelSystem);
 		~cImageManager();
 		
-		void Destroy(iResourceBase* apResource);
 		
 		void Unload(iResourceBase* apResource);
-		
+
+		// Also drops the owning cFrameTexture/cFrameBitmap references, deleting them
+		// when their pic count reaches zero.
+		void FreeResource(iResourceBase* apResource) override;
+
 		//Image specifc
 		iResourceBase* CreateInFrame(const tString& asName, int alFrameHandle);
 		cFrameSubImage* CreateImage(const tString& asName, int alFrameHandle=-1);

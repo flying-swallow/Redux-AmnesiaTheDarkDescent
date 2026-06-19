@@ -264,19 +264,19 @@ void cTextureWrapper::Reload()
 		switch(type)
 		{
 		case eTextureType_1D:
-			mpTexture = pTexMgr->Create1DImage(sName, mbMipMaps);
+			mpTexture = pTexMgr->Create1DImage(sName, mbMipMaps).Release();
 			break;
 		case eTextureType_2D:
-			mpTexture = pTexMgr->Create2DImage(sName, mbMipMaps);
+			mpTexture = pTexMgr->Create2DImage(sName, mbMipMaps).Release();
 			break;
 		case eTextureType_Rect:
-			mpTexture = pTexMgr->Create2DImage(sName, mbMipMaps, eTextureType_Rect);
+			mpTexture = pTexMgr->Create2DImage(sName, mbMipMaps, eTextureType_Rect).Release();
 			break;
 		case eTextureType_3D:
-			mpTexture = pTexMgr->Create3DImage(sName, mbMipMaps);
+			mpTexture = pTexMgr->Create3DImage(sName, mbMipMaps).Release();
 			break;
 		case eTextureType_CubeMap:
-			mpTexture = pTexMgr->CreateCubeMapImage(sName, mbMipMaps);
+			mpTexture = pTexMgr->CreateCubeMapImage(sName, mbMipMaps).Release();
 			break;
 		default:
 			break;
@@ -488,8 +488,8 @@ cMaterialWrapper::cMaterialWrapper(cEditorWindowMaterialEditor* apEditor)
 		mvTextures.push_back(hplNew(cTextureWrapper,(this, (eMaterialTexture)i)));
 
 	mvDefaultTextures.resize(eMaterialTexture_LastEnum);
-	mvDefaultTextures[eMaterialTexture_Diffuse] = pTexMan->Create2DImage("editor_default_diffuse.jpg", false);
-	mvDefaultTextures[eMaterialTexture_NMap] = pTexMan->Create2DImage("editor_rect_nrm.jpg", false);
+	mvDefaultTextures[eMaterialTexture_Diffuse] = pTexMan->Create2DImage("editor_default_diffuse.jpg", false).Release();
+	mvDefaultTextures[eMaterialTexture_NMap] = pTexMan->Create2DImage("editor_rect_nrm.jpg", false).Release();
 	for(int i=eMaterialTexture_NMap+1;i<eMaterialTexture_LastEnum;++i)
 		mvDefaultTextures[i] = NULL;
 
@@ -558,11 +558,11 @@ void cMaterialWrapper::Reset()
 void cMaterialWrapper::Load(const tWString& asFilename)
 {
 	cMaterialManager* pManager = mpMatEditor->GetEditor()->GetEngine()->GetResources()->GetMaterialManager();
-	cMaterial* pMat = pManager->CreateMaterial(cString::To8Char(asFilename));
+	SharedResourceHandle<cMaterial> pMat = pManager->CreateMaterial(cString::To8Char(asFilename));
 
-	if(pMat==NULL)
+	if(!pMat)
 		return;
-	
+
 	SetType(cString::To16Char(pMat->GetType()->GetName()));
 	SetDepthTest(pMat->GetDepthTest());
 	SetUseAlpha(pMat->GetUseAlphaDissolveFilter());
@@ -596,8 +596,7 @@ void cMaterialWrapper::Load(const tWString& asFilename)
 		cResourceVarsObject* pVars = pMat->GetVarsObject();
 		mpClass->LoadFromResourceVarsObject(pVars);
 	}
-	
-	pManager->Destroy(pMat);
+	// pMat (SharedResourceHandle) releases automatically.
 }
 
 //------------------------------------------------------------------------------------
@@ -689,11 +688,12 @@ void cMaterialWrapper::UpdateMaterialInMemory(const tString& asName)
 	cMaterialManager* pMatMgr = pRes->GetMaterialManager();
 	cTextureManager* pTexMgr = pRes->GetTextureManager();
 
-	cMaterial* pMat = pMatMgr->CreateMaterial(asName);
-	if(pMat==NULL)
+	// Grab a temporary handle to the (cached) material. If nobody else references
+	// it, it isn't live in the scene/preview, so there's nothing to update in place.
+	SharedResourceHandle<cMaterial> pMat = pMatMgr->CreateMaterial(asName);
+	if(!pMat)
 		return;
-	pMat->DecUserCount();
-	if(pMat->HasUsers()==false)
+	if(pMat->GetReferenceCount() <= 1)
 		return;
 
 	pMat->SetType(GetTypePointer());
@@ -703,7 +703,7 @@ void cMaterialWrapper::UpdateMaterialInMemory(const tString& asName)
 
 	for(int i=0;i<eMaterialTexture_LastEnum;++i)
 	{
-		// SetImage's ImageResourceWrapper releases the previous image through
+		// SetImage's SharedResourceHandle releases the previous image through
 		// the texture manager (manager-created materials auto-destroy their
 		// textures) — no manual Destroy of the old texture needed.
 		pMat->SetImage((eMaterialTexture)i, NULL);
@@ -717,19 +717,19 @@ void cMaterialWrapper::UpdateMaterialInMemory(const tString& asName)
 			switch(mvTextures[i]->GetTextureType())
 			{
 			case eTextureType_1D:
-				pNewTex = pTexMgr->Create1DImage(sName, bMipMaps);
+				pNewTex = pTexMgr->Create1DImage(sName, bMipMaps).Release();
 				break;
 			case eTextureType_2D:
-				pNewTex = pTexMgr->Create2DImage(sName, bMipMaps);
+				pNewTex = pTexMgr->Create2DImage(sName, bMipMaps).Release();
 				break;
 			case eTextureType_3D:
-				pNewTex = pTexMgr->Create3DImage(sName, bMipMaps);
+				pNewTex = pTexMgr->Create3DImage(sName, bMipMaps).Release();
 				break;
 			case eTextureType_CubeMap:
-				pNewTex = pTexMgr->CreateCubeMapImage(sName, bMipMaps);
+				pNewTex = pTexMgr->CreateCubeMapImage(sName, bMipMaps).Release();
 				break;
 			case eTextureType_Rect:
-				pNewTex = pTexMgr->Create2DImage(sName, bMipMaps, eTextureType_Rect);
+				pNewTex = pTexMgr->Create2DImage(sName, bMipMaps, eTextureType_Rect).Release();
 				break;
 			default:
 				break;
@@ -914,7 +914,7 @@ cMaterial* cMaterialWrapper::GetPreviewMaterial()
 
 		if(mpPreviewMat==NULL)
 		{
-			mpPreviewMat = pManager->CreateCustomMaterial("PreviewMat", pType);
+			mpPreviewMat = pManager->CreateCustomMaterial("PreviewMat", pType).Release();
 			mpPreviewMat->SetAutoDestroyTextures(false);
 		}
 
@@ -1517,14 +1517,15 @@ void cEditorWindowMaterialEditor::CreateMaterial(const tString& asMat)
 
 void cEditorWindowMaterialEditor::UpdatePreview(cMaterial* apMat)
 {
+	cMaterialManager* pMatMgr = GetEditor()->GetEngine()->GetResources()->GetMaterialManager();
 	for(int i=0;i<(int)this->mvPreviewEntities.size();++i)
 	{
 		cMesh* pMesh = mvPreviewEntities[i]->GetMesh();
 		for(int j=0;j<pMesh->GetSubMeshNum();++j)
 		{
 			cSubMesh* pSubMesh = pMesh->GetSubMesh(j);
-			pSubMesh->SetMaterial(apMat);
-			if(apMat)apMat->IncUserCount();
+			// apMat is borrowed; each submesh takes its own counted reference.
+			pSubMesh->SetMaterial(RetainResource<cMaterial>(pMatMgr, apMat));
 		}
 	}
 }

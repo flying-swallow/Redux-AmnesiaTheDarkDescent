@@ -1072,7 +1072,7 @@ void __stdcall cLuxScriptHandler::SetSkyBoxTexture(std::string& asTexture)
 
 	Image *pImage = nullptr;
 	if(asTexture != "")
-		pImage = gpBase->mpEngine->GetResources()->GetTextureManager()->CreateCubeMapImage(asTexture,true);
+		pImage = gpBase->mpEngine->GetResources()->GetTextureManager()->CreateCubeMapImage(asTexture,true).Release();
 
 	pWorld->SetSkyBox(pImage, true);
 }

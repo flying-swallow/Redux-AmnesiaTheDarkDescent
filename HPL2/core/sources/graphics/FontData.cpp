@@ -382,7 +382,7 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 	
-	cGlyph* iFontData::CreateGlyph(	cFrameSubImage* apImage, const cVector2l &avOffset,const cVector2l &avSize,
+	cGlyph* iFontData::CreateGlyph(	const SharedResourceHandle<cFrameSubImage>& apImage, const cVector2l &avOffset,const cVector2l &avSize,
 									const cVector2l& avFontSize, int alAdvance)
 	{
 		//////////////////////////

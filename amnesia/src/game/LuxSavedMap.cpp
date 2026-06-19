@@ -252,7 +252,7 @@ void cLuxSavedMap::ToMap(cLuxMap *apMap)
 	}
 	else
 	{
-		Image *pImage = gpBase->mpEngine->GetResources()->GetTextureManager()->CreateCubeMapImage(msSkyboxTexture, true);
+		Image *pImage = gpBase->mpEngine->GetResources()->GetTextureManager()->CreateCubeMapImage(msSkyboxTexture, true).Release();
 		pWorld->SetSkyBox(pImage, true);
 	}
 

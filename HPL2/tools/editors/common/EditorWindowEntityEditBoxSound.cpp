@@ -141,7 +141,7 @@ bool cEditorWindowEntityEditBoxSound::WindowSpecificInputCallback(iEditorInput* 
 	{
 		tString sSoundEntFile = cString::To8Char(mpInpSoundEntity->GetValue());
 
-		if(cEditorHelper::LoadResourceFile(eEditorResourceType_Sound, sSoundEntFile)==false)
+		if(!cEditorHelper::LoadResourceFile<cSoundEntityData>(sSoundEntFile))
 		{
 			sSoundEntFile = "";
 		}

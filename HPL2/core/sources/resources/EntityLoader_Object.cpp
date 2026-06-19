@@ -443,8 +443,10 @@ namespace hpl {
 				if(cString::GetFilePath(sFile).length() <= 1)
 					sFile = cString::SetFilePath(sFile, cString::To8Char(cString::GetFilePathW(asFullPath) ) );
 
-				cAnimation *pAnim = apWorld->GetResources()->GetAnimationManager()->CreateAnimation(sFile);
-				
+				// cAnimationState (created by AddAnimation) becomes the owner and Destroys
+				// this animation via its manager back-pointer; hand it the raw reference.
+				cAnimation *pAnim = apWorld->GetResources()->GetAnimationManager()->CreateAnimation(sFile).Release();
+
 				if(pAnim)
 				{
 					cAnimationState *pState = mpEntity->AddAnimation(pAnim, sName,fSpeed);

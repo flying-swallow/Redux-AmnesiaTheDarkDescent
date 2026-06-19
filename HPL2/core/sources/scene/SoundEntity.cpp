@@ -124,7 +124,7 @@ namespace hpl {
 
 		//Do _not_ delete sound entity data files now. 
 		//Just dec user count and the manager can be cleared of unused files when you want to.
-		mpData->DecUserCount();
+		mpData->DropReference();
 	}
 
 	///////////////////////////////////////

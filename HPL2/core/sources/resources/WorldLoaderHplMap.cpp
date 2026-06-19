@@ -46,6 +46,7 @@
 #include "scene/RenderableContainer_BoxTree.h"
 
 #include "graphics/Graphics.h"
+#include "graphics/Image.h"
 #include "graphics/Mesh.h"
 #include "graphics/SubMesh.h"
 #include "graphics/LowLevelGraphics.h"
@@ -320,7 +321,7 @@ namespace hpl {
 		tString sSkyBoxTexture = GetAttributeString(pXmlMapData, "SkyBoxTexture","");
 		if(sSkyBoxTexture!="")
 		{
-			Image *pSkyBoxImage = mpResources->GetTextureManager()->CreateCubeMapImage(sSkyBoxTexture,false);
+			Image *pSkyBoxImage = mpResources->GetTextureManager()->CreateCubeMapImage(sSkyBoxTexture,false).Release();
 			if(pSkyBoxImage) mpCurrentWorld->SetSkyBox(pSkyBoxImage, true);
 		}
 
@@ -578,6 +579,7 @@ namespace hpl {
 			//////////////////////////////
 			// Create mesh and submesh
 			cMesh* pMesh = hplNew( cMesh, (sName, asFile,mpResources->GetMaterialManager(),mpResources->GetAnimationManager()) );
+			pMesh->AddReference(); // hand-built mesh: take the one owning reference the entity drops
 			cSubMesh *pSubMesh = pMesh->CreateSubMesh("SubMesh");
 
 			//////////////////
@@ -588,9 +590,8 @@ namespace hpl {
 				if((mlCurrentFlags & eWorldLoadFlag_FastStaticLoad))
 					sMaterial = mpResources->GetMeshManager()->GetFastloadMaterial();
 
-				cMaterial *pMaterial = mpResources->GetMaterialManager()->CreateMaterial(sMaterial);
-				pSubMesh->SetMaterial(pMaterial);
-			}			
+				pSubMesh->SetMaterial(mpResources->GetMaterialManager()->CreateMaterial(sMaterial));
+			}
 			
 			////////////////////
 			// Vertex data
@@ -1442,6 +1443,7 @@ namespace hpl {
 		iRenderable *pFirstObject = avObjects[alFirstIdx];
 		cSubMeshEntity *pFirstSubEnt = static_cast<cSubMeshEntity*>(pFirstObject);
 		cMesh *pMesh = hplNew( cMesh, (sName, _W("") ,mpResources->GetMaterialManager(),mpResources->GetAnimationManager()) );
+		pMesh->AddReference(); // hand-built mesh: take the one owning reference the entity drops
 
 		cSubMesh *pSubMesh = pMesh->CreateSubMesh("SubMesh");
 		
@@ -1452,8 +1454,7 @@ namespace hpl {
 		cMaterial *pMaterial = pFirstObject->GetMaterial();
 		if(pMaterial)
 		{
-			pMaterial->IncUserCount();
-			pSubMesh->SetMaterial(pMaterial);
+			pSubMesh->SetMaterial(RetainResource<cMaterial>(mpResources->GetMaterialManager(), pMaterial));
 		}
 		pSubMesh->SetMaterialName(pFirstSubEnt->GetSubMesh()->GetMaterialName());
 		

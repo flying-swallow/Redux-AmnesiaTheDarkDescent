@@ -23,6 +23,7 @@
 #include <map>
 
 #include "gui/GuiTypes.h"
+#include "resources/ResourceBase.h"
 
 namespace hpl {
 
@@ -39,7 +40,7 @@ namespace hpl {
 		cGuiSkinFont(cGui *apGui);
 		~cGuiSkinFont();
 
-		iFontData* mpFont;
+		SharedResourceHandle<iFontData> mpFont;
 		cVector2f mvSize;
 		cColor mColor;
 		iGuiMaterial *mpMaterial;

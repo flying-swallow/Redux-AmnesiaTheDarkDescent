@@ -33,6 +33,7 @@
 #include "resources/Resources.h"
 #include "resources/TextureManager.h"
 #include "resources/FileSearcher.h"
+#include "graphics/Image.h"
 
 #include "scene/ParticleSystem.h"
 #include "scene/World.h"
@@ -97,7 +98,7 @@ namespace hpl {
 		///////////////////////////////
 		//Data init
 		// Forward+ uses a clamp-to-edge static sampler at the falloff binding.
-		SetFalloffMap(mpTextureManager->Create1DImage("core_falloff_linear", false));
+		SetFalloffMap(mpTextureManager->Create1DImage("core_falloff_linear", false).Release());
 
         mpVisibleNodeTracker = hplNew( cVisibleRCNodeTracker, () );
 	}
@@ -107,7 +108,7 @@ namespace hpl {
 	iLight::~iLight()
 	{
 		if(mpVisibleNodeTracker) hplDelete(mpVisibleNodeTracker);
-		// m_falloffMap / m_goboImage (ImageResourceWrapper) free themselves.
+		// m_falloffMap / m_goboImage (SharedResourceHandle) free themselves.
 	}
 
 	//-----------------------------------------------------------------------
@@ -438,22 +439,22 @@ namespace hpl {
 
 	void iLight::SetFalloffMap(Image* apImage)
 	{
-		m_falloffMap = ImageResourceWrapper(mpTextureManager, apImage, /*autoDestroy=*/true);
+		m_falloffMap = SharedResourceHandle<Image>(mpTextureManager, apImage); // adopt transferred ref
 	}
 
 	Image* iLight::GetFalloffImage() const
 	{
-		return m_falloffMap.GetImage();
+		return m_falloffMap.Get();
 	}
 
 	void iLight::SetGoboTexture(Image* apImage)
 	{
-		m_goboImage = ImageResourceWrapper(mpTextureManager, apImage, /*autoDestroy=*/true);
+		m_goboImage = SharedResourceHandle<Image>(mpTextureManager, apImage); // adopt transferred ref
 	}
 
 	Image* iLight::GetGoboImage() const
 	{
-		return m_goboImage.GetImage();
+		return m_goboImage.Get();
 	}
 
 	//-----------------------------------------------------------------------
@@ -527,7 +528,7 @@ namespace hpl {
 					mDiffuseColor.a = GetAttributeFloat(pMainElem, "Specular", mDiffuseColor.a);
 
 					tString sFalloffImage = GetAttributeString(pMainElem, "FalloffImage");
-					Image *pImage = mpTextureManager->Create1DImage(sFalloffImage,false);
+					Image *pImage = mpTextureManager->Create1DImage(sFalloffImage,false).Release();
 					if(pImage) SetFalloffMap(pImage);
 
 					ExtraXMLProperties(pMainElem);

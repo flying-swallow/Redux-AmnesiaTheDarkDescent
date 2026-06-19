@@ -127,7 +127,7 @@ namespace hpl {
 			AddResource(pMesh);
 		}
 
-		if(pMesh)pMesh->IncUserCount();
+		if(pMesh)pMesh->AddReference();
 		else Error("Couldn't load mesh '%s'\n",asNewName.c_str());
 		
 		EndLoad();
@@ -155,16 +155,6 @@ namespace hpl {
 
 	}
 	//-----------------------------------------------------------------------
-
-	void cMeshManager::Destroy(iResourceBase* apResource)
-	{
-		apResource->DecUserCount();
-
-		if(apResource->HasUsers()==false){
-			RemoveResource(apResource);
-			hplDelete(apResource);
-		}
-	}
 
 	//-----------------------------------------------------------------------
 

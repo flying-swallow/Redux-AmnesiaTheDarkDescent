@@ -213,7 +213,7 @@ private:
 	cWorld *mpWorld;
 	iPhysicsWorld *mpPhysicsWorld;
 
-	iScript *mpScript;
+	SharedResourceHandle<iScript> mpScript;
 
 	tString msLanternLitCallback;
 

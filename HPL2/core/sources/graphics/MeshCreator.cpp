@@ -89,11 +89,11 @@ namespace hpl {
 	cMesh* cMeshCreator::CreateBox(const tString &asName,cVector3f avSize, const tString &asMaterial)
 	{
 		cMesh *pMesh = hplNew( cMesh, (asName, _W(""), mpResources->GetMaterialManager(), mpResources->GetAnimationManager()) );
+		pMesh->AddReference(); // hand-built mesh: take the one owning reference the entity drops
 
 		cSubMesh *pSubMesh = pMesh->CreateSubMesh("Main");
 
-		cMaterial *pMat = mpResources->GetMaterialManager()->CreateMaterial(asMaterial);
-		pSubMesh->SetMaterial(pMat);
+		pSubMesh->SetMaterial(mpResources->GetMaterialManager()->CreateMaterial(asMaterial));
 		cVertexBuffer *pVtxBuff = CreateBoxVertexBuffer(avSize);
 		pSubMesh->SetVertexBuffer(pVtxBuff);
 
@@ -213,11 +213,11 @@ namespace hpl {
 		pVtxBuffer->Compile(eVertexCompileFlag_CreateTangents);
 
 		cMesh *pMesh = hplNew( cMesh, (asName, _W(""), mpResources->GetMaterialManager(), mpResources->GetAnimationManager()) ); 
+		pMesh->AddReference(); // hand-built mesh: take the one owning reference the entity drops
 
 		cSubMesh *pSubMesh = pMesh->CreateSubMesh("Main");
 
-		cMaterial *pMat = mpResources->GetMaterialManager()->CreateMaterial(asMaterial);
-		pSubMesh->SetMaterial(pMat);
+		pSubMesh->SetMaterial(mpResources->GetMaterialManager()->CreateMaterial(asMaterial));
 		pSubMesh->SetVertexBuffer(pVtxBuffer);
 		pSubMesh->SetMaterialName(asMaterial);
 
@@ -309,10 +309,10 @@ namespace hpl {
 		}
 
 		cMesh* pMesh = hplNew( cMesh, (asName, _W(""), mpResources->GetMaterialManager(), mpResources->GetAnimationManager()));
+		pMesh->AddReference(); // hand-built mesh: take the one owning reference the entity drops
 		cSubMesh* pSubMesh = pMesh->CreateSubMesh("Main");
 
-		cMaterial *pMat = mpResources->GetMaterialManager()->CreateMaterial(asMaterial);
-		pSubMesh->SetMaterial(pMat);
+		pSubMesh->SetMaterial(mpResources->GetMaterialManager()->CreateMaterial(asMaterial));
 		pSubMesh->SetVertexBuffer(pVtxBuffer);
 
 		return pMesh;		
@@ -385,10 +385,10 @@ namespace hpl {
 		}
 
 		cMesh* pMesh = hplNew( cMesh, (asName, _W(""), mpResources->GetMaterialManager(), mpResources->GetAnimationManager()));
+		pMesh->AddReference(); // hand-built mesh: take the one owning reference the entity drops
 		cSubMesh* pSubMesh = pMesh->CreateSubMesh("Main");
 
-		cMaterial *pMat = mpResources->GetMaterialManager()->CreateMaterial(asMaterial);
-		pSubMesh->SetMaterial(pMat);
+		pSubMesh->SetMaterial(mpResources->GetMaterialManager()->CreateMaterial(asMaterial));
 		pSubMesh->SetVertexBuffer(pVtxBuffer);
 
 		return pMesh;
@@ -511,10 +511,10 @@ namespace hpl {
 		}
 
 		cMesh* pMesh = hplNew( cMesh, (asName, _W(""), mpResources->GetMaterialManager(), mpResources->GetAnimationManager()));
+		pMesh->AddReference(); // hand-built mesh: take the one owning reference the entity drops
 		cSubMesh* pSubMesh = pMesh->CreateSubMesh("Main");
 
-		cMaterial *pMat = mpResources->GetMaterialManager()->CreateMaterial(asMaterial);
-		pSubMesh->SetMaterial(pMat);
+		pSubMesh->SetMaterial(mpResources->GetMaterialManager()->CreateMaterial(asMaterial));
 		pSubMesh->SetVertexBuffer(pVtxBuffer);
 
 		return pMesh;
@@ -590,10 +590,10 @@ namespace hpl {
 		}
 
 		cMesh* pMesh = hplNew( cMesh, (asName, _W(""), mpResources->GetMaterialManager(), mpResources->GetAnimationManager()));
+		pMesh->AddReference(); // hand-built mesh: take the one owning reference the entity drops
 		cSubMesh* pSubMesh = pMesh->CreateSubMesh("Main");
 
-		cMaterial *pMat = mpResources->GetMaterialManager()->CreateMaterial(asMaterial);
-		pSubMesh->SetMaterial(pMat);
+		pSubMesh->SetMaterial(mpResources->GetMaterialManager()->CreateMaterial(asMaterial));
 		pSubMesh->SetVertexBuffer(pVtxBuffer);
 
 		return pMesh;

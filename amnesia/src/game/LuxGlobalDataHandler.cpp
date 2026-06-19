@@ -33,8 +33,8 @@
 
 cLuxGlobalDataHandler::cLuxGlobalDataHandler() : iLuxUpdateable("LuxGlobalDataHandler")
 {
-	mpScript = NULL;
-	
+	mpScript = {};
+
 	mfLightLampMinSanityIncrease = gpBase->mpGameCfg->GetFloat("Player_Sanity", "LightLampMinSanityIncrease",0);
 	mfLightLampMaxSanityIncrease = gpBase->mpGameCfg->GetFloat("Player_Sanity", "LightLampMaxSanityIncrease",0);
 }
@@ -43,10 +43,7 @@ cLuxGlobalDataHandler::cLuxGlobalDataHandler() : iLuxUpdateable("LuxGlobalDataHa
 
 cLuxGlobalDataHandler::~cLuxGlobalDataHandler()
 {
-	if(mpScript)
-	{
-		gpBase->mpEngine->GetResources()->GetScriptManager()->Destroy(mpScript);
-	}
+	// mpScript handle auto-releases.
 }
 
 //-----------------------------------------------------------------------
@@ -84,8 +81,7 @@ void cLuxGlobalDataHandler::Reset()
 {
 	m_mapVars.clear();
 
-	if(mpScript) gpBase->mpEngine->GetResources()->GetScriptManager()->Destroy(mpScript);
-	mpScript = NULL;
+	mpScript = {};
 
 	mfEnemyActivateSoundCount =0;
 }
@@ -119,17 +115,13 @@ void cLuxGlobalDataHandler::LoadScript()
 {
 	/////////////////////
 	// Destroy old
-	if(mpScript)
-	{
-		gpBase->mpEngine->GetResources()->GetScriptManager()->Destroy(mpScript);
-		mpScript = NULL;
-	}
+	mpScript = {};
 
 	/////////////////////
 	// Load script
 	tString sFile = gpBase->mpMapHandler->GetMapFolder() + "global.hps";
 	mpScript  = gpBase->mpEngine->GetResources()->GetScriptManager()->CreateScript(sFile);
-	if(mpScript==NULL)
+	if(!mpScript)
 	{
 		Error("Global script '%s' could not be created!\n", sFile.c_str());
 	}
@@ -137,20 +129,19 @@ void cLuxGlobalDataHandler::LoadScript()
 
 bool cLuxGlobalDataHandler::RecompileScript(tString *apOutput)
 {
-	if(mpScript)
-		gpBase->mpEngine->GetResources()->GetScriptManager()->Destroy(mpScript);
+	mpScript = {}; // release old script
 
 	tString sFile = gpBase->mpMapHandler->GetMapFolder() + "global.hps";
 	mpScript = gpBase->mpEngine->GetResources()->GetScriptManager()->CreateScript(sFile, apOutput);
 
-	return mpScript != NULL;
+	return mpScript.IsValid();
 }
 
 //-----------------------------------------------------------------------
 
 void cLuxGlobalDataHandler::RunScript(const tString& asCommand)
 {
-	if(mpScript==NULL) return;
+	if(!mpScript) return;
 
 	mpScript->Run(asCommand);
 }

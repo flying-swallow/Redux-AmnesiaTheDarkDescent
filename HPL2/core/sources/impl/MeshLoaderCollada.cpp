@@ -515,13 +515,13 @@ namespace hpl {
 				// Load the material
 				else
 				{
-					cMaterial *pMaterial = mpMaterialManager->CreateMaterial(sMatName);
-					if(pMaterial==NULL)
+					SharedResourceHandle<cMaterial> pMaterial = mpMaterialManager->CreateMaterial(sMatName);
+					if(!pMaterial)
 					{
 						Error("Couldn't create material '%s' for object '%s'\n",sMatName.c_str(), Geom.msName.c_str());
 						//NOTE: Even if the material is null we still want to load the model!
 					}
-					pSubMesh->SetMaterial(pMaterial);
+					pSubMesh->SetMaterial(std::move(pMaterial));
 				}
 			}
 			else

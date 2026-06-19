@@ -137,8 +137,8 @@ cRopeEntity* cEngineRope_SaveData::CreateRope(cLuxMap *apMap)
 	pRope->SetLengthTileAmount(mfLengthTileAmount);
 	pRope->SetLengthTileSize(mfLengthTileSize);
 	
-	cMaterial *pMaterial = gpBase->mpEngine->GetResources()->GetMaterialManager()->CreateMaterial(msMaterial);
-	if(pMaterial) pRope->SetMaterial(pMaterial);
+	SharedResourceHandle<cMaterial> pMaterial = gpBase->mpEngine->GetResources()->GetMaterialManager()->CreateMaterial(msMaterial);
+	if(pMaterial) pRope->SetMaterial(std::move(pMaterial));
 
 	return pRope;
 }

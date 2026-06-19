@@ -343,10 +343,10 @@ void cLuxMoveState_Normal::OnDraw(float afFrameTime)
 {
 	return;//Skip for now! Have some special thingy for this!
 	float fY = 70;
-	gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,70,0),12,cColor(1,1),
+	gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,70,0),12,cColor(1,1),
 								_W("Crouch: %d Running: %d JumpCount: %f\n"),mbCrouching,mbRunning,mfJumpCount);
 	fY+=13;
-	gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont, cVector3f(5,fY,0),12,cColor(1,1),
+	gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,0),12,cColor(1,1),
 								_W("Bob: %ls (%f). Bounce: %f\n"),cString::To16Char(mvHeadBob.ToString()).c_str(), cMath::ToDeg(cMath::Wrap(mfHeadBobCount,0, k2Pif)),
 											mfHeadGroundBounce);
 }

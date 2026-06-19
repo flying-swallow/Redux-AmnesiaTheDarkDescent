@@ -78,14 +78,14 @@ namespace hpl {
 
 		// Forward+ uses a clamp-to-edge static sampler at the spot-falloff binding,
 		// so the per-texture wrap call from the legacy path is unnecessary.
-		SetSpotFalloffMap(mpTextureManager->Create1DImage("core_falloff_linear", false));
+		SetSpotFalloffMap(mpTextureManager->Create1DImage("core_falloff_linear", false).Release());
 
 		UpdateBoundingVolume();
 	}
 	
 	cLightSpot::~cLightSpot()
 	{
-		// m_spotFalloffMap (ImageResourceWrapper) frees itself.
+		// m_spotFalloffMap (SharedResourceHandle) frees itself.
 		hplDelete(mpFrustum);
 	}
 	
@@ -191,12 +191,12 @@ namespace hpl {
 
 	void cLightSpot::SetSpotFalloffMap(Image* apImage)
 	{
-		m_spotFalloffMap = ImageResourceWrapper(mpTextureManager, apImage, /*autoDestroy=*/true);
+		m_spotFalloffMap = SharedResourceHandle<Image>(mpTextureManager, apImage); // adopt transferred ref
 	}
 
 	Image* cLightSpot::GetSpotFalloffImage() const
 	{
-		return m_spotFalloffMap.GetImage();
+		return m_spotFalloffMap.Get();
 	}
 
 	//-----------------------------------------------------------------------
@@ -240,7 +240,7 @@ namespace hpl {
 
 		eTextureAnimMode animMode = GetAnimMode(GetAttributeString(apMainElem, "ProjectionAnimMode", "None"));
 		float fFrameTime = GetAttributeFloat(apMainElem, "ProjectionFrameTime", 1.0f);
-		Image *pImage = NULL;
+		SharedResourceHandle<Image> pImage;
 
 		if(animMode != eTextureAnimMode_None)
 		{
@@ -258,7 +258,7 @@ namespace hpl {
 
 		if(pImage)
 		{
-			SetGoboTexture(pImage);
+			SetGoboTexture(pImage.Release());
 		}
 
 		mfAspect = GetAttributeFloat(apMainElem, "Aspect", mfAspect);

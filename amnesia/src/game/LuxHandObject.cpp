@@ -77,7 +77,7 @@ void cLuxHandObjectLoader::AfterLoad(tinyxml2::XMLElement *apRootElem, const cMa
 	//If hand object has not saved mesh, save it and increase user count!
 	if(mpHandObject->mpMesh==NULL)
 	{
-		mpMesh->IncUserCount();
+		mpMesh->AddReference();
 		mpHandObject->mpMesh = mpMesh;
 	}
 

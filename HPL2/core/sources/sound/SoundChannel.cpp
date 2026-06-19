@@ -43,7 +43,7 @@ namespace hpl {
 		mfMinDistance=0;
 
 		mpData = apData;
-		mpData->IncUserCount();
+		mpData->AddReference();
 
 		mpSoundManger = apSoundManger;
 

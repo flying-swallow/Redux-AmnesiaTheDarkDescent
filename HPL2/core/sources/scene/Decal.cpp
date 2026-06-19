@@ -31,11 +31,11 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cDecal::cDecal(const tString& asName, cGraphics* apGraphics, cMaterial* apMaterial,
+	cDecal::cDecal(const tString& asName, cGraphics* apGraphics, SharedResourceHandle<cMaterial> apMaterial,
 				   const cColor& aColor, const cVector2l& avSubDiv) : iRenderable(asName)
 	{
 		mpGraphics = apGraphics;
-		mpMaterial = apMaterial;
+		mpMaterial = std::move(apMaterial);
 		mColor     = aColor;
 		mvSubDiv   = avSubDiv;
 		mlReceiverMask = eDecalReceiver_All;

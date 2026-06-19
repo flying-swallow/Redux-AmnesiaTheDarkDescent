@@ -337,7 +337,7 @@ bool cParticleEditorWorld::CheckDataIsValid()
 	for(;it!=mmapEntities.end();++it)
 	{
 		cEntityWrapperParticleEmitter* pEmitter = (cEntityWrapperParticleEmitter*)it->second;
-		if(cEditorHelper::LoadResourceFile(eEditorResourceType_Material, pEmitter->GetMaterial())==false)
+		if(!cEditorHelper::LoadResourceFile<cMaterial>(pEmitter->GetMaterial()))
 		{
 			bRet = false;
 			break;

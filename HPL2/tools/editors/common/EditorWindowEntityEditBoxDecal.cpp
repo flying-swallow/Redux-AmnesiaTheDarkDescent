@@ -207,7 +207,7 @@ bool cEditorWindowEntityEditBoxDecal::WindowSpecificInputCallback(iEditorInput* 
 	if(apInput==mpInpMaterial)
 	{
 		if(mpInpMaterial->GetValue()==_W("") || 
-			cEditorHelper::LoadResourceFile(eEditorResourceType_Material, cString::To8Char(mpInpMaterial->GetValue()), NULL))
+			cEditorHelper::LoadResourceFile<cMaterial>(cString::To8Char(mpInpMaterial->GetValue())))
 			pAction = mpEntity->CreateSetPropertyActionString(5, cString::To8Char(mpInpMaterial->GetValue()));
 	}
 	else if(apInput==mpInpColor)

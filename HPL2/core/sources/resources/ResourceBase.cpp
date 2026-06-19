@@ -52,7 +52,7 @@ namespace hpl {
 	}
 	//-----------------------------------------------------------------------
 
-	void iResourceBase::IncUserCount()
+	void iResourceBase::AddReference()
 	{
 		mlUserCount++;
 		mlTime = (unsigned long)time(NULL);

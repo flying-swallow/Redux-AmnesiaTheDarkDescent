@@ -233,9 +233,11 @@ namespace hpl {
 		if(lMaterialNum <= 1)
 		{
 			sMaterial = cString::SetFileExt(sMaterial,"mat");
-			cMaterial *pMaterial = mpResources->GetMaterialManager()->CreateMaterial(sMaterial);
+			SharedResourceHandle<cMaterial> pMaterial = mpResources->GetMaterialManager()->CreateMaterial(sMaterial);
 
-			if(pMaterial) mvMaterials.push_back(pMaterial);
+			// iParticleEmitterData owns its materials as raw pointers (freed in its
+			// dtor); hand the reference over via Release().
+			if(pMaterial) mvMaterials.push_back(pMaterial.Release());
 		}
 		else
 		{
@@ -247,8 +249,8 @@ namespace hpl {
 
 				sFileName = cString::SetFileExt(sFileName,"mat");
 				
-				cMaterial *pMaterial = mpResources->GetMaterialManager()->CreateMaterial(sFileName);
-				if(pMaterial) mvMaterials.push_back(pMaterial);
+				SharedResourceHandle<cMaterial> pMaterial = mpResources->GetMaterialManager()->CreateMaterial(sFileName);
+				if(pMaterial) mvMaterials.push_back(pMaterial.Release());
 			}
 		}
 

@@ -468,15 +468,15 @@ cEditorWindowEntityEditBox* cEntityWrapperSubMesh::CreateEditBox(cEditorEditMode
 void cEntityWrapperSubMesh::SetMaterialFile(const tString& asMatFile)
 {
 	cMaterialManager* pManager = GetEditorWorld()->GetEditor()->GetEngine()->GetResources()->GetMaterialManager();
-	cMaterial* pMat = pManager->CreateMaterial(asMatFile);
+	SharedResourceHandle<cMaterial> pMat = pManager->CreateMaterial(asMatFile);
 
-	if(pMat==NULL)
+	if(!pMat)
 		msMatFile = "";
 	else
 		msMatFile = asMatFile;
 
-	if(mpEngineEntity) 
-		((cSubMeshEntity*)mpEngineEntity->GetEntity())->SetCustomMaterial(pMat);
+	if(mpEngineEntity)
+		((cSubMeshEntity*)mpEngineEntity->GetEntity())->SetCustomMaterial(std::move(pMat));
 }
 
 //-------------------------------------------------------------------

@@ -25,6 +25,7 @@
 #include "EditorWindowViewport.h"
 
 #include <tinyxml2.h>
+#include <concepts>
 #include "resources/XmlHelper.h"
 
 
@@ -617,16 +618,16 @@ bool cEditorHelper::LoadTextureResource(eEditorTextureResourceType aTexType, con
 		switch(aTexType)
 		{
 		case eEditorTextureResourceType_1D:
-			pTexture = pManager->Create1DImage(asFile, true);
+			pTexture = pManager->Create1DImage(asFile, true).Release();
 			break;
 		case eEditorTextureResourceType_2D:
-			pTexture = pManager->Create2DImage(asFile,true);
+			pTexture = pManager->Create2DImage(asFile,true).Release();
 			break;
 		case eEditorTextureResourceType_3D:
-			pTexture = pManager->Create3DImage(asFile,true);
+			pTexture = pManager->Create3DImage(asFile,true).Release();
 			break;
 		case eEditorTextureResourceType_CubeMap:
-			pTexture = pManager->CreateCubeMapImage(asFile,true);
+			pTexture = pManager->CreateCubeMapImage(asFile,true).Release();
 			break;
 		}
 	}
@@ -654,7 +655,7 @@ bool cEditorHelper::LoadTextureResource(eEditorTextureResourceType aTexType, con
 		else if(sAnimMode=="oscillate")
 			animMode = eTextureAnimMode_Oscillate;
 
-		pTexture = pManager->CreateAnimImage(asFile, true, texType);
+		pTexture = pManager->CreateAnimImage(asFile, true, texType).Release();
 		if(pTexture)
 		{
 			pTexture->SetAnimMode(animMode);
@@ -676,63 +677,43 @@ bool cEditorHelper::LoadTextureResource(eEditorTextureResourceType aTexType, con
 
 //----------------------------------------------------------------------------------
 
-bool cEditorHelper::LoadResourceFile(eEditorResourceType aResType, const tString& asFile, void** apEditorResource, int alID)
+template<class T>
+SharedResourceHandle<T> cEditorHelper::LoadResourceFile(const tString& asFile)
 {
 	if(asFile=="")
-		return false;
+		return {};
 
-	bool bIsValid=false;
-    cResources* pResources = mpEditor->GetEngine()->GetResources();
-	iResourceManager* pManager = NULL;
-	void* pResource = NULL;
-	
-	switch(aResType)
+	cResources* pResources = mpEditor->GetEngine()->GetResources();
+
+	if constexpr (std::same_as<T, cMaterial>)
 	{
-	case eEditorResourceType_Material:
-		pManager = pResources->GetMaterialManager();
-		pResource = ((cMaterialManager*)pManager)->CreateMaterial(asFile);
-		break;
-	case eEditorResourceType_Texture:
-		pManager = pResources->GetTextureManager();
-		pResource = ((cTextureManager*)pManager)->Create1DImage(asFile, true);
-		if(pResource==NULL)
-			pResource = ((cTextureManager*)pManager)->Create2DImage(asFile,true);
-		if(pResource==NULL)
-			pResource = ((cTextureManager*)pManager)->Create3DImage(asFile,true);
-		break;
-	case eEditorResourceType_Sound:
-		pManager = pResources->GetSoundEntityManager();
-		pResource = ((cSoundEntityManager*)pManager)->CreateSoundEntity(asFile);
-		break;
-	case eEditorResourceType_ParticleSystem:
-		pManager = pResources->GetParticleManager();
-		pResource = mpEditor->GetEditorWorld()->GetWorld()->CreateParticleSystem(cString::ToString(alID), asFile,0);
-		break;
-	default:
-		break;
+		return pResources->GetMaterialManager()->CreateMaterial(asFile); // already a handle
 	}
-
-	bIsValid = (pResource!=NULL);
-
-	if(apEditorResource==NULL)
+	else if constexpr (std::same_as<T, cSoundEntityData>)
 	{
-		if(aResType==eEditorResourceType_ParticleSystem)
-		{
-			mpEditor->GetEditorWorld()->GetWorld()->DestroyParticleSystem((cParticleSystem*)pResource);
-		}
-		else
-		{
-			if(pResource)
-				pManager->Destroy((iResourceBase*)pResource);
-		}
+		cSoundEntityManager* pMgr = pResources->GetSoundEntityManager();
+		return SharedResourceHandle<cSoundEntityData>(pMgr, pMgr->CreateSoundEntity(asFile)); // adopt
+	}
+	else if constexpr (std::same_as<T, Image>)
+	{
+		cTextureManager* pMgr = pResources->GetTextureManager();
+		SharedResourceHandle<Image> hImage = pMgr->Create1DImage(asFile, true);
+		if(!hImage) hImage = pMgr->Create2DImage(asFile, true);
+		if(!hImage) hImage = pMgr->Create3DImage(asFile, true);
+		return hImage;
 	}
 	else
 	{
-		*apEditorResource = pResource;
+		static_assert(sizeof(T) == 0, "cEditorHelper::LoadResourceFile: unsupported resource type");
+		return {};
 	}
-
-	return bIsValid;
 }
+
+// Closed set of supported types — explicit instantiations keep the manager includes
+// confined to this translation unit.
+template SharedResourceHandle<cMaterial>        cEditorHelper::LoadResourceFile<cMaterial>(const tString&);
+template SharedResourceHandle<cSoundEntityData> cEditorHelper::LoadResourceFile<cSoundEntityData>(const tString&);
+template SharedResourceHandle<Image>            cEditorHelper::LoadResourceFile<Image>(const tString&);
 
 //----------------------------------------------------------------------------------
 

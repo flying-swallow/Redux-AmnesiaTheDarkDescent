@@ -39,8 +39,11 @@ namespace hpl {
 
 		iSoundData* CreateSoundData(const tString& asName, bool abStream, bool abLoopStream=false);
 
-		void Destroy(iResourceBase* apResource);
 		void Unload(iResourceBase* apResource);
+
+		// Streams live only in mlstStreamData (added with abAddToSet=false); samples
+		// live in the base registry. Free from the right place.
+		void FreeResource(iResourceBase* apResource) override;
 
 		void DestroyAll();
 

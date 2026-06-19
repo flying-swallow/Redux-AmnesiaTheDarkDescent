@@ -229,7 +229,7 @@ namespace hpl {
 			tString sSpotFalloffMap = GetAttributeString(apElement, "SpotFalloffMap");
 			if(sSpotFalloffMap != "")
 			{
-				Image *pFalloff = apResources->GetTextureManager()->Create1DImage(sSpotFalloffMap,true);
+				Image *pFalloff = apResources->GetTextureManager()->Create1DImage(sSpotFalloffMap,true).Release();
 				if(pFalloff) pLightSpot->SetSpotFalloffMap(pFalloff);
 			}
 		}
@@ -258,7 +258,7 @@ namespace hpl {
 			tString sFalloffMap = GetAttributeString(apElement, "FalloffMap");
 			if(sFalloffMap != "")
 			{
-				Image *pFalloff = apResources->GetTextureManager()->Create1DImage(sFalloffMap,true);
+				Image *pFalloff = apResources->GetTextureManager()->Create1DImage(sFalloffMap,true).Release();
 				if(pFalloff) pLight->SetFalloffMap(pFalloff);
 			}
 
@@ -273,16 +273,16 @@ namespace hpl {
 				if(bSpotLight)
 				{
 					if(animMode == eTextureAnimMode_None)
-						pGoboTex = apResources->GetTextureManager()->Create2DImage(sGobo,true);
+						pGoboTex = apResources->GetTextureManager()->Create2DImage(sGobo,true).Release();
 					else
-						pGoboTex = apResources->GetTextureManager()->CreateAnimImage(sGobo, true, eTextureType_2D);
+						pGoboTex = apResources->GetTextureManager()->CreateAnimImage(sGobo, true, eTextureType_2D).Release();
 				}
 				else
 				{
 					if(animMode == eTextureAnimMode_None)
-						pGoboTex = apResources->GetTextureManager()->CreateCubeMapImage(sGobo,true);
+						pGoboTex = apResources->GetTextureManager()->CreateCubeMapImage(sGobo,true).Release();
 					else
-						pGoboTex = apResources->GetTextureManager()->CreateAnimImage(sGobo,true, eTextureType_CubeMap);
+						pGoboTex = apResources->GetTextureManager()->CreateAnimImage(sGobo,true, eTextureType_CubeMap).Release();
 				}
 
 				if(pGoboTex)
@@ -458,11 +458,11 @@ namespace hpl {
 		/////////////////////////
 		// Create the mesh
 		cMesh *pMesh = hplNew( cMesh, (asName, _W(""), apResources->GetMaterialManager(), apResources->GetAnimationManager()) );
+		pMesh->AddReference(); // hand-built mesh: take the one owning reference the entity drops
 
 		cSubMesh *pSubMesh = pMesh->CreateSubMesh("Main");
 		
-		cMaterial *pMat = apResources->GetMaterialManager()->CreateMaterial(asMaterial);
-		pSubMesh->SetMaterial(pMat);
+		pSubMesh->SetMaterial(apResources->GetMaterialManager()->CreateMaterial(asMaterial));
 		pSubMesh->SetVertexBuffer(pVtxBuffer);
 		pSubMesh->SetMaterialName(asMaterial);
 

@@ -43,8 +43,8 @@ cEntityIcon::cEntityIcon(iEntityWrapper* apParent, const tString& asIconGfxName)
 	// RI path: icons are Image resources (drawn as DebugDraw billboards) —
 	// the legacy iTexture/GL upload chain is dead on the Vulkan backend.
 	cTextureManager* pTexMgr = apParent->GetEditorWorld()->GetEditor()->GetEngine()->GetResources()->GetTextureManager();
-	mvIconGfx[0] = pTexMgr->Create2DImage("Billboard" + asIconGfxName + ".tga", true);
-	mvIconGfx[1] = pTexMgr->Create2DImage("Billboard" + asIconGfxName + "Selected.tga", true);
+	mvIconGfx[0] = pTexMgr->Create2DImage("Billboard" + asIconGfxName + ".tga", true).Release();
+	mvIconGfx[1] = pTexMgr->Create2DImage("Billboard" + asIconGfxName + "Selected.tga", true).Release();
 }
 
 //------------------------------------------------------------------

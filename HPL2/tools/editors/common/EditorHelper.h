@@ -92,7 +92,12 @@ public:
 
 
 
-	static bool LoadResourceFile(eEditorResourceType aResType, const tString& asFile, void** apEditorResource=NULL, int alID=-1);
+	// Load a resource by file and return a SharedResourceHandle<T>. The resource type
+	// T selects the manager (std::same_as dispatch); an empty/failed load yields an
+	// empty handle (usable as a bool validity check). Supported T: cMaterial,
+	// cSoundEntityData, Image. Defined + explicitly instantiated in EditorHelper.cpp.
+	template<class T>
+	static SharedResourceHandle<T> LoadResourceFile(const tString& asFile);
 
 
 	// Billboard/pyramid drawing goes through DebugDraw::DrawBillboard /

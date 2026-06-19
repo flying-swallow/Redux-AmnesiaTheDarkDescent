@@ -52,7 +52,7 @@ void cLuxModelCache::Create()
 	while(texIt.HasNext())
 	{
 		iResourceBase *pTex = texIt.Next();
-        pTex->IncUserCount();
+        pTex->AddReference();
 		mlstTextureCache.push_back(pTex);
 	}
 
@@ -69,7 +69,7 @@ void cLuxModelCache::Create()
 			cMeshEntity *pMeshEntity = pEntity->GetMeshEntity();
 			cMesh *pMesh = pEntity->GetMeshEntity()->GetMesh();
 
-			pMesh->IncUserCount();
+			pMesh->AddReference();
 			mlstMeshCache.push_back(pMesh);
 
 			for(int i=0; i<pMeshEntity->GetAnimationStateNum(); ++i)
@@ -79,7 +79,7 @@ void cLuxModelCache::Create()
 
 				cAnimation *pAnim = pAnimState->GetAnimation();
 
-				pAnim->IncUserCount();
+				pAnim->AddReference();
 				mlstAnimationCache.push_back(pAnim);
 			}
 		}

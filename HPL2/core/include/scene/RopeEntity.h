@@ -23,6 +23,7 @@
 #include "math/MathTypes.h"
 #include "graphics/GraphicsTypes.h"
 #include "system/SystemTypes.h"
+#include "resources/ResourceBase.h"
 
 #include "graphics/Renderable.h"
 
@@ -48,7 +49,7 @@ namespace hpl {
 
 		iPhysicsRope *GetPhysicsRope(){ return mpRope;}
 
-		void SetMaterial(cMaterial * apMaterial);
+		void SetMaterial(SharedResourceHandle<cMaterial> apMaterial);
 		
 		void SetColor(const cColor &aColor);
 		const cColor& GetColor(){ return mColor;}
@@ -82,7 +83,7 @@ namespace hpl {
 		
 		/////////////////////////////////
 		//Renderable implementations
-		cMaterial *GetMaterial(){ return mpMaterial;}
+		cMaterial *GetMaterial(){ return mpMaterial.Get();}
 		cVertexBuffer* GetVertexBuffer(){return mpVtxBuffer;}
 
         void UpdateGraphicsForFrame(float afFrameTime);
@@ -102,7 +103,7 @@ namespace hpl {
 
 		iPhysicsRope *mpRope;
 		
-		cMaterial *mpMaterial;
+		SharedResourceHandle<cMaterial> mpMaterial;
 		cVertexBuffer* mpVtxBuffer;
 
 		int mlMaxSegments;

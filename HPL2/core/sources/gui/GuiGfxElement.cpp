@@ -104,7 +104,7 @@ namespace hpl {
 		for(int i=0; i<kMaxGuiTextures; ++i)
 		{
 			mvTextures[i] = NULL;
-			mvImages[i] = NULL;
+			mvImages[i] = {};
 		}
 
 		mlTextureNum =0;
@@ -130,26 +130,13 @@ namespace hpl {
 		STLDeleteAll(mvAnimations);
 
 		////////////////////////////////
-		// Delete all textures / Images
-		if(mvImageBufferVec.size()>0)
+		// Image handles (mvImages + mvImageBufferVec) auto-release. Only the
+		// pure-texture path (AddTexture, no backing sub-image) frees the texture.
+		for(int i=0; i<mlTextureNum; ++i)
 		{
-			for(int i=0; i< (int)mvImageBufferVec.size(); ++i)
+			if(!mvImages[i] && mvTextures[i] && mbDestroyTexture)
 			{
-				mpResources->GetImageManager()->Destroy(mvImageBufferVec[i]);
-			}
-		}
-		else
-		{
-			for(int i=0; i<mlTextureNum; ++i)
-			{
-				if(mvImages[i])
-				{
-					mpResources->GetImageManager()->Destroy(mvImages[i]);
-				}
-				else if(mvTextures[i] && mbDestroyTexture)
-				{
-					mpResources->GetTextureManager()->Destroy(mvTextures[i]);
-				}
+				mpResources->GetTextureManager()->Destroy(mvTextures[i]);
 			}
 		}
 	}
@@ -241,7 +228,7 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 	
-	void cGuiGfxElement::AddImage(cFrameSubImage* apImage)
+	void cGuiGfxElement::AddImage(const SharedResourceHandle<cFrameSubImage>& apImage)
 	{
 		SetImage(apImage, mlTextureNum);
 		
@@ -319,7 +306,7 @@ namespace hpl {
 
 	//---------------------------------------------------
 
-	void cGuiGfxElement::AddImageToBuffer(cFrameSubImage* apImage)
+	void cGuiGfxElement::AddImageToBuffer(const SharedResourceHandle<cFrameSubImage>& apImage)
 	{
 		if(mvImageBufferVec.size()==0)
 		{
@@ -440,13 +427,13 @@ namespace hpl {
 	void cGuiGfxElement::Flush()
 	{
 		//Check if element uses images.
-		cFrameSubImage *pMainImage = mvImages[0];
+		cFrameSubImage *pMainImage = mvImages[0].Get();
 		if(pMainImage == NULL) return;
 
 		//Flush all images
 		for(int i=0; i<mlTextureNum; ++i)
 		{
-			cFrameSubImage *pImage = mvImages[i];
+			cFrameSubImage *pImage = mvImages[i].Get();
 			if(pImage) pImage->Flush();
 
 		}
@@ -470,7 +457,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cGuiGfxElement::SetImage(cFrameSubImage* apImage, int alNum)
+	void cGuiGfxElement::SetImage(const SharedResourceHandle<cFrameSubImage>& apImage, int alNum)
 	{
 		//Set image and texture (for sorting)
 		mvImages[alNum] = apImage;

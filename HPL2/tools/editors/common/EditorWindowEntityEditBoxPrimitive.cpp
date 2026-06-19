@@ -203,9 +203,8 @@ bool cEditorWindowEntityEditBoxPrimitive::InputCallback(iWidget* apWidget, const
 
 	if(apWidget==mpTBMaterial)
 	{
-		cMaterial* pMat;
-		if(bEmptyString || 
-			cEditorHelper::LoadResourceFile(eEditorResourceType_Material, sFilename, (void**)&pMat))
+		if(bEmptyString ||
+			cEditorHelper::LoadResourceFile<cMaterial>(sFilename))
 			pAction = mpEntity->CreateSetPropertyActionString(ePrimitiveStr_Material, sFilename);
 			//pAction = hplNew(cEditorActionPrimitiveSetStringProperty,(pWorld, lID, ePrimitiveStringProperty_Material,sFilename));
 		else
@@ -285,7 +284,7 @@ bool cEditorWindowEntityEditBoxPrimitive::WindowSpecificInputCallback(iEditorInp
 	{
 		tString sFile = cString::To8Char(mpInpMaterial->GetValue());
 		if(mpInpMaterial->GetValue()==_W("") || 
-			cEditorHelper::LoadResourceFile(eEditorResourceType_Material, sFile, NULL))
+			cEditorHelper::LoadResourceFile<cMaterial>(sFile))
 			pAction = mpEntity->CreateSetPropertyActionString(ePrimitiveStr_Material, sFile);
 		//pAction = hplNew(cEditorActionPrimitiveSetStringProperty,(pWorld, lID, ePrimitiveStringProperty_Material, cString::To8Char(mpInpMaterial->GetValue())));
 	}

@@ -26,6 +26,7 @@
 #include "system/SystemTypes.h"
 #include "math/MeshTypes.h"
 #include "physics/PhysicsTypes.h"
+#include "resources/ResourceBase.h"
 #include <memory>
 
 #define ML_NAMESPACE 
@@ -66,7 +67,7 @@ namespace hpl {
 		cSubMesh(const tString &asName,cMaterialManager* apMaterialManager);
 		~cSubMesh();
 
-		void SetMaterial(cMaterial* apMaterial);
+		void SetMaterial(SharedResourceHandle<cMaterial> apMaterial);
 		void SetVertexBuffer(cVertexBuffer* apVtxBuffer);
 
 		//Renderable implementation.
@@ -124,7 +125,7 @@ namespace hpl {
 		tString msName;
 
 		tString msMaterialName;
-		cMaterial* mpMaterial = nullptr;
+		SharedResourceHandle<cMaterial> mpMaterial;
 		cVertexBuffer* mpVtxBuffer = nullptr;
 
 		cMatrixf m_mtxLocalTransform = cMatrixf::Identity;

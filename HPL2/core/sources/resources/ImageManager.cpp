@@ -56,6 +56,42 @@ namespace hpl {
 	   mlFrameHandle = 0;
 	}
 
+	void cImageManager::FreeResource(iResourceBase* apResource)
+	{
+		// Drop the TextureFrame pic count and delete the resource. If the
+		// TextureFrame reaches 0 it is deleted as well.
+		cFrameSubImage *pImage = static_cast<cFrameSubImage*>(apResource);
+		cFrameTexture *pFrame = pImage->GetFrameTexture();
+		cFrameBitmap *pBmpFrame = pImage->GetFrameBitmap();
+
+		pFrame->DropReference();
+		if(pBmpFrame) pBmpFrame->DropReference();
+		RemoveResource(apResource);
+		hplDelete(pImage);
+
+		if(!pFrame->HasReferences())
+		{
+			//Delete the bitmap frame that has this frame.
+			if(pFrame->IsCustom()==false && pBmpFrame!= NULL)
+			{
+				for(tFrameBitmapListIt it=mlstBitmapFrames.begin();it!=mlstBitmapFrames.end();++it)
+				{
+					cFrameBitmap *pTestBmpFrame = *it;
+					if(pTestBmpFrame->GetFrameTexture() == pFrame)
+					{
+						mlstBitmapFrames.erase(it);
+						hplDelete(pTestBmpFrame);
+						break;
+					}
+				}
+			}
+
+			//delete from list
+			m_mapTextureFrames.erase(pFrame->GetHandle());
+			hplDelete(pFrame);
+		}
+	}
+
 	cImageManager::~cImageManager()
 	{
 		//DeleteAllBitmapFrames();
@@ -115,11 +151,11 @@ namespace hpl {
 			//Log("Found '%s' in stock!\n",asName.c_str());
 		}
 
-		if(pImage)pImage->IncUserCount();
+		if(pImage)pImage->AddReference();
 		else Error("Couldn't load image '%s'\n",asName.c_str());
 
-		//Log("Loaded image %s, it has %d users!\n", pImage->GetName().c_str(),pImage->GetUserCount());
-		//Log(" frame has %d pics\n", pImage->GetFrameTexture()->GetPicCount());
+		//Log("Loaded image %s, it has %d users!\n", pImage->GetName().c_str(),pImage->GetReferenceCount());
+		//Log(" frame has %d pics\n", pImage->GetFrameTexture()->GetReferenceCount());
 		
         EndLoad();
         return pImage;
@@ -145,7 +181,7 @@ namespace hpl {
 
 		if(pImage){
 			AddResource(pImage, false);
-			pImage->IncUserCount();
+			pImage->AddReference();
 		}
 
 		return pImage;
@@ -169,68 +205,6 @@ namespace hpl {
 
 	}
 
-	void cImageManager::Destroy(iResourceBase* apResource)
-	{
-		//Lower the user num for the the resource. If it is 0 then lower the
-		//user num for the TextureFrame and delete the resource. If the Texture
-		//frame reaches 0 it is deleted as well.
-		cFrameSubImage *pImage = static_cast<cFrameSubImage*>(apResource);
-		cFrameTexture *pFrame = pImage->GetFrameTexture();
-		cFrameBitmap *pBmpFrame = pImage->GetFrameBitmap();
-
-		//pImage->GetFrameBitmap()->FlushToTexture(); Not needed?
-		
-		
-		//Log("  Users Before: %d\n",pImage->GetUserCount());
-		//Log("  Framepics Before: %d\n",pFrame->GetPicCount());
-
-		pImage->DecUserCount();//dec frame count as well.. is that ok?
-		
-		//Log("---\n");
-		//Log("  Destroyed Image: '%s' Users: %d\n",pImage->GetName().c_str(),pImage->GetUserCount());
-		//Log("  Frame %d has left Pics: %d\n",pFrame,pFrame->GetPicCount());
-		
-		if(pImage->HasUsers()==false)
-		{
-			pFrame->DecPicCount(); // Doing it here now instead.
-			if(pBmpFrame) pBmpFrame->DecPicCount();
-			RemoveResource(apResource);
-			hplDelete(pImage);
-			
-			//Log("  deleting image and dec frame to %d images!\n",pFrame->GetPicCount());
-		}
-		
-		if(pFrame->IsEmpty())
-		{
-			//Log("  Deleting frame...\n");
-
-			//Delete the bitmap frame that has this this frame.
-			if(pFrame->IsCustom()==false && pBmpFrame!= NULL)
-			{
-				for(tFrameBitmapListIt it=mlstBitmapFrames.begin();it!=mlstBitmapFrames.end();++it)
-				{
-					cFrameBitmap *pTestBmpFrame = *it;
-					//Log(" %d vs %d\n", pBmpFrame, pTestBmpFrame);
-					if(pTestBmpFrame->GetFrameTexture() == pFrame)
-					{
-						//Log("and bitmap...");
-						//Log("   Destroying bmp frame %d", pTestBmpFrame);
-						mlstBitmapFrames.erase(it);
-						hplDelete(pTestBmpFrame);
-						break;
-					}
-				}
-			}
-			
-
-			//delete from list
-			m_mapTextureFrames.erase(pFrame->GetHandle());
-			hplDelete(pFrame);
-			//Log("  Deleted frame!\n");
-		}
-		//Log("---\n");
-		
-	}
 
 	//-----------------------------------------------------------------------
 

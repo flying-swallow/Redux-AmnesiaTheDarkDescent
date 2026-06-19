@@ -21,6 +21,7 @@
 #define HPL_FRAMETEXTURE_H
 
 #include "graphics/FrameBase.h"
+#include "resources/ResourceBase.h"
 
 namespace hpl {
 
@@ -42,7 +43,7 @@ namespace hpl {
 		/**
 		* Creates a subimage in frame at pos and with size messured in pixel. Only works on custom frames!
 		*/
-		cFrameSubImage* CreateCustomImage(const cVector2l& avPixelPos,const cVector2l& avPixelSize);
+		SharedResourceHandle<cFrameSubImage> CreateCustomImage(const cVector2l& avPixelPos,const cVector2l& avPixelSize);
 		
 	private:
 

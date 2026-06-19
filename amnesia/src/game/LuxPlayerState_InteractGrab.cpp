@@ -196,7 +196,7 @@ void cLuxPlayerState_InteractGrab::OnEnterState(eLuxPlayerState aPrevState)
 			pCustomMat->SetBlendMode(eMaterialBlendMode_Mul);
 
 			iTexture *pDiffTex = pOldMat->GetTexture(eMaterialTexture_Diffuse);
-			pDiffTex->IncUserCount();
+			pDiffTex->AddReference();
 			pCustomMat->SetTexture(eMaterialTexture_Diffuse,pDiffTex);
 			
 			pCustomMat->Compile();

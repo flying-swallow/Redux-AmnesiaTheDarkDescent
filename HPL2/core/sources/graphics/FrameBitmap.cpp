@@ -211,8 +211,8 @@ namespace hpl {
 					mlstImages.push_back(pBitmapImage);
 					
 					mlAdditionsSinceReorganization++;
-					mlPicCount++;
-					mpFrameTexture->SetPicCount(mlPicCount);
+					AddReference();
+					mpFrameTexture->AddReference();
 					break;
 				}
 			}
@@ -484,7 +484,7 @@ namespace hpl {
 			//mpFrameTexture->GetTexture()->SetWrapS(eTextureWrap_ClampToEdge);
 			//mpFrameTexture->GetTexture()->SetWrapT(eTextureWrap_ClampToEdge);
 
-			//mpFrameTexture->SetPicCount(mlPicCount);
+			//mpFrameTexture->AddReference();
 			mbIsUpdated = false;
 			return true;
 		}

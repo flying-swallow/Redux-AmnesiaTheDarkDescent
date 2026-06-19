@@ -23,6 +23,7 @@
 #include "math/MathTypes.h"
 #include "graphics/GraphicsTypes.h"
 #include "system/SystemTypes.h"
+#include "resources/ResourceBase.h"
 #include "scene/Entity3D.h"
 #include "graphics/Renderable.h"
 
@@ -75,7 +76,7 @@ namespace hpl {
 		cBeam(const tString asName, cResources *apResources,cGraphics *apGraphics);
 		~cBeam();
 
-		void SetMaterial(cMaterial * apMaterial);
+		void SetMaterial(SharedResourceHandle<cMaterial> apMaterial);
 		
 		const tString& GetFileName(){return msFileName;}
 
@@ -109,7 +110,7 @@ namespace hpl {
 		bool IsVisible();
 		
 		//Renderable implementations
-		cMaterial *GetMaterial(){ return mpMaterial;}
+		cMaterial *GetMaterial(){ return mpMaterial.Get();}
 		cVertexBuffer* GetVertexBuffer(){return mpVtxBuffer;}
 
 		void UpdateGraphicsForFrame(float afFrameTime);
@@ -127,7 +128,7 @@ namespace hpl {
 		cFileSearcher *mpFileSearcher;
 		iLowLevelGraphics* mpLowLevelGraphics;
 		
-		cMaterial *mpMaterial;
+		SharedResourceHandle<cMaterial> mpMaterial;
 		cVertexBuffer* mpVtxBuffer;
 
 		cBeamEnd *mpEnd;

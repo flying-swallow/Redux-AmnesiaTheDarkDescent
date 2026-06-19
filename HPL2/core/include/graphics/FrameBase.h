@@ -32,10 +32,10 @@ namespace hpl {
 		}
 		~iFrameBase() { }
 
-		void SetPicCount(int alPicCount){mlPicCount=alPicCount;}
-		void DecPicCount(){if(mlPicCount>0)mlPicCount--;}
-		int GetPicCount(){return mlPicCount;}
-		bool IsEmpty() {return mlPicCount<=0;}
+		void AddReference(){mlPicCount++;}
+		void DropReference(){if(mlPicCount>0)mlPicCount--;}
+		int GetReferenceCount(){return mlPicCount;}
+		bool HasReferences() {return mlPicCount>0;}
 		
 	protected:
         int mlPicCount;

@@ -21,6 +21,7 @@
 #define HPL_FONT_MANAGER_H
 
 #include "resources/ResourceManager.h"
+#include "resources/ResourceBase.h"
 
 namespace hpl {
 	
@@ -43,10 +44,9 @@ namespace hpl {
 		 * \param alLastChar last ASCII character to be rendered
 		 * \return 
 		 */
-		iFontData* CreateFontData(const tString& asName, int alSize=16,unsigned short alFirstChar=32,
+		SharedResourceHandle<iFontData> CreateFontData(const tString& asName, int alSize=16,unsigned short alFirstChar=32,
 								unsigned short alLastChar=255);
 
-		void Destroy(iResourceBase* apResource);
 		void Unload(iResourceBase* apResource);
 
 	private:

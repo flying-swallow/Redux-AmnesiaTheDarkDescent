@@ -191,7 +191,7 @@ bool cEditorWindowEntityEditBoxBillboard::WindowSpecificInputCallback(iEditorInp
 	{
 		tString sMatFile = cString::To8Char(mpInpMaterial->GetValue());
 
-		if(sMatFile!="" && cEditorHelper::LoadResourceFile(eEditorResourceType_Material, sMatFile)==false)
+		if(sMatFile!="" && !cEditorHelper::LoadResourceFile<cMaterial>(sMatFile))
 		{
 			mpInpMaterial->SetValue(_W(""), false);
 		}

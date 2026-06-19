@@ -65,8 +65,6 @@ namespace hpl {
 		
 		mColor = cColor(1,1,1,1);
 
-		mpMaterial = NULL;
-
 		mlLastRenderCount = -1;
 		
 
@@ -115,7 +113,7 @@ namespace hpl {
 	cBeam::~cBeam()
 	{
 		hplDelete(mpEnd);
-		if(mpMaterial) mpMaterialManager->Destroy(mpMaterial);
+		// mpMaterial (SharedResourceHandle) releases its reference automatically.
 		if(mpVtxBuffer) hplDelete(mpVtxBuffer);
 	}
 
@@ -193,9 +191,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cBeam::SetMaterial(cMaterial * apMaterial)
+	void cBeam::SetMaterial(SharedResourceHandle<cMaterial> apMaterial)
 	{
-		mpMaterial = apMaterial;
+		mpMaterial = std::move(apMaterial);
 	}
 
 	//-----------------------------------------------------------------------
@@ -391,9 +389,9 @@ namespace hpl {
 
 					/////////////////
 					//Load material
-					cMaterial *pMat = mpMaterialManager->CreateMaterial(sMaterial);
+					SharedResourceHandle<cMaterial> pMat = mpMaterialManager->CreateMaterial(sMaterial);
 					if(pMat)	{
-						SetMaterial(pMat);
+						SetMaterial(std::move(pMat));
 					}
 					else{
 						Error("Couldn't load material '%s' in Beam file '%s'",

@@ -179,7 +179,7 @@ void cLuxDemoEnd::OnEnterContainer(const tString& asOldContainer)
 	pMusHandler->Stop(0.3f);
 	
 	// Load background
-	Image* pTex = gpBase->mpEngine->GetResources()->GetTextureManager()->Create2DImage(msBackgroundFile, false, eTextureType_Rect);
+	Image* pTex = gpBase->mpEngine->GetResources()->GetTextureManager()->Create2DImage(msBackgroundFile, false, eTextureType_Rect).Release();
 	if(pTex) mpGfxBackground = mpGui->CreateGfxTexture(pTex, true, eGuiMaterial_Alpha);
 
 	// Set up message text

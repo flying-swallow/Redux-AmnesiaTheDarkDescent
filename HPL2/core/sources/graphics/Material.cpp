@@ -27,6 +27,7 @@
 #include "resources/ImageManager.h"
 
 #include "graphics/Graphics.h"
+#include "graphics/Image.h"
 #include "graphics/MaterialType.h"
 
 #include "math/Math.h"
@@ -103,8 +104,8 @@ namespace hpl {
 	{
 		if(mpVars) hplDelete(mpVars);
 
-		// Texture images own their own lifecycle via ImageResourceWrapper (m_image),
-		// which honors mbAutoDestroyTextures captured at SetImage time.
+		// Texture images own their own lifecycle via the SharedResourceHandle slots
+		// in m_image, which honor mbAutoDestroyTextures captured at SetImage time.
 	}
 
 	//-----------------------------------------------------------------------
@@ -146,12 +147,18 @@ namespace hpl {
 	
 	void cMaterial::SetImage(eMaterialTexture aType, Image* apImage)
 	{
-		m_image[aType] = ImageResourceWrapper(mpResources->GetTextureManager(), apImage, mbAutoDestroyTextures);
+		// autoDestroy: adopt the caller's transferred reference (the loader / editor
+		// hands over a freshly-created Image). Borrow (autoDestroy=false): the image is
+		// owned elsewhere, so take our own counted reference rather than a raw alias —
+		// released when the slot is overwritten or the material is destroyed.
+		if(apImage && !mbAutoDestroyTextures)
+			apImage->AddReference();
+		m_image[aType] = SharedResourceHandle<Image>(mpResources->GetTextureManager(), apImage);
 	}
 
 	Image* cMaterial::GetImage(eMaterialTexture aType) const
 	{
-		return m_image[aType].GetImage();
+		return m_image[aType].Get();
 	}
 
 	//-----------------------------------------------------------------------

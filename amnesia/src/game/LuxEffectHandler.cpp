@@ -232,7 +232,7 @@ void cLuxEffect_EmotionFlash::ClearFonts()
 void cLuxEffect_EmotionFlash::LoadFonts()
 {
 	tString sFontFile = "game_default.fnt";
-	mpFont = gpBase->mpEngine->GetResources()->GetFontManager()->CreateFontData(sFontFile);
+	mpFont = gpBase->mpEngine->GetResources()->GetFontManager()->CreateFontData(sFontFile).Release();
 }
 
 //-----------------------------------------------------------------------
@@ -1123,7 +1123,7 @@ void cLuxEffect_PlayVoice::Update(float afTimeStep)
 	//Text
 	mvCurrentTextRows.clear();
 	if(voiceData.msText != _W(""))
-		gpBase->mpDefaultFont->GetWordWrapRows(mfRowWidth,mvFontSize.y+2,mvFontSize, voiceData.msText, &mvCurrentTextRows);
+		gpBase->mpDefaultFont.Get()->GetWordWrapRows(mfRowWidth,mvFontSize.y+2,mvFontSize, voiceData.msText, &mvCurrentTextRows);
 
 	//////////////////////
 	//Pop!
@@ -1153,7 +1153,7 @@ void cLuxEffect_PlayVoice::OnDraw(float afFrameTime)
 	
     for(size_t i=0; i<mvCurrentTextRows.size(); ++i)
 	{
-		gpBase->mpGameHudSet->DrawFont(mvCurrentTextRows[i],gpBase->mpDefaultFont, vStartPos, mvFontSize,cColor(1,1));
+		gpBase->mpGameHudSet->DrawFont(mvCurrentTextRows[i],gpBase->mpDefaultFont.Get(), vStartPos, mvFontSize,cColor(1,1));
 		vStartPos.y+= mvFontSize.y+2;
 	}
 }

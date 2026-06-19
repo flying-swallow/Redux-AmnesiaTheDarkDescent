@@ -59,9 +59,8 @@ namespace hpl {
 		cEntFileManager(cResources *apResources);
 		~cEntFileManager();
 
-		cEntFile* CreateEntFile(const tString& asName);
+		SharedResourceHandle<cEntFile> CreateEntFile(const tString& asName);
 
-		void Destroy(iResourceBase* apResource);
 		void Unload(iResourceBase* apResource);
 
 	private:

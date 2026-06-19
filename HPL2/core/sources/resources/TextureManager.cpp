@@ -46,7 +46,6 @@ namespace hpl {
 		
 		mpBitmapLoaderHandler = mpResources->GetBitmapLoaderHandler();
 
-
 		mvCubeSideSuffixes.push_back("_pos_x");
 		mvCubeSideSuffixes.push_back("_neg_x");
 		mvCubeSideSuffixes.push_back("_pos_y");
@@ -61,7 +60,17 @@ namespace hpl {
 		Log(" Destroyed all textures\n");
 	}
 
-	Image* cTextureManager::_wrapperImageResource(const tString& name, std::function<Image*(const tString& name, const tWString& path, cBitmap* bitmap)> create_image_handler) {
+	void cTextureManager::FreeResource(iResourceBase* apResource)
+	{
+		// Drop the parallel Image-resource tracking entry, if any.
+		auto it = std::find(m_imageResources.begin(), m_imageResources.end(), apResource);
+		if(it != m_imageResources.end()) m_imageResources.erase(it);
+
+		RemoveResource(apResource);
+		hplDelete(apResource);
+	}
+
+	SharedResourceHandle<Image> cTextureManager::_wrapperImageResource(const tString& name, std::function<Image*(const tString& name, const tWString& path, cBitmap* bitmap)> create_image_handler) {
 		tWString sPath;
 		BeginLoad(name);
 
@@ -74,7 +83,7 @@ namespace hpl {
 
 				Error("Texture manager Couldn't load bitmap '%s'\n", cString::To8Char(sPath).c_str());
 				EndLoad();
-				return nullptr;
+				return {};
 			}
 			resource = create_image_handler(name, sPath, pBmp);
 
@@ -86,10 +95,10 @@ namespace hpl {
 		}
 
 		if(resource) {
-			resource->IncUserCount();
+			resource->AddReference();
 		}
 		EndLoad();
-		return resource;
+		return SharedResourceHandle<Image>(this, resource); // adopt the reference taken above
 	}
 
 
@@ -127,7 +136,7 @@ namespace hpl {
 		return static_cast<Image*> (FindLoadedResource(asName, asFilePath));
 	}
 
-	Image* cTextureManager::Create1DImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage,
+	SharedResourceHandle<Image> cTextureManager::Create1DImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage,
 						unsigned int alTextureSizeLevel, bool abSRGB) {
 		return _wrapperImageResource(asName, [&abUseMipMaps, &abSRGB, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
 				Image::SingleImage singleImage = {};
@@ -144,7 +153,7 @@ namespace hpl {
 		});
 	}
 
-	Image* cTextureManager::Create2DImage(const tString& asName,bool abUseMipMaps,eTextureType aType,
+	SharedResourceHandle<Image> cTextureManager::Create2DImage(const tString& asName,bool abUseMipMaps,eTextureType aType,
 						eTextureUsage aUsage,unsigned int alTextureSizeLevel, bool abSRGB) {
 		return _wrapperImageResource(asName, [&abUseMipMaps, &abSRGB, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
 				Image::SingleImage singleImage = {};
@@ -160,7 +169,7 @@ namespace hpl {
 		});
 	}
 
-	Image* cTextureManager::Create3DImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage,
+	SharedResourceHandle<Image> cTextureManager::Create3DImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage,
 						unsigned int alTextureSizeLevel, bool abSRGB){
 		return _wrapperImageResource(asName, [&abUseMipMaps, &abSRGB, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
 				Image::SingleImage singleImage = {};
@@ -176,7 +185,7 @@ namespace hpl {
 		});
 	}
 
-	Image* cTextureManager::CreateCubeMapImage(const tString& asPathName, bool abUseMipMaps, eTextureUsage aUsage,
+	SharedResourceHandle<Image> cTextureManager::CreateCubeMapImage(const tString& asPathName, bool abUseMipMaps, eTextureUsage aUsage,
 				unsigned int alTextureSizeLevel, bool abSRGB){
 
 		tString sExt = cString::ToLowerCase(cString::GetFileExt(asPathName));
@@ -227,7 +236,7 @@ namespace hpl {
 					Error("Couldn't find %d-face '%s', for cubemap '%s' in path: '%s'\n",
 						i, sNewName.c_str(), sName.c_str(), asPathName.c_str());
 					EndLoad();
-					return nullptr;
+					return {};
 				}
 				vPaths.push_back(sPath);
 			}
@@ -241,7 +250,7 @@ namespace hpl {
 					Error("Couldn't load bitmap '%s'!\n", cString::To8Char(vPaths[i]).c_str());
 					for(cBitmap* pPrev : vBitmaps) hplDelete(pPrev);
 					EndLoad();
-					return nullptr;
+					return {};
 				}
 				vBitmaps.push_back(pBmp);
 			}
@@ -281,7 +290,7 @@ namespace hpl {
 			{
 				Error("Couldn't create cubemap '%s'!\n", sName.c_str());
 				EndLoad();
-				return nullptr;
+				return {};
 			}
 
 			image = new Image(sName, sFakeFullPath, std::move(singleImage));
@@ -289,12 +298,12 @@ namespace hpl {
 			m_imageResources.push_back(image);
 		}
 
-		if(image) image->IncUserCount();
+		if(image) image->AddReference();
 		EndLoad();
-		return image;
+		return SharedResourceHandle<Image>(this, image); // adopt the reference taken above
 	}
 
-	Image* cTextureManager::CreateAnimImage(const tString& asName, bool abUseMipMaps, eTextureType aType,
+	SharedResourceHandle<Image> cTextureManager::CreateAnimImage(const tString& asName, bool abUseMipMaps, eTextureType aType,
 											eTextureUsage aUsage, unsigned int alTextureSizeLevel, bool abSRGB)
 	{
 		BeginLoad(asName);
@@ -305,7 +314,7 @@ namespace hpl {
 		{
 			Error("First frame of animation '%s' must contain '01'!\n", asName.c_str());
 			EndLoad();
-			return nullptr;
+			return {};
 		}
 
 		tString sSub1 = cString::Sub(asName, 0, lPos);
@@ -316,7 +325,7 @@ namespace hpl {
 		{
 			Error("First frame of animation '%s' must contain '01' before extension!\n", asName.c_str());
 			EndLoad();
-			return nullptr;
+			return {};
 		}
 
 		tWString sFirstFramePath = mpFileSearcher->GetFilePath(asName);
@@ -324,7 +333,7 @@ namespace hpl {
 		{
 			Error("First frame of animation '%s' could not be found!\n", asName.c_str());
 			EndLoad();
-			return nullptr;
+			return {};
 		}
 		tWString sFakeFullPath = cString::GetFilePathW(sFirstFramePath) + cString::To16Char(cString::GetFileName(sBaseName));
 
@@ -355,7 +364,7 @@ namespace hpl {
 			{
 				Error("No textures found for animation %s\n", sBaseName.c_str());
 				EndLoad();
-				return nullptr;
+				return {};
 			}
 
 			std::vector<cBitmap*> vBitmaps;
@@ -367,7 +376,7 @@ namespace hpl {
 					Error("Couldn't load bitmap '%s'!\n", cString::To8Char(vPaths[i]).c_str());
 					for(cBitmap* pPrev : vBitmaps) hplDelete(pPrev);
 					EndLoad();
-					return nullptr;
+					return {};
 				}
 				vBitmaps.push_back(pBmp);
 			}
@@ -401,7 +410,7 @@ namespace hpl {
 			if(!ok || anim.images.empty())
 			{
 				EndLoad();
-				return nullptr;
+				return {};
 			}
 
 			image = new Image(sBaseName, sFakeFullPath, std::move(anim));
@@ -409,9 +418,9 @@ namespace hpl {
 			m_imageResources.push_back(image);
 		}
 
-		if(image) image->IncUserCount();
+		if(image) image->AddReference();
 		EndLoad();
-		return image;
+		return SharedResourceHandle<Image>(this, image); // adopt the reference taken above
 	}
 
 	//-----------------------------------------------------------------------
@@ -422,20 +431,6 @@ namespace hpl {
 	}
 	//-----------------------------------------------------------------------
 
-	void cTextureManager::Destroy(iResourceBase* apResource)
-	{
-		apResource->DecUserCount();
-
-		if(apResource->HasUsers()==false)
-		{
-			// Drop the parallel Image-resource tracking entry, if any.
-			auto it = std::find(m_imageResources.begin(), m_imageResources.end(), apResource);
-			if(it != m_imageResources.end()) m_imageResources.erase(it);
-
-			RemoveResource(apResource);
-			hplDelete(apResource);
-		}
-	}
 
 	//-----------------------------------------------------------------------
 

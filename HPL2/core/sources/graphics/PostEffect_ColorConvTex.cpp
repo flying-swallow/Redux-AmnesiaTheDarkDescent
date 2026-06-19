@@ -84,7 +84,7 @@ void cPostEffect_ColorConvTex::OnSetParams() {
         mpColorConvTex = nullptr;
     }
     mpColorConvTex = mpResources->GetTextureManager()->Create1DImage(
-        mParams.msTextureFile, false);
+        mParams.msTextureFile, false).Release();
 }
 
 void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {

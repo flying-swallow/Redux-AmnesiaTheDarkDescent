@@ -20,7 +20,7 @@
 #ifndef HPL_LIGHT_SPOT_H
 #define HPL_LIGHT_SPOT_H
 
-#include "graphics/ImageResourceWrapper.h"
+#include "resources/ResourceBase.h"
 #include "scene/Light.h"
 
 namespace hpl {
@@ -80,7 +80,7 @@ namespace hpl {
 		cFrustum *mpFrustum;
 
 		// Image* texture storage.
-		ImageResourceWrapper m_spotFalloffMap;
+		SharedResourceHandle<Image> m_spotFalloffMap;
 
 		float mfFOV;
 		float mfAspect;

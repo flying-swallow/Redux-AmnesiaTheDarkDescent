@@ -98,7 +98,7 @@ namespace hpl {
 			}
 		}
 		
-		if(pSoundEntity)pSoundEntity->IncUserCount();
+		if(pSoundEntity)pSoundEntity->AddReference();
 		else Error("Couldn't create SoundEntity '%s'\n",asNewName.c_str());
 		
 		EndLoad();
@@ -112,16 +112,6 @@ namespace hpl {
 
 	}
 	//-----------------------------------------------------------------------
-
-	void cSoundEntityManager::Destroy(iResourceBase* apResource)
-	{
-		apResource->DecUserCount();
-
-		if(apResource->HasUsers()==false){
-			RemoveResource(apResource);
-			hplDelete(apResource);
-		}
-	}
 
 	//-----------------------------------------------------------------------
 }

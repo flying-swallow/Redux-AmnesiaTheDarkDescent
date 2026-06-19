@@ -58,7 +58,7 @@ namespace hpl {
 	{
 		//////////////
 		// Create textures
-		mpDissolveTexture = mpResources->GetTextureManager()->Create2DImage("core_dissolve.tga",true);
+		mpDissolveTexture = mpResources->GetTextureManager()->Create2DImage("core_dissolve.tga",true).Release();
 	}
 
 	void iMaterialType_SolidBase::CompileMaterialSpecifics(cMaterial *apMaterial)

@@ -110,10 +110,10 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cMaterial* cMaterialManager::CreateMaterial(const tString& asName)
+	SharedResourceHandle<cMaterial> cMaterialManager::CreateMaterial(const tString& asName)
 	{
 		if(asName=="")
-			return NULL;
+			return {};
 
 		tWString sPath;
 		cMaterial* pMaterial;
@@ -132,17 +132,17 @@ namespace hpl {
 			if(pMaterial==NULL){
 				Error("Couldn't load material '%s'\n",asNewName.c_str());
 				EndLoad();
-				return NULL;
+				return {};
 			}
 
 			AddResource(pMaterial);
 		}
 
-		if(pMaterial)pMaterial->IncUserCount();
-		else Error("Couldn't create material '%s'\n",asNewName.c_str());
+		if(!pMaterial)
+			Error("Couldn't create material '%s'\n",asNewName.c_str());
 
 		EndLoad();
-		return pMaterial;
+		return AcquireResource<cMaterial>(this, pMaterial); // handle takes the reference (empty if null)
 	}
 
 	//-----------------------------------------------------------------------
@@ -159,17 +159,6 @@ namespace hpl {
 
 	}
 	//-----------------------------------------------------------------------
-
-	void cMaterialManager::Destroy(iResourceBase* apResource)
-	{
-		apResource->DecUserCount();
-
-		if(apResource->HasUsers()==false)
-		{
-			RemoveResource(apResource);
-			hplDelete(apResource);
-		}
-	}
 
 	//-----------------------------------------------------------------------
 
@@ -227,12 +216,11 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cMaterial* cMaterialManager::CreateCustomMaterial(const tString& asName, iMaterialType *apMaterialType)
+	SharedResourceHandle<cMaterial> cMaterialManager::CreateCustomMaterial(const tString& asName, iMaterialType *apMaterialType)
 	{
 		cMaterial* pMat = hplNew( cMaterial, (asName, cString::To16Char(asName), mpGraphics, mpResources, apMaterialType) );
-		pMat->IncUserCount();
 		AddResource(pMat);
-		return pMat;
+		return AcquireResource<cMaterial>(this, pMat);
 	}
 
 	//-----------------------------------------------------------------------
@@ -318,7 +306,7 @@ namespace hpl {
 		for(int i=0; i< pMatType->GetUsedTextureNum(); ++i)
 		{
 			cMaterialUsedTexture* pUsedTexture = pMatType->GetUsedTexture(i);
-			Image *pImage = NULL;
+			SharedResourceHandle<Image> pImage;
 
 			tString sTextureType = GetTextureString(pUsedTexture->mType);
 
@@ -384,7 +372,7 @@ namespace hpl {
 				}
 			}
 
-			if(pImage==NULL)
+			if(!pImage)
 			{
 				hplDelete(pMat);
 				return NULL;
@@ -396,7 +384,9 @@ namespace hpl {
 			// Wrap is per-material in the new model; record the last texture entry's wrap.
 			pMat->setTextureWrap(wrap);
 
-			pMat->SetImage(pUsedTexture->mType, pImage);
+			// Manager-loaded materials adopt the freshly-created texture reference
+			// (mbAutoDestroyTextures stays true), so SetImage takes ownership.
+			pMat->SetImage(pUsedTexture->mType, pImage.Release());
 		}
 
 		///////////////////////////

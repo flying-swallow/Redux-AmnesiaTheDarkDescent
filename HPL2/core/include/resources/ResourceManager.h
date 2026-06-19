@@ -48,12 +48,22 @@ namespace hpl {
 		virtual ~iResourceManager(){}
 
 		iResourceBase* GetResource(const tWString& asFullPath);
-		
+
 		cResourceBaseIterator GetResourceBaseIterator();
 
 		void DestroyUnused(int alMaxToKeep);
 
-		virtual void Destroy(iResourceBase* apResource)=0;
+		// How to free a resource owned by this manager: remove it from the registry
+		// and delete it. SharedResourceHandle holds a back-pointer to the owning
+		// manager and calls this when the last reference drops. Managers needing extra
+		// cleanup (texture/image/sound) override it. Must NOT touch the user count.
+		virtual void FreeResource(iResourceBase* apResource);
+
+		// Legacy reference drop for callers that still hold a raw pointer instead of a
+		// SharedResourceHandle: decrement the user count and run FreeResource at zero.
+		// (Transitional — removed once all callers hold handles.)
+		void Destroy(iResourceBase* apResource);
+
 		virtual void DestroyAll();
 
 		virtual void Unload(iResourceBase* apResource)=0;

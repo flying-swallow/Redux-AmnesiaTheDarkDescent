@@ -190,8 +190,7 @@ namespace hpl {
 					sMaterial = mpMeshManager->GetFastloadMaterial();
 				}
 
-				cMaterial *pMaterial = mpMaterialManager->CreateMaterial(sMaterial);
-				pSubMesh->SetMaterial(pMaterial);
+				pSubMesh->SetMaterial(mpMaterialManager->CreateMaterial(sMaterial));
 			}
 
 			if(gbLogMSHLoad) Log("Submesh %d: '%s' '%s'\n", sub, sName.c_str(), sMaterial.c_str());

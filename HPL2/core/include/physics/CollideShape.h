@@ -52,11 +52,11 @@ namespace hpl {
 
 		eCollideShapeType GetType(){ return mType;}
 
-		void IncUserCount(){ mlUserCount++;}
-		void DecUserCount(){ mlUserCount--;}
+		void AddReference(){ mlUserCount++;}
+		void DropReference(){ mlUserCount--;}
 
-		bool HasUsers(){ return mlUserCount>0;}
-		int GetUserCount(){return mlUserCount;}
+		bool HasReferences(){ return mlUserCount>0;}
+		int GetReferenceCount(){return mlUserCount;}
 
 		float GetVolume(){ return mfVolume;}
 
