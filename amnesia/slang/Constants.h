@@ -352,8 +352,13 @@ SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
 // cleanly regardless). Tuned down from 0.05/16 to settle a grainy static image;
 // drop the floor further (toward 0.01) if it's still grainy, raise it (toward
 // 0.05) if dynamic lights start to smear.
-SHARED_CONST float kDirectTemporalAlpha            = 0.05f;
-SHARED_CONST float kDirectMaxAccum                 = 32.0f;
+SHARED_CONST float kDirectTemporalAlpha            = 0.02f;
+SHARED_CONST float kDirectMaxAccum                 = 64.0f;
+// Firefly clamp applied to the resolved irradiance before temporal accumulation
+// (once history exists): caps the current sample's luminance at this multiple of
+// the history luminance so a single bright spike can't enter the running mean and
+// slowly bleed out — a primary boiling source. Lower = more aggressive.
+SHARED_CONST float kDirectFireflyClamp             = 8.0f;
 // Disocclusion rejection for the direct pass: reproject the surface key (view
 // depth + normal) and reject history (restart accumulation) when the reprojected
 // surface differs — kills camera-motion smear at silhouettes.
@@ -371,7 +376,7 @@ SHARED_CONST int   kDisoccSearchRadius             = 3;       // 7×7 spatial re
 // normal (σN exponent), and luminance (σL, scaled by a local variance estimate).
 // kDirectVarianceBoost widens the luminance gate while the history is short
 // (count low) so fresh pixels blur harder before they've converged.
-SHARED_CONST int   kAtrousIterations               = 3;       // edge-aware à-trous passes (host loop count)
+SHARED_CONST int   kAtrousIterations               = 5;       // edge-aware à-trous passes (host loop count)
 SHARED_CONST float kSvgfSigmaZ                      = 4.0f;    // depth edge-stop
 SHARED_CONST float kSvgfSigmaN                      = 64.0f;   // normal edge-stop exponent
 SHARED_CONST float kSvgfSigmaL                      = 4.0f;    // luminance edge-stop
@@ -387,8 +392,8 @@ SHARED_CONST float kDirectVarianceBoost            = 4.0f;    // early-frame (lo
 //   kSpatialSamples / kSpatialRadius — neighbour count + pixel search radius for
 //     the spatial-reuse pass; neighbours are geometry-rejected on the depth/
 //     normal key (kReproj* tolerances) to stop light leaking across surfaces.
-SHARED_CONST float kReservoirMClamp                = 20.0f;   // temporal staleness cap (× current M)
-SHARED_CONST int   kSpatialSamples                 = 4;       // spatial neighbours resampled
+SHARED_CONST float kReservoirMClamp                = 30.0f;   // temporal staleness cap (× current M)
+SHARED_CONST int   kSpatialSamples                 = 6;       // spatial neighbours resampled
 SHARED_CONST float kSpatialRadius                  = 16.0f;   // spatial search radius (px)
 // Guard band / overscan: the whole frame renders at (1 + 2·kGuardBandFraction)
 // the display size with a correspondingly wider FOV, and the present blit crops

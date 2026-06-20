@@ -76,18 +76,29 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     float  centerCount = center.a;
     float  lumC        = luma(centerRgb);
 
-    // Local 3×3 luminance variance estimate (unit spacing, same-surface taps),
-    // widened while the temporal history is short.
+    // Cross-bilateral, gaussian-weighted 5×5 luminance variance estimate. A raw
+    // box of the 1-spp-noisy input gives a jittery variance, so the luminance
+    // gate phiL (and thus the filter footprint) pulses frame-to-frame — a primary
+    // boiling source. Weighting taps by the same depth/normal edge-stops the
+    // filter uses (so only same-surface pixels contribute, no cross-surface
+    // luminance inflating the estimate) and by a gaussian falloff yields a far
+    // steadier estimate. Still widened while the temporal history is short.
     float  mL = 0.f, mL2 = 0.f, wv = 0.f;
-    for (int dy = -1; dy <= 1; ++dy)
-    for (int dx = -1; dx <= 1; ++dx)
+    for (int dy = -2; dy <= 2; ++dy)
+    for (int dx = -2; dx <= 2; ++dx)
     {
         int2 q = p + int2(dx, dy);
         if (q.x < 0 || q.y < 0 || q.x >= int(w) || q.y >= int(h)) continue;
         float4 qkey = gDirectKey.Load(int3(q, 0));
-        if (dot(qkey.yzw, qkey.yzw) <= 1.0e-8f) continue;
+        float3 nq   = qkey.yzw;
+        if (dot(nq, nq) <= 1.0e-8f) continue;
+        nq = normalize(nq);
+        float wz = exp(-abs(zc - qkey.x) / (kSvgfSigmaZ * 0.01f * max(zc, 1.0e-3f) + 1.0e-4f));
+        float wn = pow(max(0.f, dot(nc, nq)), kSvgfSigmaN);
+        float gw = atrousKernel(dx) * atrousKernel(dy);
+        float wgt = gw * wz * wn;
         float l = luma(gAtrousIn.Load(int3(q, 0)).rgb);
-        mL += l; mL2 += l * l; wv += 1.f;
+        mL += l * wgt; mL2 += l * l * wgt; wv += wgt;
     }
     float variance = 0.f;
     if (wv > 0.f)
