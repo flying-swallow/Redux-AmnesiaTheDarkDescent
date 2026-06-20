@@ -23,6 +23,7 @@
 #include <memory>
 #include <cassert>
 #include <cstdint>
+#include <optional>
 #include <variant>
 
 #include "graphics/Texture.h"
@@ -33,11 +34,11 @@ struct cTexture;
 class Image : public iResourceBase {
 public:
   struct SingleImage {
-    std::shared_ptr<cTexture> image;
+    std::optional<cTexture> image;
   };
 
   struct AnimatedImage {
-    std::vector<std::shared_ptr<cTexture>> images;
+    std::vector<cTexture> images;
     float frameTime = 0.0f;
     float timeCount = 0.0f;
     float timeDir = 1.0f;
@@ -69,13 +70,19 @@ public:
   eTextureAnimMode GetAnimMode();
   void SetAnimMode(eTextureAnimMode aMode);
 
-  cVector2l GetImageSize() const; 
-  std::shared_ptr<cTexture> GetTexture() const;
+  cVector2l GetImageSize() const;
+  cTexture* GetTexture() const;
   void Update(float afTimeStep);
   void SetFrameTime(float frameTime);
   float GetFrameTime() const;
 private:
   std::variant<SingleImage, AnimatedImage> value;
 };
+
+// Adopt a freshly created, manager-less Image (allocated with hplNew) into a
+// reference-counted handle. The handle frees the Image with hplDelete once the
+// last reference drops — including any transient per-frame keep-alive pin, so
+// the Image (and the cTexture it owns) survives until the GPU is done with it.
+SharedResourceHandle<Image> AdoptStandaloneImage(Image *apImage);
 
 } // namespace hpl

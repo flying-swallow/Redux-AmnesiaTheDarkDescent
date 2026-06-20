@@ -78,7 +78,7 @@ cVertexBuffer::cVertexBuffer(iLowLevelGraphics* apLowLevelGraphics,
 }
 
 cVertexBuffer::~cVertexBuffer() {
-  AttachResourceToCntx(RI.GetActiveSet());
+  DeferOwnedResources();
   m_onDestroyed.Signal();
 }
 void cVertexBuffer::Bind() {
@@ -472,13 +472,8 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
   // growth (ResizeArray / ResizeIndices), or when a CreateCopy'd element still
   // points at its source buffer with a zero capacity tag.
   auto allocBuffer = [&](VkDeviceSize size, uint32_t usage,
-                         const char *label) -> std::shared_ptr<RIBuffer> {
-    std::shared_ptr<RIBuffer> buf(new RIBuffer(), [](RIBuffer *b) {
-      b->dispose(&RI.device);
-      delete b;
-    });
-
-    *buf = RIBuffer::create(
+                         const char *label) -> RIBuffer {
+    RIBuffer buf = RIBuffer::create(
         device, {(uint64_t)size,
                  usage | RI_BUFFER_USAGE_TRANSFER_DST | RI_BUFFER_USAGE_DEVICE_ADDRESS,
                  RI_MEMORY_DEVICE, 0});
@@ -486,7 +481,7 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
     char debugName[128];
     std::snprintf(debugName, sizeof(debugName), "VB[%p]:%s",
                   static_cast<void *>(this), label ? label : "Unknown");
-    buf->setDebugObjectName(device, debugName);
+    buf.setDebugObjectName(device, debugName);
     return buf;
   };
 
@@ -526,12 +521,16 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
       usage |= RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT;
     }
     // m_internalBufferSize == 0 with element.buffer set is the CreateCopy
-    // sentinel: the shared_ptr was inherited from the source VB but we own no
-    // GPU storage of our own yet. Treat it as "needs allocation."
-    const bool needsAlloc = !element.buffer ||
+    // sentinel: the handle was inherited (shallow) from the source VB but we own
+    // no GPU storage of our own yet. Treat it as "needs allocation."
+    const bool needsAlloc = element.buffer.isEmpty(&RI.renderer) ||
                             element.m_internalBufferSize == 0 ||
                             element.m_internalBufferSize < needed;
     if (needsAlloc) {
+      // Defer the old buffer (if we own one) so an in-flight draw can't read a
+      // freed handle, then take the new one by value.
+      if (!element.buffer.isEmpty(&RI.renderer))
+        RI.graphicsDefer.push(RIResourceDeferral<RIBuffer>(&RI.device, element.buffer));
       element.buffer = allocBuffer(needed, usage, elementTypeName(element.type));
       element.m_internalBufferSize = needed;
       reallocated = true;
@@ -539,7 +538,7 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
     // Always upload on (re)alloc; otherwise only when the caller flagged this
     // stream dirty via UpdateData().
     if (needsAlloc || (m_updateFlags & element.flag)) {
-      stageUpload(element.buffer.get(), needed, element.m_shadowData.data(),
+      stageUpload(&element.buffer, needed, element.m_shadowData.data(),
                   RI_RESOURCE_STATE_UNORDERED_ACCESS, RI_STAGE_VERTEX);
     }
   }
@@ -549,14 +548,17 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
     const uint32_t idxUsage =
         RI_BUFFER_USAGE_INDEX_BUFFER | RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE |
         RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT;
-    const bool needsAlloc = !m_indexBuffer || m_indexBufferCapacity < needed;
+    const bool needsAlloc =
+        m_indexBuffer.isEmpty(&RI.renderer) || m_indexBufferCapacity < needed;
     if (needsAlloc) {
+      if (!m_indexBuffer.isEmpty(&RI.renderer))
+        RI.graphicsDefer.push(RIResourceDeferral<RIBuffer>(&RI.device, m_indexBuffer));
       m_indexBuffer = allocBuffer(needed, idxUsage, "Index");
       m_indexBufferCapacity = needed;
       reallocated = true;
     }
     if (needsAlloc || m_updateIndices) {
-      stageUpload(m_indexBuffer.get(), needed, m_indices.data(),
+      stageUpload(&m_indexBuffer, needed, m_indices.data(),
                   RI_RESOURCE_STATE_UNORDERED_ACCESS, RI_STAGE_VERTEX);
     }
   }
@@ -579,7 +581,7 @@ void cVertexBuffer::BuildBlas(RICmd *cmd, RIDevice *device,
   // the translucent/decal prepare) already uploaded this generation.
   SubmitToGPU(cmd, device, cntx);
 
-  if (m_blas && m_blasGeneration == m_generation) {
+  if (m_blas.vk.handle != VK_NULL_HANDLE && m_blasGeneration == m_generation) {
     return;
   }
 
@@ -591,13 +593,19 @@ void cVertexBuffer::BuildBlas(RICmd *cmd, RIDevice *device,
   const uint32_t vertexNum =
       position ? static_cast<uint32_t>(position->NumElements()) : 0;
   const uint32_t indexNum = static_cast<uint32_t>(m_indices.size());
-  if (!position || !position->buffer || !m_indexBuffer || vertexNum == 0 ||
-      indexNum < 3) {
+  if (!position || position->buffer.isEmpty(&RI.renderer) ||
+      m_indexBuffer.isEmpty(&RI.renderer) || vertexNum == 0 || indexNum < 3) {
     return;
   }
 
-  m_blas.reset();
-  m_blasStorage.reset();
+  // Defer the previous BLAS + storage; an in-flight TLAS build/trace may still
+  // reference them until the GPU passes this frame's timeline value.
+  if (m_blas.vk.handle != VK_NULL_HANDLE)
+    RI.graphicsDefer.push(RIResourceDeferral<RIAccelStructure>(&RI.device, m_blas));
+  if (!m_blasStorage.isEmpty(&RI.renderer))
+    RI.graphicsDefer.push(RIResourceDeferral<RIBuffer>(&RI.device, m_blasStorage));
+  m_blas = {};
+  m_blasStorage = {};
 
   RIAccelGeometryDesc geom = {};
   geom.type = RI_ACCEL_GEOMETRY_TYPE_TRIANGLES;
@@ -607,12 +615,12 @@ void cVertexBuffer::BuildBlas(RICmd *cmd, RIDevice *device,
   // commit hits and bypass the shader filter entirely, so shadow/surfel rays
   // would get blocked by alpha-cutout texels the gbuffer already discarded.
   geom.flags = 0;
-  geom.triangles.vertexBuffer = position->buffer.get();
+  geom.triangles.vertexBuffer = const_cast<RIBuffer *>(&position->buffer);
   geom.triangles.vertexOffset = 0;
   geom.triangles.vertexNum = vertexNum;
   geom.triangles.vertexStride = static_cast<uint16_t>(position->Stride());
   geom.triangles.vertexFormat = RI_FORMAT_RGB32_SFLOAT;
-  geom.triangles.indexBuffer = m_indexBuffer.get();
+  geom.triangles.indexBuffer = &m_indexBuffer;
   geom.triangles.indexOffset = 0;
   geom.triangles.indexNum = indexNum;
   geom.triangles.indexType = RI_INDEX_TYPE_32;
@@ -629,10 +637,7 @@ void cVertexBuffer::BuildBlas(RICmd *cmd, RIDevice *device,
   uint64_t buildScratchSize = 0;
   asDesc.getMemoryReqs(device, &storageSize, &buildScratchSize, NULL );
 
-  m_blasStorage = std::shared_ptr<RIBuffer>(
-      new RIBuffer(),
-      [](RIBuffer *b) { b->dispose(&RI.device); delete b; });
-  *m_blasStorage = RIBuffer::create(
+  m_blasStorage = RIBuffer::create(
       device, {(uint64_t)storageSize,
                RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE |
                    RI_BUFFER_USAGE_DEVICE_ADDRESS,
@@ -642,45 +647,40 @@ void cVertexBuffer::BuildBlas(RICmd *cmd, RIDevice *device,
   // vk.buffer null. Building the BLAS on a null storage buffer produces an AS
   // with an invalid device address (the 0xffff8001... value the TLAS rejects),
   // so bail here instead, keeping any previously-built BLAS for this object.
-  assert(!m_blasStorage->isEmpty(&RI.renderer) &&
+  assert(!m_blasStorage.isEmpty(&RI.renderer) &&
          "BLAS storage allocation failed");
-  if (m_blasStorage->isEmpty(&RI.renderer)) {
+  if (m_blasStorage.isEmpty(&RI.renderer)) {
     Error("BLAS storage allocation failed (size=%llu) for VB[%p]; skipping build",
           (unsigned long long)storageSize, static_cast<void *>(this));
-    m_blasStorage.reset();
+    m_blasStorage = {};
     return;
   }
 
   char dbgName[128];
   std::snprintf(dbgName, sizeof(dbgName), "VB[%p]:BlasStorage",
                 static_cast<void *>(this));
-  m_blasStorage->setDebugObjectName(device, dbgName);
+  m_blasStorage.setDebugObjectName(device, dbgName);
 
-  asDesc.storage = m_blasStorage.get();
+  asDesc.storage = &m_blasStorage;
   asDesc.storageOffset = 0;
   asDesc.storageSize = storageSize;
 
-  m_blas = std::shared_ptr<RIAccelStructure>(
-      new RIAccelStructure(),
-      [](RIAccelStructure *a) {
-        a->dispose(&RI.device);
-        delete a;
-      });
-  if (m_blas->init(device, &asDesc) != RI_SUCCESS) {
+  m_blas = RIAccelStructure{};
+  if (m_blas.init(device, &asDesc) != RI_SUCCESS) {
     Error("failed to construct acceel structure");
   }
   // Distinct name for the AS itself (was reusing the storage buffer's name).
   std::snprintf(dbgName, sizeof(dbgName), "VB[%p]:Blas", static_cast<void *>(this));
-  m_blas->setDebugObjectName(device, dbgName);
+  m_blas.setDebugObjectName(device, dbgName);
   // The AS device address comes straight from vkGetAccelerationStructureDeviceAddress
   // here; if it's zero/garbage every TLAS instance referencing it is invalid.
-  assert(m_blas->vk.handle != VK_NULL_HANDLE);
-  assert(m_blas->vk.deviceAddress != 0);
+  assert(m_blas.vk.handle != VK_NULL_HANDLE);
+  assert(m_blas.vk.deviceAddress != 0);
 
   struct RIBufferScratchAllocReq scratchReq = RIAllocBufferFromScratchAlloc(
       device, &cntx->accelScratchAlloc, buildScratchSize);
   RIBuildBlasDesc buildDesc = {};
-  buildDesc.dst = m_blas.get();
+  buildDesc.dst = &m_blas;
   buildDesc.src = nullptr;
   buildDesc.mode = RI_ACCEL_BUILD_MODE_BUILD;
   buildDesc.geometries = &geom;
@@ -692,20 +692,30 @@ void cVertexBuffer::BuildBlas(RICmd *cmd, RIDevice *device,
   m_blasGeneration = m_generation;
 }
 
-void cVertexBuffer::AttachResourceToCntx(RIBootstrap::FrameContext *cntx) {
+RIBuffer *cVertexBuffer::VertexElement::GetBuffer() const {
+  return buffer.isEmpty(&RI.renderer) ? nullptr
+                                      : const_cast<RIBuffer *>(&buffer);
+}
 
+RIBuffer *cVertexBuffer::GetIndexRIBuffer() const {
+  return m_indexBuffer.isEmpty(&RI.renderer) ? nullptr
+                                             : const_cast<RIBuffer *>(&m_indexBuffer);
+}
+
+// Hand every GPU buffer/AS this VB owns to the graphics deferral queue, freed
+// once the GPU passes the next submit's timeline value (so an in-flight draw
+// can't read a freed handle). Called from the destructor.
+void cVertexBuffer::DeferOwnedResources() {
   for (auto &element : m_vertexElements) {
-    if(element.buffer) {
-      cntx->resourceLink.push_back(element.buffer);
-    }
+    if (!element.buffer.isEmpty(&RI.renderer))
+      RI.graphicsDefer.push(RIResourceDeferral<RIBuffer>(&RI.device, element.buffer));
   }
-  if(m_indexBuffer) {
-    cntx->resourceLink.push_back(m_indexBuffer);
-  }
-  if(m_blas) {
-    cntx->resourceLink.push_back(m_blas);
-    cntx->resourceLink.push_back(m_blasStorage);
-  }
+  if (!m_indexBuffer.isEmpty(&RI.renderer))
+    RI.graphicsDefer.push(RIResourceDeferral<RIBuffer>(&RI.device, m_indexBuffer));
+  if (m_blas.vk.handle != VK_NULL_HANDLE)
+    RI.graphicsDefer.push(RIResourceDeferral<RIAccelStructure>(&RI.device, m_blas));
+  if (!m_blasStorage.isEmpty(&RI.renderer))
+    RI.graphicsDefer.push(RIResourceDeferral<RIBuffer>(&RI.device, m_blasStorage));
 }
 
 void cVertexBuffer::UpdateData(tVertexElementFlag aTypes, bool abIndices) {
@@ -977,8 +987,9 @@ cVertexBuffer *cVertexBuffer::CreateCopy(eVertexBufferType aType,
       // The copied VertexElement inherited the source's GPU-buffer shared_ptr
       // and its m_internalBufferSize. The copy needs its own GPU storage
       // (otherwise its first UpdateData would stage into the source's buffer),
-      // so drop both — SubmitToGPU's first run will allocate fresh.
-      vb.buffer.reset();
+      // so drop both — SubmitToGPU's first run will allocate fresh. Zero the
+      // shallow-copied handle WITHOUT disposing (the source VB still owns it).
+      vb.buffer = RIBuffer{};
       vb.m_internalBufferSize = 0;
     }
   }

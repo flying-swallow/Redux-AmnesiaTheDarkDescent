@@ -207,14 +207,13 @@ bool CreateViewportColorTexture(struct RIDevice *device, uint32_t width,
 	return true;
 }
 
-void ReleaseViewportColorTexture(std::vector<RIFreeHandle> &freelist,
-								 struct RITexture *tex,
+void ReleaseViewportColorTexture(struct RITexture *tex,
 								 struct RITextureView *view) {
 	if (!view->isEmpty(&RI.renderer)) {
-		freelist.push_back(*view);
+		RI.graphicsDefer.push(RIResourceDeferral<RITextureView>(&RI.device, *view));
 	}
 	if (!tex->isEmpty(&RI.renderer)) {
-		freelist.push_back(*tex);
+		RI.graphicsDefer.push(RIResourceDeferral<RITexture>(&RI.device, *tex));
 	}
 	*view = RITextureView{};
 	*tex = RITexture{};
@@ -273,14 +272,13 @@ bool CreateViewportAttachmentTexture(struct RIDevice *device, uint32_t width,
 	return true;
 }
 
-void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
-									  struct RITexture *tex,
+void ReleaseViewportAttachmentTexture(struct RITexture *tex,
 									  struct RITextureView *view) {
 	if (!view->isEmpty(&RI.renderer)) {
-		freelist.push_back(*view);
+		RI.graphicsDefer.push(RIResourceDeferral<RITextureView>(&RI.device, *view));
 	}
 	if (!tex->isEmpty(&RI.renderer)) {
-		freelist.push_back(*tex);
+		RI.graphicsDefer.push(RIResourceDeferral<RITexture>(&RI.device, *tex));
 	}
 	*view = RITextureView{};
 	*tex = RITexture{};
@@ -328,11 +326,11 @@ void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
 		{
 			if(!mPogoBuffer.pogoView[p].isEmpty(&RI.renderer))
 			{
-				cntx->freelist.push_back(mPogoBuffer.pogoView[p]);
+				RI.graphicsDefer.push(RIResourceDeferral<RITextureView>(&RI.device, mPogoBuffer.pogoView[p]));
 			}
 			if(!mPogoBuffer.textures[p].isEmpty(&RI.renderer))
 			{
-				cntx->freelist.push_back(mPogoBuffer.textures[p]);
+				RI.graphicsDefer.push(RIResourceDeferral<RITexture>(&RI.device, mPogoBuffer.textures[p]));
 			}
 			mPogoBuffer.pogoView[p] = RITextureView{};
 			mPogoBuffer.textures[p] = RITexture{};

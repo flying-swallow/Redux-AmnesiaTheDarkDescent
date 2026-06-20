@@ -29,6 +29,7 @@
 #include <functional>
 #include <time.h>
 #include <utility>
+#include <variant>
 
 namespace hpl {
 class iResourceManager;
@@ -68,6 +69,14 @@ public:
   void SetFullPath(const tWString &asPath);
   const tWString &GetFullPath() { return msFullPath; }
 
+  // Back-pointer to the manager that owns this resource, or null when the
+  // resource is standalone (created outside any manager). Set by
+  // iResourceManager::AddResource on registration. A keep-alive minted from a
+  // raw pointer (RetainResource) uses this to free through the right path:
+  // the manager for managed resources, plain delete for standalone ones.
+  iResourceManager *GetOwningManager() const { return mpOwningManager; }
+  void SetOwningManager(iResourceManager *apManager) { mpOwningManager = apManager; }
+
   unsigned long GetTime() { return mlTime; }
   unsigned long GetPrio() { return mlPrio; }
 
@@ -102,19 +111,22 @@ protected:
   unsigned long mlHandle;
   uint64_t mUniqueCookie;
   bool mbLogDestruction;
+  iResourceManager *mpOwningManager = nullptr;
 
 private:
   tWString msFullPath;
 };
 
 
-// Shared, reference-counted handle to a managed resource. The count IS the
-// resource's own iResourceBase reference count: copying adds a reference, and when the
-// last reference is dropped the handle frees the resource through the owning manager.
-// The handle stores a raw back-pointer to that manager and calls its virtual
-// iResourceManager::FreeResource() at zero — no per-handle closure. The manager
-// outlives every handle to its resources (handles are released before the manager is
-// destroyed), so the back-pointer is always valid when used.
+// Shared, reference-counted handle to a resource. The count IS the resource's own
+// iResourceBase reference count: copying adds a reference, and when the last
+// reference is dropped the handle frees the resource according to its cleanup
+// policy. The policy is a variant so one (non-templated) handle type covers every
+// ownership mode:
+//   * std::monostate     -> call the destructor (delete) — standalone resource.
+//   * Deleter            -> a custom free function — standalone with special cleanup.
+//   * iResourceManager*  -> free via iResourceManager::FreeResource() — managed
+//                           resource; the manager outlives every handle to it.
 //
 // There is no non-owning mode: a handle either owns exactly one reference or is
 // empty. To share a pointer you only borrowed, take a real reference with
@@ -123,21 +135,30 @@ private:
 template<class T>
 class SharedResourceHandle {
 public:
+  using Deleter = void (*)(T*);
+  // monostate => delete; Deleter => custom free fn; iResourceManager* => FreeResource.
+  using CleanupPolicy = std::variant<std::monostate, Deleter, iResourceManager*>;
+
   SharedResourceHandle() = default;
 
-  // Fundamental ctor: adopt one already-held reference (no increment); the owning
+  // Managed ctor: adopt one already-held reference (no increment); the owning
   // manager frees the resource when the last reference drops.
   SharedResourceHandle(iResourceManager* manager, T* handle)
-      : m_handle(handle), m_manager(manager) {}
+      : m_handle(handle), m_policy(manager) {}
+
+  // Standalone ctor: adopt one already-held reference; freed by the given policy
+  // (default = delete) when the last reference drops.
+  explicit SharedResourceHandle(T* handle, CleanupPolicy policy = std::monostate{})
+      : m_handle(handle), m_policy(policy) {}
 
   SharedResourceHandle(const SharedResourceHandle& other)
-      : m_handle(other.m_handle), m_manager(other.m_manager) {
+      : m_handle(other.m_handle), m_policy(other.m_policy) {
     if (m_handle) m_handle->AddReference();
   }
   SharedResourceHandle(SharedResourceHandle&& other) noexcept
-      : m_handle(other.m_handle), m_manager(other.m_manager) {
+      : m_handle(other.m_handle), m_policy(other.m_policy) {
     other.m_handle = nullptr;
-    other.m_manager = nullptr;
+    other.m_policy = std::monostate{};
   }
 
   ~SharedResourceHandle() { reset(); }
@@ -146,7 +167,7 @@ public:
     if (m_handle == other.m_handle) return *this; // same resource (incl. self) — alias safe
     reset();
     m_handle = other.m_handle;
-    m_manager = other.m_manager;
+    m_policy = other.m_policy;
     if (m_handle) m_handle->AddReference();
     return *this;
   }
@@ -154,9 +175,9 @@ public:
     if (this == &other) return *this;
     reset();
     m_handle = other.m_handle;
-    m_manager = other.m_manager;
+    m_policy = other.m_policy;
     other.m_handle = nullptr;
-    other.m_manager = nullptr;
+    other.m_policy = std::monostate{};
     return *this;
   }
 
@@ -165,7 +186,7 @@ public:
   T* Release() {
     T* h = m_handle;
     m_handle = nullptr;
-    m_manager = nullptr;
+    m_policy = std::monostate{};
     return h;
   }
 
@@ -176,18 +197,25 @@ public:
   bool IsValid() const { return m_handle != nullptr; }
 
 private:
-  // Drop this handle's reference; free through the manager once the count hits zero.
+  // Drop this handle's reference; free per the cleanup policy once the count hits zero.
   void reset() {
     if (!m_handle) return;
     m_handle->DropReference();
-    if (!m_handle->HasReferences() && m_manager)
-      m_manager->FreeResource(m_handle);
+    if (!m_handle->HasReferences()) {
+      if (auto* mgr = std::get_if<iResourceManager*>(&m_policy)) {
+        if (*mgr) (*mgr)->FreeResource(m_handle);
+      } else if (auto* del = std::get_if<Deleter>(&m_policy)) {
+        if (*del) (*del)(m_handle);
+      } else {
+        delete m_handle; // monostate: call the destructor
+      }
+    }
     m_handle = nullptr;
-    m_manager = nullptr;
+    m_policy = std::monostate{};
   }
 
   T* m_handle = nullptr;
-  iResourceManager* m_manager = nullptr;
+  CleanupPolicy m_policy = std::monostate{};
 };
 
 // Mint a handle to a manager resource, taking the one reference this handle owns.
@@ -205,6 +233,95 @@ inline SharedResourceHandle<T> AcquireResource(iResourceManager* manager, iResou
 template<class T>
 inline SharedResourceHandle<T> RetainResource(iResourceManager* manager, T* handle) {
   return AcquireResource<T>(manager, handle);
+}
+
+// Share a live resource given only a raw pointer: takes a reference and rebuilds
+// the cleanup policy from the resource's owning manager (managed) or falls back to
+// delete (standalone). Used by the per-frame keep-alive, which holds an Image* but
+// not its manager.
+template<class T>
+inline SharedResourceHandle<T> RetainResource(T* handle) {
+  if (!handle) return {};
+  handle->AddReference();
+  if (iResourceManager* mgr = handle->GetOwningManager())
+    return SharedResourceHandle<T>(mgr, handle);
+  return SharedResourceHandle<T>(handle, std::monostate{});
+}
+
+// Take ownership of a freshly created, manager-less resource (count 0 -> 1). The
+// policy (default = delete) frees it when the last handle drops.
+template<class T>
+inline SharedResourceHandle<T> AdoptResource(
+    T* handle, typename SharedResourceHandle<T>::CleanupPolicy policy = std::monostate{}) {
+  if (handle) handle->AddReference();
+  return SharedResourceHandle<T>(handle, policy);
+}
+
+// Lightweight, NON-templated keep-alive "pin" for a reference-counted resource.
+// Where SharedResourceHandle<T> is the typed owner, a pin is the type-erased
+// keep-alive parked per frame (in the frame's resourceLink) so a mid-frame
+// destroy of the real owner can't free the GPU resource before the submit that
+// uses it retires. The concrete type is erased to iResourceBase* — no per-type
+// template instantiation and no need for the resource's full definition at the
+// park site — and the last-reference cleanup uses the same policy variant as
+// SharedResourceHandle. A pin must agree with its owner's cleanup: managed
+// resources free through the manager, standalone ones via plain delete (so
+// standalone resources adopt the monostate/delete policy on both sides).
+class SharedResourcePin {
+public:
+  using Deleter = void (*)(iResourceBase*);
+  using CleanupPolicy = std::variant<std::monostate, Deleter, iResourceManager*>;
+
+  SharedResourcePin() = default;
+  SharedResourcePin(iResourceBase* resource, CleanupPolicy policy)
+      : m_resource(resource), m_policy(policy) {
+    if (m_resource) m_resource->AddReference();
+  }
+
+  SharedResourcePin(const SharedResourcePin& other)
+      : m_resource(other.m_resource), m_policy(other.m_policy) {
+    if (m_resource) m_resource->AddReference();
+  }
+  SharedResourcePin(SharedResourcePin&& other) noexcept
+      : m_resource(other.m_resource), m_policy(other.m_policy) {
+    other.m_resource = nullptr;
+    other.m_policy = std::monostate{};
+  }
+  SharedResourcePin& operator=(SharedResourcePin other) noexcept { // copy-and-swap
+    std::swap(m_resource, other.m_resource);
+    std::swap(m_policy, other.m_policy);
+    return *this;
+  }
+  ~SharedResourcePin() { reset(); }
+
+private:
+  void reset() {
+    if (!m_resource) return;
+    m_resource->DropReference();
+    if (!m_resource->HasReferences()) {
+      if (auto* mgr = std::get_if<iResourceManager*>(&m_policy)) {
+        if (*mgr) (*mgr)->FreeResource(m_resource);
+      } else if (auto* del = std::get_if<Deleter>(&m_policy)) {
+        if (*del) (*del)(m_resource);
+      } else {
+        delete m_resource; // monostate: virtual ~iResourceBase
+      }
+    }
+    m_resource = nullptr;
+    m_policy = std::monostate{};
+  }
+
+  iResourceBase* m_resource = nullptr;
+  CleanupPolicy m_policy = std::monostate{};
+};
+
+// Pin a live resource for the frame: takes a reference and rebuilds the cleanup
+// policy from its owning manager (managed) or falls back to delete (standalone).
+inline SharedResourcePin PinResource(iResourceBase* resource) {
+  if (!resource) return {};
+  if (iResourceManager* mgr = resource->GetOwningManager())
+    return SharedResourcePin(resource, mgr);
+  return SharedResourcePin(resource, std::monostate{});
 }
 
 }; // namespace hpl

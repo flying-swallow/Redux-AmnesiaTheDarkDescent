@@ -232,7 +232,11 @@ namespace hpl {
 	void iResourceManager::AddResource(iResourceBase* apResource, bool abLog, bool abAddToSet)
 	{
 		tString sName = cString::ToLowerCase(apResource->GetName());
-		
+
+		// Record the owning manager so a keep-alive minted from a raw pointer
+		// (RetainResource) frees this resource through FreeResource, not delete.
+		if(apResource) apResource->SetOwningManager(this);
+
 		if(abAddToSet)
 		{
 			int lHash = cString::GetHashW(apResource->GetFullPath());

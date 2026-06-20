@@ -108,8 +108,7 @@ bool CreateViewportColorTexture(struct RIDevice *device, uint32_t width,
                                 struct RITexture *tex,
                                 struct RITextureView *view,
                                 const char *what);
-void ReleaseViewportColorTexture(std::vector<RIFreeHandle> &freelist,
-                                 struct RITexture *tex,
+void ReleaseViewportColorTexture(struct RITexture *tex,
                                  struct RITextureView *view);
 
 // One attachment image + a plain view (depth / visibility targets).
@@ -120,8 +119,7 @@ bool CreateViewportAttachmentTexture(struct RIDevice *device, uint32_t width,
                                      struct RITexture *tex,
                                      struct RITextureView *view,
                                      const char *what);
-void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
-                                      struct RITexture *tex,
+void ReleaseViewportAttachmentTexture(struct RITexture *tex,
                                       struct RITextureView *view);
 
 //------------------------------------------

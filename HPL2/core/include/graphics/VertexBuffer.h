@@ -51,7 +51,10 @@ public:
 
   struct VertexElement {
   public:
-    std::shared_ptr<RIBuffer> buffer;
+    // GPU buffer owned by value; the owning cVertexBuffer defers its disposal to
+    // RI.graphicsDefer on regrow / teardown. Borrow it via GetBuffer().
+    RIBuffer buffer;
+    RIBuffer *GetBuffer() const;
     eVertexBufferElementFormat format =
         eVertexBufferElementFormat::eVertexBufferElementFormat_Float;
     eVertexBufferElement type =
@@ -137,7 +140,9 @@ public:
     VertexIndexEntry m_indexBuffer;
   };
 
-  void AttachResourceToCntx(RIBootstrap::FrameContext *cntx);
+  // Hand every owned GPU buffer/AS to RI.graphicsDefer (deferred dispose past
+  // the next submit). Called from the destructor.
+  void DeferOwnedResources();
   // Uploads dirty vertex/index streams (allocates GPU buffers on first submit /
   // shadow-data growth). No-op when nothing changed since the last submit.
   void SubmitToGPU(RICmd *cmd, RIDevice *device,
@@ -180,8 +185,9 @@ public:
   tVertexElementFlag GetVertexElementFlags() { return mVertexFlags; }
 
   const cVertexBuffer::VertexElement *GetElement(eVertexBufferElement elementType);
-  const std::shared_ptr<RIAccelStructure> accelStructure() { return m_blas; }
-  const std::shared_ptr<RIBuffer> &GetIndexRIBuffer() const { return m_indexBuffer; }
+  // Borrow the BLAS / index buffer; null when none has been built/allocated.
+  RIAccelStructure *accelStructure() { return m_blas.vk.handle != VK_NULL_HANDLE ? &m_blas : nullptr; }
+  RIBuffer *GetIndexRIBuffer() const;
 
   // GI surfel-cleanup hook. The surfel renderer binds an EventHandler (stored in
   // its bindless-slot cache) to this event; on destruction the VB Signals it so
@@ -223,7 +229,7 @@ protected:
   bool mbTangents;
 
   std::vector<VertexElement> m_vertexElements = {};
-  std::shared_ptr<RIBuffer> m_indexBuffer;
+  RIBuffer m_indexBuffer;
   std::vector<uint32_t> m_indices = {};
 
   uint32_t m_generation = 0;
@@ -235,10 +241,11 @@ protected:
   tVertexElementFlag m_updateFlags = 0; // update no need to rebuild buffers
   bool m_updateIndices = false;
 
-  // Cached BLAS built on first BuildBlas call. Storage shares the deferred-free path
-  // (same shared_ptr deleter as element buffers) so it outlives any in-flight build.
-  std::shared_ptr<RIBuffer> m_blasStorage;
-  std::shared_ptr<RIAccelStructure> m_blas = {};
+  // Cached BLAS built on first BuildBlas call. Owned by value; the old value is
+  // deferred to RI.graphicsDefer on rebuild / teardown so it outlives any
+  // in-flight build.
+  RIBuffer m_blasStorage;
+  RIAccelStructure m_blas = {};
 
   // Signaled in the destructor; the surfel renderer connects a per-slot destroy
   // handler (owned by its bindless-slot cache) to it.

@@ -56,7 +56,7 @@ namespace hpl {
 class cEditorThumbnailBuilder
 {
 public:
-	using tThumbnailReadyCallback = std::function<void(std::shared_ptr<Image>)>;
+	using tThumbnailReadyCallback = std::function<void(SharedResourceHandle<Image>)>;
 
 	cEditorThumbnailBuilder(iEditorBase* apEditor);
 	~cEditorThumbnailBuilder();

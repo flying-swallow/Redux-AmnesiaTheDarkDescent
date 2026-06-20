@@ -16,16 +16,41 @@
 #include <vulkan/vulkan_core.h>
 
 namespace hpl {
+cTexture::cTexture(cTexture &&other) noexcept
+    : handle(other.handle), format(other.format), view(other.view),
+      width(other.width), height(other.height), depth(other.depth),
+      mipNum(other.mipNum) {
+  // Zero the source so its destructor disposes nothing (dispose is null-safe).
+  other.handle = RITexture{};
+  other.view = RITextureView{};
+}
+
+cTexture &cTexture::operator=(cTexture &&other) noexcept {
+  if (this != &other) {
+    // Release our own GPU resources before adopting the source's.
+    view.dispose(&RI.device);
+    handle.dispose(&RI.device);
+    handle = other.handle;
+    format = other.format;
+    view = other.view;
+    width = other.width;
+    height = other.height;
+    depth = other.depth;
+    mipNum = other.mipNum;
+    other.handle = RITexture{};
+    other.view = RITextureView{};
+  }
+  return *this;
+}
+
 cTexture::~cTexture() {
-  // Free the GPU resources directly — no freelist deferral needed. Every
-  // frame that samples this texture parks a shared_ptr in that frame set's
-  // resourceLink, and BeginActiveSet waits the ring fence before clearing it,
-  // so by the time the last reference drops the GPU is done with the texture.
+  // Free the GPU resources directly — no freelist deferral needed. The owning
+  // Image is parked (via a SharedResourcePin) in that frame set's resourceLink,
+  // and BeginActiveSet waits the ring fence before clearing it, so by the time
+  // the Image (and thus this texture) is freed the GPU is done with it.
   view.dispose(&RI.device);   // owned image view (was binding's inline view)
   handle.dispose(&RI.device);  // image + VMA allocation
 }
-
-void cTexture::cTexture_Delete(cTexture *texture) { delete texture; }
 
 RIDescriptor cTexture::descriptor() {
   return RIDescriptor::sampledImage(&RI.device, &view);

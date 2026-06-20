@@ -55,13 +55,12 @@ static inline bool BindVertexStreams(struct RICmd *cmd, cVertexBuffer *pVB,
   auto *vbri = static_cast<cVertexBuffer *>(pVB);
   auto bufOf = [&](eVertexBufferElement type) -> RIBuffer * {
     const auto *element = vbri->GetElement(type);
-    return (element && element->buffer) ? element->buffer.get() : nullptr;
+    return element ? element->GetBuffer() : nullptr;
   };
   // Position + index are the only truly required streams — without geometry
   // there's nothing to draw.
   RIBuffer *pos = bufOf(eVertexBufferElement_Position);
-  const auto &idxRI = vbri->GetIndexRIBuffer();
-  RIBuffer *idx = idxRI ? idxRI.get() : nullptr;
+  RIBuffer *idx = vbri->GetIndexRIBuffer();
   if (!pos || !idx) {
     Warning("%s mesh missing position / index — skipping", passLabel);
     return false;
@@ -459,30 +458,30 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
 
 void cViewport::HybridViewportState::Dispose(RIBootstrap::FrameContext *cntx) {
   for (uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; i++) {
-    ReleaseViewportColorTexture(cntx->freelist, &renderTarget[i],
+    ReleaseViewportColorTexture(&renderTarget[i],
                                 &renderTargetView[i]);
-    ReleaseViewportAttachmentTexture(cntx->freelist, &depthTextures[i],
+    ReleaseViewportAttachmentTexture(&depthTextures[i],
                                      &depthView[i]);
-    ReleaseViewportAttachmentTexture(cntx->freelist, &visibilityTexture[i],
+    ReleaseViewportAttachmentTexture(&visibilityTexture[i],
                                      &visibilityView[i]);
-    ReleaseViewportAttachmentTexture(cntx->freelist, &surfelResultTexture[i],
+    ReleaseViewportAttachmentTexture(&surfelResultTexture[i],
                                      &surfelResultView[i]);
-    ReleaseViewportAttachmentTexture(cntx->freelist, &packedHitInfoTexture[i],
+    ReleaseViewportAttachmentTexture(&packedHitInfoTexture[i],
                                      &packedHitInfoView[i]);
-    ReleaseViewportAttachmentTexture(cntx->freelist, &velocityTexture[i],
+    ReleaseViewportAttachmentTexture(&velocityTexture[i],
                                      &velocityView[i]);
   }
   for (uint32_t i = 0; i < 2; i++) {
-    ReleaseViewportAttachmentTexture(cntx->freelist, &directLightingTexture[i],
+    ReleaseViewportAttachmentTexture(&directLightingTexture[i],
                                      &directLightingView[i]);
-    ReleaseViewportAttachmentTexture(cntx->freelist, &directKeyTexture[i],
+    ReleaseViewportAttachmentTexture(&directKeyTexture[i],
                                      &directKeyView[i]);
-    ReleaseViewportAttachmentTexture(cntx->freelist, &directAtrousTexture[i],
+    ReleaseViewportAttachmentTexture(&directAtrousTexture[i],
                                      &directAtrousView[i]);
-    ReleaseViewportAttachmentTexture(cntx->freelist, &reservoirTexture[i],
+    ReleaseViewportAttachmentTexture(&reservoirTexture[i],
                                      &reservoirView[i]);
   }
-  ReleaseViewportAttachmentTexture(cntx->freelist, &reservoirTemporalTexture,
+  ReleaseViewportAttachmentTexture(&reservoirTemporalTexture,
                                    &reservoirTemporalView);
   width = height = 0;
   targetWidth = targetHeight = 0;
@@ -564,33 +563,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         eRenderListCompileFlag_Decal | eRenderListCompileFlag_Illumination |
         eRenderListCompileFlag_FogArea);
 
-    // Park every BLAS-backed geometry on this frame's context, unfiltered by
-    // frustum/visibility culling. The TLAS (m_tlas) is persistent and only
-    // rebuilt on frames that gather visible instances (see "TLAS build"
-    // below, guarded by `!tlasInstances.empty()`); a stale m_tlas keeps
-    // referencing the BLAS device addresses of geometry that was freed on a
-    // map transition, and the surfel RT passes trace it every frame -> a
-    // dangling acceleration-structure / vertex-buffer dereference -> GPUVM
-    // read fault -> device lost. AttachResourceToCntx pushes the BLAS handle,
-    // its storage, and the vertex/index buffers onto resourceLink,
-    // which defer release by frames-in-flight, so any BLAS the TLAS can still
-    // reference outlives the in-flight window even after its owning renderable
-    // is destroyed. Only geometry with a built BLAS is parked (the rest can't
-    // be in the TLAS).
-    std::function<void(iRenderableContainerNode *)> retainGeometryBlas =
-        [&](iRenderableContainerNode *node) {
-          node->UpdateBeforeUse();
-          for (auto *child : node->GetChildNodes())
-            retainGeometryBlas(child);
-          for (auto *pObject : node->GetObjects()) {
-            auto *pVB =
-                static_cast<cVertexBuffer *>(pObject->GetVertexBuffer());
-            if (pVB && pVB->accelStructure())
-              pVB->AttachResourceToCntx(cntx);
-          }
-        };
-    retainGeometryBlas(dynamicContainer->GetRoot());
-    retainGeometryBlas(staticContainer->GetRoot());
+    // A persistent m_tlas can keep referencing the BLAS device addresses of
+    // geometry freed on a map transition until it's rebuilt. No per-frame
+    // pinning is needed for that anymore: a cVertexBuffer owns its BLAS by value
+    // and defers it (RIResourceDeferral on RI.graphicsDefer) on rebuild and in
+    // its destructor, so any BLAS the TLAS can still reference outlives the
+    // in-flight window even after its owning renderable is destroyed.
   }
 
   // --------------------------------------------------------------------
@@ -619,7 +597,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       if (renderableNeedsBlas(pObj)) {
         vbri->BuildBlas(&RI.blasSubmit.cmds[0], &RI.device, cntx);
       }
-      vbri->AttachResourceToCntx(cntx);
     }
   }
 
@@ -638,7 +615,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       auto *vbri = static_cast<cVertexBuffer *>(pVB);
       // Decals are never TLAS instances — upload streams, no BLAS.
       vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
-      vbri->AttachResourceToCntx(cntx);
     }
   }
 
@@ -1067,7 +1043,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // frame (anchored surfels with a now-out-of-range primitiveIndex go stale
     // before the OOB deref).
     vb->BuildBlas(&RI.blasSubmit.cmds[0], &RI.device, cntx);
-    vb->AttachResourceToCntx(cntx);
 
     // Stable object slot, keyed on the renderable's unique cookie (NOT its
     // transform — a moving object keeps its slot, and its surfels follow via
@@ -1088,8 +1063,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // Transposed model matrix for the TLAS instance transform below.
     const ml::float4x4 modelF4 =
         cMath::ToFloatTranspose4x4(pMtx ? *pMtx : cMatrixf::Identity);
-
-    vb->AttachResourceToCntx(cntx);
 
     if (writtenDraws < indirectReq.numElements) {
       indirectDst[writtenDraws++] = VkDrawIndirectCommand{
@@ -1224,7 +1197,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     auto destroyBuffer = [](RIBuffer *b) {
       if (!b->isEmpty(&RI.renderer)) {
-        RI.GetActiveSet()->freelist.push_back(*b);
+        RI.graphicsDefer.push(RIResourceDeferral<RIBuffer>(&RI.device, *b));
       }
       delete b;
     };
@@ -1239,7 +1212,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       while (newCap < instanceCapacityNeeded)
         newCap += (newCap >> 1);
       if (!m_tlasInstanceBuffer.isEmpty(&RI.renderer)) {
-        cntx->freelist.push_back(m_tlasInstanceBuffer);
+        RI.graphicsDefer.push(RIResourceDeferral<RIBuffer>(&RI.device, m_tlasInstanceBuffer));
         m_tlasInstanceBuffer = {};
       }
       // Device-local: the instance buffer is a transfer destination written
@@ -1294,8 +1267,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         (m_tlasStorage.isEmpty(&RI.renderer) ||
          tlasStorageSize > m_tlasStorageCapacity)) {
       if (m_tlas.vk.handle != VK_NULL_HANDLE) {
-        cntx->freelist.push_back(m_tlas);
-        cntx->freelist.push_back(m_tlasStorage);
+        RI.graphicsDefer.push(RIResourceDeferral<RIAccelStructure>(&RI.device, m_tlas));
+        RI.graphicsDefer.push(RIResourceDeferral<RIBuffer>(&RI.device, m_tlasStorage));
         m_tlas = {};
       }
       m_tlasStorage = RIBuffer::create(

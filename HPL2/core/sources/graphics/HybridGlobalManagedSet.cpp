@@ -523,7 +523,7 @@ uint32_t HybridGlobalManagedSet::resolveTextureSlot(
   auto req = m_textureBindless.request(texture_cookie, frameIndex);
   if (req.exhausted)
     return kInvalidTextureIndex;
-  cntx->resourceLink.push_back(texture);
+  RI.graphicsDefer.push(PinResource(img));
   // BindlessPool reports `found == true` only when the same cookie still
   // owns the slot. Fresh allocations and LRU recycles both come back with
   // `found == false`, so that's when we (re)stage the descriptor write at
@@ -554,7 +554,7 @@ uint32_t HybridGlobalManagedSet::resolveCubeTextureSlot(
   auto req = m_textureCubeBindless.request(texture_cookie, frameIndex);
   if (req.exhausted)
     return kInvalidTextureIndex;
-  cntx->resourceLink.push_back(texture);
+  RI.graphicsDefer.push(PinResource(img));
   if (!req.found) {
     RIBindlessDescriptorSet::WriteBinding binding = {};
     binding.binding = kBindingTexturesCube;
@@ -805,9 +805,8 @@ uint32_t HybridGlobalManagedSet::submitObject(uint64_t objectCookie,
   if (vb && (flags & (kSubmitVertex | kSubmitIndex))) {
     auto bdaOf = [&](eVertexBufferElement type) -> VkDeviceAddress {
       const auto *element = vb->GetElement(type);
-      return (element && element->buffer)
-                 ? element->buffer->GetDeviceHandle(&RI.device)
-                 : 0;
+      RIBuffer *buf = element ? element->GetBuffer() : nullptr;
+      return buf ? buf->GetDeviceHandle(&RI.device) : 0;
     };
     if (flags & kSubmitVertex) {
       m_opaquePositionMirror.write<VkDeviceAddress>(

@@ -189,9 +189,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cFrameTexture* cImageManager::CreateCustomFrame(Image *apTexture)
+	cFrameTexture* cImageManager::CreateCustomFrame(SharedResourceHandle<Image> aTexture)
 	{
-		cFrameTexture *pTFrame = hplNew( cFrameTexture, (apTexture,mlFrameHandle,this,true) );
+		cFrameTexture *pTFrame = hplNew( cFrameTexture, (std::move(aTexture),mlFrameHandle,this,true) );
 		
 		m_mapTextureFrames.insert(tFrameTextureMap::value_type(mlFrameHandle, pTFrame));
 		++mlFrameHandle;
@@ -395,8 +395,8 @@ namespace hpl {
 	
 	cFrameBitmap *cImageManager::CreateBitmapFrame(cVector2l avSize)
 	{
-		Image* pImg = hplNew(Image, ());
-		cFrameTexture *pTFrame = hplNew( cFrameTexture, (pImg, mlFrameHandle,this,false) );
+		Image* pImg = new Image();
+		cFrameTexture *pTFrame = hplNew( cFrameTexture, (AdoptStandaloneImage(pImg), mlFrameHandle,this,false) );
 		cBitmap *pBmp = hplNew(cBitmap, () );
 		pBmp->CreateData(cVector3l(avSize.x, avSize.y,1),ePixelFormat_RGBA,0,0);
 

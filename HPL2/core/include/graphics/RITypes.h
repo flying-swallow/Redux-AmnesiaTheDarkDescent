@@ -614,13 +614,6 @@ struct RIAccelStructure {
   hash_t cookie;
 };
 
-// Deferred-destroy handle for the per-frame freelist: a by-value copy of the
-// owning RI struct, drained with std::visit -> dispose(device) once the frame
-// slot's ring fence has signaled (see RIBootstrap::BeginActiveSet).
-using RIFreeHandle =
-    std::variant<struct RIBuffer, struct RITexture, struct RITextureView,
-                 struct RIAccelStructure>;
-
 struct RIAccelStructureDesc {
   RIAccelStructureDesc() { memset(this, 0, sizeof(*this)); }
 
@@ -1658,5 +1651,39 @@ RICommandRingBuffer<MaxPoolCount, CmdPerPool>::acquire(struct RIDevice *device,
 
   return result;
 }
+
+
+// Owns a by-value copy of an RI resource struct and disposes it on destruction.
+// Move-only: parked in a vector<variant<...>> deferral queue and disposed once
+// the GPU passes the timeline value the queue was latched to. Moving steals the
+// resource and zeroes the source so its destructor is a no-op (dispose is
+// null-safe and RI structs memset-zero in their default ctor).
+template<typename T>
+class RIResourceDeferral {
+public:
+  RIResourceDeferral(RIDevice* dev, T res)
+    : m_device(dev), m_res(res){}
+  RIResourceDeferral(const RIResourceDeferral&) = delete;
+  RIResourceDeferral& operator=(const RIResourceDeferral&) = delete;
+  RIResourceDeferral(RIResourceDeferral&& other) noexcept
+    : m_device(other.m_device), m_res(other.m_res) {
+    other.m_device = nullptr;
+    other.m_res = T{};
+  }
+  RIResourceDeferral& operator=(RIResourceDeferral&& other) noexcept {
+    if (this != &other) {
+      if (m_device) m_res.dispose(m_device);
+      m_device = other.m_device;
+      m_res = other.m_res;
+      other.m_device = nullptr;
+      other.m_res = T{};
+    }
+    return *this;
+  }
+  ~RIResourceDeferral(){ if (m_device) m_res.dispose(m_device); }
+private:
+  RIDevice* m_device;
+  T m_res;
+};
 
 #endif

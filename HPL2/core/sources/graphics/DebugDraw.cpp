@@ -308,7 +308,7 @@ namespace hpl {
 							 const cVector2f& avUv0, const cVector2f& avUv1, Image* apImage, const cColor& aTint,
 							 const DebugDrawOptions& aOptions)
 	{
-		std::shared_ptr<cTexture> texture = apImage ? apImage->GetTexture() : nullptr;
+		cTexture *texture = apImage ? apImage->GetTexture() : nullptr;
 		if(!texture) {
 			DrawQuad(avV1, avV2, avV3, avV4, aTint, aOptions);
 			return;
@@ -323,9 +323,9 @@ namespace hpl {
 		request.m_type = quad;
 		request.m_uv0 = avUv0;
 		request.m_uv1 = avUv1;
-		request.m_texture = texture;
+		request.m_texture = RetainResource(apImage);
 		request.m_color = aTint;
-		m_uvQuads.push_back(request);
+		m_uvQuads.push_back(std::move(request));
 	}
 
 	void DebugDraw::DrawPyramid(const cVector3f& avBaseCenter, const cVector3f& avTop, float afHalfWidth,
@@ -351,7 +351,7 @@ namespace hpl {
 								  const cVector2f& avUv1, Image* apImage, const cColor& aTint,
 								  const DebugDrawOptions& aOptions)
 	{
-		std::shared_ptr<cTexture> texture = apImage ? apImage->GetTexture() : nullptr;
+		cTexture *texture = apImage ? apImage->GetTexture() : nullptr;
 		if(!texture) {
 			return;
 		}
@@ -364,9 +364,9 @@ namespace hpl {
 		request.m_type = billboard;
 		request.m_uv0 = avUv0;
 		request.m_uv1 = avUv1;
-		request.m_texture = texture;
+		request.m_texture = RetainResource(apImage);
 		request.m_color = aTint;
-		m_uvQuads.push_back(request);
+		m_uvQuads.push_back(std::move(request));
 	}
 
 	void DebugDraw::DebugWireFrameFromVertexBuffer(cVertexBuffer* apVertexBuffer, const cColor& aColor,
@@ -472,7 +472,7 @@ namespace hpl {
 			assert(res);
 
 			if(!m_vertexBuffer.isEmpty(&RI.renderer)) {
-				cntx->freelist.push_back(m_vertexBuffer);
+				RI.graphicsDefer.push(RIResourceDeferral<RIBuffer>(&RI.device, m_vertexBuffer));
 			}
 			m_vertexBuffer = RIBuffer::create(
 				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
@@ -494,7 +494,7 @@ namespace hpl {
 			assert(res);
 
 			if(!m_indexBuffer.isEmpty(&RI.renderer)) {
-				cntx->freelist.push_back(m_indexBuffer);
+				RI.graphicsDefer.push(RIResourceDeferral<RIBuffer>(&RI.device, m_indexBuffer));
 			}
 			m_indexBuffer = RIBuffer::create(
 				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
@@ -676,8 +676,8 @@ namespace hpl {
 		if(!m_uvQuads.empty())
 		{
 			std::sort(m_uvQuads.begin(), m_uvQuads.end(), [](const UVQuadRequest& a, const UVQuadRequest& b) {
-				if(a.m_texture != b.m_texture) {
-					return a.m_texture < b.m_texture;
+				if(a.m_texture.Get() != b.m_texture.Get()) {
+					return a.m_texture.Get() < b.m_texture.Get();
 				}
 				return a.m_depthTest < b.m_depthTest;
 			});
@@ -694,7 +694,9 @@ namespace hpl {
 				size_t runVertexCount = 0;
 				size_t runIndexCount = 0;
 				const DebugDepthTest depthTest = it->m_depthTest;
-				const std::shared_ptr<cTexture> texture = it->m_texture;
+				// Own the Image for the whole run + the frame pin below.
+				const SharedResourceHandle<Image> image = it->m_texture;
+				cTexture *texture = image->GetTexture();
 				do {
 					const cColor& c = it->m_color;
 					const float color[4] = { c.r, c.g, c.b, c.a };
@@ -726,7 +728,7 @@ namespace hpl {
 					eleMemory[indexCursor + runIndexCount++] = (uint32_t)runVertexCount - 2;
 					eleMemory[indexCursor + runIndexCount++] = (uint32_t)runVertexCount - 1;
 					++it;
-				} while(it != m_uvQuads.end() && it->m_depthTest == depthTest && it->m_texture == texture);
+				} while(it != m_uvQuads.end() && it->m_depthTest == depthTest && it->m_texture.Get() == image.Get());
 				vertexCursor += runVertexCount;
 				indexCursor += runIndexCount;
 
@@ -739,9 +741,9 @@ namespace hpl {
 				cfg.colorFormat = aColorFormat;
 				bindDebugPipeline(m_uvProgram, cmd, cfg, "debug.uvQuad");
 
-				// Pin the texture so a mid-frame destroy can't free the VkImage
+				// Pin the Image so a mid-frame destroy can't free the VkImage
 				// before this submit retires.
-				cntx->resourceLink.push_back(texture);
+				RI.graphicsDefer.push(PinResource(image.Get()));
 
 				auto samplerDesc = RI.resolve_filter_descriptor(
 					eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,

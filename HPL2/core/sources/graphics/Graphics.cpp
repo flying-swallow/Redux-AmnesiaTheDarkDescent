@@ -117,6 +117,16 @@ namespace hpl {
 		hplDelete(mpDecalCreator);
 		if(mpDebugDraw) hplDelete(mpDebugDraw);
 
+		// Tear down the RI backend now, while the resource managers (owned by
+		// cResources, deleted after cGraphics in cEngine::~cEngine) are still
+		// alive. RI.graphicsDefer holds SharedResourcePins that call back into
+		// their owning manager's FreeResource() on release; draining here (rather
+		// than letting the static RI global drain at atexit, after the managers
+		// are gone) keeps those manager pointers valid. RI.Dispose() does not
+		// destroy the vk device, so the device-deferrals ~cResources pushes
+		// afterwards (vertex buffers, texture disposes) still have a live device.
+		RI.Dispose();
+
 		Log("--------------------------------------------------------\n\n");
 	}
 
@@ -227,6 +237,7 @@ namespace hpl {
 		struct RIQueue *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
 		RI.graphicsCmdRing.init( &RI.device, graphicsQueue,
 		                         RI_NUMBER_FRAMES_FLIGHT, RI_NUMBER_SUB_COMMANDS, true );
+		RI.graphicsTimeline.init( &RI.device );
 		for(auto& set: RI.frameSets) {
 			struct RIScratchAllocDesc uboDesc = {
 					.blockSize = 256 * 128,

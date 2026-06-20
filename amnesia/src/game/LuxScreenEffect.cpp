@@ -54,17 +54,16 @@ void cLuxScreenEffect::CreateTextures()
 	const uint32_t w = RI.swapchain.width;
 	const uint32_t h = RI.swapchain.height;
 
-	LuxCreateScreenRenderTarget(m_screenBgColor, w, h, VK_FORMAT_R8G8B8A8_UNORM,
+	m_screenBgImage = LuxCreateScreenRenderTarget(w, h, VK_FORMAT_R8G8B8A8_UNORM,
 	                            "screen.effectBg");
 
 	// The separable blur ping-pongs through a scratch target between the shared
 	// sharp copy and the blurred result.
 	if (mEffect == Effect::Blur)
-		LuxCreateScreenRenderTarget(m_screenScratch, w, h, VK_FORMAT_R8G8B8A8_UNORM,
+		m_screenScratchImage = LuxCreateScreenRenderTarget(w, h, VK_FORMAT_R8G8B8A8_UNORM,
 		                            "screen.effectBlurTmp");
 
-	m_screenBgImage = std::make_shared<Image>(Image::SingleImage{m_screenBgColor});
-	mpScreenBgGfx   = mpGui->CreateGfxTexture(m_screenBgImage.get(), false, eGuiMaterial_Alpha);
+	mpScreenBgGfx   = mpGui->CreateGfxTexture(m_screenBgImage.Get(), false, eGuiMaterial_Alpha);
 }
 
 //-----------------------------------------------------------------------
@@ -90,11 +89,10 @@ void cLuxScreenEffect::Destroy()
 	if (mpScreenBgGfx) mpGui->DestroyGfx(mpScreenBgGfx);
 	mpScreenBgGfx = nullptr;
 
-	// The shared_ptr deleter parks the GPU handles on the active frame slot's
-	// freelist; they're released when that slot is reused next.
-	m_screenBgImage.reset();
-	m_screenBgColor.reset();
-	m_screenScratch.reset();
+	// Dropping the handles frees the Images (and their cTextures) once any
+	// in-flight per-frame keep-alive pins on the active slot have been released.
+	m_screenBgImage = {};
+	m_screenScratchImage = {};
 
 	mbApplyPending = false;
 	mbApplied      = false;
@@ -107,9 +105,11 @@ void cLuxScreenEffect::OnPostRender()
 	if (!mbApplyPending) {
 		return;
 	}
-	if (!m_screenBgColor || m_postProgram.getPipelineLayout() == VK_NULL_HANDLE) {
+	if (!m_screenBgImage || m_postProgram.getPipelineLayout() == VK_NULL_HANDLE) {
 		return;
 	}
+	cTexture *bgColor = m_screenBgImage->GetTexture();
+	cTexture *scratch = m_screenScratchImage ? m_screenScratchImage->GetTexture() : nullptr;
 
 	cLuxScreenCapture *pCapture = gpBase->GetScreenCapture();
 	if (!pCapture->IsCaptured()) {
@@ -130,9 +130,8 @@ void cLuxScreenEffect::OnPostRender()
 	const uint32_t h = static_cast<uint32_t>(size.y);
 
 	// Keep the effect target alive until the GPU has consumed it.
-	auto *frameCtx = RI.GetActiveSet();
-	frameCtx->resourceLink.push_back(m_screenBgColor);
-	if (m_screenScratch) frameCtx->resourceLink.push_back(m_screenScratch);
+	RI.graphicsDefer.push(PinResource(m_screenBgImage.Get()));
+	if (m_screenScratchImage) RI.graphicsDefer.push(PinResource(m_screenScratchImage.Get()));
 
 	////////////////////////////////////////////////
 	// Blurred backdrop (escape menu): separable gaussian ping-pong.
@@ -212,27 +211,27 @@ void cLuxScreenEffect::OnPostRender()
 		for (int i = 0; i < kIterations; ++i)
 		{
 			const RIDescriptor hIn = (i == 0) ? source
-			                                  : m_screenBgColor->descriptor();
-			blurPass(m_screenScratch.get(), hIn,                          kBlurSize, 0.0f);
-			blurPass(m_screenBgColor.get(), m_screenScratch->descriptor(), 0.0f, kBlurSize);
+			                                  : bgColor->descriptor();
+			blurPass(scratch, hIn,                  kBlurSize, 0.0f);
+			blurPass(bgColor, scratch->descriptor(), 0.0f, kBlurSize);
 		}
-		// m_screenBgColor ends SHADER_READ_ONLY (last blurPass).
+		// bgColor ends SHADER_READ_ONLY (last blurPass).
 
 		mbApplyPending = false;
 		mbApplied      = true;
 		return;
 	}
 
-	RITextureBarrier bgToTarget(&m_screenBgColor->handle,
+	RITextureBarrier bgToTarget(&bgColor->handle,
 			RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_RENDER_TARGET,
 			RI_STAGE_NONE, RI_STAGE_NONE);
 	RI.primary.cmds[0].vk_d3d12_textureBarrier(bgToTarget);
 
 	////////////////////////////////////////////////
-	// Fullscreen post-effect — sample the shared capture, write m_screenBgColor.
+	// Fullscreen post-effect — sample the shared capture, write bgColor.
 	////////////////////////////////////////////////
 
-	RITextureView bgColorView = m_screenBgColor->view;
+	RITextureView bgColorView = bgColor->view;
 	RIRenderingAttachment color = {};
 	color.view    = bgColorView;
 	color.loadOp  = RI_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -323,8 +322,8 @@ void cLuxScreenEffect::OnPostRender()
 	vkCmdDraw(cmd, 3, 1, 0, 0);
 	RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
 
-	// m_screenBgColor → SHADER_READ_ONLY so subsequent GUI draws can sample it.
-	RITextureBarrier bgToSampled(&m_screenBgColor->handle,
+	// bgColor → SHADER_READ_ONLY so subsequent GUI draws can sample it.
+	RITextureBarrier bgToSampled(&bgColor->handle,
 			RI_RESOURCE_STATE_RENDER_TARGET, RI_RESOURCE_STATE_SHADER_RESOURCE,
 			RI_STAGE_NONE, RI_STAGE_FRAGMENT);
 	RI.primary.cmds[0].vk_d3d12_textureBarrier(bgToSampled);

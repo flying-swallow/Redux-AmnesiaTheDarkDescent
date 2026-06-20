@@ -165,8 +165,8 @@ namespace hpl {
 	{
 		for(uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; i++)
 		{
-			ReleaseViewportColorTexture(cntx->freelist, &renderTarget[i], &renderTargetView[i]);
-			ReleaseViewportAttachmentTexture(cntx->freelist, &depthTextures[i], &depthView[i]);
+			ReleaseViewportColorTexture(&renderTarget[i], &renderTargetView[i]);
+			ReleaseViewportAttachmentTexture(&depthTextures[i], &depthView[i]);
 		}
 		width = height = 0;
 	}
@@ -244,7 +244,6 @@ namespace hpl {
 
 				auto *vbri = static_cast<cVertexBuffer*>(pVB);
 				vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
-				vbri->AttachResourceToCntx(cntx);
 			}
 		}
 
@@ -532,13 +531,13 @@ namespace hpl {
 					const auto *uvElement = vbri->GetElement(eVertexBufferElement_Texture0);
 					const auto &indexBufferPtr = vbri->GetIndexRIBuffer();
 					indexCount = vbri->GetIndexNum();
-					if(posElement == NULL || !posElement->buffer || !indexBufferPtr || indexCount <= 0) {
+					if(posElement == NULL || !posElement->GetBuffer() || !indexBufferPtr || indexCount <= 0) {
 						continue;
 					}
-					posBuffer = posElement->buffer.get();
-					idxBuffer = indexBufferPtr.get();
-					colBuffer = (colElement && colElement->buffer) ? colElement->buffer.get() : nullptr;
-					uvBuffer = (uvElement && uvElement->buffer) ? uvElement->buffer.get() : nullptr;
+					posBuffer = posElement->GetBuffer();
+					idxBuffer = indexBufferPtr;
+					colBuffer = colElement ? colElement->GetBuffer() : nullptr;
+					uvBuffer = uvElement ? uvElement->GetBuffer() : nullptr;
 				}
 
 				cMaterial *pMat = pObject->GetMaterial();
@@ -574,10 +573,10 @@ namespace hpl {
 				// 1x1 white default. Pin real textures so a mid-frame destroy
 				// can't free the VkImage before this submit retires.
 				Image *pDiffuseImage = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : nullptr;
-				std::shared_ptr<cTexture> texture = pDiffuseImage ? pDiffuseImage->GetTexture() : nullptr;
+				cTexture *texture = pDiffuseImage ? pDiffuseImage->GetTexture() : nullptr;
 				RIDescriptor textureDescriptor = RI.whiteTexture2DDescriptor();
 				if(texture) {
-					cntx->resourceLink.push_back(texture);
+					RI.graphicsDefer.push(PinResource(pDiffuseImage));
 					textureDescriptor = texture->descriptor();
 				}
 

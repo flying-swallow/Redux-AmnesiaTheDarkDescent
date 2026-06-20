@@ -159,7 +159,6 @@ namespace hpl {
 
 				auto *vbri = static_cast<cVertexBuffer*>(pVB);
 				vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
-				vbri->AttachResourceToCntx(cntx);
 			}
 		}
 
@@ -386,7 +385,7 @@ namespace hpl {
 				const auto *posElement = vbri->GetElement(eVertexBufferElement_Position);
 				const auto &indexBuffer = vbri->GetIndexRIBuffer();
 				const int indexCount = vbri->GetIndexNum();
-				if(posElement == NULL || !posElement->buffer || !indexBuffer || indexCount <= 0) {
+				if(posElement == NULL || !posElement->GetBuffer() || !indexBuffer || indexCount <= 0) {
 					continue;
 				}
 
@@ -406,10 +405,10 @@ namespace hpl {
 				binding.handle = DescriptorBindingID::Create("pass");
 				m_wireframe.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, &binding, 1);
 
-				RIBuffer *vertBufs[1] = { posElement->buffer.get() };
+				RIBuffer *vertBufs[1] = { posElement->GetBuffer() };
 				const VkDeviceSize vertOffsets[1] = { 0 };
 				RI.primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
-				RI.primary.cmds[0].bindIndexBuffer(&RI.device, indexBuffer.get(), 0, RI_INDEX_TYPE_32);
+				RI.primary.cmds[0].bindIndexBuffer(&RI.device, indexBuffer, 0, RI_INDEX_TYPE_32);
 				RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1, 0, 0, 0);
 			}
 		}

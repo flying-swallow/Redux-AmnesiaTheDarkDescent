@@ -555,7 +555,7 @@ namespace hpl {
 			assert(res);
 
 			if(!RI.guiVertexBuffer.isEmpty(&RI.renderer)) {
-				cntx->freelist.push_back(RI.guiVertexBuffer);
+				RI.graphicsDefer.push(RIResourceDeferral<RIBuffer>(&RI.device, RI.guiVertexBuffer));
 			}
 			RI.guiVertexBuffer = RIBuffer::create(
 				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
@@ -574,7 +574,7 @@ namespace hpl {
 			RI.guiIndexAlloc = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>( &segmentAllocDesc );
 			
 			if(!RI.guiIndexBuffer.isEmpty(&RI.renderer)) {
-				cntx->freelist.push_back(RI.guiIndexBuffer);
+				RI.graphicsDefer.push(RIResourceDeferral<RIBuffer>(&RI.device, RI.guiIndexBuffer));
 			}
 			RI.guiIndexBuffer = RIBuffer::create(
 				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
@@ -695,15 +695,15 @@ namespace hpl {
 			size_t numBindings = 0;
 			// Resolve the diffuse texture, pin its lifetime to this frame
 			// slot BEFORE we touch any of its Vulkan handles. resourceLink
-			// holds the shared_ptr until next reuse of this frame slot
+			// holds the owning Image until next reuse of this frame slot
 			// (after the fence wait in BeginActiveSet), so the VkImage
 			// stays alive past the submit that references it.
-			std::shared_ptr<cTexture> diffuseTexture;
+			cTexture *diffuseTexture = nullptr;
 			if (pTexture) {
 				diffuseTexture = pTexture->GetTexture();
 			}
 			if (diffuseTexture) {
-				cntx->resourceLink.push_back(diffuseTexture);
+				RI.graphicsDefer.push(PinResource(pTexture));
 				uniformBlock.textureCfg |= (1 << 0); // Has texture
 				bindings[numBindings].descriptor = diffuseTexture->descriptor();
 			} else {

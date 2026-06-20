@@ -143,7 +143,7 @@ namespace hpl {
 				hpl::cTexture::BitmapLoadOptions opts = {0};
 				opts.use_mipmaps = abUseMipMaps;
 				opts.sRGB = abSRGB;
-				singleImage.image = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
+				singleImage.image.emplace();
 				if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *pBmp, opts)) {
 					Error("Texture manager Couldn't load bitmap '%s'\n", cString::To8Char(path).c_str());
 					return NULL;
@@ -160,7 +160,7 @@ namespace hpl {
 				cTexture::BitmapLoadOptions opts = {0};
 				opts.use_mipmaps = abUseMipMaps;
 				opts.sRGB = abSRGB;
-				singleImage.image = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
+				singleImage.image.emplace();
 				if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *pBmp, opts)) {
 					Error("Texture manager Couldn't load bitmap '%s'\n", cString::To8Char(path).c_str());
 					return NULL;
@@ -176,7 +176,7 @@ namespace hpl {
 				cTexture::BitmapLoadOptions opts = {0};
 				opts.use_mipmaps = abUseMipMaps;
 				opts.sRGB = abSRGB;
-				singleImage.image =  std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
+				singleImage.image.emplace();
 				if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *pBmp, opts)) {
 					Error("Texture manager Couldn't load bitmap '%s'\n", cString::To8Char(path).c_str());
 					return NULL;
@@ -200,7 +200,7 @@ namespace hpl {
 					opts.use_mipmaps = abUseMipMaps;
 					opts.use_cubemap = true;
 					opts.sRGB = abSRGB;
-					singleImage.image = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
+					singleImage.image.emplace();
 					if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *pBmp, opts)) {
 						Error("Texture manager Couldn't load cubemap '%s'\n", cString::To8Char(path).c_str());
 						return nullptr;
@@ -280,7 +280,7 @@ namespace hpl {
 			opts.use_mipmaps = abUseMipMaps;
 			opts.use_cubemap = true;
 			opts.sRGB = abSRGB;
-			singleImage.image = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
+			singleImage.image.emplace();
 
 			bool ok = singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, aggregate, opts);
 
@@ -395,8 +395,8 @@ namespace hpl {
 				opts.use_mipmaps = abUseMipMaps;
 				opts.use_cubemap = (aType == eTextureType_CubeMap);
 				opts.sRGB = abSRGB;
-				auto tex = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
-				if(!tex->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *pBmp, opts))
+				cTexture tex;
+				if(!tex.LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *pBmp, opts))
 				{
 					Error("Couldn't load animation frame for '%s'!\n", sBaseName.c_str());
 					ok = false;

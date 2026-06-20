@@ -472,7 +472,7 @@ namespace hpl {
 		if(mbIsUpdated)
 		{
 			Image::SingleImage singleImage = {};
-			singleImage.image = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
+			singleImage.image.emplace();
 			hpl::cTexture::BitmapLoadOptions opts = {0};
 			opts.use_mipmaps = true;
 			if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *mpBitmap, opts)) {

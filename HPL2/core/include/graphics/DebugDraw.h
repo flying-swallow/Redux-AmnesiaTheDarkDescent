@@ -179,7 +179,7 @@ private:
         DebugDepthTest m_depthTest = DebugDepthTest::LessEqual;
         std::variant<Quad, Billboard> m_type;
         cVector2f m_uv0, m_uv1;
-        std::shared_ptr<cTexture> m_texture;
+        SharedResourceHandle<Image> m_texture;
         cColor m_color;
     };
 

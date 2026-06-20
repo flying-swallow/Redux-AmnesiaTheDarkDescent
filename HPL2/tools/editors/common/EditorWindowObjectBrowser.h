@@ -71,7 +71,7 @@ public:
 
 	// The entry OWNS its GPU-resident thumbnail — delivered by the builder's
 	// callback, released when the entry dies (GPU frees are deferred).
-	Image* GetThumbnailImage() { return mpThumbnailImage.get(); }
+	Image* GetThumbnailImage() { return mpThumbnailImage.Get(); }
 protected:
 	void BuildThumbnail();
 
@@ -83,7 +83,7 @@ protected:
 
 	tWString msMeshFileName;
 
-	std::shared_ptr<Image> mpThumbnailImage;
+	SharedResourceHandle<Image> mpThumbnailImage;
 };
 
 

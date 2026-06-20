@@ -34,11 +34,11 @@ namespace hpl {
 	class cGuiGfxElement;
 }
 
-// Allocate `outTex` as a screen-sized color attachment that is also sampleable
-// as a 2D texture (and a TRANSFER_DST for the capture copy), wired up for
-// cGui::CreateGfxTexture / RIProgram::bindDescriptors. Shared by the capture
-// (R16G16B16A16_SFLOAT) and the per-state effect (R8G8B8A8_UNORM).
-bool LuxCreateScreenRenderTarget(std::shared_ptr<hpl::cTexture> &outTex,
+// Build a screen-sized color attachment that is also sampleable as a 2D texture
+// (and a TRANSFER_DST for the capture copy), wrapped in a standalone Image and
+// wired up for cGui::CreateGfxTexture / RIProgram::bindDescriptors. Shared by the
+// capture (R16G16B16A16_SFLOAT) and the per-state effect (R8G8B8A8_UNORM).
+hpl::SharedResourceHandle<hpl::Image> LuxCreateScreenRenderTarget(
 		uint32_t width, uint32_t height, VkFormat format, const char *debugName);
 
 //////////////////////////////////////////////////////////////////////////
@@ -100,8 +100,7 @@ private:
 	hpl::cGui            *mpGui       = nullptr;
 	hpl::cGuiGfxElement  *mpScreenGfx = nullptr;
 
-	std::shared_ptr<hpl::cTexture> m_primaryColor;
-	std::shared_ptr<hpl::Image>      m_primaryImage;
+	hpl::SharedResourceHandle<hpl::Image> m_primaryImage;
 	uint32_t mlWidth  = 0;
 	uint32_t mlHeight = 0;
 

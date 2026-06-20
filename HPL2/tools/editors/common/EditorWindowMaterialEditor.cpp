@@ -336,7 +336,7 @@ void cTextureWrapper::CreateFromImage(Image* apImage)
 
 	mbEnabled = true;
 
-	std::shared_ptr<cTexture> pTex = apImage->GetTexture();
+	cTexture* pTex = apImage->GetTexture();
 	const RIFormatProps* pProps = pTex ? GetRIFormatProps(pTex->format) : NULL;
 	mbCompressed = pProps && pProps->isCompressed;
 	mbMipMaps = pTex && pTex->mipNum > 1;

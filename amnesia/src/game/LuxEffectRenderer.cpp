@@ -347,11 +347,10 @@ bool BindGeomStreams(RICmd *apCmd, cVertexBuffer *apVB, bool *abNormalPresent) {
 	auto *vbri = static_cast<cVertexBuffer *>(apVB);
 	auto bufOf = [&](eVertexBufferElement type) -> RIBuffer * {
 		const auto *element = vbri->GetElement(type);
-		return (element && element->buffer) ? element->buffer.get() : nullptr;
+		return element ? element->GetBuffer() : nullptr;
 	};
 	RIBuffer *pos = bufOf(eVertexBufferElement_Position);
-	const auto &idxRI = vbri->GetIndexRIBuffer();
-	RIBuffer *idx = idxRI ? idxRI.get() : nullptr;
+	RIBuffer *idx = vbri->GetIndexRIBuffer();
 	if (!pos || !idx)
 		return false;
 	RIBuffer *nrm = bufOf(eVertexBufferElement_Normal);
@@ -370,12 +369,11 @@ bool BindGeomStreamsUv(RICmd *apCmd, cVertexBuffer *apVB) {
 	auto *vbri = static_cast<cVertexBuffer *>(apVB);
 	auto bufOf = [&](eVertexBufferElement type) -> RIBuffer * {
 		const auto *element = vbri->GetElement(type);
-		return (element && element->buffer) ? element->buffer.get() : nullptr;
+		return element ? element->GetBuffer() : nullptr;
 	};
 	RIBuffer *pos = bufOf(eVertexBufferElement_Position);
 	RIBuffer *uv = bufOf(eVertexBufferElement_Texture0);
-	const auto &idxRI = vbri->GetIndexRIBuffer();
-	RIBuffer *idx = idxRI ? idxRI.get() : nullptr;
+	RIBuffer *idx = vbri->GetIndexRIBuffer();
 	if (!pos || !uv || !idx)
 		return false;
 	RIBuffer *vertBufs[2] = {pos, uv};
@@ -742,7 +740,7 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 				// UVs and a diffuse image; skip the object if either is missing.
 				cMaterial *pMat = pObject->GetMaterial();
 				Image *pDiffImage = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : NULL;
-				std::shared_ptr<cTexture> diffTex =
+				cTexture *diffTex =
 					pDiffImage ? pDiffImage->GetTexture() : nullptr;
 				if (!diffTex) continue;
 
@@ -923,7 +921,7 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 				// back to the solid path if the mesh has no UVs.
 				cMaterial *pMat = pObject->GetMaterial();
 				Image *pAlphaImage = pMat ? pMat->GetImage(eMaterialTexture_Alpha) : NULL;
-				std::shared_ptr<cTexture> alphaTex =
+				cTexture *alphaTex =
 					pAlphaImage ? pAlphaImage->GetTexture() : nullptr;
 
 				bool bDrewAlpha = false;
