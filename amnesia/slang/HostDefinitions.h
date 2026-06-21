@@ -146,13 +146,11 @@ typedef float float4x4[16];
 #endif
 
 // -----------------------------------------------------------------------------
-// Type discriminators. Every Light/Material struct stores its
-// discriminator in `type` at offset 0; the ILight / IMaterial interfaces
-// and the surfel GI iteration loops rely on it.
+// Type discriminators. Every Material struct stores its discriminator in `type`
+// at offset 0; the IMaterial interface relies on it. (Lights carry no type
+// field — their type is implied by which SSBO the entry lives in; see
+// Scene.slang getLight().)
 // -----------------------------------------------------------------------------
-#define LIGHT_TYPE_POINT        0u
-#define LIGHT_TYPE_SPOT         1u
-
 #define MATERIAL_TYPE_DIFFUSE       0u
 #define MATERIAL_TYPE_TRANSLUCENT   1u
 #define MATERIAL_TYPE_WATER         2u

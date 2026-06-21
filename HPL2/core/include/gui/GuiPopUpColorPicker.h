@@ -22,6 +22,7 @@
 
 #include "gui/GuiPopUp.h"
 #include "graphics/Bitmap.h"
+#include "resources/ResourceBase.h"
 
 namespace tinyxml2 { class XMLElement; }
 
@@ -289,12 +290,12 @@ namespace hpl {
 		cWidgetFrame* mpFPreviousColor;
 
 		cWidgetImage* mpImgColorBox;
-		Image*        mpColorBoxImage;
+		SharedResourceHandle<Image> mpColorBoxImage;
 		cBitmap*      mpColorBoxBitmap;
 
 
 		cWidgetImage* mpImgColorSlider;
-		Image*        mpColorSliderImage;
+		SharedResourceHandle<Image> mpColorSliderImage;
 		cBitmap*      mpColorSliderBitmap;
 
 		cWidgetImage* mpImgAlphaSliderBG;
@@ -303,8 +304,8 @@ namespace hpl {
 		// Picker-owned procedural Images (the attached gfx elements use
 		// SetDestroyTexture(false) — auto-destroy routes through the
 		// TextureManager, which never owned these).
-		Image* mpVMarkerImage;
-		Image* mpAlphaSliderImage;
+		SharedResourceHandle<Image> mpVMarkerImage;
+		SharedResourceHandle<Image> mpAlphaSliderImage;
 		
 		cGuiGfxElement* mpGfxBGPattern;
 		cGuiGfxElement* mpGfxColorPointer;

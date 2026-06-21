@@ -47,10 +47,6 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
-	class cMaterialManagerBlankMaterialType_Vars : public iMaterialVars
-	{
-	};
-
 	class cMaterialManagerBlankMaterialType : public iMaterialType
 	{
 	public:
@@ -61,12 +57,8 @@ namespace hpl {
 
 		bool SupportsHWSkinning(){ return false; }
 
-
-		iMaterialVars* CreateSpecificVariables(){ return hplNew(cMaterialManagerBlankMaterialType_Vars,());}
 		void LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars){ }
 		void GetVariableValues(cMaterial *apMaterial, cResourceVarsObject *apVars){ }
-
-		void CompileMaterialSpecifics(cMaterial *apMaterial){}
 	};
 	
 	cMaterialManagerBlankMaterialType gBlankMaterialType;
@@ -418,8 +410,6 @@ namespace hpl {
 		///////////////////////////
 		//End
 
-		pMat->Compile();
-		
 		return pMat;
 	}
 

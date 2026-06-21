@@ -156,8 +156,7 @@ bool cSDLFontData::CreateFromBitmapFile(const tWString &asFileName) {
     // iTexture *pTexture =
     // mpLowLevelGraphics->CreateTexture("",eTextureType_2D,eTextureUsage_Normal);
     Image::SingleImage singleImage = {};
-    singleImage.image =
-        std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
+    singleImage.image.emplace();
     cTexture::BitmapLoadOptions opts = {0};
     opts.use_mipmaps = true;
     if (!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE,
@@ -166,13 +165,13 @@ bool cSDLFontData::CreateFromBitmapFile(const tWString &asFileName) {
       hplDelete(pBitmap); // Bitmap no longer needed
       continue;
     }
-    Image *pImg = hplNew(Image, (std::move(singleImage)));
+    Image *pImg = new Image(std::move(singleImage));
     hplDelete(pBitmap); // Bitmap no longer needed
 
     ///////////////////////
     // Create Custom Frame for images
     cFrameTexture *pFrameTexture =
-        mpResources->GetImageManager()->CreateCustomFrame(pImg);
+        mpResources->GetImageManager()->CreateCustomFrame(AdoptStandaloneImage(pImg));
 
     vFrameTextures.push_back(pFrameTexture);
   }

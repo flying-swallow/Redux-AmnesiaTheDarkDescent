@@ -317,7 +317,7 @@ namespace hpl {
         ////////////////////////////////////////
         // Update material, if not already done this frame
         cMaterial* pMaterial = apObject->GetMaterial();
-        const bool isValidMaterial = pMaterial && pMaterial->Descriptor().m_id != MaterialID::Unknown;
+        const bool isValidMaterial = pMaterial && pMaterial->GetMaterialID() != MaterialID::Unknown;
         if (pMaterial && pMaterial->GetRenderFrameCount() != iRenderer::GetRenderFrameCount()) {
             pMaterial->SetRenderFrameCount(iRenderer::GetRenderFrameCount());
             pMaterial->UpdateBeforeRendering(m_frameTime);
@@ -333,7 +333,7 @@ namespace hpl {
         ////////////////////////////////////////
         // Update per viewport specific and set amtrix point
         // Skip this for non-decal translucent! This is because the water rendering might mess it up otherwise!
-        if (!isValidMaterial || !cMaterial::IsTranslucent(pMaterial->Descriptor().m_id) || pMaterial->Descriptor().m_id == MaterialID::Decal) {
+        if (!isValidMaterial || !cMaterial::IsTranslucent(pMaterial->GetMaterialID()) || pMaterial->GetMaterialID() == MaterialID::Decal) {
             // skip rendering if the update return false
             if (apObject->UpdateGraphicsForViewport(m_frustum, m_frameTime) == false) {
                 return;
@@ -349,7 +349,7 @@ namespace hpl {
         ////////////////////////////////////////
         // Calculate the View Z value
         //  For transparent and non decals!
-        if (isValidMaterial && cMaterial::IsTranslucent(pMaterial->Descriptor().m_id) && pMaterial->Descriptor().m_id != MaterialID::Decal) {
+        if (isValidMaterial && cMaterial::IsTranslucent(pMaterial->GetMaterialID()) && pMaterial->GetMaterialID() != MaterialID::Decal) {
             cVector3f vIntersectionPos;
             cBoundingVolume* pBV = apObject->GetBoundingVolume();
 
@@ -389,8 +389,8 @@ namespace hpl {
 
             ////////////////////////
             // Transparent
-            if (cMaterial::IsTranslucent(pMaterial->Descriptor().m_id)) {
-                if (pMaterial->Descriptor().m_id == MaterialID::Decal) {
+            if (cMaterial::IsTranslucent(pMaterial->GetMaterialID())) {
+                if (pMaterial->GetMaterialID() == MaterialID::Decal) {
                     m_decalObjects.push_back(apObject);
                 } else {
                     m_transObjects.push_back(apObject);

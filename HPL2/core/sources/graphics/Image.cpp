@@ -2,6 +2,14 @@
 
 namespace hpl {
 
+// Standalone Images are allocated with plain `new` and freed by the handle's
+// default (monostate) policy — plain `delete`. This matches the per-frame
+// SharedResourcePin, which also deletes a manager-less resource, so whichever
+// of the owner or a lingering pin holds the last reference frees it the same way.
+SharedResourceHandle<Image> AdoptStandaloneImage(Image *apImage) {
+  return AdoptResource<Image>(apImage);
+}
+
 Image::Image() : iResourceBase("", _W(""), 0) {
 }
 
@@ -37,13 +45,13 @@ Image::Image(Image &&other)
   value = std::move(other.value);
 }
 
-std::shared_ptr<cTexture> Image::GetTexture() const {
+cTexture* Image::GetTexture() const {
   if (const SingleImage *singleImage = std::get_if<SingleImage>(&value)) {
-    return singleImage->image;
+    return singleImage->image ? const_cast<cTexture *>(&*singleImage->image) : nullptr;
   } else if (const AnimatedImage *animImage = std::get_if<AnimatedImage>(&value)) {
     size_t frameIdx = static_cast<size_t>(animImage->timeCount);
     assert(frameIdx < animImage->images.size() && "Frame index out of range");
-    return animImage->images[frameIdx];
+    return const_cast<cTexture *>(&animImage->images[frameIdx]);
   }
   return nullptr;
 }
@@ -105,13 +113,13 @@ float Image::GetFrameTime() const {
 }
 
 uint16_t Image::GetWidth() const {
-  if (const std::shared_ptr<cTexture> image = GetTexture()) {
+  if (cTexture *image = GetTexture()) {
     return image->width;
   }
   return 0;
 }
 uint16_t Image::GetHeight() const {
-  if (const std::shared_ptr<cTexture> image = GetTexture()) {
+  if (cTexture *image = GetTexture()) {
     return image->height;
   }
   return 0;

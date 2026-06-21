@@ -336,7 +336,7 @@ void cTextureWrapper::CreateFromImage(Image* apImage)
 
 	mbEnabled = true;
 
-	std::shared_ptr<cTexture> pTex = apImage->GetTexture();
+	cTexture* pTex = apImage->GetTexture();
 	const RIFormatProps* pProps = pTex ? GetRIFormatProps(pTex->format) : NULL;
 	mbCompressed = pProps && pProps->isCompressed;
 	mbMipMaps = pTex && pTex->mipNum > 1;
@@ -744,7 +744,21 @@ void cMaterialWrapper::UpdateMaterialInMemory(const tString& asName)
 		cMaterialUvAnimation* pAnim = &(mvUVAnimations[i]);
 		pMat->AddUvAnimation(pAnim->mType,pAnim->mfSpeed,pAnim->mfSpeed,pAnim->mAxis);
 	}
-	pMat->Compile();
+
+	// Push the edited user variables into the material. LoadVariables now builds
+	// the material's data blob directly (there is no separate Compile step), and
+	// runs after the textures above are set so its texture-dependent derivations
+	// (alpha mode, water reflection) see the new images.
+	if(mpClass)
+	{
+		cResourceVarsObject* pVarsObject = pMat->GetVarsObject();
+		for(int i=0;i<mpClass->GetVarInstanceNum();++i)
+		{
+			cEditorVarInstance* pVar = mpClass->GetVarInstance(i);
+			pVarsObject->SetUserVariable(cString::To8Char(pVar->GetName()), cString::To8Char(pVar->GetValue()));
+		}
+		pMat->LoadVariablesFromVarsObject(pVarsObject);
+	}
 }
 
 //------------------------------------------------------------------------------------
@@ -961,8 +975,8 @@ cMaterial* cMaterialWrapper::GetPreviewMaterial()
 			}
 			mpPreviewMat->LoadVariablesFromVarsObject(pVarsObject);
 		}
-
-		mpPreviewMat->Compile();
+		// LoadVariablesFromVarsObject above builds the material data blob directly;
+		// no separate Compile step is needed.
 
 		mbPreviewUpdated=false;
 	}

@@ -71,19 +71,6 @@ public DiffuseShading prepareDiffuseShading(VertexData v, uint materialID,
 // toward the camera for the composite/direct stack, back along the scatter ray
 // for the surfel NEE.
 
-// Concentric (low-distortion) unit-disk map of two [0,1) samples.
-float2 concentricDiskSample(float2 u)
-{
-    float2 o = 2.0f * u - 1.0f;
-    if (o.x == 0.0f && o.y == 0.0f) return float2(0.0f);
-    float r, theta;
-    const float kPiOver4 = 0.78539816f;
-    const float kPiOver2 = 1.57079633f;
-    if (abs(o.x) > abs(o.y)) { r = o.x; theta = kPiOver4 * (o.y / o.x); }
-    else                     { r = o.y; theta = kPiOver2 - kPiOver4 * (o.x / o.y); }
-    return r * float2(cos(theta), sin(theta));
-}
-
 // Shared core: sample + back-face cull + demodulated contribution. Returns false
 // (contrib unset) when the sample fails or N·L ≤ 0. The three public variants
 // differ ONLY in the shadow ray.
@@ -125,26 +112,15 @@ public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW, float3 V,
     if (!sampleLightShade(lightIndex, posW, normalW, V, rough, ls, contrib))
         return float3(0.f);
 
-    float3 sDir = ls.dir;
-    float  sMax = ls.distance;
-    // Source radius + light centre via the ILight interface — getLight() does the
-    // point/spot index slicing, so this function no longer touches the typed SSBOs.
-    ILight light = getLight(lightIndex);
-    float  r     = light.getSourceRadius();
-    float3 lpos  = light.getPosition();
-    if (r > 0.f)
-    {
-        // Tangent basis perpendicular to the light direction.
-        float3 t = normalize(abs(ls.dir.y) < 0.99f
-                             ? cross(float3(0.f, 1.f, 0.f), ls.dir)
-                             : cross(float3(1.f, 0.f, 0.f), ls.dir));
-        float3 b = cross(ls.dir, t);
-        float2 d = concentricDiskSample(rng.next_float2()) * r;
-        float3 target = lpos + d.x * t + d.y * b;
-        float3 toT = target - origin;
-        sMax = length(toT);
-        sDir = toT / max(sMax, 1.0e-6f);
-    }
+    // Aim the shadow ray at a jittered point on the light's source via the ILight
+    // interface — getLight() does the point/spot/area index slicing, so this
+    // function no longer touches the typed SSBOs or knows the source shape. Spheres
+    // (point/spot) return a disk point; area lights sample their rectangle; a
+    // degenerate source returns the centre (hard ray).
+    float3 target = getLight(lightIndex).sampleSourcePoint(ls.dir, rng.next_float2());
+    float3 toT  = target - origin;
+    float  sMax = length(toT);
+    float3 sDir = toT / max(sMax, 1.0e-6f);
 
     if (!gScene.materials.traceShadowRay(origin, sDir, sMax)) return float3(0.f);
     return contrib;

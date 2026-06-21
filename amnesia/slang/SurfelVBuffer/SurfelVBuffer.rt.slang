@@ -107,7 +107,7 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
     // with no consumer changes. Water/glass refract instead (handled below) and
     // are deliberately skipped.
     if (payload.length == 0u
-        && materialID < kSolidMaterialCapacity
+        && gScene.materials.getHeader(materialID).type == MATERIAL_TYPE_DIFFUSE
         && !gScene.materials.isWater(materialID)
         && !gScene.materials.isRefractive(materialID))
     {

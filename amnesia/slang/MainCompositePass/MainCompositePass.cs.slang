@@ -67,6 +67,18 @@ Texture2D<uint4> gPackedHitInfoRaster;
 [vk::binding(2, 2)]
 RWTexture2D<float4> gOutput;
 
+// Per-world decal data, baked by cWorld::Compile and bound on set 2 (the
+// per-pass set) alongside this pass's resources above. Declared here rather than
+// in bindless.slang because MainCompositePass is the only consumer — putting them
+// in the shared module collided with every other pass's set-2 scratch. Bindings
+// start at kBindingWorldDecals (4) to clear the composite's slots 0..3 above.
+[vk::binding(kBindingWorldDecals, kWorldDecalSet)]
+StructuredBuffer<GpuDecal> gDecals;
+// Flat per-object decal-index pool. UniformObject.decalList packs (offset<<8)|count;
+// compositeDecals reads gObjectDecalIndices[offset + k] → a stable gDecals[] index.
+[vk::binding(kBindingWorldObjectDecalIndices, kWorldDecalSet)]
+StructuredBuffer<uint> gObjectDecalIndices;
+
 // --- Decal projection (folded in from the old albedo_resolve pass) ----------
 // Clustered OOB decals are composited directly onto the base albedo here, before
 // lighting, so they get lit like the surface — no separate albedo buffer/pass.
@@ -117,8 +129,9 @@ float3 projectDecal(uint di, float3 albedo, float3 posW, float3 normalW)
     float2 uv = float2(saturate((fU + (lp.x + 0.5f)) / float(sx)),
                        1.0f - saturate((fV + (lp.z + 0.5f)) / float(sy)));
 
-    DiffuseMaterial dm = gScene.getDiffuseMaterial(d.materialID);
-    uint dtex = dm.tex[0];
+    // Decal diffuse texture is baked directly into the decal (a pinned, stable
+    // gTextures2D[] slot), so no per-frame material indirection is needed.
+    uint dtex = d.diffuseTexIndex;
     if (dtex == kInvalidTextureIndex)
         return albedo;
 

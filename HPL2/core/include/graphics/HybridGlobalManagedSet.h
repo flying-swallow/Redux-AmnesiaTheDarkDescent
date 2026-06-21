@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <cstring>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include "Constants.h"
@@ -168,21 +169,19 @@ public:
   // Destroy all owned buffers and the descriptor set.
   void destroy(RIDevice *device);
 
-  // Result of submitMaterial: the object's material id in the continuous
-  // range-partitioned space, stored in UniformObject.materialID. Solids land in
-  // [0, kSolidMaterialCapacity); water lands in
-  // [kSolidMaterialCapacity, kSolidMaterialCapacity + kWaterMaterialCapacity).
-  // materialId is UINT32_MAX when the material pool is exhausted.
+  // Result of submitMaterial: the object's flat material id (index into the
+  // gMaterials table), stored in UniformObject.materialID. materialId is
+  // UINT32_MAX when the material pool is exhausted.
   struct MaterialSubmitResult {
     uint32_t materialId = 0;
   };
 
-  // Resolve + upload `mat`'s GPU material entry. Solid/translucent/decal
-  // materials go to m_diffuseMaterialBuffer (DiffuseMaterial); water materials go
-  // to their own compact m_waterMaterialBuffer (WaterMaterial) and return an id
-  // offset into the water range. Allocates a slot on first sight, resolves and
-  // uploads texture indices when the material's generation differs from the
-  // cached one. materialId is UINT32_MAX when the material pool is exhausted.
+  // Resolve + upload `mat`'s GPU material entry. Builds the typed material struct
+  // (DiffuseMaterial / TranslucentMaterial / WaterMaterial), packs it into a
+  // fixed-size MaterialDataBlob, and uploads it to m_materialBuffer[slot] (Falcor
+  // MaterialSystem model — one table, type tag in the blob header). Allocates a
+  // slot on first sight, re-uploads when the material's generation differs from
+  // the cached one. materialId is UINT32_MAX when the pool is exhausted.
   MaterialSubmitResult submitMaterial(RIBootstrap::FrameContext *cntx,
                                       cMaterial *mat, uint32_t frameIndex);
 
@@ -253,15 +252,12 @@ public:
   std::array<PointLight, kPointSlotLightCapacity> m_pointLightScratch;
   struct RIBuffer m_spotLightBuffer = {};
   std::array<SpotLight, kSpotSlotLightCapacity> m_spotLightScratch;
+  struct RIBuffer m_areaLightBuffer = {};
+  std::array<RectLight, kAreaSlotLightCapacity> m_areaLightScratch;
 
   // Per-frame fog-area SSBO. One entry per cFogArea visible this frame.
   struct RIBuffer m_fogAreaBuffer = {};
   std::array<FogAreaParams, kFogAreaCapacity> m_fogAreaScratch;
-
-  // Clustered OOB decals (cDecal). Packed each frame from eRenderListType_Decal
-  // into gDecals[]; the projection pass reads them. Capped at kMaxDecals.
-  struct RIBuffer m_decalBuffer = {};
-  std::array<GpuDecal, kMaxDecals> m_decalScratch;
 
   struct RIBuffer m_opaquePositionHandles;
   struct RIBuffer m_opaqueTangentHandles;
@@ -315,24 +311,17 @@ public:
   // NEE reads): per-cell light count + packed per-cell unified-light-index list.
   struct RIBuffer m_lightGridCountBuffer;
   struct RIBuffer m_lightGridListBuffer;
-  // Flat per-object decal-index pool (cWorld::Compile association), uploaded into
-  // gObjectDecalIndices; replaces the old spatial decal grid.
-  struct RIBuffer m_objectDecalIndexBuffer = {};
 
   // Per-surfel copy of its anchor slot's generation, captured at spawn and
   // compared against m_bindlessSlotGenerationBuffer in collectCellInfo.
   struct RIBuffer m_surfelSlotGenerationBuffer;
 
-  // Bindless material wiring. The material-id space is range-partitioned across
-  // three typed pools/buffers: solid+decal (m_diffuseMaterialBindless / DiffuseMaterial),
-  // translucent (m_translucentMaterialBindless / TranslucentMaterial), and water
-  // (m_waterMaterialBindless / WaterMaterial). See Constants.h for the ranges.
-  LRUCache m_diffuseMaterialBindless;
-  LRUCache m_translucentMaterialBindless;
-  LRUCache m_waterMaterialBindless;
-  struct RIBuffer m_diffuseMaterialBuffer;
-  struct RIBuffer m_translucentMaterialBuffer = {};
-  struct RIBuffer m_waterMaterialBuffer = {};
+  // Bindless material wiring (Falcor MaterialSystem model). One flat table of
+  // fixed-size MaterialDataBlobs (m_materialBuffer, kBindingMaterials) indexed by
+  // a flat materialID; one LRU pool hands out slots. The blob's header tags the
+  // type so the shader reinterprets it into the right struct — no per-type buffers.
+  LRUCache m_materialBindless;
+  struct RIBuffer m_materialBuffer = {};
   std::optional<RIDescriptor> m_materialSampler;
 
   // Default light falloff LUT (core_falloff_linear), bound once to set 0 as the

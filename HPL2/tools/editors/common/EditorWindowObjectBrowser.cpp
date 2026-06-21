@@ -107,7 +107,7 @@ void iEditorObjectIndexEntryMeshObject::BuildThumbnail()
 	////////////////////////////////////////////////////////////////
 	// Create thumbnail if it doesn't exist or the object was updated
 	bool bIsUpdated = IsUpdated();
-	if(bIsUpdated || mpThumbnailImage==NULL)
+	if(bIsUpdated || !mpThumbnailImage)
 	{
 		// Async: this only enqueues — the builder hands the finished Image
 		// to the callback a frame later (ownership transfers to this entry)
@@ -118,7 +118,7 @@ void iEditorObjectIndexEntryMeshObject::BuildThumbnail()
 		cMeshEntity* pEnt = CreateTempEntity(pTmbBuilder->GetWorld());
 
 		pTmbBuilder->BuildThumbnailFromMeshEntity(pEnt,
-			[this](std::shared_ptr<Image> apImage)
+			[this](SharedResourceHandle<Image> apImage)
 			{
 				mpThumbnailImage = std::move(apImage);
 			});

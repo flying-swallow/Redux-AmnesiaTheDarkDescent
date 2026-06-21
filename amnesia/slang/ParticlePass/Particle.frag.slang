@@ -44,9 +44,8 @@ struct ParticleVSOut
 float4 psMain(ParticleVSOut psIn) : SV_TARGET
 {
     UniformObject       obj = gSceneObjects[psIn.objectId];
-    // Particle materials are all Type="translucent", so submitMaterial() places
-    // them in the translucent table (id >= kTranslucentMaterialBase), not the
-    // diffuse table. Read them the same way Translucent.frag.slang does.
+    // Particle materials are all Type="translucent", so the material blob is
+    // tagged MATERIAL_TYPE_TRANSLUCENT. Read them the same way Translucent.frag does.
     TranslucentMaterial mat = gScene.getTranslucentMaterial(obj.materialID);
 
     // Legacy display-space source: the base game blended raw gamma texels ×

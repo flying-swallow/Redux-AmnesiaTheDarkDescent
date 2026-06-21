@@ -13,40 +13,32 @@
 namespace hpl {
 
 void CreatePostEffectColorTarget(PostEffectColorTarget &out, uint32_t width,
-                                 uint32_t height, VkFormat format,
-                                 VkImageUsageFlags additionalUsage,
+                                 uint32_t height, enum RI_Format_e format,
+                                 uint32_t additionalUsage,
                                  const char *debugName) {
     out.width  = width;
     out.height = height;
     out.valid  = false;
 
-#if (DEVICE_IMPL_VULKAN)
-    VkImageCreateInfo imageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-    imageInfo.imageType   = VK_IMAGE_TYPE_2D;
-    imageInfo.format      = format;
-    imageInfo.extent      = {width, height, 1};
-    imageInfo.mipLevels   = 1;
-    imageInfo.arrayLayers = 1;
-    imageInfo.samples     = VK_SAMPLE_COUNT_1_BIT;
-    imageInfo.tiling      = VK_IMAGE_TILING_OPTIMAL;
-    imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT |
-                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | additionalUsage;
-    imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    VmaAllocationCreateInfo memReqs = {};
-    memReqs.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-    VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo,
-                                 &memReqs, &out.texture.vk.image,
-                                 &out.texture.vk.allocation, nullptr));
+    RITextureDesc desc = {};
+    desc.type   = RI_TEXTURE_2D;
+    desc.format = format;
+    desc.width  = width;
+    desc.height = height;
+    desc.usage  = RI_USAGE_SHADER_RESOURCE | RI_USAGE_COLOR_ATTACHMENT |
+                  additionalUsage;
+    out.texture = RITexture::create(&RI.device, desc);
+    if (out.texture.isEmpty())
+        return;
 
     RITextureViewDesc viewDesc = {};
     viewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
-    viewDesc.format   = VKToRIFormat(format);
+    viewDesc.format   = format;
     viewDesc.mipNum   = 1;
     viewDesc.layerNum = 1;
     out.view = RITextureView::create(&RI.device, &out.texture, viewDesc);
 
+#if (DEVICE_IMPL_VULKAN)
     if (debugName && vkSetDebugUtilsObjectNameEXT) {
         VkDebugUtilsObjectNameInfoEXT name = {
             VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT};
@@ -55,9 +47,9 @@ void CreatePostEffectColorTarget(PostEffectColorTarget &out, uint32_t width,
         name.pObjectName  = debugName;
         vkSetDebugUtilsObjectNameEXT(RI.device.vk.device, &name);
     }
+#endif
 
     out.valid = true;
-#endif
 }
 
 void DestroyPostEffectColorTarget(PostEffectColorTarget &target) {
@@ -73,7 +65,7 @@ void DestroyPostEffectColorTarget(PostEffectColorTarget &target) {
 }
 
 void InitPostEffectPipelineState(PostEffectPipelineState &state,
-                                 VkFormat colorFormat, bool alphaBlend) {
+                                 enum RI_Format_e colorFormat, bool alphaBlend) {
     state.vertexInput = {
         VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
 
@@ -126,7 +118,7 @@ void InitPostEffectPipelineState(PostEffectPipelineState &state,
     state.dynamicState.dynamicStateCount = 2;
     state.dynamicState.pDynamicStates    = state.dynamicStates;
 
-    state.colorFormat = colorFormat;
+    state.colorFormat = RIFormatToVK(colorFormat);
     state.pipelineRendering = {
         VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     state.pipelineRendering.colorAttachmentCount    = 1;

@@ -29,15 +29,6 @@ namespace hpl {
 	// Decal
 	//---------------------------------------------------
 
-	class cMaterialType_Decal_Vars : public iMaterialVars
-	{
-	public:
-		cMaterialType_Decal_Vars() {}
-		~cMaterialType_Decal_Vars() {}
-   	};
-
-	//-----------------------------------------------------
-
 	class cMaterialType_Decal : public iMaterialType
 	{
 	public:
@@ -46,13 +37,11 @@ namespace hpl {
 
 		bool SupportsHWSkinning() { return false; }
 
+		MaterialID GetMaterialID() const override { return MaterialID::Decal; }
 
-		iMaterialVars* CreateSpecificVariables();
 		void LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars);
 		void GetVariableValues(cMaterial* apMaterial, cResourceVarsObject* apVars);
 
-		void CompileMaterialSpecifics(cMaterial *apMaterial);
-	
 	private:
 		void LoadData() {} // STUB
 		void DestroyData() {} // STUB

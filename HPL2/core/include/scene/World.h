@@ -28,6 +28,7 @@
 #include "scene/SceneTypes.h"
 
 namespace tinyxml2 { class XMLElement; }
+struct RIBuffer; // RI graphics layer (global scope); cWorld owns baked decal buffers
 
 namespace hpl {
 
@@ -50,6 +51,7 @@ namespace hpl {
 	class cLightSpot;
 	class cLightPoint;
 	class cLightBox;
+	class cLightArea;
 	class cImageEntity;
 	class cParticleManager;
 	class cParticleSystem;
@@ -251,6 +253,17 @@ namespace hpl {
 		// Flat pool of stable decal indices; each renderable's [offset,count)
 		// (iRenderable::GetDecalList*) addresses a run here. Built by Compile().
 		const std::vector<uint32_t>& GetDecalObjectIndices() const { return mvDecalObjectIndices; }
+
+		// Static per-world decal GPU buffers, baked once by Compile() and bound on
+		// the per-world descriptor set (kWorldDecalSet). Null until baked (or when
+		// the world has no decals / no hybrid renderer is active). The renderer
+		// binds these on the composite pass; cWorld owns + disposes them.
+		struct RIBuffer* GetDecalBuffer() const { return mpDecalBuffer; }
+		struct RIBuffer* GetDecalObjectIndexBuffer() const { return mpDecalObjectIndexBuffer; }
+		uint32_t GetDecalCount() const { return (uint32_t)mvDecals.size(); }
+		// Per-frame: re-resolve decal diffuse texture slots via the LRU (keeps them
+		// MRU so slots stay stable). Called by the renderer before the composite.
+		void RefreshDecalTextures();
 		cMeshEntity* GetDynamicMeshEntity(const tString& asName);
 		
 		cMeshEntityIterator GetDynamicMeshEntityIterator();
@@ -263,6 +276,7 @@ namespace hpl {
 		cLightPoint* CreateLightPoint(const tString &asName="",const tString &asGobo="", bool abStatic=false);
 		cLightSpot* CreateLightSpot(const tString &asName="", const tString &asGobo="", bool abStatic=false);
 		cLightBox* CreateLightBox(const tString &asName="", bool abStatic=false);
+		cLightArea* CreateLightArea(const tString &asName="", bool abStatic=false);
 		void DestroyLight(iLight* apLight);
 		iLight* GetLight(const tString& asName);
 		iLight* GetLightFromUniqueID(int alID);
@@ -420,6 +434,16 @@ namespace hpl {
 		tMeshEntityList mlstStaticMeshEntities;
 		std::vector<cDecal*> mvDecals;
 		std::vector<uint32_t> mvDecalObjectIndices;   // flat per-object decal-index pool (Compile())
+		// Baked static decal GPU state (owned). Decal geometry is baked once; the
+		// diffuse texture slot is NOT pinned — mvDecalTexSlots caches the current
+		// textures_2d[] slot per decal, re-resolved each frame from the normal LRU
+		// by RefreshDecalTextures (which keeps the texture MRU so the slot stays
+		// stable), and the GPU diffuseTexIndex is patched only when a slot changes.
+		struct RIBuffer* mpDecalBuffer = nullptr;
+		struct RIBuffer* mpDecalObjectIndexBuffer = nullptr;
+		std::vector<uint32_t> mvDecalTexSlots;
+		void BakeDecalBuffers();      // build/upload the per-world decal geometry (Compile)
+		void DisposeDecalBuffers();   // defer-dispose the per-world decal buffers
 		tBillboardList mlstBillboards;
 		tBeamList mlstBeams;
 		tParticleSystemList mlstParticleSystems;

@@ -94,7 +94,7 @@ struct PostWorldDrawCtx : WorldDrawCtx {
 //------------------------------------------
 
 // Texture helpers the viewport-state backends build their targets with
-// (Update/Dispose impls live in the renderer .cpps). Create lives against
+// (Update + destructor impls live in the renderer .cpps). Create lives against
 // the device; Release hands every GPU handle to the frame freelist (drained
 // once the pipeline is done with them — or at RIBootstrap::Dispose).
 
@@ -104,25 +104,24 @@ struct PostWorldDrawCtx : WorldDrawCtx {
 // is produced on demand from the view.
 bool CreateViewportColorTexture(struct RIDevice *device, uint32_t width,
                                 uint32_t height, enum RI_Format_e format,
-                                VkImageUsageFlags usage,
-                                struct RITexture *tex,
-                                struct RITextureView *view,
+                                uint32_t usage, // RITextureUsageBits_e bitmask
+                                RISharedPointer<RITexture> *tex,
+                                RISharedPointer<RITextureView> *view,
                                 const char *what);
-void ReleaseViewportColorTexture(std::vector<RIFreeHandle> &freelist,
-                                 struct RITexture *tex,
-                                 struct RITextureView *view);
 
 // One attachment image + a plain view (depth / visibility targets).
 bool CreateViewportAttachmentTexture(struct RIDevice *device, uint32_t width,
                                      uint32_t height, enum RI_Format_e format,
-                                     VkImageUsageFlags usage,
+                                     uint32_t usage, // RITextureUsageBits_e
                                      enum RITextureViewType_e viewType,
-                                     struct RITexture *tex,
-                                     struct RITextureView *view,
+                                     RISharedPointer<RITexture> *tex,
+                                     RISharedPointer<RITextureView> *view,
                                      const char *what);
-void ReleaseViewportAttachmentTexture(std::vector<RIFreeHandle> &freelist,
-                                      struct RITexture *tex,
-                                      struct RITextureView *view);
+
+// Defer the attachment's shared handles to the graphics freelist and reset both
+// to empty (used by headless one-off targets like the editor thumbnail builder).
+void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
+                                      RISharedPointer<RITextureView> *view);
 
 //------------------------------------------
 
@@ -163,39 +162,45 @@ public:
     uint32_t targetWidth = 0;  // authored target size from Update — the
     uint32_t targetHeight = 0; //   BackBuffer crop window
 
+    HybridViewportState() = default;
+    ~HybridViewportState();
+    HybridViewportState(const HybridViewportState &) = delete;
+    HybridViewportState &operator=(const HybridViewportState &) = delete;
+    HybridViewportState(HybridViewportState &&rhs) noexcept = default;
+    HybridViewportState &operator=(HybridViewportState &&rhs) noexcept;
+
     void Update(RIBootstrap::FrameContext *cntx, cVector2l size);
-    void Dispose(RIBootstrap::FrameContext *cntx);
     BackBuffer GetBackBuffer() {
       return {(width - targetWidth) / 2, (height - targetHeight) / 2,
-              targetWidth, targetHeight, renderTarget[RI.swapchainIndex],
-              renderTargetView[RI.swapchainIndex]};
+              targetWidth, targetHeight, *renderTarget[RI.swapchainIndex],
+              *renderTargetView[RI.swapchainIndex]};
     }
 
-    struct RITexture renderTarget[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView renderTargetView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    RISharedPointer<RITexture> renderTarget[RI_MAX_SWAPCHAIN_IMAGES];
+    RISharedPointer<RITextureView> renderTargetView[RI_MAX_SWAPCHAIN_IMAGES];
 
-    struct RITexture depthTextures[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView depthView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    RISharedPointer<RITexture> depthTextures[RI_MAX_SWAPCHAIN_IMAGES];
+    RISharedPointer<RITextureView> depthView[RI_MAX_SWAPCHAIN_IMAGES];
 
-    struct RITexture visibilityTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView visibilityView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    RISharedPointer<RITexture> visibilityTexture[RI_MAX_SWAPCHAIN_IMAGES];
+    RISharedPointer<RITextureView> visibilityView[RI_MAX_SWAPCHAIN_IMAGES];
 
     // Surfel-generation output — full-res HDR storage image written by
     // surfel_generation_pass (set=3, binding=1). One per swapchain image.
-    struct RITexture surfelResultTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView surfelResultView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    RISharedPointer<RITexture> surfelResultTexture[RI_MAX_SWAPCHAIN_IMAGES];
+    RISharedPointer<RITextureView> surfelResultView[RI_MAX_SWAPCHAIN_IMAGES];
 
     // Stage B packed visibility — RGBA32UI storage image written by the
     // surfel_vbuffer RT pipeline, sampled by the Stage D / F surfel update
     // and generation passes. Per-frame layout is UNDEFINED → GENERAL →
     // SHADER_READ_ONLY, like the gbuffer outputs.
-    struct RITexture packedHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView packedHitInfoView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    RISharedPointer<RITexture> packedHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES];
+    RISharedPointer<RITextureView> packedHitInfoView[RI_MAX_SWAPCHAIN_IMAGES];
 
     // Screen-space velocity (motion vectors), RG16F — the gbuffer's 2nd
     // color target; sampled by temporal passes.
-    struct RITexture velocityTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView velocityView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    RISharedPointer<RITexture> velocityTexture[RI_MAX_SWAPCHAIN_IMAGES];
+    RISharedPointer<RITextureView> velocityView[RI_MAX_SWAPCHAIN_IMAGES];
 
     // Direct-lighting accumulation history (RGBA16F ping-pong, kept in
     // GENERAL). [directLightingIndex] is this frame's write target; [^1] is
@@ -203,12 +208,12 @@ public:
     // spans frames). directLightingInit triggers the one-time
     // UNDEFINED→GENERAL + clear — re-armed by Update on resize, since
     // recreation invalidates the history.
-    struct RITexture directLightingTexture[2] = {};
-    struct RITextureView directLightingView[2] = {};
+    RISharedPointer<RITexture> directLightingTexture[2];
+    RISharedPointer<RITextureView> directLightingView[2];
     // Parallel surface-key ping-pong (viewZ, normal.xyz) for disocclusion
     // rejection; shares directLightingIndex with the colour history above.
-    struct RITexture directKeyTexture[2] = {};
-    struct RITextureView directKeyView[2] = {};
+    RISharedPointer<RITexture> directKeyTexture[2];
+    RISharedPointer<RITextureView> directKeyView[2];
     uint32_t directLightingIndex = 0;
     bool directLightingInit = false;
 
@@ -216,8 +221,8 @@ public:
     // iteration is fully written before it is read, so these only need a one-time
     // UNDEFINED→GENERAL transition (folded into the directLighting init). The
     // composite samples the final iteration's output instead of directLighting.
-    struct RITexture directAtrousTexture[2] = {};
-    struct RITextureView directAtrousView[2] = {};
+    RISharedPointer<RITexture> directAtrousTexture[2];
+    RISharedPointer<RITextureView> directAtrousView[2];
 
     // ReSTIR DI reservoirs (RGBA32F = packed light index + W + M; exact uint
     // index needs full-float storage). [reservoirHistory] ping-pongs across
@@ -225,10 +230,10 @@ public:
     // temporal history and DirectSpatialReusePass writes [cur] as next frame's
     // history. [reservoirTemporal] is the intra-frame hand-off from the temporal
     // pass to the spatial pass. All GENERAL, one-time clear with the others.
-    struct RITexture reservoirTexture[2] = {};
-    struct RITextureView reservoirView[2] = {};
-    struct RITexture reservoirTemporalTexture = {};
-    struct RITextureView reservoirTemporalView = {};
+    RISharedPointer<RITexture> reservoirTexture[2];
+    RISharedPointer<RITextureView> reservoirView[2];
+    RISharedPointer<RITexture> reservoirTemporalTexture;
+    RISharedPointer<RITextureView> reservoirTemporalView;
 
     // Previous-frame camera for velocity / history reprojection —
     // per-viewport camera state. hasPrevCamera seeds prev = current on the
@@ -245,18 +250,26 @@ public:
     uint32_t width = 0;
     uint32_t height = 0;
 
+    SimpleViewportState() = default;
+    // See HybridViewportState: destruction defers the owned GPU resources;
+    // copy banned, move defers-then-takes so the resize path can `*this = {}`.
+    ~SimpleViewportState();
+    SimpleViewportState(const SimpleViewportState &) = delete;
+    SimpleViewportState &operator=(const SimpleViewportState &) = delete;
+    SimpleViewportState(SimpleViewportState &&rhs) noexcept = default;
+    SimpleViewportState &operator=(SimpleViewportState &&rhs) noexcept;
+
     void Update(RIBootstrap::FrameContext *cntx, cVector2l size);
-    void Dispose(RIBootstrap::FrameContext *cntx);
     BackBuffer GetBackBuffer() {
-      return {0, 0, width, height, renderTarget[RI.swapchainIndex],
-              renderTargetView[RI.swapchainIndex]};
+      return {0, 0, width, height, *renderTarget[RI.swapchainIndex],
+              *renderTargetView[RI.swapchainIndex]};
     }
 
-    struct RITexture renderTarget[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView renderTargetView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    RISharedPointer<RITexture> renderTarget[RI_MAX_SWAPCHAIN_IMAGES];
+    RISharedPointer<RITextureView> renderTargetView[RI_MAX_SWAPCHAIN_IMAGES];
 
-    struct RITexture depthTextures[RI_MAX_SWAPCHAIN_IMAGES] = {};
-    struct RITextureView depthView[RI_MAX_SWAPCHAIN_IMAGES] = {};
+    RISharedPointer<RITexture> depthTextures[RI_MAX_SWAPCHAIN_IMAGES];
+    RISharedPointer<RITextureView> depthView[RI_MAX_SWAPCHAIN_IMAGES];
   };
 
   using ViewportState =
@@ -284,7 +297,7 @@ public:
     // Format of `view` — the delivery draw's color attachment (and pipeline
     // key). Defaults to the pogo format; readback consumers (thumbnails) can
     // hand an RGBA8 target instead.
-    VkFormat format = RIBootstrap::PogoColorFormatVk;
+    enum RI_Format_e format = RIBootstrap::PogoColorFormat;
   };
   using Target = std::variant<TargetSwapchain, TargetView>;
 
@@ -379,15 +392,8 @@ public:
   Backend *PrepareToRender(RIBootstrap::FrameContext *cntx) {
     const cVector2l size = GetTargetSize();
     if (!std::holds_alternative<Backend>(m_state)) {
-      std::visit(
-          [cntx](auto &&arg) {
-            using T = std::decay_t<decltype(arg)>; // Get the clean type
-
-            if constexpr (!std::is_same_v<T, std::monostate>) {
-              arg.Dispose(cntx);
-            }
-          },
-          m_state);
+      // emplace destroys the prior alternative, whose destructor defers its
+      // GPU resources to the frame freelist — no explicit dispose needed.
       m_state.emplace<Backend>();
     }
     Backend &state = std::get<Backend>(m_state);

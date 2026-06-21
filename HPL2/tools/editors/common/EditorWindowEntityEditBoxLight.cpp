@@ -26,6 +26,7 @@
 #include "EntityWrapperLight.h"
 #include "EntityWrapperLightSpot.h"
 #include "EntityWrapperLightBox.h"
+#include "EntityWrapperLightArea.h"
 
 #include "EditorAction.h"
 
@@ -79,6 +80,10 @@ void cEditorWindowEntityEditBoxLight::Create()
 	case eEditorEntityLightType_Spot:
 		pTab = mpTabs->AddTab(_W("Spot"));
 		AddPropertySetSpot(pTab);
+		break;
+	case eEditorEntityLightType_Area:
+		pTab = mpTabs->AddTab(_W("Area"));
+		AddPropertySetArea(pTab);
 		break;
 	default:
 		break;
@@ -390,6 +395,38 @@ void cEditorWindowEntityEditBoxLight::AddPropertySetSpot(cWidgetTab* apParentTab
 
 //------------------------------------------------------------
 
+void cEditorWindowEntityEditBoxLight::AddPropertySetArea(cWidgetTab* apParentTab)
+{
+	cVector3f vPos = cVector3f(10,10,0.1f);
+	AddPropertyRotation(apParentTab);
+	mpInpRotation->SetPosition(vPos);
+	vPos.y += mpInpRotation->GetSize().y + 5;
+
+	AddPropertyRadius(apParentTab);
+	mpInpRadius->SetLabel(_W("Intensity"));
+	mpGroupRadius->SetPosition(vPos);
+	vPos.y += mpGroupRadius->GetSize().y + 5;
+
+	AddPropertyCullingRadius(apParentTab);
+	mpInpCullingRadius->SetLabel(_W("Attenuation Radius"));
+	mpGroupCullingRadius->SetPosition(vPos);
+	vPos.y += mpInpCullingRadius->GetSize().y + 10;
+
+	mpInpAreaWidth = CreateInputNumber(vPos, _W("Source Width"), "", apParentTab, 50, 0.1f);
+	mpInpAreaHeight = CreateInputNumber(vPos + cVector3f(mpInpAreaWidth->GetSize().x+20,0,0), _W("Source Height"), "", apParentTab, 50, 0.1f);
+	vPos.y += mpInpAreaWidth->GetSize().y + 10;
+
+	mpInpAreaBarnDoorAngle = CreateInputNumber(vPos, _W("Barn Door Angle"), "", apParentTab, 50, 1.0f);
+	mpInpAreaBarnDoorLength = CreateInputNumber(vPos + cVector3f(mpInpAreaBarnDoorAngle->GetSize().x+20,0,0), _W("Barn Door Length"), "", apParentTab, 50, 0.1f);
+	vPos.y += mpInpAreaBarnDoorAngle->GetSize().y + 10;
+
+	mpInpAreaSourceTex = CreateInputFile(vPos, _W("Source Texture"), "", apParentTab);
+	mpInpAreaSourceTex->SetInitialPath(mpEditor->GetMainLookUpDir(eDir_Lights));
+	mpInpAreaSourceTex->SetBrowserSubType(eEditorTextureResourceType_2D);
+}
+
+//------------------------------------------------------------
+
 void cEditorWindowEntityEditBoxLight::OnUpdate(float afTimeStep)
 {
 	if(mpLight==NULL)
@@ -467,6 +504,17 @@ void cEditorWindowEntityEditBoxLight::OnUpdate(float afTimeStep)
 		mpInpSpotAspect->SetValue(pLight->GetAspect(), false);
 		mpInpSpotNearClipPlane->SetValue(pLight->GetNearClipPlane(), false);
 		mpInpSpotFalloffMap->SetValue(cString::To16Char(pLight->GetSpotFalloffMap()), false);
+	}
+	////////////
+	// Area
+	else if(lightType==eEditorEntityLightType_Area)
+	{
+		cEntityWrapperLightArea* pLight = (cEntityWrapperLightArea*)mpLight;
+		mpInpAreaWidth->SetValue(pLight->GetWidth(), false);
+		mpInpAreaHeight->SetValue(pLight->GetHeight(), false);
+		mpInpAreaBarnDoorAngle->SetValue(cMath::ToDeg(pLight->GetBarnDoorAngle()), false);
+		mpInpAreaBarnDoorLength->SetValue(pLight->GetBarnDoorLength(), false);
+		mpInpAreaSourceTex->SetValue(cString::To16Char(pLight->GetSourceTexture()), false);
 	}
 }
 
@@ -733,6 +781,40 @@ bool cEditorWindowEntityEditBoxLight::WindowSpecificInputCallback(iEditorInput* 
 		}
 		else
 			mpInpFalloffMap->SetValue(_W(""), false);
+	}
+
+	///////////////////////////////////
+	// Area
+
+	// Source Width
+	else if(apInput==mpInpAreaWidth)
+	{
+		pAction = mpEntity->CreateSetPropertyActionFloat(eLightAreaFloat_SourceWidth, mpInpAreaWidth->GetValue());
+	}
+	// Source Height
+	else if(apInput==mpInpAreaHeight)
+	{
+		pAction = mpEntity->CreateSetPropertyActionFloat(eLightAreaFloat_SourceHeight, mpInpAreaHeight->GetValue());
+	}
+	// Barn Door Angle (UI in degrees, stored in radians)
+	else if(apInput==mpInpAreaBarnDoorAngle)
+	{
+		pAction = mpEntity->CreateSetPropertyActionFloat(eLightAreaFloat_BarnDoorAngle, cMath::ToRad(mpInpAreaBarnDoorAngle->GetValue()));
+	}
+	// Barn Door Length
+	else if(apInput==mpInpAreaBarnDoorLength)
+	{
+		pAction = mpEntity->CreateSetPropertyActionFloat(eLightAreaFloat_BarnDoorLength, mpInpAreaBarnDoorLength->GetValue());
+	}
+	// Source texture
+	else if(apInput==mpInpAreaSourceTex)
+	{
+		strFilename = cString::To8Char(mpInpAreaSourceTex->GetValue());
+
+		if(strFilename=="" || cEditorHelper::LoadTextureResource(eEditorTextureResourceType_2D, strFilename, NULL))
+			pAction = mpEntity->CreateSetPropertyActionString(eLightAreaStr_SourceTexture, strFilename);
+		else
+			mpInpAreaSourceTex->SetValue(_W(""), false);
 	}
 
 	mpEditor->AddAction(pAction);

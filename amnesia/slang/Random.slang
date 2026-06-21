@@ -30,6 +30,21 @@ public float2 blueNoise2(uint2 pixel, uint frame, uint dim)
     return frac(float2(s0, s1) + r);
 }
 
+// Concentric (low-distortion) unit-disk map of two [0,1) samples. Lives here as a
+// shared sampling util so both the soft-shadow path (DiffuseShading) and the
+// per-light source sampling (ILight) can use it.
+public float2 concentricDiskSample(float2 u)
+{
+    float2 o = 2.0f * u - 1.0f;
+    if (o.x == 0.0f && o.y == 0.0f) return float2(0.0f);
+    float r, theta;
+    const float kPiOver4 = 0.78539816f;
+    const float kPiOver2 = 1.57079633f;
+    if (abs(o.x) > abs(o.y)) { r = o.x; theta = kPiOver4 * (o.y / o.x); }
+    else                     { r = o.y; theta = kPiOver2 - kPiOver4 * (o.x / o.y); }
+    return r * float2(cos(theta), sin(theta));
+}
+
 public struct RNG
 {
     public uint2 s;

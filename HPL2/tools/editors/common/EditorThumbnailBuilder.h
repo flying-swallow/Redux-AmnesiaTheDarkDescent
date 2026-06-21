@@ -56,7 +56,7 @@ namespace hpl {
 class cEditorThumbnailBuilder
 {
 public:
-	using tThumbnailReadyCallback = std::function<void(std::shared_ptr<Image>)>;
+	using tThumbnailReadyCallback = std::function<void(SharedResourceHandle<Image>)>;
 
 	cEditorThumbnailBuilder(iEditorBase* apEditor);
 	~cEditorThumbnailBuilder();
@@ -110,8 +110,8 @@ protected:
 	// 128x128 RGBA8_SRGB color target the viewport's TargetView delivers
 	// into (sRGB attachment write = free linear->display encoding;
 	// TRANSFER_SRC backs the cache copy).
-	struct RITexture mTargetTexture;
-	struct RITextureView mTargetView;
+	RISharedPointer<RITexture> mTargetTexture;
+	RISharedPointer<RITextureView> mTargetView;
 
 	struct cThumbnailJob
 	{

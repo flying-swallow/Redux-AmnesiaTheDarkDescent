@@ -34,10 +34,10 @@ namespace hpl {
 
 //-----------------------------------------------------------------------
 
-cFrameTexture::cFrameTexture(Image *apTex, int alHandle,
+cFrameTexture::cFrameTexture(SharedResourceHandle<Image> aTex, int alHandle,
                              cImageManager *apImageManager, bool abIsCustom)
     : iFrameBase() {
-  mpTexture = apTex;
+  mpTexture = std::move(aTex);
   mlHandle = alHandle;
 
   mbIsCustom = abIsCustom;
@@ -46,9 +46,9 @@ cFrameTexture::cFrameTexture(Image *apTex, int alHandle,
 }
 
 cFrameTexture::~cFrameTexture() {
-  if (mpTexture)
-    hplDelete(mpTexture);
-  mpTexture = NULL;
+  // mpTexture is a reference-counted handle: dropping it frees the Image once
+  // any in-flight per-frame keep-alive pins have also been released.
+  mpTexture = {};
 }
 
 //-----------------------------------------------------------------------
@@ -59,7 +59,7 @@ cFrameTexture::~cFrameTexture() {
 
 //-----------------------------------------------------------------------
 
-Image *cFrameTexture::GetTexture() { return mpTexture; }
+Image *cFrameTexture::GetTexture() { return mpTexture.Get(); }
 
 //-----------------------------------------------------------------------
 

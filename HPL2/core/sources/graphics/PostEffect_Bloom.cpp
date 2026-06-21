@@ -90,10 +90,10 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
         DestroyPostEffectColorTarget(m_blur[0]);
         DestroyPostEffectColorTarget(m_blur[1]);
         CreatePostEffectColorTarget(m_blur[0], blurW, blurH,
-                                    RIBootstrap::PogoColorFormatVk, 0u,
+                                    RIBootstrap::PogoColorFormat, RI_USAGE_NONE,
                                     "PostEffect_Bloom.blur0");
         CreatePostEffectColorTarget(m_blur[1], blurW, blurH,
-                                    RIBootstrap::PogoColorFormatVk, 0u,
+                                    RIBootstrap::PogoColorFormat, RI_USAGE_NONE,
                                     "PostEffect_Bloom.blur1");
         // First-time transitions out of UNDEFINED — set the "rest state":
         // blur[0] = SHADER_READ_ONLY (will flip to ATTACH on first H blur),
@@ -114,7 +114,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
         eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 
     PostEffectPipelineState blurState{};
-    InitPostEffectPipelineState(blurState, RIBootstrap::PogoColorFormatVk, false);
+    InitPostEffectPipelineState(blurState, RIBootstrap::PogoColorFormat, false);
     const hash_t kBlurHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
 
     VkViewport blurViewport = {0.0f,
@@ -232,7 +232,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     PostEffectPipelineState addState{};
-    InitPostEffectPipelineState(addState, RIBootstrap::PogoColorFormatVk, false);
+    InitPostEffectPipelineState(addState, RIBootstrap::PogoColorFormat, false);
     const hash_t kAddHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/1u);
     mpBloomType->m_addProgram.bindPipeline(&RI.device, ctx.cmd, kAddHash,
                                            "PostEffect_Bloom.add",

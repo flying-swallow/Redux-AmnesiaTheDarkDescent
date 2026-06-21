@@ -48,7 +48,7 @@ static inline bool __isPoolSlotEmpty( struct RIDevice *device, struct RIBlockMem
 {
 #if ( DEVICE_IMPL_VULKAN )
 	{
-		return block->buffer.isEmpty(device->renderer);
+		return block->buffer.isEmpty();
 	}
 #endif
 	return false;
@@ -56,7 +56,7 @@ static inline bool __isPoolSlotEmpty( struct RIDevice *device, struct RIBlockMem
 
 static inline void __FreeRIBlockMem(struct RIDevice *device,struct RIBlockMem *block ) {
 #if ( DEVICE_IMPL_VULKAN )
-	if( !block->buffer.isEmpty(device->renderer) ) {
+	if( !block->buffer.isEmpty() ) {
 		block->buffer.dispose( device );
 	}
 #endif
@@ -64,7 +64,7 @@ static inline void __FreeRIBlockMem(struct RIDevice *device,struct RIBlockMem *b
 
 void FreeRIScratchAlloc( struct RIDevice *device, struct RIScratchAlloc *pool ) {
 #if ( DEVICE_IMPL_VULKAN )
-	if( !pool->current.buffer.isEmpty(device->renderer) ) {
+	if( !pool->current.buffer.isEmpty() ) {
 		__FreeRIBlockMem( device, &pool->current );
 	}
 

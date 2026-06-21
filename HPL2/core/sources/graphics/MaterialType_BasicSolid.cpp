@@ -61,26 +61,10 @@ namespace hpl {
 		mpDissolveTexture = mpResources->GetTextureManager()->Create2DImage("core_dissolve.tga",true).Release();
 	}
 
-	void iMaterialType_SolidBase::CompileMaterialSpecifics(cMaterial *apMaterial)
-	{
-		////////////////////////
-		// If there is an alpha texture, set alpha mode to trans, else solid.
-		if(apMaterial->GetImage(eMaterialTexture_Alpha))
-		{
-			apMaterial->SetAlphaMode(eMaterialAlphaMode_Trans);
-		}
-		else
-		{
-			apMaterial->SetAlphaMode(eMaterialAlphaMode_Solid);
-		}
-
-		CompileSolidSpecifics(apMaterial);
-	}
-
 	//////////////////////////////////////////////////////////////////////////
 	// SOLID DIFFUSE
 	//////////////////////////////////////////////////////////////////////////
-	
+
 	cMaterialType_SolidDiffuse::cMaterialType_SolidDiffuse(cGraphics *apGraphics, cResources *apResources) : iMaterialType_SolidBase(apGraphics, apResources)
 	{
 		AddUsedTexture(eMaterialTexture_Diffuse);
@@ -93,8 +77,6 @@ namespace hpl {
 		AddUsedTexture(eMaterialTexture_CubeMap);
 		AddUsedTexture(eMaterialTexture_CubeMapAlpha);
 
-		mbHasTypeSpecifics[eMaterialRenderMode_Diffuse] = true;
-
 		AddVarFloat("HeightMapScale", 0.05f, "");
 		AddVarFloat("HeightMapBias", 0, "");
 		AddVarFloat("FrenselBias", 0.2f, "Bias for Fresnel term. values: 0-1. Higher means that more of reflection is seen when looking straight at object.");
@@ -104,89 +86,31 @@ namespace hpl {
 
 	cMaterialType_SolidDiffuse::~cMaterialType_SolidDiffuse() {}
 
-	void cMaterialType_SolidDiffuse::CompileSolidSpecifics(cMaterial *apMaterial)
-	{
-		cMaterialType_SolidDiffuse_Vars *pVars = (cMaterialType_SolidDiffuse_Vars*)apMaterial->GetVars();
-
-		//////////////////////////////////
-		// Z specifics
-		apMaterial->SetHasObjectSpecificsSettings(eMaterialRenderMode_Z_Dissolve,true);
-		apMaterial->SetUseAlphaDissolveFilter(pVars->mbAlphaDissolveFilter);
-		
-		//////////////////////////////////
-		// Normal map and height specifics
-		if(apMaterial->GetImage(eMaterialTexture_NMap))
-		{
-			if(apMaterial->GetImage(eMaterialTexture_Height))
-			{
-				apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Diffuse,true);
-			}
-		}
-
-		//////////////////////////////////
-		// UV animation specifics
-		if(apMaterial->HasUvAnimation())
-		{
-			apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Z,true);
-			apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Diffuse,true);
-			apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Illumination,true);
-		}
-
-		//////////////////////////////////
-		// Cubemap
-		if(apMaterial->GetImage(eMaterialTexture_CubeMap))
-		{
-			apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Diffuse,true);
-		}
-
-		//////////////////////////////////
-		// Illuminations specifics
-		if(apMaterial->GetImage(eMaterialTexture_Illumination))
-		{
-			apMaterial->SetHasObjectSpecificsSettings(eMaterialRenderMode_Illumination,true);
-		}
-
-		//////////////////////////////////
-		// Build the bindless descriptor for the per-frame SSBO upload.
-		ShaderMaterialData desc{};
-		desc.m_id = MaterialID::SolidDiffuse;
-		desc.m_solid.m_heightMapScale = pVars->mfHeightMapScale;
-		desc.m_solid.m_heightMapBias = pVars->mfHeightMapBias;
-		desc.m_solid.m_frenselBias = pVars->mfFrenselBias;
-		desc.m_solid.m_frenselPow = pVars->mfFrenselPow;
-		desc.m_solid.m_alphaDissolveFilter = pVars->mbAlphaDissolveFilter;
-		apMaterial->SetDescriptor(desc);
-	}
-
-	iMaterialVars* cMaterialType_SolidDiffuse::CreateSpecificVariables()
-	{
-		return hplNew(cMaterialType_SolidDiffuse_Vars,());
-	}
-
 	void cMaterialType_SolidDiffuse::LoadVariables(cMaterial* apMaterial, cResourceVarsObject *apVars)
 	{
-		cMaterialType_SolidDiffuse_Vars *pVars = (cMaterialType_SolidDiffuse_Vars*)apMaterial->GetVars();
-		if(pVars==NULL)
-		{
-			pVars = (cMaterialType_SolidDiffuse_Vars*)CreateSpecificVariables();
-			apMaterial->SetVars(pVars);
-		}
-				
-		pVars->mfHeightMapScale = apVars->GetVarFloat("HeightMapScale", 0.1f);
-		pVars->mfHeightMapBias = apVars->GetVarFloat("HeightMapBias", 0);
-		pVars->mfFrenselBias = apVars->GetVarFloat("FrenselBias", 0.2f);
-		pVars->mfFrenselPow = apVars->GetVarFloat("FrenselPow", 8.0f);
-		pVars->mbAlphaDissolveFilter = apVars->GetVarBool("AlphaDissolveFilter", false);
+		MaterialDiffuseSolid* pData = std::get_if<MaterialDiffuseSolid>(&apMaterial->Data());
+		if(pData==nullptr) return;
+
+		pData->m_heightMapScale = apVars->GetVarFloat("HeightMapScale", 0.1f);
+		pData->m_heightMapBias = apVars->GetVarFloat("HeightMapBias", 0);
+		pData->m_frenselBias = apVars->GetVarFloat("FrenselBias", 0.2f);
+		pData->m_frenselPow = apVars->GetVarFloat("FrenselPow", 8.0f);
+		pData->m_alphaDissolveFilter = apVars->GetVarBool("AlphaDissolveFilter", false);
+
+		// AlphaMode is derived (cMaterial::GetAlphaMode): a bound alpha texture makes
+		// a SolidDiffuse material alpha-tested. Textures are bound before LoadVariables.
+		apMaterial->IncreaseGeneration();
 	}
 
 	void cMaterialType_SolidDiffuse::GetVariableValues(cMaterial* apMaterial, cResourceVarsObject* apVars)
 	{
-		cMaterialType_SolidDiffuse_Vars* pVars = (cMaterialType_SolidDiffuse_Vars*)apMaterial->GetVars();
+		const MaterialDiffuseSolid* pData = std::get_if<MaterialDiffuseSolid>(&apMaterial->Data());
+		if(pData==nullptr) return;
 
-		apVars->AddVarFloat("HeightMapScale", pVars->mfHeightMapScale);
-		apVars->AddVarFloat("HeightMapBias", pVars->mfHeightMapBias);
-		apVars->AddVarFloat("FrenselBias", pVars->mfFrenselBias);
-		apVars->AddVarFloat("FrenselPow", pVars->mfFrenselPow);
-		apVars->AddVarBool("AlphaDissolveFilter", pVars->mbAlphaDissolveFilter);
+		apVars->AddVarFloat("HeightMapScale", pData->m_heightMapScale);
+		apVars->AddVarFloat("HeightMapBias", pData->m_heightMapBias);
+		apVars->AddVarFloat("FrenselBias", pData->m_frenselBias);
+		apVars->AddVarFloat("FrenselPow", pData->m_frenselPow);
+		apVars->AddVarBool("AlphaDissolveFilter", pData->m_alphaDissolveFilter);
 	}
 }

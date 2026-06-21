@@ -34,6 +34,7 @@
 #include "scene/LightPoint.h"
 #include "scene/LightSpot.h"
 #include "scene/LightBox.h"
+#include "scene/LightArea.h"
 #include "scene/MeshEntity.h"
 #include "scene/SoundEntity.h"
 #include "scene/ParticleEmitter.h"
@@ -231,6 +232,26 @@ namespace hpl {
 			{
 				Image *pFalloff = apResources->GetTextureManager()->Create1DImage(sSpotFalloffMap,true).Release();
 				if(pFalloff) pLightSpot->SetSpotFalloffMap(pFalloff);
+			}
+		}
+		//////////////////////////
+		// Area Light
+		else if(tString(apElement->Value()) == "AreaLight")
+		{
+			cLightArea *pLightArea = apWorld->CreateLightArea(asNamePrefix+sName, bStatic);
+			pLight = pLightArea;
+
+			pLightArea->SetWidth(GetAttributeFloat(apElement, "SourceWidth", 1.0f));
+			pLightArea->SetHeight(GetAttributeFloat(apElement, "SourceHeight", 1.0f));
+			pLightArea->SetBarnDoorAngle(GetAttributeFloat(apElement, "BarnDoorAngle", cMath::ToRad(88.0f)));
+			pLightArea->SetBarnDoorLength(GetAttributeFloat(apElement, "BarnDoorLength", 0.0f));
+
+			//Optional source texture (stored in the base gobo slot — a 2D image). Tints emission.
+			tString sSourceTex = GetAttributeString(apElement, "SourceTexture");
+			if(sSourceTex != "")
+			{
+				Image *pTex = apResources->GetTextureManager()->Create2DImage(sSourceTex,true).Release();
+				if(pTex) pLightArea->SetGoboTexture(pTex);
 			}
 		}
 		//////////////////////////

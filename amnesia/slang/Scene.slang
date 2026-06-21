@@ -9,9 +9,10 @@
 //     for a flat index, and callers invoke .sample() on it. There are no
 //     typed gScene.getPointLight() / etc. accessors — iterate
 //     0..getLightCount().
-//   * Materials remain per-type because each material variant has its own
-//     SSBO with distinct field layout — runtime branching on `type`
-//     wouldn't save anything.
+//   * Materials use one flat header table (gMaterials): the header tags the
+//     type and holds the BDA of the typed payload in the data arena. Callers
+//     branch on isWater / isTranslucent and fetch via getDiffuseMaterial /
+//     getTranslucentMaterial / getWaterMaterial (field-wise BDA loaders).
 //   * Vertex fetch delegates to BindlessTriangle.slang; barycentric
 //     interpolation + object-to-world transform happen here.
 //
@@ -28,6 +29,8 @@
 import SceneTypes;
 import bindless;
 __exported import ILight;
+__exported import IMaterial;     // IMaterial interface + per-struct conformances
+import MaterialFactory;          // getMaterial(materialID) -> IMaterial dispatch
 import PerFrame.resource;
 import BindlessTriangle;
 import Brdf;                    // evalDiffuseDemodulated (standard diffuse lobe)
@@ -56,7 +59,10 @@ public ILight getLight(uint ID)
     uint nPoint = gPerFrame.pointLightCount;
     if (ID < nPoint) return gPointLights[ID];
     ID -= nPoint;
-    return gSpotLights[ID];
+    uint nSpot = gPerFrame.spotLightCount;
+    if (ID < nSpot) return gSpotLights[ID];
+    ID -= nSpot;
+    return gAreaLights[ID];
 }
 
 public struct SceneCamera
@@ -117,6 +123,28 @@ public struct SceneCamera
 
 public struct SceneMaterials
 {
+    // Falcor-style typed material reads. gMaterials[materialID] is a fixed-size
+    // MaterialDataBlob; we reinterpret<T> it into the concrete struct (the host
+    // memcpys the struct into the blob, scalar layout keeps offsets identical).
+    // reinterpret handles the inner tex[8] array correctly, unlike a BDA
+    // struct-pointer cast (slangc 2026+ zeros those — see BindlessTriangle.slang).
+    public MaterialHeader getHeader(uint materialID)
+    {
+        return reinterpret<MaterialHeader, MaterialDataBlob>(gMaterials[materialID]);
+    }
+    public DiffuseMaterial loadDiffuseMaterial(uint materialID)
+    {
+        return reinterpret<DiffuseMaterial, MaterialDataBlob>(gMaterials[materialID]);
+    }
+    public TranslucentMaterial loadTranslucentMaterial(uint materialID)
+    {
+        return reinterpret<TranslucentMaterial, MaterialDataBlob>(gMaterials[materialID]);
+    }
+    public WaterMaterial loadWaterMaterial(uint materialID)
+    {
+        return reinterpret<WaterMaterial, MaterialDataBlob>(gMaterials[materialID]);
+    }
+
     // Alpha-test for the diffuse opaque path: read tex[2] (alpha slot —
     // see SceneTypes.slang DiffuseMaterial comment), sample at lod with
     // gMaterialSampler, reject when a < 0.5 (matches the GLSL
@@ -141,8 +169,10 @@ public struct SceneMaterials
     // coverage < 1 or the material carries dissolve variants.
     public bool alphaTest(VertexData v, uint materialID, float lod, float dissolveAmount)
     {
-        if (materialID >= kSolidMaterialCapacity) return false;  // water range: no diffuse entry
-        DiffuseMaterial m = gDiffuseMaterials[materialID];
+        // One blob load; `type` is at offset 0 for every material struct, so
+        // reinterpreting as DiffuseMaterial reads the discriminator regardless.
+        DiffuseMaterial m = loadDiffuseMaterial(materialID);
+        if (m.type != MATERIAL_TYPE_DIFFUSE) return false;  // only diffuse/decal alpha-test
 
         float a = 1.0f;     // plain solids dissolve from full alpha
         uint alphaIdx = m.tex[2];
@@ -192,41 +222,38 @@ public struct SceneMaterials
     // "has cubemap" check (DiffuseMaterial::cubeMapTextureIndex valid).
     public bool isReflective(uint materialID)
     {
-        if (materialID >= kSolidMaterialCapacity) return false;  // water range: no diffuse entry
-        DiffuseMaterial m = gDiffuseMaterials[materialID];
-        return m.cubeMapTextureIndex != kInvalidTextureIndex;
+        IMaterial mat = getMaterial(materialID);   // polymorphic IMaterial dispatch
+        // Gate stays diffuse-only (mirror-bounce on diffuse chrome surfaces).
+        return mat.getType() == MATERIAL_TYPE_DIFFUSE && mat.isReflective();
     }
 
-    // True when materialID falls in the translucent partition
-    // [kTranslucentMaterialBase, kWaterMaterialBase) — indexes gTranslucentMaterials.
+    // True when the material's header is tagged translucent.
     public bool isTranslucent(uint materialID)
     {
-        return materialID >= kTranslucentMaterialBase
-            && materialID <  kWaterMaterialBase;
+        return getMaterial(materialID).getType() == MATERIAL_TYPE_TRANSLUCENT;
     }
 
     // True when the material was flagged HasRefraction host-side
     // (MaterialResource.cpp:CreateMaterailConfigFlags). Only translucent (glass)
-    // materials carry the flag; reads it from the translucent table. Drives the
+    // materials carry the flag; reads it from the translucent payload. Drives the
     // SurfelVBuffer.rt closeHit ray-bend so the V-buffer stores the refracted
     // background instead of the glass itself. (Water refraction is handled by
     // the earlier isWater branch.)
     public bool isRefractive(uint materialID)
     {
-        if (!isTranslucent(materialID)) return false;
-        TranslucentMaterial m = gTranslucentMaterials[materialID - kTranslucentMaterialBase];
-        return (m.materialConfig & kMaterialFlagHasRefraction) != 0u;
+        // DiffuseMaterial/WaterMaterial report false; TranslucentMaterial checks
+        // the HasRefraction flag — matches the old translucent-only semantics.
+        return getMaterial(materialID).isRefractive();
     }
 
-    // True when materialID falls in the water partition of the continuous
-    // material-id space (ids >= kWaterMaterialBase index gWaterMaterials).
-    // Drives the SurfelVBuffer.rt wave-animated water branch, which re-traces
-    // the refraction ray as a kind-0 bounce so the GI composite shades the
+    // True when the material's header is tagged water. Drives the
+    // SurfelVBuffer.rt wave-animated water branch, which re-traces the
+    // refraction ray as a kind-0 bounce so the GI composite shades the
     // refracted underwater background. Checked before the generic glass
     // (isRefractive) branch.
     public bool isWater(uint materialID)
     {
-        return materialID >= kWaterMaterialBase;
+        return getMaterial(materialID).getType() == MATERIAL_TYPE_WATER;
     }
 
     // Inline non-opaque shadow query. The BLAS is built with
@@ -332,7 +359,7 @@ public struct SceneMaterials
 
         VertexData v        = gScene.getVertexData(triangleHit);
         uint materialID     = gScene.getMaterialID(triangleHit.instanceID);
-        DiffuseMaterial m   = gDiffuseMaterials[materialID];
+        DiffuseMaterial m   = gScene.getDiffuseMaterial(materialID);
         uint diffuseTex     = m.tex[0];
         if (diffuseTex == kInvalidTextureIndex)
             return float3(0.5f);  // fallback grey
@@ -402,38 +429,25 @@ public struct Scene
         return gSceneObjects[slot];
     }
 
-    // Material accessors over the continuous, range-partitioned material-id
-    // space (see Constants.h). These are the single place that maps a
-    // partitioned materialID to a buffer entry — entry shaders must go through
-    // them rather than indexing gDiffuseMaterials / gWaterMaterials directly, so
-    // a repartition only touches Scene.slang + Constants.h.
-
-    // Solid + decal materials occupy [0, kSolidMaterialCapacity), so the
-    // partitioned id is the slot directly. Valid only for solid-range ids.
+    // Material accessors over the flat material table (gMaterials, see
+    // Constants.h). Each reinterprets the fixed-size MaterialDataBlob at
+    // `materialID` into the concrete struct. Entry shaders go through these rather
+    // than touching gMaterials directly, so a layout change only touches
+    // Scene.slang + SceneTypes.slang. Each accessor is valid only when the header
+    // type matches (use isTranslucent / isWater, or MaterialFactory.getMaterial).
     public DiffuseMaterial getDiffuseMaterial(uint materialID)
     {
-        return gDiffuseMaterials[materialID];
+        return materials.loadDiffuseMaterial(materialID);
     }
 
-    // Translucent materials occupy [kTranslucentMaterialBase, kWaterMaterialBase);
-    // de-bias into the translucent table. Valid only for translucent-range ids
-    // (isTranslucent(materialID) == true).
     public TranslucentMaterial getTranslucentMaterial(uint materialID)
     {
-        return gTranslucentMaterials[materialID - kTranslucentMaterialBase];
+        return materials.loadTranslucentMaterial(materialID);
     }
 
-    // Water materials occupy [kWaterMaterialBase, +kWaterMaterialCapacity);
-    // de-bias the partitioned id into the compact water table. Valid only for
-    // water-range ids (isWater(materialID) == true).
     public WaterMaterial getWaterMaterial(uint materialID)
     {
-        return gWaterMaterials[materialID - kWaterMaterialBase];
-    }
-
-    public DecalMaterial getDecalMaterial(uint slot)
-    {
-        return gDecalMaterials[slot];
+        return materials.loadWaterMaterial(materialID);
     }
 
     // Convenience accessors used by GBuffer / V-buffer entry points.
@@ -451,7 +465,8 @@ public struct Scene
     public uint getLightCount()
     {
         return gPerFrame.pointLightCount
-             + gPerFrame.spotLightCount;
+             + gPerFrame.spotLightCount
+             + gPerFrame.areaLightCount;
     }
 
     // Resolve the world-space light-grid cell at `posW` to its light list once.
@@ -484,7 +499,7 @@ public struct Scene
     // are lighting-evaluation utilities, not scene-data accessors, so they live
     // as free functions in DiffuseShading.slang alongside the eval / reservoir
     // helpers that use them. They compose Scene's data primitives
-    // (getLight().sample / getSourceRadius / getPosition, materials.traceShadowRay).
+    // (getLight().sample / sampleSourcePoint / getPosition, materials.traceShadowRay).
 
     // Scalar "surrounding light" heuristic for AffectedByLightLevel
     // translucents — base-game afLightLevel semantics (the legacy CPU loop in
@@ -513,6 +528,7 @@ public struct Scene
             return 1.0f;
 
         uint nPoint = gPerFrame.pointLightCount;
+        uint nSpot  = gPerFrame.spotLightCount;
 
         float sum = 0.0f;
         for (uint k = 0u; k < cl.count; ++k)
@@ -527,13 +543,20 @@ public struct Scene
                 lcolor     = gPointLights[li].color;
                 lintensity = gPointLights[li].intensity;
             }
-            else
+            else if (li < nPoint + nSpot)
             {
                 uint si = li - nPoint;
-                if (si >= gPerFrame.spotLightCount) continue;
                 lpos       = gSpotLights[si].position;
                 lcolor     = gSpotLights[si].color;
                 lintensity = gSpotLights[si].intensity;
+            }
+            else
+            {
+                uint ai = li - nPoint - nSpot;
+                if (ai >= gPerFrame.areaLightCount) continue;
+                lpos       = gAreaLights[ai].position;
+                lcolor     = gAreaLights[ai].color;
+                lintensity = gAreaLights[ai].intensity;
             }
 
             float authoredRadius = lintensity;

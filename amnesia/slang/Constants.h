@@ -65,11 +65,11 @@ SHARED_CONST uint kBindingSurfelRayResult           = 17u;  // SurfelRayResult (
 SHARED_CONST uint kBindingCellInfo                   = 18u;  // CellInfo (kCellCount)
 SHARED_CONST uint kBindingCellToSurfel              = 19u;
 SHARED_CONST uint kBindingSceneObjects               = 20u;  // UniformObject[]
-SHARED_CONST uint kBindingDiffuseMaterial             = 21u;  // DiffuseMaterial[]
+SHARED_CONST uint kBindingMaterials                  = 21u;  // MaterialDataBlob[] flat material table
 SHARED_CONST uint kBindingPointLights                = 22u;
-SHARED_CONST uint kBindingTranslucentMaterial        = 24u;
-SHARED_CONST uint kBindingWaterMaterial              = 25u;
-SHARED_CONST uint kBindingDecalMaterial              = 26u;
+SHARED_CONST uint kBindingAreaLights                 = 23u;  // RWStructuredBuffer<RectLight> — rectangular area lights
+// 24/25/26 were the translucent/water/decal typed material SSBOs — folded into
+// the single MaterialDataBlob table, leaving these slots free.
 SHARED_CONST uint kBindingSurfelRefCounter          = 27u;
 SHARED_CONST uint kBindingSurfelReservation          = 28u;
 SHARED_CONST uint kBindingSpotLights                 = 29u;
@@ -87,9 +87,19 @@ SHARED_CONST uint kBindingFogAreas                    = 42u;  // RWStructuredBuf
 SHARED_CONST uint kBindingPackedRefractionHitInfo     = 43u;  // RGBA32UI storage image — refracted-bounce V-buffer
 SHARED_CONST uint kBindingPackedReflectionHitInfo     = 44u;  // RGBA32UI storage image — reflected-bounce V-buffer
 SHARED_CONST uint kBindingAttenuationLut              = 45u;  // default light falloff LUT (core_falloff_linear), immutable on set 0
-SHARED_CONST uint kBindingDecals                      = 46u;  // RWStructuredBuffer<GpuDecal> (kMaxDecals) — clustered OOB decals
-SHARED_CONST uint kBindingObjectDecalIndices          = 47u;  // RWStructuredBuffer<uint> — flat per-object decal-index lists (UniformObject.decalList = offset<<8|count); replaces the decal grid
+// Slots 46/47 (formerly kBindingDecals / kBindingObjectDecalIndices on set 0)
+// are now free — decal data moved to the per-world set kWorldDecalSet, baked
+// static by cWorld::Compile. See kBindingWorldDecals below.
 SHARED_CONST uint kBindingDissolveMap                 = 48u;  // immutable core_dissolve noise (128px), UV-sampled by the shared alphaTest dissolve fade
+
+// Per-world decal data baked by cWorld::Compile, bound on the MainCompositePass.
+// It rides set 2 — the conventional per-pass compute-I/O set — alongside the
+// composite's own resources, so its bindings start at 4 to clear the composite's
+// set-2 slots 0..3 (gIndirectLighting@0, gPackedHitInfoRaster@1, gOutput@2,
+// gDirectLighting@3). gDecals is read only by MainCompositePass.
+SHARED_CONST uint kWorldDecalSet                      = 2u;
+SHARED_CONST uint kBindingWorldDecals                 = 4u;  // StructuredBuffer<GpuDecal>  — baked OOB decals
+SHARED_CONST uint kBindingWorldObjectDecalIndices     = 5u;  // StructuredBuffer<uint>      — flat per-object decal-index pool
 
 // -----------------------------------------------------------------------------
 // Bindless pool capacities + sentinel.
@@ -104,19 +114,19 @@ SHARED_CONST uint kBindingDissolveMap                 = 48u;  // immutable core_
 // -----------------------------------------------------------------------------
 SHARED_CONST uint kObjectSlotCapacity        = 32768u;  // 16384 * 2
 SHARED_CONST uint kTextureSlotCapacity       = 16384u;
-// Material ids form one continuous, range-partitioned space across three typed
-// buffers. Each range's accessor de-biases the id by the range base:
-//   solid+decal : [0, kSolidMaterialCapacity)                  -> gDiffuseMaterials[id]
-//   translucent : [kTranslucentMaterialBase, kWaterMaterialBase) -> gTranslucentMaterials[id - base]
-//   water       : [kWaterMaterialBase, +kWaterMaterialCapacity)   -> gWaterMaterials[id - base]
-// isTranslucent / isWater are the range bounds checks; see Scene.slang.
-SHARED_CONST uint kSolidMaterialCapacity     = 2048u;   // solid + decal slots (range base 0)
-SHARED_CONST uint kTranslucentMaterialCapacity = 256u;  // dedicated translucent/glass table
-SHARED_CONST uint kWaterMaterialCapacity     = 64u;     // dedicated compact water table (scenes use <=64)
-SHARED_CONST uint kTranslucentMaterialBase   = kSolidMaterialCapacity;
-SHARED_CONST uint kWaterMaterialBase         = kSolidMaterialCapacity + kTranslucentMaterialCapacity;
+// Materials live in one flat table (gMaterials, kBindingMaterials) of fixed-size
+// MaterialDataBlobs indexed directly by UniformObject.materialID — Falcor's
+// MaterialSystem model. The blob's first 8 bytes are a MaterialHeader (type +
+// materialConfig); shaders read the type to dispatch and reinterpret<T> the blob
+// into the concrete material struct (DiffuseMaterial / TranslucentMaterial /
+// WaterMaterial). Adding a material type only needs a new enum value + struct +
+// IMaterial conformance — no new buffer/binding/range. kMaterialBlobUints must be
+// >= the largest material struct in uints (WaterMaterial is currently 19 → 76B).
+SHARED_CONST uint kMaterialCapacity          = 4096u;   // material table slot count
+SHARED_CONST uint kMaterialBlobUints         = 24u;     // uint32s per blob (96B; >= largest material struct)
 SHARED_CONST uint kPointSlotLightCapacity    = 256u;
 SHARED_CONST uint kSpotSlotLightCapacity     = 256u;
+SHARED_CONST uint kAreaSlotLightCapacity     = 64u;     // rectangular area lights (rarer than point/spot)
 SHARED_CONST uint kFogAreaCapacity           = 32u;
 SHARED_CONST uint kMaxDecals                  = 4096u;  // gDecals[] capacity (clustered OOB decals)
 SHARED_CONST uint kInvalidTextureIndex       = 0xffffffffu;
@@ -137,9 +147,9 @@ SHARED_CONST uint kRayMaskAll                = 0xffu;
 
 // -----------------------------------------------------------------------------
 // Material-config flag bits packed into DiffuseMaterial.materialConfig by the
-// host (CreateMaterailConfigFlags in MaterialResource.cpp). Single source of
+// host (submitMaterial in HybridGlobalManagedSet.cpp). Single source of
 // truth shared with C++ via the SHARED_CONST macro — there is no separate
-// enum on the host side; MaterialResource.cpp consumes these directly.
+// enum on the host side; the host packs these directly.
 // Shaders gate optional shading (e.g. the GGX specular lobe) on these; e.g.
 // `(m.materialConfig & kMaterialFlagEnableSpecular) != 0u`.
 // -----------------------------------------------------------------------------

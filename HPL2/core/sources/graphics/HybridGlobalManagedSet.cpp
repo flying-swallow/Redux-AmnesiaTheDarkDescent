@@ -2,7 +2,6 @@
 
 #include "graphics/Image.h"
 #include "graphics/Material.h"
-#include "graphics/MaterialResource.h"
 #include "graphics/MaterialType.h"
 #include "graphics/RIBootstrap.h"
 #include "graphics/RIResourceUploader.h"
@@ -22,9 +21,7 @@ namespace hpl {
 
 HybridGlobalManagedSet::HybridGlobalManagedSet()
     : m_objectSlots(kObjectSlotCapacity, /*frameInFlight*/ 0),
-      m_diffuseMaterialBindless(kSolidMaterialCapacity, RI_NUMBER_FRAMES_FLIGHT),
-      m_translucentMaterialBindless(kTranslucentMaterialCapacity, RI_NUMBER_FRAMES_FLIGHT),
-      m_waterMaterialBindless(kWaterMaterialCapacity, RI_NUMBER_FRAMES_FLIGHT),
+      m_materialBindless(kMaterialCapacity, RI_NUMBER_FRAMES_FLIGHT),
       m_textureBindless(kTextureSlotCapacity, RI_NUMBER_FRAMES_FLIGHT),
       m_textureCubeBindless(kTextureSlotCapacity, RI_NUMBER_FRAMES_FLIGHT) {}
 
@@ -83,7 +80,6 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
         kBindingSurfelBounds,
         kBindingBindlessSlotGeneration, kBindingSurfelSlotGeneration,
         kBindingLightGridCount,         kBindingLightGridList,
-        kBindingObjectDecalIndices,
     };
     const VkShaderStageFlags kSurfelStageFlags =
         VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
@@ -93,11 +89,11 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
       bindings.push_back(RIBindlessDescriptorSet::Binding{
           b, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kSurfelStageFlags, 0});
     }
-    // Scene-object + diffuse-material tables. Read by the gbuffer, the
-    // composite, and the RT pipeline's hit shaders.
+    // Scene-object + flat material table. Read by the gbuffer, the composite,
+    // and the RT pipeline's hit shaders.
     const uint32_t kSceneTableBindings[] = {
         kBindingSceneObjects,
-        kBindingDiffuseMaterial,
+        kBindingMaterials,
     };
     for (uint32_t b : kSceneTableBindings) {
       bindings.push_back(RIBindlessDescriptorSet::Binding{
@@ -111,16 +107,10 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
         kBindingSpotLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
         kRtSharedStages, 0});
     bindings.push_back(RIBindlessDescriptorSet::Binding{
+        kBindingAreaLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
+        kRtSharedStages, 0});
+    bindings.push_back(RIBindlessDescriptorSet::Binding{
         kBindingFogAreas, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-        kRtSharedStages, 0});
-    bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingDecals, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-        kRtSharedStages, 0});
-    bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingWaterMaterial, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-        kRtSharedStages, 0});
-    bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingTranslucentMaterial, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
         kRtSharedStages, 0});
 
     // gSurfelDepthSampler stays on set 0 — immutable, never collides with the
@@ -264,8 +254,6 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
   m_lightGridListBuffer = detail::CreateBindlessSlotBuffer(
       device, kLightGridCellCount * kLightsPerCellMax, sizeof(uint32_t),
       kStorage, /*deviceLocalOnly*/ true);
-  // (Per-object decal index pool m_objectDecalIndexBuffer is created with the
-  // other host-uploaded SSBOs below, alongside m_decalBuffer.)
 
   // Seed the surfel free-list. gSurfelCounter[Free] is a stack pointer and
   // gSurfelFreeIndexBuffer holds the available slot indices; at boot every slot
@@ -343,32 +331,21 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
     m_spotLightBuffer = RIBuffer::create(
         device, {(uint64_t)kSpotSlotLightCapacity * sizeof(SpotLight),
                  kSsboUsage, RI_MEMORY_DEVICE, 0});
+    m_areaLightBuffer = RIBuffer::create(
+        device, {(uint64_t)kAreaSlotLightCapacity * sizeof(RectLight),
+                 kSsboUsage, RI_MEMORY_DEVICE, 0});
     m_fogAreaBuffer = RIBuffer::create(
         device, {(uint64_t)kFogAreaCapacity * sizeof(FogAreaParams), kSsboUsage,
                  RI_MEMORY_DEVICE, 0});
-    m_decalBuffer = RIBuffer::create(
-        device, {(uint64_t)kMaxDecals * sizeof(GpuDecal), kSsboUsage,
-                 RI_MEMORY_DEVICE, 0});
-    m_objectDecalIndexBuffer = RIBuffer::create(
-        device, {(uint64_t)kMaxObjectDecalIndices * sizeof(uint32_t),
-                 kSsboUsage, RI_MEMORY_DEVICE, 0});
   }
 
-  m_diffuseMaterialBindless.reset(kSolidMaterialCapacity);
-  m_translucentMaterialBindless.reset(kTranslucentMaterialCapacity);
-  m_waterMaterialBindless.reset(kWaterMaterialCapacity);
-  m_diffuseMaterialBuffer = detail::CreateBindlessSlotBuffer(
-      device, kSolidMaterialCapacity, sizeof(DiffuseMaterial), kStorage,
-      /*deviceLocalOnly*/ true);
-  // Compact typed SSBOs for the translucent and water partitions of the
-  // continuous material-id space. submitMaterial allocates a local slot from the
-  // matching pool and stores (rangeBase + localSlot) in UniformObject.materialID;
-  // the shaders de-bias with (materialID - rangeBase). See Constants.h ranges.
-  m_translucentMaterialBuffer = detail::CreateBindlessSlotBuffer(
-      device, kTranslucentMaterialCapacity, sizeof(TranslucentMaterial), kStorage,
-      /*deviceLocalOnly*/ true);
-  m_waterMaterialBuffer = detail::CreateBindlessSlotBuffer(
-      device, kWaterMaterialCapacity, sizeof(WaterMaterial), kStorage,
+  // One flat material table (Falcor MaterialSystem model): a fixed-size
+  // MaterialDataBlob per slot, indexed by a flat materialID. submitMaterial packs
+  // the typed material struct into a blob (type tag in the header) and uploads it;
+  // the shader reinterprets the blob into the concrete struct. One LRU pool.
+  m_materialBindless.reset(kMaterialCapacity);
+  m_materialBuffer = detail::CreateBindlessSlotBuffer(
+      device, kMaterialCapacity, sizeof(MaterialDataBlob), kStorage,
       /*deviceLocalOnly*/ true);
 
   // Default linear/wrap sampler for all bindless texture fetches. The
@@ -428,28 +405,22 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
          kObjectSlotCapacity * sizeof(uint32_t)},
         {kBindingSurfelSlotGeneration, &m_surfelSlotGenerationBuffer,
          kTotalSurfelLimit * sizeof(uint32_t)},
-        {kBindingObjectDecalIndices, &m_objectDecalIndexBuffer,
-         (size_t)kMaxObjectDecalIndices * sizeof(uint32_t)},
         {kBindingLightGridCount, &m_lightGridCountBuffer,
          kLightGridCellCount * sizeof(uint32_t)},
         {kBindingLightGridList, &m_lightGridListBuffer,
          (size_t)kLightGridCellCount * kLightsPerCellMax * sizeof(uint32_t)},
         {kBindingSceneObjects, &m_objectBuffer,
          kObjectSlotCapacity * sizeof(UniformObject)},
-        {kBindingDiffuseMaterial, &m_diffuseMaterialBuffer,
-         kSolidMaterialCapacity * sizeof(DiffuseMaterial)},
+        {kBindingMaterials, &m_materialBuffer,
+         kMaterialCapacity * sizeof(MaterialDataBlob)},
         {kBindingPointLights, &m_pointLightBuffer,
          kPointSlotLightCapacity * sizeof(PointLight)},
         {kBindingSpotLights, &m_spotLightBuffer,
          kSpotSlotLightCapacity * sizeof(SpotLight)},
+        {kBindingAreaLights, &m_areaLightBuffer,
+         kAreaSlotLightCapacity * sizeof(RectLight)},
         {kBindingFogAreas, &m_fogAreaBuffer,
          kFogAreaCapacity * sizeof(FogAreaParams)},
-        {kBindingDecals, &m_decalBuffer,
-         kMaxDecals * sizeof(GpuDecal)},
-        {kBindingWaterMaterial, &m_waterMaterialBuffer,
-         kWaterMaterialCapacity * sizeof(WaterMaterial)},
-        {kBindingTranslucentMaterial, &m_translucentMaterialBuffer,
-         kTranslucentMaterialCapacity * sizeof(TranslucentMaterial)},
     };
 
     RIBindlessDescriptorSet::WriteBinding writes[std::size(ssbos) + 4] = {};
@@ -523,7 +494,7 @@ uint32_t HybridGlobalManagedSet::resolveTextureSlot(
   auto req = m_textureBindless.request(texture_cookie, frameIndex);
   if (req.exhausted)
     return kInvalidTextureIndex;
-  cntx->resourceLink.push_back(texture);
+  RI.graphicsDefer.push(PinResource(img));
   // BindlessPool reports `found == true` only when the same cookie still
   // owns the slot. Fresh allocations and LRU recycles both come back with
   // `found == false`, so that's when we (re)stage the descriptor write at
@@ -554,7 +525,7 @@ uint32_t HybridGlobalManagedSet::resolveCubeTextureSlot(
   auto req = m_textureCubeBindless.request(texture_cookie, frameIndex);
   if (req.exhausted)
     return kInvalidTextureIndex;
-  cntx->resourceLink.push_back(texture);
+  RI.graphicsDefer.push(PinResource(img));
   if (!req.found) {
     RIBindlessDescriptorSet::WriteBinding binding = {};
     binding.binding = kBindingTexturesCube;
@@ -587,127 +558,126 @@ HybridGlobalManagedSet::submitMaterial(RIBootstrap::FrameContext *cntx,
   // via the cube allocator rather than slotFor (2D-only); stored outside tex[].
   gpu.cubeMapTextureIndex = resolveCubeTextureSlot(
       cntx, mat->GetImage(eMaterialTexture_CubeMap), frameIndex);
-  // Material config bits — single source of truth in MaterialResource. The
-  // shared Scene.slang alphaTest reads bit 10 (IsAlphaSingleChannel) to pick
-  // .r vs .a; without it grayscale alpha maps like chandelier_simple_alpha.tga
-  // (R8_UNORM) alpha-tested against the constant fill in .a. Bit 9
-  // (IsHeightMapSingleChannel) is the same probe for heightmaps, reserved for
-  // the parallax path (unimplemented in this renderer so far).
-  gpu.materialConfig = material::UniformMaterialBlock::CreateMaterailConfigFlags(*mat);
-  // Scalars: only the solid path is mapped today. Other variants leave
-  // these zero (the forward-diffuse fragment shader doesn't read them on
-  // the solid path either).
-  const ShaderMaterialData &desc = mat->Descriptor();
-  if (desc.m_id == MaterialID::SolidDiffuse) {
-    gpu.heightMapScale = desc.m_solid.m_heightMapScale;
-    gpu.heightMapBias = desc.m_solid.m_heightMapBias;
-    gpu.frenselBias = desc.m_solid.m_frenselBias;
-    gpu.frenselPow = desc.m_solid.m_frenselPow;
-  }
-  // Translucent + Water have their own typed tables (handled below); the shared
-  // DiffuseMaterial payload above still resolves their textures/config/cubemap,
-  // which those branches copy out of `gpu`.
 
-  hash_t cookie = hash_u64(HASH_INITIAL_VALUE, mat->GetUniqueCookie());
-  cookie = hash_u64(cookie, (uint64_t)mat->Generation());
-  cookie = hash_data(cookie, &gpu, sizeof(gpu));
 
-  // Translucent (glass) materials live in their own compact table; the returned
-  // id is offset into the translucent range (kTranslucentMaterialBase + slot),
-  // stored in UniformObject.materialID and de-biased shader-side.
-  if (desc.m_id == MaterialID::Translucent) {
-    auto treq = m_translucentMaterialBindless.request(cookie, frameIndex);
-    if (treq.exhausted) {
-      Warning("Translucent material slot exhausted (>%u translucent materials); reusing slot 0\n",
-              (unsigned)kTranslucentMaterialCapacity);
-      return {kTranslucentMaterialBase}; // local slot 0 fallback
+  auto isSingleChannel = [](const Image *image) {
+    if (!image) {
+      return false;
     }
-    if (!treq.found) {
-      TranslucentMaterial trans = {};
-      trans.type                = MATERIAL_TYPE_TRANSLUCENT;
-      trans.materialConfig      = gpu.materialConfig;
-      trans.cubeMapTextureIndex = gpu.cubeMapTextureIndex;
-      for (int i = 0; i < 8; ++i) trans.tex[i] = gpu.tex[i];
-      trans.refractionScale     = desc.m_translucent.m_refractionScale;
-      trans.frenselBias         = desc.m_translucent.m_frenselBias;
-      trans.frenselPow          = desc.m_translucent.m_frenselPow;
-      trans.rimLightMul         = desc.m_translucent.m_rimLightMul;
-      trans.rimLightPow         = desc.m_translucent.m_rimLightPow;
+    const auto texture = image->GetTexture();
+    return texture && RIFormatChannelCount(texture->format) == 1;
+  };
+  const Image *alphaImage = mat->GetImage(eMaterialTexture_Alpha);
+  const Image *heightImage = mat->GetImage(eMaterialTexture_Height);
+  gpu.materialConfig =
+      (mat->GetImage(eMaterialTexture_Diffuse) ? kMaterialFlagEnableDiffuse : 0) |
+      (mat->GetImage(eMaterialTexture_NMap) ? kMaterialFlagEnableNormal : 0) |
+      (mat->GetImage(eMaterialTexture_Specular) ? kMaterialFlagEnableSpecular : 0) |
+      (alphaImage ? kMaterialFlagEnableAlpha : 0) |
+      (isSingleChannel(alphaImage) ? kMaterialFlagIsAlphaSingleChannel : 0) |
+      (heightImage ? kMaterialFlagEnableHeight : 0) |
+      (isSingleChannel(heightImage) ? kMaterialFlagIsHeightMapSingleChannel : 0) |
+      (mat->GetImage(eMaterialTexture_Illumination) ? kMaterialFlagEnableIllumination : 0) |
+      (mat->GetImage(eMaterialTexture_CubeMap) ? kMaterialFlagEnableCubeMap : 0) |
+      (mat->GetImage(eMaterialTexture_DissolveAlpha) ? kMaterialFlagEnableDissolveAlpha : 0) |
+      (mat->GetImage(eMaterialTexture_CubeMapAlpha) ? kMaterialFlagEnableCubeMapAlpha : 0);
 
-      RIResourceBufferTransaction tx = {};
-      tx.target = m_translucentMaterialBuffer;
-      tx.size = sizeof(TranslucentMaterial);
-      tx.offset = (size_t)treq.id * sizeof(TranslucentMaterial);
-      tx.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-      tx.currentStages = RI_STAGE_ALL_SHADER;
-      tx.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-      tx.postStages = RI_STAGE_ALL_SHADER;
-      RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &tx);
-      std::memcpy(tx.mapped.data, &trans, sizeof(trans));
-      RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &tx);
-    }
-    return {kTranslucentMaterialBase + treq.id};
-  }
+  // The typed material tables share the same leading layout
+  // (type, materialConfig, tex[8]); only the trailing scalars differ. Copy the
+  // already-resolved config + texture slots out of `gpu` so each branch below
+  // only has to fill its own scalar tail.
+  auto copyShared = [&](auto &dst) {
+    dst.materialConfig = gpu.materialConfig;
+    std::memcpy(dst.tex, gpu.tex, sizeof(gpu.tex));
+  };
+  // Dispatch on the per-type data blob: each alternative builds its typed GPU
+  // material struct (folding its config flags + scalars into the shared `gpu`
+  // payload), packs it into a fixed-size MaterialDataBlob (type tag in the
+  // header), then uploads the blob to the single flat material table and returns
+  // a flat materialID. The shader reinterprets the blob via its type tag.
+  return std::visit(
+      [&](const auto &data) -> MaterialSubmitResult {
+        using T = std::decay_t<decltype(data)>;
 
-  // Water materials live in their own compact table — no diffuse entry. The
-  // returned id is offset into the water range (kWaterMaterialBase + slot),
-  // stored in UniformObject.materialID and de-biased shader-side.
-  if (desc.m_id == MaterialID::Water) {
-    auto wreq = m_waterMaterialBindless.request(cookie, frameIndex);
-    if (wreq.exhausted) {
-      Warning("Water material slot exhausted (>%u water materials); reusing slot 0\n",
-              (unsigned)kWaterMaterialCapacity);
-      return {kWaterMaterialBase}; // local slot 0 fallback
-    }
-    if (!wreq.found) {
-      WaterMaterial water = {};
-      water.type            = MATERIAL_TYPE_WATER;
-      water.materialConfig  = gpu.materialConfig;
-      for (int i = 0; i < 8; ++i) water.tex[i] = gpu.tex[i];
-      water.refractionScale     = desc.m_water.m_refractionScale;
-      water.frenselBias         = desc.m_water.m_frenselBias;
-      water.frenselPow          = desc.m_water.m_frenselPow;
-      water.reflectionFadeStart = desc.m_water.m_reflectionFadeStart;
-      water.reflectionFadeEnd   = desc.m_water.m_reflectionFadeEnd;
-      water.waveSpeed           = desc.m_water.m_waveSpeed;
-      water.waveAmplitude       = desc.m_water.m_waveAmplitude;
-      water.waveFreq            = desc.m_water.m_waveFreq;
+        static_assert(sizeof(MaterialDataBlob) >= sizeof(DiffuseMaterial) &&
+                          sizeof(MaterialDataBlob) >= sizeof(TranslucentMaterial) &&
+                          sizeof(MaterialDataBlob) >= sizeof(WaterMaterial),
+                      "MaterialDataBlob must hold the largest typed material struct");
+        MaterialDataBlob blob = {};
 
-      RIResourceBufferTransaction trans = {};
-      trans.target = m_waterMaterialBuffer;
-      trans.size = sizeof(WaterMaterial);
-      trans.offset = (size_t)wreq.id * sizeof(WaterMaterial);
-      trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-      trans.currentStages = RI_STAGE_ALL_SHADER;
-      trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-      trans.postStages = RI_STAGE_ALL_SHADER;
-      RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
-      std::memcpy(trans.mapped.data, &water, sizeof(water));
-      RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
-    }
-    return {kWaterMaterialBase + wreq.id};
-  }
+        if constexpr (std::is_same_v<T, MaterialTranslucent>) {
+          gpu.materialConfig |=
+              (data.m_refractionNormals ? kMaterialFlagUseRefractionNormals : 0) |
+              (mat->HasRefraction() && data.m_refractionEdgeCheck ? kMaterialFlagUseRefractionEdgeCheck : 0) |
+              (mat->HasRefraction() ? kMaterialFlagHasRefraction : 0) |
+              (data.m_isAffectedByLightLevel ? kMaterialFlagAffectedByLightLevel : 0);
+          TranslucentMaterial trans = {};
+          trans.type                = MATERIAL_TYPE_TRANSLUCENT;
+          copyShared(trans);
+          trans.cubeMapTextureIndex = gpu.cubeMapTextureIndex;
+          trans.refractionScale     = data.m_refractionScale;
+          trans.frenselBias         = data.m_frenselBias;
+          trans.frenselPow          = data.m_frenselPow;
+          trans.rimLightMul         = data.m_rimLightMul;
+          trans.rimLightPow         = data.m_rimLightPow;
+          std::memcpy(blob.data, &trans, sizeof(trans));
+        } else if constexpr (std::is_same_v<T, MaterialWater>) {
+          // Water always refracts + reflects via the SurfelVBuffer.rt wave-animated
+          // bounce. IsWater drives that branch; HasRefraction makes the GIRenderPass
+          // swap show the refracted background.
+          gpu.materialConfig |= kMaterialFlagIsWater | kMaterialFlagHasRefraction;
+          WaterMaterial water = {};
+          water.type            = MATERIAL_TYPE_WATER;
+          copyShared(water);
+          water.refractionScale     = data.m_refractionScale;
+          water.frenselBias         = data.m_frenselBias;
+          water.frenselPow          = data.m_frenselPow;
+          water.reflectionFadeStart = data.m_reflectionFadeStart;
+          water.reflectionFadeEnd   = data.m_reflectionFadeEnd;
+          water.waveSpeed           = data.m_waveSpeed;
+          water.waveAmplitude       = data.m_waveAmplitude;
+          water.waveFreq            = data.m_waveFreq;
+          std::memcpy(blob.data, &water, sizeof(water));
+        } else {
+          // SolidDiffuse, Decal and the blank/unknown (monostate) material all
+          // use the DiffuseMaterial layout.
+          if constexpr (std::is_same_v<T, MaterialDiffuseSolid>) {
+            gpu.materialConfig |= (data.m_alphaDissolveFilter ? kMaterialFlagUseDissolveFilter : 0);
+            gpu.heightMapScale = data.m_heightMapScale;
+            gpu.heightMapBias = data.m_heightMapBias;
+            gpu.frenselBias = data.m_frenselBias;
+            gpu.frenselPow = data.m_frenselPow;
+          }
+          std::memcpy(blob.data, &gpu, sizeof(gpu));
+        }
 
-  auto req = m_diffuseMaterialBindless.request(cookie, frameIndex);
-  if (req.exhausted)
-    return {UINT32_MAX};
-  if (req.found)
-    return {req.id};
-  {
-    RIResourceBufferTransaction trans = {};
-    trans.target = m_diffuseMaterialBuffer;
-    trans.size = sizeof(DiffuseMaterial);
-    trans.offset = (size_t)req.id * sizeof(DiffuseMaterial);
-    trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-    trans.currentStages = RI_STAGE_ALL_SHADER;
-    trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-    trans.postStages = RI_STAGE_ALL_SHADER;
-    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
-    std::memcpy(trans.mapped.data, &gpu, sizeof(gpu));
-    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
-  }
+        // One flat table, keyed by a cookie over the packed blob (folds in the
+        // material generation so edits re-upload). Allocate a slot on first
+        // sight; re-upload only when the blob changed.
+        hash_t cookie = hash_u64(HASH_INITIAL_VALUE, mat->GetUniqueCookie());
+        cookie = hash_u64(cookie, (uint64_t)mat->Generation());
+        cookie = hash_data(cookie, &blob, sizeof(blob));
 
-  return {req.id};
+        auto req = m_materialBindless.request(cookie, frameIndex);
+        if (req.exhausted)
+          return {UINT32_MAX};
+        if (req.found)
+          return {req.id};
+
+        RIResourceBufferTransaction trans = {};
+        trans.target = m_materialBuffer;
+        trans.size = sizeof(MaterialDataBlob);
+        trans.offset = (size_t)req.id * sizeof(MaterialDataBlob);
+        trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+        trans.currentStages = RI_STAGE_ALL_SHADER;
+        trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+        trans.postStages = RI_STAGE_ALL_SHADER;
+        RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+        std::memcpy(trans.mapped.data, &blob, sizeof(blob));
+        RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+        return {req.id};
+      },
+      mat->Data());
 }
 
 uint32_t HybridGlobalManagedSet::submitObject(uint64_t objectCookie,
@@ -805,9 +775,8 @@ uint32_t HybridGlobalManagedSet::submitObject(uint64_t objectCookie,
   if (vb && (flags & (kSubmitVertex | kSubmitIndex))) {
     auto bdaOf = [&](eVertexBufferElement type) -> VkDeviceAddress {
       const auto *element = vb->GetElement(type);
-      return (element && element->buffer)
-                 ? element->buffer->GetDeviceHandle(&RI.device)
-                 : 0;
+      RIBuffer *buf = element ? element->GetBuffer() : nullptr;
+      return buf ? buf->GetDeviceHandle(&RI.device) : 0;
     };
     if (flags & kSubmitVertex) {
       m_opaquePositionMirror.write<VkDeviceAddress>(
@@ -882,12 +851,12 @@ void HybridGlobalManagedSet::destroy(RIDevice *device) {
   m_lightGridListBuffer = {};
   m_spotLightBuffer.dispose(device);
   m_spotLightBuffer = {};
+  m_areaLightBuffer.dispose(device);
+  m_areaLightBuffer = {};
   m_fogAreaBuffer.dispose(device);
   m_fogAreaBuffer = {};
-  m_decalBuffer.dispose(device);
-  m_decalBuffer = {};
-  m_objectDecalIndexBuffer.dispose(device);
-  m_objectDecalIndexBuffer = {};
+  m_materialBuffer.dispose(device);
+  m_materialBuffer = {};
   m_bindlessSet.destroy(device);
 }
 

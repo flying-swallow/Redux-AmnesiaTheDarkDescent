@@ -9,9 +9,6 @@ struct RIDeviceDesc {
 	struct RIPhysicalAdapter *physicalAdapter;
 };
 
-// Loader-level teardown: disposes the renderer, then finalizes volk.
-void ShutdownRIRenderer( struct RIRenderer *renderer );
-
 #if DEVICE_IMPL_VULKAN
 void VK_ConfigureBufferQueueFamilies( VkBufferCreateInfo *info, struct RIQueue *queues, size_t numQueues, uint32_t *queueFamiliesIdx, size_t reservedLen );
 void VK_ConfigureImageQueueFamilies( VkImageCreateInfo *info, struct RIQueue *queues, size_t numQueues, uint32_t *queueFamiliesIdx, size_t reservedLen );

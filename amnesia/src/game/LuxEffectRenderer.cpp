@@ -153,7 +153,7 @@ void BindGeomPipeline(RIProgram &aProgram, RICmd *apCmd, eGeomPassMode aMode,
 	const bool bHasStencil = (aMode == eGeomPassMode_OutlineMark ||
 							  aMode == eGeomPassMode_OutlineRim);
 
-	VkFormat colorFormat = RIBootstrap::PogoColorFormatVk;
+	VkFormat colorFormat = RIFormatToVK(RIBootstrap::PogoColorFormat);
 	VkPipelineRenderingCreateInfo pipelineRendering = {
 		VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
 	pipelineRendering.colorAttachmentCount = 1;
@@ -279,7 +279,7 @@ void BindFullscreenPipeline(RIProgram &aProgram, RICmd *apCmd, bool abAdditive,
 	dynamicState.dynamicStateCount = 2;
 	dynamicState.pDynamicStates = dynamicStates;
 
-	VkFormat colorFormat = RIBootstrap::PogoColorFormatVk;
+	VkFormat colorFormat = RIFormatToVK(RIBootstrap::PogoColorFormat);
 	VkPipelineRenderingCreateInfo pipelineRendering = {
 		VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
 	pipelineRendering.colorAttachmentCount = 1;
@@ -347,11 +347,10 @@ bool BindGeomStreams(RICmd *apCmd, cVertexBuffer *apVB, bool *abNormalPresent) {
 	auto *vbri = static_cast<cVertexBuffer *>(apVB);
 	auto bufOf = [&](eVertexBufferElement type) -> RIBuffer * {
 		const auto *element = vbri->GetElement(type);
-		return (element && element->buffer) ? element->buffer.get() : nullptr;
+		return element ? element->GetBuffer() : nullptr;
 	};
 	RIBuffer *pos = bufOf(eVertexBufferElement_Position);
-	const auto &idxRI = vbri->GetIndexRIBuffer();
-	RIBuffer *idx = idxRI ? idxRI.get() : nullptr;
+	RIBuffer *idx = vbri->GetIndexRIBuffer();
 	if (!pos || !idx)
 		return false;
 	RIBuffer *nrm = bufOf(eVertexBufferElement_Normal);
@@ -370,12 +369,11 @@ bool BindGeomStreamsUv(RICmd *apCmd, cVertexBuffer *apVB) {
 	auto *vbri = static_cast<cVertexBuffer *>(apVB);
 	auto bufOf = [&](eVertexBufferElement type) -> RIBuffer * {
 		const auto *element = vbri->GetElement(type);
-		return (element && element->buffer) ? element->buffer.get() : nullptr;
+		return element ? element->GetBuffer() : nullptr;
 	};
 	RIBuffer *pos = bufOf(eVertexBufferElement_Position);
 	RIBuffer *uv = bufOf(eVertexBufferElement_Texture0);
-	const auto &idxRI = vbri->GetIndexRIBuffer();
-	RIBuffer *idx = idxRI ? idxRI.get() : nullptr;
+	RIBuffer *idx = vbri->GetIndexRIBuffer();
 	if (!pos || !uv || !idx)
 		return false;
 	RIBuffer *vertBufs[2] = {pos, uv};
@@ -517,7 +515,7 @@ void cLuxEffectRenderer::EnsureTargets(uint32_t alWidth, uint32_t alHeight)
 		m_outlineColor.height != alHeight) {
 		DestroyPostEffectColorTarget(m_outlineColor);
 		CreatePostEffectColorTarget(m_outlineColor, alWidth, alHeight,
-									RIBootstrap::PogoColorFormatVk, 0u,
+									RIBootstrap::PogoColorFormat, 0u,
 									"LuxOutline.color");
 		mbOutlineColorInit = true;
 	}
@@ -529,10 +527,10 @@ void cLuxEffectRenderer::EnsureTargets(uint32_t alWidth, uint32_t alHeight)
 		DestroyPostEffectColorTarget(m_blur[0]);
 		DestroyPostEffectColorTarget(m_blur[1]);
 		CreatePostEffectColorTarget(m_blur[0], blurW, blurH,
-									RIBootstrap::PogoColorFormatVk, 0u,
+									RIBootstrap::PogoColorFormat, 0u,
 									"LuxOutline.blur0");
 		CreatePostEffectColorTarget(m_blur[1], blurW, blurH,
-									RIBootstrap::PogoColorFormatVk, 0u,
+									RIBootstrap::PogoColorFormat, 0u,
 									"LuxOutline.blur1");
 		mbBlurInit = true;
 	}
@@ -586,7 +584,7 @@ void cLuxEffectRenderer::OnPostWorldDraw(const PostWorldDrawCtx &ctx)
 	/////////////////////////////
 	// Composite the blurred outline into the pogo read half (post-tonemap).
 	const uint32_t readIdx = (pPogo->attachmentIndex + 1u) % 2u;
-	RITexture *pReadTex = &pPogo->textures[readIdx];
+	RITexture *pReadTex = pPogo->textures[readIdx].Get();
 	VkImageView readView = RI_PogoBufferShaderResource(pPogo).vkImageView();
 
 	// Read half: SHADER_RESOURCE -> RENDER_TARGET (composite appends).
@@ -669,7 +667,7 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 	// If the guard band is ever enabled, this pass must switch to the
 	// renderer's widened projection and the full overscan extent.
 	cViewport::BackBuffer bb = ctx.viewport->GetBackBuffer();
-	if (bb.renderTarget.isEmpty(&RI.renderer)) return;
+	if (bb.renderTarget.isEmpty()) return;
 	VkImageView hdrView = bb.renderTargetView.vk.image;
 
 	/////////////////////////////
@@ -742,7 +740,7 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 				// UVs and a diffuse image; skip the object if either is missing.
 				cMaterial *pMat = pObject->GetMaterial();
 				Image *pDiffImage = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : NULL;
-				std::shared_ptr<cTexture> diffTex =
+				cTexture *diffTex =
 					pDiffImage ? pDiffImage->GetTexture() : nullptr;
 				if (!diffTex) continue;
 
@@ -923,7 +921,7 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 				// back to the solid path if the mesh has no UVs.
 				cMaterial *pMat = pObject->GetMaterial();
 				Image *pAlphaImage = pMat ? pMat->GetImage(eMaterialTexture_Alpha) : NULL;
-				std::shared_ptr<cTexture> alphaTex =
+				cTexture *alphaTex =
 					pAlphaImage ? pAlphaImage->GetTexture() : nullptr;
 
 				bool bDrewAlpha = false;

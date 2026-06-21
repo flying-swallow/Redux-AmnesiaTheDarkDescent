@@ -1799,8 +1799,6 @@ public:
 				else if(texType == eMaterialTexture_NMap)	pMat->SetImage(texType,mpTexNMapNull);
 				else										pMat->SetTexture(texType,NULL);
 			}
-			
-			pMat->Compile();
 		}
 
 		return true;

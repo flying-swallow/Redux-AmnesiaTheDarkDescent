@@ -41,28 +41,37 @@ void binLights(uint3 dispatchThreadId: SV_DispatchThreadID)
     int3   cellPos = gridUnflattenCellIndex(flat, kLightGridDim);
     float3 camPos  = gPerFrame.posW;
     uint   nPoint  = gPerFrame.pointLightCount;
-    uint   total   = nPoint + gPerFrame.spotLightCount;
+    uint   nSpot   = gPerFrame.spotLightCount;
+    uint   total   = nPoint + nSpot + gPerFrame.areaLightCount;
 
     uint count = 0u;
     for (uint i = 0u; i < total; ++i)
     {
-        // Unified index → point/spot. radius is the host-precomputed bin reach
+        // Unified index → point/spot/area. radius is the host-precomputed bin reach
         // (0 ⇒ the light was too dim to matter anywhere; skip).
-        bool   isSpot = (i >= nPoint);
+        bool   isSpot = (i >= nPoint) && (i < nPoint + nSpot);
+        bool   isArea = (i >= nPoint + nSpot);
         float3 center;
         float  radius;
         float3 spotAxis = float3(0.f, 0.f, 1.f);
         float  spotCos  = -1.f;
-        if (!isSpot)
+        if (isArea)
         {
-            PointLight pl = gPointLights[i];
-            center = pl.position;  radius = pl.radius;
+            // Area lights are planar emitters; the reach sphere is a conservative
+            // bound (the exact rect + barn-door cull stays in RectLight.sample).
+            RectLight al = gAreaLights[i - nPoint - nSpot];
+            center = al.position;  radius = al.radius;
         }
-        else
+        else if (isSpot)
         {
             SpotLight sl = gSpotLights[i - nPoint];
             center = sl.position;  radius = sl.radius;
             spotAxis = sl.direction;  spotCos = sl.cosOuterAngle;
+        }
+        else
+        {
+            PointLight pl = gPointLights[i];
+            center = pl.position;  radius = pl.radius;
         }
         if (radius <= 0.f)
             continue;

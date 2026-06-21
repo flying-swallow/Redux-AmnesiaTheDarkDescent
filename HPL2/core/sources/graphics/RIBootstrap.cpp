@@ -25,10 +25,10 @@ namespace {
 // in-flight frames keep their data) and claim from the fresh allocator.
 bool __RequestScratchSegment(RIBootstrap::FrameContext *cntx,
                              RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> &alloc,
-                             RIBuffer &buffer, uint16_t elementStride,
+                             RISharedPointer<RIBuffer> &buffer, uint16_t elementStride,
                              uint32_t usage, size_t numElements,
                              struct RISegmentReq *req) {
-  if (!buffer.isEmpty(&RI.renderer) &&
+  if (!buffer.isEmpty() &&
       alloc.request(RI.frameIndex, numElements, req)) {
     return true;
   }
@@ -47,13 +47,15 @@ bool __RequestScratchSegment(RIBootstrap::FrameContext *cntx,
     return false;
   }
 
-  if (!buffer.isEmpty(&RI.renderer)) {
-    cntx->freelist.push_back(buffer);
+  if (!buffer.isEmpty()) {
+    RI.graphicsDefer.push(buffer);
   }
-  buffer = RIBuffer::create(
-      &RI.device, {(uint64_t)segmentAllocDesc.maxElements *
-                       segmentAllocDesc.elementStride,
-                   usage, RI_MEMORY_HOST_UPLOAD, 0});
+  buffer = RISharedPointer<RIBuffer>(
+      &RI.device,
+      RIBuffer::create(
+          &RI.device, {(uint64_t)segmentAllocDesc.maxElements *
+                           segmentAllocDesc.elementStride,
+                       usage, RI_MEMORY_HOST_UPLOAD, 0}));
   return true;
 }
 } // namespace
@@ -81,10 +83,8 @@ bool RIBootstrap::RequestTranslucentIdx(FrameContext *cntx, size_t numIndices,
 void RIBootstrap::Dispose() {
   device.queues[RI_QUEUE_GRAPHICS].waitIdle(&device);
 
-  if (!translucentVtxBuffer.isEmpty(&RI.renderer))
-    translucentVtxBuffer.dispose(&device);
-  if (!translucentIdxBuffer.isEmpty(&RI.renderer))
-    translucentIdxBuffer.dispose(&device);
+  translucentVtxBuffer = {};
+  translucentIdxBuffer = {};
 
   // Free the owned samplers (cookie != 0 marks an occupied slot).
   for (size_t i = 0; i < cachedSamplers.size(); i++) {
@@ -94,12 +94,13 @@ void RIBootstrap::Dispose() {
     }
   }
 
+  // The GPU is idle (waitIdle above), so every sealed frame has completed and
+  // anything still pending was deferred for a frame that never submitted
+  // (teardown mid-frame). Release all of it, then drop the timeline itself.
+  graphicsDefer.drainAll();
+  graphicsTimeline.dispose(&device);
+
   for (auto &set : frameSets) {
-    set.resourceLink.clear();
-    for (auto &entry : set.freelist) {
-      std::visit([&](auto &res) { res.dispose(&device); }, entry);
-    }
-    set.freelist.clear();
     FreeRIScratchAlloc(&device, &set.uboScratchAlloc);
     FreeRIScratchAlloc(&device, &set.accelScratchAlloc);
   }
@@ -194,18 +195,35 @@ void RIBootstrap::CloseAndSubmitActiveSet() {
     submitInfo.waitSemaphoreInfoCount = waitCount;
     submitInfo.pWaitSemaphoreInfos = waitInfos;
 
-    VkSemaphoreSubmitInfo signalFinish = {
-        VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO};
-    signalFinish.semaphore =
+    // Reserve this frame's timeline value. The primary signals it on
+    // completion; everything parked on the active set is latched to it below so
+    // it's reclaimed exactly when the GPU finishes this frame.
+    const uint64_t frameTimelineValue = RI.graphicsTimeline.next();
+
+    VkSemaphoreSubmitInfo signalInfos[2] = {};
+    // Binary finish semaphore for present.
+    signalInfos[0].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signalInfos[0].semaphore =
         RI.swapchain.vk.finishSem[RI.swapchain.vk.frameIndex];
-    signalFinish.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-    submitInfo.signalSemaphoreInfoCount = 1;
-    submitInfo.pSignalSemaphoreInfos = &signalFinish;
+    signalInfos[0].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    // Monotonic timeline drives deferred resource reclamation.
+    signalInfos[1].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+    signalInfos[1].semaphore = RI.graphicsTimeline.vk.semaphore;
+    signalInfos[1].value = frameTimelineValue;
+    signalInfos[1].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    submitInfo.signalSemaphoreInfoCount = 2;
+    submitInfo.pSignalSemaphoreInfos = signalInfos;
 
     VK_WrapResult(vkResetFences(RI.device.vk.device, 1, &RI.primary.vk.fence));
     VK_WrapResult(vkQueueSubmit2(graphicsQueue->vk.queue, 1, &submitInfo,
                                  RI.primary.vk.fence));
     RISwapchainPresent(&RI.device, &RI.swapchain);
+
+    // Seal this frame's deferred destroys + keep-alives against the timeline
+    // value the primary signals; they release in BeginActiveSet once the GPU
+    // passes it. BLAS work lives in blasSubmit, which the primary waits on, so
+    // primary completion implies every parked resource is GPU-idle.
+    RI.graphicsDefer.seal(frameTimelineValue);
   }
   RI.IncrementFrame();
 }
@@ -214,31 +232,18 @@ void RIBootstrap::BeginActiveSet() {
 
   RI.graphicsCmdRing.advance();
   RI.primary = RI.graphicsCmdRing.acquire(&RI.device, 1);
-  // Second element from the same pool for the dedicated BLAS-build submit.
   RI.blasSubmit = RI.graphicsCmdRing.acquire(&RI.device, 1);
   RI.primary.wait(&RI.device);
   RI.blasSubmit.wait(&RI.device);
-  // One pool backs both elements; resetting it once frees both command buffers.
   RI.primary.pool->reset(&RI.device);
 
-  for (auto &entry : cntx->freelist) {
-    std::visit([&](auto &res) { res.dispose(&RI.device); }, entry);
-  }
-  cntx->freelist.clear();
+  RI.graphicsDefer.drain(RI.graphicsTimeline.completed(&RI.device));
 
   RI.swapchainIndex = RISwapchainAcquireNextTexture(&RI.device, &RI.swapchain);
 
   // cleanup
   RIResetScratchAlloc(&RI.device, &cntx->uboScratchAlloc);
   RIResetScratchAlloc(&RI.device, &cntx->accelScratchAlloc);
-  // cntx->colorAttachment = RI.colorAttachment[RI.swapchainIndex];
-  // cntx->colorAttachment.finalize(&RI.device);
-  // Drop the keep-alive refs parked last time this slot was used. BLAS
-  // handles ride here too, deferring their release by frames-in-flight
-  // alongside the storage/vertex/index buffers — the Draw path re-parks
-  // every BLAS-backed geometry each frame, so a BLAS stays resident as long
-  // as it (or a TLAS that references it) can be in flight.
-  cntx->resourceLink.clear();
 
   RI.blasSubmit.cmds[0].begin(&RI.device);
   RI.primary.cmds[0].begin(&RI.device);

@@ -62,117 +62,57 @@ namespace hpl {
 		AddVarBool("HasReflection", true, "If a reflection should be shown or not.");
 		AddVarBool("OcclusionCullWorldReflection", true, "If occlusion culling should be used on reflection.");
 		AddVarBool("LargeSurface", true, "If the water will cover a large surface and will need special sorting when rendering other transperant objects.");
-		
-		mbHasTypeSpecifics[eMaterialRenderMode_Diffuse] = true;
-		mbHasTypeSpecifics[eMaterialRenderMode_DiffuseFog] = true;
 	}
 
 	cMaterialType_Water::~cMaterialType_Water() {}
 
-	iMaterialVars* cMaterialType_Water::CreateSpecificVariables()
-	{
-		cMaterialType_Water_Vars* pVars = hplNew(cMaterialType_Water_Vars,());
-
-		pVars->mbHasReflection = true;
-		pVars->mfRefractionScale = 0.1f;
-		pVars->mfFrenselBias = 0.2f;
-		pVars->mfFrenselPow = 8.0f;
-
-		return pVars;
-	}
-
 	void cMaterialType_Water::LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars)
 	{
-		cMaterialType_Water_Vars *pVars = (cMaterialType_Water_Vars*)apMaterial->GetVars();
-		if(pVars==NULL)
-		{
-			pVars = (cMaterialType_Water_Vars*)CreateSpecificVariables();
-			apMaterial->SetVars(pVars);
-		}
-				
-		pVars->mbHasReflection = apVars->GetVarBool("HasReflection", true);
-		pVars->mfRefractionScale = apVars->GetVarFloat("RefractionScale", 0.1f);
-		pVars->mfFrenselBias = apVars->GetVarFloat("FrenselBias", 0.2f);
-		pVars->mfFrenselPow = apVars->GetVarFloat("FrenselPow", 8.0f);
-		pVars->mfReflectionFadeStart = apVars->GetVarFloat("ReflectionFadeStart", 0);
-		pVars->mfReflectionFadeEnd = apVars->GetVarFloat("ReflectionFadeEnd", 0);
-		pVars->mfWaveSpeed = apVars->GetVarFloat("WaveSpeed", 1.0f);
-		pVars->mfWaveAmplitude = apVars->GetVarFloat("WaveAmplitude", 1.0f);
-		pVars->mfWaveFreq = apVars->GetVarFloat("WaveFreq", 1.0f);
+		MaterialWater* pData = std::get_if<MaterialWater>(&apMaterial->Data());
+		if(pData==nullptr) return;
+
+		pData->m_hasReflection = apVars->GetVarBool("HasReflection", true);
+		pData->m_refractionScale = apVars->GetVarFloat("RefractionScale", 0.1f);
+		pData->m_frenselBias = apVars->GetVarFloat("FrenselBias", 0.2f);
+		pData->m_frenselPow = apVars->GetVarFloat("FrenselPow", 8.0f);
+		pData->m_reflectionFadeStart = apVars->GetVarFloat("ReflectionFadeStart", 0);
+		pData->m_reflectionFadeEnd = apVars->GetVarFloat("ReflectionFadeEnd", 0);
+		pData->m_waveSpeed = apVars->GetVarFloat("WaveSpeed", 1.0f);
+		pData->m_waveAmplitude = apVars->GetVarFloat("WaveAmplitude", 1.0f);
+		pData->m_waveFreq = apVars->GetVarFloat("WaveFreq", 1.0f);
 
 		apMaterial->SetWorldReflectionOcclusionTest( apVars->GetVarBool("OcclusionCullWorldReflection", true));
-		apMaterial->SetMaxReflectionDistance( apVars->GetVarFloat("ReflectionFadeEnd", 0.0f));
 		apMaterial->SetLargeTransperantSurface( apVars->GetVarBool("LargeSurface", false));
-	}
-
-	void cMaterialType_Water::GetVariableValues(cMaterial* apMaterial, cResourceVarsObject* apVars)
-	{
-		cMaterialType_Water_Vars* pVars = (cMaterialType_Water_Vars*)apMaterial->GetVars();
-
-		apVars->AddVarBool("HasReflection", pVars->mbHasReflection);
-		apVars->AddVarFloat("RefractionScale", pVars->mfRefractionScale);
-		apVars->AddVarFloat("FrenselBias", pVars->mfFrenselBias);
-		apVars->AddVarFloat("FrenselPow", pVars->mfFrenselPow);
-		apVars->AddVarFloat("ReflectionFadeStart", pVars->mfReflectionFadeStart);
-		apVars->AddVarFloat("ReflectionFadeEnd", pVars->mfReflectionFadeEnd);
-		apVars->AddVarFloat("WaveSpeed",pVars->mfWaveSpeed);
-		apVars->AddVarFloat("WaveAmplitude",pVars->mfWaveAmplitude);
-		apVars->AddVarFloat("WaveFreq",pVars->mfWaveFreq);
-
-		apVars->AddVarBool("OcclusionCullWorldReflection", apMaterial->GetWorldReflectionOcclusionTest());
-		apVars->AddVarBool("LargeSurface", apMaterial->GetLargeTransperantSurface());
-	}
-
-	void cMaterialType_Water::CompileMaterialSpecifics(cMaterial *apMaterial)
-	{
-		cMaterialType_Water_Vars *pVars = static_cast<cMaterialType_Water_Vars*>(apMaterial->GetVars());
 
 		/////////////////////////////////////
-		// Set if has specific variables
-		apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Diffuse, true);
-		apMaterial->SetHasSpecificSettings(eMaterialRenderMode_DiffuseFog, true);
-		
-		
-		/////////////////////////////////////
-		// Set up the blend mode
+		// Pipeline-side settings derived from the global refraction toggle and the
+		// bound cubemap (textures are bound before LoadVariables, so GetImage works).
 		if(iRenderer::GetRefractionEnabled())
 			apMaterial->SetBlendMode(eMaterialBlendMode_None);
 		else
 			apMaterial->SetBlendMode(eMaterialBlendMode_Mul);
 
-		/////////////////////////////////////
-		// Set up the refraction
-		if(iRenderer::GetRefractionEnabled())
-		{
-			apMaterial->SetHasRefraction(true);
-			apMaterial->SetUseRefractionEdgeCheck(true);
-		}
+		// HasRefraction() (water always refracts) and HasWorldReflection()
+		// (m_hasReflection above + no bound cubemap) are derived from the data blob.
+		apMaterial->IncreaseGeneration();
+	}
 
-		///////////////////////////
-		// Set up reflection
-		if(pVars->mbHasReflection && iRenderer::GetRefractionEnabled())
-		{
-			if(apMaterial->GetImage(eMaterialTexture_CubeMap)==NULL)
-			{
-				apMaterial->SetHasWorldReflection(true);
-			}
-		}
+	void cMaterialType_Water::GetVariableValues(cMaterial* apMaterial, cResourceVarsObject* apVars)
+	{
+		const MaterialWater* pData = std::get_if<MaterialWater>(&apMaterial->Data());
+		if(pData==nullptr) return;
 
-		///////////////////////////
-		// Build the bindless descriptor for the per-frame SSBO upload.
-		ShaderMaterialData desc{};
-		desc.m_id = MaterialID::Water;
-		desc.m_water.m_hasReflection = pVars->mbHasReflection;
-		desc.m_water.m_isLargeSurface = apMaterial->GetLargeTransperantSurface();
-		desc.m_water.m_worldReflectionOcclusionTest = apMaterial->GetWorldReflectionOcclusionTest();
-		desc.m_water.m_refractionScale = pVars->mfRefractionScale;
-		desc.m_water.m_frenselBias = pVars->mfFrenselBias;
-		desc.m_water.m_frenselPow = pVars->mfFrenselPow;
-		desc.m_water.m_reflectionFadeStart = pVars->mfReflectionFadeStart;
-		desc.m_water.m_reflectionFadeEnd = pVars->mfReflectionFadeEnd;
-		desc.m_water.m_waveSpeed = pVars->mfWaveSpeed;
-		desc.m_water.m_waveAmplitude = pVars->mfWaveAmplitude;
-		desc.m_water.m_waveFreq = pVars->mfWaveFreq;
-		apMaterial->SetDescriptor(desc);
+		apVars->AddVarBool("HasReflection", pData->m_hasReflection);
+		apVars->AddVarFloat("RefractionScale", pData->m_refractionScale);
+		apVars->AddVarFloat("FrenselBias", pData->m_frenselBias);
+		apVars->AddVarFloat("FrenselPow", pData->m_frenselPow);
+		apVars->AddVarFloat("ReflectionFadeStart", pData->m_reflectionFadeStart);
+		apVars->AddVarFloat("ReflectionFadeEnd", pData->m_reflectionFadeEnd);
+		apVars->AddVarFloat("WaveSpeed",pData->m_waveSpeed);
+		apVars->AddVarFloat("WaveAmplitude",pData->m_waveAmplitude);
+		apVars->AddVarFloat("WaveFreq",pData->m_waveFreq);
+
+		apVars->AddVarBool("OcclusionCullWorldReflection", apMaterial->GetWorldReflectionOcclusionTest());
+		apVars->AddVarBool("LargeSurface", apMaterial->GetLargeTransperantSurface());
 	}
 }

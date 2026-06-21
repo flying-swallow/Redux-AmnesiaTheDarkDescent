@@ -1,0 +1,287 @@
+/*
+ * Copyright © 2009-2020 Frictional Games
+ *
+ * This file is part of Amnesia: The Dark Descent.
+ *
+ * Amnesia: The Dark Descent is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+
+ * Amnesia: The Dark Descent is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Amnesia: The Dark Descent.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+#include "EntityWrapperLightArea.h"
+#include "EntityWrapperLight.h"
+
+#include "EditorBaseClasses.h"
+#include "EditorWorld.h"
+#include "EditorHelper.h"
+
+#include "EditorWindowViewport.h"
+
+#include "scene/LightArea.h"
+
+//---------------------------------------------------------------------------
+
+/////////////////////////////////////////////////////////////////////////////
+// ICON ENTITY AREALIGHT : CONSTRUCTORS
+/////////////////////////////////////////////////////////////////////////////
+
+//---------------------------------------------------------------------------
+
+cIconEntityLightArea::cIconEntityLightArea(iEntityWrapper* apParent) : iIconEntityLight(apParent, "Box")
+{
+}
+
+bool cIconEntityLightArea::Create(const tString& asName)
+{
+	cWorld* pWorld = mpParent->GetEditorWorld()->GetWorld();
+
+	mpEntity = pWorld->CreateLightArea(asName);
+
+	return true;
+}
+
+//---------------------------------------------------------------------------
+
+/////////////////////////////////////////////////////////////////////////////
+// AREALIGHT TYPE : CONSTRUCTORS
+/////////////////////////////////////////////////////////////////////////////
+
+//---------------------------------------------------------------------------
+
+cEntityWrapperTypeLightArea::cEntityWrapperTypeLightArea() : iEntityWrapperTypeLight("AreaLight", eEditorEntityLightType_Area)
+{
+	mScaleType = eScaleType_None;
+
+	AddFloat(eLightAreaFloat_SourceWidth, "SourceWidth", 1.0f);
+	AddFloat(eLightAreaFloat_SourceHeight, "SourceHeight", 1.0f);
+	AddFloat(eLightAreaFloat_BarnDoorAngle, "BarnDoorAngle", cMath::ToRad(88.0f));
+	AddFloat(eLightAreaFloat_BarnDoorLength, "BarnDoorLength", 0.0f);
+	AddString(eLightAreaStr_SourceTexture, "SourceTexture");
+}
+
+iEntityWrapperData* cEntityWrapperTypeLightArea::CreateSpecificData()
+{
+	return hplNew(cEntityWrapperDataLightArea,(this));
+}
+
+//---------------------------------------------------------------------------
+
+/////////////////////////////////////////////////////////////////////////////
+// AREALIGHT DATA : CONSTRUCTORS
+/////////////////////////////////////////////////////////////////////////////
+
+//---------------------------------------------------------------------------
+
+cEntityWrapperDataLightArea::cEntityWrapperDataLightArea(iEntityWrapperType* apType) : iEntityWrapperDataLight(apType)
+{
+}
+
+iEntityWrapper* cEntityWrapperDataLightArea::CreateSpecificEntity()
+{
+	return hplNew(cEntityWrapperLightArea,(this));
+}
+
+//---------------------------------------------------------------------------
+
+/////////////////////////////////////////////////////////////////////////////
+// AREALIGHT : CONSTRUCTORS
+/////////////////////////////////////////////////////////////////////////////
+
+//---------------------------------------------------------------------------
+
+cEntityWrapperLightArea::cEntityWrapperLightArea(iEntityWrapperData* apData) : iEntityWrapperLight(apData)
+{
+	mfWidth = 1.0f;
+	mfHeight = 1.0f;
+	mfBarnDoorAngle = cMath::ToRad(88.0f);
+	mfBarnDoorLength = 0.0f;
+}
+
+cEntityWrapperLightArea::~cEntityWrapperLightArea()
+{
+}
+
+//---------------------------------------------------------------------------
+
+/////////////////////////////////////////////////////////////////////////////
+// AREALIGHT : PUBLIC METHODS
+/////////////////////////////////////////////////////////////////////////////
+
+//---------------------------------------------------------------------------
+
+bool cEntityWrapperLightArea::SetProperty(int alPropID, const float& afX)
+{
+	switch(alPropID)
+	{
+	case eLightAreaFloat_SourceWidth:
+		SetWidth(afX);
+		break;
+	case eLightAreaFloat_SourceHeight:
+		SetHeight(afX);
+		break;
+	case eLightAreaFloat_BarnDoorAngle:
+		SetBarnDoorAngle(afX);
+		break;
+	case eLightAreaFloat_BarnDoorLength:
+		SetBarnDoorLength(afX);
+		break;
+	default:
+		return iEntityWrapperLight::SetProperty(alPropID, afX);
+	}
+
+	return true;
+}
+
+bool cEntityWrapperLightArea::SetProperty(int alPropID, const tString& asX)
+{
+	switch(alPropID)
+	{
+	case eLightAreaStr_SourceTexture:
+		SetSourceTexture(asX);
+		break;
+	default:
+		return iEntityWrapperLight::SetProperty(alPropID, asX);
+	}
+
+	return true;
+}
+
+bool cEntityWrapperLightArea::GetProperty(int alPropID, float& afX)
+{
+	switch(alPropID)
+	{
+	case eLightAreaFloat_SourceWidth:
+		afX = GetWidth();
+		break;
+	case eLightAreaFloat_SourceHeight:
+		afX = GetHeight();
+		break;
+	case eLightAreaFloat_BarnDoorAngle:
+		afX = GetBarnDoorAngle();
+		break;
+	case eLightAreaFloat_BarnDoorLength:
+		afX = GetBarnDoorLength();
+		break;
+	default:
+		return iEntityWrapperLight::GetProperty(alPropID, afX);
+	}
+
+	return true;
+}
+
+bool cEntityWrapperLightArea::GetProperty(int alPropID, tString& asX)
+{
+	switch(alPropID)
+	{
+	case eLightAreaStr_SourceTexture:
+		asX = GetSourceTexture();
+		break;
+	default:
+		return iEntityWrapperLight::GetProperty(alPropID, asX);
+	}
+
+	return true;
+}
+
+//---------------------------------------------------------------------------
+
+void cEntityWrapperLightArea::SetWidth(float afX)
+{
+	mfWidth = afX;
+
+	((cLightArea*)mpEngineEntity->GetEntity())->SetWidth(mfWidth);
+}
+
+//---------------------------------------------------------------------------
+
+void cEntityWrapperLightArea::SetHeight(float afX)
+{
+	mfHeight = afX;
+
+	((cLightArea*)mpEngineEntity->GetEntity())->SetHeight(mfHeight);
+}
+
+//---------------------------------------------------------------------------
+
+void cEntityWrapperLightArea::SetBarnDoorAngle(float afX)
+{
+	mfBarnDoorAngle = afX;
+
+	((cLightArea*)mpEngineEntity->GetEntity())->SetBarnDoorAngle(mfBarnDoorAngle);
+}
+
+//---------------------------------------------------------------------------
+
+void cEntityWrapperLightArea::SetBarnDoorLength(float afX)
+{
+	mfBarnDoorLength = afX;
+
+	((cLightArea*)mpEngineEntity->GetEntity())->SetBarnDoorLength(mfBarnDoorLength);
+}
+
+//---------------------------------------------------------------------------
+
+void cEntityWrapperLightArea::SetSourceTexture(const tString& asTexture)
+{
+	Image* pTex = NULL;
+	if(asTexture != "" && cEditorHelper::LoadTextureResource(eEditorTextureResourceType_2D, asTexture, &pTex))
+		msSourceTexture = cString::To8Char(GetEditorWorld()->GetEditor()->GetPathRelToWD(asTexture));
+	else
+		msSourceTexture = "";
+
+	// Source texture lives in the base gobo slot — the renderer resolves GetGoboImage().
+	((cLightArea*)mpEngineEntity->GetEntity())->SetGoboTexture(pTex);
+}
+
+//---------------------------------------------------------------------------
+
+void cEntityWrapperLightArea::DrawLightTypeSpecific(cEditorWindowViewport* apViewport, DebugDraw* apFunctions,
+													iEditorEditMode* apEditMode, bool abIsSelected)
+{
+	if(abIsSelected==false) return;
+
+	// Rectangle outline + emission-normal stub, framed by the light's world axes.
+	// UE Rect Light convention: width = local +Y, height = local +Z, emission = +X.
+	cMatrixf mtx = ((cLightArea*)mpEngineEntity->GetEntity())->GetWorldMatrix();
+	cVector3f vRight(mtx.m[0][1], mtx.m[1][1], mtx.m[2][1]);
+	cVector3f vUp(mtx.m[0][2], mtx.m[1][2], mtx.m[2][2]);
+	cVector3f vNormal(mtx.m[0][0], mtx.m[1][0], mtx.m[2][0]);
+
+	cVector3f vHW = vRight * (mfWidth * 0.5f);
+	cVector3f vHH = vUp * (mfHeight * 0.5f);
+
+	cVector3f vC0 = mvPosition - vHW - vHH;
+	cVector3f vC1 = mvPosition + vHW - vHH;
+	cVector3f vC2 = mvPosition + vHW + vHH;
+	cVector3f vC3 = mvPosition - vHW + vHH;
+
+	apFunctions->DebugDrawLine(vC0, vC1, mcolDiffuseColor);
+	apFunctions->DebugDrawLine(vC1, vC2, mcolDiffuseColor);
+	apFunctions->DebugDrawLine(vC2, vC3, mcolDiffuseColor);
+	apFunctions->DebugDrawLine(vC3, vC0, mcolDiffuseColor);
+	apFunctions->DebugDrawLine(mvPosition, mvPosition + vNormal * 0.5f, mcolDiffuseColor);
+}
+
+//---------------------------------------------------------------------------
+
+/////////////////////////////////////////////////////////////////////////////
+// AREALIGHT : PROTECTED METHODS
+/////////////////////////////////////////////////////////////////////////////
+
+//---------------------------------------------------------------------------
+
+iEngineEntity* cEntityWrapperLightArea::CreateSpecificEngineEntity()
+{
+	return hplNew(cIconEntityLightArea,(this));
+}
+
+//---------------------------------------------------------------------------

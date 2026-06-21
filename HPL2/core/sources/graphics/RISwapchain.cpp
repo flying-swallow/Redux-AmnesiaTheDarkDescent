@@ -38,7 +38,7 @@ static uint32_t __priority_BT2020_G2084_10BIT( const VkSurfaceFormatKHR *surface
 
 #endif
 
-int InitRISwapchain( struct RIRenderer *renderer, struct RIDevice *dev, struct RISwapchainDesc *init, RISwapchain<> *swapchain )
+int InitRISwapchain( struct RIDevice *dev, struct RISwapchainDesc *init, RISwapchain<> *swapchain )
 {
 	assert( init->windowHandle );
 	assert( init );
@@ -56,7 +56,7 @@ int InitRISwapchain( struct RIRenderer *renderer, struct RIDevice *dev, struct R
 				VkXlibSurfaceCreateInfoKHR xlibSurfaceInfo = { VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR };
 				xlibSurfaceInfo.dpy = (Display*)init->windowHandle->x11.dpy;
 				xlibSurfaceInfo.window = (Window)init->windowHandle->x11.window;
-				result = vkCreateXlibSurfaceKHR( renderer->vk.instance, &xlibSurfaceInfo, NULL, &swapchain->vk.surface );
+				result = vkCreateXlibSurfaceKHR( RIGetVkInstance(), &xlibSurfaceInfo, NULL, &swapchain->vk.surface );
 				VK_WrapResult( result );
 				break;
 			}
@@ -66,7 +66,7 @@ int InitRISwapchain( struct RIRenderer *renderer, struct RIDevice *dev, struct R
 				VkWin32SurfaceCreateInfoKHR win32SurfaceInfo = { VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR };
 				win32SurfaceInfo.hwnd = (HWND)init->windowHandle->windows.hwnd;
 
-				result = vkCreateWin32SurfaceKHR( renderer->vk.instance, &win32SurfaceInfo, NULL, &swapchain->vk.surface );
+				result = vkCreateWin32SurfaceKHR( RIGetVkInstance(), &win32SurfaceInfo, NULL, &swapchain->vk.surface );
 				VK_WrapResult( result );
 				break;
 			}
@@ -86,7 +86,7 @@ int InitRISwapchain( struct RIRenderer *renderer, struct RIDevice *dev, struct R
 				VkWaylandSurfaceCreateInfoKHR waylandSurfaceInfo = { VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR };
 				waylandSurfaceInfo.display = (wl_display*)init->windowHandle->wayland.display;
 				waylandSurfaceInfo.surface = (wl_surface*)init->windowHandle->wayland.surface;
-				result = vkCreateWaylandSurfaceKHR( renderer->vk.instance, &waylandSurfaceInfo, NULL, &swapchain->vk.surface );
+				result = vkCreateWaylandSurfaceKHR( RIGetVkInstance(), &waylandSurfaceInfo, NULL, &swapchain->vk.surface );
 				VK_WrapResult( result );
 				break;
 			}

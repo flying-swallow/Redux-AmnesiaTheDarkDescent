@@ -32,7 +32,7 @@ namespace hpl {
 	class cFrameTexture : public iFrameBase
 	{
 	public:
-		cFrameTexture(Image *pTex, int alHandle,cImageManager *apImageManager, bool abIsCustom);
+		cFrameTexture(SharedResourceHandle<Image> aTex, int alHandle,cImageManager *apImageManager, bool abIsCustom);
 		~cFrameTexture();
 
 		Image* GetTexture();
@@ -47,7 +47,7 @@ namespace hpl {
 		
 	private:
 
-		Image* mpTexture;
+		SharedResourceHandle<Image> mpTexture;
 		int mlHandle;
 
 		bool mbIsCustom;

@@ -295,7 +295,7 @@ namespace hpl {
 		if(!RI.RequestTranslucentIdx(cntx, (size_t)lNumParticles * 6, &idxReq))
 			return geom;
 
-		float *pDst = (float*)RI.translucentVtxBuffer.mappedAddress + vtxReq.elementOffset;
+		float *pDst = (float*)RI.translucentVtxBuffer->mappedAddress + vtxReq.elementOffset;
 		float *pDstPos = pDst;
 		float *pDstCol = pDst + (size_t)lNumVerts * 4;
 		float *pDstUv  = abWithUv ? pDst + (size_t)lNumVerts * 8 : NULL;
@@ -303,7 +303,7 @@ namespace hpl {
 			return geom; // distance-faded out
 
 		// Quad index pattern (two tris per particle: 0,1,2, 2,3,0 + q·4).
-		uint32_t *pDstIdx = (uint32_t*)RI.translucentIdxBuffer.mappedAddress + idxReq.elementOffset;
+		uint32_t *pDstIdx = (uint32_t*)RI.translucentIdxBuffer->mappedAddress + idxReq.elementOffset;
 		for(int q = 0; q < lNumParticles; ++q)
 		{
 			const uint32_t s = (uint32_t)q * 4;

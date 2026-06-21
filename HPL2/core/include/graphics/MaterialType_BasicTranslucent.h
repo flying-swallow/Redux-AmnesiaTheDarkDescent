@@ -29,26 +29,6 @@ namespace hpl {
 	// TRANSLUCENT
 	//---------------------------------------------------
 
-	class cMaterialType_Translucent_Vars : public iMaterialVars
-	{
-	public:
-		cMaterialType_Translucent_Vars() :	mbRefraction(false), mbRefractionEdgeCheck(true), mbRefractionNormals(false), mfRefractionScale(0.1f), 
-											mfFrenselBias(0.2f), mfFrenselPow(8.0f) {}
-		~cMaterialType_Translucent_Vars() {}
-
-		bool mbRefraction;
-		bool mbRefractionEdgeCheck;
-		bool mbRefractionNormals;
-		float mfRefractionScale;
-		float mfFrenselBias;
-		float mfFrenselPow;
-		float mfRimLightMul;
-		float mfRimLightPow;
-		bool mbAffectedByLightLevel;
-	};
-
-	//--------------------------------------------------
-
 	class cMaterialType_Translucent : public iMaterialType
 	{
 	public:
@@ -57,13 +37,11 @@ namespace hpl {
 
 		bool SupportsHWSkinning() { return false; }
 
+		MaterialID GetMaterialID() const override { return MaterialID::Translucent; }
 
-		iMaterialVars* CreateSpecificVariables();
 		void LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars);
 		void GetVariableValues(cMaterial *apMaterial, cResourceVarsObject *apVars);
 
-		void CompileMaterialSpecifics(cMaterial *apMaterial);
-	
 	private:
 		void LoadData() {} // STUB
 		void DestroyData() {} // STUB

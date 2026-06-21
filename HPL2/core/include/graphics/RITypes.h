@@ -3,8 +3,12 @@
 #define RI_TYPES_H
 
 #include "graphics/RIBarrier.h"
+#include "graphics/RIBuffer.h"
 #include "graphics/RIDefines.h"
 #include "graphics/RIFormat.h"
+#include "graphics/RITexture.h"
+#include "graphics/RITextureView.h"
+#include <atomic>
 #include <cassert>
 #include <cstring>
 #include <optional>
@@ -83,46 +87,6 @@ enum RIPresetLevel_e {
   RI_GPU_PRESET_COUNT
 };
 
-enum RITextureViewType_e {
-  RI_VIEWTYPE_SHADER_RESOURCE_1D,
-  RI_VIEWTYPE_SHADER_RESOURCE_1D_ARRAY,
-  RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_1D,
-  RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_1D_ARRAY,
-  RI_VIEWTYPE_SHADER_RESOURCE_2D,
-  RI_VIEWTYPE_SHADER_RESOURCE_2D_ARRAY,
-  RI_VIEWTYPE_SHADER_RESOURCE_CUBE,
-  RI_VIEWTYPE_SHADER_RESOURCE_CUBE_ARRAY,
-  RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_2D,
-  RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_2D_ARRAY,
-  RI_VIEWTYPE_SHADER_RESOURCE_3D,
-  RI_VIEWTYPE_SHADER_RESOURCE_STORAGE_3D,
-
-  RI_VIEWTYPE_COLOR_ATTACHMENT,
-  RI_VIEWTYPE_DEPTH_STENCIL_ATTACHMENT,
-  RI_VIEWTYPE_DEPTH_READONLY_STENCIL_ATTACHMENT,
-  RI_VIEWTYPE_DEPTH_ATTACHMENT_STENCIL_READONLY,
-  RI_VIEWTYPE_DEPTH_STENCIL_READONLY,
-  RI_VIEWTYPE_SHADING_RATE_ATTACHMENT
-};
-
-enum RITextureUsageBits_e {
-  RI_USAGE_NONE = 0,
-  RI_USAGE_SHADER_RESOURCE = 0x1,
-  RI_USAGE_SHADER_RESOURCE_STORAGE = 0x2,
-  RI_USAGE_COLOR_ATTACHMENT = 0x4,
-  RI_USAGE_DEPTH_STENCIL_ATTACHMENT = 0x8,
-  RI_USAGE_SHADING_RATE = 0x10,
-};
-
-enum RISampleCount_e {
-  RI_SAMPLE_COUNT_1 = 1,
-  RI_SAMPLE_COUNT_2 = 2,
-  RI_SAMPLE_COUNT_4 = 4,
-  RI_SAMPLE_COUNT_8 = 8,
-  RI_SAMPLE_COUNT_16 = 16,
-  RI_SAMPLE_COUNT_COUNT = 5,
-};
-
 enum RIDeviceAPI_e {
   RI_DEVICE_API_UNKNOWN,
   RI_DEVICE_API_VK,
@@ -159,48 +123,6 @@ enum RIResult_e {
   RI_SUCCESS = 0,
   RI_INCOMPLETE
 };
-
-enum RIBufferUsage_e {
-  RI_BUFFER_USAGE_NONE = 0,
-  RI_BUFFER_USAGE_SHADER_RESOURCE = 0x1,
-  RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE = 0x2,
-  RI_BUFFER_USAGE_VERTEX_BUFFER = 0x4,
-  RI_BUFFER_USAGE_INDEX_BUFFER = 0x8,
-  RI_BUFFER_USAGE_CONSTANT_BUFFER = 0x10,
-  RI_BUFFER_USAGE_ARGUMENT_BUFFER = 0x20,
-
-  RI_BUFFER_USAGE_SCRATCH = 0x40,
-  RI_BUFFER_USAGE_BINDING_TABLE = 0x80,
-  RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT = 0x100,
-  RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE = 0x200,
-  RI_BUFFER_USAGE_TRANSFER_SRC = 0x400,
-  RI_BUFFER_USAGE_TRANSFER_DST = 0x800,
-  RI_BUFFER_USAGE_INDIRECT = 0x1000,
-  // Buffer must be addressable as a raw GPU pointer (Vulkan BDA /
-  // VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT).
-  RI_BUFFER_USAGE_DEVICE_ADDRESS = 0x2000,
-};
-
-// Where a buffer's memory lives, expressed backend-neutrally. Maps to VMA
-// memory usage + flags on Vulkan.
-enum RIMemoryLocation_e {
-  // Device-local, not host-mapped (VMA AUTO_PREFER_DEVICE). mappedAddress is
-  // null; seed via the resource uploader.
-  RI_MEMORY_DEVICE,
-  // Persistently mapped for sequential host writes
-  // (VMA AUTO + MAPPED + HOST_ACCESS_SEQUENTIAL_WRITE).
-  RI_MEMORY_HOST_UPLOAD,
-};
-
-// Backend-neutral buffer creation descriptor consumed by RIBuffer::create.
-struct RIBufferDesc {
-  uint64_t size;
-  uint32_t usage; // RIBufferUsage_e bitmask
-  RIMemoryLocation_e location;
-  uint64_t alignment; // 0 = no special alignment requirement
-};
-
-enum RITextureType_e { RI_TEXTURE_1D, RI_TEXTURE_2D, RI_TEXTURE_3D };
 
 enum RIVendor_e { RI_UNKNOWN, RI_NVIDIA, RI_AMD, RI_INTEL };
 
@@ -299,23 +221,6 @@ struct RIAccelAabb {
   float maxX, maxY, maxZ;
 };
 
-//// callers fill a buffer of these and pass it as the TLAS instance buffer;
-//// matches VkAccelerationStructureInstanceKHR layout (64 bytes)
-// struct RIAccelInstance {
-//   RIAccelInstance() { memset(this, 0, sizeof(*this)); }
-//   float matrix[3][4];
-//   uint32_t instanceCustomIndex : 24;
-//   uint32_t mask : 8;
-//   uint32_t shaderBindingTableRecordOffset : 24;
-//   uint32_t flags : 8; // RIAccelInstanceBits_e
-//   uint64_t
-//       accelerationStructureDeviceAddress; //
-//       RIAccelStructure::getDeviceAddress
-// };
-// static_assert(
-//     sizeof(struct RIAccelInstance) == 64,
-//     "RIAccelInstance must match VkAccelerationStructureInstanceKHR layout");
-
 struct RIAccelTrianglesDesc {
   struct RIBuffer *vertexBuffer;
   uint64_t vertexOffset;
@@ -399,80 +304,90 @@ enum RIWindowType_e {
   RI_WINDOW_WAYLAND
 };
 
-struct RIBuffer {
-  RIBuffer() { memset(this, 0, sizeof(*this)); }
-
-  void dispose(struct RIDevice *device);
-  // Backend-neutral buffer factory: does all the VMA work, sets mappedAddress
-  // for host-upload buffers, and stamps the resource cookie. The cookie is a
-  // globally-unique random value (handle reuse makes the backend handle unsafe
-  // as an identity); pass `hash` to override when a stable/shared cookie is
-  // genuinely wanted.
-  static struct RIBuffer create(struct RIDevice *device,
-                                const struct RIBufferDesc &desc,
-                                std::optional<hash_t> hash = {});
-  void setDebugObjectName(struct RIDevice *device, const char *name);
-  uint64_t GetDeviceHandle(struct RIDevice *device);
-  bool isEmpty(const struct RIRenderer *renderer) const;
-
-  union {
-#if (DEVICE_IMPL_VULKAN)
-    struct {
-      struct VmaAllocation_T *allocation;
-      VkBuffer buffer;
-    } vk;
-#endif
+// Intrusive, atomically reference-counted shared owner of a raw RI handle.
+// `T` must expose `void dispose(RIDevice*)` (RITexture / RITextureView /
+// RIBuffer / RISampler / RIAccelStructure). The last reference to drop disposes
+// the handle IMMEDIATELY — callers are responsible for GPU-safety (e.g. parking
+// the owner in FrameDeferral) where the resource may still be in flight.
+// `renderer` + `device` are carried explicitly (flat, no RIDevice::renderer
+// back-pointer traversal).
+template<typename T>
+class RISharedPointer {
+public:
+  struct RIInternal {
+    RIDevice* device;
+    std::atomic<unsigned int> references;
+    T value;
   };
-  void *mappedAddress;
-  // Stable identity / descriptor-set cache key, stamped at creation from the
-  // backend handle (0 == empty). RIDescriptor derives its cookie from this.
-  hash_t cookie;
-};
 
-struct RITexture {
-  RITexture() { memset(this, 0, sizeof(*this)); }
-  bool isEmpty(const struct RIRenderer *renderer) const;
-  void dispose(struct RIDevice *device);
-  union {
-#if (DEVICE_IMPL_VULKAN)
-    struct {
-      VkImage image;
-      struct VmaAllocation_T *allocation;
-    } vk;
-#endif
-  };
-  hash_t cookie;
-};
+  RISharedPointer() = default;
 
-// Backend-neutral image-view descriptor consumed by RITextureView::create.
-struct RITextureViewDesc {
-  enum RITextureViewType_e viewType;
-  uint32_t format; // RI_Format_e (view format; may reinterpret the image format)
-  uint32_t baseMip;
-  uint32_t mipNum;
-  uint32_t baseLayer;
-  uint32_t layerNum;
-};
+  // Adopts `value`; starts the reference count at 1.
+  RISharedPointer(RIDevice* device, T value)
+      : m_internal(new RIInternal{device, 1, value}) {}
 
-struct RITextureView {
-  RITextureView() { memset(this, 0, sizeof(*this)); }
-  // Backend-neutral view creation over `tex`. VK: vkCreateImageView. The caller
-  // owns the returned view and disposes it. `cookie` is stamped from the backend
-  // handle for use as a bindless descriptor-set cache key.
-  static struct RITextureView create(struct RIDevice *device,
-                                     const struct RITexture *tex,
-                                     const struct RITextureViewDesc &desc, std::optional<hash_t> hash = {});
-  // Destroys the image view and zeroes the struct.
-  void dispose(struct RIDevice *device);
-  bool isEmpty(const struct RIRenderer *renderer) const;
-  union {
-#if (DEVICE_IMPL_VULKAN)
-    struct {
-      VkImageView image;
-    } vk;
-#endif
-  };
-  hash_t cookie;
+  RISharedPointer(const RISharedPointer& other)
+      : m_internal(other.m_internal) {
+    if (m_internal)
+      m_internal->references.fetch_add(1, std::memory_order_relaxed);
+  }
+  RISharedPointer& operator=(const RISharedPointer& other) {
+    if (m_internal == other.m_internal) // same internal (incl. self) — alias safe
+      return *this;
+    reset();
+    m_internal = other.m_internal;
+    if (m_internal)
+      m_internal->references.fetch_add(1, std::memory_order_relaxed);
+    return *this;
+  }
+
+  RISharedPointer(RISharedPointer&& other) noexcept
+      : m_internal(other.m_internal) {
+    other.m_internal = nullptr;
+  }
+  RISharedPointer& operator=(RISharedPointer&& other) noexcept {
+    if (this == &other)
+      return *this;
+    reset();
+    m_internal = other.m_internal;
+    other.m_internal = nullptr;
+    return *this;
+  }
+
+  ~RISharedPointer() { reset(); }
+
+  // Detach without disposing: hands ownership of one reference back to the
+  // caller. Like std::unique_ptr::release.
+  T* Release() {
+    T* h = m_internal ? &m_internal->value : nullptr;
+    m_internal = nullptr;
+    return h;
+  }
+
+  T* Get() const { return m_internal ? &m_internal->value : nullptr; }
+  T* operator->() const { return &m_internal->value; }
+  T& operator*() const { return m_internal->value; }
+  explicit operator bool() const { return m_internal != nullptr; }
+  bool IsValid() const { return m_internal != nullptr; }
+  // True when there is no owned handle, or the owned handle is an uncreated
+  // (empty) RI resource. Lets a deferral queue skip parking null handles.
+  bool isEmpty() const {
+    return !m_internal || m_internal->value.isEmpty();
+  }
+
+private:
+  // Drop one reference; dispose the handle and free the control block once the
+  // count hits zero.
+  void reset() {
+    if (m_internal &&
+        m_internal->references.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+      m_internal->value.dispose(m_internal->device);
+      delete m_internal;
+    }
+    m_internal = nullptr;
+  }
+
+  RIInternal* m_internal = nullptr;
 };
 
 enum RIDescriptorFlags_e {
@@ -509,6 +424,7 @@ struct RIAccelStructure;
 struct RISampler {
   RISampler() { memset(this, 0, sizeof(*this)); }
   void dispose(struct RIDevice *device);
+  bool isEmpty() const;
   union {
 #if (DEVICE_IMPL_VULKAN)
     struct {
@@ -594,6 +510,7 @@ struct RIAccelStructure {
   // desc->storageSize bytes.
   int init(struct RIDevice *device, const struct RIAccelStructureDesc *desc);
   void dispose(struct RIDevice *device);
+  bool isEmpty() const;
   uint64_t getDeviceAddress(struct RIDevice *device) const;
   void setDebugObjectName(struct RIDevice *device, const char *name);
 
@@ -613,13 +530,6 @@ struct RIAccelStructure {
   };
   hash_t cookie;
 };
-
-// Deferred-destroy handle for the per-frame freelist: a by-value copy of the
-// owning RI struct, drained with std::visit -> dispose(device) once the frame
-// slot's ring fence has signaled (see RIBootstrap::BeginActiveSet).
-using RIFreeHandle =
-    std::variant<struct RIBuffer, struct RITexture, struct RITextureView,
-                 struct RIAccelStructure>;
 
 struct RIAccelStructureDesc {
   RIAccelStructureDesc() { memset(this, 0, sizeof(*this)); }
@@ -795,7 +705,7 @@ struct RICmd {
   void end(struct RIDevice *device);
   // Returns the command buffer to its pool and clears the handles.
   void dispose(struct RIDevice *device);
-  bool isEmpty(const struct RIRenderer *renderer) const;
+  bool isEmpty() const;
 
   // Leaf dispatch/draw command methods. Pipeline binding is done separately
   // (RIProgram::bindPipeline / bindComputePipeline / bindRayTracingPipeline);
@@ -866,9 +776,9 @@ struct RICmd {
   // minAccelerationStructureScratchOffsetAlignment. Input vertex/index/
   // instance buffers must include
   // VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR and
-  // VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT. Takes the device, which selects
-  // the backend (device->renderer) and supplies VMA / device address / scratch
-  // alignment.
+  // VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT. Takes the device, which supplies
+  // VMA / device address / scratch alignment; the active backend comes from
+  // RIIsTargetSelected.
   void buildBlas(struct RIDevice *device,
                  const struct RIBuildBlasDesc *descs, uint32_t numDescs);
   void buildTlas(struct RIDevice *device,
@@ -1029,68 +939,6 @@ struct RICmd {
   };
 };
 
-// Compile-time maximums; runtime poolCount/cmdPerPool are passed to
-// RICommandRingBuffer::init.
-#define RI_COMMAND_RING_POOL_COUNT 8
-#define RI_COMMAND_RING_CMD_PER_POOL 32
-
-struct RICommandRingElement {
-  RICommandRingElement() { memset(this, 0, sizeof(*this)); }
-  // Blocks until the element's fence signals (no-op without sync primitives).
-  void wait(struct RIDevice *device);
-  struct RICmd *cmds;
-  uint32_t numCmds;
-  struct RIPool *pool;
-  union {
-#if (DEVICE_IMPL_VULKAN)
-    struct {
-      VkSemaphore semaphore;
-      VkFence fence;
-    } vk;
-#endif
-  };
-};
-
-template <uint32_t MaxPoolCount = RI_COMMAND_RING_POOL_COUNT,
-          uint32_t CmdPerPool = RI_COMMAND_RING_CMD_PER_POOL>
-struct RICommandRingBuffer {
-  RICommandRingBuffer() { memset(this, 0, sizeof(*this)); }
-  static constexpr uint32_t MAX_POOL_COUNT = MaxPoolCount;
-  static constexpr uint32_t CMD_PER_POOL = CmdPerPool;
-
-  // Defined at the bottom of this header once RIDevice is complete
-  // (same precedent as RISwapchain::dispose).
-  void init(struct RIDevice *device, struct RIQueue *queue, uint32_t poolCount,
-            uint32_t cmdPerPool, bool syncPrimitives);
-  void dispose(struct RIDevice *device);
-  // Rotates to the next pool and rewinds the cmd/fence cursors.
-  void advance();
-  // Claims numCmds command buffers plus a fence slot from the current pool
-  // and advances the cursors.
-  struct RICommandRingElement acquire(struct RIDevice *device,
-                                      uint32_t numCmds);
-
-  uint32_t poolIndex;
-  uint32_t cmdIndex;
-  uint32_t fenceIndex;
-
-  uint32_t poolCount;
-  uint32_t cmdPerPool;
-  bool syncPrimitive;
-
-  struct RIPool pools[MaxPoolCount];
-  struct RICmd cmds[MaxPoolCount][CmdPerPool];
-
-  union {
-#if (DEVICE_IMPL_VULKAN)
-    struct {
-      VkFence fences[MaxPoolCount][CmdPerPool];
-      VkSemaphore semaphores[MaxPoolCount][CmdPerPool];
-    } vk;
-#endif
-  };
-};
-
 struct RIQueue {
   RIQueue() { memset(this, 0, sizeof(*this)); }
   void waitIdle(struct RIDevice *device);
@@ -1161,34 +1009,7 @@ template <uint32_t MaxImageCount = RI_MAX_SWAPCHAIN_IMAGES> struct RISwapchain {
 
 struct RIRenderer {
   RIRenderer() { memset(this, 0, sizeof(*this)); }
-  // Loads the loader (volk), creates the instance and optional debug
-  // messenger. Returns RI_SUCCESS/RI_FAIL.
-  int init(const struct RIBackendInit *init);
-  int enumerateAdapters(struct RIPhysicalAdapter *adapters,
-                        uint32_t *numAdapters);
-  // Destroys the debug messenger and the instance. Instance-level — takes no
-  // device (the device is normally gone by the time this runs); loader
-  // teardown (volkFinalize) stays with ShutdownRIRenderer.
-  void dispose();
   uint8_t api; // RIDeviceAPI_e
-
-  // True when the renderer's active backend matches `targetApi`
-  // (RIDeviceAPI_e). In single-backend builds this just asserts the match; the
-  // RICmd methods use it to branch their Vulkan/Metal paths. Additive — reads
-  // the existing `api`.
-  inline bool is_target_selected(uint8_t targetApi) const {
-    if (DEVICE_MULTI_BACKEND) {
-      if (targetApi == DEVICE_IMPL_VULKAN && targetApi == api)
-        return true;
-      if (targetApi == DEVICE_IMPL_MTL && targetApi == api)
-        return true;
-      if (targetApi == DEVICE_IMPL_D3D12 && targetApi == api)
-        return true;
-    }
-    assert(targetApi ==
-           api); // single-backend: target must match the renderer's API
-    return true;
-  }
   union {
 #if (DEVICE_IMPL_VULKAN)
     struct {
@@ -1199,6 +1020,51 @@ struct RIRenderer {
 #endif
   };
 };
+
+// There is only ever one renderer per process. Rather than threading a
+// RIRenderer through the API (or exposing a global object), the single instance
+// lives at file scope in RIRenderer.cpp and is reached through these top-level
+// functions — they are the application's highest-level entry points and assume
+// the renderer has been initialized.
+int InitRIRenderer(const struct RIBackendInit *init);
+int EnumerateRIAdapters(struct RIPhysicalAdapter *adapters,
+                        uint32_t *numAdapters);
+// Destroys the debug messenger + instance and tears down the loader
+// (volkFinalize). Instance-level — the device is normally gone by the time
+// this runs.
+void ShutdownRIRenderer();
+
+#if DEVICE_MULTI_BACKEND
+// Active backend (RIDeviceAPI_e); defined in RIRenderer.cpp. Only needed when
+// more than one backend is compiled in (otherwise it is known at compile time).
+uint8_t RIActiveBackendApi();
+#elif DEVICE_IMPL_VULKAN
+#define RI_ACTIVE_BACKEND_API RI_DEVICE_API_VK
+#elif DEVICE_IMPL_MTL
+#define RI_ACTIVE_BACKEND_API RI_DEVICE_API_MTL
+#elif DEVICE_IMPL_D3D12
+#define RI_ACTIVE_BACKEND_API RI_DEVICE_API_D3D12
+#elif DEVICE_IMPL_D3D11
+#define RI_ACTIVE_BACKEND_API RI_DEVICE_API_D3D11
+#endif
+
+// True when the renderer's active backend matches `targetApi` (RIDeviceAPI_e).
+// static inline so single-backend builds fold this to a compile-time constant,
+// letting the optimizer drop the dead backend branches at every call site
+// (the RICmd Vulkan/Metal paths). Multi-backend builds read the active backend.
+static inline bool RIIsTargetSelected(uint8_t targetApi) {
+#if DEVICE_MULTI_BACKEND
+  return targetApi == RIActiveBackendApi();
+#else
+  assert(targetApi == RI_ACTIVE_BACKEND_API); // single backend: must match
+  (void)targetApi;
+  return true;
+#endif
+}
+
+#if (DEVICE_IMPL_VULKAN)
+VkInstance RIGetVkInstance();
+#endif
 
 struct RIBackendInit {
   uint8_t api; // RIDeviceAPI_e
@@ -1495,10 +1361,9 @@ struct RIDevice {
   RIDevice() { memset(this, 0, sizeof(*this)); }
   // Creates the logical device, queues and VMA allocator on the adapter
   // selected in init->physicalAdapter (RIDeviceDesc lives in RIRenderer.h).
-  int init(struct RIRenderer *renderer, struct RIDeviceDesc *init);
+  int init(struct RIDeviceDesc *init);
   void dispose();
   struct RIPhysicalAdapter physicalAdapter;
-  struct RIRenderer *renderer;
   struct RIQueue queues[RI_QUEUE_LEN];
   union {
 #if (DEVICE_IMPL_VULKAN)
@@ -1516,37 +1381,55 @@ struct RIDevice {
   };
 };
 
-inline bool RITexture::isEmpty(const struct RIRenderer *renderer) const {
+inline bool RITexture::isEmpty() const {
 #if (DEVICE_IMPL_VULKAN)
-  if (renderer->is_target_selected(RI_DEVICE_API_VK))
+  if (RIIsTargetSelected(RI_DEVICE_API_VK))
     return vk.image == VK_NULL_HANDLE;
 #endif
   assert(false && "unhandled backend");
   return true;
 }
 
-inline bool RIBuffer::isEmpty(const struct RIRenderer *renderer) const {
+inline bool RIBuffer::isEmpty() const {
 #if (DEVICE_IMPL_VULKAN)
-  if (renderer->is_target_selected(RI_DEVICE_API_VK))
+  if (RIIsTargetSelected(RI_DEVICE_API_VK))
     return vk.buffer == VK_NULL_HANDLE;
 #endif
   assert(false && "unhandled backend");
   return true;
 }
 
-inline bool RITextureView::isEmpty(const struct RIRenderer *renderer) const {
+inline bool RITextureView::isEmpty() const {
 #if (DEVICE_IMPL_VULKAN)
-  if (renderer->is_target_selected(RI_DEVICE_API_VK))
+  if (RIIsTargetSelected(RI_DEVICE_API_VK))
     return vk.image == VK_NULL_HANDLE;
 #endif
   assert(false && "unhandled backend");
   return true;
 }
 
-inline bool RICmd::isEmpty(const struct RIRenderer *renderer) const {
+inline bool RICmd::isEmpty() const {
 #if (DEVICE_IMPL_VULKAN)
-  if (renderer->is_target_selected(RI_DEVICE_API_VK))
+  if (RIIsTargetSelected(RI_DEVICE_API_VK))
     return vk.cmd == VK_NULL_HANDLE || vk.pool == VK_NULL_HANDLE;
+#endif
+  assert(false && "unhandled backend");
+  return true;
+}
+
+inline bool RISampler::isEmpty() const {
+#if (DEVICE_IMPL_VULKAN)
+  if (RIIsTargetSelected(RI_DEVICE_API_VK))
+    return vk.sampler == VK_NULL_HANDLE;
+#endif
+  assert(false && "unhandled backend");
+  return true;
+}
+
+inline bool RIAccelStructure::isEmpty() const {
+#if (DEVICE_IMPL_VULKAN)
+  if (RIIsTargetSelected(RI_DEVICE_API_VK))
+    return vk.handle == VK_NULL_HANDLE;
 #endif
   assert(false && "unhandled backend");
   return true;
@@ -1555,7 +1438,7 @@ inline bool RICmd::isEmpty(const struct RIRenderer *renderer) const {
 template <uint32_t MaxImageCount>
 inline void RISwapchain<MaxImageCount>::dispose(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
-  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
+  if (RIIsTargetSelected(RI_DEVICE_API_VK)) {
     for (uint32_t p = 0; p < MaxImageCount; p++) {
       if (vk.imageAcquireSem[p])
         vkDestroySemaphore(device->vk.device, vk.imageAcquireSem[p], NULL);
@@ -1565,98 +1448,15 @@ inline void RISwapchain<MaxImageCount>::dispose(struct RIDevice *device) {
     if (vk.swapchain)
       vkDestroySwapchainKHR(device->vk.device, vk.swapchain, NULL);
     if (vk.surface)
-      vkDestroySurfaceKHR(device->renderer->vk.instance, vk.surface, NULL);
+      vkDestroySurfaceKHR(RIGetVkInstance(), vk.surface, NULL);
   }
 #endif
 }
 
-template <uint32_t MaxPoolCount, uint32_t CmdPerPool>
-inline void RICommandRingBuffer<MaxPoolCount, CmdPerPool>::init(
-    struct RIDevice *device, struct RIQueue *queue, uint32_t poolCount,
-    uint32_t cmdPerPool, bool syncPrimitives) {
-  assert(poolCount > 0 && poolCount <= MaxPoolCount);
-  assert(cmdPerPool > 0 && cmdPerPool <= CmdPerPool);
-  memset(this, 0, sizeof(*this));
-  this->poolCount = poolCount;
-  this->cmdPerPool = cmdPerPool;
-  this->syncPrimitive = syncPrimitives;
-
-  poolIndex = 0;
-  cmdIndex = 0;
-  fenceIndex = 0;
-
-  for (uint32_t poolIdx = 0; poolIdx < poolCount; poolIdx++) {
-    pools[poolIdx].init(device, queue);
-    for (uint32_t cmdIdx = 0; cmdIdx < cmdPerPool; cmdIdx++) {
-      cmds[poolIdx][cmdIdx].init(device, &pools[poolIdx]);
-#if (DEVICE_IMPL_VULKAN)
-      if (syncPrimitives) {
-        VkSemaphoreCreateInfo semaphoreCreateInfo = {
-            VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
-        VK_WrapResult(vkCreateSemaphore(device->vk.device, &semaphoreCreateInfo,
-                                        NULL, &vk.semaphores[poolIdx][cmdIdx]));
-
-        VkFenceCreateInfo fenceCreateInfo = {
-            VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-        fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-        VK_WrapResult(vkCreateFence(device->vk.device, &fenceCreateInfo, NULL,
-                                    &vk.fences[poolIdx][cmdIdx]));
-      }
-#endif
-    }
-  }
-}
-
-template <uint32_t MaxPoolCount, uint32_t CmdPerPool>
-inline void RICommandRingBuffer<MaxPoolCount, CmdPerPool>::dispose(
-    struct RIDevice *device) {
-  for (uint32_t poolIdx = 0; poolIdx < poolCount; poolIdx++) {
-    for (uint32_t cmdIdx = 0; cmdIdx < cmdPerPool; cmdIdx++) {
-      cmds[poolIdx][cmdIdx].dispose(device);
-#if (DEVICE_IMPL_VULKAN)
-      if (device->renderer->is_target_selected(RI_DEVICE_API_VK) &&
-          syncPrimitive) {
-        vkDestroySemaphore(device->vk.device, vk.semaphores[poolIdx][cmdIdx],
-                           NULL);
-        vkDestroyFence(device->vk.device, vk.fences[poolIdx][cmdIdx], NULL);
-      }
-#endif
-    }
-    pools[poolIdx].dispose(device);
-  }
-}
-
-template <uint32_t MaxPoolCount, uint32_t CmdPerPool>
-inline void RICommandRingBuffer<MaxPoolCount, CmdPerPool>::advance() {
-  poolIndex = (poolIndex + 1) % poolCount;
-  cmdIndex = 0;
-  fenceIndex = 0;
-}
-
-template <uint32_t MaxPoolCount, uint32_t CmdPerPool>
-inline struct RICommandRingElement
-RICommandRingBuffer<MaxPoolCount, CmdPerPool>::acquire(struct RIDevice *device,
-                                                       uint32_t numCmds) {
-  struct RICommandRingElement result;
-  memset(&result, 0, sizeof(struct RICommandRingElement));
-
-  assert(numCmds <= cmdPerPool);
-  assert(numCmds + cmdIndex <= cmdPerPool);
-
-  result.cmds = &cmds[poolIndex][cmdIndex];
-  result.numCmds = numCmds;
-  result.pool = &pools[poolIndex];
-#if (DEVICE_IMPL_VULKAN)
-  if (syncPrimitive) {
-    result.vk.semaphore = vk.semaphores[poolIndex][fenceIndex];
-    result.vk.fence = vk.fences[poolIndex][fenceIndex];
-  }
-#endif
-
-  fenceIndex += 1;
-  cmdIndex += numCmds;
-
-  return result;
-}
+// RICommandRingBuffer / RICommandRingElement live in their own header; included
+// here (after RIDevice/RIRenderer are complete) so the template method bodies
+// see the full definitions. Backward-compatible: anything including RITypes.h
+// still gets the ring API.
+#include "graphics/RICommandRingBuffer.h"
 
 #endif

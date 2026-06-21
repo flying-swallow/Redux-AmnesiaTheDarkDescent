@@ -32,25 +32,22 @@ using namespace hpl;
 
 //-----------------------------------------------------------------------
 
-// Allocate `outTex` as a screen-sized color attachment that is also sampleable
-// as a 2D texture, and wire up the descriptor binding used by
-// cGui::CreateGfxTexture / RIProgram::bindDescriptors. The cTexture_Delete
-// deleter expects `handle.vk.image` (+ its VMA allocation) and
-// `binding.vk.image.imageView` to be set — see cTexture.cpp:19 — so we fill
-// all three.
-bool LuxCreateScreenRenderTarget(
-		std::shared_ptr<hpl::cTexture> &outTex,
-		uint32_t width, uint32_t height, VkFormat format, const char *debugName)
+// Build a screen-sized color attachment that is also sampleable as a 2D
+// texture, wrapped in a standalone Image (which owns the cTexture). The Image
+// is reference-counted, so a per-frame keep-alive pin can defer the GPU free
+// past the submit that uses it. Returns an empty handle on failure.
+hpl::SharedResourceHandle<hpl::Image> LuxCreateScreenRenderTarget(
+		uint32_t width, uint32_t height, enum RI_Format_e format, const char *debugName)
 {
-	auto tex = std::shared_ptr<cTexture>(new cTexture{}, cTexture::cTexture_Delete);
-	tex->width  = static_cast<uint16_t>(width);
-	tex->height = static_cast<uint16_t>(height);
-	tex->depth  = 1;
-	tex->mipNum = 1;
+	cTexture tex;
+	tex.width  = static_cast<uint16_t>(width);
+	tex.height = static_cast<uint16_t>(height);
+	tex.depth  = 1;
+	tex.mipNum = 1;
 
 	VkImageCreateInfo imageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
 	imageInfo.imageType   = VK_IMAGE_TYPE_2D;
-	imageInfo.format      = format;
+	imageInfo.format      = RIFormatToVK(format);
 	imageInfo.extent      = { width, height, 1 };
 	imageInfo.mipLevels   = 1;
 	imageInfo.arrayLayers = 1;
@@ -65,23 +62,24 @@ bool LuxCreateScreenRenderTarget(
 	memReqs.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
 	if (!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo, &memReqs,
-	                                  &tex->handle.vk.image, &tex->handle.vk.allocation, NULL))) {
-		return false;
+	                                  &tex.handle.vk.image, &tex.handle.vk.allocation, NULL))) {
+		return {};
 	}
 
 	RITextureViewDesc viewDesc = {};
 	viewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
-	viewDesc.format   = VKToRIFormat(format);
+	viewDesc.format   = format;
 	viewDesc.mipNum   = 1;
 	viewDesc.layerNum = 1;
-	tex->view = RITextureView::create(&RI.device, &tex->handle, viewDesc);
-	if (tex->view.isEmpty(&RI.renderer)) {
-		return false;
+	tex.view = RITextureView::create(&RI.device, &tex.handle, viewDesc);
+	if (tex.view.isEmpty()) {
+		return {};
 	}
-	tex->setDebugName(debugName);
+	tex.setDebugName(debugName);
 
-	outTex = std::move(tex);
-	return true;
+	Image::SingleImage single = {};
+	single.image = std::move(tex);
+	return AdoptStandaloneImage(new Image(std::move(single)));
 }
 
 //-----------------------------------------------------------------------
@@ -112,7 +110,7 @@ cLuxScreenCapture::~cLuxScreenCapture()
 
 void cLuxScreenCapture::EnsureTextures()
 {
-	if (m_primaryColor) {
+	if (m_primaryImage) {
 		return;
 	}
 
@@ -124,11 +122,10 @@ void cLuxScreenCapture::EnsureTextures()
 	mlHeight = RI.swapchain.height;
 
 	// Same format as the pogo so the capture is a straight vkCmdCopyImage.
-	LuxCreateScreenRenderTarget(m_primaryColor, mlWidth, mlHeight,
-	                            RIBootstrap::PogoColorFormatVk, "screen.primaryCapture");
+	m_primaryImage = LuxCreateScreenRenderTarget(mlWidth, mlHeight,
+	                            RIBootstrap::PogoColorFormat, "screen.primaryCapture");
 
-	m_primaryImage = std::make_shared<Image>(Image::SingleImage{m_primaryColor});
-	mpScreenGfx    = mpGui->CreateGfxTexture(m_primaryImage.get(), false, eGuiMaterial_Diffuse);
+	mpScreenGfx    = mpGui->CreateGfxTexture(m_primaryImage.Get(), false, eGuiMaterial_Diffuse);
 }
 
 //-----------------------------------------------------------------------
@@ -147,7 +144,8 @@ void cLuxScreenCapture::RequestCapture()
 
 RIDescriptor cLuxScreenCapture::PrimaryDescriptor()
 {
-	return m_primaryColor ? m_primaryColor->descriptor() : RIDescriptor{};
+	cTexture *primary = m_primaryImage ? m_primaryImage->GetTexture() : nullptr;
+	return primary ? primary->descriptor() : RIDescriptor{};
 }
 
 //-----------------------------------------------------------------------
@@ -157,7 +155,8 @@ void cLuxScreenCapture::OnPostRender(float afFrameTime)
 	if (!mbPending) {
 		return;
 	}
-	if (!m_primaryColor) {
+	cTexture *primary = m_primaryImage ? m_primaryImage->GetTexture() : nullptr;
+	if (!primary) {
 		return;
 	}
 
@@ -176,7 +175,7 @@ void cLuxScreenCapture::OnPostRender(float afFrameTime)
 	if (pPogo == nullptr) {
 		return; // No gameplay frame rendered yet; try again next post-render.
 	}
-	RITexture *pSource = &pPogo->textures[(pPogo->attachmentIndex + 1) % 2];
+	RITexture *pSource = pPogo->textures[(pPogo->attachmentIndex + 1) % 2].Get();
 
 	// Record the copy on the primary command buffer. As a global module our
 	// OnPostRender runs before the active state's cLuxScreenEffect::OnPostRender,
@@ -184,7 +183,7 @@ void cLuxScreenCapture::OnPostRender(float afFrameTime)
 	ImageBarrier(&RI.primary.cmds[0], pSource,
 			RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT,
 			RI_RESOURCE_STATE_COPY_SRC, RI_STAGE_COPY);
-	ImageBarrier(&RI.primary.cmds[0], &m_primaryColor->handle,
+	ImageBarrier(&RI.primary.cmds[0], &primary->handle,
 			mbPrimaryEverWritten ? RI_RESOURCE_STATE_SHADER_RESOURCE : RI_RESOURCE_STATE_UNDEFINED,
 			mbPrimaryEverWritten ? RI_STAGE_FRAGMENT : RI_STAGE_NONE,
 			RI_RESOURCE_STATE_COPY_DST, RI_STAGE_COPY);
@@ -195,7 +194,7 @@ void cLuxScreenCapture::OnPostRender(float afFrameTime)
 	region.extent         = { mlWidth, mlHeight, 1 };
 	vkCmdCopyImage(cmd,
 		pSource->vk.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		m_primaryColor->handle.vk.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		primary->handle.vk.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1, &region);
 
 	// Restore the pogo half for the renderer's reuse; leave the capture
@@ -203,7 +202,7 @@ void cLuxScreenCapture::OnPostRender(float afFrameTime)
 	ImageBarrier(&RI.primary.cmds[0], pSource,
 			RI_RESOURCE_STATE_COPY_SRC, RI_STAGE_COPY,
 			RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
-	ImageBarrier(&RI.primary.cmds[0], &m_primaryColor->handle,
+	ImageBarrier(&RI.primary.cmds[0], &primary->handle,
 			RI_RESOURCE_STATE_COPY_DST, RI_STAGE_COPY,
 			RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT);
 
@@ -221,10 +220,9 @@ void cLuxScreenCapture::Destroy()
 	}
 	mpScreenGfx = nullptr;
 
-	// The cTexture deleter parks the GPU handles on the active frame slot's
-	// freelist; they're released once that slot's fence has signaled.
-	m_primaryImage.reset();
-	m_primaryColor.reset();
+	// Dropping the handle frees the Image (and its cTexture) once any in-flight
+	// per-frame keep-alive pins on the active slot have been released.
+	m_primaryImage = {};
 
 	mbPending            = false;
 	mbCaptured           = false;

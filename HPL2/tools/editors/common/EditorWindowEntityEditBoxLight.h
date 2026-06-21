@@ -53,6 +53,7 @@ protected:
 	void AddPropertySetBox(cWidgetTab* apParentTab);
 	void AddPropertySetPoint(cWidgetTab* apParentTab);
 	void AddPropertySetSpot(cWidgetTab* apParentTab);
+	void AddPropertySetArea(cWidgetTab* apParentTab);
 
 	
 	bool InputCallback(iWidget* apWidget, const cGuiMessageData& aData);
@@ -156,6 +157,14 @@ protected:
 	cEditorInputNumber* mpInpSpotAspect;
 	cEditorInputNumber* mpInpSpotNearClipPlane;
 	cEditorInputFile* mpInpSpotFalloffMap;
+
+	///////////////////////////////////
+	// Area Light specific
+	cEditorInputNumber* mpInpAreaWidth;
+	cEditorInputNumber* mpInpAreaHeight;
+	cEditorInputNumber* mpInpAreaBarnDoorAngle;
+	cEditorInputNumber* mpInpAreaBarnDoorLength;
+	cEditorInputFile* mpInpAreaSourceTex;
 };
 
 

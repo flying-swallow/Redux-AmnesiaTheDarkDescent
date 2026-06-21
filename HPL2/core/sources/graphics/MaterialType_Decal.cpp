@@ -44,50 +44,20 @@ namespace hpl {
 		mbIsTranslucent = true;
 		mbIsDecal = true;
 
-		mbHasTypeSpecifics[eMaterialRenderMode_Diffuse] = true;
-
 		AddUsedTexture(eMaterialTexture_Diffuse);
 	}
 
 	cMaterialType_Decal::~cMaterialType_Decal() {}
 
-	iMaterialVars* cMaterialType_Decal::CreateSpecificVariables()
-	{
-		return hplNew(cMaterialType_Decal_Vars,());
-	}
-
 	void cMaterialType_Decal::LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars)
 	{
-		cMaterialType_Decal_Vars *pVars = (cMaterialType_Decal_Vars*)apMaterial->GetVars();
-		if(pVars==NULL)
-		{
-			pVars = (cMaterialType_Decal_Vars*)CreateSpecificVariables();
-			apMaterial->SetVars(pVars);
-		}
+		// Decals carry no per-type parameters; the diffuse texture is bound by the
+		// loader (cMaterial::SlotForTexture) and the blend mode lives in cMaterial's
+		// pipeline-settings bucket.
+		apMaterial->IncreaseGeneration();
 	}
 
 	void cMaterialType_Decal::GetVariableValues(cMaterial* apMaterial, cResourceVarsObject* apVars)
 	{
-		cMaterialType_Decal_Vars* pVars = (cMaterialType_Decal_Vars*)apMaterial->GetVars();
-	}
-
-	void cMaterialType_Decal::CompileMaterialSpecifics(cMaterial *apMaterial)
-	{
-		cMaterialType_Decal_Vars *pVars = static_cast<cMaterialType_Decal_Vars*>(apMaterial->GetVars());
-		(void)pVars;
-
-		//////////////////////////////////
-		// UV animation specifics
-		if(apMaterial->HasUvAnimation())
-		{
-			apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Diffuse,true);
-		}
-
-		/////////////////////////////////////
-		// Build the bindless descriptor for the per-frame SSBO upload.
-		ShaderMaterialData desc{};
-		desc.m_id = MaterialID::Decal;
-		desc.m_decal.m_blend = apMaterial->GetBlendMode();
-		apMaterial->SetDescriptor(desc);
 	}
 }

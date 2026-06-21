@@ -34,7 +34,6 @@ HOST_NAMESPACE_BEGIN
 // which reconstruct R^T via `float3x3(worldToLightX, worldToLightY, worldToLightZ)`.
 // -----------------------------------------------------------------------------
 SLANG_PUBLIC struct PointLight {
-    SLANG_PUBLIC uint  type;                         // LIGHT_TYPE_POINT
     SLANG_PUBLIC uint  goboTextureIndex;
     SLANG_PUBLIC float3  position;
     SLANG_PUBLIC float intensity;                    // luminous power (CPU-derived)
@@ -54,7 +53,6 @@ SLANG_PUBLIC struct PointLight {
 // shadow bit, and the light's view-projection matrix (gobo / future shadow-map
 // UVs).
 SLANG_PUBLIC struct SpotLight {
-    SLANG_PUBLIC uint  type;                         // LIGHT_TYPE_SPOT
     SLANG_PUBLIC uint  goboTextureIndex;
     SLANG_PUBLIC float3  position;
     SLANG_PUBLIC float intensity;                    // luminous power (CPU-derived)
@@ -65,6 +63,35 @@ SLANG_PUBLIC struct SpotLight {
     SLANG_PUBLIC float4x4  viewProjection;               // light-space ViewProj for gobo UVs
     SLANG_PUBLIC float radius;                       // CPU-precomputed light-grid bin reach (world units); 0 ⇒ skip
     SLANG_PUBLIC float sourceRadius;                 // physical source radius (world units); 0 ⇒ hard shadow. Penumbra.
+};
+
+// Scalar-layout rectangular area light, modeled on Unreal's Rect Light. The
+// emitter is a width×height rectangle centered at `position`, lying in the local
+// Y–Z plane: `right` (local +Y, source-width axis), `up` (local +Z, source-height
+// axis), and `normal` (local +X, one-sided emission direction). `intensity` is the
+// TOTAL energy averaged over the surface — radiance = intensity / (width·height),
+// so enlarging the rect dims it (UE semantics). The shader (RectLight.sample in
+// ILight.slang) shades the closest point on the rect as a softened inverse-square
+// source windowed to 0 at `radius` (the spherical attenuation radius), tinted by an
+// optional `sourceTextureIndex` (textures_2d[], rect-local UV). Soft shadows sample
+// the rectangle itself (RectLight.sampleSourcePoint) — the area IS the source.
+// `barnDoorAngle`/`barnDoorLength` shape the beam: four flaps hinged on the rect
+// edges, tilted from the normal by the angle and extended by the length, confine
+// the emission to a frustum (RectLight.sample barnAxis). Angle → 90° or length 0
+// leaves the flaps open (no-op).
+SLANG_PUBLIC struct RectLight {
+    SLANG_PUBLIC uint  sourceTextureIndex;           // textures_2d[]; kInvalidTextureIndex when absent
+    SLANG_PUBLIC float3 position;                   // rect center, world space
+    SLANG_PUBLIC float intensity;                    // total energy (radiance = intensity / area)
+    SLANG_PUBLIC float3  color;                      // linear diffuse
+    SLANG_PUBLIC float3  right;                      // local +Y (unit), source-width axis
+    SLANG_PUBLIC float3  up;                         // local +Z (unit), source-height axis
+    SLANG_PUBLIC float3  normal;                     // local +X (unit), emission direction
+    SLANG_PUBLIC float width;                        // source width  (world units, along right)
+    SLANG_PUBLIC float height;                       // source height (world units, along up)
+    SLANG_PUBLIC float radius;                       // attenuation radius (world units); falloff windows to 0 here; 0 ⇒ skip
+    SLANG_PUBLIC float barnDoorAngle;                // flap tilt from normal (radians); 90° ⇒ open
+    SLANG_PUBLIC float barnDoorLength;               // flap length (world units); 0 ⇒ disabled
 };
 
 // Per-fog-area params for the screen-space fog iteration. One entry per
@@ -93,6 +120,16 @@ SLANG_PUBLIC struct FogAreaParams {
 // Slot layout: 0=Diffuse, 1=NMap, 2=Alpha, 3=Specular,
 //              4=Height, 5=Illumination, 6=DissolveAlpha, 7=CubeMapAlpha.
 // `cubeMapTextureIndex` is the parallel reflection-cubemap slot (textures_cube[]).
+// Shared material header — overlays the first 8 bytes of every material struct
+// below (each starts with `type` then `materialConfig`). gMaterials stores one
+// fixed-size MaterialDataBlob per materialID; a shader reinterprets the blob's
+// head as a MaterialHeader to read the type/config cheaply (for dispatch), then
+// reinterprets the whole blob into the concrete struct. Falcor MaterialHeader analogue.
+SLANG_PUBLIC struct MaterialHeader {
+    SLANG_PUBLIC uint  type;                          // MATERIAL_TYPE_* tag
+    SLANG_PUBLIC uint  materialConfig;                // shared kMaterialFlag* bits
+};
+
 SLANG_PUBLIC struct DiffuseMaterial {
     SLANG_PUBLIC uint  type;                         // MATERIAL_TYPE_DIFFUSE
     SLANG_PUBLIC uint  materialConfig;
@@ -135,12 +172,13 @@ SLANG_PUBLIC struct WaterMaterial {
     SLANG_PUBLIC float waveFreq;
 };
 
-// GPU twin of MaterialDecal (Material.h). Only carries texture slots and the
-// blend mode (encoded in materialConfig); no per-instance scalars.
-SLANG_PUBLIC struct DecalMaterial {
-    SLANG_PUBLIC uint  type;                         // MATERIAL_TYPE_DECAL
-    SLANG_PUBLIC uint  materialConfig;
-    SLANG_PUBLIC uint  tex[8];
+// Fixed-size, type-erased material record stored in gMaterials[materialID]
+// (Falcor MaterialDataBlob analogue). The host memcpys one concrete material
+// struct (DiffuseMaterial / TranslucentMaterial / WaterMaterial) into `data`;
+// shaders read data[0] (== type) to dispatch and reinterpret<T>(blob) to recover
+// the typed struct. kMaterialBlobUints must be >= the largest material struct.
+SLANG_PUBLIC struct MaterialDataBlob {
+    SLANG_PUBLIC uint data[kMaterialBlobUints];
 };
 
 SLANG_PUBLIC struct UniformObject {
@@ -162,13 +200,15 @@ SLANG_PUBLIC struct UniformObject {
 
 // Clustered OOB decal. No geometry: invModelMat maps a world position into the
 // decal's unit-cube box [-0.5,0.5]^3; the projection pass clips to the box and
-// samples the decal texture (DiffuseMaterial slot `materialID`). receiverMask is
-// the eDecalReceiver filter; blendMode is eMaterialBlendMode. Packed each frame
-// from cDecal into gDecals[] (binding kBindingDecals).
+// samples the decal texture directly via diffuseTexIndex. receiverMask is the
+// eDecalReceiver filter; blendMode is eMaterialBlendMode. The geometry is baked
+// once per world by cWorld::Compile into the world-owned set-2 gDecals[];
+// diffuseTexIndex is refreshed each frame from the normal texture LRU
+// (cWorld::RefreshDecalTextures), which keeps the texture MRU so its slot is stable.
 SLANG_PUBLIC struct GpuDecal {
     SLANG_PUBLIC float4x4 invModelMat;
     SLANG_PUBLIC float4   color;
-    SLANG_PUBLIC uint     materialID;
+    SLANG_PUBLIC uint     diffuseTexIndex; // gTextures2D[] slot, refreshed each frame via the LRU
     SLANG_PUBLIC uint     receiverMask;
     SLANG_PUBLIC uint     blendMode;
     SLANG_PUBLIC uint     subDivX;        // texture-atlas grid (editor SubDiv)
@@ -258,6 +298,7 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC uint  spotLightCount;             // active entries in gSpotLights[]
     SLANG_PUBLIC uint  fogAreaCount;               // active entries in gFogAreas[]
     SLANG_PUBLIC uint  decalCount;                 // active entries in gDecals[]
+    SLANG_PUBLIC uint  areaLightCount;             // active entries in gAreaLights[]
 
     SLANG_PUBLIC float3 posW;
     SLANG_PUBLIC float jitterX;

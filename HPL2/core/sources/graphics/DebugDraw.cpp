@@ -67,7 +67,7 @@ namespace hpl {
 			VkCompareOp depthOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 			bool alphaBlend = false;   // false => additive ONE/ONE (TDD overlay look)
 			bool uvLayout = false;     // declare the uv attribute (debug_uv.vert)
-			VkFormat colorFormat = RIBootstrap::PogoColorFormatVk;
+			VkFormat colorFormat = RIFormatToVK(RIBootstrap::PogoColorFormat);
 		};
 
 		// One cached pipeline per (topology, depth, blend, format) combination —
@@ -308,7 +308,7 @@ namespace hpl {
 							 const cVector2f& avUv0, const cVector2f& avUv1, Image* apImage, const cColor& aTint,
 							 const DebugDrawOptions& aOptions)
 	{
-		std::shared_ptr<cTexture> texture = apImage ? apImage->GetTexture() : nullptr;
+		cTexture *texture = apImage ? apImage->GetTexture() : nullptr;
 		if(!texture) {
 			DrawQuad(avV1, avV2, avV3, avV4, aTint, aOptions);
 			return;
@@ -323,9 +323,9 @@ namespace hpl {
 		request.m_type = quad;
 		request.m_uv0 = avUv0;
 		request.m_uv1 = avUv1;
-		request.m_texture = texture;
+		request.m_texture = RetainResource(apImage);
 		request.m_color = aTint;
-		m_uvQuads.push_back(request);
+		m_uvQuads.push_back(std::move(request));
 	}
 
 	void DebugDraw::DrawPyramid(const cVector3f& avBaseCenter, const cVector3f& avTop, float afHalfWidth,
@@ -351,7 +351,7 @@ namespace hpl {
 								  const cVector2f& avUv1, Image* apImage, const cColor& aTint,
 								  const DebugDrawOptions& aOptions)
 	{
-		std::shared_ptr<cTexture> texture = apImage ? apImage->GetTexture() : nullptr;
+		cTexture *texture = apImage ? apImage->GetTexture() : nullptr;
 		if(!texture) {
 			return;
 		}
@@ -364,9 +364,9 @@ namespace hpl {
 		request.m_type = billboard;
 		request.m_uv0 = avUv0;
 		request.m_uv1 = avUv1;
-		request.m_texture = texture;
+		request.m_texture = RetainResource(apImage);
 		request.m_color = aTint;
-		m_uvQuads.push_back(request);
+		m_uvQuads.push_back(std::move(request));
 	}
 
 	void DebugDraw::DebugWireFrameFromVertexBuffer(cVertexBuffer* apVertexBuffer, const cColor& aColor,
@@ -457,7 +457,7 @@ namespace hpl {
 	bool DebugDraw::RequestStream(RIBootstrap::FrameContext* cntx, size_t alNumVertices, size_t alNumIndices,
 								  struct RISegmentReq* apVtxReq, struct RISegmentReq* apIdxReq)
 	{
-		if(m_vertexBuffer.isEmpty(&RI.renderer) ||
+		if(m_vertexBuffer.isEmpty() ||
 		   !m_vertexAlloc.request(RI.frameIndex, alNumVertices, apVtxReq))
 		{
 			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
@@ -471,15 +471,15 @@ namespace hpl {
 			bool res = m_vertexAlloc.request(RI.frameIndex, alNumVertices, apVtxReq);
 			assert(res);
 
-			if(!m_vertexBuffer.isEmpty(&RI.renderer)) {
-				cntx->freelist.push_back(m_vertexBuffer);
+			if(!m_vertexBuffer.isEmpty()) {
+				RI.graphicsDefer.push(m_vertexBuffer);
 			}
-			m_vertexBuffer = RIBuffer::create(
+			m_vertexBuffer = RISharedPointer<RIBuffer>(&RI.device, RIBuffer::create(
 				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
-				             RI_BUFFER_USAGE_VERTEX_BUFFER, RI_MEMORY_HOST_UPLOAD, 0});
+				             RI_BUFFER_USAGE_VERTEX_BUFFER, RI_MEMORY_HOST_UPLOAD, 0}));
 		}
 
-		if(m_indexBuffer.isEmpty(&RI.renderer) ||
+		if(m_indexBuffer.isEmpty() ||
 		   !m_indexAlloc.request(RI.frameIndex, alNumIndices, apIdxReq))
 		{
 			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
@@ -493,12 +493,12 @@ namespace hpl {
 			bool res = m_indexAlloc.request(RI.frameIndex, alNumIndices, apIdxReq);
 			assert(res);
 
-			if(!m_indexBuffer.isEmpty(&RI.renderer)) {
-				cntx->freelist.push_back(m_indexBuffer);
+			if(!m_indexBuffer.isEmpty()) {
+				RI.graphicsDefer.push(m_indexBuffer);
 			}
-			m_indexBuffer = RIBuffer::create(
+			m_indexBuffer = RISharedPointer<RIBuffer>(&RI.device, RIBuffer::create(
 				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
-				             RI_BUFFER_USAGE_INDEX_BUFFER, RI_MEMORY_HOST_UPLOAD, 0});
+				             RI_BUFFER_USAGE_INDEX_BUFFER, RI_MEMORY_HOST_UPLOAD, 0}));
 		}
 		return true;
 	}
@@ -506,7 +506,7 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 	void DebugDraw::flush(RIBootstrap::FrameContext* cntx, struct RICmd* cmd, const cFrustum* apFrustum,
-						  uint32_t alTargetWidth, uint32_t alTargetHeight, VkFormat aColorFormat)
+						  uint32_t alTargetWidth, uint32_t alTargetHeight, enum RI_Format_e aColorFormat)
 	{
 		if(!HasRequests()) {
 			return;
@@ -562,8 +562,8 @@ namespace hpl {
 		}
 		const VkDeviceSize vtxBase = (VkDeviceSize)vtxReq.elementOffset * sizeof(DebugVertex);
 		const VkDeviceSize idxBase = (VkDeviceSize)idxReq.elementOffset * sizeof(uint32_t);
-		DebugVertex* vboMemory = reinterpret_cast<DebugVertex*>((uint8_t*)m_vertexBuffer.mappedAddress + vtxBase);
-		uint32_t* eleMemory = reinterpret_cast<uint32_t*>((uint8_t*)m_indexBuffer.mappedAddress + idxBase);
+		DebugVertex* vboMemory = reinterpret_cast<DebugVertex*>((uint8_t*)m_vertexBuffer->mappedAddress + vtxBase);
+		uint32_t* eleMemory = reinterpret_cast<uint32_t*>((uint8_t*)m_indexBuffer->mappedAddress + idxBase);
 
 		size_t vertexCursor = 0; // in vertices, relative to vtxBase
 		size_t indexCursor = 0;  // in indices, relative to idxBase
@@ -575,10 +575,10 @@ namespace hpl {
 			aProgram.bindDescriptors(&RI.device, cmd, RI.frameIndex, apBindings, alNumBindings);
 			const RIDeviceSize vbOffset = vtxBase + alRunVertexStart * sizeof(DebugVertex);
 			const RIDeviceSize ibOffset = idxBase + alRunIndexStart * sizeof(uint32_t);
-			RIBuffer *vertBufs[1] = {&m_vertexBuffer};
+			RIBuffer *vertBufs[1] = {m_vertexBuffer.Get()};
 			const RIDeviceSize vertOffsets[1] = {vbOffset};
 			cmd->bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
-			cmd->bindIndexBuffer(&RI.device, &m_indexBuffer, ibOffset, RI_INDEX_TYPE_32);
+			cmd->bindIndexBuffer(&RI.device, m_indexBuffer.Get(), ibOffset, RI_INDEX_TYPE_32);
 			cmd->drawIndexed(&RI.device, (uint32_t)alRunIndexCount, 1, 0, 0, 0);
 		};
 
@@ -614,7 +614,7 @@ namespace hpl {
 				cfg.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 				cfg.depthTestEnable = true;
 				cfg.depthOp = toCompareOp(depthTest);
-				cfg.colorFormat = aColorFormat;
+				cfg.colorFormat = RIFormatToVK(aColorFormat);
 				bindDebugPipeline(m_colorProgram, cmd, cfg, "debug.solidTri");
 
 				RIProgram::DescriptorBinding bindings[1] = {};
@@ -661,7 +661,7 @@ namespace hpl {
 				cfg.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 				cfg.depthTestEnable = true;
 				cfg.depthOp = toCompareOp(depthTest);
-				cfg.colorFormat = aColorFormat;
+				cfg.colorFormat = RIFormatToVK(aColorFormat);
 				bindDebugPipeline(m_colorProgram, cmd, cfg, "debug.solidQuad");
 
 				RIProgram::DescriptorBinding bindings[1] = {};
@@ -676,8 +676,8 @@ namespace hpl {
 		if(!m_uvQuads.empty())
 		{
 			std::sort(m_uvQuads.begin(), m_uvQuads.end(), [](const UVQuadRequest& a, const UVQuadRequest& b) {
-				if(a.m_texture != b.m_texture) {
-					return a.m_texture < b.m_texture;
+				if(a.m_texture.Get() != b.m_texture.Get()) {
+					return a.m_texture.Get() < b.m_texture.Get();
 				}
 				return a.m_depthTest < b.m_depthTest;
 			});
@@ -694,7 +694,9 @@ namespace hpl {
 				size_t runVertexCount = 0;
 				size_t runIndexCount = 0;
 				const DebugDepthTest depthTest = it->m_depthTest;
-				const std::shared_ptr<cTexture> texture = it->m_texture;
+				// Own the Image for the whole run + the frame pin below.
+				const SharedResourceHandle<Image> image = it->m_texture;
+				cTexture *texture = image->GetTexture();
 				do {
 					const cColor& c = it->m_color;
 					const float color[4] = { c.r, c.g, c.b, c.a };
@@ -726,7 +728,7 @@ namespace hpl {
 					eleMemory[indexCursor + runIndexCount++] = (uint32_t)runVertexCount - 2;
 					eleMemory[indexCursor + runIndexCount++] = (uint32_t)runVertexCount - 1;
 					++it;
-				} while(it != m_uvQuads.end() && it->m_depthTest == depthTest && it->m_texture == texture);
+				} while(it != m_uvQuads.end() && it->m_depthTest == depthTest && it->m_texture.Get() == image.Get());
 				vertexCursor += runVertexCount;
 				indexCursor += runIndexCount;
 
@@ -736,12 +738,12 @@ namespace hpl {
 				cfg.depthOp = toCompareOp(depthTest);
 				cfg.alphaBlend = true; // icons have cutout alpha
 				cfg.uvLayout = true;
-				cfg.colorFormat = aColorFormat;
+				cfg.colorFormat = RIFormatToVK(aColorFormat);
 				bindDebugPipeline(m_uvProgram, cmd, cfg, "debug.uvQuad");
 
-				// Pin the texture so a mid-frame destroy can't free the VkImage
+				// Pin the Image so a mid-frame destroy can't free the VkImage
 				// before this submit retires.
-				cntx->resourceLink.push_back(texture);
+				RI.graphicsDefer.push(PinResource(image.Get()));
 
 				auto samplerDesc = RI.resolve_filter_descriptor(
 					eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
@@ -789,7 +791,7 @@ namespace hpl {
 				cfg.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
 				cfg.depthTestEnable = true;
 				cfg.depthOp = toCompareOp(depthTest);
-				cfg.colorFormat = aColorFormat;
+				cfg.colorFormat = RIFormatToVK(aColorFormat);
 				bindDebugPipeline(m_colorProgram, cmd, cfg, "debug.line");
 
 				RIProgram::DescriptorBinding bindings[1] = {};
@@ -822,7 +824,7 @@ namespace hpl {
 			cfg.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
 			cfg.depthTestEnable = false;
 			cfg.depthOp = VK_COMPARE_OP_ALWAYS;
-			cfg.colorFormat = aColorFormat;
+			cfg.colorFormat = RIFormatToVK(aColorFormat);
 			bindDebugPipeline(m_color2DProgram, cmd, cfg, "debug.line2D");
 
 			RIProgram::DescriptorBinding bindings[1] = {};

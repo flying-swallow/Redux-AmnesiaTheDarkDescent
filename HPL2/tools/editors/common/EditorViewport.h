@@ -349,8 +349,10 @@ protected:
 	// viewport's finished pogo into it (TargetView) and the GUI widget
 	// displays its Image (see UpdateViewport). Legacy FB members kept until
 	// the Phase-5 cleanup.
-	std::shared_ptr<cTexture> mpPaneTexture;
-	std::shared_ptr<Image> mpPaneImage;
+	// Editor-owned pane Image (owns its cTexture). Held as a reference-counted
+	// handle so a mid-frame pane resize/destroy defers the GPU free until any
+	// per-frame keep-alive pins have cleared.
+	SharedResourceHandle<Image> mpPaneImage;
 	cVector2l mvPaneSize = cVector2l(0, 0);
 	/* mpRenderTarget removed with iTexture */
 	cVector2f mvUVStart;

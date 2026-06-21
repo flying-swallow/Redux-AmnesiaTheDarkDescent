@@ -43,7 +43,7 @@ public:
   // scene/Viewport.h), held by cViewport; this renderer owns its
   // creation/sizing (file-local helper in HybridRenderer.cpp).
 
-  // kObjectSlotCapacity / kTextureSlotCapacity / kSolidMaterialCapacity and
+  // kObjectSlotCapacity / kTextureSlotCapacity / kMaterialCapacity and
   // kTotalSurfelLimit / kRayBudget come from amnesia/glsl/forward_shared.h.
 
   virtual void Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
@@ -55,6 +55,12 @@ public:
   virtual void DestroyData() override {};
 
   void SetOverlay(int alOverlay) { m_overlayMode = (uint32_t)alOverlay; }
+
+  // The global bindless managed set (set 0). Exposed so cWorld::Compile can pin
+  // decal diffuse textures into persistent slots while baking the per-world decal
+  // buffers (the only field of GpuDecal that would otherwise need a per-frame
+  // bindless resolve).
+  HybridGlobalManagedSet &GetGlobalManagedSet() { return m_global; }
 
 private:
   // Owns set 0 — the global bindless descriptor set and every buffer bound to
@@ -76,9 +82,9 @@ private:
   RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> m_indirectSegment;
   struct RIBuffer m_indirectDrawBuffer;
 
-  RIBuffer m_tlasStorage = {};
-  struct RIAccelStructure m_tlas = {};
-  struct RIBuffer m_tlasInstanceBuffer = {};
+  RISharedPointer<RIBuffer> m_tlasStorage;
+  RISharedPointer<RIAccelStructure> m_tlas;
+  RISharedPointer<RIBuffer> m_tlasInstanceBuffer;
   uint32_t m_tlasCapacity = 0;
   uint32_t m_tlasStorageCapacity = 0;
 

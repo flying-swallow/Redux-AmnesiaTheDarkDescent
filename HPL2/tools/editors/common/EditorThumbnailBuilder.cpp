@@ -41,10 +41,9 @@ static constexpr uint32_t kThumbnailSize = 128;
 // like any other Image — the editor-pane pattern). The cTexture deleter
 // defers the GPU frees onto the frame freelist, so dropping cache entries
 // mid-flight is safe.
-static bool CreateThumbnailCacheTexture(std::shared_ptr<cTexture> &outTexture)
+static std::optional<cTexture> CreateThumbnailCacheTexture()
 {
-	std::shared_ptr<cTexture> texture(new cTexture{},
-										cTexture::cTexture_Delete);
+	cTexture texture;
 
 	VkImageCreateInfo imageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
 	imageInfo.imageType = VK_IMAGE_TYPE_2D;
@@ -65,11 +64,11 @@ static bool CreateThumbnailCacheTexture(std::shared_ptr<cTexture> &outTexture)
 	VmaAllocationCreateInfo allocInfo = {};
 	allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 	if(!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo,
-									 &allocInfo, &texture->handle.vk.image,
-									 &texture->handle.vk.allocation, NULL)))
+									 &allocInfo, &texture.handle.vk.image,
+									 &texture.handle.vk.allocation, NULL)))
 	{
 		Error("ThumbnailBuilder: failed to create cache image\n");
-		return false;
+		return std::nullopt;
 	}
 
 	RITextureViewDesc viewDesc = {};
@@ -77,25 +76,24 @@ static bool CreateThumbnailCacheTexture(std::shared_ptr<cTexture> &outTexture)
 	viewDesc.format = VKToRIFormat(imageInfo.format);
 	viewDesc.mipNum = 1;
 	viewDesc.layerNum = 1;
-	texture->view = RITextureView::create(&RI.device, &texture->handle, viewDesc);
-	if(texture->view.isEmpty(&RI.renderer))
+	texture.view = RITextureView::create(&RI.device, &texture.handle, viewDesc);
+	if(texture.view.isEmpty())
 	{
 		Error("ThumbnailBuilder: failed to create cache image view\n");
-		vmaDestroyImage(RI.device.vk.vmaAllocator, texture->handle.vk.image,
-						texture->handle.vk.allocation);
-		texture->handle.vk.image = VK_NULL_HANDLE;
-		texture->handle.vk.allocation = NULL;
-		return false;
+		vmaDestroyImage(RI.device.vk.vmaAllocator, texture.handle.vk.image,
+						texture.handle.vk.allocation);
+		texture.handle.vk.image = VK_NULL_HANDLE;
+		texture.handle.vk.allocation = NULL;
+		return std::nullopt;
 	}
 
-	texture->width = (uint16_t)kThumbnailSize;
-	texture->height = (uint16_t)kThumbnailSize;
-	texture->depth = 1;
-	texture->mipNum = 1;
-	texture->format = RI_FORMAT_RGBA8_SRGB;
+	texture.width = (uint16_t)kThumbnailSize;
+	texture.height = (uint16_t)kThumbnailSize;
+	texture.depth = 1;
+	texture.mipNum = 1;
+	texture.format = RI_FORMAT_RGBA8_SRGB;
 
-	outTexture = texture;
-	return true;
+	return texture;
 }
 
 //-------------------------------------------------------------------
@@ -111,8 +109,8 @@ cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 	mpEditor = apEditor;
 	mpViewport = NULL;
 	mpWorld = NULL;
-	mTargetTexture = RITexture{};
-	mTargetView = RITextureView{};
+	mTargetTexture = {};
+	mTargetView = {};
 	mpActiveCopyDst = NULL;
 
 	cEngine* pEngine = mpEditor->GetEngine();
@@ -156,9 +154,9 @@ cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 	cViewport::TargetView target = {};
 	target.width = kThumbnailSize;
 	target.height = kThumbnailSize;
-	target.texture = mTargetTexture;
-	target.view.vk.image = mTargetView.vk.image;
-	target.format = VK_FORMAT_R8G8B8A8_SRGB;
+	target.texture = *mTargetTexture;
+	target.view.vk.image = mTargetView->vk.image;
+	target.format = RI_FORMAT_RGBA8_SRGB;
 	mpViewport->SetTarget(target);
 
 	//////////////////////////////////////////
@@ -183,10 +181,9 @@ cEditorThumbnailBuilder::~cEditorThumbnailBuilder()
 	mlstJobs.clear();
 
 	////////////////////////////////////////
-	// GPU handles go to the frame freelist — freed once the in-flight
+	// GPU handles go to the graphics deferral queue — freed once the in-flight
 	// pipeline is done with them (or in RIBootstrap::Dispose at shutdown).
-	RIBootstrap::FrameContext* cntx = RI.GetActiveSet();
-	ReleaseViewportColorTexture(cntx->freelist, &mTargetTexture, &mTargetView);
+	ReleaseViewportAttachmentTexture(&mTargetTexture, &mTargetView);
 
 	if(mpViewport)
 		mpEditor->GetEngine()->GetScene()->DestroyViewport(mpViewport);
@@ -327,10 +324,16 @@ void cEditorThumbnailBuilder::Pump(float afFrameTime)
 
 	////////////////////////////////////////
 	// The job's cache texture — the OnPostDelivery handler copies the
-	// delivered target into it on the main command buffer.
-	std::shared_ptr<cTexture> pCacheTexture;
-	if(CreateThumbnailCacheTexture(pCacheTexture)==false)
+	// delivered target into it on the main command buffer. Wrapped in a
+	// standalone Image (reference-counted) so a per-frame keep-alive pin can
+	// defer the GPU free past the copy.
+	auto cacheTexture = CreateThumbnailCacheTexture();
+	if(!cacheTexture)
 		return; // retry next frame
+
+	Image::SingleImage singleImage = {};
+	singleImage.image = std::move(cacheTexture);
+	SharedResourceHandle<Image> pImage = AdoptStandaloneImage(new Image(std::move(singleImage)));
 
 	mlstJobs.pop_front();
 
@@ -345,7 +348,7 @@ void cEditorThumbnailBuilder::Pump(float afFrameTime)
 
 	FocusCameraOnEntity(pEntity);
 
-	mpActiveCopyDst = pCacheTexture.get();
+	mpActiveCopyDst = pImage->GetTexture();
 	mpViewport->Evaluate(RI.GetActiveSet(), afFrameTime, tSceneRenderFlag_World);
 
 	pEntity->SetVisible(false);
@@ -364,12 +367,8 @@ void cEditorThumbnailBuilder::Pump(float afFrameTime)
 	////////////////////////////////////////
 	// Hand the finished Image to the requester — OWNERSHIP TRANSFERS (the
 	// builder retains nothing; the caller releases the resource by dropping
-	// the shared_ptr). The copy is ordered before any GUI sampling by its
+	// the handle). The copy is ordered before any GUI sampling by its
 	// barriers, so the image is usable immediately.
-	Image::SingleImage singleImage = {};
-	singleImage.image = pCacheTexture;
-	std::shared_ptr<Image> pImage = std::make_shared<Image>(std::move(singleImage));
-
 	mpWorld->DestroyMeshEntity(pEntity);
 
 	job.mOnReady(std::move(pImage));
@@ -393,7 +392,7 @@ void cEditorThumbnailBuilder::RecordCacheCopy(const WorldDrawCtx& ctx)
 	// the target also keeps the chain the next delivery's UNDEFINED discard
 	// hangs off intact.
 	const RITextureBarrier pre[2] = {
-		RITextureBarrier(&mTargetTexture,
+		RITextureBarrier(mTargetTexture.Get(),
 			RI_RESOURCE_STATE_SHADER_RESOURCE, RI_RESOURCE_STATE_COPY_SRC,
 			RI_STAGE_FRAGMENT, RI_STAGE_COPY),
 		RITextureBarrier(&pDst->handle,
@@ -407,12 +406,12 @@ void cEditorThumbnailBuilder::RecordCacheCopy(const WorldDrawCtx& ctx)
 	region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
 	region.extent = { kThumbnailSize, kThumbnailSize, 1 };
 	vkCmdCopyImage(pCmd->vk.cmd,
-				   mTargetTexture.vk.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				   mTargetTexture->vk.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
 				   pDst->handle.vk.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 				   1, &region);
 
 	const RITextureBarrier post[2] = {
-		RITextureBarrier(&mTargetTexture,
+		RITextureBarrier(mTargetTexture.Get(),
 			RI_RESOURCE_STATE_COPY_SRC, RI_RESOURCE_STATE_SHADER_RESOURCE,
 			RI_STAGE_COPY, RI_STAGE_FRAGMENT),
 		RITextureBarrier(&pDst->handle,

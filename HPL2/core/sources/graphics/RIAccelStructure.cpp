@@ -4,7 +4,7 @@
 
 void RIAccelStructure::dispose(struct RIDevice *device) {
 #if (DEVICE_IMPL_VULKAN)
-  if (device->renderer->is_target_selected(RI_DEVICE_API_VK)) {
+  if (RIIsTargetSelected(RI_DEVICE_API_VK)) {
     if (vk.handle != VK_NULL_HANDLE) {
       vkDestroyAccelerationStructureKHR(device->vk.device, vk.handle, NULL);
       vk.handle = VK_NULL_HANDLE;

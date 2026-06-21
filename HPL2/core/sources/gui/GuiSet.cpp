@@ -542,7 +542,7 @@ namespace hpl {
 		const size_t numIndecies = m_setRenderObjects.size() * 6;
 		RISegmentReq vtxReq = {};
 		RISegmentReq idxReq = {};
-		if(RI.guiVertexBuffer.isEmpty(&RI.renderer) || !RI.guiVertexAlloc.request(RI.frameIndex, numVerts, &vtxReq)) {
+		if(RI.guiVertexBuffer.isEmpty() || !RI.guiVertexAlloc.request(RI.frameIndex, numVerts, &vtxReq)) {
 		  struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 		  segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 		  segmentAllocDesc.elementStride = sizeof(PositionTexColor);
@@ -554,16 +554,16 @@ namespace hpl {
 		  bool res = RI.guiVertexAlloc.request( RI.frameIndex, numVerts, &vtxReq);
 			assert(res);
 
-			if(!RI.guiVertexBuffer.isEmpty(&RI.renderer)) {
-				cntx->freelist.push_back(RI.guiVertexBuffer);
+			if(!RI.guiVertexBuffer.isEmpty()) {
+				RI.graphicsDefer.push(RI.guiVertexBuffer);
 			}
-			RI.guiVertexBuffer = RIBuffer::create(
+			RI.guiVertexBuffer = RISharedPointer<RIBuffer>(&RI.device, RIBuffer::create(
 				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
 				             RI_BUFFER_USAGE_VERTEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_SRC | RI_BUFFER_USAGE_TRANSFER_DST,
-				             RI_MEMORY_HOST_UPLOAD, 0});
+				             RI_MEMORY_HOST_UPLOAD, 0}));
 		}
 
-		if(RI.guiIndexBuffer.isEmpty(&RI.renderer) || !RI.guiIndexAlloc.request(RI.frameIndex, numIndecies, &idxReq)) {
+		if(RI.guiIndexBuffer.isEmpty() || !RI.guiIndexAlloc.request(RI.frameIndex, numIndecies, &idxReq)) {
 			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 			segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 			segmentAllocDesc.elementStride = sizeof(uint32_t);
@@ -573,13 +573,13 @@ namespace hpl {
 			} while( segmentAllocDesc.maxElements < m_setRenderObjects.size() * 6);
 			RI.guiIndexAlloc = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>( &segmentAllocDesc );
 			
-			if(!RI.guiIndexBuffer.isEmpty(&RI.renderer)) {
-				cntx->freelist.push_back(RI.guiIndexBuffer);
+			if(!RI.guiIndexBuffer.isEmpty()) {
+				RI.graphicsDefer.push(RI.guiIndexBuffer);
 			}
-			RI.guiIndexBuffer = RIBuffer::create(
+			RI.guiIndexBuffer = RISharedPointer<RIBuffer>(&RI.device, RIBuffer::create(
 				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
 				             RI_BUFFER_USAGE_INDEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_SRC | RI_BUFFER_USAGE_TRANSFER_DST,
-				             RI_MEMORY_HOST_UPLOAD, 0});
+				             RI_MEMORY_HOST_UPLOAD, 0}));
 		}
 
 		ml::float4x4 projectionMtx = ml::float4x4::Identity();
@@ -626,8 +626,8 @@ namespace hpl {
 		const VkDeviceSize vkOffset = vtxReq.elementOffset * vtxReq.elementStride; 
 		const VkDeviceSize idxOffset = idxReq.elementOffset * idxReq.elementStride;
 
-  	void *vboMemory = ( (uint8_t *)RI.guiVertexBuffer.mappedAddress ) + vkOffset;
-  	void *eleMemory = ( (uint8_t *)RI.guiIndexBuffer.mappedAddress) + idxOffset ;
+  	void *vboMemory = ( (uint8_t *)RI.guiVertexBuffer->mappedAddress ) + vkOffset;
+  	void *eleMemory = ( (uint8_t *)RI.guiIndexBuffer->mappedAddress) + idxOffset ;
 
     auto it = m_setRenderObjects.begin();
 
@@ -695,15 +695,15 @@ namespace hpl {
 			size_t numBindings = 0;
 			// Resolve the diffuse texture, pin its lifetime to this frame
 			// slot BEFORE we touch any of its Vulkan handles. resourceLink
-			// holds the shared_ptr until next reuse of this frame slot
+			// holds the owning Image until next reuse of this frame slot
 			// (after the fence wait in BeginActiveSet), so the VkImage
 			// stays alive past the submit that references it.
-			std::shared_ptr<cTexture> diffuseTexture;
+			cTexture *diffuseTexture = nullptr;
 			if (pTexture) {
 				diffuseTexture = pTexture->GetTexture();
 			}
 			if (diffuseTexture) {
-				cntx->resourceLink.push_back(diffuseTexture);
+				RI.graphicsDefer.push(PinResource(pTexture));
 				uniformBlock.textureCfg |= (1 << 0); // Has texture
 				bindings[numBindings].descriptor = diffuseTexture->descriptor();
 			} else {
@@ -977,8 +977,8 @@ namespace hpl {
 
 			uint64_t vbOffset = vkOffset + vertexBufferOffset * sizeof(PositionTexColor);
 			uint64_t ibOffset = idxOffset + indexBufferOffset * sizeof(uint32_t);
-			vkCmdBindVertexBuffers(RI.primary.cmds[0].vk.cmd, 0, 1, &RI.guiVertexBuffer.vk.buffer, &vbOffset);
-			vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, RI.guiIndexBuffer.vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
+			vkCmdBindVertexBuffers(RI.primary.cmds[0].vk.cmd, 0, 1, &RI.guiVertexBuffer->vk.buffer, &vbOffset);
+			vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, RI.guiIndexBuffer->vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
 			RI.primary.cmds[0].drawIndexed(&RI.device, indexBufferIndex, 1, 0, 0, 0);
 
 			vertexBufferOffset += vertexBufferIndex;

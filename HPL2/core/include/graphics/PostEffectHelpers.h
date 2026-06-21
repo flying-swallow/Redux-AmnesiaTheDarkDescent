@@ -36,8 +36,8 @@ struct PostEffectColorTarget {
 // uncommon needs (e.g. TRANSFER_SRC for the ImageTrail accumulator).
 // The caller must destroy via DestroyPostEffectColorTarget before exit.
 void CreatePostEffectColorTarget(PostEffectColorTarget &out, uint32_t width,
-                                 uint32_t height, VkFormat format,
-                                 VkImageUsageFlags additionalUsage,
+                                 uint32_t height, enum RI_Format_e format,
+                                 uint32_t additionalUsage, // RITextureUsageBits_e
                                  const char *debugName);
 
 void DestroyPostEffectColorTarget(PostEffectColorTarget &target);
@@ -69,7 +69,7 @@ struct PostEffectPipelineState {
 // attachment is configured as (SRC_ALPHA, ONE_MINUS_SRC_ALPHA) for both
 // color and alpha; otherwise blend is disabled.
 void InitPostEffectPipelineState(PostEffectPipelineState &state,
-                                 VkFormat colorFormat, bool alphaBlend);
+                                 enum RI_Format_e colorFormat, bool alphaBlend);
 
 } // namespace hpl
 

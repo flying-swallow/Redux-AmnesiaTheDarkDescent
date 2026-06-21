@@ -86,13 +86,12 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         m_accum.height != ctx.height) {
         DestroyPostEffectColorTarget(m_accum);
         CreatePostEffectColorTarget(m_accum, ctx.width, ctx.height,
-                                    RIBootstrap::PogoColorFormatVk, 0u,
+                                    RIBootstrap::PogoColorFormat, RI_USAGE_NONE,
                                     "PostEffect_ImageTrail.accum");
         mbClearAccum = true;
     }
 
     const RI_Format_e imageTrailFormat = RIBootstrap::PogoColorFormat;
-    const VkFormat imageTrailVkFormat = RIBootstrap::PogoColorFormatVk;
 
     VkViewport viewport = { 0.0f, 0.0f, static_cast<float>(ctx.width), static_cast<float>(ctx.height), 0.0f, 1.0f };
     VkRect2D scissor = { {0, 0}, {ctx.width, ctx.height} };
@@ -132,7 +131,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
         PostEffectPipelineState blendState{};
-        InitPostEffectPipelineState(blendState, imageTrailVkFormat,
+        InitPostEffectPipelineState(blendState, imageTrailFormat,
             /*alphaBlend=*/true);
 
         const hash_t blendHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/1u);
@@ -202,7 +201,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         vkCmdSetScissor(cmd, 0, 1, &scissor);
 
         PostEffectPipelineState blitState{};
-        InitPostEffectPipelineState(blitState, imageTrailVkFormat,
+        InitPostEffectPipelineState(blitState, imageTrailFormat,
             /*alphaBlend=*/false);
 
         const hash_t blitHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/2u);

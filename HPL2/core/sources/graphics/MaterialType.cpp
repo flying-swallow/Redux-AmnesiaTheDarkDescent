@@ -19,6 +19,8 @@
 
 #include "graphics/MaterialType.h"
 
+#include "graphics/Material.h"
+
 #include "system/LowLevelSystem.h"
 #include "system/PreprocessParser.h"
 
@@ -47,11 +49,6 @@ namespace hpl {
 
 		mbIsTranslucent = false;
 		mbIsDecal = false;
-		
-		for(int i=0; i<eMaterialRenderMode_LastEnum; ++i)
-		{
-			mbHasTypeSpecifics[i] = false;
-		}
 	}
 
 	iMaterialType::~iMaterialType()
@@ -106,6 +103,8 @@ namespace hpl {
 	//////////////////////////////////////////////////////////////////////////
 	// PROTECTED METHODS
 	//////////////////////////////////////////////////////////////////////////
+
+	//-----------------------------------------------------------------------
 
 	//-----------------------------------------------------------------------
 

@@ -147,25 +147,12 @@ public RWStructuredBuffer<uint> gLightGridList;
 [vk::binding(kBindingSceneObjects, 0)]
 public RWStructuredBuffer<UniformObject> gSceneObjects;
 
-[vk::binding(kBindingDiffuseMaterial, 0)]
-public RWStructuredBuffer<DiffuseMaterial> gDiffuseMaterials;
-
-[vk::binding(kBindingTranslucentMaterial, 0)]
-public RWStructuredBuffer<TranslucentMaterial> gTranslucentMaterials;
-
-[vk::binding(kBindingWaterMaterial, 0)]
-public RWStructuredBuffer<WaterMaterial> gWaterMaterials;
-
-[vk::binding(kBindingDecalMaterial, 0)]
-public RWStructuredBuffer<DecalMaterial> gDecalMaterials;
-
-[vk::binding(kBindingDecals, 0)]
-public RWStructuredBuffer<GpuDecal> gDecals;
-
-// Flat per-object decal-index pool. UniformObject.decalList packs (offset<<8)|count;
-// compositeDecals reads gObjectDecalIndices[offset + k] → a stable gDecals[] index.
-[vk::binding(kBindingObjectDecalIndices, 0)]
-public RWStructuredBuffer<uint> gObjectDecalIndices;
+// Flat material table (Falcor MaterialSystem model). gMaterials[materialID] is a
+// fixed-size MaterialDataBlob; SceneMaterials / MaterialFactory read the type from
+// its header and reinterpret<T> it into the concrete material struct. Replaces the
+// old typed DiffuseMaterial / TranslucentMaterial / WaterMaterial / DecalMaterial SSBOs.
+[vk::binding(kBindingMaterials, 0)]
+public StructuredBuffer<MaterialDataBlob> gMaterials;
 
 // -----------------------------------------------------------------------------
 // Per-frame light SSBOs. Counts come from SceneConstants on set 1 (the
@@ -176,6 +163,9 @@ public RWStructuredBuffer<PointLight> gPointLights;
 
 [vk::binding(kBindingSpotLights, 0)]
 public RWStructuredBuffer<SpotLight> gSpotLights;
+
+[vk::binding(kBindingAreaLights, 0)]
+public RWStructuredBuffer<RectLight> gAreaLights;
 
 [vk::binding(kBindingFogAreas, 0)]
 public RWStructuredBuffer<FogAreaParams> gFogAreas;

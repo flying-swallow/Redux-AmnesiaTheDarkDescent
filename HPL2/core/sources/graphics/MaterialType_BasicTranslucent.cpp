@@ -35,7 +35,6 @@
 #include "graphics/Material.h"
 #include "graphics/LowLevelGraphics.h"
 #include "graphics/Renderable.h"
-#include "graphics/Renderer.h"
 
 namespace hpl {
 
@@ -62,109 +61,43 @@ namespace hpl {
 		AddVarFloat("RimLightMul", 0.0f, "The amount of rim light based on the reflection. This gives an edge to the object. Values: 0 - inf (although 1.0f should be used for max)");
 		AddVarFloat("RimLightPow", 8.0f, "The sharpness of the rim lighting.");
 		AddVarBool("AffectedByLightLevel", false, "The the material alpha is affected by the light level.");
-
-		mbHasTypeSpecifics[eMaterialRenderMode_Diffuse] = true;
-		mbHasTypeSpecifics[eMaterialRenderMode_DiffuseFog] = true;
-		mbHasTypeSpecifics[eMaterialRenderMode_Illumination] = true;
-		mbHasTypeSpecifics[eMaterialRenderMode_IlluminationFog] = true;
 	}
 
 	cMaterialType_Translucent::~cMaterialType_Translucent() {}
 
-	iMaterialVars* cMaterialType_Translucent::CreateSpecificVariables()
-	{
-		cMaterialType_Translucent_Vars* pVars = hplNew(cMaterialType_Translucent_Vars,());
-
-		return pVars;
-	}
-
 	void cMaterialType_Translucent::LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars)
 	{
-		cMaterialType_Translucent_Vars *pVars = (cMaterialType_Translucent_Vars*)apMaterial->GetVars();
-		if(pVars==NULL)
-		{
-			pVars = (cMaterialType_Translucent_Vars*)CreateSpecificVariables();
-			apMaterial->SetVars(pVars);
-		}
+		MaterialTranslucent* pData = std::get_if<MaterialTranslucent>(&apMaterial->Data());
+		if(pData==nullptr) return;
 
-		pVars->mbRefraction = apVars->GetVarBool("Refraction", false);
-		pVars->mbRefractionEdgeCheck = apVars->GetVarBool("RefractionEdgeCheck", true);
-		pVars->mbRefractionNormals = apVars->GetVarBool("RefractionNormals", true);
-		pVars->mfRefractionScale  = apVars->GetVarFloat("RefractionScale", 1.0f);
-		pVars->mfFrenselBias = apVars->GetVarFloat("FrenselBias", 0.2f);
-		pVars->mfFrenselPow = apVars->GetVarFloat("FrenselPow", 8.0);
-		pVars->mfRimLightMul =  apVars->GetVarFloat("RimLightMul", 0.0f);
-		pVars->mfRimLightPow = apVars->GetVarFloat("RimLightPow", 8.0f);
-		pVars->mbAffectedByLightLevel = apVars->GetVarBool("AffectedByLightLevel", false);
+		pData->m_refraction = apVars->GetVarBool("Refraction", false);
+		pData->m_refractionEdgeCheck = apVars->GetVarBool("RefractionEdgeCheck", true);
+		pData->m_refractionNormals = apVars->GetVarBool("RefractionNormals", true);
+		pData->m_refractionScale = apVars->GetVarFloat("RefractionScale", 1.0f);
+		pData->m_frenselBias = apVars->GetVarFloat("FrenselBias", 0.2f);
+		pData->m_frenselPow = apVars->GetVarFloat("FrenselPow", 8.0);
+		pData->m_rimLightMul = apVars->GetVarFloat("RimLightMul", 0.0f);
+		pData->m_rimLightPow = apVars->GetVarFloat("RimLightPow", 8.0f);
+		pData->m_isAffectedByLightLevel = apVars->GetVarBool("AffectedByLightLevel", false);
+
+		// HasRefraction() is derived from the authored m_refraction above (read
+		// CPU-side by HybridRenderer to route the refraction path / shader flags).
+		apMaterial->IncreaseGeneration();
 	}
 
 	void cMaterialType_Translucent::GetVariableValues(cMaterial *apMaterial, cResourceVarsObject *apVars)
 	{
-		cMaterialType_Translucent_Vars* pVars = (cMaterialType_Translucent_Vars*)apMaterial->GetVars();
+		const MaterialTranslucent* pData = std::get_if<MaterialTranslucent>(&apMaterial->Data());
+		if(pData==nullptr) return;
 
-		apVars->AddVarBool("Refraction", pVars->mbRefraction);
-		apVars->AddVarBool("RefractionEdgeCheck", pVars->mbRefractionEdgeCheck);
-		apVars->AddVarBool("RefractionNormals", pVars->mbRefractionNormals);
-		apVars->AddVarFloat("RefractionScale", pVars->mfRefractionScale);
-		apVars->AddVarFloat("FrenselBias", pVars->mfFrenselBias);
-		apVars->AddVarFloat("FrenselPow",pVars->mfFrenselPow);
-		apVars->AddVarFloat("RimLightMul",pVars->mfRimLightMul);
-		apVars->AddVarFloat("RimLightPow",pVars->mfRimLightPow);
-		apVars->AddVarBool("AffectedByLightLevel", pVars->mbAffectedByLightLevel);
-	}
-
-	void cMaterialType_Translucent::CompileMaterialSpecifics(cMaterial *apMaterial)
-	{
-		cMaterialType_Translucent_Vars *pVars = static_cast<cMaterialType_Translucent_Vars*>(apMaterial->GetVars());
-
-		/////////////////////////////////////
-		// Setup specifics
-		apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Diffuse,true);
-		apMaterial->SetHasObjectSpecificsSettings(eMaterialRenderMode_Diffuse,true);
-
-		apMaterial->SetHasSpecificSettings(eMaterialRenderMode_DiffuseFog,true);
-		apMaterial->SetHasObjectSpecificsSettings(eMaterialRenderMode_DiffuseFog,true);
-
-		apMaterial->SetHasSpecificSettings(eMaterialRenderMode_Illumination,true);
-		apMaterial->SetHasObjectSpecificsSettings(eMaterialRenderMode_Illumination,true);
-
-		apMaterial->SetHasSpecificSettings(eMaterialRenderMode_IlluminationFog,true);
-		apMaterial->SetHasObjectSpecificsSettings(eMaterialRenderMode_IlluminationFog,true);
-
-		/////////////////////////////////////
-		// Setup the refraction
-		bool bRefractionEnabled = pVars->mbRefraction && iRenderer::GetRefractionEnabled();
-
-		if(bRefractionEnabled)
-		{
-			apMaterial->SetHasRefraction(true);
-			apMaterial->SetUseRefractionEdgeCheck(pVars->mbRefractionEdgeCheck);
-			//Note: No need to set blend mode to None since rendered sets that when refraction is true!
-			//		Also, this gives problems when recompiling, since the material data would not be accurate!
-		}
-
-		/////////////////////////////////////
-		// Setup the reflections
-		if(apMaterial->GetImage(eMaterialTexture_CubeMap))
-		{
-			if(bRefractionEnabled==false)
-				apMaterial->SetHasTranslucentIllumination(true);
-		}
-
-		/////////////////////////////////////
-		// Build the bindless descriptor for the per-frame SSBO upload.
-		ShaderMaterialData desc{};
-		desc.m_id = MaterialID::Translucent;
-		desc.m_translucent.m_blend = apMaterial->GetBlendMode();
-		desc.m_translucent.m_isAffectedByLightLevel = pVars->mbAffectedByLightLevel;
-		desc.m_translucent.m_hasRefraction = bRefractionEnabled;
-		desc.m_translucent.m_refractionEdgeCheck = pVars->mbRefractionEdgeCheck;
-		desc.m_translucent.m_refractionNormals = pVars->mbRefractionNormals;
-		desc.m_translucent.m_refractionScale = pVars->mfRefractionScale;
-		desc.m_translucent.m_frenselBias = pVars->mfFrenselBias;
-		desc.m_translucent.m_frenselPow = pVars->mfFrenselPow;
-		desc.m_translucent.m_rimLightMul = pVars->mfRimLightMul;
-		desc.m_translucent.m_rimLightPow = pVars->mfRimLightPow;
-		apMaterial->SetDescriptor(desc);
+		apVars->AddVarBool("Refraction", pData->m_refraction);
+		apVars->AddVarBool("RefractionEdgeCheck", pData->m_refractionEdgeCheck);
+		apVars->AddVarBool("RefractionNormals", pData->m_refractionNormals);
+		apVars->AddVarFloat("RefractionScale", pData->m_refractionScale);
+		apVars->AddVarFloat("FrenselBias", pData->m_frenselBias);
+		apVars->AddVarFloat("FrenselPow",pData->m_frenselPow);
+		apVars->AddVarFloat("RimLightMul",pData->m_rimLightMul);
+		apVars->AddVarFloat("RimLightPow",pData->m_rimLightPow);
+		apVars->AddVarBool("AffectedByLightLevel", pData->m_isAffectedByLightLevel);
 	}
 }

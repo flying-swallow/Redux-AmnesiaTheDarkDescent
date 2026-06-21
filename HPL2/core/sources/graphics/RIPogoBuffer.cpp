@@ -9,63 +9,49 @@
 void RI_PogoBufferInit( struct RIDevice *device, struct RI_PogoBuffer *pogo, uint32_t width, uint32_t height, enum RI_Format_e format )
 {
 	pogo->attachmentIndex = 0;
-#if ( DEVICE_IMPL_VULKAN )
-	uint32_t queueFamilies[RI_QUEUE_LEN] = { 0 };
 
-	VmaAllocationCreateInfo mem_reqs = { 0 };
-	mem_reqs.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-	VkImageCreateInfo info = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-	info.flags = VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
-	info.imageType = VK_IMAGE_TYPE_2D;
-	info.extent.width = width;
-	info.extent.height = height;
-	info.extent.depth = 1;
-	info.mipLevels = 1;
-	info.arrayLayers = 1;
-	info.samples = VK_SAMPLE_COUNT_1_BIT;
-	info.tiling = VK_IMAGE_TILING_OPTIMAL;
-	info.pQueueFamilyIndices = queueFamilies;
-	VK_ConfigureImageQueueFamilies( &info, device->queues, RI_QUEUE_LEN, queueFamilies, RI_QUEUE_LEN );
-	info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-	// STORAGE_BIT lets the SurfelGI composite (a compute pass) write the pogo
-	// attach via an RWTexture2D; still color-attachment + sampled for the raster
-	// passes and post-effect chain. TRANSFER_SRC/DST back the guard-band crop
-	// blit (overscan render-pogo center → authored pogo) at the end of Draw.
-	info.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-	             VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-	             VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-	info.format = RIFormatToVK( format );
+	RITextureDesc desc = {};
+	desc.type = RI_TEXTURE_2D;
+	desc.format = format;
+	desc.width = width;
+	desc.height = height;
+	// STORAGE lets the SurfelGI composite (a compute pass) write the pogo attach
+	// via an RWTexture2D; still color-attachment + sampled for the raster passes
+	// and post-effect chain. TRANSFER_SRC/DST back the guard-band crop blit
+	// (overscan render-pogo center → authored pogo) at the end of Draw.
+	desc.usage = RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE |
+	             RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_TRANSFER_SRC |
+	             RI_USAGE_TRANSFER_DST;
 
 	for( size_t p = 0; p < 2; p++ ) {
-		VK_WrapResult( vmaCreateImage( device->vk.vmaAllocator, &info, &mem_reqs, &pogo->textures[p].vk.image, &pogo->textures[p].vk.allocation, NULL ) );
+		pogo->textures[p] =
+			RISharedPointer<RITexture>( device, RITexture::create( device, desc ) );
 
 		RITextureViewDesc viewDesc = {};
 		viewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
 		viewDesc.format = format;
 		viewDesc.mipNum = 1;
 		viewDesc.layerNum = 1;
-		pogo->pogoView[p] = RITextureView::create( device, &pogo->textures[p], viewDesc );
+		pogo->pogoView[p] = RISharedPointer<RITextureView>(
+			device,
+			RITextureView::create( device, pogo->textures[p].Get(), viewDesc ) );
 	}
-#endif
 }
 
 void RI_PogoBufferDestroy( struct RIDevice *device, struct RI_PogoBuffer *pogo )
 {
-#if ( DEVICE_IMPL_VULKAN )
+	// Dropping the last shared reference disposes each handle.
 	for( size_t p = 0; p < 2; p++ ) {
-		pogo->pogoView[p].dispose( device );
-		vmaDestroyImage( device->vk.vmaAllocator, pogo->textures[p].vk.image, pogo->textures[p].vk.allocation );
-		pogo->textures[p] = RITexture{};
+		pogo->pogoView[p] = {};
+		pogo->textures[p] = {};
 	}
-#endif
 }
 
 void RI_PogoBufferToggle( struct RIDevice *device, struct RI_PogoBuffer *pogo, struct RICmd *handle )
 {
 	struct RITextureBarrier barriers[2] = {};
-	barriers[0] = RI_PogoShaderBarrier( &pogo->textures[pogo->attachmentIndex], false );
+	barriers[0] = RI_PogoShaderBarrier( pogo->textures[pogo->attachmentIndex].Get(), false );
 	pogo->attachmentIndex = ( ( pogo->attachmentIndex + 1 ) % 2 );
-	barriers[1] = RI_PogoAttachmentBarrier( &pogo->textures[pogo->attachmentIndex], false );
+	barriers[1] = RI_PogoAttachmentBarrier( pogo->textures[pogo->attachmentIndex].Get(), false );
 	handle->vk_d3d12_textureBarriers<2>( 2, barriers );
 }

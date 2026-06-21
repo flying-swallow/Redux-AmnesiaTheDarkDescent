@@ -27,30 +27,21 @@
 namespace hpl {
 
 	//---------------------------------------------------
-
-	class iMaterialVars;
-	
-	//---------------------------------------------------
 	// SOLID BASE
 	//---------------------------------------------------
-	
+
 	class iMaterialType_SolidBase : public iMaterialType
 	{
 	public:
 		iMaterialType_SolidBase(cGraphics *apGraphics, cResources *apResources);
 		~iMaterialType_SolidBase();
-		
+
 		bool SupportsHWSkinning() { return true; }
 
-		iMaterialVars* CreateSpecificVariables() { return NULL; }
 		void LoadVariables(cMaterial* apMaterial, cResourceVarsObject* apVars) {} // STUB
 		void GetVariableValues(cMaterial* apMaterial, cResourceVarsObject* apVars) {} // STUB
 
-		void CompileMaterialSpecifics(cMaterial *apMaterial);
-		
 	protected:
-		virtual void CompileSolidSpecifics(cMaterial *apMaterial) {}
-
 		virtual void LoadSpecificData() = 0;
 
 		void LoadData();
@@ -66,22 +57,7 @@ namespace hpl {
 	};
 
 	//---------------------------------------------------
-	// SOLID DIFFUSE 
-	//---------------------------------------------------
-
-	class cMaterialType_SolidDiffuse_Vars : public iMaterialVars
-	{
-	public:
-		cMaterialType_SolidDiffuse_Vars() : mfHeightMapScale(0.05f), mfHeightMapBias(0.0f), mbAlphaDissolveFilter(false) {}
-		~cMaterialType_SolidDiffuse_Vars() {}
-
-		float mfHeightMapScale;
-		float mfHeightMapBias;
-		float mfFrenselBias;
-		float mfFrenselPow;
-		bool mbAlphaDissolveFilter;
-	};
-
+	// SOLID DIFFUSE
 	//---------------------------------------------------
 
 	class cMaterialType_SolidDiffuse : public iMaterialType_SolidBase
@@ -92,13 +68,12 @@ namespace hpl {
 
 		bool SupportsHWSkinning() { return true; }
 
+		MaterialID GetMaterialID() const override { return MaterialID::SolidDiffuse; }
 
-		iMaterialVars* CreateSpecificVariables();
 		void LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars);
 		void GetVariableValues(cMaterial *apMaterial, cResourceVarsObject *apVars);
-	
+
 	private:
-		void CompileSolidSpecifics(cMaterial *apMaterial);
 		void LoadSpecificData() {} // STUB
 	};
 

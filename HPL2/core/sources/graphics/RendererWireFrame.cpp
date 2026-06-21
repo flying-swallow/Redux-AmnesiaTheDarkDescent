@@ -159,7 +159,6 @@ namespace hpl {
 
 				auto *vbri = static_cast<cVertexBuffer*>(pVB);
 				vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
-				vbri->AttachResourceToCntx(cntx);
 			}
 		}
 
@@ -192,9 +191,9 @@ namespace hpl {
 		{
 			RITextureBarrier barriers[2] = {};
 			barriers[0] = RI_PogoAttachmentBarrier(
-				&state.renderTarget[RI.swapchainIndex], /*initial=*/true);
+				state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/true);
 
-			barriers[1].texture = &state.depthTextures[RI.swapchainIndex];
+			barriers[1].texture = state.depthTextures[RI.swapchainIndex].Get();
 			barriers[1].before = RI_RESOURCE_STATE_UNDEFINED;
 			barriers[1].after = RI_RESOURCE_STATE_DEPTH_WRITE;
 			barriers[1].aspect = RI_BARRIER_ASPECT_DEPTH;
@@ -210,7 +209,7 @@ namespace hpl {
 		{
 
 			RIRenderingAttachment color = {};
-			color.view = state.renderTargetView[RI.swapchainIndex];
+			color.view = *state.renderTargetView[RI.swapchainIndex];
 			color.loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
 			color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 			color.clearValue.color[0] = 0.0f;
@@ -219,7 +218,7 @@ namespace hpl {
 			color.clearValue.color[3] = 1.0f;
 
 			RIRenderingAttachment depth = {};
-			depth.view = state.depthView[RI.swapchainIndex];
+			depth.view = *state.depthView[RI.swapchainIndex];
 			depth.loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
 			depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 			depth.clearValue.depth = 1.0f;
@@ -369,10 +368,10 @@ namespace hpl {
 					binding.handle = DescriptorBindingID::Create("pass");
 					m_wireframe.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, &binding, 1);
 
-					RIBuffer *vertBufs[1] = { &RI.translucentVtxBuffer };
+					RIBuffer *vertBufs[1] = { RI.translucentVtxBuffer.Get() };
 					const VkDeviceSize vertOffsets[1] = { (VkDeviceSize)geom.posByteOffset };
 					RI.primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
-					RI.primary.cmds[0].bindIndexBuffer(&RI.device, &RI.translucentIdxBuffer,
+					RI.primary.cmds[0].bindIndexBuffer(&RI.device, RI.translucentIdxBuffer.Get(),
 													   (VkDeviceSize)geom.idxByteOffset,
 													   RI_INDEX_TYPE_32);
 					RI.primary.cmds[0].drawIndexed(&RI.device, geom.indexCount, 1, 0, 0, 0);
@@ -386,7 +385,7 @@ namespace hpl {
 				const auto *posElement = vbri->GetElement(eVertexBufferElement_Position);
 				const auto &indexBuffer = vbri->GetIndexRIBuffer();
 				const int indexCount = vbri->GetIndexNum();
-				if(posElement == NULL || !posElement->buffer || !indexBuffer || indexCount <= 0) {
+				if(posElement == NULL || !posElement->GetBuffer() || !indexBuffer || indexCount <= 0) {
 					continue;
 				}
 
@@ -406,10 +405,10 @@ namespace hpl {
 				binding.handle = DescriptorBindingID::Create("pass");
 				m_wireframe.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, &binding, 1);
 
-				RIBuffer *vertBufs[1] = { posElement->buffer.get() };
+				RIBuffer *vertBufs[1] = { posElement->GetBuffer() };
 				const VkDeviceSize vertOffsets[1] = { 0 };
 				RI.primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
-				RI.primary.cmds[0].bindIndexBuffer(&RI.device, indexBuffer.get(), 0, RI_INDEX_TYPE_32);
+				RI.primary.cmds[0].bindIndexBuffer(&RI.device, indexBuffer, 0, RI_INDEX_TYPE_32);
 				RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1, 0, 0, 0);
 			}
 		}
@@ -423,7 +422,7 @@ namespace hpl {
 		if(debugDraw && debugDraw->HasRequests())
 		{
 			debugDraw->flush(cntx, &RI.primary.cmds[0], apFrustum, renderWidth,
-							 renderHeight, RIBootstrap::PogoColorFormatVk);
+							 renderHeight, RIBootstrap::PogoColorFormat);
 		}
 
 		RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
@@ -434,7 +433,7 @@ namespace hpl {
 		// to the Target.
 		{
 			RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
-				&state.renderTarget[RI.swapchainIndex], /*initial=*/false));
+				state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
 		}
 	}
 

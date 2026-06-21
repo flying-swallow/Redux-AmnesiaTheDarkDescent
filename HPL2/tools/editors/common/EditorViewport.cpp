@@ -872,15 +872,13 @@ void iEditorViewport::SetRenderMode(eRenderer aMode)
 // SHADER_READ_ONLY for the GUI). Returns false on failure. The cTexture
 // deleter defers the GPU frees onto the frame freelist, so dropping the
 // previous texture mid-flight is safe.
-static bool CreatePaneTexture(std::shared_ptr<cTexture> &outTexture,
-							  uint32_t alWidth, uint32_t alHeight)
+static std::optional<cTexture> CreatePaneTexture(uint32_t alWidth, uint32_t alHeight)
 {
-	std::shared_ptr<cTexture> texture(new cTexture{},
-										cTexture::cTexture_Delete);
+	cTexture texture;
 
 	VkImageCreateInfo imageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
 	imageInfo.imageType = VK_IMAGE_TYPE_2D;
-	imageInfo.format = RIBootstrap::PogoColorFormatVk;
+	imageInfo.format = RIFormatToVK(RIBootstrap::PogoColorFormat);
 	imageInfo.extent = {alWidth, alHeight, 1};
 	imageInfo.mipLevels = 1;
 	imageInfo.arrayLayers = 1;
@@ -899,11 +897,11 @@ static bool CreatePaneTexture(std::shared_ptr<cTexture> &outTexture,
 	VmaAllocationCreateInfo allocInfo = {};
 	allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 	if(!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo,
-									 &allocInfo, &texture->handle.vk.image,
-									 &texture->handle.vk.allocation, NULL)))
+									 &allocInfo, &texture.handle.vk.image,
+									 &texture.handle.vk.allocation, NULL)))
 	{
 		Error("EditorViewport: failed to create %ux%u pane image\n", alWidth, alHeight);
-		return false;
+		return std::nullopt;
 	}
 
 	RITextureViewDesc viewDesc = {};
@@ -911,25 +909,24 @@ static bool CreatePaneTexture(std::shared_ptr<cTexture> &outTexture,
 	viewDesc.format = VKToRIFormat(imageInfo.format);
 	viewDesc.mipNum = 1;
 	viewDesc.layerNum = 1;
-	texture->view = RITextureView::create(&RI.device, &texture->handle, viewDesc);
-	if(texture->view.isEmpty(&RI.renderer))
+	texture.view = RITextureView::create(&RI.device, &texture.handle, viewDesc);
+	if(texture.view.isEmpty())
 	{
 		Error("EditorViewport: failed to create pane image view\n");
-		vmaDestroyImage(RI.device.vk.vmaAllocator, texture->handle.vk.image,
-						texture->handle.vk.allocation);
-		texture->handle.vk.image = VK_NULL_HANDLE;
-		texture->handle.vk.allocation = NULL;
-		return false;
+		vmaDestroyImage(RI.device.vk.vmaAllocator, texture.handle.vk.image,
+						texture.handle.vk.allocation);
+		texture.handle.vk.image = VK_NULL_HANDLE;
+		texture.handle.vk.allocation = NULL;
+		return std::nullopt;
 	}
 
-	texture->width = (uint16_t)alWidth;
-	texture->height = (uint16_t)alHeight;
-	texture->depth = 1;
-	texture->mipNum = 1;
-	texture->format = RIBootstrap::PogoColorFormat;
+	texture.width = (uint16_t)alWidth;
+	texture.height = (uint16_t)alHeight;
+	texture.depth = 1;
+	texture.mipNum = 1;
+	texture.format = RIBootstrap::PogoColorFormat;
 
-	outTexture = texture;
-	return true;
+	return texture;
 }
 
 //-------------------------------------------------------------
@@ -952,31 +949,33 @@ void iEditorViewport::UpdateViewport()
 	if(vSize.x <= 0 || vSize.y <= 0)
 		return;
 
-	if(mpPaneTexture == nullptr || mvPaneSize != vSize)
+	if(!mpPaneImage || mvPaneSize != vSize)
 	{
-		if(!CreatePaneTexture(mpPaneTexture, (uint32_t)vSize.x, (uint32_t)vSize.y))
+		auto paneTex = CreatePaneTexture((uint32_t)vSize.x, (uint32_t)vSize.y);
+		if(!paneTex)
 			return; // creation failed; retry next update
 		mvPaneSize = vSize;
 
 		// Keep the Image wrapper stable — GUI gfx elements hold the Image*;
 		// GuiSet re-resolves the texture from it every draw.
 		Image::SingleImage singleImage = {};
-		singleImage.image = mpPaneTexture;
+		singleImage.image = std::move(paneTex);
 		if(mpPaneImage)
 		{
 			mpPaneImage->SetImage(std::move(singleImage));
 		}
 		else
 		{
-			mpPaneImage = std::make_shared<Image>(std::move(singleImage));
+			mpPaneImage = AdoptStandaloneImage(new Image(std::move(singleImage)));
 		}
 	}
 
+	cTexture* pPaneTex = mpPaneImage->GetTexture();
 	cViewport::TargetView target = {};
 	target.width = (uint32_t)vSize.x;
 	target.height = (uint32_t)vSize.y;
-	target.texture = mpPaneTexture->handle;
-	target.view.vk.image = mpPaneTexture->view.vk.image;
+	target.texture = pPaneTex->handle;
+	target.view.vk.image = pPaneTex->view.vk.image;
 	mpEngineViewport->SetTarget(target);
 
 	////////////////////////////////////////////
@@ -986,7 +985,7 @@ void iEditorViewport::UpdateViewport()
 	{
 		// Pane is 1:1 — full UV range, no sub-rect math. The editor owns the
 		// texture (abAutoDestroyTexture=false).
-		cGuiGfxElement* pImg = pGui->CreateGfxTexture(mpPaneImage.get(), false,
+		cGuiGfxElement* pImg = pGui->CreateGfxTexture(mpPaneImage.Get(), false,
 													  eGuiMaterial_Diffuse);
 		mpImgViewport->SetImage(pImg);
 	}

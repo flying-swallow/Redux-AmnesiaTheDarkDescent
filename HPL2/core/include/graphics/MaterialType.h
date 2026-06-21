@@ -24,6 +24,7 @@
 #include "engine/EngineTypes.h"
 #include "math/MathTypes.h"
 #include "graphics/GraphicsTypes.h"
+#include "graphics/Material.h" // MaterialID
 
 namespace hpl {
 
@@ -36,7 +37,6 @@ namespace hpl {
 	class cParserVarContainer;
 	class iRenderer;
 	class cResourceVarsObject;
-	class iMaterialVars;
 
 	//---------------------------------------------------
 
@@ -50,7 +50,7 @@ namespace hpl {
 	public:
 		eMaterialTexture mType;
 	};
-	
+
 	typedef std::vector<cMaterialUsedTexture> tMaterialUsedTextureVec;
 	typedef tMaterialUsedTextureVec::iterator tMaterialUsedTextureVecIt;
 
@@ -98,14 +98,18 @@ namespace hpl {
 		virtual void LoadData()=0;
 		virtual void DestroyData()=0;
 
-		virtual iMaterialVars* CreateSpecificVariables()=0;
+		// Identifies which MaterialData variant alternative this type populates;
+		// cMaterial::SetType uses it to emplace the alternative before textures and
+		// variables are loaded. Default Unknown (e.g. the blank material type).
+		virtual MaterialID GetMaterialID() const { return MaterialID::Unknown; }
+
+		// Builds the material's data blob (variant alternative) directly from XML:
+		// reads the per-type params and resolves the texture-/setting-dependent
+		// pipeline flags. There is no separate compile pass. Textures must already be
+		// bound (the loader assigns them via cMaterial::SlotForTexture, or the editor
+		// via SetImage) since some flags depend on which textures are present.
 		virtual void LoadVariables(cMaterial *apMaterial, cResourceVarsObject *apVars)=0;
 		virtual void GetVariableValues(cMaterial* apMaterial, cResourceVarsObject* apVars)=0;
-
-		virtual void CompileMaterialSpecifics(cMaterial *apMaterial)=0;
-
-		inline bool HasTypeSpecifics(eMaterialRenderMode aMode) const { return mbHasTypeSpecifics[aMode];}
-		
 
 	protected:
 		void AddUsedTexture(eMaterialTexture aType);
@@ -128,9 +132,7 @@ namespace hpl {
 
 		bool mbIsTranslucent;
 		bool mbIsDecal;
-		
-		bool mbHasTypeSpecifics[eMaterialRenderMode_LastEnum];
-		
+
 		tMaterialUsedTextureVec mvUsedTextures;
 		
 		tMaterialUserVariableVec mvUserVariables;

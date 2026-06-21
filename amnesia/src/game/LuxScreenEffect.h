@@ -85,9 +85,11 @@ private:
 	hpl::cGui            *mpGui         = nullptr;
 	hpl::cGuiGfxElement  *mpScreenBgGfx = nullptr;
 
-	std::shared_ptr<hpl::cTexture> m_screenBgColor;
-	std::shared_ptr<hpl::cTexture> m_screenScratch; // Blur ping-pong only.
-	std::shared_ptr<hpl::Image>      m_screenBgImage;
+	// Render targets, each a standalone Image owning its cTexture. Held as
+	// reference-counted handles so per-frame keep-alive pins can defer the GPU
+	// free. m_screenScratchImage is the blur ping-pong (Blur effect only).
+	hpl::SharedResourceHandle<hpl::Image> m_screenBgImage;
+	hpl::SharedResourceHandle<hpl::Image> m_screenScratchImage;
 
 	hpl::RIProgram m_postProgram; // desaturate/darken or blur post-effect
 	Effect mEffect = Effect::DesaturateDarken;

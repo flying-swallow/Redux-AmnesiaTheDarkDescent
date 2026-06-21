@@ -1,18 +1,18 @@
 /*
  * Copyright © 2009-2020 Frictional Games
- * 
+ *
  * This file is part of Amnesia: The Dark Descent.
- * 
+ *
  * Amnesia: The Dark Descent is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version. 
+ * (at your option) any later version.
 
  * Amnesia: The Dark Descent is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with Amnesia: The Dark Descent.  If not, see <https://www.gnu.org/licenses/>.
  */
@@ -32,10 +32,10 @@
 
 #include "math/Math.h"
 
+#include <type_traits>
+
 
 namespace hpl {
-
-	bool cMaterial::mbDestroyTypeSpecifics = true;
 
 	//////////////////////////////////////////////////////////////////////////
 	// CONSTRUCTORS
@@ -43,46 +43,25 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cMaterial::cMaterial(const tString& asName, const tWString& asFullPath, cGraphics *apGraphics, cResources *apResources, iMaterialType *apType) 
+	cMaterial::cMaterial(const tString& asName, const tWString& asFullPath, cGraphics *apGraphics, cResources *apResources, iMaterialType *apType)
 		: iResourceBase(asName, asFullPath, 0)
 	{
 		mpGraphics = apGraphics;
 		mpResources = apResources;
 
 		mpType = NULL;
-		mpVars = NULL;
 		SetType(apType);
 
 		mbAutoDestroyTextures = true;
 
 		mlRenderFrameCount = -1;
 
-		mbHasRefraction = false;
-		mlRefractionTextureUnit =0;
-		mbUseRefractionEdgeCheck = false;
-
-		mbHasWorldReflection = false;
-		mlWorldReflectionTextureUnit =0;
 		mbWorldReflectionOcclusionTest = true;
-		mfMaxReflectionDistance = 0;
-
-		mbHasTranslucentIllumination = false; //If the material is translucent and also need an extra additive pass.
 
 		mbLargeTransperantSurface = false;
 
-		mbUseAlphaDissolveFilter = false;
-
-		mbAffectedByFog = true;
-		
-		for(int i=0; i<eMaterialRenderMode_LastEnum; ++i)
-		{
-			mbHasSpecificSettings[i] = false;
-			mbHasObjectSpecificsSettings[i] = false;
-		}
-
 		mfAnimTime = 0;
 		m_mtxUV = cMatrixf::Identity;
-		mbHasUvAnimation = false;
 
 		///////////////////////
 		//Set up depending in type
@@ -94,18 +73,16 @@ namespace hpl {
 		{
 			mBlendMode = eMaterialBlendMode_None;
 		}
-		mAlphaMode = eMaterialAlphaMode_Solid;
 		mbDepthTest = true;
 	}
 
 	//-----------------------------------------------------------------------
-	
+
 	cMaterial::~cMaterial()
 	{
-		if(mpVars) hplDelete(mpVars);
-
-		// Texture images own their own lifecycle via the SharedResourceHandle slots
-		// in m_image, which honor mbAutoDestroyTextures captured at SetImage time.
+		// Texture images own their own lifecycle via the SharedResourceHandle<Image>
+		// members inside the m_data variant alternative — destroying the variant
+		// drops each handle's reference (freeing the image when it was the last one).
 	}
 
 	//-----------------------------------------------------------------------
@@ -122,43 +99,134 @@ namespace hpl {
 
 		mpType = apType;
 
-		if(mpVars) hplDelete(mpVars);
-		if(mpType) mpVars = mpType->CreateSpecificVariables();
-	}
-
-	//-----------------------------------------------------------------------
-
-	void cMaterial::Compile()
-	{
-		////////////////////////
-		//Reset some settings before compiling
-		for(int i=0; i<eMaterialRenderMode_LastEnum; ++i)
+		// Establish the variant alternative up front so SetImage (called by the
+		// loader before LoadVariables) has a slot to route textures into.
+		switch(mpType ? mpType->GetMaterialID() : MaterialID::Unknown)
 		{
-			mbHasSpecificSettings[i] = false;
-			mbHasObjectSpecificsSettings[i] = false;
+		case MaterialID::SolidDiffuse: m_data.emplace<MaterialDiffuseSolid>(); break;
+		case MaterialID::Translucent:  m_data.emplace<MaterialTranslucent>();  break;
+		case MaterialID::Water:        m_data.emplace<MaterialWater>();        break;
+		case MaterialID::Decal:        m_data.emplace<MaterialDecal>();        break;
+		default:                       m_data.emplace<std::monostate>();       break;
 		}
-
-		///////////////////
-		// Type specifics
-		mpType->CompileMaterialSpecifics(this);
 	}
-	
+
 	//-----------------------------------------------------------------------
-	
+
+	MaterialID cMaterial::GetMaterialID() const
+	{
+		return std::visit([](auto&& a) -> MaterialID {
+			using T = std::decay_t<decltype(a)>;
+			if constexpr (std::is_same_v<T, MaterialDiffuseSolid>) return MaterialID::SolidDiffuse;
+			else if constexpr (std::is_same_v<T, MaterialTranslucent>) return MaterialID::Translucent;
+			else if constexpr (std::is_same_v<T, MaterialWater>) return MaterialID::Water;
+			else if constexpr (std::is_same_v<T, MaterialDecal>) return MaterialID::Decal;
+			else return MaterialID::Unknown;
+		}, m_data);
+	}
+
+	//-----------------------------------------------------------------------
+
+	// Maps an eMaterialTexture slot onto the matching SharedResourceHandle<Image> field
+	// of whatever variant alternative is currently held. Returns nullptr for slots the
+	// alternative does not have (incl. eMaterialTexture_Special and monostate), so
+	// Get/SetImage stay no-ops there and every existing enum-based caller keeps
+	// working unchanged.
+	SharedResourceHandle<Image>* cMaterial::SlotForTexture(eMaterialTexture aType)
+	{
+		return std::visit([aType](auto& a) -> SharedResourceHandle<Image>* {
+			using T = std::decay_t<decltype(a)>;
+			if constexpr (std::is_same_v<T, MaterialDiffuseSolid>)
+			{
+				switch(aType)
+				{
+				case eMaterialTexture_Diffuse:      return &a.m_diffuse;
+				case eMaterialTexture_NMap:         return &a.m_nmap;
+				case eMaterialTexture_Specular:     return &a.m_specular;
+				case eMaterialTexture_Alpha:        return &a.m_alpha;
+				case eMaterialTexture_Height:       return &a.m_height;
+				case eMaterialTexture_Illumination: return &a.m_illumination;
+				case eMaterialTexture_DissolveAlpha:return &a.m_dissolveAlpha;
+				case eMaterialTexture_CubeMap:      return &a.m_cubeMap;
+				case eMaterialTexture_CubeMapAlpha: return &a.m_cubeMapAlpha;
+				default: return nullptr;
+				}
+			}
+			else if constexpr (std::is_same_v<T, MaterialTranslucent>)
+			{
+				switch(aType)
+				{
+				case eMaterialTexture_Diffuse:      return &a.m_diffuse;
+				case eMaterialTexture_NMap:         return &a.m_nmap;
+				case eMaterialTexture_CubeMap:      return &a.m_cubeMap;
+				case eMaterialTexture_CubeMapAlpha: return &a.m_cubeMapAlpha;
+				default: return nullptr;
+				}
+			}
+			else if constexpr (std::is_same_v<T, MaterialWater>)
+			{
+				switch(aType)
+				{
+				case eMaterialTexture_Diffuse: return &a.m_diffuse;
+				case eMaterialTexture_NMap:    return &a.m_nmap;
+				case eMaterialTexture_CubeMap: return &a.m_cubeMap;
+				default: return nullptr;
+				}
+			}
+			else if constexpr (std::is_same_v<T, MaterialDecal>)
+			{
+				return aType == eMaterialTexture_Diffuse ? &a.m_diffuse : nullptr;
+			}
+			else
+			{
+				return nullptr; // monostate
+			}
+		}, m_data);
+	}
+
+	//-----------------------------------------------------------------------
+
+	bool cMaterial::GetUseAlphaDissolveFilter() const
+	{
+		if(auto* d = std::get_if<MaterialDiffuseSolid>(&m_data))
+			return d->m_alphaDissolveFilter;
+		return false;
+	}
+
+	//-----------------------------------------------------------------------
+
+	// Derived from the data blob (global refraction toggle assumed on): translucent
+	// refracts per its authored flag, water always refracts.
+	bool cMaterial::HasRefraction() const
+	{
+		if(std::get_if<MaterialWater>(&m_data))
+			return true;
+		if(auto* t = std::get_if<MaterialTranslucent>(&m_data))
+			return t->m_refraction;
+		return false;
+	}
+
+	// World (planar) reflection: water only, when authored and no cubemap is bound.
+	bool cMaterial::HasWorldReflection() const
+	{
+		if(auto* w = std::get_if<MaterialWater>(&m_data))
+			return w->m_hasReflection && GetImage(eMaterialTexture_CubeMap) == nullptr;
+		return false;
+	}
+
+	//-----------------------------------------------------------------------
+
 	void cMaterial::SetImage(eMaterialTexture aType, Image* apImage)
 	{
-		// autoDestroy: adopt the caller's transferred reference (the loader / editor
-		// hands over a freshly-created Image). Borrow (autoDestroy=false): the image is
-		// owned elsewhere, so take our own counted reference rather than a raw alias —
-		// released when the slot is overwritten or the material is destroyed.
-		if(apImage && !mbAutoDestroyTextures)
-			apImage->AddReference();
-		m_image[aType] = SharedResourceHandle<Image>(mpResources->GetTextureManager(), apImage);
+		if(SharedResourceHandle<Image>* pSlot = SlotForTexture(aType))
+			*pSlot = SharedResourceHandle<Image>(mpResources->GetTextureManager(), apImage);
 	}
 
 	Image* cMaterial::GetImage(eMaterialTexture aType) const
 	{
-		return m_image[aType].Get();
+		if(SharedResourceHandle<Image>* pSlot = const_cast<cMaterial*>(this)->SlotForTexture(aType))
+			return pSlot->Get();
+		return nullptr;
 	}
 
 	//-----------------------------------------------------------------------
@@ -192,7 +260,9 @@ namespace hpl {
 
 	void cMaterial::LoadVariablesFromVarsObject(cResourceVarsObject* apVarsObject)
 	{
-		mpType->LoadVariables(this, apVarsObject);		
+		// Editor-side vars refresh: textures are already bound via SetImage, so this
+		// only re-reads the per-type vars (texture assignment lives at the loader).
+		mpType->LoadVariables(this, apVarsObject);
 	}
 
 	//-----------------------------------------------------------------------
@@ -203,12 +273,14 @@ namespace hpl {
 
 		mBlendMode = aBlendMode;
 	}
-	
-	void cMaterial::SetAlphaMode(eMaterialAlphaMode aAlphaMode)
-	{
-		//if(mpType->IsTranslucent()) return;
 
-		mAlphaMode = aAlphaMode;
+	// Derived from the data blob + alpha binding: a SolidDiffuse material with a
+	// bound alpha texture is alpha-tested (Trans); every other case is Solid.
+	eMaterialAlphaMode cMaterial::GetAlphaMode() const
+	{
+		if(std::get_if<MaterialDiffuseSolid>(&m_data) && GetImage(eMaterialTexture_Alpha))
+			return eMaterialAlphaMode_Trans;
+		return eMaterialAlphaMode_Solid;
 	}
 
 	void cMaterial::SetDepthTest(bool abDepthTest)
@@ -222,7 +294,7 @@ namespace hpl {
 
 	void cMaterial::UpdateBeforeRendering(float afTimeStep)
 	{
-		if(mbHasUvAnimation) UpdateAnimations(afTimeStep);
+		if(HasUvAnimation()) UpdateAnimations(afTimeStep);
 	}
 
 	//-----------------------------------------------------------------------
@@ -230,8 +302,6 @@ namespace hpl {
 	void cMaterial::AddUvAnimation(eMaterialUvAnimation aType, float afSpeed, float afAmp, eMaterialAnimationAxis aAxis)
 	{
 		mvUvAnimations.push_back(cMaterialUvAnimation(aType, afSpeed, afAmp, aAxis));
-
-		mbHasUvAnimation = true;
 	}
 
 	//-----------------------------------------------------------------------
@@ -239,8 +309,6 @@ namespace hpl {
 	void cMaterial::ClearUvAnimations()
 	{
 		mvUvAnimations.clear();
-
-		mbHasUvAnimation = false;
 
 		m_mtxUV = cMatrixf::Identity;
 	}
@@ -265,7 +333,7 @@ namespace hpl {
 	}
 
 	//-----------------------------------------------------------------------
-	
+
 	void cMaterial::UpdateAnimations(float afTimeStep)
 	{
 		m_mtxUV = cMatrixf::Identity;
@@ -288,7 +356,7 @@ namespace hpl {
 			else if(pAnim->mType == eMaterialUvAnimation_Sin)
 			{
 				cVector3f vDir = GetAxisVector(pAnim->mAxis);
-				
+
 				cMatrixf mtxAdd = cMath::MatrixTranslate(vDir * sin(mfAnimTime * pAnim->mfSpeed) * pAnim->mfAmp);
 				m_mtxUV = cMath::MatrixMul(m_mtxUV, mtxAdd);
 			}

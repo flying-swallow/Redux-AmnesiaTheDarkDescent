@@ -38,6 +38,11 @@
 #include "graphics/LowLevelGraphics.h"
 #include "graphics/MeshCreator.h"
 #include "graphics/VertexBuffer.h"
+#include "graphics/Material.h"
+#include "graphics/HybridRenderer.h"
+#include "graphics/HybridGlobalManagedSet.h"
+#include "graphics/RIBootstrap.h"
+#include "graphics/RIResourceUploader.h"
 
 
 #include "resources/ParticleManager.h"
@@ -56,6 +61,7 @@
 #include "scene/LightPoint.h"
 #include "scene/LightSpot.h"
 #include "scene/LightBox.h"
+#include "scene/LightArea.h"
 #include "scene/MeshEntity.h"
 #include "scene/Decal.h"
 #include "scene/SoundEntity.h"
@@ -184,6 +190,11 @@ namespace hpl {
 
 	cWorld::~cWorld()
 	{
+		// Release the baked decal GPU buffers + their persistent texture pins.
+		// Independent of the decal objects (unpin keys off the stored slots), so
+		// it is safe before DestroyAllEntities tears the decals down.
+		DisposeDecalBuffers();
+
 		if(mpSkyBoxVtxBuffer) hplDelete(mpSkyBoxVtxBuffer);
 		if(mpSkyBoxImage && mbAutoDestroySkybox)
 		{
@@ -430,6 +441,11 @@ namespace hpl {
 							   eDecalReceiver_Entity | eDecalReceiver_Primitive);
 		}
 
+		// Decal set is now final and stable — bake it into the per-world GPU
+		// buffers (gDecals[] + gObjectDecalIndices[]) once. Static for the
+		// world's lifetime; the renderer just binds them.
+		BakeDecalBuffers();
+
 		if(mpPhysicsWorld && abCalcPhysicsWorldSize)
 		{
 			iRenderableContainerNode *pStaticRoot = mpRenderableContainer[eWorldContainerType_Static]->GetRoot();
@@ -439,6 +455,184 @@ namespace hpl {
 			cVector3f vMax = pStaticRoot->GetMax() + cVector3f(10,10,10);
 
 			mpPhysicsWorld->SetWorldSize(vMin, vMax);
+		}
+	}
+
+	//-----------------------------------------------------------------------
+
+	void cWorld::BakeDecalBuffers()
+	{
+		// Re-Compile drops any previous bake first.
+		DisposeDecalBuffers();
+
+		// Decal projection only runs on the hybrid (main) renderer. Tools using
+		// the wireframe/simple renderers don't composite decals, so skip the GPU
+		// bake there (and avoid touching an uninitialised managed set).
+		cHybridRenderer* pHybrid =
+			static_cast<cHybridRenderer*>(mpGraphics->GetRenderer(eRenderer_Main));
+		if(pHybrid == nullptr)
+			return;
+
+		// Build the static GpuDecal[] geometry in stable (Morton-sorted) order.
+		// diffuseTexIndex is left invalid here and filled each frame by
+		// RefreshDecalTextures (no pinning — the texture rides the normal LRU).
+		std::vector<GpuDecal> decals(mvDecals.size());
+		mvDecalTexSlots.assign(mvDecals.size(), kInvalidTextureIndex);
+		for(size_t i=0; i<mvDecals.size(); ++i)
+		{
+			cDecal* pDecal = mvDecals[i];
+			cMaterial* pMat = pDecal ? pDecal->GetMaterial() : nullptr;
+
+			GpuDecal d{};
+			cMatrixf* pMtx = pDecal ? pDecal->GetModelMatrix(nullptr) : nullptr; // frustum-independent
+			const cMatrixf wm = pMtx ? *pMtx : cMatrixf::Identity;
+			ml::float4x4 invF4 = cMath::ToFloatTranspose4x4(wm);
+			invF4.Invert();
+			std::memcpy(d.invModelMat, invF4.a, sizeof(d.invModelMat));
+
+			// World-space projection axis = the decal box's local +Y in world
+			// space; normalize out the box scale.
+			cVector3f up = wm.GetUp();
+			const float upLen = up.Length();
+			up = upLen > 1e-6f ? up / upLen : cVector3f(0,1,0);
+			d.projAxisWS = float3{up.x, up.y, up.z};
+			const cColor c = pDecal ? pDecal->GetDecalColor() : cColor(1,1);
+			d.color = float4{c.r, c.g, c.b, c.a};
+
+			// Diffuse texture slot is resolved per frame (RefreshDecalTextures);
+			// leave it invalid here — the first refresh fills it before composite.
+			d.diffuseTexIndex = kInvalidTextureIndex;
+			d.receiverMask = (uint32_t)(pDecal ? pDecal->GetReceiverMask() : 0);
+			d.blendMode = pMat ? (uint32_t)pMat->GetBlendMode() : 0u;
+			const cVector2l sd = pDecal ? pDecal->GetSubDiv() : cVector2l(1,1);
+			d.subDivX = (uint32_t)sd.x;
+			d.subDivY = (uint32_t)sd.y;
+			d.subDivIndex = (uint32_t)(pDecal ? pDecal->GetCurrentSubDiv() : 0);
+			decals[i] = d;
+		}
+
+		const uint32_t kSsboUsage =
+			RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE | RI_BUFFER_USAGE_TRANSFER_DST;
+
+		auto uploadStatic = [&](RIBuffer* buf, const void* src, size_t bytes) {
+			RIResourceBufferTransaction trans = {};
+			trans.target = *buf;
+			trans.size = bytes;
+			trans.offset = 0;
+			// Read-only on set 2 (StructuredBuffer), sampled by the composite
+			// compute pass; FRAGMENT included for safety against future readers.
+			trans.currentState = RI_RESOURCE_STATE_SHADER_RESOURCE;
+			trans.currentStages = RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT;
+			trans.postState = RI_RESOURCE_STATE_SHADER_RESOURCE;
+			trans.postStages = RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT;
+			RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+			std::memcpy(trans.mapped.data, src, bytes);
+			RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+		};
+
+		// gDecals[] — one GpuDecal per world decal. Allocate at least one element
+		// so the set-2 binding stays valid even for a decal-less world (the shader
+		// never reads it then — every object's decalList count is 0).
+		{
+			const size_t count = decals.empty() ? (size_t)1 : decals.size();
+			const size_t bytes = count * sizeof(GpuDecal);
+			mpDecalBuffer = new RIBuffer(RIBuffer::create(
+				&RI.device, {(uint64_t)bytes, kSsboUsage, RI_MEMORY_DEVICE, 0}));
+			if(decals.empty() == false)
+				uploadStatic(mpDecalBuffer, decals.data(),
+							 decals.size() * sizeof(GpuDecal));
+		}
+
+		// gObjectDecalIndices[] — flat per-object pool. Allocate at least one
+		// element so the set-2 binding stays valid even with no receivers.
+		{
+			const size_t count = mvDecalObjectIndices.empty()
+				? (size_t)1 : mvDecalObjectIndices.size();
+			const size_t bytes = count * sizeof(uint32_t);
+			mpDecalObjectIndexBuffer = new RIBuffer(RIBuffer::create(
+				&RI.device, {(uint64_t)bytes, kSsboUsage, RI_MEMORY_DEVICE, 0}));
+			if(mvDecalObjectIndices.empty() == false)
+				uploadStatic(mpDecalObjectIndexBuffer, mvDecalObjectIndices.data(),
+							 mvDecalObjectIndices.size() * sizeof(uint32_t));
+		}
+	}
+
+	//-----------------------------------------------------------------------
+
+	void cWorld::RefreshDecalTextures()
+	{
+		if(mvDecals.empty() || mpDecalBuffer == nullptr)
+			return;
+		cHybridRenderer* pHybrid =
+			static_cast<cHybridRenderer*>(mpGraphics->GetRenderer(eRenderer_Main));
+		if(pHybrid == nullptr)
+			return;
+		HybridGlobalManagedSet& global = pHybrid->GetGlobalManagedSet();
+		RIBootstrap::FrameContext* cntx = RI.GetActiveSet();      // == the frame's cntx (Scene.cpp)
+		const uint32_t frameIndex = (uint32_t)RI.frameIndex;
+
+		// Re-resolve each decal's diffuse texture through the normal LRU. This keeps
+		// the texture most-recently-used (so its slot never age-evicts → stable) and
+		// parks it in the active set's resourceLink (kept alive a round-trip). The
+		// GPU diffuseTexIndex is patched only when a slot actually moves (≈ first
+		// frame only), so steady-state cost is just the slot lookups.
+		std::unordered_map<Image*, uint32_t> resolved;
+		for(size_t i=0; i<mvDecals.size(); ++i)
+		{
+			cDecal* pDecal = mvDecals[i];
+			cMaterial* pMat = pDecal ? pDecal->GetMaterial() : nullptr;
+			Image* img = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : nullptr;
+			uint32_t slot = kInvalidTextureIndex;
+			if(img)
+			{
+				auto it = resolved.find(img);
+				if(it != resolved.end())
+					slot = it->second;
+				else
+				{
+					slot = global.resolveTextureSlot(cntx, img, frameIndex);
+					resolved.emplace(img, slot);
+				}
+			}
+			if(mvDecalTexSlots[i] == slot)
+				continue;
+			mvDecalTexSlots[i] = slot;
+
+			// Patch just this decal's diffuseTexIndex field in the device buffer.
+			RIResourceBufferTransaction trans = {};
+			trans.target = *mpDecalBuffer;
+			trans.size = sizeof(uint32_t);
+			trans.offset = i * sizeof(GpuDecal) + offsetof(GpuDecal, diffuseTexIndex);
+			trans.currentState = RI_RESOURCE_STATE_SHADER_RESOURCE;
+			trans.currentStages = RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT;
+			trans.postState = RI_RESOURCE_STATE_SHADER_RESOURCE;
+			trans.postStages = RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT;
+			RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+			std::memcpy(trans.mapped.data, &slot, sizeof(uint32_t));
+			RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+		}
+	}
+
+	//-----------------------------------------------------------------------
+
+	void cWorld::DisposeDecalBuffers()
+	{
+		mvDecalTexSlots.clear();
+		// Defer GPU disposal to the graphics freelist: an in-flight frame may still
+		// be reading the old buffer (notably on a runtime re-bake). The shared
+		// owner copies the handle and disposes it once the GPU passes this frame's
+		// timeline value; the heap wrapper struct is then freed (no vk resource).
+		if(mpDecalBuffer)
+		{
+			RI.graphicsDefer.push(RISharedPointer<RIBuffer>(&RI.device, *mpDecalBuffer));
+			delete mpDecalBuffer;
+			mpDecalBuffer = nullptr;
+		}
+		if(mpDecalObjectIndexBuffer)
+		{
+			RI.graphicsDefer.push(RISharedPointer<RIBuffer>(&RI.device, *mpDecalObjectIndexBuffer));
+			delete mpDecalObjectIndexBuffer;
+			mpDecalObjectIndexBuffer = nullptr;
 		}
 	}
 
@@ -685,6 +879,19 @@ namespace hpl {
 	cLightBox* cWorld::CreateLightBox(const tString &asName,bool abStatic)
 	{
 		cLightBox* pLight = hplNew( cLightBox, (asName,mpResources) );
+		mlstLights.push_back(pLight);
+
+		pLight->SetStatic(abStatic);
+		AddRenderableToContainer(pLight);
+
+		pLight->SetWorld(this);
+
+		return pLight;
+	}
+
+	cLightArea* cWorld::CreateLightArea(const tString &asName,bool abStatic)
+	{
+		cLightArea* pLight = hplNew( cLightArea, (asName,mpResources) );
 		mlstLights.push_back(pLight);
 
 		pLight->SetStatic(abStatic);

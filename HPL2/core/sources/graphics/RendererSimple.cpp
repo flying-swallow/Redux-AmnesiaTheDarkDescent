@@ -138,7 +138,7 @@ namespace hpl {
 			return;
 		}
 
-		Dispose(cntx);
+		*this = {}; // defer the old resources, reset to empty (see operator=)
 
 		width = w;
 		height = h;
@@ -148,27 +148,43 @@ namespace hpl {
 			// pogo feed (TRANSFER_SRC backs the feed blit).
 			CreateViewportColorTexture(
 				&RI.device, w, h, RIBootstrap::PogoColorFormat,
-				VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
-					VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+				RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE |
+					RI_USAGE_TRANSFER_SRC,
 				&renderTarget[i], &renderTargetView[i],
 				"SimpleViewportState.renderTarget");
 
 			CreateViewportAttachmentTexture(
 				&RI.device, w, h, RIBootstrap::DepthFormat,
-				VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+				RI_USAGE_DEPTH_STENCIL_ATTACHMENT,
 				RI_VIEWTYPE_DEPTH_STENCIL_ATTACHMENT, &depthTextures[i], &depthView[i],
 				"SimpleViewportState.depth");
 		}
 	}
 
-	void cViewport::SimpleViewportState::Dispose(RIBootstrap::FrameContext *cntx)
+	cViewport::SimpleViewportState::~SimpleViewportState()
 	{
 		for(uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; i++)
 		{
-			ReleaseViewportColorTexture(cntx->freelist, &renderTarget[i], &renderTargetView[i]);
-			ReleaseViewportAttachmentTexture(cntx->freelist, &depthTextures[i], &depthView[i]);
+    	RI.graphicsDefer.push(renderTarget[i]);
+    	RI.graphicsDefer.push(renderTargetView[i]);
+    	
+    	RI.graphicsDefer.push(depthTextures[i]);
+    	RI.graphicsDefer.push(depthView[i]);
 		}
-		width = height = 0;
+	}
+
+	// See HybridViewportState::operator=: defer our resources (the dtor pushes each
+	// shared handle to the freelist), then move-construct rhs's shared handles into
+	// us (pointer steal — no dispose). Drives `*this = {}` on resize.
+	cViewport::SimpleViewportState &
+	cViewport::SimpleViewportState::operator=(SimpleViewportState &&rhs) noexcept
+	{
+		if(this != &rhs)
+		{
+			this->~SimpleViewportState();
+			new (this) SimpleViewportState(std::move(rhs));
+		}
+		return *this;
 	}
 
 	//-----------------------------------------------------------------------
@@ -244,7 +260,6 @@ namespace hpl {
 
 				auto *vbri = static_cast<cVertexBuffer*>(pVB);
 				vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
-				vbri->AttachResourceToCntx(cntx);
 			}
 		}
 
@@ -277,9 +292,9 @@ namespace hpl {
 		{
 			RITextureBarrier barriers[2] = {};
 			barriers[0] = RI_PogoAttachmentBarrier(
-				&state.renderTarget[RI.swapchainIndex], /*initial=*/true);
+				state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/true);
 
-			barriers[1].texture = &state.depthTextures[RI.swapchainIndex];
+			barriers[1].texture = state.depthTextures[RI.swapchainIndex].Get();
 			barriers[1].before = RI_RESOURCE_STATE_UNDEFINED;
 			barriers[1].after = RI_RESOURCE_STATE_DEPTH_WRITE;
 			barriers[1].aspect = RI_BARRIER_ASPECT_DEPTH;
@@ -293,7 +308,7 @@ namespace hpl {
 		// Begin rendering into the state's render target at its 1:1 extent —
 		// no overscan; cScene's pogo feed consumes it afterwards.
 		{
-			RITextureView colorView = state.renderTargetView[RI.swapchainIndex];
+			RITextureView colorView = *state.renderTargetView[RI.swapchainIndex];
 
 			RIRenderingAttachment color = {};
 			color.view = colorView;
@@ -307,7 +322,7 @@ namespace hpl {
 			color.clearValue.color[3] = apSettings->mClearColor.a;
 
 			RIRenderingAttachment depth = {};
-			depth.view = state.depthView[RI.swapchainIndex];
+			depth.view = *state.depthView[RI.swapchainIndex];
 			depth.loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
 			depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 			depth.readOnly = false;
@@ -511,10 +526,10 @@ namespace hpl {
 					auto geom = pEmitter->BuildScratchGeometry(apFrustum, afFrameTime, /*withUv=*/true);
 					if(!geom.valid) continue;
 
-					posBuffer = &RI.translucentVtxBuffer;
-					colBuffer = &RI.translucentVtxBuffer;
-					uvBuffer  = &RI.translucentVtxBuffer;
-					idxBuffer = &RI.translucentIdxBuffer;
+					posBuffer = RI.translucentVtxBuffer.Get();
+					colBuffer = RI.translucentVtxBuffer.Get();
+					uvBuffer  = RI.translucentVtxBuffer.Get();
+					idxBuffer = RI.translucentIdxBuffer.Get();
 					posOffset = (VkDeviceSize)geom.posByteOffset;
 					colOffset = (VkDeviceSize)geom.colByteOffset;
 					uvOffset  = (VkDeviceSize)geom.uvByteOffset;
@@ -532,13 +547,13 @@ namespace hpl {
 					const auto *uvElement = vbri->GetElement(eVertexBufferElement_Texture0);
 					const auto &indexBufferPtr = vbri->GetIndexRIBuffer();
 					indexCount = vbri->GetIndexNum();
-					if(posElement == NULL || !posElement->buffer || !indexBufferPtr || indexCount <= 0) {
+					if(posElement == NULL || !posElement->GetBuffer() || !indexBufferPtr || indexCount <= 0) {
 						continue;
 					}
-					posBuffer = posElement->buffer.get();
-					idxBuffer = indexBufferPtr.get();
-					colBuffer = (colElement && colElement->buffer) ? colElement->buffer.get() : nullptr;
-					uvBuffer = (uvElement && uvElement->buffer) ? uvElement->buffer.get() : nullptr;
+					posBuffer = posElement->GetBuffer();
+					idxBuffer = indexBufferPtr;
+					colBuffer = colElement ? colElement->GetBuffer() : nullptr;
+					uvBuffer = uvElement ? uvElement->GetBuffer() : nullptr;
 				}
 
 				cMaterial *pMat = pObject->GetMaterial();
@@ -574,10 +589,10 @@ namespace hpl {
 				// 1x1 white default. Pin real textures so a mid-frame destroy
 				// can't free the VkImage before this submit retires.
 				Image *pDiffuseImage = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : nullptr;
-				std::shared_ptr<cTexture> texture = pDiffuseImage ? pDiffuseImage->GetTexture() : nullptr;
+				cTexture *texture = pDiffuseImage ? pDiffuseImage->GetTexture() : nullptr;
 				RIDescriptor textureDescriptor = RI.whiteTexture2DDescriptor();
 				if(texture) {
-					cntx->resourceLink.push_back(texture);
+					RI.graphicsDefer.push(PinResource(pDiffuseImage));
 					textureDescriptor = texture->descriptor();
 				}
 
@@ -618,7 +633,7 @@ namespace hpl {
 		if(debugDraw && debugDraw->HasRequests())
 		{
 			debugDraw->flush(cntx, &RI.primary.cmds[0], apFrustum, renderWidth,
-							 renderHeight, RIBootstrap::PogoColorFormatVk);
+							 renderHeight, RIBootstrap::PogoColorFormat);
 		}
 
 		RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
@@ -629,7 +644,7 @@ namespace hpl {
 		// to the Target.
 		{
 			RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
-				&state.renderTarget[RI.swapchainIndex], /*initial=*/false));
+				state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
 		}
 	}
 

@@ -95,7 +95,6 @@ namespace hpl {
 			pType->DestroyData();
 		}
 		STLMapDeleteAll(m_mapMaterialTypes);
-		cMaterial::SetDestroyTypeSpecifics(false); //Material types are destroyed! Remaining materials may not call!
 
 		STLDeleteAll(mvPostEffectTypes);
 
@@ -116,6 +115,16 @@ namespace hpl {
 		hplDelete(mpTextureCreator);
 		hplDelete(mpDecalCreator);
 		if(mpDebugDraw) hplDelete(mpDebugDraw);
+
+		// Tear down the RI backend now, while the resource managers (owned by
+		// cResources, deleted after cGraphics in cEngine::~cEngine) are still
+		// alive. RI.graphicsDefer holds SharedResourcePins that call back into
+		// their owning manager's FreeResource() on release; draining here (rather
+		// than letting the static RI global drain at atexit, after the managers
+		// are gone) keeps those manager pointers valid. RI.Dispose() does not
+		// destroy the vk device, so the device-deferrals ~cResources pushes
+		// afterwards (vertex buffers, texture disposes) still have a live device.
+		RI.Dispose();
 
 		Log("--------------------------------------------------------\n\n");
 	}
@@ -151,20 +160,20 @@ namespace hpl {
 		struct RIBackendInit backendInit = {};
 		backendInit.api = RI_DEVICE_API_VK;
 		backendInit.applicationName = "HPL2";
-		backendInit.vk.enableValidationLayer = false;
+		backendInit.vk.enableValidationLayer = true;
 
-		if(RI.renderer.init(&backendInit) != RI_SUCCESS) {
+		if(InitRIRenderer(&backendInit) != RI_SUCCESS) {
 			return false;
 		}
 
 		uint32_t numAdapters = 0;
-		if( RI.renderer.enumerateAdapters( NULL, &numAdapters ) != RI_SUCCESS ) {
+		if( EnumerateRIAdapters( NULL, &numAdapters ) != RI_SUCCESS ) {
 			return false;
 		}
 		assert(numAdapters > 0);
 		std::vector<RIPhysicalAdapter> physicalAdapters(numAdapters);
 
-		if(RI.renderer.enumerateAdapters(physicalAdapters.data(), &numAdapters) != RI_SUCCESS) {
+		if(EnumerateRIAdapters(physicalAdapters.data(), &numAdapters) != RI_SUCCESS) {
 			return false;
 		}
 		uint32_t selectedAdapterIdx = 0;
@@ -184,7 +193,7 @@ namespace hpl {
 		}
 		struct RIDeviceDesc deviceInit = { 0 };
 		deviceInit.physicalAdapter = &physicalAdapters[selectedAdapterIdx];
-		RI.device.init(&RI.renderer, &deviceInit );
+		RI.device.init(&deviceInit );
 		RI_InitResourceUploader(&RI.device, &RI.uploader);
 		struct RIWindowHandle windowHandle = mpLowLevelGraphics->GetWindowHandle(); 
 		if(windowHandle.type == RI_WINDOW_UNKNOWN) {
@@ -198,7 +207,7 @@ namespace hpl {
 		swapchainInit.width = alWidth;
 		swapchainInit.height = alHeight;
 		swapchainInit.format = RI_SWAPCHAIN_BT709_G22_8BIT;
-		InitRISwapchain(&RI.renderer, &RI.device, &swapchainInit, &RI.swapchain);
+		InitRISwapchain(&RI.device, &swapchainInit, &RI.swapchain);
 
 		// Per-viewport render targets (backbuffer, overscan render target,
 		// depth, visibility) are created lazily by each renderer's Draw on its
@@ -227,6 +236,7 @@ namespace hpl {
 		struct RIQueue *graphicsQueue = &RI.device.queues[RI_QUEUE_GRAPHICS];
 		RI.graphicsCmdRing.init( &RI.device, graphicsQueue,
 		                         RI_NUMBER_FRAMES_FLIGHT, RI_NUMBER_SUB_COMMANDS, true );
+		RI.graphicsTimeline.init( &RI.device );
 		for(auto& set: RI.frameSets) {
 			struct RIScratchAllocDesc uboDesc = {
 					.blockSize = 256 * 128,
@@ -253,26 +263,14 @@ namespace hpl {
 
 			// 1x1 white texture — staged upload, then transitioned to SHADER_READ_ONLY_OPTIMAL.
 			{
-				VkImageCreateInfo imageInfo = { VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
-				imageInfo.imageType = VK_IMAGE_TYPE_2D;
-				imageInfo.format = VK_FORMAT_R8G8B8A8_UNORM;
-				imageInfo.extent = { 1, 1, 1 };
-				imageInfo.mipLevels = 1;
-				imageInfo.arrayLayers = 1;
-				imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-				imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
-				imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-				imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-				imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-				uint32_t imageQueueFamilies[RI_QUEUE_LEN] = { 0 };
-				imageInfo.pQueueFamilyIndices = imageQueueFamilies;
-				VK_ConfigureImageQueueFamilies(&imageInfo, RI.device.queues, RI_QUEUE_LEN, imageQueueFamilies, RI_QUEUE_LEN);
-
-				VmaAllocationCreateInfo imageAllocInfo = {};
-				imageAllocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-				if (!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo, &imageAllocInfo,
-				                                  &RI.whiteTexture2D.vk.image, &RI.whiteTexture2D.vk.allocation, nullptr))) {
+				RITextureDesc whiteDesc = {};
+				whiteDesc.type = RI_TEXTURE_2D;
+				whiteDesc.format = RI_FORMAT_RGBA8_UNORM;
+				whiteDesc.width = 1;
+				whiteDesc.height = 1;
+				whiteDesc.usage = RI_USAGE_SHADER_RESOURCE | RI_USAGE_TRANSFER_DST;
+				RI.whiteTexture2D = RITexture::create(&RI.device, whiteDesc);
+				if (RI.whiteTexture2D.isEmpty()) {
 					FatalError("Failed to create white texture image!\n");
 					return false;
 				}
@@ -281,7 +279,7 @@ namespace hpl {
 				whiteUploadStaging = RIBuffer::create(
 					&RI.device, {(uint64_t)sizeof(whitePixel),
 					             RI_BUFFER_USAGE_TRANSFER_SRC, RI_MEMORY_HOST_UPLOAD, 0});
-				if (whiteUploadStaging.isEmpty(&RI.renderer)) {
+				if (whiteUploadStaging.isEmpty()) {
 					FatalError("Failed to create white texture staging buffer!\n");
 					return false;
 				}
@@ -316,12 +314,12 @@ namespace hpl {
 
 				RITextureViewDesc whiteViewDesc = {};
 				whiteViewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
-				whiteViewDesc.format = VKToRIFormat(imageInfo.format);
+				whiteViewDesc.format = RI_FORMAT_RGBA8_UNORM;
 				whiteViewDesc.mipNum = 1;
 				whiteViewDesc.layerNum = 1;
 				RI.whiteTexture2DView =
 					RITextureView::create(&RI.device, &RI.whiteTexture2D, whiteViewDesc);
-				if (RI.whiteTexture2DView.isEmpty(&RI.renderer)) {
+				if (RI.whiteTexture2DView.isEmpty()) {
 					FatalError("Failed to create white texture image view!\n");
 					return false;
 				}
@@ -334,7 +332,7 @@ namespace hpl {
 					&RI.device, {(uint64_t)kNulVertexSize,
 					             RI_BUFFER_USAGE_VERTEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_DST,
 					             RI_MEMORY_HOST_UPLOAD, 0});
-				if (RI.nulVertexBuffer.isEmpty(&RI.renderer)) {
+				if (RI.nulVertexBuffer.isEmpty()) {
 					FatalError("Failed to create null vertex buffer!\n");
 					return false;
 				}
@@ -365,7 +363,7 @@ namespace hpl {
 						&RI.device, {(uint64_t)s.size,
 						             RI_BUFFER_USAGE_VERTEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_DST,
 						             RI_MEMORY_HOST_UPLOAD, 0});
-					if (s.target->isEmpty(&RI.renderer)) {
+					if (s.target->isEmpty()) {
 						FatalError("Failed to create fallback vertex buffer!\n");
 						return false;
 					}
@@ -389,7 +387,7 @@ namespace hpl {
 			VK_WrapResult( vkQueueSubmit2( RI.device.queues[RI_QUEUE_GRAPHICS].vk.queue, 1, &submitInfo, initElem.vk.fence ) );
 			RI.device.queues[RI_QUEUE_GRAPHICS].waitIdle(&RI.device);
 
-			if (!whiteUploadStaging.isEmpty(&RI.renderer)) {
+			if (!whiteUploadStaging.isEmpty()) {
 				whiteUploadStaging.dispose(&RI.device);
 			}
 			// The one-time init upload used graphicsCmdRing, but it has completed.

@@ -95,6 +95,7 @@ file(GLOB_RECURSE leveleditor_sources
     EntityWrapperLightBox.cpp
     EntityWrapperLightPoint.cpp
     EntityWrapperLightSpot.cpp
+    EntityWrapperLightArea.cpp
     EntityWrapperParticleSystem.cpp
     EntityWrapperPrimitive.cpp
     EntityWrapperPrimitivePlane.cpp
@@ -213,6 +214,7 @@ file(GLOB_RECURSE modeleditor_sources
     EntityWrapperLightBox.cpp
     EntityWrapperLightPoint.cpp
     EntityWrapperLightSpot.cpp
+    EntityWrapperLightArea.cpp
     EntityWrapperParticleSystem.cpp
     EntityWrapperSound.cpp
     EntityWrapperSubMesh.cpp

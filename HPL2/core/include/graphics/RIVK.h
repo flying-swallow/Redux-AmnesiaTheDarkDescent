@@ -172,6 +172,18 @@ static inline VkBufferUsageFlags ri_vk_RIBufferUsageToVK(uint32_t usage) {
   return out;
 }
 
+static inline VkImageUsageFlags ri_vk_RITextureUsageToVK(uint32_t usage) {
+  VkImageUsageFlags out = 0;
+  if (usage & RI_USAGE_SHADER_RESOURCE)          out |= VK_IMAGE_USAGE_SAMPLED_BIT;
+  if (usage & RI_USAGE_SHADER_RESOURCE_STORAGE)  out |= VK_IMAGE_USAGE_STORAGE_BIT;
+  if (usage & RI_USAGE_COLOR_ATTACHMENT)         out |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  if (usage & RI_USAGE_DEPTH_STENCIL_ATTACHMENT) out |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+  if (usage & RI_USAGE_SHADING_RATE)             out |= VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+  if (usage & RI_USAGE_TRANSFER_SRC)             out |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  if (usage & RI_USAGE_TRANSFER_DST)             out |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+  return out;
+}
+
 static inline VkRect2D RIToVKRect2D(struct RIRect* in) {
 	VkRect2D out;
 	out.extent.width = in->width;

@@ -95,7 +95,7 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
     // RIBootstrap::PogoColorFormat). This keeps the composite chain
     // consistent even when the LUT failed to load.
     if (!mpColorConvTex || !mpColorConvTex->GetTexture() ||
-        mpColorConvTex->GetTexture()->view.isEmpty(&RI.renderer)) {
+        mpColorConvTex->GetTexture()->view.isEmpty()) {
         return;
     }
 
@@ -126,7 +126,7 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     PostEffectPipelineState state{};
-    InitPostEffectPipelineState(state, RIBootstrap::PogoColorFormatVk, false);
+    InitPostEffectPipelineState(state, RIBootstrap::PogoColorFormat, false);
 
     const hash_t pipelineHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
     mpSpecificType->m_program.bindPipeline(&RI.device, ctx.cmd, pipelineHash,

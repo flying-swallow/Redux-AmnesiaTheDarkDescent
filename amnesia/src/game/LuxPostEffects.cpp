@@ -114,7 +114,7 @@ void cLuxPostEffect_Insanity::RenderEffect(const hpl::PostEffectRenderCtx &ctx)
 	bool valid = (count >= 2);
 	auto resolve = [&](Image *img) -> RIDescriptor {
 		if (img && img->GetTexture() &&
-		    !img->GetTexture()->view.isEmpty(&RI.renderer))
+		    !img->GetTexture()->view.isEmpty())
 			return img->GetTexture()->descriptor();
 		valid = false;
 		return ctx.inputSrv;
@@ -144,7 +144,7 @@ void cLuxPostEffect_Insanity::RenderEffect(const hpl::PostEffectRenderCtx &ctx)
 	vkCmdSetScissor(cmd, 0, 1, &scissor);
 
 	PostEffectPipelineState state{};
-	InitPostEffectPipelineState(state, RIBootstrap::PogoColorFormatVk, false);
+	InitPostEffectPipelineState(state, RIBootstrap::PogoColorFormat, false);
 
 	const hash_t pipelineHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
 	m_program.bindPipeline(&RI.device, ctx.cmd, pipelineHash, "PostEffect_Insanity",
