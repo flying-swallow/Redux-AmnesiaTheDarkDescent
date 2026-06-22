@@ -178,8 +178,7 @@ public struct SceneMaterials
         uint alphaIdx = m.tex[2];
         if (alphaIdx != kInvalidTextureIndex)
         {
-            float4 s = gTextures2D[NonUniformResourceIndex(alphaIdx)]
-                           .SampleLevel(gMaterialSampler, v.texC, lod);
+            float4 s = sampleBindless2DLevel(alphaIdx, v.texC, lod);
             a = (m.materialConfig & kMaterialFlagIsAlphaSingleChannel) != 0u ? s.r : s.a;
         }
         else if (dissolveAmount >= 1.0f &&
@@ -203,8 +202,7 @@ public struct SceneMaterials
                 uint dat = m.tex[6];
                 float da = 1.0f;
                 if (dat != kInvalidTextureIndex)
-                    da = gTextures2D[NonUniformResourceIndex(dat)]
-                             .SampleLevel(gMaterialSampler, v.texC, lod).r;
+                    da = sampleBindless2DLevel(dat, v.texC, lod).r;
                 d -= (0.25f - da * 0.25f);
             }
             else
@@ -363,8 +361,7 @@ public struct SceneMaterials
         uint diffuseTex     = m.tex[0];
         if (diffuseTex == kInvalidTextureIndex)
             return float3(0.5f);  // fallback grey
-        return gTextures2D[NonUniformResourceIndex(diffuseTex)]
-                  .SampleLevel(gMaterialSampler, v.texC, 0.f).rgb;
+        return sampleBindless2DLevel(diffuseTex, v.texC, 0.f).rgb;
     }
 
     // Like traceReflection but returns the committed TriangleHit (not just its

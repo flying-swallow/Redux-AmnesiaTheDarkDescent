@@ -78,8 +78,7 @@ float4 psMain(WaterVSOut psIn) : SV_TARGET
         float3 tint = float3(1.f);
         uint   diffuseTex = water.tex[0];
         if (diffuseTex != kInvalidTextureIndex)
-            tint = gTextures2D[NonUniformResourceIndex(diffuseTex)]
-                       .Sample(gMaterialSampler, psIn.uv).rgb;
+            tint = sampleBindless2D(diffuseTex, psIn.uv).rgb;
         return float4(tint * kWaterRefractionExposure, 1.0f);
     }
 

@@ -1,5 +1,7 @@
 #include "graphics/Image.h"
 
+#include "resources/TextureManager.h" // ReleaseImageBindlessSlot
+
 namespace hpl {
 
 // Standalone Images are allocated with plain `new` and freed by the handle's
@@ -43,17 +45,30 @@ Image::Image(const tString &asName, const tWString &asFullPath,
 Image::Image(Image &&other)
     : iResourceBase(other.GetName(), other.GetFullPath(), 0) {
   value = std::move(other.value);
+  // Steal the bindless slot so only one Image owns (and later frees) it.
+  mBindlessSlot = other.mBindlessSlot;
+  mBindlessViewCookie = other.mBindlessViewCookie;
+  mBindlessIsCube = other.mBindlessIsCube;
+  mBindlessIsArray = other.mBindlessIsArray;
+  other.mBindlessSlot = 0xffffffffu;
 }
 
 cTexture* Image::GetTexture() const {
   if (const SingleImage *singleImage = std::get_if<SingleImage>(&value)) {
     return singleImage->image ? const_cast<cTexture *>(&*singleImage->image) : nullptr;
   } else if (const AnimatedImage *animImage = std::get_if<AnimatedImage>(&value)) {
-    size_t frameIdx = static_cast<size_t>(animImage->timeCount);
-    assert(frameIdx < animImage->images.size() && "Frame index out of range");
-    return const_cast<cTexture *>(&animImage->images[frameIdx]);
+    // The whole animation is one Texture2DArray; the current layer is picked
+    // in-shader, so just hand back the array texture.
+    return const_cast<cTexture *>(&animImage->image);
   }
   return nullptr;
+}
+
+uint32_t Image::GetAnimFrameCount() const {
+  if (const AnimatedImage *animImage = std::get_if<AnimatedImage>(&value)) {
+    return animImage->frameCount;
+  }
+  return 0;
 }
 
 eTextureAnimMode Image::GetAnimMode() {
@@ -78,27 +93,10 @@ void Image::SetAnimMode(eTextureAnimMode aMode) {
 }
 
 void Image::Update(float afTimeStep) {
-  if (AnimatedImage *animImage = std::get_if<AnimatedImage>(&value)) {
-    float fMax = (float)(animImage->images.size());
-    animImage->timeCount +=
-        afTimeStep * (1.0f / animImage->frameTime) * animImage->timeDir;
-
-    if (animImage->timeDir > 0) {
-      if (animImage->timeCount >= fMax) {
-        if (animImage->animMode == eTextureAnimMode_Loop) {
-          animImage->timeCount = 0;
-        } else {
-          animImage->timeCount = fMax - 1.0f;
-          animImage->timeDir = -1.0f;
-        }
-      }
-    } else {
-      if (animImage->timeCount < 0) {
-        animImage->timeCount = 1;
-        animImage->timeDir = 1.0f;
-      }
-    }
-  }
+  // No-op: animated images are one Texture2DArray and the current frame is
+  // selected in-shader from gPerFrame.afT (no CPU frame cursor, no descriptor
+  // rewrite). Kept for ABI compatibility with existing callers.
+  (void)afTimeStep;
 }
 void Image::SetFrameTime(float t) {
   if (AnimatedImage *animImage = std::get_if<AnimatedImage>(&value)) {
@@ -133,10 +131,21 @@ cVector2l Image::GetImageSize() const {
   return cVector2l(GetWidth(), GetHeight());
 }
 
-Image::~Image() {}
+Image::~Image() {
+  // Return the bindless slot to cTextureManager's heap (deferred past in-flight
+  // frames). No-op when no slot was assigned.
+  ReleaseImageBindlessSlot(this);
+}
 
 void Image::operator=(Image &&other) {
+  // Release our own slot before taking over the moved-from one.
+  ReleaseImageBindlessSlot(this);
   value = std::move(other.value);
+  mBindlessSlot = other.mBindlessSlot;
+  mBindlessViewCookie = other.mBindlessViewCookie;
+  mBindlessIsCube = other.mBindlessIsCube;
+  mBindlessIsArray = other.mBindlessIsArray;
+  other.mBindlessSlot = 0xffffffffu;
 }
 
 } // namespace hpl

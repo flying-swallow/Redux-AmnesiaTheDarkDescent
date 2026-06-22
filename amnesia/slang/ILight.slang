@@ -17,7 +17,6 @@
 #include "HostDefinitions.h"
 import SceneTypes;            // light struct fields + kInvalidTextureIndex sentinel
 import bindless;             // gTextures2D, gTexturesCube, gMaterialSampler
-import LightFalloff;         // sampleAttenuation, sampleSpotCone
 import Random;               // concentricDiskSample (soft-shadow source sampling)
 
 // -----------------------------------------------------------------------------
@@ -126,8 +125,8 @@ public extension SpotLight : ILight
 
     // Radiance = color · intensity · softened inverse-square (same radial term as
     // PointLight — plain inverse-square, HDR near source, no reach window; the
-    // cutoff is grid-only), times an angular cone term (cone LUT/smoothstep, or a
-    // projected gobo via viewProjection when bound).
+    // cutoff is grid-only), times an angular cone term (analytic smoothstep from
+    // the FOV edge to the center, or a projected gobo via viewProjection when bound).
     public bool sample(float3 shadingPosW, out LightSample ls)
     {
         ls.Li = float3(0.0); ls.pdf = 1.0; ls.dir = float3(0,0,1); ls.distance = 0.0;
@@ -146,14 +145,13 @@ public extension SpotLight : ILight
             if (lc.w <= 0.0) return false;
             float2 uv = lc.xy / lc.w;
             if (any(uv < float2(0.0)) || any(uv > float2(1.0))) return false;
-            gobo = gTextures2D[NonUniformResourceIndex(goboTextureIndex)]
-                .SampleLevel(gMaterialSampler, uv, 0.0).rgb;
+            gobo = sampleBindless2DLevel(goboTextureIndex, uv, 0.0).rgb;
         }
         else
         {
             float cosTheta = dot(-L, direction);
             if (cosTheta < cosOuterAngle) return false;
-            cone = sampleSpotCone(cosTheta, cosOuterAngle);
+            cone = smoothstep(cosOuterAngle, 1.0, cosTheta);
         }
 
         ls.Li       = color * intensity * gobo * cone * atten;
@@ -231,8 +229,7 @@ public extension RectLight : ILight
         if (sourceTextureIndex != kInvalidTextureIndex)
         {
             float2 uv = float2(cx / width + 0.5, 0.5 - cy / height);
-            srcTex = gTextures2D[NonUniformResourceIndex(sourceTextureIndex)]
-                .SampleLevel(gMaterialSampler, uv, 0.0).rgb;
+            srcTex = sampleBindless2DLevel(sourceTextureIndex, uv, 0.0).rgb;
         }
 
         // Barn-door beam shaping: occlude off-axis light per tangential axis.

@@ -105,8 +105,7 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
         uint diffuseTex = mat.tex[0];
         if (diffuseTex != kInvalidTextureIndex)
         {
-            float4 s = gTextures2D[NonUniformResourceIndex(diffuseTex)]
-                           .Sample(gMaterialSampler, psIn.uv);
+            float4 s = sampleBindless2D(diffuseTex, psIn.uv);
             diffuseColor = displaySpaceSample(s);
         }
         diffuseColor *= psIn.color;
@@ -154,8 +153,7 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
             uint normalTex = mat.tex[1];
             if (normalTex != kInvalidTextureIndex)
             {
-                float3 mapNormal = gTextures2D[NonUniformResourceIndex(normalTex)]
-                                       .Sample(gMaterialSampler, psIn.uv).xyz
+                float3 mapNormal = sampleBindless2D(normalTex, psIn.uv).xyz
                                    * 2.0f - 1.0f;
                 screenNormal = normalize(mapNormal.x * psIn.tangent
                                        + mapNormal.y * psIn.bitangent
@@ -197,8 +195,7 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
             if (cubeAlphaTex != kInvalidTextureIndex)
             {
                 float fEnvMapAlpha =
-                    gTextures2D[NonUniformResourceIndex(cubeAlphaTex)]
-                        .Sample(gMaterialSampler, psIn.uv).w;
+                    sampleBindless2D(cubeAlphaTex, psIn.uv).w;
                 reflectionColor *= fEnvMapAlpha;
             }
         }

@@ -131,8 +131,7 @@ public float decodeMaterialRoughness(DiffuseMaterial m, float2 uv)
                  && (m.tex[3] != kInvalidTextureIndex);
     if (!hasSpec)
         return kDefaultDiffuseRoughness;
-    float gloss = gTextures2D[NonUniformResourceIndex(m.tex[3])]
-                      .SampleLevel(gMaterialSampler, uv, 0.0f).y;
+    float gloss = sampleBindless2DLevel(m.tex[3], uv, 0.0f).y;
     return clamp(sqrt(glossToGGXAlpha(gloss)), kMinRough, 1.0f);
 }
 
@@ -259,8 +258,7 @@ public SurfaceBRDF prepareSurface(DiffuseMaterial m, float3 N, float2 uv)
     if (diffuseTex == kInvalidTextureIndex)
         s.albedo = float3(0.5f);
     else
-        s.albedo = gTextures2D[NonUniformResourceIndex(diffuseTex)]
-                       .SampleLevel(gMaterialSampler, uv, 0.0f).rgb;
+        s.albedo = sampleBindless2DLevel(diffuseTex, uv, 0.0f).rgb;
 
     bool hasSpec = ((m.materialConfig & kMaterialFlagEnableSpecular) != 0u)
                  && (m.tex[3] != kInvalidTextureIndex);
@@ -271,8 +269,7 @@ public SurfaceBRDF prepareSurface(DiffuseMaterial m, float3 N, float2 uv)
 
     if (hasSpec)
     {
-        float2 spec = gTextures2D[NonUniformResourceIndex(m.tex[3])]
-                          .SampleLevel(gMaterialSampler, uv, 0.0f).xy;
+        float2 spec = sampleBindless2DLevel(m.tex[3], uv, 0.0f).xy;
         float specIntensity = spec.x;
         float gloss         = spec.y;
         s.rough = clamp(glossToGGXAlpha(gloss), kMinRough, 1.0f);

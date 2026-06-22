@@ -40,7 +40,7 @@
 #include "graphics/VertexBuffer.h"
 #include "graphics/Material.h"
 #include "graphics/HybridRenderer.h"
-#include "graphics/HybridGlobalManagedSet.h"
+#include "graphics/GlobalManagedSets.h"
 #include "graphics/RIBootstrap.h"
 #include "graphics/RIResourceUploader.h"
 
@@ -194,6 +194,8 @@ namespace hpl {
 		// Independent of the decal objects (unpin keys off the stored slots), so
 		// it is safe before DestroyAllEntities tears the decals down.
 		DisposeDecalBuffers();
+		DisposeFogBuffers();
+		DisposeLightBuffers();
 
 		if(mpSkyBoxVtxBuffer) hplDelete(mpSkyBoxVtxBuffer);
 		if(mpSkyBoxImage && mbAutoDestroySkybox)
@@ -446,6 +448,14 @@ namespace hpl {
 		// world's lifetime; the renderer just binds them.
 		BakeDecalBuffers();
 
+		// Fog areas → a persistent per-world buffer (bound on the per-world set
+		// kWorldSet by each consuming pass); refreshed per-frame on change.
+		BakeFogBuffer();
+
+		// Lights → persistent per-world per-type buffers holding ALL world lights
+		// at stable slots (counts become world totals); refreshed per-frame.
+		BakeLightBuffers();
+
 		if(mpPhysicsWorld && abCalcPhysicsWorldSize)
 		{
 			iRenderableContainerNode *pStaticRoot = mpRenderableContainer[eWorldContainerType_Static]->GetRoot();
@@ -462,6 +472,7 @@ namespace hpl {
 
 	void cWorld::BakeDecalBuffers()
 	{
+		mbDecalBuffersDirty = false; // consumed (cleared even if the bake early-outs)
 		// Re-Compile drops any previous bake first.
 		DisposeDecalBuffers();
 
@@ -474,8 +485,9 @@ namespace hpl {
 			return;
 
 		// Build the static GpuDecal[] geometry in stable (Morton-sorted) order.
-		// diffuseTexIndex is left invalid here and filled each frame by
-		// RefreshDecalTextures (no pinning — the texture rides the normal LRU).
+		// diffuseTexIndex is left invalid here and filled by RefreshDecalTextures,
+		// which reads each diffuse Image's lifetime-stable bindless slot
+		// (cTextureManager-assigned).
 		std::vector<GpuDecal> decals(mvDecals.size());
 		mvDecalTexSlots.assign(mvDecals.size(), kInvalidTextureIndex);
 		for(size_t i=0; i<mvDecals.size(); ++i)
@@ -536,10 +548,10 @@ namespace hpl {
 		{
 			const size_t count = decals.empty() ? (size_t)1 : decals.size();
 			const size_t bytes = count * sizeof(GpuDecal);
-			mpDecalBuffer = new RIBuffer(RIBuffer::create(
+			mpDecalBuffer = RISharedPointer<RIBuffer>(&RI.device, RIBuffer::create(
 				&RI.device, {(uint64_t)bytes, kSsboUsage, RI_MEMORY_DEVICE, 0}));
 			if(decals.empty() == false)
-				uploadStatic(mpDecalBuffer, decals.data(),
+				uploadStatic(mpDecalBuffer.Get(), decals.data(),
 							 decals.size() * sizeof(GpuDecal));
 		}
 
@@ -549,10 +561,10 @@ namespace hpl {
 			const size_t count = mvDecalObjectIndices.empty()
 				? (size_t)1 : mvDecalObjectIndices.size();
 			const size_t bytes = count * sizeof(uint32_t);
-			mpDecalObjectIndexBuffer = new RIBuffer(RIBuffer::create(
+			mpDecalObjectIndexBuffer = RISharedPointer<RIBuffer>(&RI.device, RIBuffer::create(
 				&RI.device, {(uint64_t)bytes, kSsboUsage, RI_MEMORY_DEVICE, 0}));
 			if(mvDecalObjectIndices.empty() == false)
-				uploadStatic(mpDecalObjectIndexBuffer, mvDecalObjectIndices.data(),
+				uploadStatic(mpDecalObjectIndexBuffer.Get(), mvDecalObjectIndices.data(),
 							 mvDecalObjectIndices.size() * sizeof(uint32_t));
 		}
 	}
@@ -561,39 +573,25 @@ namespace hpl {
 
 	void cWorld::RefreshDecalTextures()
 	{
-		if(mvDecals.empty() || mpDecalBuffer == nullptr)
-			return;
-		cHybridRenderer* pHybrid =
-			static_cast<cHybridRenderer*>(mpGraphics->GetRenderer(eRenderer_Main));
-		if(pHybrid == nullptr)
-			return;
-		HybridGlobalManagedSet& global = pHybrid->GetGlobalManagedSet();
-		RIBootstrap::FrameContext* cntx = RI.GetActiveSet();      // == the frame's cntx (Scene.cpp)
-		const uint32_t frameIndex = (uint32_t)RI.frameIndex;
+		// Decals added (or init-dirty for an uncompiled world) → (re)bake. Ensures
+		// the decal buffer is always allocated (≥1-element placeholder) so the
+		// composite's set-2 gDecals/gObjectDecalIndices binding is never left
+		// unbound — e.g. the level editor, which never Compiles.
+		if(mbDecalBuffersDirty)
+			BakeDecalBuffers();
 
-		// Re-resolve each decal's diffuse texture through the normal LRU. This keeps
-		// the texture most-recently-used (so its slot never age-evicts → stable) and
-		// parks it in the active set's resourceLink (kept alive a round-trip). The
-		// GPU diffuseTexIndex is patched only when a slot actually moves (≈ first
-		// frame only), so steady-state cost is just the slot lookups.
-		std::unordered_map<Image*, uint32_t> resolved;
+		if(mvDecals.empty() || mpDecalBuffer.isEmpty())
+			return;
+		// Each decal's diffuse texture now carries a lifetime-stable bindless slot
+		// assigned by cTextureManager, so just read it. The GPU diffuseTexIndex is
+		// patched only when the slot actually changes (≈ first sight only); after
+		// that this loop is a cheap no-op every call.
 		for(size_t i=0; i<mvDecals.size(); ++i)
 		{
 			cDecal* pDecal = mvDecals[i];
 			cMaterial* pMat = pDecal ? pDecal->GetMaterial() : nullptr;
 			Image* img = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : nullptr;
-			uint32_t slot = kInvalidTextureIndex;
-			if(img)
-			{
-				auto it = resolved.find(img);
-				if(it != resolved.end())
-					slot = it->second;
-				else
-				{
-					slot = global.resolveTextureSlot(cntx, img, frameIndex);
-					resolved.emplace(img, slot);
-				}
-			}
+			uint32_t slot = img ? img->GetBindlessSlot() : kInvalidTextureIndex;
 			if(mvDecalTexSlots[i] == slot)
 				continue;
 			mvDecalTexSlots[i] = slot;
@@ -619,21 +617,313 @@ namespace hpl {
 	{
 		mvDecalTexSlots.clear();
 		// Defer GPU disposal to the graphics freelist: an in-flight frame may still
-		// be reading the old buffer (notably on a runtime re-bake). The shared
-		// owner copies the handle and disposes it once the GPU passes this frame's
-		// timeline value; the heap wrapper struct is then freed (no vk resource).
-		if(mpDecalBuffer)
+		// be reading the old buffer (notably on a runtime re-bake). Pushing the
+		// shared owner hands a counted reference to the defer queue, which disposes
+		// it once the GPU passes this frame's timeline value; resetting the member
+		// drops our reference now.
+		if(!mpDecalBuffer.isEmpty())
+			RI.graphicsDefer.push(mpDecalBuffer);
+		mpDecalBuffer = {};
+		if(!mpDecalObjectIndexBuffer.isEmpty())
+			RI.graphicsDefer.push(mpDecalObjectIndexBuffer);
+		mpDecalObjectIndexBuffer = {};
+	}
+
+	//-----------------------------------------------------------------------
+
+	// Build the GPU struct for one fog area (mirrors the former per-frame fill in
+	// HybridRenderer). invModelMat maps world → the fog box's unit cube; colour is
+	// sRGB→linear like the box-light path; flags pack the backside-visibility bits.
+	static FogAreaParams BuildFogParams(cFogArea* apFogArea)
+	{
+		FogAreaParams fa{};
+		// Use the computed model matrix (world × size-scale), not GetModelMatrixPtr()
+		// — the cached raw pointer is null at Compile/bake time (it's only wired up
+		// during the per-frame render walk). Mirrors the decal bake.
+		cMatrixf* pMtx = apFogArea->GetModelMatrix(nullptr);
+		const cMatrixf inv = cMath::MatrixInverse(pMtx ? *pMtx : cMatrixf::Identity);
+		const ml::float4x4 invF4 = cMath::ToFloatTranspose4x4(inv);
+		std::memcpy(fa.invModelMat, invF4.a, sizeof(fa.invModelMat));
+		const cColor c = apFogArea->GetColor();
+		fa.color = float3{sRGBToLinear(c.r), sRGBToLinear(c.g), sRGBToLinear(c.b)};
+		fa.colorA = c.a;
+		fa.start = apFogArea->GetStart();
+		fa.end = apFogArea->GetEnd();
+		fa.falloffExp = apFogArea->GetFalloffExp();
+		fa.flags = (apFogArea->GetShowBacksideWhenInside() ? 1u : 0u) |
+				   (apFogArea->GetShowBacksideWhenOutside() ? 2u : 0u);
+		return fa;
+	}
+
+	// Build all fog params and upload the whole buffer in one transaction.
+	static void UploadFogBuffer(const std::vector<cFogArea*>& areas, RIBuffer* buf)
+	{
+		if(areas.empty()) return; // buffer is the 1-element placeholder
+		std::vector<FogAreaParams> params(areas.size());
+		for(size_t i=0; i<areas.size(); ++i) params[i] = BuildFogParams(areas[i]);
+		RIResourceBufferTransaction trans = {};
+		trans.target = *buf;
+		trans.size = areas.size() * sizeof(FogAreaParams);
+		trans.offset = 0;
+		trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+		trans.currentStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
+		trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+		trans.postStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
+		RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+		std::memcpy(trans.mapped.data, params.data(), trans.size);
+		RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+	}
+
+	void cWorld::BakeFogBuffer()
+	{
+		mbFogBufferDirty = false; // consumed (cleared even if the bake early-outs)
+		DisposeFogBuffers();
+
+		// Fog is only composited by the hybrid (main) renderer; tools on the
+		// wireframe/simple renderers don't read gFogAreas, so skip the GPU bake.
+		cHybridRenderer* pHybrid =
+			static_cast<cHybridRenderer*>(mpGraphics->GetRenderer(eRenderer_Main));
+		if(pHybrid == nullptr)
+			return;
+
+		// Stable bake-order snapshot of ALL fog areas (slot = index).
+		mvFogAreas.assign(mlstFogAreas.begin(), mlstFogAreas.end());
+
+		const uint32_t kSsboUsage =
+			RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE | RI_BUFFER_USAGE_TRANSFER_DST;
+		// At least one element so the binding stays valid for a fog-less world
+		// (GetFogAreaCount()==0 → the shader never reads it).
+		const size_t count = mvFogAreas.empty() ? (size_t)1 : mvFogAreas.size();
+		mpFogAreaBuffer = RISharedPointer<RIBuffer>(&RI.device, RIBuffer::create(
+			&RI.device, {(uint64_t)(count * sizeof(FogAreaParams)), kSsboUsage,
+						 RI_MEMORY_DEVICE, 0}));
+		UploadFogBuffer(mvFogAreas, mpFogAreaBuffer.Get());
+	}
+
+	void cWorld::RefreshFogAreas()
+	{
+		// Membership changed (fog area added/removed; init-dirty for an uncompiled
+		// world) → re-bake. Set by Create/DestroyFogArea, so editor edits work too.
+		if(mbFogBufferDirty)
+			BakeFogBuffer();
+
+		if(mpFogAreaBuffer.isEmpty())
+			return; // bake skipped (no hybrid renderer)
+
+		// Per-frame content (move / colour): re-upload the whole buffer (small:
+		// ≤32 × 100 B) in one transaction.
+		UploadFogBuffer(mvFogAreas, mpFogAreaBuffer.Get());
+	}
+
+	void cWorld::DisposeFogBuffers()
+	{
+		mvFogAreas.clear();
+		if(!mpFogAreaBuffer.isEmpty())
+			RI.graphicsDefer.push(mpFogAreaBuffer);
+		mpFogAreaBuffer = {};
+	}
+
+	//-----------------------------------------------------------------------
+	// Persistent per-world light buffers (point/spot/area). All world lights of a
+	// type live at stable slots; counts = world totals (the GPU light grid +
+	// Scene.slang decode use them directly). Invisible lights get radius 0 so
+	// LightGridBuildPass skips them (no shader change). The per-type GPU struct
+	// build mirrors the former per-frame fill in HybridRenderer.
+	//-----------------------------------------------------------------------
+
+	static PointLight BuildPointLight(iLight* pLight)
+	{
+		PointLight pl{};
+		const cVector3f pos = pLight->GetWorldPosition();
+		pl.position[0] = pos.x; pl.position[1] = pos.y; pl.position[2] = pos.z;
+		const cColor c = pLight->GetDiffuseColor();
+		pl.color[0] = sRGBToLinear(c.r); pl.color[1] = sRGBToLinear(c.g); pl.color[2] = sRGBToLinear(c.b);
+		pl.intensity = pLight->GetIntensity();
+		pl.radius = pLight->GetRadius();
+		pl.sourceRadius = pLight->GetSourceRadius();
+		Image* gobo = pLight->GetGoboImage();
+		pl.goboTextureIndex = gobo ? gobo->GetBindlessSlot() : kInvalidTextureIndex;
+		const cMatrixf& world = pLight->GetWorldMatrix();
+		pl.worldToLightX[0] = world.m[0][0]; pl.worldToLightX[1] = world.m[0][1]; pl.worldToLightX[2] = world.m[0][2];
+		pl.worldToLightY[0] = world.m[1][0]; pl.worldToLightY[1] = world.m[1][1]; pl.worldToLightY[2] = world.m[1][2];
+		pl.worldToLightZ[0] = world.m[2][0]; pl.worldToLightZ[1] = world.m[2][1]; pl.worldToLightZ[2] = world.m[2][2];
+		if(!pLight->IsVisible()) pl.radius = 0.0f; // grid skips radius <= 0
+		return pl;
+	}
+
+	static SpotLight BuildSpotLight(iLight* pLight)
+	{
+		cLightSpot* pSpot = static_cast<cLightSpot*>(pLight);
+		SpotLight sl{};
+		const cVector3f pos = pLight->GetWorldPosition();
+		sl.position[0] = pos.x; sl.position[1] = pos.y; sl.position[2] = pos.z;
+		const cMatrixf& world = pLight->GetWorldMatrix();
+		sl.direction[0] = -world.m[0][2]; sl.direction[1] = -world.m[1][2]; sl.direction[2] = -world.m[2][2];
 		{
-			RI.graphicsDefer.push(RISharedPointer<RIBuffer>(&RI.device, *mpDecalBuffer));
-			delete mpDecalBuffer;
-			mpDecalBuffer = nullptr;
+			float len = std::sqrt(sl.direction[0]*sl.direction[0] + sl.direction[1]*sl.direction[1] + sl.direction[2]*sl.direction[2]);
+			if(len > 1e-6f) { sl.direction[0] /= len; sl.direction[1] /= len; sl.direction[2] /= len; }
 		}
-		if(mpDecalObjectIndexBuffer)
+		sl.cosOuterAngle = std::cos(pSpot->GetFOV() * 0.5f);
+		const cColor c = pLight->GetDiffuseColor();
+		sl.color[0] = sRGBToLinear(c.r); sl.color[1] = sRGBToLinear(c.g); sl.color[2] = sRGBToLinear(c.b);
+		sl.intensity = pLight->GetIntensity();
+		sl.radius = pLight->GetRadius();
+		sl.sourceRadius = pLight->GetSourceRadius();
+		Image* gobo = pLight->GetGoboImage();
+		sl.goboTextureIndex = gobo ? gobo->GetBindlessSlot() : kInvalidTextureIndex;
+		sl.shadowEnabled = pLight->GetCastShadows() ? 1u : 0u;
+		const ml::float4x4 vpF4 = cMath::ToFloatTranspose4x4(pSpot->GetViewProjMatrix());
+		std::memcpy(sl.viewProjection, vpF4.a, sizeof(sl.viewProjection));
+		if(!pLight->IsVisible()) sl.radius = 0.0f;
+		return sl;
+	}
+
+	static RectLight BuildRectLight(iLight* pLight)
+	{
+		cLightArea* pArea = static_cast<cLightArea*>(pLight);
+		RectLight al{};
+		const cVector3f pos = pLight->GetWorldPosition();
+		al.position[0] = pos.x; al.position[1] = pos.y; al.position[2] = pos.z;
+		const cColor c = pLight->GetDiffuseColor();
+		al.color[0] = sRGBToLinear(c.r); al.color[1] = sRGBToLinear(c.g); al.color[2] = sRGBToLinear(c.b);
+		al.intensity = pLight->GetIntensity();
+		al.radius = pLight->GetRadius();
+		al.width = pArea->GetWidth();
+		al.height = pArea->GetHeight();
+		al.barnDoorAngle = pArea->GetBarnDoorAngle();
+		al.barnDoorLength = pArea->GetBarnDoorLength();
+		Image* gobo = pLight->GetGoboImage();
+		al.sourceTextureIndex = gobo ? gobo->GetBindlessSlot() : kInvalidTextureIndex;
+		// UE Rect Light basis: width = local +Y (world col 1), height = local +Z
+		// (col 2), emission normal = local +X (col 0).
+		const cMatrixf& world = pLight->GetWorldMatrix();
+		al.right[0] = world.m[0][1]; al.right[1] = world.m[1][1]; al.right[2] = world.m[2][1];
+		al.up[0] = world.m[0][2]; al.up[1] = world.m[1][2]; al.up[2] = world.m[2][2];
+		al.normal[0] = world.m[0][0]; al.normal[1] = world.m[1][0]; al.normal[2] = world.m[2][0];
+		if(!pLight->IsVisible()) al.radius = 0.0f;
+		return al;
+	}
+
+	// Create + upload a full per-type light buffer (≥1 element so the binding stays
+	// valid for an empty type).
+	// Build all structs for a type and upload the whole buffer in one transaction.
+	// Used by both the bake (after allocating the buffer) and the per-frame refresh
+	// (into the existing buffer). The data is small (≤ tens of KB per type), so a
+	// bulk copy is simpler and cheaper than per-entry compare-and-patch.
+	template<typename T, typename BuildFn>
+	static void UploadLightType(const std::vector<iLight*>& slots, RIBuffer* buf, BuildFn build)
+	{
+		if(slots.empty()) return; // buffer is the 1-element placeholder
+		std::vector<T> params(slots.size());
+		for(size_t i=0; i<slots.size(); ++i) params[i] = build(slots[i]);
+		RIResourceBufferTransaction trans = {};
+		trans.target = *buf; trans.size = slots.size() * sizeof(T); trans.offset = 0;
+		trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+		trans.currentStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
+		trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
+		trans.postStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
+		RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+		std::memcpy(trans.mapped.data, params.data(), trans.size);
+		RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+	}
+
+	// Allocate a per-type light buffer (≥1 element so the binding stays valid for
+	// an empty type) and upload all its lights.
+	template<typename T, typename BuildFn>
+	static void BakeLightType(const std::vector<iLight*>& slots,
+							  RISharedPointer<RIBuffer>& buf, BuildFn build)
+	{
+		const uint32_t kSsboUsage = RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE | RI_BUFFER_USAGE_TRANSFER_DST;
+		const size_t count = slots.empty() ? (size_t)1 : slots.size();
+		buf = RISharedPointer<RIBuffer>(&RI.device, RIBuffer::create(
+			&RI.device, {(uint64_t)(count * sizeof(T)), kSsboUsage, RI_MEMORY_DEVICE, 0}));
+		UploadLightType<T>(slots, buf.Get(), build);
+	}
+
+	// Partition mlstLights by type into the three stable-order slot vectors.
+	static void PartitionLightsByType(const tLightList& lights,
+									  std::vector<iLight*>& pts, std::vector<iLight*>& sps, std::vector<iLight*>& ars)
+	{
+		pts.clear(); sps.clear(); ars.clear();
+		for(iLight* l : lights)
 		{
-			RI.graphicsDefer.push(RISharedPointer<RIBuffer>(&RI.device, *mpDecalObjectIndexBuffer));
-			delete mpDecalObjectIndexBuffer;
-			mpDecalObjectIndexBuffer = nullptr;
+			switch(l->GetLightType())
+			{
+				case eLightType_Point: pts.push_back(l); break;
+				case eLightType_Spot:  sps.push_back(l); break;
+				case eLightType_Area:  ars.push_back(l); break;
+				default: break; // cLightBox is not GPU-lit
+			}
 		}
+	}
+
+	void cWorld::BakeLightBuffers()
+	{
+		mbLightBuffersDirty = false; // consumed (cleared even if the bake early-outs)
+		DisposeLightBuffers();
+
+		// Lights are only consumed by the hybrid (main) renderer's GPU lighting.
+		cHybridRenderer* pHybrid =
+			static_cast<cHybridRenderer*>(mpGraphics->GetRenderer(eRenderer_Main));
+		if(pHybrid == nullptr)
+			return;
+
+		PartitionLightsByType(mlstLights, mvPointLights, mvSpotLights, mvAreaLights);
+		BakeLightType<PointLight>(mvPointLights, mpPointLightBuffer, BuildPointLight);
+		BakeLightType<SpotLight>(mvSpotLights, mpSpotLightBuffer, BuildSpotLight);
+		BakeLightType<RectLight>(mvAreaLights, mpAreaLightBuffer, BuildRectLight);
+	}
+
+	void cWorld::RefreshLights()
+	{
+		// Membership changed (light added/removed; init-dirty for an uncompiled
+		// world) → re-bake. Set by Create*/DestroyLight, so editor edits work too.
+		if(mbLightBuffersDirty)
+			BakeLightBuffers();
+
+		if(mpPointLightBuffer.isEmpty() && mpSpotLightBuffer.isEmpty() && mpAreaLightBuffer.isEmpty())
+			return; // bake skipped (no hybrid renderer)
+
+		// Per-frame content (move / colour / flicker): re-upload each whole per-type
+		// buffer (small) in one transaction.
+		UploadLightType<PointLight>(mvPointLights, mpPointLightBuffer.Get(), BuildPointLight);
+		UploadLightType<SpotLight>(mvSpotLights, mpSpotLightBuffer.Get(), BuildSpotLight);
+		UploadLightType<RectLight>(mvAreaLights, mpAreaLightBuffer.Get(), BuildRectLight);
+	}
+
+	void cWorld::SubmitToGpu(SceneConstants& perFrame)
+	{
+		// Single per-frame world→GPU submission, called once before any pass.
+		// 1) Bake-if-dirty + upload the persistent light/fog/decal buffers.
+		RefreshLights();
+		RefreshFogAreas();
+		RefreshDecalTextures();
+
+		// 2) Publish world-total counts — the light grid build + Scene.slang
+		//    unified-index decode read these directly.
+		perFrame.pointLightCount = GetPointLightCount();
+		perFrame.spotLightCount  = GetSpotLightCount();
+		perFrame.areaLightCount  = GetAreaLightCount();
+		perFrame.fogAreaCount    = GetFogAreaCount();
+		perFrame.decalCount      = GetDecalCount();
+
+		// No descriptor binding here. The light/fog buffers ride the dedicated
+		// per-world set kWorldSet, bound by each consuming pass via
+		// RIProgram::bindDescriptors (cached) — see appendWorldLightFog in
+		// HybridRenderer.cpp. cWorld only owns + uploads its buffers; it never
+		// touches a descriptor set. Invisible lights carry radius 0 so the grid
+		// skips them; the set-2 decal buffers are bound at the composite pass.
+	}
+
+	void cWorld::DisposeLightBuffers()
+	{
+		mvPointLights.clear(); mvSpotLights.clear(); mvAreaLights.clear();
+		if(!mpPointLightBuffer.isEmpty()) RI.graphicsDefer.push(mpPointLightBuffer);
+		mpPointLightBuffer = {};
+		if(!mpSpotLightBuffer.isEmpty()) RI.graphicsDefer.push(mpSpotLightBuffer);
+		mpSpotLightBuffer = {};
+		if(!mpAreaLightBuffer.isEmpty()) RI.graphicsDefer.push(mpAreaLightBuffer);
+		mpAreaLightBuffer = {};
 	}
 
 	//-----------------------------------------------------------------------
@@ -789,6 +1079,7 @@ namespace hpl {
 		// into eRenderListType_Decal each frame by its decal material.
 		AddRenderableToContainer(pDecal);
 
+		MarkDecalBuffersDirty(); // membership changed → re-bake the decal buffers
 		return pDecal;
 	}
 
@@ -850,6 +1141,7 @@ namespace hpl {
 
 		pLight->SetWorld(this);
 
+		MarkLightBuffersDirty(); // membership changed → re-bake the light buffers
 		return pLight;
 	}
 
@@ -873,6 +1165,7 @@ namespace hpl {
 
 		pLight->SetWorld(this);
 
+		MarkLightBuffersDirty(); // membership changed → re-bake the light buffers
 		return pLight;
 	}
 
@@ -886,6 +1179,7 @@ namespace hpl {
 
 		pLight->SetWorld(this);
 
+		MarkLightBuffersDirty(); // membership changed → re-bake the light buffers
 		return pLight;
 	}
 
@@ -899,6 +1193,7 @@ namespace hpl {
 
 		pLight->SetWorld(this);
 
+		MarkLightBuffersDirty(); // membership changed → re-bake the light buffers
 		return pLight;
 	}
 
@@ -909,6 +1204,7 @@ namespace hpl {
 		RemoveRenderableFromContainer(apLight);
 
 		STLFindAndDelete(mlstLights, apLight);
+		MarkLightBuffersDirty(); // membership changed → re-bake the light buffers
 	}
 
 	//-----------------------------------------------------------------------
@@ -1257,6 +1553,7 @@ namespace hpl {
 
 		AddRenderableToContainer(pFog);
 
+		MarkFogBufferDirty(); // membership changed → re-bake the fog buffer
 		return pFog;
 	}
 
@@ -1265,6 +1562,7 @@ namespace hpl {
 		RemoveRenderableFromContainer(apRope);
 
 		STLFindAndDelete(mlstFogAreas, apRope);
+		MarkFogBufferDirty(); // membership changed → re-bake the fog buffer
 	}
 
 	cFogArea* cWorld::GetFogArea(const tString& asName)

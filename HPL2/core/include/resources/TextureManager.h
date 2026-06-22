@@ -23,7 +23,9 @@
 #include "resources/ResourceManager.h"
 #include "resources/ResourceBase.h"
 #include "graphics/GraphicsTypes.h"
+#include "graphics/IndexPool.h"
 
+#include <cstdint>
 #include <functional>
 #include <vector>
 
@@ -80,9 +82,20 @@ namespace hpl {
 		// the per-byte total today and the old iTexture cast in Destroy() was UB for Image*.
 		int GetMemoryUsage(){ return 0; }
 
+		// === Bindless texture heap (this manager owns it) ===
+		// Return a freed slot to its pool. Called (deferred) from
+		// ReleaseImageBindlessSlot when an Image is destroyed.
+		void ReturnBindlessSlot(uint32_t slot, bool isCube, bool isArray);
+
 	private:
 		SharedResourceHandle<Image> _wrapperImageResource(const tString& asName, std::function<Image*(const tString& asName, const tWString& path, cBitmap* bitmap)> createImageHandler);
 		Image* FindImageResource(const tString &asName, tWString &asFilePath);
+
+		// Assign a lifetime-stable bindless slot to `apImage` (idempotent) and write
+		// its descriptor into the global set's textures_2d[] / textures_cube[] array.
+		void AssignBindlessSlot(Image* apImage, bool abCube);
+		// (Re)write apImage's descriptor at its slot if the active view changed.
+		void WriteImageDescriptor(Image* apImage);
 
 		tStringVec mvCubeSideSuffixes;
 
@@ -93,10 +106,23 @@ namespace hpl {
 		// the entry came from here.
 		std::vector<iResourceBase*> m_imageResources;
 
+		// Bindless slot heap: textures_2d[] (binding 0), textures_cube[] (binding 1),
+		// and textures_2d_array[] (binding 2 — one slot per animated Image, frame =
+		// layer). Slot 0 of each is reserved (never handed out) as a safe default
+		// for any errant/invalid index. A slot lives for the Image's whole lifetime.
+		IndexPool m_texture2DPool;
+		IndexPool m_textureCubePool;
+		IndexPool m_texture2DArrayPool;
+
 		cGraphics* mpGraphics;
 		cResources* mpResources;
 		cBitmapLoaderHandler *mpBitmapLoaderHandler;
 	};
+
+	// Free the bindless slot an Image holds (if any), deferred past in-flight
+	// frames. Safe to call on a manager-less / standalone Image and during engine
+	// shutdown (a missing manager just leaks the index harmlessly).
+	void ReleaseImageBindlessSlot(Image* apImage);
 
 };
 #endif // HPL_TEXTURE_MANAGER_H

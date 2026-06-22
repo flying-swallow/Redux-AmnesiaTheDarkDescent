@@ -46,13 +46,10 @@ HOST_NAMESPACE_BEGIN
 // -----------------------------------------------------------------------------
 SHARED_CONST uint kBindingTextures2D                 = 0u;
 SHARED_CONST uint kBindingTexturesCube               = 1u;
-SHARED_CONST uint kBindingTextures2DArray           = 2u;
-SHARED_CONST uint kBindingOpaquePositionHandles     = 3u;
-SHARED_CONST uint kBindingOpaqueTangentHandles      = 4u;
-SHARED_CONST uint kBindingOpaqueNormalHandles       = 5u;
-SHARED_CONST uint kBindingOpaqueUv0Handles          = 6u;
-SHARED_CONST uint kBindingOpaqueColorHandles        = 7u;
-SHARED_CONST uint kBindingOpaqueIndexHandles        = 8u;
+SHARED_CONST uint kBindingTextures2DArray           = 2u;  // Texture2DArray[] — animated images (one slot, frame = layer)
+// Bindings 3..8 were the gOpaque*Handles BDA arrays, folded into UniformObject.
+// Slot 3 is reused for the animated-texture record table; 4..8 stay free.
+SHARED_CONST uint kBindingAnimTex                    = 3u;  // StructuredBuffer<AnimTexRec> — per-2D-array-slot animation params
 SHARED_CONST uint kBindingMaterialSampler            = 9u;
 SHARED_CONST uint kBindingSurfelCounter              = 10u;
 SHARED_CONST uint kBindingSurfelBuffer               = 11u;
@@ -66,13 +63,14 @@ SHARED_CONST uint kBindingCellInfo                   = 18u;  // CellInfo (kCellC
 SHARED_CONST uint kBindingCellToSurfel              = 19u;
 SHARED_CONST uint kBindingSceneObjects               = 20u;  // UniformObject[]
 SHARED_CONST uint kBindingMaterials                  = 21u;  // MaterialDataBlob[] flat material table
-SHARED_CONST uint kBindingPointLights                = 22u;
-SHARED_CONST uint kBindingAreaLights                 = 23u;  // RWStructuredBuffer<RectLight> — rectangular area lights
+// Slots 22/23 (formerly kBindingPointLights / kBindingAreaLights on set 0) and
+// 29 (kBindingSpotLights) / 42 (kBindingFogAreas) are now free — the per-world
+// light/fog SSBOs moved to the dedicated per-world set kWorldSet. See
+// kBindingWorld* below.
 // 24/25/26 were the translucent/water/decal typed material SSBOs — folded into
 // the single MaterialDataBlob table, leaving these slots free.
 SHARED_CONST uint kBindingSurfelRefCounter          = 27u;
 SHARED_CONST uint kBindingSurfelReservation          = 28u;
-SHARED_CONST uint kBindingSpotLights                 = 29u;
 SHARED_CONST uint kBindingPackedHitInfo             = 31u;  // RGBA32UI storage image
 SHARED_CONST uint kBindingSurfelDepthMap            = 33u;  // RG32F storage image
 SHARED_CONST uint kBindingSurfelDepthSampled        = 34u;  // RG32F sampled image (filtered reads)
@@ -83,10 +81,11 @@ SHARED_CONST uint kBindingBindlessSlotGeneration      = 38u;  // per object slot
 SHARED_CONST uint kBindingSurfelSlotGeneration        = 39u;  // per surfel: anchor-slot generation captured at spawn (kTotalSurfelLimit)
 SHARED_CONST uint kBindingLightGridCount              = 40u;  // RWStructuredBuffer<uint> (kLightGridCellCount) — world-space light grid
 SHARED_CONST uint kBindingLightGridList               = 41u;  // RWStructuredBuffer<uint> (kLightGridCellCount * kLightsPerCellMax)
-SHARED_CONST uint kBindingFogAreas                    = 42u;  // RWStructuredBuffer<FogAreaParams> — per-fog-area screen-space iteration
+// Slot 42 (formerly kBindingFogAreas on set 0) is now free — fog moved to kWorldSet.
 SHARED_CONST uint kBindingPackedRefractionHitInfo     = 43u;  // RGBA32UI storage image — refracted-bounce V-buffer
 SHARED_CONST uint kBindingPackedReflectionHitInfo     = 44u;  // RGBA32UI storage image — reflected-bounce V-buffer
-SHARED_CONST uint kBindingAttenuationLut              = 45u;  // default light falloff LUT (core_falloff_linear), immutable on set 0
+// Slot 45 (formerly kBindingAttenuationLut, the light falloff LUT) is now free —
+// lighting is fully analytic (inverse-square radial + smoothstep spot cone).
 // Slots 46/47 (formerly kBindingDecals / kBindingObjectDecalIndices on set 0)
 // are now free — decal data moved to the per-world set kWorldDecalSet, baked
 // static by cWorld::Compile. See kBindingWorldDecals below.
@@ -100,6 +99,20 @@ SHARED_CONST uint kBindingDissolveMap                 = 48u;  // immutable core_
 SHARED_CONST uint kWorldDecalSet                      = 2u;
 SHARED_CONST uint kBindingWorldDecals                 = 4u;  // StructuredBuffer<GpuDecal>  — baked OOB decals
 SHARED_CONST uint kBindingWorldObjectDecalIndices     = 5u;  // StructuredBuffer<uint>      — flat per-object decal-index pool
+
+// Per-world light/fog SSBOs. These are cWorld-owned persistent per-world buffers,
+// so they ride their OWN dedicated set (kWorldSet = 3, otherwise unused) rather
+// than the engine-global bindless set 0. Every pass that reads lights/fog binds
+// this set via RIProgram::bindDescriptors (program-managed + cached: the same
+// world buffers hash to a cache hit, so the descriptor set is written once and
+// reused until a re-bake swaps a buffer). Counts still come from SceneConstants
+// on set 1. cWorld just uploads buffer CONTENTS each frame; it no longer writes
+// any descriptor set.
+SHARED_CONST uint kWorldSet                           = 3u;
+SHARED_CONST uint kBindingWorldPointLights            = 0u;  // RWStructuredBuffer<PointLight>
+SHARED_CONST uint kBindingWorldSpotLights             = 1u;  // RWStructuredBuffer<SpotLight>
+SHARED_CONST uint kBindingWorldAreaLights             = 2u;  // RWStructuredBuffer<RectLight>
+SHARED_CONST uint kBindingWorldFogAreas               = 3u;  // RWStructuredBuffer<FogAreaParams>
 
 // -----------------------------------------------------------------------------
 // Bindless pool capacities + sentinel.
@@ -131,6 +144,17 @@ SHARED_CONST uint kFogAreaCapacity           = 32u;
 SHARED_CONST uint kMaxDecals                  = 4096u;  // gDecals[] capacity (clustered OOB decals)
 SHARED_CONST uint kInvalidTextureIndex       = 0xffffffffu;
 
+// Animated textures: each animated Image is one Texture2DArray (N frames = N
+// layers) at a single bindless slot in gTextures2DArray[] (kBindingTextures2DArray).
+// The slot id is stored in a material/gobo texture index with kAnimatedTextureBit
+// set; the shader strips the bit, reads gAnimTex[slot] for {frameCount, frameTime,
+// mode}, and samples layer = animFrame(gPerFrame.afT). Mode values match the host
+// eTextureAnimMode enum (1 = Loop, 2 = Oscillate).
+SHARED_CONST uint kTexture2DArrayCapacity    = 1024u;       // animated images are few
+SHARED_CONST uint kAnimatedTextureBit        = 0x80000000u; // texture-index high bit ⇒ 2D-array slot
+SHARED_CONST uint kAnimModeLoop              = 1u;
+SHARED_CONST uint kAnimModeOscillate         = 2u;
+
 // -----------------------------------------------------------------------------
 // TLAS instance-mask categories. Each TLAS instance picks one (or more) of
 // these bits; each TraceRay / TraceRayInline passes a cull mask of the
@@ -147,7 +171,7 @@ SHARED_CONST uint kRayMaskAll                = 0xffu;
 
 // -----------------------------------------------------------------------------
 // Material-config flag bits packed into DiffuseMaterial.materialConfig by the
-// host (submitMaterial in HybridGlobalManagedSet.cpp). Single source of
+// host (submitMaterial in GlobalManagedSets.cpp). Single source of
 // truth shared with C++ via the SHARED_CONST macro — there is no separate
 // enum on the host side; the host packs these directly.
 // Shaders gate optional shading (e.g. the GGX specular lobe) on these; e.g.

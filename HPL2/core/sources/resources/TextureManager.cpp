@@ -33,18 +33,37 @@
 
 #include "graphics/Image.h"
 #include "graphics/Texture.h"
+#include "graphics/GlobalManagedSets.h"
+#include "graphics/RIBootstrap.h"
+#include "graphics/RIResourceUploader.h" // RI_ResourceBeginCopyBuffer (gAnimTex write)
+#include "graphics/RIProgram.h"
 
+#include "Constants.h"
 
 namespace hpl {
 
+	// File-scope pointer to the live texture manager so ReleaseImageBindlessSlot
+	// (called from ~Image, which has no manager reference for standalone Images)
+	// can reach the heap. One manager per engine; cleared on destruction.
+	static cTextureManager* g_textureManager = nullptr;
+
 	cTextureManager::cTextureManager(cGraphics* apGraphics,cResources *apResources)
 		: iResourceManager(apResources->GetFileSearcher(), apResources->GetLowLevel(),
-							apResources->GetLowLevelSystem())
+							apResources->GetLowLevelSystem()),
+		  m_texture2DPool(kTextureSlotCapacity),
+		  m_textureCubePool(kTextureSlotCapacity),
+		  m_texture2DArrayPool(kTexture2DArrayCapacity)
 	{
 		mpGraphics = apGraphics;
 		mpResources = apResources;
-		
+
 		mpBitmapLoaderHandler = mpResources->GetBitmapLoaderHandler();
+
+		// Reserve slot 0 of each pool as a never-handed-out safe default for any
+		// errant/invalid bindless index (PARTIALLY_BOUND leaves it unwritten).
+		m_texture2DPool.requestId();
+		m_textureCubePool.requestId();
+		m_texture2DArrayPool.requestId();
 
 		mvCubeSideSuffixes.push_back("_pos_x");
 		mvCubeSideSuffixes.push_back("_neg_x");
@@ -52,12 +71,15 @@ namespace hpl {
 		mvCubeSideSuffixes.push_back("_neg_y");
 		mvCubeSideSuffixes.push_back("_pos_z");
 		mvCubeSideSuffixes.push_back("_neg_z");
+
+		g_textureManager = this;
 	}
 
 	cTextureManager::~cTextureManager()
 	{
 		DestroyAll();
 		Log(" Destroyed all textures\n");
+		g_textureManager = nullptr;
 	}
 
 	void cTextureManager::FreeResource(iResourceBase* apResource)
@@ -92,6 +114,7 @@ namespace hpl {
 
 			AddResource(resource);
 			if(resource) m_imageResources.push_back(resource);
+			if(resource) RI.graphicsDefer.push(PinResource(resource));
 		}
 
 		if(resource) {
@@ -155,7 +178,7 @@ namespace hpl {
 
 	SharedResourceHandle<Image> cTextureManager::Create2DImage(const tString& asName,bool abUseMipMaps,eTextureType aType,
 						eTextureUsage aUsage,unsigned int alTextureSizeLevel, bool abSRGB) {
-		return _wrapperImageResource(asName, [&abUseMipMaps, &abSRGB, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
+		auto handle = _wrapperImageResource(asName, [&abUseMipMaps, &abSRGB, this](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
 				Image::SingleImage singleImage = {};
 				cTexture::BitmapLoadOptions opts = {0};
 				opts.use_mipmaps = abUseMipMaps;
@@ -167,6 +190,8 @@ namespace hpl {
 				}
 				return new Image(asName, path, std::move(singleImage));//, &cTexture::cTexture_Delete);
 		});
+		AssignBindlessSlot(handle.Get(), /*cube*/ false);
+		return handle;
 	}
 
 	SharedResourceHandle<Image> cTextureManager::Create3DImage(const tString& asName,bool abUseMipMaps, eTextureUsage aUsage,
@@ -193,7 +218,7 @@ namespace hpl {
 		// Single-file (DDS) cubemap: bitmap already contains 6 faces.
 		if(sExt == "dds")
 		{
-			return _wrapperImageResource(asPathName,
+			auto handle = _wrapperImageResource(asPathName,
 				[&abUseMipMaps, &abSRGB](const tString& asName, const tWString& path, cBitmap* pBmp) -> Image* {
 					Image::SingleImage singleImage = {};
 					cTexture::BitmapLoadOptions opts = {0};
@@ -207,6 +232,8 @@ namespace hpl {
 					}
 					return new Image(asName, path, std::move(singleImage));
 				});
+			AssignBindlessSlot(handle.Get(), /*cube*/ true);
+			return handle;
 		}
 
 		// Multi-file cubemap: discover 6 face files and aggregate them into a single cBitmap.
@@ -296,10 +323,13 @@ namespace hpl {
 			image = new Image(sName, sFakeFullPath, std::move(singleImage));
 			AddResource(image);
 			m_imageResources.push_back(image);
+			// Pin the just-uploaded Image for a frame (see _wrapperImageResource).
+			RI.graphicsDefer.push(PinResource(image));
 		}
 
 		if(image) image->AddReference();
 		EndLoad();
+		AssignBindlessSlot(image, /*cube*/ true);
 		return SharedResourceHandle<Image>(this, image); // adopt the reference taken above
 	}
 
@@ -381,45 +411,67 @@ namespace hpl {
 				vBitmaps.push_back(pBmp);
 			}
 
-			Image::AnimatedImage anim = {};
-			anim.frameTime = 1.0f;
-			anim.timeCount = 0.0f;
-			anim.timeDir = 1.0f;
-			anim.animMode = eTextureAnimMode_Loop;
-			anim.images.reserve(vBitmaps.size());
-
-			bool ok = true;
-			for(cBitmap* pBmp : vBitmaps)
+			if(aType == eTextureType_CubeMap)
 			{
+				// Animated CUBE gobos are deferred: load only frame 0 as a static
+				// cube (frozen — matching prior behaviour, since animation never
+				// advanced). A TextureCubeArray follow-up would animate these.
+				Image::SingleImage single = {};
 				cTexture::BitmapLoadOptions opts = {0};
 				opts.use_mipmaps = abUseMipMaps;
-				opts.use_cubemap = (aType == eTextureType_CubeMap);
+				opts.use_cubemap = true;
 				opts.sRGB = abSRGB;
-				cTexture tex;
-				if(!tex.LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *pBmp, opts))
-				{
-					Error("Couldn't load animation frame for '%s'!\n", sBaseName.c_str());
-					ok = false;
-					break;
-				}
-				anim.images.push_back(std::move(tex));
+				single.image.emplace();
+				bool ok = single.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *vBitmaps[0], opts);
+				for(cBitmap* pBmp : vBitmaps) hplDelete(pBmp);
+				if(!ok) { EndLoad(); return {}; }
+				image = new Image(sBaseName, sFakeFullPath, std::move(single));
 			}
-
-			for(cBitmap* pBmp : vBitmaps) hplDelete(pBmp);
-
-			if(!ok || anim.images.empty())
+			else
 			{
-				EndLoad();
-				return {};
-			}
+				// Aggregate the N frame bitmaps into one cBitmap with N images, then
+				// build a single Texture2DArray (N layers). The shader picks the
+				// current layer from gPerFrame.afT — the descriptor is written once.
+				cBitmap aggregate;
+				aggregate.SetSize(vBitmaps[0]->GetSize());
+				aggregate.SetPixelFormat(vBitmaps[0]->GetPixelFormat());
+				aggregate.SetBytesPerPixel(vBitmaps[0]->GetBytesPerPixel());
+				aggregate.SetIsCompressed(vBitmaps[0]->IsCompressed());
+				aggregate.SetFileName(cString::To16Char(sBaseName));
+				const int lMips = vBitmaps[0]->GetNumOfMipMaps();
+				aggregate.SetUpData((int)vBitmaps.size(), lMips);
+				for(size_t frame = 0; frame < vBitmaps.size(); ++frame)
+				{
+					for(int mip = 0; mip < lMips; ++mip)
+					{
+						cBitmapData* src = vBitmaps[frame]->GetData(0, mip);
+						cBitmapData* dst = aggregate.GetData((int)frame, mip);
+						if(src && dst && src->mpData) dst->SetData(src->mpData, src->mlSize);
+					}
+				}
 
-			image = new Image(sBaseName, sFakeFullPath, std::move(anim));
+				Image::AnimatedImage anim = {};
+				anim.frameCount = (uint32_t)vBitmaps.size();
+				anim.frameTime = 1.0f;
+				anim.animMode = eTextureAnimMode_Loop;
+				cTexture::BitmapLoadOptions opts = {0};
+				opts.use_mipmaps = abUseMipMaps;
+				opts.use_array = true;
+				opts.sRGB = abSRGB;
+				bool ok = anim.image.LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, aggregate, opts);
+				for(cBitmap* pBmp : vBitmaps) hplDelete(pBmp);
+				if(!ok) { EndLoad(); return {}; }
+				image = new Image(sBaseName, sFakeFullPath, std::move(anim));
+			}
 			AddResource(image);
 			m_imageResources.push_back(image);
+			// Pin the just-uploaded Image for a frame (see _wrapperImageResource).
+			RI.graphicsDefer.push(PinResource(image));
 		}
 
 		if(image) image->AddReference();
 		EndLoad();
+		AssignBindlessSlot(image, /*cube*/ aType == eTextureType_CubeMap);
 		return SharedResourceHandle<Image>(this, image); // adopt the reference taken above
 	}
 
@@ -436,12 +488,113 @@ namespace hpl {
 
 	void cTextureManager::Update(float afTimeStep)
 	{
-		// Only Create*Image-produced resources (tracked in m_imageResources)
-		// advance animation here.
-		for(iResourceBase* pBase : m_imageResources)
+		// Animated textures are Texture2DArrays whose current layer is selected
+		// in-shader from gPerFrame.afT — there is no CPU frame cursor and no
+		// per-frame descriptor rewrite (which would corrupt in-flight frames).
+		(void)afTimeStep;
+	}
+
+	//-----------------------------------------------------------------------
+	// Bindless texture heap
+	//-----------------------------------------------------------------------
+
+	void cTextureManager::AssignBindlessSlot(Image* apImage, bool abCube)
+	{
+		if(apImage == nullptr) return;
+		// Idempotent: a cache hit / reload keeps its already-assigned slot.
+		if(apImage->GetRawBindlessSlot() != kInvalidTextureIndex) return;
+
+		// Animated images are one Texture2DArray (binding 2); static images go to
+		// the 2D (binding 0) or cube (binding 1) pool.
+		const bool isArray = apImage->isAnimated();
+		IndexPool& pool = isArray ? m_texture2DArrayPool
+								   : (abCube ? m_textureCubePool : m_texture2DPool);
+		uint32_t id = pool.requestId();
+		if(id == UINT32_MAX)
 		{
-			static_cast<Image*>(pBase)->Update(afTimeStep);
+			static bool sbWarned = false;
+			if(!sbWarned) { Warning("cTextureManager: bindless texture pool exhausted; some textures will be missing\n"); sbWarned = true; }
+			return; // slot stays kInvalidTextureIndex
 		}
+		apImage->SetBindlessSlot(id, /*cube*/ isArray ? false : abCube, /*array*/ isArray);
+		WriteImageDescriptor(apImage); // view cookie was 0 → forces the one-time write
+	}
+
+	void cTextureManager::WriteImageDescriptor(Image* apImage)
+	{
+		if(apImage == nullptr) return;
+		const uint32_t slot = apImage->GetRawBindlessSlot();
+		if(slot == kInvalidTextureIndex) return;
+
+		// The global managed set is initialized in cGraphics::Init before any
+		// managed texture is created, so it is always present here (null-guard is
+		// defensive only — e.g. teardown).
+		if(RI.globalset == nullptr) return;
+		GlobalManagedSets& g = *RI.globalset;
+
+		cTexture* tex = apImage->GetTexture();
+		if(tex == nullptr) return;
+		// Already current for this view → nothing to do (write-once; animated
+		// arrays never change view).
+		if(apImage->GetBindlessViewCookie() == tex->view.cookie) return;
+
+		RIBindlessDescriptorSet::WriteBinding binding = {};
+		binding.binding = apImage->IsBindlessArray() ? kBindingTextures2DArray
+						: (apImage->IsBindlessCube()  ? kBindingTexturesCube
+													  : kBindingTextures2D);
+		binding.arrayElement = slot;
+		binding.descriptor = tex->descriptor();
+		g.m_bindlessSet.writeDescriptors(&RI.device, {&binding, 1});
+		apImage->SetBindlessViewCookie(tex->view.cookie);
+
+		// Animated: write the per-slot animation record once so the shader can pick
+		// the layer from gPerFrame.afT (gAnimTex[slot] = {frameCount, frameTime, mode}).
+		if(apImage->IsBindlessArray())
+		{
+			AnimTexRec rec = {};
+			rec.frameCount = apImage->GetAnimFrameCount();
+			rec.frameTime = apImage->GetFrameTime();
+			rec.mode = (apImage->GetAnimMode() == eTextureAnimMode_Oscillate)
+						 ? kAnimModeOscillate : kAnimModeLoop;
+			RIResourceBufferTransaction trans = {};
+			trans.target = g.m_animTexBuffer;
+			trans.size = sizeof(AnimTexRec);
+			trans.offset = (size_t)slot * sizeof(AnimTexRec);
+			trans.currentState = RI_RESOURCE_STATE_SHADER_RESOURCE;
+			trans.currentStages = RI_STAGE_ALL_SHADER;
+			trans.postState = RI_RESOURCE_STATE_SHADER_RESOURCE;
+			trans.postStages = RI_STAGE_ALL_SHADER;
+			RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+			std::memcpy(trans.mapped.data, &rec, sizeof(rec));
+			RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+		}
+	}
+
+
+	void cTextureManager::ReturnBindlessSlot(uint32_t slot, bool isCube, bool isArray)
+	{
+		if(slot == kInvalidTextureIndex) return;
+		(isArray ? m_texture2DArrayPool
+				 : (isCube ? m_textureCubePool : m_texture2DPool)).returnId(slot);
+	}
+
+	// Free function: reachable from ~Image (which has no manager pointer for
+	// standalone Images). Defers the index return past in-flight frames so a new
+	// texture can't grab the slot while old frames still read its descriptor.
+	void ReleaseImageBindlessSlot(Image* apImage)
+	{
+		if(apImage == nullptr) return;
+		const uint32_t slot = apImage->GetRawBindlessSlot();
+		if(slot == kInvalidTextureIndex) return;
+		const bool cube = apImage->IsBindlessCube();
+		const bool arr  = apImage->IsBindlessArray();
+		apImage->SetBindlessSlot(kInvalidTextureIndex, cube, arr);
+		RI.graphicsDefer.push(std::function<void()>([slot, cube, arr]() {
+			// Look up the manager at drain time; null at engine shutdown, in which
+			// case leaking the index is harmless (the pool is being destroyed).
+			if(cTextureManager* mgr = g_textureManager)
+				mgr->ReturnBindlessSlot(slot, cube, arr);
+		}));
 	}
 
 	//-----------------------------------------------------------------------

@@ -2,7 +2,7 @@
 #define HPL_RENDERER_HYBRID_H
 
 #include "graphics/BindlessPool.h"
-#include "graphics/HybridGlobalManagedSet.h"
+#include "graphics/GlobalManagedSets.h"
 #include "graphics/HPLGraphicsConfig.h"
 #include "graphics/Material.h"
 #include "graphics/RenderList.h"
@@ -56,21 +56,10 @@ public:
 
   void SetOverlay(int alOverlay) { m_overlayMode = (uint32_t)alOverlay; }
 
-  // The global bindless managed set (set 0). Exposed so cWorld::Compile can pin
-  // decal diffuse textures into persistent slots while baking the per-world decal
-  // buffers (the only field of GpuDecal that would otherwise need a per-frame
-  // bindless resolve).
-  HybridGlobalManagedSet &GetGlobalManagedSet() { return m_global; }
-
 private:
-  // Owns set 0 — the global bindless descriptor set and every buffer bound to
-  // it. The resolve* / flushMirrors operations and all set-0 buffers live here;
-  // Draw() pushes per-frame data into m_global (public members).
-  HybridGlobalManagedSet m_global;
-
   cRenderList2 m_rendererList;
 
-  // The object-slot cache now lives in m_global (HybridGlobalManagedSet::
+  // The object-slot cache now lives in m_global (GlobalManagedSets::
   // m_objectSlots); submitObject() owns slot allocation + the slot-generation
   // bump (on new occupant / index-count change / VB destroy), so the renderer no
   // longer holds the cache, the per-slot hooks, or a geometry-dirty array.

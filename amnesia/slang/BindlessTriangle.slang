@@ -45,11 +45,14 @@ public struct BindlessTriangleVtx
 // reconstructor stays branch-identical across the two paths.
 public void fetchBindlessTriangle(uint instanceId, uint primId, out BindlessTriangleVtx vtx)
 {
-    uint64_t indexAddr = gOpaqueIndexHandles[instanceId];
-    uint64_t posAddr   = gOpaquePositionHandles[instanceId];
-    uint64_t nrmAddr   = gOpaqueNormalHandles[instanceId];
-    uint64_t tanAddr   = gOpaqueTangentHandles[instanceId];
-    uint64_t uvAddr    = gOpaqueUv0Handles[instanceId];
+    // Stream BDAs now live in the per-object UniformObject (folded in from the
+    // former gOpaque*Handles buffers — same per-slot index).
+    UniformObject obj  = gSceneObjects[instanceId];
+    uint64_t indexAddr = obj.indexHandle;
+    uint64_t posAddr   = obj.posHandle;
+    uint64_t nrmAddr   = obj.normalHandle;
+    uint64_t tanAddr   = obj.tangentHandle;
+    uint64_t uvAddr    = obj.uv0Handle;
 
     uint idxBase = primId * 3u;
     uint3 tri = uint3(idxBase, idxBase + 1u, idxBase + 2u);

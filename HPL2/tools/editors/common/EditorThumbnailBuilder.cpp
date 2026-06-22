@@ -125,9 +125,9 @@ cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 	// copy after delivery.
 	if(!CreateViewportColorTexture(&RI.device, kThumbnailSize, kThumbnailSize,
 								   RI_FORMAT_RGBA8_SRGB,
-								   VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-								   VK_IMAGE_USAGE_SAMPLED_BIT |
-								   VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+								   RI_USAGE_COLOR_ATTACHMENT |
+								   RI_USAGE_SHADER_RESOURCE |
+								   RI_USAGE_TRANSFER_SRC,
 								   &mTargetTexture, &mTargetView,
 								   "EditorThumbnail"))
 	{

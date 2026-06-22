@@ -49,10 +49,14 @@ ParticleVSOut vsMain(uint vertexId : SV_VertexID,
     // gl_InstanceIndex by summing. Same fix as SurfelGBuffer.3d.slang.
     uint instanceId = drawInst + baseInst;
 
-    uint64_t indexAddr = gOpaqueIndexHandles[instanceId];
-    uint64_t posAddr   = gOpaquePositionHandles[instanceId];
-    uint64_t uv0Addr   = gOpaqueUv0Handles[instanceId];
-    uint64_t colAddr   = gOpaqueColorHandles[instanceId];
+    // Stream BDAs now live in the per-object UniformObject (folded in from the
+    // former gOpaque*Handles buffers — for particles these point at the
+    // per-viewport translucent scratch ring, written via ObjectSubmitDesc).
+    UniformObject obj  = gSceneObjects[instanceId];
+    uint64_t indexAddr = obj.indexHandle;
+    uint64_t posAddr   = obj.posHandle;
+    uint64_t uv0Addr   = obj.uv0Handle;
+    uint64_t colAddr   = obj.colorHandle;
 
     uint idx = (indexAddr != 0ull)
         ? ((uint*)indexAddr)[vertexId]
@@ -68,7 +72,6 @@ ParticleVSOut vsMain(uint vertexId : SV_VertexID,
         ? ((float4*)colAddr)[idx]
         : float4(1.0f);
 
-    UniformObject obj     = gSceneObjects[instanceId];
     float4x4 modelView    = mul(gPerFrame.viewMat, obj.modelMat);
     float4x4 modelViewPrj = mul(gPerFrame.projMat, modelView);
 

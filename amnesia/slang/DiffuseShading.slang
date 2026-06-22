@@ -49,15 +49,13 @@ public DiffuseShading prepareDiffuseShading(VertexData v, uint materialID,
     if (diffuseTex == kInvalidTextureIndex)
         sd.albedo = float3(0.5f);
     else
-        sd.albedo = gTextures2D[NonUniformResourceIndex(diffuseTex)]
-                        .SampleLevel(gMaterialSampler, v.texC, 0.0f).rgb;
+        sd.albedo = sampleBindless2DLevel(diffuseTex, v.texC, 0.0f).rgb;
 
     uint illumTex = m.tex[5];
     if (illumTex == kInvalidTextureIndex || illuminationAmount <= 0.f)
         sd.emission = float3(0.f);
     else
-        sd.emission = gTextures2D[NonUniformResourceIndex(illumTex)]
-                          .SampleLevel(gMaterialSampler, v.texC, 0.0f).rgb
+        sd.emission = sampleBindless2DLevel(illumTex, v.texC, 0.0f).rgb
                       * illuminationAmount;
 
     sd.rough = decodeRoughness ? decodeMaterialRoughness(m, v.texC)

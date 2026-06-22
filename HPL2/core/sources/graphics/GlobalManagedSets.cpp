@@ -1,4 +1,4 @@
-#include "graphics/HybridGlobalManagedSet.h"
+#include "graphics/GlobalManagedSets.h"
 
 #include "graphics/Image.h"
 #include "graphics/Material.h"
@@ -19,17 +19,15 @@
 
 namespace hpl {
 
-HybridGlobalManagedSet::HybridGlobalManagedSet()
+GlobalManagedSets::GlobalManagedSets()
     : m_objectSlots(kObjectSlotCapacity, /*frameInFlight*/ 0),
-      m_materialBindless(kMaterialCapacity, RI_NUMBER_FRAMES_FLIGHT),
-      m_textureBindless(kTextureSlotCapacity, RI_NUMBER_FRAMES_FLIGHT),
-      m_textureCubeBindless(kTextureSlotCapacity, RI_NUMBER_FRAMES_FLIGHT) {}
+      m_materialBindless(kMaterialCapacity, RI_NUMBER_FRAMES_FLIGHT) {}
 
 // Out-of-line so the SharedResourceHandle<Image> members release here, where
 // Image is complete.
-HybridGlobalManagedSet::~HybridGlobalManagedSet() = default;
+GlobalManagedSets::~GlobalManagedSets() = default;
 
-void HybridGlobalManagedSet::initialize(RIDevice *device,
+void GlobalManagedSets::initialize(RIDevice *device,
                                         cResources *resources) {
   {
     std::vector<RIBindlessDescriptorSet::Binding> bindings = {};
@@ -56,14 +54,20 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
         kTextureSlotCapacity, kRtSharedStages,
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
             VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT});
-    // opaque*Handles bindings 3..8 — vertex pulling for the gbuffer VS,
-    // triangle fetch in the composite, and barycentric hit fetches in the RT
-    // pipeline.
-    for (uint32_t i = 0; i < 6; ++i) {
-      bindings.push_back(RIBindlessDescriptorSet::Binding{
-          kBindingOpaquePositionHandles + i,
-          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kRtSharedStages, 0});
-    }
+    // textures_2d_array[] — one Texture2DArray per animated image (frame = layer).
+    // cTextureManager writes a slot's descriptor once at load (update-after-bind).
+    bindings.push_back(RIBindlessDescriptorSet::Binding{
+        kBindingTextures2DArray, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+        kTexture2DArrayCapacity, kRtSharedStages,
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT |
+            VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT});
+    // gAnimTex — per-2D-array-slot animation record (frameCount/frameTime/mode),
+    // read by the bindless sample helper. One bound buffer (contents written by
+    // cTextureManager via the uploader; descriptor written once below).
+    bindings.push_back(RIBindlessDescriptorSet::Binding{
+        kBindingAnimTex, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kRtSharedStages, 0});
+    // (Former opaque*Handles bindings 3..8 removed — the per-stream BDAs now
+    // live in UniformObject; those binding slots are unused/reserved.)
     // materialSampler — paired with textures_2d at every sample site.
     bindings.push_back(RIBindlessDescriptorSet::Binding{
         kBindingMaterialSampler, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
@@ -99,36 +103,16 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
       bindings.push_back(RIBindlessDescriptorSet::Binding{
           b, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kRtSharedStages, 0});
     }
-    // Point/spot-light SSBOs — read by the composite and the path-tracer (NEE).
-    bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingPointLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-        kRtSharedStages, 0});
-    bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingSpotLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-        kRtSharedStages, 0});
-    bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingAreaLights, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-        kRtSharedStages, 0});
-    bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingFogAreas, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
-        kRtSharedStages, 0});
+    // Point/spot/area lights and fog areas no longer live on set 0. They are
+    // cWorld-owned persistent per-world buffers bound on the dedicated per-world
+    // set kWorldSet (program-managed + cached) by every pass that reads them —
+    // see appendWorldLightFog in HybridRenderer.cpp. set 0 stays pure engine state.
 
     // gSurfelDepthSampler stays on set 0 — immutable, never collides with the
     // in-flight frame. The surfel images + TLAS live on set 1 instead, pushed
     // per-dispatch from a frame-rotated pool (see RIProgram::bindDescriptors).
     bindings.push_back(RIBindlessDescriptorSet::Binding{
         kBindingSurfelDepthSampler, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
-        VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-            VK_SHADER_STAGE_RAYGEN_BIT_KHR |
-            VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-            VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
-        0});
-
-    // Default light falloff LUT (core_falloff_linear) — one immutable sampled
-    // image on set 0, written once at init; replaces the per-light bindless
-    // resolve of the attenuation texture.
-    bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingAttenuationLut, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
         VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
             VK_SHADER_STAGE_RAYGEN_BIT_KHR |
             VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
@@ -148,15 +132,14 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
         0});
 
     VkDescriptorPoolSize poolSizes[3] = {};
-    // Sampled-image budget covers textures_2d[] + textures_cube[] + the
-    // global attenuation LUT + the dissolve noise map.
+    // Sampled-image budget covers textures_2d[] + textures_cube[] +
+    // textures_2d_array[] + the dissolve noise map.
     poolSizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
-                                        kTextureSlotCapacity * 2 + 2};
-    // Storage-buffer pool budget: 6 opaque*Handles + 17 surfel/cell bindings
-    // (kSurfelCellBindings, incl. kBindingSurfelBounds, the two slot-generation
-    // buffers, and the two light-grid buffers) + 2 scene/material + 3 light
-    // SSBOs + 1 fog-area + 1 water-material + 3 decal (gDecals + the two decal-
-    // grid buffers) = 33. Round up to 40 for slack.
+                                        kTextureSlotCapacity * 2 + kTexture2DArrayCapacity + 2};
+    // Storage-buffer pool budget: 17 surfel/cell bindings (kSurfelCellBindings,
+    // incl. kBindingSurfelBounds, the two slot-generation buffers, and the two
+    // light-grid buffers) + 2 scene/material + 1 animTex ≈ 20. The per-world
+    // light/fog SSBOs are no longer here (they ride kWorldSet). 40 keeps slack.
     poolSizes[1] =
         VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 40};
     // Two samplers: gMaterialSampler + gSurfelDepthSampler.
@@ -172,24 +155,14 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
   m_objectBuffer = detail::CreateBindlessSlotBuffer(
       device, kObjectSlotCapacity, sizeof(UniformObject), kStorage,
       /*deviceLocalOnly*/ true);
-  m_opaquePositionHandles = detail::CreateBindlessSlotBuffer(
-      device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
-      /*deviceLocalOnly*/ true);
-  m_opaqueTangentHandles = detail::CreateBindlessSlotBuffer(
-      device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
-      /*deviceLocalOnly*/ true);
-  m_opaqueNormalHandles = detail::CreateBindlessSlotBuffer(
-      device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
-      /*deviceLocalOnly*/ true);
-  m_opaqueUv0Handles = detail::CreateBindlessSlotBuffer(
-      device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
-      /*deviceLocalOnly*/ true);
-  m_opaqueColorHandles = detail::CreateBindlessSlotBuffer(
-      device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
-      /*deviceLocalOnly*/ true);
-  m_opaqueIndexHandles = detail::CreateBindlessSlotBuffer(
-      device, kObjectSlotCapacity, sizeof(VkDeviceAddress), kStorage,
-      /*deviceLocalOnly*/ true);
+  // (The six per-stream BDA handle buffers are gone — their addresses now ride
+  // the UniformObject in m_objectBuffer.)
+
+  // Per-2D-array-slot animation record table (gAnimTex). Contents written by
+  // cTextureManager (uploader copies) when an animated image is assigned its slot.
+  m_animTexBuffer = RIBuffer::create(
+      device, {(uint64_t)kTexture2DArrayCapacity * sizeof(AnimTexRec), kStorage,
+               RI_MEMORY_DEVICE, 0});
 
   // === SurfelGI SSBOs ===
   // Sizes from the kSurfel* / kCell* / kRayBudget constants:
@@ -289,24 +262,12 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
   std::memset(m_surfelSlotGenerationBuffer.mappedAddress, 0,
               (size_t)kTotalSurfelLimit * sizeof(uint32_t));
 
-  // Shadow mirrors for the seven device-local bindless slot buffers. All host
-  // writes target these (never GPU-mapped memory); flushMirrors() stages the
-  // dirty range once per frame. markAllDirty() seeds the device buffers from
-  // the zeroed shadow on the first frame, giving a clean device == mirror
-  // invariant for every slot.
-  m_opaquePositionMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
-  m_opaqueTangentMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
-  m_opaqueNormalMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
-  m_opaqueUv0Mirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
-  m_opaqueColorMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
-  m_opaqueIndexMirror.init(kObjectSlotCapacity, sizeof(VkDeviceAddress));
+  // Shadow mirror for the device-local slot-generation buffer. Host writes
+  // target this (never GPU-mapped memory); flushMirrors() stages the dirty range
+  // once per frame. markAllDirty() seeds the device buffer from the zeroed shadow
+  // on the first frame, giving a clean device == mirror invariant for every slot.
+  // (Per-stream BDA handles now ride the UniformObject upload — no mirrors.)
   m_bindlessSlotGenerationMirror.init(kObjectSlotCapacity, sizeof(uint32_t));
-  m_opaquePositionMirror.markAllDirty();
-  m_opaqueTangentMirror.markAllDirty();
-  m_opaqueNormalMirror.markAllDirty();
-  m_opaqueUv0Mirror.markAllDirty();
-  m_opaqueColorMirror.markAllDirty();
-  m_opaqueIndexMirror.markAllDirty();
   m_bindlessSlotGenerationMirror.markAllDirty();
 
   // Boot-seed the device-local surfel counter: init() zero-fills, then set
@@ -322,22 +283,9 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
   // bindless slot buffers above these are device-local — the per-frame fill in
   // Draw() stages through RI.uploader rather than memcpy'ing into mapped memory
   // the GPU may still be reading from a prior frame.
-  {
-    const uint32_t kSsboUsage = RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE |
-                                RI_BUFFER_USAGE_TRANSFER_DST;
-    m_pointLightBuffer = RIBuffer::create(
-        device, {(uint64_t)kPointSlotLightCapacity * sizeof(PointLight),
-                 kSsboUsage, RI_MEMORY_DEVICE, 0});
-    m_spotLightBuffer = RIBuffer::create(
-        device, {(uint64_t)kSpotSlotLightCapacity * sizeof(SpotLight),
-                 kSsboUsage, RI_MEMORY_DEVICE, 0});
-    m_areaLightBuffer = RIBuffer::create(
-        device, {(uint64_t)kAreaSlotLightCapacity * sizeof(RectLight),
-                 kSsboUsage, RI_MEMORY_DEVICE, 0});
-    m_fogAreaBuffer = RIBuffer::create(
-        device, {(uint64_t)kFogAreaCapacity * sizeof(FogAreaParams), kSsboUsage,
-                 RI_MEMORY_DEVICE, 0});
-  }
+  // Point/spot/area light buffers and the fog buffer are no longer owned here —
+  // cWorld owns them as persistent per-world buffers on the per-world set
+  // kWorldSet, bound by each consuming pass.
 
   // One flat material table (Falcor MaterialSystem model): a fixed-size
   // MaterialDataBlob per slot, indexed by a flat materialID. submitMaterial packs
@@ -357,24 +305,11 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
       eTextureFilter_Trilinear);
 
   {
-    const VkDeviceSize kOpaqueHandleRange =
-        kObjectSlotCapacity * sizeof(VkDeviceAddress);
     const struct {
       uint32_t binding;
       RIBuffer *buffer;
       VkDeviceSize range;
     } ssbos[] = {
-        {kBindingOpaquePositionHandles, &m_opaquePositionHandles,
-         kOpaqueHandleRange},
-        {kBindingOpaqueTangentHandles, &m_opaqueTangentHandles,
-         kOpaqueHandleRange},
-        {kBindingOpaqueNormalHandles, &m_opaqueNormalHandles,
-         kOpaqueHandleRange},
-        {kBindingOpaqueUv0Handles, &m_opaqueUv0Handles, kOpaqueHandleRange},
-        {kBindingOpaqueColorHandles, &m_opaqueColorHandles,
-         kOpaqueHandleRange},
-        {kBindingOpaqueIndexHandles, &m_opaqueIndexHandles,
-         kOpaqueHandleRange},
         {kBindingSurfelCounter, &m_surfelCounterBuffer,
          kSurfelCounterSlotCount * sizeof(uint32_t)},
         {kBindingSurfelBuffer, &m_surfelBuffer,
@@ -413,14 +348,10 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
          kObjectSlotCapacity * sizeof(UniformObject)},
         {kBindingMaterials, &m_materialBuffer,
          kMaterialCapacity * sizeof(MaterialDataBlob)},
-        {kBindingPointLights, &m_pointLightBuffer,
-         kPointSlotLightCapacity * sizeof(PointLight)},
-        {kBindingSpotLights, &m_spotLightBuffer,
-         kSpotSlotLightCapacity * sizeof(SpotLight)},
-        {kBindingAreaLights, &m_areaLightBuffer,
-         kAreaSlotLightCapacity * sizeof(RectLight)},
-        {kBindingFogAreas, &m_fogAreaBuffer,
-         kFogAreaCapacity * sizeof(FogAreaParams)},
+        {kBindingAnimTex, &m_animTexBuffer,
+         kTexture2DArrayCapacity * sizeof(AnimTexRec)},
+        // The per-world light/fog SSBOs are not here — they ride kWorldSet, bound
+        // per-pass from cWorld's persistent buffers.
     };
 
     RIBindlessDescriptorSet::WriteBinding writes[std::size(ssbos) + 4] = {};
@@ -448,23 +379,8 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
       writes[count].descriptor = *surfelDepthDesc;
       count++;
     }
-    // gAttenuationLut — the default light falloff LUT (core_falloff_linear),
-    // bound once here. It's identical for every light and never changes, so it
-    // lives on set 0 instead of being resolved per-light through the bindless
-    // texture pool. Create1DImage yields a 2D Nx1 texture with a 2D view, so it
-    // samples fine as Texture2D in the shader.
-    m_attenuationLut =
-        resources->GetTextureManager()->Create1DImage("core_falloff_linear", false);
-    if (auto lutTex = m_attenuationLut ? m_attenuationLut->GetTexture() : nullptr) {
-      writes[count].binding = kBindingAttenuationLut;
-      writes[count].arrayElement = 0;
-      writes[count].descriptor = lutTex->descriptor();
-      count++;
-    } else {
-      Warning("Failed to load core_falloff_linear; light attenuation LUT unbound\n");
-    }
     // gDissolveMap — the legacy 128×128 dissolve noise (solid_z.frag.fsl),
-    // bound once here like the attenuation LUT. UV-sampled by the shared
+    // bound once here on set 0. UV-sampled by the shared
     // SceneMaterials.alphaTest for the CoverageAmount fade.
     m_dissolveMap =
         resources->GetTextureManager()->Create2DImage("core_dissolve.tga", false);
@@ -481,66 +397,14 @@ void HybridGlobalManagedSet::initialize(RIDevice *device,
   }
 }
 
-uint32_t HybridGlobalManagedSet::resolveTextureSlot(
-    RIBootstrap::FrameContext *cntx, Image *img, uint32_t frameIndex) {
-  if (!img)
-    return kInvalidTextureIndex;
-  auto texture = img->GetTexture();
-  if (!texture)
-    return kInvalidTextureIndex;
-  hash_t texture_cookie =
-      hash_u64(HASH_INITIAL_VALUE, img->GetUniqueCookie());
-  texture_cookie = hash_u64(texture_cookie, texture->view.cookie);
-  auto req = m_textureBindless.request(texture_cookie, frameIndex);
-  if (req.exhausted)
-    return kInvalidTextureIndex;
-  RI.graphicsDefer.push(PinResource(img));
-  // BindlessPool reports `found == true` only when the same cookie still
-  // owns the slot. Fresh allocations and LRU recycles both come back with
-  // `found == false`, so that's when we (re)stage the descriptor write at
-  // textures_2d[req.id] (set 0, binding 0).
-  if (!req.found) {
-    RIBindlessDescriptorSet::WriteBinding binding = {};
-    binding.binding = 0;
-    binding.arrayElement = req.id;
-    binding.descriptor = texture->descriptor();
-    m_bindlessSet.writeDescriptors(&RI.device, {&binding, 1});
-  }
-  return req.id;
-}
-
-uint32_t HybridGlobalManagedSet::resolveCubeTextureSlot(
-    RIBootstrap::FrameContext *cntx, Image *img, uint32_t frameIndex) {
-  if (!img)
-    return kInvalidTextureIndex;
-  auto texture = img->GetTexture();
-  if (!texture)
-    return kInvalidTextureIndex;
-
-  // Same view-identity fold as resolveTextureSlot: keep animated cube Images from
-  // freezing on their first frame's imageView (texture->cookie tracks the view).
-  hash_t texture_cookie =
-      hash_u64(HASH_INITIAL_VALUE, img->GetUniqueCookie());
-  texture_cookie = hash_u64(texture_cookie, texture->view.cookie);
-  auto req = m_textureCubeBindless.request(texture_cookie, frameIndex);
-  if (req.exhausted)
-    return kInvalidTextureIndex;
-  RI.graphicsDefer.push(PinResource(img));
-  if (!req.found) {
-    RIBindlessDescriptorSet::WriteBinding binding = {};
-    binding.binding = kBindingTexturesCube;
-    binding.arrayElement = req.id;
-    binding.descriptor = texture->descriptor();
-    m_bindlessSet.writeDescriptors(&RI.device, {&binding, 1});
-  }
-  return req.id;
-}
-
-HybridGlobalManagedSet::MaterialSubmitResult
-HybridGlobalManagedSet::submitMaterial(RIBootstrap::FrameContext *cntx,
+GlobalManagedSets::MaterialSubmitResult
+GlobalManagedSets::submitMaterial(RIBootstrap::FrameContext *cntx,
                                        cMaterial *mat, uint32_t frameIndex) {
+  // cTextureManager stamps each Image with a lifetime-stable bindless slot at
+  // load (binding 0 = textures_2d[], binding 1 = textures_cube[]); just read it.
   auto slotFor = [&](eMaterialTexture type) -> uint32_t {
-    return resolveTextureSlot(cntx, mat->GetImage(type), frameIndex);
+    Image *img = mat->GetImage(type);
+    return img ? img->GetBindlessSlot() : kInvalidTextureIndex;
   };
 
   // tex[] order must match the DiffuseMaterial struct in SceneTypes.slang.
@@ -554,10 +418,13 @@ HybridGlobalManagedSet::submitMaterial(RIBootstrap::FrameContext *cntx,
   gpu.tex[5] = slotFor(eMaterialTexture_Illumination);
   gpu.tex[6] = slotFor(eMaterialTexture_DissolveAlpha);
   gpu.tex[7] = slotFor(eMaterialTexture_CubeMapAlpha);
-  // Reflection cube map — separate bindless table (textures_cube[]), so resolve
-  // via the cube allocator rather than slotFor (2D-only); stored outside tex[].
-  gpu.cubeMapTextureIndex = resolveCubeTextureSlot(
-      cntx, mat->GetImage(eMaterialTexture_CubeMap), frameIndex);
+  // Reflection cube map — separate bindless table (textures_cube[]). A cube
+  // Image's slot indexes textures_cube[] (cTextureManager assigned it from the
+  // cube pool), so the same GetBindlessSlot() read works here; stored outside tex[].
+  {
+    Image *cubeImg = mat->GetImage(eMaterialTexture_CubeMap);
+    gpu.cubeMapTextureIndex = cubeImg ? cubeImg->GetBindlessSlot() : kInvalidTextureIndex;
+  }
 
 
   auto isSingleChannel = [](const Image *image) {
@@ -680,7 +547,7 @@ HybridGlobalManagedSet::submitMaterial(RIBootstrap::FrameContext *cntx,
       mat->Data());
 }
 
-uint32_t HybridGlobalManagedSet::submitObject(uint64_t objectCookie,
+uint32_t GlobalManagedSets::submitObject(uint64_t objectCookie,
                                               uint32_t frameIndex,
                                               cVertexBuffer *vb,
                                               const ObjectSubmitDesc &desc,
@@ -745,6 +612,46 @@ uint32_t HybridGlobalManagedSet::submitObject(uint64_t objectCookie,
     const ml::float4x4 uvF4 = cMath::ToFloatTranspose4x4(desc.uvMatrix);
     std::memcpy(payload.uvMat, uvF4.a, sizeof(payload.uvMat));
 
+    // Per-stream vertex/index BDAs, folded into the UniformObject (were the six
+    // gOpaque*Handles buffers). Priority: explicit override (particles → scratch
+    // ring) > derive from vb (vertex-pull passes; absent stream/flag → 0) > carry
+    // forward the slot's existing handles (data-only passes that bind raw
+    // VkBuffers — don't zero a slot a handle-reading pass populated). Rewritten
+    // every frame so a SubmitToGPU realloc can't dangle them; the memcmp-skip
+    // below keeps a stable-source object's upload skipped after frame 0.
+    if (desc.streamHandles.set) {
+      payload.posHandle     = desc.streamHandles.pos;
+      payload.normalHandle  = desc.streamHandles.normal;
+      payload.tangentHandle = desc.streamHandles.tangent;
+      payload.uv0Handle     = desc.streamHandles.uv0;
+      payload.colorHandle   = desc.streamHandles.color;
+      payload.indexHandle   = desc.streamHandles.index;
+    } else if (vb && (flags & (kSubmitVertex | kSubmitIndex))) {
+      auto bdaOf = [&](eVertexBufferElement type) -> uint64_t {
+        const auto *element = vb->GetElement(type);
+        RIBuffer *buf = element ? element->GetBuffer() : nullptr;
+        return buf ? buf->GetDeviceHandle(&RI.device) : 0;
+      };
+      if (flags & kSubmitVertex) {
+        payload.posHandle     = bdaOf(eVertexBufferElement_Position);
+        payload.normalHandle  = bdaOf(eVertexBufferElement_Normal);
+        payload.tangentHandle = bdaOf(eVertexBufferElement_Texture1Tangent);
+        payload.colorHandle   = bdaOf(eVertexBufferElement_Color0);
+        payload.uv0Handle     = bdaOf(eVertexBufferElement_Texture0);
+      }
+      if (flags & kSubmitIndex)
+        payload.indexHandle = vb->GetIndexRIBuffer()
+                                  ? vb->GetIndexRIBuffer()->GetDeviceHandle(&RI.device)
+                                  : 0;
+    } else if (req.found) {
+      payload.posHandle     = req.state->lastPayload.posHandle;
+      payload.normalHandle  = req.state->lastPayload.normalHandle;
+      payload.tangentHandle = req.state->lastPayload.tangentHandle;
+      payload.uv0Handle     = req.state->lastPayload.uv0Handle;
+      payload.colorHandle   = req.state->lastPayload.colorHandle;
+      payload.indexHandle   = req.state->lastPayload.indexHandle;
+    }
+
     // Permissive upload: a new occupant (!found, so lastPayload still belongs to
     // the prior object — guard with req.found) or any field change re-stages; an
     // unchanged static object skips the uploader entirely. m_objectBuffer is a
@@ -767,52 +674,17 @@ uint32_t HybridGlobalManagedSet::submitObject(uint64_t objectCookie,
     }
   }
 
-  // kSubmitVertex / kSubmitIndex: fan the VB's per-stream device addresses into
-  // the parallel opaque*Handles mirrors at this slot, for bindless vertex pulling
-  // (gbuffer VS / surfel-RT chit / particle VS). Absent streams resolve to 0.
-  // Rewritten every frame: a SubmitToGPU realloc hands back a new device address,
-  // so a once-only write would leave a slot pointing at a freed buffer.
-  if (vb && (flags & (kSubmitVertex | kSubmitIndex))) {
-    auto bdaOf = [&](eVertexBufferElement type) -> VkDeviceAddress {
-      const auto *element = vb->GetElement(type);
-      RIBuffer *buf = element ? element->GetBuffer() : nullptr;
-      return buf ? buf->GetDeviceHandle(&RI.device) : 0;
-    };
-    if (flags & kSubmitVertex) {
-      m_opaquePositionMirror.write<VkDeviceAddress>(
-          slot, bdaOf(eVertexBufferElement_Position));
-      m_opaqueNormalMirror.write<VkDeviceAddress>(
-          slot, bdaOf(eVertexBufferElement_Normal));
-      m_opaqueTangentMirror.write<VkDeviceAddress>(
-          slot, bdaOf(eVertexBufferElement_Texture1Tangent));
-      m_opaqueColorMirror.write<VkDeviceAddress>(
-          slot, bdaOf(eVertexBufferElement_Color0));
-      m_opaqueUv0Mirror.write<VkDeviceAddress>(
-          slot, bdaOf(eVertexBufferElement_Texture0));
-    }
-    if (flags & kSubmitIndex) {
-      const VkDeviceAddress idxAddr =
-          vb->GetIndexRIBuffer()
-              ? vb->GetIndexRIBuffer()->GetDeviceHandle(&RI.device)
-              : 0;
-      m_opaqueIndexMirror.write<VkDeviceAddress>(slot, idxAddr);
-    }
-  }
+  // (The per-stream BDA handles are now part of the UniformObject payload built
+  // above, staged in the single m_objectBuffer[slot] copy — no separate buffers.)
   return slot;
 }
 
-void HybridGlobalManagedSet::flushMirrors(RIDevice *device) {
+void GlobalManagedSets::flushMirrors(RIDevice *device) {
   struct Item {
     RIBuffer *buf;
     BindlessShadowMirror *mir;
   };
   const Item items[] = {
-      {&m_opaquePositionHandles, &m_opaquePositionMirror},
-      {&m_opaqueTangentHandles, &m_opaqueTangentMirror},
-      {&m_opaqueNormalHandles, &m_opaqueNormalMirror},
-      {&m_opaqueUv0Handles, &m_opaqueUv0Mirror},
-      {&m_opaqueColorHandles, &m_opaqueColorMirror},
-      {&m_opaqueIndexHandles, &m_opaqueIndexMirror},
       {&m_bindlessSlotGenerationBuffer, &m_bindlessSlotGenerationMirror},
       // Boot-seed only: dirty on frame 0 (Free = kTotalSurfelLimit), a no-op
       // every frame after — the GPU owns the counter once the passes run.
@@ -842,22 +714,36 @@ void HybridGlobalManagedSet::flushMirrors(RIDevice *device) {
   }
 }
 
-void HybridGlobalManagedSet::destroy(RIDevice *device) {
-  m_pointLightBuffer.dispose(device);
-  m_pointLightBuffer = {};
+void GlobalManagedSets::destroy(RIDevice *device) {
   m_lightGridCountBuffer.dispose(device);
   m_lightGridCountBuffer = {};
   m_lightGridListBuffer.dispose(device);
   m_lightGridListBuffer = {};
-  m_spotLightBuffer.dispose(device);
-  m_spotLightBuffer = {};
-  m_areaLightBuffer.dispose(device);
-  m_areaLightBuffer = {};
-  m_fogAreaBuffer.dispose(device);
-  m_fogAreaBuffer = {};
+  // Point/spot/area light buffers + the fog buffer are owned + disposed by cWorld.
+  m_animTexBuffer.dispose(device);
+  m_animTexBuffer = {};
   m_materialBuffer.dispose(device);
   m_materialBuffer = {};
   m_bindlessSet.destroy(device);
+}
+
+// === Engine-lifetime set, owned by RIBootstrap (RI.globalset) ===
+// One global set 0 for the whole engine. Heap-owned through the RI global so
+// there is a single entry point; a pointer (not a value member on RIBootstrap)
+// keeps GlobalManagedSets.h's include of RIBootstrap.h cycle-free.
+void InitGlobalManagedSets(RIDevice *device, cResources *resources) {
+  // Runs in cGraphics::Init before any managed texture is created, so textures
+  // write their descriptors directly at load (no catch-up pass needed).
+  RI.globalset = new GlobalManagedSets();
+  RI.globalset->initialize(device, resources);
+}
+
+void ShutdownGlobalManagedSets(RIDevice *device) {
+  if (RI.globalset) {
+    RI.globalset->destroy(device);
+    delete RI.globalset;
+    RI.globalset = nullptr;
+  }
 }
 
 } // namespace hpl

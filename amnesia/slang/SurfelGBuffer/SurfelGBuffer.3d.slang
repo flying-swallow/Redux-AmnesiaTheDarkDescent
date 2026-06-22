@@ -56,9 +56,12 @@ VSOut vsMain(uint vertexID    : SV_VertexID,
     uint instanceID = drawInst + baseInst;
     VSOut o;
 
-    uint64_t indexAddr = gOpaqueIndexHandles[instanceID];
-    uint64_t posAddr   = gOpaquePositionHandles[instanceID];
-    uint64_t uv0Addr   = gOpaqueUv0Handles[instanceID];
+    // Stream BDAs now live in the per-object UniformObject (folded in from the
+    // former gOpaque*Handles buffers).
+    UniformObject obj = gScene.getObject(instanceID);
+    uint64_t indexAddr = obj.indexHandle;
+    uint64_t posAddr   = obj.posHandle;
+    uint64_t uv0Addr   = obj.uv0Handle;
 
     // Missing index buffer → non-indexed (each vertexID is its own vertex).
     // Missing attribute streams → safe zero so the transform doesn't NaN out.
@@ -74,8 +77,6 @@ VSOut vsMain(uint vertexID    : SV_VertexID,
     float2 aUv  = (uv0Addr != 0ull)
         ? ((float3*)uv0Addr)[idx].xy
         : float2(0.0f);
-
-    UniformObject obj = gScene.getObject(instanceID);
 
     float4 worldP     = mul(obj.modelMat,     float4(aPos, 1.0f));
     float4 prevWorldP = mul(obj.prevModelMat, float4(aPos, 1.0f));

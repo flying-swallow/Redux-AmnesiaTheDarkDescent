@@ -37,11 +37,15 @@ public:
     std::optional<cTexture> image;
   };
 
+  // An animated Image is ONE Texture2DArray (N frames = N array layers). The
+  // current frame is selected in-shader from gPerFrame.afT (see gAnimTex /
+  // sampleBindless2D), so there is no CPU frame cursor — frameCount/frameTime/
+  // mode are uploaded once into the GPU animation record. (Was a vector of
+  // per-frame cTextures with a CPU timeCount that rewrote the descriptor.)
   struct AnimatedImage {
-    std::vector<cTexture> images;
+    cTexture image;                                   // the N-layer array texture
+    uint32_t frameCount = 0;
     float frameTime = 0.0f;
-    float timeCount = 0.0f;
-    float timeDir = 1.0f;
     eTextureAnimMode animMode = eTextureAnimMode_Loop;
   };
 
@@ -75,8 +79,38 @@ public:
   void Update(float afTimeStep);
   void SetFrameTime(float frameTime);
   float GetFrameTime() const;
+
+  // Lifetime-stable bindless slot, owned/assigned by cTextureManager (the
+  // texture heap), written once. The slot indexes textures_2d[] (binding 0),
+  // textures_cube[] (binding 1), or — for an animated image — textures_2d_array[]
+  // (binding 2). kInvalidTextureIndex (0xffffffff) until assigned. GetBindlessSlot()
+  // tags an array slot with the high bit (kAnimatedTextureBit) so consumers
+  // (submitMaterial tex[], light gobos) carry it unchanged and the shader sample
+  // helper decodes it — no per-frame descriptor rewrite.
+  uint32_t GetBindlessSlot() const {
+    return (mBindlessIsArray && mBindlessSlot != 0xffffffffu)
+               ? (mBindlessSlot | 0x80000000u) // kAnimatedTextureBit
+               : mBindlessSlot;
+  }
+  uint32_t GetRawBindlessSlot() const { return mBindlessSlot; } // untagged (for the manager's pool free)
+  bool IsBindlessCube() const { return mBindlessIsCube; }
+  bool IsBindlessArray() const { return mBindlessIsArray; }
+  hash_t GetBindlessViewCookie() const { return mBindlessViewCookie; }
+  void SetBindlessSlot(uint32_t slot, bool isCube, bool isArray = false) {
+    mBindlessSlot = slot; mBindlessIsCube = isCube; mBindlessIsArray = isArray;
+  }
+  void SetBindlessViewCookie(hash_t cookie) { mBindlessViewCookie = cookie; }
+
+  // Animation params for the GPU record (valid when isAnimated()).
+  uint32_t GetAnimFrameCount() const;
+
 private:
   std::variant<SingleImage, AnimatedImage> value;
+
+  uint32_t mBindlessSlot = 0xffffffffu; // kInvalidTextureIndex
+  hash_t   mBindlessViewCookie = 0;
+  bool     mBindlessIsCube = false;
+  bool     mBindlessIsArray = false;    // slot indexes textures_2d_array[] (animated)
 };
 
 // Adopt a freshly created, manager-less Image (allocated with hplNew) into a

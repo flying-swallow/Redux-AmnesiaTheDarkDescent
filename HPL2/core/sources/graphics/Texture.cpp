@@ -27,9 +27,21 @@ cTexture::cTexture(cTexture &&other) noexcept
 
 cTexture &cTexture::operator=(cTexture &&other) noexcept {
   if (this != &other) {
-    // Release our own GPU resources before adopting the source's.
-    view.dispose(&RI.device);
-    handle.dispose(&RI.device);
+    // Defer release of our own GPU resources past the in-flight frames instead
+    // of disposing them here: unlike ~cTexture (whose owning Image is parked in
+    // a frame set's resourceLink and waited before free), a move-assign swaps
+    // the texture out from under a still-live Image — the old view may still be
+    // referenced by an in-flight descriptor set (e.g. the bindless heap when an
+    // editor pane texture is resized). graphicsDefer holds it until the GPU
+    // timeline passes this frame, then disposes (drainAll covers teardown).
+    if (!view.isEmpty() || !handle.isEmpty()) {
+      RITextureView oldView = view;
+      RITexture oldHandle = handle;
+      RI.graphicsDefer.push(std::function<void()>([oldView, oldHandle]() mutable {
+        oldView.dispose(&RI.device);
+        oldHandle.dispose(&RI.device);
+      }));
+    }
     handle = other.handle;
     format = other.format;
     view = other.view;

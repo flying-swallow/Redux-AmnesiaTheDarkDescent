@@ -24,8 +24,7 @@ import bindless;            // gTextures2D, gMaterialSampler
 // carry it in .r.
 public float sampleHeight(uint heightTexIdx, float2 uv, bool singleChannel)
 {
-    float4 s = gTextures2D[NonUniformResourceIndex(heightTexIdx)]
-                   .SampleLevel(gMaterialSampler, uv, 0.0f);
+    float4 s = sampleBindless2DLevel(heightTexIdx, uv, 0.0f);
     return singleChannel ? s.r : s.a;
 }
 

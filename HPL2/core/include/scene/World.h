@@ -26,9 +26,9 @@
 #include "math/MathTypes.h"
 #include "engine/EngineTypes.h"
 #include "scene/SceneTypes.h"
+#include "graphics/RITypes.h" // RISharedPointer<RIBuffer> decal buffer members
 
 namespace tinyxml2 { class XMLElement; }
-struct RIBuffer; // RI graphics layer (global scope); cWorld owns baked decal buffers
 
 namespace hpl {
 
@@ -78,6 +78,7 @@ namespace hpl {
 	class cFogArea;
 	class cEntFile;
 	class cDummyRenderable;
+	struct SceneConstants; // per-frame UBO (SceneTypes.slang); SubmitToGpu fills the *Count fields
 	
 
 	//-------------------------------------------------------------------
@@ -258,12 +259,51 @@ namespace hpl {
 		// the per-world descriptor set (kWorldDecalSet). Null until baked (or when
 		// the world has no decals / no hybrid renderer is active). The renderer
 		// binds these on the composite pass; cWorld owns + disposes them.
-		struct RIBuffer* GetDecalBuffer() const { return mpDecalBuffer; }
-		struct RIBuffer* GetDecalObjectIndexBuffer() const { return mpDecalObjectIndexBuffer; }
+		RIBuffer* GetDecalBuffer() const { return mpDecalBuffer.Get(); }
+		RIBuffer* GetDecalObjectIndexBuffer() const { return mpDecalObjectIndexBuffer.Get(); }
 		uint32_t GetDecalCount() const { return (uint32_t)mvDecals.size(); }
-		// Per-frame: re-resolve decal diffuse texture slots via the LRU (keeps them
-		// MRU so slots stay stable). Called by the renderer before the composite.
-		void RefreshDecalTextures();
+
+		// Single per-frame world→GPU submission, called once by the renderer before
+		// any pass: bakes-if-dirty + uploads the light/fog/decal buffers, fills the
+		// perFrame *Count fields. It binds no descriptor set — the light/fog
+		// buffers ride the per-world set kWorldSet, bound by each consuming pass;
+		// the set-2 decal buffers are bound at the composite pass.
+		void SubmitToGpu(SceneConstants& perFrame);
+
+		// Persistent per-world fog-area buffer (FogAreaParams[], bound on the
+		// per-world set kWorldSet by each consuming pass). Baked once by Compile()
+		// over ALL fog
+		// areas (no frustum cull — the per-pixel Fog.slang loop is bounded by the
+		// count); RefreshFogAreas() patches only entries whose GPU bytes changed
+		// (color/transform/start/end/...), so dynamic fog updates without a full
+		// re-upload. Null until baked (no fog / no hybrid renderer).
+		RIBuffer* GetFogAreaBuffer() const { return mpFogAreaBuffer.Get(); }
+		uint32_t GetFogAreaCount() const { return (uint32_t)mvFogAreas.size(); }
+
+		// Persistent per-world light buffers (PointLight[]/SpotLight[]/RectLight[],
+		// bound into set-0 kBinding{Point,Spot,Area}Lights). Hold ALL world lights
+		// of each type at stable slots (slot = index), sized to the world's light
+		// count (no 256/256/64 cap). Counts become world totals, which the GPU
+		// light grid + Scene.slang decode use directly. RefreshLights() patches only
+		// changed entries (flicker/move); invisible lights get radius 0 so the grid
+		// skips them. Null until baked (no hybrid renderer).
+		RIBuffer* GetPointLightBuffer() const { return mpPointLightBuffer.Get(); }
+		uint32_t  GetPointLightCount()  const { return (uint32_t)mvPointLights.size(); }
+		RIBuffer* GetSpotLightBuffer()  const { return mpSpotLightBuffer.Get(); }
+		uint32_t  GetSpotLightCount()   const { return (uint32_t)mvSpotLights.size(); }
+		RIBuffer* GetAreaLightBuffer()  const { return mpAreaLightBuffer.Get(); }
+		uint32_t  GetAreaLightCount()   const { return (uint32_t)mvAreaLights.size(); }
+
+		// Notify that the world's light / fog / decal *membership* changed, so the
+		// corresponding persistent GPU buffer is re-baked on the next Refresh*.
+		// Set by the Create*/Destroy* methods (which the editor also goes through),
+		// so live edits work without Compile; init true so an uncompiled world
+		// (level editor) bakes on its first Draw. Property changes (move/colour/
+		// flicker) don't need this — RefreshLights/RefreshFogAreas re-upload content
+		// every frame.
+		void MarkLightBuffersDirty() { mbLightBuffersDirty = true; }
+		void MarkFogBufferDirty()    { mbFogBufferDirty = true; }
+		void MarkDecalBuffersDirty() { mbDecalBuffersDirty = true; }
 		cMeshEntity* GetDynamicMeshEntity(const tString& asName);
 		
 		cMeshEntityIterator GetDynamicMeshEntityIterator();
@@ -439,11 +479,45 @@ namespace hpl {
 		// textures_2d[] slot per decal, re-resolved each frame from the normal LRU
 		// by RefreshDecalTextures (which keeps the texture MRU so the slot stays
 		// stable), and the GPU diffuseTexIndex is patched only when a slot changes.
-		struct RIBuffer* mpDecalBuffer = nullptr;
-		struct RIBuffer* mpDecalObjectIndexBuffer = nullptr;
+		RISharedPointer<RIBuffer> mpDecalBuffer;
+		RISharedPointer<RIBuffer> mpDecalObjectIndexBuffer;
+
 		std::vector<uint32_t> mvDecalTexSlots;
 		void BakeDecalBuffers();      // build/upload the per-world decal geometry (Compile)
 		void DisposeDecalBuffers();   // defer-dispose the per-world decal buffers
+
+		// Per-type per-frame GPU sync (bake-if-dirty + upload). Internal steps of
+		// SubmitToGpu(); not called directly by the renderer.
+		void RefreshLights();
+		void RefreshFogAreas();
+		void RefreshDecalTextures();
+
+		// Persistent per-world fog-area GPU buffer. mvFogAreas is the stable
+		// bake-order snapshot (slot = index). Baked once for sizing/membership;
+		// RefreshFogAreas re-uploads the whole buffer each frame.
+		RISharedPointer<RIBuffer> mpFogAreaBuffer;
+		std::vector<cFogArea*> mvFogAreas;
+		void BakeFogBuffer();         // build/upload all fog areas (Compile)
+		void DisposeFogBuffers();     // defer-dispose the per-world fog buffer
+
+		// Persistent per-world light buffers (point/spot/area). mv*Lights is the
+		// stable bake-order snapshot per type (slot = index). Baked once for
+		// sizing/membership; RefreshLights re-uploads each whole buffer per frame.
+		RISharedPointer<RIBuffer> mpPointLightBuffer;
+		RISharedPointer<RIBuffer> mpSpotLightBuffer;
+		RISharedPointer<RIBuffer> mpAreaLightBuffer;
+		std::vector<iLight*> mvPointLights;
+		std::vector<iLight*> mvSpotLights;
+		std::vector<iLight*> mvAreaLights;
+		void BakeLightBuffers();      // build/upload all world lights by type (Compile)
+		void DisposeLightBuffers();   // defer-dispose the per-world light buffers
+
+		// Membership-dirty flags: set by Create*/Destroy* (Mark*Dirty), cleared by
+		// the matching Bake*. Init true so an uncompiled world (editor) bakes on its
+		// first Refresh*.
+		bool mbLightBuffersDirty = true;
+		bool mbFogBufferDirty = true;
+		bool mbDecalBuffersDirty = true;
 		tBillboardList mlstBillboards;
 		tBeamList mlstBeams;
 		tParticleSystemList mlstParticleSystems;

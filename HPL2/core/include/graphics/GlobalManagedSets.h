@@ -1,5 +1,5 @@
-#ifndef HPL_HYBRID_GLOBAL_MANAGED_SET_H
-#define HPL_HYBRID_GLOBAL_MANAGED_SET_H
+#ifndef HPL_GLOBAL_MANAGED_SETS_H
+#define HPL_GLOBAL_MANAGED_SETS_H
 
 #include "graphics/BindlessPool.h"
 #include "graphics/RIBootstrap.h"
@@ -86,7 +86,7 @@ namespace detail {
 // Allocate a bindless slot buffer: slotCount * elementStride bytes. When
 // deviceLocalOnly the allocation has no host-mapped pointer (out.mappedAddress
 // is null) and must be seeded through RI.uploader; otherwise it is persistently
-// mapped for direct host writes. Shared by HybridGlobalManagedSet (set-0
+// mapped for direct host writes. Shared by GlobalManagedSets (set-0
 // buffers) and cHybridRenderer (the indirect-draw buffer), so it lives in this
 // header rather than a single .cpp.
 static inline struct RIBuffer
@@ -134,6 +134,17 @@ struct ObjectSubmitDesc {
   float           dissolveAmount     = 0.0f;
   float           illuminationAmount = 0.0f;
   uint32_t        decalList   = 0;
+
+  // Explicit per-stream vertex/index device addresses (BDAs), folded into the
+  // UniformObject. When `set`, submitObject uses these verbatim instead of
+  // deriving from `vb` — particles point them at the per-viewport translucent
+  // scratch ring (normal/tangent = 0). Leave `set` false to derive from `vb`
+  // (kSubmitVertex/kSubmitIndex), or to carry forward the slot's existing
+  // handles (data-only passes that bind raw VkBuffers).
+  struct StreamHandles {
+    uint64_t pos = 0, normal = 0, tangent = 0, uv0 = 0, color = 0, index = 0;
+    bool     set = false;
+  } streamHandles;
 };
 
 // What submitObject() writes for the slot this frame. Slot allocation + the
@@ -154,13 +165,13 @@ enum ObjectSubmitFlags : uint32_t {
 // stages per-frame host writes through CPU shadow mirrors. cHybridRenderer holds
 // one of these and pushes data into it; the members are public so the per-frame
 // fill / copy / bind sites in Draw() reach them directly.
-class HybridGlobalManagedSet {
+class GlobalManagedSets {
 public:
-  HybridGlobalManagedSet();
+  GlobalManagedSets();
   // Defined out-of-line in the .cpp (where Image is complete) so the
   // SharedResourceHandle<Image> member destructors instantiate there, keeping
   // owners that hold this set by value free of an Image.h dependency.
-  ~HybridGlobalManagedSet();
+  ~GlobalManagedSets();
 
   // Build the descriptor-set layout + pool, create and seed all set-0 buffers,
   // and run the one-time descriptor write batch.
@@ -185,18 +196,10 @@ public:
   MaterialSubmitResult submitMaterial(RIBootstrap::FrameContext *cntx,
                                       cMaterial *mat, uint32_t frameIndex);
 
-  // Map an Image* to its bindless slot in textures_2d[]. Used by
-  // submitMaterial() and the light upload loops (spot falloff / gobo,
-  // point/spot attenuation maps). Returns kInvalidTextureIndex when the
-  // image is null or the bindless pool is exhausted.
-  uint32_t resolveTextureSlot(RIBootstrap::FrameContext *cntx, Image *img,
-                              uint32_t frameIndex);
-
-  // Same as resolveTextureSlot() but writes into the textures_cube[] bindless
-  // array at kBindingTexturesCube. The 2D and cube pools cannot share slot
-  // ids because they index different descriptor arrays.
-  uint32_t resolveCubeTextureSlot(RIBootstrap::FrameContext *cntx, Image *img,
-                                  uint32_t frameIndex);
+  // Texture bindless slots are no longer resolved here. cTextureManager owns the
+  // texture heap (slot pools + descriptor writes) and stamps each Image with a
+  // lifetime-stable slot at load; consumers read img->GetBindlessSlot() directly
+  // (binding 0 = textures_2d[], binding 1 = textures_cube[]).
 
   // Stage every dirty mirror into its matching device-local buffer. Called once
   // at the end of Draw() so all bindless handle / slot-generation writes land
@@ -245,26 +248,15 @@ public:
   // "exhausted" when every slot is already taken within the current frame.
   LRUCacheState<ObjectSlotState> m_objectSlots;
 
-  // Per-frame light SSBOs. Device-local; refilled each frame through
-  // RI.uploader (see Draw()). The m_*Scratch arrays are CPU staging,
-  // reserved once at init so the per-frame fill doesn't reallocate.
-  struct RIBuffer m_pointLightBuffer = {};
-  std::array<PointLight, kPointSlotLightCapacity> m_pointLightScratch;
-  struct RIBuffer m_spotLightBuffer = {};
-  std::array<SpotLight, kSpotSlotLightCapacity> m_spotLightScratch;
-  struct RIBuffer m_areaLightBuffer = {};
-  std::array<RectLight, kAreaSlotLightCapacity> m_areaLightScratch;
+  // Point/spot/area light SSBOs and the fog-area SSBO are persistent per-world
+  // buffers owned by cWorld (all world lights at stable slots; counts = world
+  // totals). They ride the dedicated per-world set kWorldSet — each consuming
+  // pass binds them via RIProgram::bindDescriptors (cached). This set (set 0)
+  // neither owns, stages, nor binds them.
 
-  // Per-frame fog-area SSBO. One entry per cFogArea visible this frame.
-  struct RIBuffer m_fogAreaBuffer = {};
-  std::array<FogAreaParams, kFogAreaCapacity> m_fogAreaScratch;
-
-  struct RIBuffer m_opaquePositionHandles;
-  struct RIBuffer m_opaqueTangentHandles;
-  struct RIBuffer m_opaqueNormalHandles;
-  struct RIBuffer m_opaqueUv0Handles;
-  struct RIBuffer m_opaqueColorHandles;
-  struct RIBuffer m_opaqueIndexHandles;
+  // The six per-stream BDA handle buffers (gOpaque*Handles) were folded into
+  // UniformObject (m_objectBuffer) — see ObjectSubmitDesc::StreamHandles and
+  // submitObject(); they were always indexed by the same object slot.
 
   // Per-object-slot reuse generation (sized kObjectSlotCapacity). Bumped to a
   // fresh monotonic value each time the object cache (re)assigns a slot to a
@@ -275,16 +267,10 @@ public:
   struct RIBuffer m_bindlessSlotGenerationBuffer;
   uint32_t m_nextSlotGeneration = 0;
 
-  // CPU shadows of the seven device-local bindless slot buffers above (the six
-  // per-stream BDA handle buffers + the slot-generation buffer). All host
-  // per-slot writes go through these mirrors; flushMirrors() stages each
-  // mirror's dirty byte range into its device buffer once per frame.
-  BindlessShadowMirror m_opaquePositionMirror;
-  BindlessShadowMirror m_opaqueTangentMirror;
-  BindlessShadowMirror m_opaqueNormalMirror;
-  BindlessShadowMirror m_opaqueUv0Mirror;
-  BindlessShadowMirror m_opaqueColorMirror;
-  BindlessShadowMirror m_opaqueIndexMirror;
+  // CPU shadow of the device-local slot-generation buffer. Host per-slot writes
+  // go through this mirror; flushMirrors() stages its dirty byte range into the
+  // device buffer once per frame. (The per-stream BDA handles now ride the
+  // UniformObject upload in submitObject, so they no longer need mirrors.)
   BindlessShadowMirror m_bindlessSlotGenerationMirror;
 
   // Boot-seed-only shadow for the device-local m_surfelCounterBuffer.
@@ -324,19 +310,27 @@ public:
   struct RIBuffer m_materialBuffer = {};
   std::optional<RIDescriptor> m_materialSampler;
 
-  // Default light falloff LUT (core_falloff_linear), bound once to set 0 as the
-  // immutable gAttenuationLut. Held resident for the renderer's lifetime.
-  SharedResourceHandle<Image> m_attenuationLut;
+  // Per-2D-array-slot animation record table (gAnimTex, kBindingAnimTex). One
+  // AnimTexRec per textures_2d_array[] slot; written by cTextureManager when an
+  // animated image is assigned its slot, read by the bindless sample helper.
+  struct RIBuffer m_animTexBuffer = {};
 
   // Legacy dissolve noise (core_dissolve.tga), bound once to set 0 as the
   // immutable gDissolveMap — the CoverageAmount fade's screen-space dither.
   SharedResourceHandle<Image> m_dissolveMap;
 
-  LRUCache m_textureBindless;
-  // Separate LRU for cube textures. Slot ids index textures_cube[] (set 0,
-  // binding 1) and must not be confused with textures_2d[] ids.
-  LRUCache m_textureCubeBindless;
+  // The textures_2d[] / textures_cube[] bindless arrays (bindings 0/1) are
+  // written into directly by cTextureManager, which owns the slot pools. This
+  // set holds only the descriptor set + arrays as state; it does not manage the
+  // texture heap.
 };
+
+// === Engine-lifetime set, owned by RIBootstrap as RI.globalset ===
+// Construct/cleanup happen once, in cGraphics::Init / teardown (after the
+// RIDevice + cResources exist, before the device is destroyed). Reach the set
+// through RI.globalset everywhere.
+void InitGlobalManagedSets(RIDevice *device, cResources *resources);
+void ShutdownGlobalManagedSets(RIDevice *device);
 
 } // namespace hpl
 

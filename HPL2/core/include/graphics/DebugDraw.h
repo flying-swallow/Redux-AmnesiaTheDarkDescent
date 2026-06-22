@@ -58,7 +58,7 @@ struct cTexture;
 // API takes HPL types natively (cVector3f / cColor / cMatrixf); conversion
 // to ml:: happens once at UBO-fill time, matching HybridRenderer's frustum
 // handling. Standalone non-bindless programs (gui-style) — deliberately does
-// not touch HybridGlobalManagedSet.
+// not touch GlobalManagedSets.
 class DebugDraw final {
 public:
     enum class DebugDepthTest : uint8_t {

@@ -135,8 +135,7 @@ float3 projectDecal(uint di, float3 albedo, float3 posW, float3 normalW)
     if (dtex == kInvalidTextureIndex)
         return albedo;
 
-    float4 s = gTextures2D[NonUniformResourceIndex(dtex)]
-                   .SampleLevel(gMaterialSampler, uv, 0.0f);
+    float4 s = sampleBindless2DLevel(dtex, uv, 0.0f);
     // Legacy display-space blend, computed EXACTLY (software blend with dst in
     // hand — unlike the raster passes no powered-weight approximation is
     // needed): re-encode the sRGB-decoded texel and the linear albedo back to

@@ -60,8 +60,7 @@ float4 psMain(DecalVSOut psIn) : SV_TARGET
     uint   diffuseTex   = mat.tex[0];
     if (diffuseTex != kInvalidTextureIndex)
     {
-        float4 s = gTextures2D[NonUniformResourceIndex(diffuseTex)]
-                       .Sample(gMaterialSampler, psIn.uv);
+        float4 s = sampleBindless2D(diffuseTex, psIn.uv);
         diffuseColor = displaySpaceSample(s);
     }
     diffuseColor *= psIn.color;

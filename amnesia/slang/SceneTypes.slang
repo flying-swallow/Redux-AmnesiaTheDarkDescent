@@ -114,6 +114,17 @@ SLANG_PUBLIC struct FogAreaParams {
     SLANG_PUBLIC uint     flags;           //  4
 };
 
+// Per-2D-array-slot animation record (gAnimTex, kBindingAnimTex). Written once by
+// cTextureManager when an animated Image is assigned its array slot; read by the
+// bindless sample helper to pick the current layer from gPerFrame.afT. mode uses
+// kAnimModeLoop / kAnimModeOscillate.
+SLANG_PUBLIC struct AnimTexRec {
+    SLANG_PUBLIC uint  frameCount;  // array layer count
+    SLANG_PUBLIC float frameTime;   // seconds per frame
+    SLANG_PUBLIC uint  mode;        // kAnimModeLoop / kAnimModeOscillate
+    SLANG_PUBLIC uint  _pad;
+};
+
 // Texture-slot indices into the bindless `textures_2d[]` array (set=0,
 // binding=0). One uint32 per slot — see per_frame.resource.glsl for the
 // `DiffuseMaterial_*Texture_ID` accessors that index this array.
@@ -196,6 +207,21 @@ SLANG_PUBLIC struct UniformObject {
     // dynamic/movable objects, so they never receive decals. compositeDecals
     // iterates only this list — no spatial grid, no receiver-category bits.
     SLANG_PUBLIC uint  decalList;
+
+    // Per-object vertex/index stream device addresses (BDAs), folded in from the
+    // former gOpaque*Handles bindless buffers — they were always indexed by this
+    // same object slot. submitObject writes them from the renderable's vertex
+    // buffer (or an explicit override for particle scratch streams); 0 = stream
+    // absent. fetchBindlessTriangle() and the gbuffer / particle vertex shaders
+    // read these instead of six parallel StructuredBuffer<uint64_t>. Placed last:
+    // offset 272 is 8-byte aligned, so the uint64 block needs no padding (272 →
+    // 320 bytes; struct alignment becomes 8 to match scalar layout).
+    SLANG_PUBLIC uint64_t posHandle;
+    SLANG_PUBLIC uint64_t normalHandle;
+    SLANG_PUBLIC uint64_t tangentHandle;
+    SLANG_PUBLIC uint64_t uv0Handle;
+    SLANG_PUBLIC uint64_t colorHandle;
+    SLANG_PUBLIC uint64_t indexHandle;
 };
 
 // Clustered OOB decal. No geometry: invModelMat maps a world position into the

@@ -25,6 +25,8 @@
 
 namespace hpl {
 struct cTexture;
+class GlobalManagedSets; // owned here as RI.globalset (pointer breaks the
+                         // GlobalManagedSets.h -> RIBootstrap.h header cycle)
 
 struct RIBootstrap {
 public:
@@ -244,6 +246,10 @@ public:
   uint32_t frameIndex = 0;
 
   struct RIResourceUploader uploader = {};
+
+  // Engine-lifetime set-0 tables (bindless / object / material / light); owned
+  // here, built by InitGlobalManagedSets and freed by ShutdownGlobalManagedSets.
+  GlobalManagedSets *globalset = nullptr;
 
   void IncrementFrame();
   std::optional<RIDescriptor> resolve_filter_descriptor(eTextureWrap wrapS,

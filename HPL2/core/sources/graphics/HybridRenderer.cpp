@@ -1,4 +1,5 @@
 #include "graphics/HybridRenderer.h"
+#include "graphics/Image.h" // Image::GetBindlessSlot (light gobos read the slot)
 #include "graphics/RITypes.h"
 
 #include "graphics/DebugDraw.h"
@@ -102,12 +103,12 @@ static bool renderableNeedsBlas(iRenderable *apObject) {
 cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     : iRenderer("Hybrid", apGraphics, apResources) {
   {
-    // Build the global bindless descriptor set (set 0) and create + seed every
-    // buffer bound to it. All set-0 state now lives in m_global.
-    m_global.initialize(&RI.device, mpResources);
-
+    // The global bindless descriptor set (set 0) and every buffer bound to it
+    // are an engine-lifetime singleton, constructed in cGraphics::Init via
+    // InitGlobalManagedSets() before any renderer exists. We just borrow its
+    // layout here.
     const VkDescriptorSetLayout externalLayouts[] = {
-        m_global.m_bindlessSet.vk.m_bindlessSetLayout};
+        RI.globalset->m_bindlessSet.vk.m_bindlessSetLayout};
     {
       // Gbuffer pass: one .spv, two entry points (vsMain / psMain).
       auto gbuffer_bin = RIProgram::loadShaderStage(
@@ -451,6 +452,35 @@ cViewport::HybridViewportState::operator=(HybridViewportState &&rhs) noexcept {
   return *this;
 }
 
+// Append the per-world light/fog SSBO bindings (set kWorldSet) to a pass's
+// descriptor-binding vector. Every pass that reads lights/fog calls this before
+// its bindDescriptors; RIProgram routes them to kWorldSet by reflection and
+// caches the resulting set — stable world buffers hash to a cache hit, so the
+// descriptor set is written once and reused until a re-bake swaps a buffer.
+// Names a pass doesn't reflect are skipped, so binding all four everywhere is
+// safe. The buffers are always >= 1 element after cWorld::SubmitToGpu's bake
+// (which runs first in Draw), so a reflected binding is never left unbound.
+static void appendWorldLightFog(std::vector<RIProgram::DescriptorBinding> &bnd,
+                                cWorld *apWorld) {
+  if (!apWorld)
+    return;
+  auto add = [&](const char *name, RIBuffer *buf, uint32_t cnt, size_t stride) {
+    if (!buf)
+      return;
+    bnd.emplace_back(name, RIDescriptor::storageBuffer(
+                               &RI.device, buf, 0,
+                               std::max<uint32_t>(cnt, 1u) * stride));
+  };
+  add("gPointLights", apWorld->GetPointLightBuffer(),
+      apWorld->GetPointLightCount(), sizeof(PointLight));
+  add("gSpotLights", apWorld->GetSpotLightBuffer(),
+      apWorld->GetSpotLightCount(), sizeof(SpotLight));
+  add("gAreaLights", apWorld->GetAreaLightBuffer(),
+      apWorld->GetAreaLightCount(), sizeof(RectLight));
+  add("gFogAreas", apWorld->GetFogAreaBuffer(), apWorld->GetFogAreaCount(),
+      sizeof(FogAreaParams));
+}
+
 void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                            float afFrameTime, cFrustum *apFrustum,
                            cWorld *apWorld, cRenderSettings *apSettings,
@@ -673,7 +703,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   }
 
   auto solids = m_rendererList.GetSolidObjects();
-  auto lights = m_rendererList.GetLights();
+  // Lights are no longer pulled from the per-frame render list — cWorld owns the
+  // persistent per-world light buffers (see apWorld->RefreshLights() below).
   RISegmentReq indirectReq = {};
   const bool indirectOk =
       m_indirectSegment.request(RI.frameIndex, solids.size(), &indirectReq);
@@ -688,264 +719,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   std::vector<VkAccelerationStructureInstanceKHR> tlasInstances;
   tlasInstances.reserve(solids.size());
 
-  size_t num_point_lights = 0;
-  for (iLight *pLight : lights) {
-    if (pLight->GetLightType() != eLightType_Point)
-      continue;
-    if (num_point_lights >= kPointSlotLightCapacity) {
-      Warning("Point-light slot capacity exhausted; dropping remaining lights");
-      break;
-    }
-    PointLight pl{};
-    const cVector3f pos = pLight->GetWorldPosition();
-    pl.position[0] = pos.x;
-    pl.position[1] = pos.y;
-    pl.position[2] = pos.z;
-    const cColor c = pLight->GetDiffuseColor();
-    pl.color[0] = hpl::sRGBToLinear(c.r);
-    pl.color[1] = hpl::sRGBToLinear(c.g);
-    pl.color[2] = hpl::sRGBToLinear(c.b);
-    pl.intensity = pLight->GetIntensity();
-    pl.radius = pLight->GetRadius();
-    /*
-    {
-      const float maxC = std::max(pl.color[0], std::max(pl.color[1],
-    pl.color[2])); const float reachSq = ((maxC * authored) /
-    kLightRadianceFloor) - kPointLightSourceRadiusSq; const float
-    calculatedReach = reachSq > 0.f ? std::sqrt(reachSq) : 0.f; pl.radius =
-    calculatedReach;
-    }
-    */
-    // Physical source radius drives the soft-shadow penumbra in the direct
-    // pass. Authored per-light via cLight::SetSourceRadius; when a light
-    // authors none (0), fall back to a fraction of its authored reach radius so
-    // it's softly shadowed by default instead of hard. An explicit author value
-    // always wins.
-    const float authoredSourceRadius = pLight->GetSourceRadius();
-    pl.sourceRadius = authoredSourceRadius;
-    pl.goboTextureIndex = m_global.resolveCubeTextureSlot(
-        cntx, pLight->GetGoboImage(), (uint32_t)RI.frameIndex);
-    const cMatrixf &world = pLight->GetWorldMatrix();
-    pl.worldToLightX[0] = world.m[0][0];
-    pl.worldToLightX[1] = world.m[0][1];
-    pl.worldToLightX[2] = world.m[0][2];
-    pl.worldToLightY[0] = world.m[1][0];
-    pl.worldToLightY[1] = world.m[1][1];
-    pl.worldToLightY[2] = world.m[1][2];
-    pl.worldToLightZ[0] = world.m[2][0];
-    pl.worldToLightZ[1] = world.m[2][1];
-    pl.worldToLightZ[2] = world.m[2][2];
-    m_global.m_pointLightScratch[num_point_lights++] = pl;
-  }
-  perFrame.pointLightCount = static_cast<uint32_t>(num_point_lights);
-
-  if (num_point_lights > 0) {
-    const size_t uploadBytes = num_point_lights * sizeof(PointLight);
-    RIResourceBufferTransaction trans = {};
-    trans.target = m_global.m_pointLightBuffer;
-    trans.size = uploadBytes;
-    trans.offset = 0;
-    // After the first frame the buffer was previously read as a storage
-    // resource; tell the uploader to barrier from that to TRANSFER_WRITE
-    // and back. On the very first frame the buffer is uninitialised, so
-    // the src side of the barrier is a no-op against zero contents — safe.
-    trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-    trans.currentStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
-    trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-    trans.postStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
-
-    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
-    std::memcpy(trans.mapped.data, m_global.m_pointLightScratch.data(),
-                uploadBytes);
-    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
-  }
-
-  // Spot lights. Same upload envelope as point lights — RI.uploader owns the
-  // TRANSFER_WRITE ↔ SHADER_READ barrier, so no extra barrier needed here.
-  size_t num_spot_lights = 0;
-  for (iLight *pLight : lights) {
-    if (pLight->GetLightType() != eLightType_Spot)
-      continue;
-    if (num_spot_lights >= kSpotSlotLightCapacity) {
-      Warning("Spot-light slot capacity exhausted; dropping remaining lights");
-      break;
-    }
-    cLightSpot *pSpot = static_cast<cLightSpot *>(pLight);
-    SpotLight sl{};
-    const cVector3f pos = pLight->GetWorldPosition();
-    sl.position[0] = pos.x;
-    sl.position[1] = pos.y;
-    sl.position[2] = pos.z;
-    const cMatrixf &world = pLight->GetWorldMatrix();
-    sl.direction[0] = -world.m[0][2];
-    sl.direction[1] = -world.m[1][2];
-    sl.direction[2] = -world.m[2][2];
-    {
-      float len = std::sqrt(sl.direction[0] * sl.direction[0] +
-                            sl.direction[1] * sl.direction[1] +
-                            sl.direction[2] * sl.direction[2]);
-      if (len > 1e-6f) {
-        sl.direction[0] /= len;
-        sl.direction[1] /= len;
-        sl.direction[2] /= len;
-      }
-    }
-    sl.cosOuterAngle = std::cos(pSpot->GetFOV() * 0.5f);
-    const cColor c = pLight->GetDiffuseColor();
-    sl.color[0] = hpl::sRGBToLinear(c.r);
-    sl.color[1] = hpl::sRGBToLinear(c.g);
-    sl.color[2] = hpl::sRGBToLinear(c.b);
-    sl.intensity = pLight->GetIntensity();
-    sl.radius = pLight->GetRadius();
-    sl.sourceRadius = pLight->GetSourceRadius();
-    sl.goboTextureIndex = m_global.resolveTextureSlot(
-        cntx, pLight->GetGoboImage(), (uint32_t)RI.frameIndex);
-    sl.shadowEnabled = pLight->GetCastShadows() ? 1u : 0u;
-    const ml::float4x4 vpF4 =
-        cMath::ToFloatTranspose4x4(pSpot->GetViewProjMatrix());
-    std::memcpy(sl.viewProjection, vpF4.a, sizeof(sl.viewProjection));
-    m_global.m_spotLightScratch[num_spot_lights++] = sl;
-  }
-  perFrame.spotLightCount = static_cast<uint32_t>(num_spot_lights);
-
-  if (num_spot_lights > 0) {
-    const size_t uploadBytes = num_spot_lights * sizeof(SpotLight);
-    RIResourceBufferTransaction trans = {};
-    trans.target = m_global.m_spotLightBuffer;
-    trans.size = uploadBytes;
-    trans.offset = 0;
-    trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-    trans.currentStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
-    trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-    trans.postStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
-    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
-    std::memcpy(trans.mapped.data, m_global.m_spotLightScratch.data(),
-                uploadBytes);
-    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
-  }
-
-  // Area lights. Same upload envelope as point/spot — RI.uploader owns the
-  // TRANSFER_WRITE ↔ SHADER_READ barrier. The rect is framed by the light's
-  // world-rotation rows (local +X width axis, +Y height axis, +Z emission normal),
-  // matching the basis RectLight.sample reconstructs.
-  size_t num_area_lights = 0;
-  for (iLight *pLight : lights) {
-    if (pLight->GetLightType() != eLightType_Area)
-      continue;
-    if (num_area_lights >= kAreaSlotLightCapacity) {
-      Warning("Area-light slot capacity exhausted; dropping remaining lights");
-      break;
-    }
-    cLightArea *pArea = static_cast<cLightArea *>(pLight);
-    RectLight al{};
-    const cVector3f pos = pLight->GetWorldPosition();
-    al.position[0] = pos.x;
-    al.position[1] = pos.y;
-    al.position[2] = pos.z;
-    const cColor c = pLight->GetDiffuseColor();
-    al.color[0] = hpl::sRGBToLinear(c.r);
-    al.color[1] = hpl::sRGBToLinear(c.g);
-    al.color[2] = hpl::sRGBToLinear(c.b);
-    al.intensity = pLight->GetIntensity();
-    al.radius = pLight->GetRadius();
-    al.width = pArea->GetWidth();
-    al.height = pArea->GetHeight();
-    al.barnDoorAngle = pArea->GetBarnDoorAngle();
-    al.barnDoorLength = pArea->GetBarnDoorLength();
-    al.sourceTextureIndex = m_global.resolveTextureSlot(
-        cntx, pLight->GetGoboImage(), (uint32_t)RI.frameIndex);
-    const cMatrixf &world = pLight->GetWorldMatrix();
-    // UE Rect Light basis: the rectangle lies in the local Y–Z plane. Source width
-    // runs along local +Y (world col 1), source height along local +Z (world col
-    // 2), and emission faces local +X (world col 0).
-    al.right[0] = world.m[0][1];
-    al.right[1] = world.m[1][1];
-    al.right[2] = world.m[2][1];
-    al.up[0] = world.m[0][2];
-    al.up[1] = world.m[1][2];
-    al.up[2] = world.m[2][2];
-    al.normal[0] = world.m[0][0];
-    al.normal[1] = world.m[1][0];
-    al.normal[2] = world.m[2][0];
-    m_global.m_areaLightScratch[num_area_lights++] = al;
-  }
-  perFrame.areaLightCount = static_cast<uint32_t>(num_area_lights);
-
-  if (num_area_lights > 0) {
-    const size_t uploadBytes = num_area_lights * sizeof(RectLight);
-    RIResourceBufferTransaction trans = {};
-    trans.target = m_global.m_areaLightBuffer;
-    trans.size = uploadBytes;
-    trans.offset = 0;
-    trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-    trans.currentStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
-    trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-    trans.postStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
-    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
-    std::memcpy(trans.mapped.data, m_global.m_areaLightScratch.data(),
-                uploadBytes);
-    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
-  }
-
-  // Box lights are not represented in this renderer (cLightBox stays an engine
-  // entity for map loading / the legacy deferred backend, but contributes no
-  // hybrid GPU lighting).
-
-  // Fog areas — one FogAreaParams per visible cFogArea, capped at
-  // kFogAreaCapacity. The shader walks gFogAreas[i] per pixel up to
-  // gPerFrame.fogAreaCount; everything past that index is stale data and
-  // gets skipped.
-  size_t num_fog_areas = 0;
-  for (cFogArea *pFogArea : m_rendererList.GetFogAreas()) {
-    if (!pFogArea)
-      continue;
-    if (num_fog_areas >= kFogAreaCapacity) {
-      Warning("Fog-area capacity exhausted; dropping remaining areas");
-      break;
-    }
-    FogAreaParams fa{};
-    const cMatrixf inv = cMath::MatrixInverse(*pFogArea->GetModelMatrixPtr());
-    const ml::float4x4 invF4 = cMath::ToFloatTranspose4x4(inv);
-    std::memcpy(fa.invModelMat, invF4.a, sizeof(fa.invModelMat));
-    const cColor c = pFogArea->GetColor();
-    // Fog colour stays sRGB-authored — same as worldFogColor. The opaque
-    // composite blends linearly so sRGB→linear conversion mirrors the
-    // box-light path.
-    fa.color = float3{hpl::sRGBToLinear(c.r), hpl::sRGBToLinear(c.g),
-                      hpl::sRGBToLinear(c.b)};
-    fa.colorA = c.a;
-    fa.start = pFogArea->GetStart();
-    fa.end = pFogArea->GetEnd();
-    fa.falloffExp = pFogArea->GetFalloffExp();
-    fa.flags = (pFogArea->GetShowBacksideWhenInside() ? 1u : 0u) |
-               (pFogArea->GetShowBacksideWhenOutside() ? 2u : 0u);
-    m_global.m_fogAreaScratch[num_fog_areas++] = fa;
-  }
-  perFrame.fogAreaCount = static_cast<uint32_t>(num_fog_areas);
-
-  if (num_fog_areas > 0) {
-    const size_t uploadBytes = num_fog_areas * sizeof(FogAreaParams);
-    RIResourceBufferTransaction trans = {};
-    trans.target = m_global.m_fogAreaBuffer;
-    trans.size = uploadBytes;
-    trans.offset = 0;
-    trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-    trans.currentStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
-    trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
-    trans.postStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
-    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
-    std::memcpy(trans.mapped.data, m_global.m_fogAreaScratch.data(),
-                uploadBytes);
-    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
-  }
-
-  // Decal geometry is baked once per world into cWorld-owned static buffers
-  // (gDecals[] + gObjectDecalIndices[], bound on the per-world set 2 at the
-  // composite pass below). The diffuse texture slot rides the normal texture LRU,
-  // so re-resolve it each frame (keeps it MRU → slot stable; patches the GPU
-  // diffuseTexIndex only on a change). Runs before the composite reads gDecals[].
-  perFrame.decalCount = apWorld->GetDecalCount();
-  apWorld->RefreshDecalTextures();
+  // Single per-frame world→GPU submission before any pass: bakes-if-dirty +
+  // uploads the world's light/fog/decal buffers, fills the perFrame *Count fields,
+  // and points the set-0 light/fog bindings at the world's buffers. (The set-2
+  // decal buffers are bound at the composite pass below.)
+  apWorld->SubmitToGpu(perFrame);
 
   for (iRenderable *pObject : solids) {
     cMatrixf *pMtx = pObject->GetModelMatrix(apFrustum);
@@ -956,7 +734,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     uint32_t materialId = 0;
     if (pMat) {
-      materialId = m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
+      materialId = RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
                        .materialId;
       if (materialId == UINT32_MAX) {
         Warning("Material Slot exhausted");
@@ -993,7 +771,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // submitObject also fans the VB's per-stream BDAs into the slot's
     // opaque*Handles for bindless pulling (gbuffer VS / surfel-RT chit),
     // rewritten every frame so a SubmitToGPU realloc can't dangle them.
-    const uint32_t slot = m_global.submitObject(
+    const uint32_t slot = RI.globalset->submitObject(
         pObject->GetUniqueCookie(), (uint32_t)RI.frameIndex, vb, d,
         kSubmitData | kSubmitVertex | kSubmitIndex);
     if (slot == UINT32_MAX) {
@@ -1087,7 +865,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     if (!blas || blas->vk.handle == VK_NULL_HANDLE)
       continue;
 
-    auto mat = m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
+    auto mat = RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
     if (mat.materialId == UINT32_MAX)
       continue;
 
@@ -1103,7 +881,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     const hash_t cookie = hash_u32(
         hash_u64(HASH_INITIAL_VALUE, pObj->GetUniqueCookie()), 0x71A57AA5u);
     const uint32_t slot =
-        m_global.submitObject(cookie, (uint32_t)RI.frameIndex, vbri, d,
+        RI.globalset->submitObject(cookie, (uint32_t)RI.frameIndex, vbri, d,
                               kSubmitData | kSubmitVertex | kSubmitIndex);
     if (slot == UINT32_MAX)
       continue;
@@ -1325,7 +1103,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_surfelPrepare.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
                                         "SurfelPreparePass.cs", &computeCreate);
     m_surfelPrepare.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                              &m_global.m_bindlessSet, 0,
+                                              &RI.globalset->m_bindlessSet, 0,
                                               VK_PIPELINE_BIND_POINT_COMPUTE);
     RI.primary.cmds[0].dispatch(&RI.device, 1u, 1u, 1u);
   }
@@ -1340,8 +1118,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // prepare's SHADER_WRITE against update_collect's SHADER_READ.
   {
     RI.primary.cmds[0].copyBuffer(
-        &RI.device, &m_global.m_surfelValidBuffer, 0,
-        &m_global.m_surfelDirtyIndexBuffer, 0,
+        &RI.device, &RI.globalset->m_surfelValidBuffer, 0,
+        &RI.globalset->m_surfelDirtyIndexBuffer, 0,
         (RIDeviceSize)kTotalSurfelLimit * sizeof(uint32_t));
   }
   {
@@ -1391,7 +1169,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                            kVBufferHash, "SurfelVBuffer.rt",
                                            &rtCreate);
     m_surfelVBuffer.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &m_global.m_bindlessSet, 0,
+        &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
 
     std::vector<RIProgram::DescriptorBinding> vbBindings;
@@ -1460,7 +1238,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         &RI.device, &RI.primary.cmds[0], kHash,
         "SurfelUpdatePass.cs:collectCellInfo", &computeCreate);
     m_surfelUpdateCollect.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &m_global.m_bindlessSet, 0,
+        &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
         VK_PIPELINE_BIND_POINT_COMPUTE);
 
     std::vector<RIProgram::DescriptorBinding> bnd;
@@ -1495,7 +1273,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         &RI.device, &RI.primary.cmds[0], kHash,
         "SurfelUpdatePass.cs:accumulateCellInfo", &computeCreate);
     m_surfelUpdateAccumulate.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &m_global.m_bindlessSet, 0,
+        &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
         VK_PIPELINE_BIND_POINT_COMPUTE);
     const uint32_t groups = (kCellDimension + 3u) / 4u;
     RI.primary.cmds[0].dispatch(&RI.device, groups, groups, groups);
@@ -1517,7 +1295,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         &RI.device, &RI.primary.cmds[0], kHash,
         "SurfelUpdatePass.cs:updateCellToSurfelBuffer", &computeCreate);
     m_surfelUpdateScatter.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &m_global.m_bindlessSet, 0,
+        &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
         VK_PIPELINE_BIND_POINT_COMPUTE);
 
     std::vector<RIProgram::DescriptorBinding> bnd;
@@ -1560,7 +1338,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                        "LightGridBuildPass.cs:binLights",
                                        &computeCreate);
     m_lightGridBin.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                             &m_global.m_bindlessSet, 0,
+                                             &RI.globalset->m_bindlessSet, 0,
                                              VK_PIPELINE_BIND_POINT_COMPUTE);
     std::vector<RIProgram::DescriptorBinding> bnd;
     bnd.reserve(1);
@@ -1570,6 +1348,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
       bnd.push_back(b);
     }
+    appendWorldLightFog(bnd, apWorld);
     m_lightGridBin.bindDescriptors(&RI.device, &RI.primary.cmds[0],
                                    RI.frameIndex, bnd.data(), bnd.size(),
                                    VK_PIPELINE_BIND_POINT_COMPUTE);
@@ -1651,7 +1430,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_surfelRT.bindRayTracingPipeline(&RI.device, &RI.primary.cmds[0], kRtHash,
                                       "SurfelRayTrace.rt", &rtCreate);
     m_surfelRT.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &m_global.m_bindlessSet, 0,
+        &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
 
     std::vector<RIProgram::DescriptorBinding> rtBnd;
@@ -1664,6 +1443,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     }
     rtBnd.emplace_back("gRtAccel",
                        RIDescriptor::accelerationStructure(&RI.device, m_tlas.Get()));
+    appendWorldLightFog(rtBnd, apWorld);
     m_surfelRT.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
                                rtBnd.data(), rtBnd.size(),
                                VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
@@ -1704,7 +1484,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_gbuffer.bindPipeline(&RI.device, &RI.primary.cmds[0], pipelineDesc.hash,
                            "SurfelGBuffer.3d", &pipelineDesc.createInfo);
     m_gbuffer.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                        &m_global.m_bindlessSet, 0);
+                                        &RI.globalset->m_bindlessSet, 0);
     m_gbuffer.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
                               bindings.data(), bindings.size());
     RI.primary.cmds[0].drawIndirect(
@@ -1787,7 +1567,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                           kHash, "SurfelIntegratePass.cs",
                                           &computeCreate);
     m_surfelIntegrate.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                                &m_global.m_bindlessSet, 0,
+                                                &RI.globalset->m_bindlessSet, 0,
                                                 VK_PIPELINE_BIND_POINT_COMPUTE);
 
     // gSurfelDepthSampler is bindless (set 0). The image views and the
@@ -1832,7 +1612,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                          "SurfelGenerationPass.cs",
                                          &computeCreate);
     m_surfelGenerate.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                               &m_global.m_bindlessSet, 0,
+                                               &RI.globalset->m_bindlessSet, 0,
                                                VK_PIPELINE_BIND_POINT_COMPUTE);
 
     // gPerFrame + the set-1 surfel images (gPackedHitInfo, gSurfelDepth
@@ -1934,7 +1714,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_directLighting.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
                                          "DirectLightingPass.cs", &ci);
     m_directLighting.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                               &m_global.m_bindlessSet, 0,
+                                               &RI.globalset->m_bindlessSet, 0,
                                                VK_PIPELINE_BIND_POINT_COMPUTE);
 
     std::vector<RIProgram::DescriptorBinding> bnd;
@@ -1972,6 +1752,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                      RIDescriptor::storageImage(&RI.device,
                                                 state.directKeyView[dlCur].Get()));
 
+    appendWorldLightFog(bnd, apWorld);
     m_directLighting.bindDescriptors(&RI.device, &RI.primary.cmds[0],
                                      RI.frameIndex, bnd.data(), bnd.size(),
                                      VK_PIPELINE_BIND_POINT_COMPUTE);
@@ -1994,7 +1775,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           &RI.device, &RI.primary.cmds[0], kHash, "DirectSpatialReusePass.cs",
           &ci);
       m_directSpatialReuse.bindBindlessDescriptorSet(
-          &RI.primary.cmds[0], &m_global.m_bindlessSet, 0,
+          &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
           VK_PIPELINE_BIND_POINT_COMPUTE);
 
       std::vector<RIProgram::DescriptorBinding> sb;
@@ -2042,6 +1823,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                       RIDescriptor::storageImage(
                           &RI.device, state.directLightingView[dlCur].Get()));
 
+      appendWorldLightFog(sb, apWorld);
       m_directSpatialReuse.bindDescriptors(&RI.device, &RI.primary.cmds[0],
                                            RI.frameIndex, sb.data(), sb.size(),
                                            VK_PIPELINE_BIND_POINT_COMPUTE);
@@ -2073,7 +1855,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       m_directAtrous.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
                                          "DirectAtrousPass.cs", &ci);
       m_directAtrous.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                               &m_global.m_bindlessSet, 0,
+                                               &RI.globalset->m_bindlessSet, 0,
                                                VK_PIPELINE_BIND_POINT_COMPUTE);
 
       // Per-iteration tap spacing (1, 2, 4 …). Padded to 16 bytes (std140 UBO).
@@ -2184,7 +1966,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     m_mainComposite.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
                                         "MainCompositePass.cs", &surfelCreate);
     m_mainComposite.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                              &m_global.m_bindlessSet, 0,
+                                              &RI.globalset->m_bindlessSet, 0,
                                               VK_PIPELINE_BIND_POINT_COMPUTE);
 
     std::vector<RIProgram::DescriptorBinding> bnd;
@@ -2249,6 +2031,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       bnd.push_back(b);
     }
 
+    appendWorldLightFog(bnd, apWorld);
     m_mainComposite.bindDescriptors(&RI.device, &RI.primary.cmds[0],
                                     RI.frameIndex, bnd.data(), bnd.size(),
                                     VK_PIPELINE_BIND_POINT_COMPUTE);
@@ -2366,7 +2149,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RI.primary.cmds[0].setScissor(&RI.device, sc);
 
       m_decal.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                        &m_global.m_bindlessSet, 0);
+                                        &RI.globalset->m_bindlessSet, 0);
       {
         RIProgram::DescriptorBinding b;
         b.handle = DescriptorBindingID::Create("gPerFrame");
@@ -2398,7 +2181,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         const int indexCount = pVB->GetIndexNum();
 
         uint32_t materialId =
-            m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
+            RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
                 .materialId;
         if (materialId == UINT32_MAX) {
           Warning("Material Slot exhausted (decal)");
@@ -2411,7 +2194,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         d.materialId = materialId;
         d.dissolveAmount = pObj->GetCoverageAmount();
 
-        const uint32_t slot = m_global.submitObject(
+        const uint32_t slot = RI.globalset->submitObject(
             pObj->GetUniqueCookie(), (uint32_t)RI.frameIndex,
             static_cast<cVertexBuffer *>(pVB), d);
         if (slot == UINT32_MAX) {
@@ -2521,7 +2304,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RI.primary.cmds[0].setScissor(&RI.device, sc);
 
       m_water.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                        &m_global.m_bindlessSet, 0);
+                                        &RI.globalset->m_bindlessSet, 0);
       {
         // set 1: gPerFrame + gRtAccel (binding 36). The water frag does inline
         // RayQuery reflection (traceReflectionHit), so the TLAS must be bound —
@@ -2536,6 +2319,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         }
         wbnd.emplace_back("gRtAccel",
                           RIDescriptor::accelerationStructure(&RI.device, m_tlas.Get()));
+        appendWorldLightFog(wbnd, apWorld);
         m_water.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
                                 wbnd.data(), (uint32_t)wbnd.size());
       }
@@ -2550,7 +2334,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         cMaterial *pMat = pObj->GetMaterial();
         const int indexCount = pVB->GetIndexNum();
 
-        auto mat = m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
+        auto mat = RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
         if (mat.materialId == UINT32_MAX) {
           Warning("Material Slot exhausted (water)");
           continue;
@@ -2563,7 +2347,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
             mat.materialId; // water ids fall in the water range of materialID
         d.dissolveAmount = pObj->GetCoverageAmount();
 
-        const uint32_t slot = m_global.submitObject(
+        const uint32_t slot = RI.globalset->submitObject(
             pObj->GetUniqueCookie(), (uint32_t)RI.frameIndex,
             static_cast<cVertexBuffer *>(pVB), d);
         if (slot == UINT32_MAX) {
@@ -2615,10 +2399,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // skippable when empty.
   //
   // Resources reused from the opaque path:
-  //   - m_global.m_objectSlots / m_objectBuffer (per-renderable OBJECT slot)
+  //   - RI.globalset->m_objectSlots / m_objectBuffer (per-renderable OBJECT slot)
   //   - m_opaque*Handles (BDA fan-out: particles/meshes overload
   //                       position/uv0/color/index with their own VB addresses)
-  //   - m_global.m_materialBindless / m_materialBuffer (material slot)
+  //   - RI.globalset->m_materialBindless / m_materialBuffer (material slot)
   //
   // Sync: (a) swapchain stays COLOR_ATTACHMENT_OPTIMAL from the composite
   //           (load to preserve it); (b) flipDepthToReadOnly() moves depth back
@@ -2698,7 +2482,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RI.primary.cmds[0].setScissor(&RI.device, sc);
 
       m_particle.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                           &m_global.m_bindlessSet, 0);
+                                           &RI.globalset->m_bindlessSet, 0);
 
       std::vector<RIProgram::DescriptorBinding> particleBindings;
       particleBindings.reserve(1);
@@ -2708,6 +2492,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
         particleBindings.push_back(b);
       }
+      appendWorldLightFog(particleBindings, apWorld);
       m_particle.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
                                  particleBindings.data(),
                                  particleBindings.size());
@@ -2750,7 +2535,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         const int indexCount = (int)geom.indexCount;
 
         uint32_t materialId =
-            m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
+            RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
                 .materialId;
         if (materialId == UINT32_MAX) {
           Warning("Material Slot exhausted (particle)");
@@ -2761,38 +2546,33 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         d.modelMatrix = pEmitter->GetModelMatrix(apFrustum);
         d.materialId = materialId;
 
+        // The particle VS pulls pos/uv0/color/index via BDA from the slot's
+        // UniformObject handles. Point them at the per-viewport translucent
+        // scratch segments (base address + byte offset); normal/tangent are never
+        // read for a particle slot, so 0. submitObject folds these into the
+        // payload — refreshed every frame since the scratch offsets change.
+        {
+          const uint64_t vtxBase =
+              RI.translucentVtxBuffer->GetDeviceHandle(&RI.device);
+          d.streamHandles.pos   = vtxBase + geom.posByteOffset;
+          d.streamHandles.color = vtxBase + geom.colByteOffset;
+          d.streamHandles.uv0   = vtxBase + geom.uvByteOffset;
+          d.streamHandles.index =
+              RI.translucentIdxBuffer->GetDeviceHandle(&RI.device) +
+              geom.idxByteOffset;
+          d.streamHandles.set = true;
+        }
+
         // Particles share the object-slot pool with opaque solids; the payload
         // submit also bumps the slot generation when the slot is (re)assigned —
         // so a surfel still anchored to the slot's previous opaque occupant
         // self-invalidates before it dereferences this slot's smaller streams.
-        const uint32_t slot = m_global.submitObject(pEmitter->GetUniqueCookie(),
+        const uint32_t slot = RI.globalset->submitObject(pEmitter->GetUniqueCookie(),
                                                     (uint32_t)RI.frameIndex,
                                                     nullptr, d, kSubmitData);
         if (slot == UINT32_MAX) {
           Warning("bindless pool exhausted (particle)");
           continue;
-        }
-
-        // The particle VS pulls pos/uv0/color/index via BDA; point this slot's
-        // handles at the scratch segments (base address + byte offset). The
-        // mirrors are public by design — direct fill-site writes, refreshed
-        // every frame exactly like the VB path was. normal/tangent are never
-        // read for a particle slot; zero them so a stale opaque BDA can't
-        // linger on a reused slot.
-        {
-          const uint64_t vtxBase =
-              RI.translucentVtxBuffer->GetDeviceHandle(&RI.device);
-          m_global.m_opaquePositionMirror.write<VkDeviceAddress>(
-              slot, vtxBase + geom.posByteOffset);
-          m_global.m_opaqueColorMirror.write<VkDeviceAddress>(
-              slot, vtxBase + geom.colByteOffset);
-          m_global.m_opaqueUv0Mirror.write<VkDeviceAddress>(
-              slot, vtxBase + geom.uvByteOffset);
-          m_global.m_opaqueIndexMirror.write<VkDeviceAddress>(
-              slot, RI.translucentIdxBuffer->GetDeviceHandle(&RI.device) +
-                        geom.idxByteOffset);
-          m_global.m_opaqueNormalMirror.write<VkDeviceAddress>(slot, 0);
-          m_global.m_opaqueTangentMirror.write<VkDeviceAddress>(slot, 0);
         }
 
         const ParticlePipelineDesc::BlendMode mode =
@@ -2929,7 +2709,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RI.primary.cmds[0].setScissor(&RI.device, sc);
 
       m_translucentMesh.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                                  &m_global.m_bindlessSet, 0);
+                                                  &RI.globalset->m_bindlessSet, 0);
 
       std::vector<RIProgram::DescriptorBinding> meshBindings;
       meshBindings.reserve(1);
@@ -2939,6 +2719,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
         meshBindings.push_back(b);
       }
+      appendWorldLightFog(meshBindings, apWorld);
       m_translucentMesh.bindDescriptors(&RI.device, &RI.primary.cmds[0],
                                         RI.frameIndex, meshBindings.data(),
                                         meshBindings.size());
@@ -2981,7 +2762,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         const int indexCount = pVB->GetIndexNum();
 
         uint32_t materialId =
-            m_global.submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
+            RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
                 .materialId;
         if (materialId == UINT32_MAX) {
           Warning("Material Slot exhausted (translucent mesh)");
@@ -3005,7 +2786,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // bumps the slot generation on (re)assignment so a surfel anchored to a
         // previous opaque occupant self-invalidates before dereferencing the
         // wrong VB/IB.
-        const uint32_t slot = m_global.submitObject(
+        const uint32_t slot = RI.globalset->submitObject(
             pObj->GetUniqueCookie(), (uint32_t)RI.frameIndex,
             static_cast<cVertexBuffer *>(pVB), d);
         if (slot == UINT32_MAX) {
@@ -3142,7 +2923,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // pre-pass the primary submit waits on (RIBootstrap), so this single tail
   // call lands all copies ahead of every primary read regardless of recording
   // order.
-  m_global.flushMirrors(&RI.device);
+  RI.globalset->flushMirrors(&RI.device);
 }
 
 cHybridRenderer::~cHybridRenderer() {
@@ -3152,7 +2933,8 @@ cHybridRenderer::~cHybridRenderer() {
   m_tlas = {};
   m_tlasStorage = {};
   m_tlasInstanceBuffer = {};
-  m_global.destroy(&RI.device);
+  // The global managed set is engine-lifetime; ShutdownGlobalManagedSets()
+  // (cGraphics teardown) destroys it after the device is idle.
   // Fallback vertex streams are RIBootstrap globals (process-lifetime, like
   // RI.nulVertexBuffer); not freed here.
   for (uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; ++i) {

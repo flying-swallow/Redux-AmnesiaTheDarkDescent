@@ -16,6 +16,7 @@
 
 #include "Constants.h"
 import SceneTypes;
+import PerFrame.resource;   // gPerFrame.afT for animated-texture frame selection
 
 import SurfelGI.SurfelTypes;
 
@@ -33,32 +34,69 @@ public Texture2D gTextures2D[];
 [vk::binding(kBindingTexturesCube, 0)]
 public TextureCube gTexturesCube[];
 
+// Animated images: one Texture2DArray per animated Image (N frames = N layers).
+// A texture index with kAnimatedTextureBit set selects this array; the bindless
+// sample helpers below strip the bit and pick the current layer from gAnimTex +
+// gPerFrame.afT. cTextureManager writes the descriptor once (no per-frame rewrite).
+[vk::binding(kBindingTextures2DArray, 0)]
+public Texture2DArray gTextures2DArray[];
+
+[vk::binding(kBindingAnimTex, 0)]
+public StructuredBuffer<AnimTexRec> gAnimTex;
+
 [vk::binding(kBindingMaterialSampler, 0)]
 public SamplerState gMaterialSampler;
 
+// Current animation layer from the accumulated animation-time `afT` (seconds).
+public uint animFrame(float afT, AnimTexRec r)
+{
+    if (r.frameCount <= 1u) return 0u;
+    uint t = (uint)max(afT / max(r.frameTime, 1e-6f), 0.0f);
+    if (r.mode == kAnimModeOscillate)
+    {
+        uint period = 2u * (r.frameCount - 1u);     // 0..N-1..1
+        uint p = t % period;
+        return p < r.frameCount ? p : period - p;
+    }
+    return t % r.frameCount;                          // kAnimModeLoop (default)
+}
+
+// Sample a bindless 2D texture index. Static slot → gTextures2D; an index with
+// kAnimatedTextureBit set → the matching gTextures2DArray layer for this frame.
+// `idx == kInvalidTextureIndex` returns opaque black (callers usually guard first;
+// the invalid check must precede the bit test since 0xffffffff also has bit 31).
+public float4 sampleBindless2DLevel(uint idx, float2 uv, float lod)
+{
+    if (idx == kInvalidTextureIndex) return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    if ((idx & kAnimatedTextureBit) != 0u)
+    {
+        uint a = idx & ~kAnimatedTextureBit;
+        float frame = (float)animFrame(gPerFrame.afT, gAnimTex[NonUniformResourceIndex(a)]);
+        return gTextures2DArray[NonUniformResourceIndex(a)].SampleLevel(gMaterialSampler, float3(uv, frame), lod);
+    }
+    return gTextures2D[NonUniformResourceIndex(idx)].SampleLevel(gMaterialSampler, uv, lod);
+}
+
+// Auto-mip variant for fragment passes (gradient-based LOD).
+public float4 sampleBindless2D(uint idx, float2 uv)
+{
+    if (idx == kInvalidTextureIndex) return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    if ((idx & kAnimatedTextureBit) != 0u)
+    {
+        uint a = idx & ~kAnimatedTextureBit;
+        float frame = (float)animFrame(gPerFrame.afT, gAnimTex[NonUniformResourceIndex(a)]);
+        return gTextures2DArray[NonUniformResourceIndex(a)].Sample(gMaterialSampler, float3(uv, frame));
+    }
+    return gTextures2D[NonUniformResourceIndex(idx)].Sample(gMaterialSampler, uv);
+}
+
 // -----------------------------------------------------------------------------
-// Per-stream BDA handle arrays. Each slot id (bindless object id) indexes
-// into these and yields a VkDeviceAddress for that stream of the mesh.
-// Shaders cast to a local buffer_reference / buffer-pointer type before
-// dereferencing.
+// Per-stream BDA handle arrays were folded into UniformObject (posHandle /
+// normalHandle / tangentHandle / uv0Handle / colorHandle / indexHandle in
+// SceneTypes.slang) — they were always indexed by the same object slot. The
+// kBindingOpaque*Handles bindings are now unused/reserved. fetchBindlessTriangle
+// and the gbuffer / particle vertex shaders read the addresses off gSceneObjects.
 // -----------------------------------------------------------------------------
-[vk::binding(kBindingOpaquePositionHandles, 0)]
-public StructuredBuffer<uint64_t> gOpaquePositionHandles;
-
-[vk::binding(kBindingOpaqueTangentHandles, 0)]
-public StructuredBuffer<uint64_t> gOpaqueTangentHandles;
-
-[vk::binding(kBindingOpaqueNormalHandles, 0)]
-public StructuredBuffer<uint64_t> gOpaqueNormalHandles;
-
-[vk::binding(kBindingOpaqueUv0Handles, 0)]
-public StructuredBuffer<uint64_t> gOpaqueUv0Handles;
-
-[vk::binding(kBindingOpaqueColorHandles, 0)]
-public StructuredBuffer<uint64_t> gOpaqueColorHandles;
-
-[vk::binding(kBindingOpaqueIndexHandles, 0)]
-public StructuredBuffer<uint64_t> gOpaqueIndexHandles;
 
 // -----------------------------------------------------------------------------
 // Surfel-GI buffers — mirror cHybridRenderer's m_surfel*Buffer / m_cell*Buffer.
@@ -155,19 +193,22 @@ public RWStructuredBuffer<UniformObject> gSceneObjects;
 public StructuredBuffer<MaterialDataBlob> gMaterials;
 
 // -----------------------------------------------------------------------------
-// Per-frame light SSBOs. Counts come from SceneConstants on set 1 (the
-// per-frame UBO). Iterate up to that count, not the array length.
+// Per-world light/fog SSBOs. These live on the dedicated per-world set kWorldSet
+// (not the engine-global set 0): cWorld owns the buffers, and every pass that
+// reads them binds this set via RIProgram::bindDescriptors (cached). Counts come
+// from SceneConstants on set 1 (the per-frame UBO) — iterate up to that count,
+// not the array length.
 // -----------------------------------------------------------------------------
-[vk::binding(kBindingPointLights, 0)]
+[vk::binding(kBindingWorldPointLights, kWorldSet)]
 public RWStructuredBuffer<PointLight> gPointLights;
 
-[vk::binding(kBindingSpotLights, 0)]
+[vk::binding(kBindingWorldSpotLights, kWorldSet)]
 public RWStructuredBuffer<SpotLight> gSpotLights;
 
-[vk::binding(kBindingAreaLights, 0)]
+[vk::binding(kBindingWorldAreaLights, kWorldSet)]
 public RWStructuredBuffer<RectLight> gAreaLights;
 
-[vk::binding(kBindingFogAreas, 0)]
+[vk::binding(kBindingWorldFogAreas, kWorldSet)]
 public RWStructuredBuffer<FogAreaParams> gFogAreas;
 
 // -----------------------------------------------------------------------------
@@ -208,13 +249,6 @@ public Texture2D<float2> gSurfelDepth;
 
 [vk::binding(kBindingSurfelDepthSampler, 0)]
 public SamplerState gSurfelDepthSampler;
-
-// Default light falloff LUT (core_falloff_linear), bound once on set 0 — it never
-// changes, so it lives here as an immutable global rather than being resolved
-// per-light through the bindless texture pool. Sample with gSurfelDepthSampler
-// (clamp). Keyed on r²=(d/r)² for radial, (1-cosθ)/(1-cosOuter) for the spot cone.
-[vk::binding(kBindingAttenuationLut, 0)]
-public Texture2D<float4> gAttenuationLut;
 
 // core_dissolve.tga — the legacy 128×128 dissolve noise (solid_z.frag.fsl).
 // Immutable, written once at init; sampled UV-space (wrap) by the shared

@@ -88,6 +88,14 @@ namespace hpl {
 		Log("Exiting Graphics Module\n");
 		Log("--------------------------------------------------------\n");
 
+		// Wait for the GPU to finish before tearing anything down. The renderer
+		// and material destructors below free GPU objects (TLAS, buffers, image
+		// views) directly on the assumption the device is idle — but RI.Dispose()'s
+		// own waitIdle runs only at the very end of this function, far too late for
+		// them. Without this the TLAS is destroyed while still referenced by the
+		// last frame's command buffer (VUID-...-accelerationStructure-02442).
+		RI.device.queues[RI_QUEUE_GRAPHICS].waitIdle(&RI.device);
+
 		tMaterialTypeMapIt it = m_mapMaterialTypes.begin();
 		for(;it != m_mapMaterialTypes.end(); ++it)
 		{
@@ -107,6 +115,12 @@ namespace hpl {
 			}
 		}
 		mvRenderers.clear();
+
+		// Destroy the global managed set after the renderers (which only borrow its
+		// layout). The device is idle by now (renderer teardown guarantees it); the
+		// deferred texture-slot frees in RI.graphicsDefer only touch CPU pools, which
+		// outlive this via cTextureManager (deleted later with cResources).
+		ShutdownGlobalManagedSets(&RI.device);
 
 		STLDeleteAll(mlstPostEffectComposites);
 		STLDeleteAll(mlstPostEffects);
@@ -414,6 +428,12 @@ namespace hpl {
 			};
 			RI.postEffectBlit.initialize(&RI.device, stages);
 		}
+
+		// Build the engine-lifetime global managed set (set 0) before any renderer
+		// or texture needs it. cTextureManager (already constructed with cResources)
+		// writes texture descriptors into it; renderers borrow its layout.
+		InitGlobalManagedSets(&RI.device, apResources);
+
 		////////////////////////////////////////////////
 		// Create systems
 		mpMeshCreator = hplNew( cMeshCreator,(mpLowLevelGraphics, apResources));

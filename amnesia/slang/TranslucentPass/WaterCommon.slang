@@ -41,9 +41,7 @@ float3 waterWaveNormalTangent(WaterMaterial water, float2 baseUv, float afT)
     if (normalTex == kInvalidTextureIndex)
         return float3(0.0f, 0.0f, 1.0f);
 
-    float3 n1 = gTextures2D[NonUniformResourceIndex(normalTex)]
-                    .SampleLevel(gMaterialSampler, uv1, 0.0f).xyz * 2.0f - 1.0f;
-    float3 n2 = gTextures2D[NonUniformResourceIndex(normalTex)]
-                    .SampleLevel(gMaterialSampler, uv2, 0.0f).xyz * 2.0f - 1.0f;
+    float3 n1 = sampleBindless2DLevel(normalTex, uv1, 0.0f).xyz * 2.0f - 1.0f;
+    float3 n2 = sampleBindless2DLevel(normalTex, uv2, 0.0f).xyz * 2.0f - 1.0f;
     return normalize(n1 * 0.7f + n2 * 0.3f);
 }
