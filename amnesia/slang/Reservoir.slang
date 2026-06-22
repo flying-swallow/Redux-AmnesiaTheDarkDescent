@@ -2,8 +2,8 @@
 // Light-selection reservoir for ReSTIR DI (Bitterli et al. 2020), the biased
 // reuse variant.
 //
-// The "sample" stored per pixel is just the chosen analytic light's global
-// index — NOT a point on the light. The soft-shadow disk point is drawn fresh
+// The "sample" stored per pixel is just the chosen analytic light's packed id
+// (packLightId(type, slot), stable across frames) — NOT a point on the light. The soft-shadow disk point is drawn fresh
 // (blue noise) at resolve time and smoothed by the temporal/spatial reservoir
 // reuse plus the à-trous filter, so it needs no Jacobian and isn't persisted.
 // This keeps the whole pipeline at one shadow ray per pixel per frame while the
@@ -18,7 +18,7 @@ import Random;
 
 public struct Reservoir
 {
-    public uint  y;       // selected light (global unified index)
+    public uint  y;       // selected light — packed id (packLightId(type, slot))
     public float W;       // unbiased contribution weight (UCW)
     public float M;       // confidence — candidate / merged sample count
     // Transient (build + combine), not persisted to the texture:

@@ -161,9 +161,10 @@ public RWStructuredBuffer<uint> gBindlessSlotGeneration;
 public RWStructuredBuffer<uint> gSurfelSlotGeneration;
 
 // Coarse world-space light grid (LightGridBuildPass writes, SurfelRayTrace NEE
-// reads). gLightGridList stores unified light indices (point then spot) for
-// each cell, packed kLightsPerCellMax per cell; gLightGridCount is the (capped)
-// per-cell length.
+// reads). gLightGridList stores PACKED light ids (packLightId(type, slot) — the
+// same value getLight() decodes; stable across frames so a reservoir's persisted
+// id stays valid) for each cell, kLightsPerCellMax per cell; gLightGridCount is
+// the (capped) per-cell length.
 [vk::binding(kBindingLightGridCount, 0)]
 public RWStructuredBuffer<uint> gLightGridCount;
 

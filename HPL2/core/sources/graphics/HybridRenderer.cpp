@@ -704,7 +704,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   auto solids = m_rendererList.GetSolidObjects();
   // Lights are no longer pulled from the per-frame render list — cWorld owns the
-  // persistent per-world light buffers (see apWorld->RefreshLights() below).
+  // per-world light buffers (rebuilt by apWorld->SubmitToGpu() below).
   RISegmentReq indirectReq = {};
   const bool indirectOk =
       m_indirectSegment.request(RI.frameIndex, solids.size(), &indirectReq);
@@ -2320,6 +2320,15 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         wbnd.emplace_back("gRtAccel",
                           RIDescriptor::accelerationStructure(&RI.device, m_tlas.Get()));
         appendWorldLightFog(wbnd, apWorld);
+        // The water frag's lit reflection shades the RT hit via gatherSurfelIndirect
+        // (shadeReflectionHit), which samples the set-1 surfel depth atlas. The
+        // surfel storage buffers ride set 0 (m_bindlessSet, bound above), but
+        // gSurfelDepth is set 1 and must be bound here or the pipeline reports it
+        // as statically-used-but-never-updated (VUID-vkCmdDrawIndexed-None-08114).
+        wbnd.emplace_back("gSurfelDepth",
+                          RIDescriptor::sampledImage(
+                              &RI.device, &m_surfelDepthView[RI.swapchainIndex],
+                              RI_RESOURCE_STATE_GENERAL));
         m_water.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
                                 wbnd.data(), (uint32_t)wbnd.size());
       }

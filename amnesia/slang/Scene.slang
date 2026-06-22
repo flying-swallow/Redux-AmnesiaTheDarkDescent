@@ -48,21 +48,36 @@ public struct Ray
     public float  tMax;
 };
 
-// Flat-index → ILight resolver. Slices the virtual index across the two
-// typed light SSBOs (point, spot) in the same order documented by
-// amnesia/glsl/surfel_light_nee.glsl. The interface return goes through
-// Slang's existential boxing; callers (incl. surfel NEE) sample lights via
-// getLight(i).sample(...). No upper-bound check — an index past
-// pointCount+spotCount is a caller bug, not a guarded case.
+// Packed light id: top 2 bits = type, low 30 bits = the light's STABLE per-type
+// GPU slot (host-side IndexPool, see cWorld::SubmitToGpu). Self-describing — the
+// decode is independent of the per-frame light counts, so a light's id is the
+// same value every frame as long as it lives. This is the identity ReSTIR DI
+// reservoirs persist in Reservoir.y; a count-relative flat index would alias a
+// different light whenever any type's count changed.
+public static const uint kLightTypePoint = 0u;
+public static const uint kLightTypeSpot  = 1u;
+public static const uint kLightTypeArea  = 2u;
+static const uint kLightSlotBits   = 30u;
+static const uint kLightSlotMask   = (1u << kLightSlotBits) - 1u;
+
+public uint packLightId(uint type, uint slot) { return (type << kLightSlotBits) | (slot & kLightSlotMask); }
+public uint lightIdType(uint id)              { return id >> kLightSlotBits; }
+public uint lightIdSlot(uint id)              { return id & kLightSlotMask; }
+
+// Packed-id → ILight resolver. The interface return goes through Slang's
+// existential boxing; callers (incl. surfel NEE) sample lights via
+// getLight(id).sample(...). No slot bounds check — an out-of-range slot is a
+// caller bug, not a guarded case. A destroyed-but-not-reused slot is a zeroed
+// hole (intensity/color/radius 0) and decodes to a no-op light.
 public ILight getLight(uint ID)
 {
-    uint nPoint = gPerFrame.pointLightCount;
-    if (ID < nPoint) return gPointLights[ID];
-    ID -= nPoint;
-    uint nSpot = gPerFrame.spotLightCount;
-    if (ID < nSpot) return gSpotLights[ID];
-    ID -= nSpot;
-    return gAreaLights[ID];
+    uint slot = lightIdSlot(ID);
+    switch (lightIdType(ID))
+    {
+    case kLightTypePoint: return gPointLights[slot];
+    case kLightTypeSpot:  return gSpotLights[slot];
+    default:              return gAreaLights[slot];
+    }
 }
 
 public struct SceneCamera
@@ -459,6 +474,10 @@ public struct Scene
     }
 
     // --- Lights ---------------------------------------------------------------
+    // gPerFrame.{point,spot,area}LightCount are now per-type SLOT CAPACITIES
+    // (host high-water of stable slots), not live light counts — sparse slots
+    // may include zeroed holes. Used only as a ">0 any lights?" guard here, so
+    // capacity semantics are fine; per-light enumeration goes through the grid.
     public uint getLightCount()
     {
         return gPerFrame.pointLightCount
@@ -524,36 +543,31 @@ public struct Scene
         if (!cl.valid)
             return 1.0f;
 
-        uint nPoint = gPerFrame.pointLightCount;
-        uint nSpot  = gPerFrame.spotLightCount;
-
         float sum = 0.0f;
         for (uint k = 0u; k < cl.count; ++k)
         {
-            uint li = cellLightAt(cl, k);
+            uint li   = cellLightAt(cl, k);   // packed type|slot
+            uint slot = lightIdSlot(li);
             float3 lpos;
             float3 lcolor;
             float  lintensity;
-            if (li < nPoint)
+            switch (lightIdType(li))
             {
-                lpos       = gPointLights[li].position;
-                lcolor     = gPointLights[li].color;
-                lintensity = gPointLights[li].intensity;
-            }
-            else if (li < nPoint + nSpot)
-            {
-                uint si = li - nPoint;
-                lpos       = gSpotLights[si].position;
-                lcolor     = gSpotLights[si].color;
-                lintensity = gSpotLights[si].intensity;
-            }
-            else
-            {
-                uint ai = li - nPoint - nSpot;
-                if (ai >= gPerFrame.areaLightCount) continue;
-                lpos       = gAreaLights[ai].position;
-                lcolor     = gAreaLights[ai].color;
-                lintensity = gAreaLights[ai].intensity;
+            case kLightTypePoint:
+                lpos       = gPointLights[slot].position;
+                lcolor     = gPointLights[slot].color;
+                lintensity = gPointLights[slot].intensity;
+                break;
+            case kLightTypeSpot:
+                lpos       = gSpotLights[slot].position;
+                lcolor     = gSpotLights[slot].color;
+                lintensity = gSpotLights[slot].intensity;
+                break;
+            default:
+                lpos       = gAreaLights[slot].position;
+                lcolor     = gAreaLights[slot].color;
+                lintensity = gAreaLights[slot].intensity;
+                break;
             }
 
             float authoredRadius = lintensity;

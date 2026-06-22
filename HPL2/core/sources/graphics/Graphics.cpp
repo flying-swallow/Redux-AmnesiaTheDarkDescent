@@ -174,7 +174,7 @@ namespace hpl {
 		struct RIBackendInit backendInit = {};
 		backendInit.api = RI_DEVICE_API_VK;
 		backendInit.applicationName = "HPL2";
-		backendInit.vk.enableValidationLayer = true;
+		backendInit.vk.enableValidationLayer = false;
 
 		if(InitRIRenderer(&backendInit) != RI_SUCCESS) {
 			return false;

@@ -1,13 +1,16 @@
 // LightGridBuildPass — builds the coarse, camera-centered world-space light
 // grid used by the surfel ray-trace NEE and the MainCompositePass direct cull.
 //
-//   binLights : ONE THREAD PER CELL. Each cell walks the unified light list
-//               (point [0,nPoint), spot [nPoint, nPoint+nSpot) — same index space
-//               as getLight) and appends the lights whose
-//               CPU-precomputed reach-sphere overlaps the cell, capped at
-//               kLightsPerCellMax. The cell owns its count + list slots, so there
-//               are no atomics, no inter-thread contention, and the per-cell count
-//               is written unconditionally (no host zero-clear needed).
+//   binLights : ONE THREAD PER CELL. Each cell walks every light type over its
+//               stable SLOT CAPACITY (gPerFrame.{point,spot,area}LightCount are
+//               host high-water slot counts, sparse — zeroed holes have radius 0
+//               and are skipped) and appends the lights whose CPU-precomputed
+//               reach-sphere overlaps the cell, capped at kLightsPerCellMax. The
+//               grid stores the packed light id (packLightId(type, slot) — the
+//               same value getLight() decodes), so a reservoir's persisted index
+//               stays valid across frames. The cell owns its count + list slots,
+//               so there are no atomics, no inter-thread contention, and the
+//               per-cell count is written unconditionally (no host zero-clear).
 //
 // Per-cell gather (vs the old per-light scatter): work is uniform across threads
 // — a single large light can't stall a whole wave — and the cap drops the
@@ -28,6 +31,7 @@
 
 import bindless;
 import SceneTypes;
+import Scene;                   // packLightId / kLightType*
 import PerFrame.resource;
 import Grid;                    // gridUnflattenCellIndex / sphereIntersectsGridCell
 
@@ -40,54 +44,51 @@ void binLights(uint3 dispatchThreadId: SV_DispatchThreadID)
 
     int3   cellPos = gridUnflattenCellIndex(flat, kLightGridDim);
     float3 camPos  = gPerFrame.posW;
-    uint   nPoint  = gPerFrame.pointLightCount;
+    uint   nPoint  = gPerFrame.pointLightCount;   // per-type slot capacities (sparse, zeroed holes)
     uint   nSpot   = gPerFrame.spotLightCount;
-    uint   total   = nPoint + nSpot + gPerFrame.areaLightCount;
+    uint   nArea   = gPerFrame.areaLightCount;
 
     uint count = 0u;
-    for (uint i = 0u; i < total; ++i)
+
+    // Point lights — omnidirectional, reach sphere is exact.
+    for (uint p = 0u; p < nPoint; ++p)
     {
-        // Unified index → point/spot/area. radius is the host-precomputed bin reach
-        // (0 ⇒ the light was too dim to matter anywhere; skip).
-        bool   isSpot = (i >= nPoint) && (i < nPoint + nSpot);
-        bool   isArea = (i >= nPoint + nSpot);
-        float3 center;
-        float  radius;
-        float3 spotAxis = float3(0.f, 0.f, 1.f);
-        float  spotCos  = -1.f;
-        if (isArea)
-        {
-            // Area lights are planar emitters; the reach sphere is a conservative
-            // bound (the exact rect + barn-door cull stays in RectLight.sample).
-            RectLight al = gAreaLights[i - nPoint - nSpot];
-            center = al.position;  radius = al.radius;
-        }
-        else if (isSpot)
-        {
-            SpotLight sl = gSpotLights[i - nPoint];
-            center = sl.position;  radius = sl.radius;
-            spotAxis = sl.direction;  spotCos = sl.cosOuterAngle;
-        }
-        else
-        {
-            PointLight pl = gPointLights[i];
-            center = pl.position;  radius = pl.radius;
-        }
-        if (radius <= 0.f)
+        PointLight pl = gPointLights[p];
+        if (pl.radius <= 0.f)   // 0 ⇒ invisible / dim-to-skip / unused slot hole
             continue;
-
-        // Radial reach cap (tight cell-AABB sphere test) — applies to all lights.
-        if (!sphereIntersectsGridCell(center, radius, cellPos, camPos, kLightGridDim, kLightGridUnit))
+        if (!sphereIntersectsGridCell(pl.position, pl.radius, cellPos, camPos, kLightGridDim, kLightGridUnit))
             continue;
-
-        // Spotlights: reject cells outside the cone's angular wedge. Point lights
-        // are omnidirectional, so the sphere above is already exact for them.
-        if (isSpot &&
-            !coneIntersectsGridCell(center, spotAxis, spotCos, cellPos, camPos, kLightGridDim, kLightGridUnit))
-            continue;
-
         if (count < kLightsPerCellMax)
-            gLightGridList[flat * kLightsPerCellMax + count] = i;   // deterministic: first N by index
+            gLightGridList[flat * kLightsPerCellMax + count] = packLightId(kLightTypePoint, p);
+        ++count;
+    }
+
+    // Spot lights — reach sphere + angular cone wedge cull.
+    for (uint s = 0u; s < nSpot; ++s)
+    {
+        SpotLight sl = gSpotLights[s];
+        if (sl.radius <= 0.f)
+            continue;
+        if (!sphereIntersectsGridCell(sl.position, sl.radius, cellPos, camPos, kLightGridDim, kLightGridUnit))
+            continue;
+        if (!coneIntersectsGridCell(sl.position, sl.direction, sl.cosOuterAngle, cellPos, camPos, kLightGridDim, kLightGridUnit))
+            continue;
+        if (count < kLightsPerCellMax)
+            gLightGridList[flat * kLightsPerCellMax + count] = packLightId(kLightTypeSpot, s);
+        ++count;
+    }
+
+    // Area lights — planar emitters; the reach sphere is a conservative bound
+    // (the exact rect + barn-door cull stays in RectLight.sample).
+    for (uint a = 0u; a < nArea; ++a)
+    {
+        RectLight al = gAreaLights[a];
+        if (al.radius <= 0.f)
+            continue;
+        if (!sphereIntersectsGridCell(al.position, al.radius, cellPos, camPos, kLightGridDim, kLightGridUnit))
+            continue;
+        if (count < kLightsPerCellMax)
+            gLightGridList[flat * kLightsPerCellMax + count] = packLightId(kLightTypeArea, a);
         ++count;
     }
 

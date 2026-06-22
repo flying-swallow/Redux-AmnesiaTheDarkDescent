@@ -92,6 +92,15 @@ namespace hpl {
 		
 		eLightType GetLightType(){ return mLightType;}
 
+		// Stable per-type GPU light slot, assigned by the owning cWorld's
+		// light-slot pool at creation and kept for the light's lifetime (returned
+		// on destroy). Makes the light's packed GPU id (packLightId(type, slot))
+		// identical every frame — the stable identity ReSTIR DI reservoirs persist
+		// across temporal/spatial reuse. UINT32_MAX until assigned (and for light
+		// types not uploaded to the GPU, e.g. box lights).
+		uint32_t GetGpuLightSlot() const { return mGpuLightSlot; }
+		void SetGpuLightSlot(uint32_t aSlot){ mGpuLightSlot = aSlot; }
+
 		// Image* binding API.
 		void SetFalloffMap(Image* apImage);
 		Image* GetFalloffImage() const;
@@ -234,6 +243,7 @@ namespace hpl {
 		virtual void UpdateBoundingVolume()=0;
 		
 		eLightType mLightType;
+		uint32_t mGpuLightSlot = UINT32_MAX;   // stable per-type GPU slot (cWorld light-slot pool)
 
 		cTextureManager *mpTextureManager;
 		cFileSearcher *mpFileSearcher;

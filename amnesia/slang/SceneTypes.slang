@@ -317,14 +317,14 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC float afT;
     SLANG_PUBLIC uint  totalFrames;                // monotonic frame counter
     SLANG_PUBLIC float cameraFov;                  // main camera vertical FOV (radians)
-    SLANG_PUBLIC uint  pointLightCount;            // active entries in gPointLights[]
+    SLANG_PUBLIC uint  pointLightCount;            // gPointLights[] SLOT CAPACITY (high-water of stable slots; sparse, zeroed holes)
     SLANG_PUBLIC float fireflyClampThreshold;      // luminance cap in surfel raytrace + integrate
     SLANG_PUBLIC float zNear;                      // view-space, positive
     SLANG_PUBLIC float zFar;                       // view-space, positive
-    SLANG_PUBLIC uint  spotLightCount;             // active entries in gSpotLights[]
+    SLANG_PUBLIC uint  spotLightCount;             // gSpotLights[] SLOT CAPACITY (high-water of stable slots; sparse, zeroed holes)
     SLANG_PUBLIC uint  fogAreaCount;               // active entries in gFogAreas[]
     SLANG_PUBLIC uint  decalCount;                 // active entries in gDecals[]
-    SLANG_PUBLIC uint  areaLightCount;             // active entries in gAreaLights[]
+    SLANG_PUBLIC uint  areaLightCount;             // gAreaLights[] SLOT CAPACITY (high-water of stable slots; sparse, zeroed holes)
 
     SLANG_PUBLIC float3 posW;
     SLANG_PUBLIC float jitterX;

@@ -8,8 +8,18 @@ class IndexPool {
 public:
   IndexPool(uint32_t reserve);
 
-  uint32_t requestId();
+  uint32_t requestId();     // highest free id first (top-down)
+  uint32_t requestIdLow();  // lowest free id first (bottom-up); packs ids from 0
   void returnId(uint32_t);
+  // Return a contiguous [start, end] span to the free set (coalescing neighbours).
+  // returnId is the single-id case. Also the primitive grow() builds on.
+  void returnRange(uint32_t start, uint32_t end);
+  // Extend the id space by `additional` ids (frees [capacity, capacity+additional)
+  // and bumps the capacity). Lets a caller recover from an exhausted pool — e.g.
+  // a new light past the reserve — and then re-request; the backing RIBuffer grows
+  // to fit the new high slot on its next upload. Returns the new capacity.
+  uint32_t grow(uint32_t additional);
+  uint32_t capacity() const { return m_capacity; }
   void reset();
   void resetToReserved(uint32_t reserve);
 private:
@@ -18,6 +28,7 @@ private:
     uint32_t m_end;
   };
   std::vector<IdRange> m_avaliable;
+  uint32_t m_capacity = 0;  // id space is [0, m_capacity); grows via grow()
 };
 
 class IndexPoolHandle {

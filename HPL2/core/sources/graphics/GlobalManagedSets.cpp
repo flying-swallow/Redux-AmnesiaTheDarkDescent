@@ -159,10 +159,15 @@ void GlobalManagedSets::initialize(RIDevice *device,
   // the UniformObject in m_objectBuffer.)
 
   // Per-2D-array-slot animation record table (gAnimTex). Contents written by
-  // cTextureManager (uploader copies) when an animated image is assigned its slot.
-  m_animTexBuffer = RIBuffer::create(
-      device, {(uint64_t)kTexture2DArrayCapacity * sizeof(AnimTexRec), kStorage,
-               RI_MEMORY_DEVICE, 0});
+  // cTextureManager (uploader copies) when an animated image is assigned its
+  // slot, so it must be device-local with TRANSFER_DST. Built through
+  // CreateBindlessSlotBuffer like every other set-0 buffer — `kStorage` is raw
+  // VkBufferUsageFlags, which that helper feeds straight into VkBufferCreateInfo.
+  // (RIBuffer::create instead expects RI_BUFFER_USAGE_* flags, so passing kStorage
+  // there mistranslated to STORAGE|INDIRECT and dropped TRANSFER_DST.)
+  m_animTexBuffer = detail::CreateBindlessSlotBuffer(
+      device, kTexture2DArrayCapacity, sizeof(AnimTexRec), kStorage,
+      /*deviceLocalOnly*/ true);
 
   // === SurfelGI SSBOs ===
   // Sizes from the kSurfel* / kCell* / kRayBudget constants:
@@ -401,10 +406,20 @@ GlobalManagedSets::MaterialSubmitResult
 GlobalManagedSets::submitMaterial(RIBootstrap::FrameContext *cntx,
                                        cMaterial *mat, uint32_t frameIndex) {
   // cTextureManager stamps each Image with a lifetime-stable bindless slot at
-  // load (binding 0 = textures_2d[], binding 1 = textures_cube[]); just read it.
+  // load (binding 0 = textures_2d[], binding 1 = textures_cube[]); read it AND
+  // pin the Image for this frame. The hybrid renderer references material
+  // textures purely by slot (no per-draw descriptor binding), so without this pin
+  // an entity destroyed mid-frame — e.g. a picked-up item in
+  // UpdateToBeDestroyedEntities — would drop the Image's last ref and free its
+  // image view (cTexture::~cTexture) while the GPU's bindless set still references
+  // it (VUID-vkDestroyImageView-imageView-01026). The pin parks the Image in
+  // graphicsDefer until the GPU passes this frame, then it frees safely.
   auto slotFor = [&](eMaterialTexture type) -> uint32_t {
     Image *img = mat->GetImage(type);
-    return img ? img->GetBindlessSlot() : kInvalidTextureIndex;
+    if (!img)
+      return kInvalidTextureIndex;
+    RI.graphicsDefer.push(PinResource(img));
+    return img->GetBindlessSlot();
   };
 
   // tex[] order must match the DiffuseMaterial struct in SceneTypes.slang.
@@ -420,11 +435,9 @@ GlobalManagedSets::submitMaterial(RIBootstrap::FrameContext *cntx,
   gpu.tex[7] = slotFor(eMaterialTexture_CubeMapAlpha);
   // Reflection cube map — separate bindless table (textures_cube[]). A cube
   // Image's slot indexes textures_cube[] (cTextureManager assigned it from the
-  // cube pool), so the same GetBindlessSlot() read works here; stored outside tex[].
-  {
-    Image *cubeImg = mat->GetImage(eMaterialTexture_CubeMap);
-    gpu.cubeMapTextureIndex = cubeImg ? cubeImg->GetBindlessSlot() : kInvalidTextureIndex;
-  }
+  // cube pool), so slotFor's GetBindlessSlot() read + per-frame pin works here
+  // too; stored outside tex[].
+  gpu.cubeMapTextureIndex = slotFor(eMaterialTexture_CubeMap);
 
 
   auto isSingleChannel = [](const Image *image) {
