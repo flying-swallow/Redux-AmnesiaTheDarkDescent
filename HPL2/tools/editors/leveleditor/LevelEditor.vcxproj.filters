@@ -369,6 +369,9 @@
     <ClCompile Include="..\common\EdWorld.cpp">
       <Filter>NewStuff</Filter>
     </ClCompile>
+    <ClCompile Include="..\common\EntityWrapperLightArea.cpp">
+      <Filter>Common\EntityWrappers\Types</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\common\EditorBaseClasses.h">
@@ -717,5 +720,8 @@
       <Filter>NewStuff</Filter>
     </ClInclude>
     <ClInclude Include="..\..\LuxBasePersonal.h" />
+    <ClInclude Include="..\common\EntityWrapperLightArea.h">
+      <Filter>Common\EntityWrappers\Types</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

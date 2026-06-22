@@ -176,9 +176,7 @@
     <ClInclude Include="include\graphics\HybridGlobalManagedSet.h" />
     <ClInclude Include="include\graphics\HybridRenderer.h" />
     <ClInclude Include="include\graphics\Image.h" />
-    <ClInclude Include="include\graphics\ImageResourceWrapper.h" />
     <ClInclude Include="include\graphics\IndexPool.h" />
-    <ClInclude Include="include\graphics\MaterialResource.h" />
     <ClInclude Include="include\graphics\MaterialType_BasicSolid.h" />
     <ClInclude Include="include\graphics\MaterialType_BasicTranslucent.h" />
     <ClInclude Include="include\graphics\MaterialType_Decal.h" />
@@ -190,6 +188,8 @@
     <ClInclude Include="include\graphics\RenderList.h" />
     <ClInclude Include="include\graphics\RIBarrier.h" />
     <ClInclude Include="include\graphics\RIBootstrap.h" />
+    <ClInclude Include="include\graphics\RIBuffer.h" />
+    <ClInclude Include="include\graphics\RICommandRingBuffer.h" />
     <ClInclude Include="include\graphics\RIDefines.h" />
     <ClInclude Include="include\graphics\RIDescriptorSetAllocator.h" />
     <ClInclude Include="include\graphics\RIFormat.h" />
@@ -202,6 +202,9 @@
     <ClInclude Include="include\graphics\RIScratchAlloc.h" />
     <ClInclude Include="include\graphics\RISegmentAlloc.h" />
     <ClInclude Include="include\graphics\RISwapchain.h" />
+    <ClInclude Include="include\graphics\RITexture.h" />
+    <ClInclude Include="include\graphics\RITextureView.h" />
+    <ClInclude Include="include\graphics\RITimeline.h" />
     <ClInclude Include="include\graphics\RITypes.h" />
     <ClInclude Include="include\graphics\RIVK.h" />
     <ClInclude Include="include\graphics\spirv.h" />
@@ -222,6 +225,7 @@
     <ClInclude Include="include\input\Gamepad.h" />
     <ClInclude Include="include\resources\SpvResourceLoader.h" />
     <ClInclude Include="include\scene\Decal.h" />
+    <ClInclude Include="include\scene\LightArea.h" />
     <ClInclude Include="include\system\BinTree.h" />
     <ClInclude Include="include\system\Container.h" />
     <ClInclude Include="include\system\Event.h" />
@@ -524,9 +528,7 @@
     <ClCompile Include="sources\graphics\HybridGlobalManagedSet.cpp" />
     <ClCompile Include="sources\graphics\HybridRenderer.cpp" />
     <ClCompile Include="sources\graphics\Image.cpp" />
-    <ClCompile Include="sources\graphics\ImageResourceWrapper.cpp" />
     <ClCompile Include="sources\graphics\IndexPool.cpp" />
-    <ClCompile Include="sources\graphics\MaterialResource.cpp" />
     <ClCompile Include="sources\graphics\MaterialType_BasicSolid.cpp" />
     <ClCompile Include="sources\graphics\MaterialType_BasicTranslucent.cpp" />
     <ClCompile Include="sources\graphics\MaterialType_Decal.cpp" />
@@ -565,6 +567,7 @@
     <ClCompile Include="sources\input\ActionGamepadHat.cpp" />
     <ClCompile Include="sources\input\Gamepad.cpp" />
     <ClCompile Include="sources\scene\Decal.cpp" />
+    <ClCompile Include="sources\scene\LightArea.cpp" />
     <ClCompile Include="sources\system\Container.cpp" />
     <ClCompile Include="sources\system\Hasher.cpp" />
     <ClCompile Include="sources\system\LogicTimer.cpp" />

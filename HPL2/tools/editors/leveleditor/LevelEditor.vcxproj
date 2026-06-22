@@ -176,6 +176,7 @@
     <ClCompile Include="..\common\EditorViewport.cpp" />
     <ClCompile Include="..\common\EditorWorld.cpp" />
     <ClCompile Include="..\common\EntityPicker.cpp" />
+    <ClCompile Include="..\common\EntityWrapperLightArea.cpp" />
     <ClCompile Include="..\common\StdAfx.cpp" />
     <ClCompile Include="..\common\EditorWindow.cpp" />
     <ClCompile Include="..\common\EditorWindowFactory.cpp" />
@@ -290,6 +291,7 @@
     <ClInclude Include="..\common\EditorViewport.h" />
     <ClInclude Include="..\common\EditorWorld.h" />
     <ClInclude Include="..\common\EntityPicker.h" />
+    <ClInclude Include="..\common\EntityWrapperLightArea.h" />
     <ClInclude Include="..\common\StdAfx.h" />
     <ClInclude Include="..\common\EditorWindow.h" />
     <ClInclude Include="..\common\EditorWindowFactory.h" />

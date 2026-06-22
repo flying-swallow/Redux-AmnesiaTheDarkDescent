@@ -964,9 +964,6 @@
     <ClInclude Include="include\graphics\IndexPool.h">
       <Filter>Graphics</Filter>
     </ClInclude>
-    <ClInclude Include="include\graphics\MaterialResource.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
     <ClInclude Include="include\graphics\ObjectPool.h">
       <Filter>Graphics</Filter>
     </ClInclude>
@@ -1037,9 +1034,6 @@
       <Filter>Impl\Volk</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\HPLGraphicsConfig.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
-    <ClInclude Include="include\graphics\ImageResourceWrapper.h">
       <Filter>Graphics</Filter>
     </ClInclude>
     <ClInclude Include="include\graphics\RenderList.h">
@@ -1122,6 +1116,16 @@
     </ClInclude>
     <ClInclude Include="..\..\extern\tinyxml2\tinyxml2.h">
       <Filter>Impl\TinyXML2</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIBuffer.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RICommandRingBuffer.h" />
+    <ClInclude Include="include\graphics\RITexture.h" />
+    <ClInclude Include="include\graphics\RITextureView.h" />
+    <ClInclude Include="include\graphics\RITimeline.h" />
+    <ClInclude Include="include\scene\LightArea.h">
+      <Filter>Scene</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -1902,9 +1906,6 @@
     <ClCompile Include="sources\graphics\IndexPool.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
-    <ClCompile Include="sources\graphics\MaterialResource.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
     <ClCompile Include="sources\graphics\RIBootstrap.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
@@ -1943,9 +1944,6 @@
     </ClCompile>
     <ClCompile Include="..\..\extern\volk\volk.c">
       <Filter>Impl\Volk</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\graphics\ImageResourceWrapper.cpp">
-      <Filter>Graphics</Filter>
     </ClCompile>
     <ClCompile Include="sources\graphics\RenderList.cpp">
       <Filter>Graphics</Filter>
@@ -2030,6 +2028,9 @@
     </ClCompile>
     <ClCompile Include="..\..\extern\tinyxml2\tinyxml2.cpp">
       <Filter>Impl\TinyXML2</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\scene\LightArea.cpp">
+      <Filter>Scene</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>
