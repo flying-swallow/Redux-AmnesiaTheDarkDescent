@@ -56,10 +56,14 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     uint materialID = gScene.getMaterialID(th.instanceID);
     VertexData v    = gScene.getVertexData(th);
     UniformObject obj = gScene.getObject(th.instanceID);
-    DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount);
+    DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount,
+                                              /*decodeRoughness*/ false, /*applyNormalMap*/ true);
 
     float  curZ = -mul(gPerFrame.viewMat, float4(sd.posW, 1.0f)).z;
-    float3 curN = sd.normalW;
+    // Reprojection/disocclusion key uses the GEOMETRIC normal (not the bumped
+    // sd.normalW) so high-frequency normal-map detail doesn't cause false
+    // history rejections; lighting above still uses the bumped sd.normalW.
+    float3 curN = normalize(v.normalW);
 
     // Reproject through the motion vector; reject (disocclusion) on depth/normal
     // mismatch. The key is point-sampled — it must not bilinear-blend across edges.

@@ -37,14 +37,36 @@ public struct DiffuseShading
 // (decodeMaterialRoughness); the composite/direct stack uses the flat
 // kDefaultDiffuseRoughness (decode was disabled there). Defaulting to false
 // preserves the composite-side behavior for its callers.
+//
+// applyNormalMap: perturb normalW with the material's tangent-space normal map
+// (tex[1], gated by kMaterialFlagEnableNormal). Defaults to false so existing
+// callers (composite / water / surfel) are unchanged; the ReSTIR direct pass
+// opts in so its lighting picks up bump detail. World-space TBN built from the
+// interpolated normal + tangent — same decode/convention as SurfelVBuffer.rt.
 public DiffuseShading prepareDiffuseShading(VertexData v, uint materialID,
                                             float illuminationAmount,
-                                            bool decodeRoughness = false)
+                                            bool decodeRoughness = false,
+                                            bool applyNormalMap   = false)
 {
     DiffuseShading sd;
     sd.posW    = v.posW;
     sd.normalW = normalize(v.normalW);
     DiffuseMaterial m = gScene.getDiffuseMaterial(materialID);
+
+    if (applyNormalMap && (m.materialConfig & kMaterialFlagEnableNormal) != 0u &&
+        m.tex[1] != kInvalidTextureIndex)
+    {
+        float3 N = sd.normalW;
+        float3 T = v.tangentW - N * dot(N, v.tangentW);   // Gram-Schmidt orthogonalize
+        if (dot(T, T) > 1e-8f)
+        {
+            T = normalize(T);
+            float3 B = cross(N, T);                        // world-space TBN (tangent.w dropped)
+            float3 mn = sampleBindless2DLevel(m.tex[1], v.texC, 0.0f).xyz * 2.0f - 1.0f;
+            sd.normalW = normalize(mn.x * T + mn.y * B + mn.z * N);
+        }
+    }
+
     uint diffuseTex = m.tex[0];
     if (diffuseTex == kInvalidTextureIndex)
         sd.albedo = float3(0.5f);

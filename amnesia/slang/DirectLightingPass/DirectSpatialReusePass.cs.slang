@@ -57,7 +57,8 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     uint materialID = gScene.getMaterialID(th.instanceID);
     VertexData v    = gScene.getVertexData(th);
     UniformObject obj = gScene.getObject(th.instanceID);
-    DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount);
+    DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount,
+                                              /*decodeRoughness*/ false, /*applyNormalMap*/ true);
 
     float4 ckey = gDirectKey.Load(int3(p, 0));
     float  curZ = ckey.x;
