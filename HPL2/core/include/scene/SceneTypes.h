@@ -50,17 +50,8 @@ namespace hpl
 	#define eWorldDestroyAllFlag_SkipStaticEntities	(0x00000001)
 	#define eWorldDestroyAllFlag_SkipPhysics		(0x00000002)
 
-	
+
     //-----------------------------------------
-
-	enum eLightBoxBlendFunc
-	{
-		eLightBoxBlendFunc_Replace,
-		eLightBoxBlendFunc_Add,
-		eLightBoxBlendFunc_LastEnum
-	};
-
-	//-----------------------------------------
 
 	enum eRendererMessage
 	{

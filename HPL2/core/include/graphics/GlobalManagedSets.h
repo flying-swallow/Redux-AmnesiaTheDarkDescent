@@ -234,10 +234,17 @@ public:
   struct ObjectSlotState {
     EventHandler<> onDestroy;     // VB-destroy → bump this slot's generation
     uint32_t       indexCount = 0; // last-seen index count; change → bump generation
-    // Last frame's GPU modelMat (row-major float4x4), staged into
-    // UniformObject.prevModelMat for motion vectors. hasPrev is false until the
-    // first data submit and is treated as reset when a new object takes the slot.
+    // Previous-frame GPU modelMat (row-major float4x4), staged into
+    // UniformObject.prevModelMat for motion vectors. prevModelMat is the matrix
+    // PUBLISHED as "previous" for the current frame; curModelMat is this frame's
+    // matrix, which rotates into prevModelMat at the first submit of the NEXT
+    // frame. The rotation is keyed on lastSubmitFrame so submitObject can be
+    // called multiple times per frame for the same object (cWorld::PrepareFrame's
+    // whole-scene submit + the renderer's raster loop) and still publish the same
+    // prev — rotating on every call would zero the velocity (temporal smear).
     float          prevModelMat[16] = {};
+    float          curModelMat[16]  = {};
+    uint32_t       lastSubmitFrame  = UINT32_MAX;
     // Last UniformObject staged into m_objectBuffer[slot]. submitObject compares
     // the freshly-built payload against this and skips the upload when identical
     // (static objects: matrices + material never change frame-to-frame).

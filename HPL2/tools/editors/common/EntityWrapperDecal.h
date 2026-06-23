@@ -119,21 +119,10 @@ public:
 	bool Load(tinyxml2::XMLElement*);
 	bool SaveSpecific(tinyxml2::XMLElement*);
 
-	cMesh* GetMesh() { return mpMesh; }
-
 protected:
 	iEntityWrapper* CreateSpecificEntity();
 
-	/**
-	 * Helper to save stuff in vertex arrays
-	 * \param asOutput 
-	 * \param alNumElements 
-	 * \param apData 
-	 */
-	void SaveGeometryDataToString(tString& asOutput, int alNumElements, float* apData);
-
 	iEntityWrapper* mpDecal;
-	cMesh* mpMesh;
 };
 
 //---------------------------------------------------------------
@@ -166,9 +155,6 @@ public:
 
 	void OnPostDeployAll(bool);
 
-	void Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions,iEditorEditMode* apEditMode,
-						bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol);
-
 	cEditorWindowEntityEditBox* CreateEditBox(cEditorEditModeSelect* apEditMode);
 
 	void SetAffectStatic(bool abX);
@@ -195,6 +181,11 @@ public:
 
 	int GetCurrentSubDiv() { return mlCurrentSubDiv; }
 	void SetCurrentSubDiv(int alX);
+
+	// Receiver-category mask (eDecalReceiver bits) composed from the On*
+	// affect flags; pushed to the cDecal so the GPU projection only lands on
+	// the selected object categories.
+	int GetReceiverMask() const;
 
 	int GetFileIndex() { return mlFileIndex; }
 	void SetFileIndex(int alIdx) { mlFileIndex = alIdx; }
@@ -225,15 +216,9 @@ protected:
     iEngineEntity* CreateSpecificEngineEntity();
 
 	/**
-	 * Helper func to create actual mesh
-	 * \return 
+	 * Helper func to cast out unwanted geometry (decal-creator placement preview)
 	 */
-	cMesh* CreateDecalMesh();
-
-	/**
-	 * Helper func to cast out unwanted geometry
-	 */
-	static void IterateRenderableNode(iRenderableContainerNode *apNode, cDecalCreator* apCreator, 
+	static void IterateRenderableNode(iRenderableContainerNode *apNode, cDecalCreator* apCreator,
 										bool abAffectStaticObject, bool abAffectPrimitive, bool abAffectEntity);
 
 	tString msMaterial;

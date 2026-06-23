@@ -93,13 +93,6 @@ static inline bool BindVertexStreams(struct RICmd *cmd, cVertexBuffer *pVB,
 
 } // namespace detail
 
-// A renderable needs a BLAS only if it can become a TLAS instance — i.e. it's a
-// mesh. Particles/billboards/beams/ropes/decals are never ray-traced (the TLAS
-// gather skips them), so their per-frame BLAS build is dead work.
-static bool renderableNeedsBlas(iRenderable *apObject) {
-  return apObject && apObject->GetRenderType() == eRenderableType_SubMesh;
-}
-
 cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     : iRenderer("Hybrid", apGraphics, apResources) {
   {
@@ -292,8 +285,8 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
   if (size.x <= 0 || size.y <= 0) {
     return;
   }
-  const uint32_t renderW = overscanExtent((uint32_t)size.x);
-  const uint32_t renderH = overscanExtent((uint32_t)size.y);
+  const uint32_t renderW = (uint32_t)size.x;
+  const uint32_t renderH = (uint32_t)size.y;
   if (width == renderW && height == renderH &&
       targetWidth == (uint32_t)size.x && targetHeight == (uint32_t)size.y) {
     return;
@@ -458,7 +451,7 @@ cViewport::HybridViewportState::operator=(HybridViewportState &&rhs) noexcept {
 // caches the resulting set — stable world buffers hash to a cache hit, so the
 // descriptor set is written once and reused until a re-bake swaps a buffer.
 // Names a pass doesn't reflect are skipped, so binding all four everywhere is
-// safe. The buffers are always >= 1 element after cWorld::SubmitToGpu's bake
+// safe. The buffers are always >= 1 element after cWorld::PrepareFrame's bake
 // (which runs first in Draw), so a reflected binding is never left unbound.
 static void appendWorldLightFog(std::vector<RIProgram::DescriptorBinding> &bnd,
                                 cWorld *apWorld) {
@@ -506,18 +499,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   mainFrustumViewInvMat.Invert();
   const ml::float4x4 mainFrustumViewMat = apFrustum->GetViewMat();
   ml::float4x4 mainFrustumProjMat = apFrustum->GetProjectionMat();
-  // Guard band: widen the FOV by the overscan factor so the cropped center
-  // keeps the authored FOV. Scaling the projection's x/y focal terms (diagonal
-  // a[0], a[5]) by 1/(1+2f) zooms out symmetrically about the centre. Done here
-  // so the widened projection flows into perFrame.projMat, invProjMat, and
-  // state.prevProjMat (velocity) — and cameraU/V are widened to match below.
-  // Every target renders the overscan frame (Update applies the same factor),
-  // so this is unconditional.
-  {
-    const float gb = 1.0f + 2.0f * kGuardBandFraction;
-    mainFrustumProjMat.a[0] /= gb;
-    mainFrustumProjMat.a[5] /= gb;
-  }
   ml::float4x4 mainFrustumProjInvMat = mainFrustumProjMat;
   mainFrustumProjInvMat.Invert();
   {
@@ -536,43 +517,41 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       }
       m_rendererList.AddObject(pObject);
     };
-    // No frustum culling: the render list rebuilds fresh every frame and the
-    // TLAS instances are gathered from it — RT shadows/GI need whole-map
-    // geometry, including everything behind the camera. (Replaces the [TEMP]
-    // persistent-render-list mechanism, which accumulated dangling pointers
-    // to destroyed renderables and missed never-yet-seen geometry.)
+    // Frustum-cull the raster render list: the visibility/gbuffer + translucent
+    // passes only need what the camera sees, and culling keeps the per-frame
+    // translucent/particle Update* work bounded. Whole-map RT geometry (shadows/
+    // GI need everything, including behind the camera) is no longer sourced here
+    // — cWorld::PrepareFrame walks its own renderables unculled to build the TLAS.
     rendering::WalkAndPrepareRenderList(dynamicContainer, apFrustum,
                                         prepareObjectHandler,
-                                        eRenderableFlag_VisibleInNonReflection,
-                                        /*abIgnoreFrustumCull=*/true);
+                                        eRenderableFlag_VisibleInNonReflection);
     rendering::WalkAndPrepareRenderList(staticContainer, apFrustum,
                                         prepareObjectHandler,
-                                        eRenderableFlag_VisibleInNonReflection,
-                                        /*abIgnoreFrustumCull=*/true);
+                                        eRenderableFlag_VisibleInNonReflection);
     m_rendererList.End(
         eRenderListCompileFlag_Diffuse | eRenderListCompileFlag_Translucent |
         eRenderListCompileFlag_Decal | eRenderListCompileFlag_Illumination |
         eRenderListCompileFlag_FogArea);
 
-    // A persistent m_tlas can keep referencing the BLAS device addresses of
-    // geometry freed on a map transition until it's rebuilt. No per-frame
-    // pinning is needed for that anymore: a cVertexBuffer owns its BLAS by value
-    // and defers it (RISharedPointer on RI.graphicsDefer) on rebuild and in
+    // The TLAS (now owned by cWorld) can keep referencing the BLAS device
+    // addresses of geometry freed on a map transition until it's rebuilt. No
+    // per-frame pinning is needed for that: a cVertexBuffer owns its BLAS by
+    // value and defers it (RISharedPointer on RI.graphicsDefer) on rebuild and in
     // its destructor, so any BLAS the TLAS can still reference outlives the
     // in-flight window even after its owning renderable is destroyed.
   }
 
   // --------------------------------------------------------------------
-  // Per-frame prepare for every translucent renderable (particles + meshes +
-  // billboards + beams). UpdateGraphicsForFrame/ForViewport recompute dynamic
-  // geometry (billboard facing, beam stretch, emitter step) and mark the VB
-  // dirty; SubmitToGPU then allocates/uploads dirty streams and BuildBlas
-  // rebuilds the BLAS (both no-op on repeat via their generation checks). Done
-  // once here so the TLAS build, particle pass, and mesh pass all consume
-  // already-prepared buffers.
+  // Per-frame prepare for every VISIBLE translucent renderable (particles +
+  // meshes + billboards + beams). UpdateGraphicsForFrame/ForViewport recompute
+  // dynamic geometry (billboard facing, beam stretch, emitter step) and mark the
+  // VB dirty; SubmitToGPU then allocates/uploads dirty streams for the raster
+  // particle + mesh passes. The render list is frustum-culled above, so only the
+  // on-screen set pays this cost. BLAS builds for ray-traced meshes happen in
+  // cWorld::PrepareFrame (TLAS owner), not here.
   //
-  // Must run BEFORE any vkCmdBeginRendering so the uploader's barriers and
-  // BLAS-build cmds don't collide with a dynamic-rendering scope.
+  // Must run BEFORE any vkCmdBeginRendering so the uploader's barriers don't
+  // collide with a dynamic-rendering scope.
   for (iRenderable *pObj :
        m_rendererList.GetRenderableItems(eRenderListType_Translucent)) {
     if (!pObj)
@@ -582,12 +561,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     cVertexBuffer *pVB = pObj->GetVertexBuffer();
     if (pVB) {
       auto *vbri = static_cast<cVertexBuffer *>(pVB);
-      // Particles/billboards/beams/ropes are translucent but never TLAS
-      // instances — upload their streams for the raster pass, skip the BLAS.
       vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
-      if (renderableNeedsBlas(pObj)) {
-        vbri->BuildBlas(&RI.blasSubmit.cmds[0], &RI.device, cntx);
-      }
     }
   }
 
@@ -685,9 +659,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     constexpr float focalLength = 1.0f;
     // Guard band: widen the ray cone by (1+2f) to match the widened projMat
     // above, so the RT primary rays + velocity cover the overscan frame.
-    const float gb = 1.0f + 2.0f * kGuardBandFraction;
-    const float uScale = gb * focalLength * tanHalfFov * aspect;
-    const float vScale = gb * focalLength * tanHalfFov;
+    const float uScale = focalLength * tanHalfFov * aspect;
+    const float vScale = focalLength * tanHalfFov;
 
     perFrame.posW = posW;
     perFrame.cameraU = {uScale * rightW.x, uScale * rightW.y,
@@ -704,7 +677,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
   auto solids = m_rendererList.GetSolidObjects();
   // Lights are no longer pulled from the per-frame render list — cWorld owns the
-  // per-world light buffers (rebuilt by apWorld->SubmitToGpu() below).
+  // per-world light buffers (rebuilt once per frame by cWorld::PrepareFrame,
+  // driven from cScene before the viewport loop).
   RISegmentReq indirectReq = {};
   const bool indirectOk =
       m_indirectSegment.request(RI.frameIndex, solids.size(), &indirectReq);
@@ -714,74 +688,29 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       (size_t)indirectReq.elementOffset * sizeof(VkDrawIndirectCommand));
   uint32_t writtenDraws = 0;
 
-  // TLAS instance accumulator. Sized for the shadow caster set (every shadow
-  // caster contributes at most one TLAS instance).
-  std::vector<VkAccelerationStructureInstanceKHR> tlasInstances;
-  tlasInstances.reserve(solids.size());
-
-  // Single per-frame world→GPU submission before any pass: bakes-if-dirty +
-  // uploads the world's light/fog/decal buffers, fills the perFrame *Count fields,
-  // and points the set-0 light/fog bindings at the world's buffers. (The set-2
-  // decal buffers are bound at the composite pass below.)
-  apWorld->SubmitToGpu(perFrame);
+  // The world's per-frame GPU memory (light/fog/decal buffers, TLAS, bindless
+  // object/material slots) is published once per frame by cWorld::PrepareFrame,
+  // driven by cScene before the viewport loop — not here. Read the per-world
+  // counts it produced into this viewport's SceneConstants.
+  perFrame.pointLightCount = apWorld->GetPointLightCount();
+  perFrame.spotLightCount = apWorld->GetSpotLightCount();
+  perFrame.areaLightCount = apWorld->GetAreaLightCount();
+  perFrame.fogAreaCount = apWorld->GetFogAreaCount();
+  perFrame.decalCount = apWorld->GetDecalCount();
 
   for (iRenderable *pObject : solids) {
-    cMatrixf *pMtx = pObject->GetModelMatrix(apFrustum);
     cVertexBuffer *pVB = pObject->GetVertexBuffer();
-    cMaterial *pMat = pObject->GetMaterial();
-    if (!pVB || !pMat)
+    if (!pVB)
       continue;
 
-    uint32_t materialId = 0;
-    if (pMat) {
-      materialId = RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
-                       .materialId;
-      if (materialId == UINT32_MAX) {
-        Warning("Material Slot exhausted");
-        materialId = 0;
-      }
-    }
-
-    ObjectSubmitDesc d; // opaque solids: identity uv
-    d.modelMatrix = pMtx;
-    d.materialId = materialId;
-    d.dissolveAmount = pObject->GetCoverageAmount();
-    d.illuminationAmount = pObject->GetIlluminationAmount();
-    // Precomputed static decal list (cWorld::Compile): (offset<<8)|count into
-    // gObjectDecalIndices. Dynamic objects keep the default (0,0) → no decals,
-    // so a movable object can't receive a decal it merely passes through.
-    {
-      const uint32_t off = (uint32_t)pObject->GetDecalListOffset();
-      const uint32_t cnt = (uint32_t)pObject->GetDecalListCount();
-      d.decalList = (off << 8) | (cnt & 0xFFu);
-    }
-    auto *vb = static_cast<cVertexBuffer *>(pVB);
-    // BuildBlas submits the VB geometry first (internal SubmitToGPU), so
-    // submitObject below sees the post-realloc index count — an in-loop realloc
-    // that changes the triangle count must bump the slot generation this same
-    // frame (anchored surfels with a now-out-of-range primitiveIndex go stale
-    // before the OOB deref).
-    vb->BuildBlas(&RI.blasSubmit.cmds[0], &RI.device, cntx);
-
-    // Stable object slot, keyed on the renderable's unique cookie (NOT its
-    // transform — a moving object keeps its slot, and its surfels follow via
-    // object-space anchoring + the per-frame modelMat upload). submitObject
-    // owns the request, the slot-generation bump (new occupant / index-count
-    // change / VB destroy), and the payload upload. kSubmitVertex|kSubmitIndex:
-    // submitObject also fans the VB's per-stream BDAs into the slot's
-    // opaque*Handles for bindless pulling (gbuffer VS / surfel-RT chit),
-    // rewritten every frame so a SubmitToGPU realloc can't dangle them.
-    const uint32_t slot = RI.globalset->submitObject(
-        pObject->GetUniqueCookie(), (uint32_t)RI.frameIndex, vb, d,
-        kSubmitData | kSubmitVertex | kSubmitIndex);
-    if (slot == UINT32_MAX) {
-      Error("bindless pool is exhausted");
+    // Object slot for the indirect draw's firstInstance. cWorld::PrepareFrame
+    // already submitted this object (same cookie), built its BLAS, and uploaded
+    // its geometry for the TLAS this frame, so this is an idempotent cache hit
+    // returning the same slot. Skips on material/pool exhaustion.
+    const uint32_t slot =
+        apWorld->SubmitRenderableObject(pObject, cntx, apFrustum);
+    if (slot == UINT32_MAX)
       continue;
-    }
-
-    // Transposed model matrix for the TLAS instance transform below.
-    const ml::float4x4 modelF4 =
-        cMath::ToFloatTranspose4x4(pMtx ? *pMtx : cMatrixf::Identity);
 
     if (writtenDraws < indirectReq.numElements) {
       indirectDst[writtenDraws++] = VkDrawIndirectCommand{
@@ -790,241 +719,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           /*firstVertex   =*/0u,
           /*firstInstance =*/slot,
       };
-    }
-
-    // BLAS was recorded by BuildBlas above into the same primary cmd buffer;
-    // the accel-build→accel-build barrier below guarantees the TLAS read sees
-    // the BLAS writes.
-    auto blas = vb->accelStructure();
-    if (blas && blas->vk.handle != VK_NULL_HANDLE) {
-      // VkAccelerationStructureInstanceKHR::transform is row-major 3x4
-      // (matrix[row][col]), translation at matrix[r][3]. modelF4 holds
-      // column-major storage (GLSL mat4 reading in gbuffer.vert), so index it
-      // as [col*4 + row] to extract entries row-by-row.
-      VkAccelerationStructureInstanceKHR inst = {};
-      for (int r = 0; r < 3; ++r) {
-        for (int c = 0; c < 4; ++c) {
-          inst.transform.matrix[r][c] = modelF4.a[c * 4 + r];
-        }
-      }
-      inst.instanceCustomIndex = slot;
-      inst.mask = kRayMaskOpaque;
-      inst.instanceShaderBindingTableRecordOffset = 0;
-      inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_FLIP_FACING;
-      const bool dissolveFlags =
-          pMat->GetImage(eMaterialTexture_DissolveAlpha) ||
-          pMat->GetUseAlphaDissolveFilter();
-      if (!pMat->GetImage(eMaterialTexture_Alpha) &&
-          pObject->GetCoverageAmount() >= 1.0f && !dissolveFlags)
-        inst.flags |= RI_ACCEL_INSTANCE_FORCE_OPAQUE;
-      assert(blas->vk.deviceAddress != 0);
-      inst.accelerationStructureReference = blas->vk.deviceAddress;
-      tlasInstances.push_back(inst);
-    }
-  }
-
-  // ---------- Translucent meshes → TLAS ----------
-  // Translucents enter the TLAS when the SurfelVBuffer.rt closeHit needs to
-  // bounce through them — that's **refractive** materials (ray-bend into
-  // gPackedRefractionHitInfo) AND **reflective** materials (cube-map glass:
-  // mirror-bounce into gPackedReflectionHitInfo). The reflective signal is a
-  // cube-map texture (matching the shader's isReflective() check on
-  // cubeMapTextureIndex). Plain
-  // non-refractive / non-cube-map translucents (additive overlays, dissolve
-  // sprites) are still pruned: adding them put a bindless DiffuseMaterial
-  // slot with no albedo + zero solid scalars into the surfel ray cone, which
-  // fed NaN into rayResult.radiance -> surfel.radiance (MSME) ->
-  // SurfelGenerationPass.gOutput. The kRayMaskTranslucent category mask also
-  // keeps the indirect-lighting path tracer from bouncing off whatever does
-  // enter here. Particle emitters are skipped (procedural VBs, no stable BLAS).
-  //
-  // The bindless object slot allocated here is intentionally distinct from
-  // the slot the translucent mesh pass will allocate later for this same
-  // renderable (different cookie salt) — the two passes write different
-  // UniformObject payloads (rasterised draws need uvMat, dissolveAmount,
-  // illuminationAmount, etc.; the TLAS path only needs materialID +
-  // modelMat + BDA handles). The cost is one extra bindless slot per
-  // refractive translucent mesh, well within kObjectSlotCapacity.
-  for (iRenderable *pObj :
-       m_rendererList.GetRenderableItems(eRenderListType_Translucent)) {
-    if (!pObj || pObj->GetRenderType() == eRenderableType_ParticleEmitter)
-      continue;
-    cMaterial *pMat = pObj->GetMaterial();
-    if (!pMat)
-      continue;
-    if (!pMat->HasRefraction())
-      continue;
-    cVertexBuffer *pVB = pObj->GetVertexBuffer();
-    if (!pVB || pVB->GetIndexNum() <= 0)
-      continue;
-
-    // VB upload + BLAS build already happened in the consolidated translucent
-    // prepare loop near the top of Draw(); just pick up the cached BLAS here.
-    auto *vbri = static_cast<cVertexBuffer *>(pVB);
-    auto blas = vbri->accelStructure();
-    if (!blas || blas->vk.handle == VK_NULL_HANDLE)
-      continue;
-
-    auto mat = RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
-    if (mat.materialId == UINT32_MAX)
-      continue;
-
-    cMatrixf *pMtx = pObj->GetModelMatrix(apFrustum);
-    ObjectSubmitDesc d; // identity uv; dissolve/illum 0
-    d.modelMatrix = pMtx;
-    d.materialId =
-        mat.materialId; // water ids fall in the water range of materialID
-
-    // Salted cookie keeps this slot disjoint from the translucent mesh pass's
-    // slot for the same renderable (a refractive mesh occupies both). Stable
-    // per object — no transform/frame term.
-    const hash_t cookie = hash_u32(
-        hash_u64(HASH_INITIAL_VALUE, pObj->GetUniqueCookie()), 0x71A57AA5u);
-    const uint32_t slot =
-        RI.globalset->submitObject(cookie, (uint32_t)RI.frameIndex, vbri, d,
-                              kSubmitData | kSubmitVertex | kSubmitIndex);
-    if (slot == UINT32_MAX)
-      continue;
-
-    // Transposed model matrix for the TLAS instance (row-major 3x4).
-    const ml::float4x4 modelF4 =
-        cMath::ToFloatTranspose4x4(pMtx ? *pMtx : cMatrixf::Identity);
-    VkAccelerationStructureInstanceKHR inst = {};
-    for (int r = 0; r < 3; ++r) {
-      for (int c = 0; c < 4; ++c) {
-        inst.transform.matrix[r][c] = modelF4.a[c * 4 + r];
-      }
-    }
-    inst.instanceCustomIndex = slot;
-    inst.mask = kRayMaskTranslucent;
-    inst.instanceShaderBindingTableRecordOffset = 0;
-    inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_FLIP_FACING;
-    assert(blas->vk.deviceAddress != 0);
-    inst.accelerationStructureReference = blas->vk.deviceAddress;
-    tlasInstances.push_back(inst);
-  }
-
-  // ---------- TLAS build ----------
-  // Walks the BLAS instances accumulated above and emits one TLAS build into
-  // the primary cmd buffer. Also runs once with zero instances when no TLAS
-  // exists yet (empty editor world): every RT descriptor push below requires
-  // a valid handle, and rays into an empty TLAS just miss.
-  if (!tlasInstances.empty() || m_tlas.isEmpty()) {
-    const uint32_t instanceCount = (uint32_t)tlasInstances.size();
-
-    // Grow the instance buffer on demand. Old buffer goes onto the active
-    // freelist so any in-flight build that referenced it stays valid until
-    // frames-in-flight roll. Keep at least one element so the empty-TLAS
-    // build still has a valid instance-buffer device address.
-    const uint32_t instanceCapacityNeeded = std::max(instanceCount, 1u);
-    if (instanceCapacityNeeded > m_tlasCapacity) {
-      uint32_t newCap = m_tlasCapacity ? m_tlasCapacity : 256;
-      while (newCap < instanceCapacityNeeded)
-        newCap += (newCap >> 1);
-      if (!m_tlasInstanceBuffer.isEmpty()) {
-        RI.graphicsDefer.push(m_tlasInstanceBuffer);
-        m_tlasInstanceBuffer = {};
-      }
-      // Device-local: the instance buffer is a transfer destination written
-      // each frame via the resource uploader. A persistent host mapping would
-      // race the GPU's TLAS read for the previous frame still in flight.
-      m_tlasInstanceBuffer = RISharedPointer<RIBuffer>(
-          &RI.device,
-          RIBuffer::create(
-              &RI.device,
-              {(uint64_t)newCap * sizeof(VkAccelerationStructureInstanceKHR),
-               RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT |
-                   RI_BUFFER_USAGE_DEVICE_ADDRESS | RI_BUFFER_USAGE_TRANSFER_DST,
-               RI_MEMORY_DEVICE, 16}));
-      m_tlasCapacity = newCap;
-    }
-
-    // Stage the instance array through the resource uploader so frame N+1's
-    // write doesn't clobber the buffer mid-build for frame N. The uploader
-    // owns the previous-use ↔ TRANSFER_WRITE ↔ next-use barrier pair.
-    if (instanceCount > 0) {
-      RIResourceBufferTransaction trans = {};
-      trans.target = *m_tlasInstanceBuffer;
-      trans.size =
-          (size_t)instanceCount * sizeof(VkAccelerationStructureInstanceKHR);
-      trans.offset = 0;
-      trans.currentState = RI_RESOURCE_STATE_ACCEL_READ;
-      trans.currentStages = RI_STAGE_ACCEL_BUILD;
-      trans.postState = RI_RESOURCE_STATE_ACCEL_READ;
-      trans.postStages = RI_STAGE_ACCEL_BUILD;
-      RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
-      std::memcpy(trans.mapped.data, tlasInstances.data(), trans.size);
-      RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
-    }
-
-    // BLAS builds are recorded into RI.blasSubmit (a separate command buffer
-    // submitted + semaphore-synced ahead of the primary in
-    // CloseAndSubmitActiveSet), so they are guaranteed complete before this
-    // primary buffer's TLAS build runs. No inline accel-build→accel-build
-    // barrier is needed here.
-
-    // Size the TLAS for the worst-case instance count we've seen. Re-init when
-    // the instance count exceeds what the current TLAS storage was sized for.
-    RIAccelStructureDesc tlasDesc = {};
-    tlasDesc.type = RI_ACCEL_STRUCTURE_TYPE_TOP_LEVEL;
-    tlasDesc.flags = RI_ACCEL_BUILD_PREFER_FAST_TRACE;
-    tlasDesc.geometryOrInstanceNum = instanceCount;
-
-    uint64_t tlasStorageSize = 0;
-    uint64_t tlasBuildScratch = 0;
-    tlasDesc.getMemoryReqs(&RI.device, &tlasStorageSize, &tlasBuildScratch,
-                           nullptr);
-
-    if (m_tlas.isEmpty() ||
-        (m_tlasStorage.isEmpty() ||
-         tlasStorageSize > m_tlasStorageCapacity)) {
-      if (!m_tlas.isEmpty()) {
-        RI.graphicsDefer.push(m_tlas);
-        RI.graphicsDefer.push(m_tlasStorage);
-        m_tlas = {};
-      }
-      m_tlasStorage = RISharedPointer<RIBuffer>(
-          &RI.device, RIBuffer::create(
-                          &RI.device, {(uint64_t)tlasStorageSize,
-                                       RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE |
-                                           RI_BUFFER_USAGE_DEVICE_ADDRESS,
-                                       RI_MEMORY_DEVICE, 0}));
-      tlasDesc.storage = m_tlasStorage.Get();
-      tlasDesc.storageOffset = 0;
-      tlasDesc.storageSize = tlasStorageSize;
-      // Build into a local handle, then adopt on success so the TLAS has a
-      // single refcount domain (m_tlas stays empty if init fails → skip build).
-      RIAccelStructure tlas{};
-      if (tlas.init(&RI.device, &tlasDesc) == RI_SUCCESS) {
-        m_tlas = RISharedPointer<RIAccelStructure>(&RI.device, tlas);
-      }
-      m_tlasStorageCapacity = tlasStorageSize;
-    }
-
-    if (!m_tlas.isEmpty()) {
-      // Source TLAS build scratch from the per-frame accel pool. The pool
-      // recycles its blocks across frames and uses the oversized one-shot
-      // path for builds that exceed blockSize. RIBlockMem embeds an
-      // RIBuffer, so we hand its address straight to the build desc.
-      RIBufferScratchAllocReq scratchReq = RIAllocBufferFromScratchAlloc(
-          &RI.device, &cntx->accelScratchAlloc, tlasBuildScratch);
-
-      RIBuildTlasDesc build = {};
-      build.dst = m_tlas.Get();
-      build.src = nullptr;
-      build.mode = RI_ACCEL_BUILD_MODE_BUILD;
-      build.instanceNum = instanceCount;
-      build.instanceBuffer = m_tlasInstanceBuffer.Get();
-      build.instanceOffset = 0;
-      build.scratchBuffer = &scratchReq.block.buffer;
-      build.scratchOffset = scratchReq.bufferOffset;
-      RI.primary.cmds[0].buildTlas(&RI.device, &build, 1);
-
-      // Consumed by both the RT pipelines and fragment-stage ray queries —
-      // one barrier covers both.
-      RI.primary.cmds[0].vk_d3d12_memoryBarrier(
-          {RI_RESOURCE_STATE_ACCEL_WRITE, RI_RESOURCE_STATE_ACCEL_READ,
-           RI_STAGE_ACCEL_BUILD, RI_STAGE_FRAGMENT | RI_STAGE_RAY_TRACING});
     }
   }
 
@@ -1139,7 +833,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // ----------------------------------------------------------------------
   // Stage B — primary-ray VBuffer.
   //
-  // RT pipeline that traces one ray per swapchain pixel through m_tlas and
+  // RT pipeline that traces one ray per swapchain pixel through the world's TLAS and
   // packs the closest-hit (instanceCustomIndex, primitiveID, attribs) into
   // state.packedHitInfoTexture. Stages D/F consume this image; for the current
   // frame the output goes unused so the dispatch's correctness needs to be
@@ -1156,7 +850,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
          RI_STAGE_NONE, RI_STAGE_RAY_TRACING});
   }
 
-  if (!m_tlas.isEmpty()) {
+  if (apWorld->GetTlas() != nullptr) {
     VkRayTracingPipelineCreateInfoKHR rtCreate = {
         VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR};
     // closeHit fires one recursive TraceRay before recording the second hit,
@@ -1184,7 +878,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                             RIDescriptor::storageImage(
                                 &RI.device, state.packedHitInfoView[RI.swapchainIndex].Get()));
     vbBindings.emplace_back("gRtAccel",
-                            RIDescriptor::accelerationStructure(&RI.device, m_tlas.Get()));
+                            RIDescriptor::accelerationStructure(&RI.device, apWorld->GetTlas()));
 
     m_surfelVBuffer.bindDescriptors(
         &RI.device, &RI.primary.cmds[0], RI.frameIndex, vbBindings.data(),
@@ -1422,7 +1116,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // gMaxRayCount = 64; the dispatched width is kRayBudget = 9.6M, the rgen
   // early-outs past RequestedRay so unused slots cost nothing.
   // ----------------------------------------------------------------------
-  if (!m_tlas.isEmpty()) {
+  if (apWorld->GetTlas() != nullptr) {
     VkRayTracingPipelineCreateInfoKHR rtCreate = {
         VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR};
     rtCreate.maxPipelineRayRecursionDepth = 1;
@@ -1442,7 +1136,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       rtBnd.push_back(b);
     }
     rtBnd.emplace_back("gRtAccel",
-                       RIDescriptor::accelerationStructure(&RI.device, m_tlas.Get()));
+                       RIDescriptor::accelerationStructure(&RI.device, apWorld->GetTlas()));
     appendWorldLightFog(rtBnd, apWorld);
     m_surfelRT.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
                                rtBnd.data(), rtBnd.size(),
@@ -1791,7 +1485,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                           &RI.device, state.packedHitInfoView[RI.swapchainIndex].Get()));
       sb.emplace_back("gRtAccel",
                       RIDescriptor::accelerationStructure(
-                          &RI.device, m_tlas.Get())); // resolve shadow ray
+                          &RI.device, apWorld->GetTlas())); // resolve shadow ray
       sb.emplace_back("gPackedHitInfoRaster",
                       RIDescriptor::sampledImage(
                           &RI.device, state.visibilityView[RI.swapchainIndex].Get(),
@@ -1981,7 +1675,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                      RIDescriptor::storageImage(
                          &RI.device, state.packedHitInfoView[RI.swapchainIndex].Get()));
     bnd.emplace_back("gRtAccel",
-                     RIDescriptor::accelerationStructure(&RI.device, m_tlas.Get()));
+                     RIDescriptor::accelerationStructure(&RI.device, apWorld->GetTlas()));
     {
       bnd.emplace_back("gIndirectLighting",
                        RIDescriptor::sampledImage(
@@ -2264,10 +1958,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       VkImageView pogoReadView =
           state.renderTargetView[RI.swapchainIndex]->vk.image;
 
-      {
-        RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoAttachmentBarrier(
-            state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
-      }
+      RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoAttachmentBarrier(
+          state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
 
       RITextureView colorView = {};
       colorView.vk.image = pogoReadView;
@@ -2318,7 +2010,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           wbnd.push_back(b);
         }
         wbnd.emplace_back("gRtAccel",
-                          RIDescriptor::accelerationStructure(&RI.device, m_tlas.Get()));
+                          RIDescriptor::accelerationStructure(&RI.device, apWorld->GetTlas()));
         appendWorldLightFog(wbnd, apWorld);
         // The water frag's lit reflection shades the RT hit via gatherSurfelIndirect
         // (shadeReflectionHit), which samples the set-1 surfel depth atlas. The
@@ -2936,12 +2628,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 }
 
 cHybridRenderer::~cHybridRenderer() {
-  // The caller guarantees the device is idle by the time this fires, so simply
-  // dropping the last shared reference disposes each handle immediately (TLAS,
-  // its storage, and the instance buffer).
-  m_tlas = {};
-  m_tlasStorage = {};
-  m_tlasInstanceBuffer = {};
+  // The ray-tracing TLAS + its storage/instance buffers now live on cWorld and
+  // are disposed with the world.
   // The global managed set is engine-lifetime; ShutdownGlobalManagedSets()
   // (cGraphics teardown) destroys it after the device is idle.
   // Fallback vertex streams are RIBootstrap globals (process-lifetime, like

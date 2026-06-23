@@ -251,7 +251,6 @@
     <ClCompile Include="..\common\EntityWrapperJointScrew.cpp" />
     <ClCompile Include="..\common\EntityWrapperJointSlider.cpp" />
     <ClCompile Include="..\common\EntityWrapperLight.cpp" />
-    <ClCompile Include="..\common\EntityWrapperLightBox.cpp" />
     <ClCompile Include="..\common\EntityWrapperLightPoint.cpp" />
     <ClCompile Include="..\common\EntityWrapperLightSpot.cpp" />
     <ClCompile Include="..\common\EntityWrapperParticleSystem.cpp" />
@@ -357,7 +356,6 @@
     <ClInclude Include="..\common\EntityWrapperJointScrew.h" />
     <ClInclude Include="..\common\EntityWrapperJointSlider.h" />
     <ClInclude Include="..\common\EntityWrapperLight.h" />
-    <ClInclude Include="..\common\EntityWrapperLightBox.h" />
     <ClInclude Include="..\common\EntityWrapperLightPoint.h" />
     <ClInclude Include="..\common\EntityWrapperLightSpot.h" />
     <ClInclude Include="..\common\EntityWrapperParticleSystem.h" />

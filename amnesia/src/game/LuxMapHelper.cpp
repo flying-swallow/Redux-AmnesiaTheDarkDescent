@@ -569,16 +569,9 @@ float cLuxMapHelper::GetLightLevelAtPos(const cVector3f& avPos, std::vector<iLig
 			if(bSkip) continue;
 		}
 
-		
-		///////////////////////////
-		//Box light
-		if(pLight->GetLightType() == eLightType_Box)
-		{
-			fLightLevel += GetMaxRGB(pLight->GetDiffuseColor());
-		}
+
 		///////////////////////////
 		//Spot and Point
-		else
 		{
 			//Check line of sight
 			if(	pLight->GetLightType() == eLightType_Spot && pLight->GetCastShadows() &&
@@ -652,9 +645,6 @@ void cLuxMapHelper::GetLightsAtNode(iRenderableContainerNode *apNode, tLightList
 			iLight *pLight = static_cast<iLight*>(pObject);
 			switch(pLight->GetLightType())
 			{
-			case eLightType_Box:
-				bAdd = cMath::CheckPointInBVIntersection(avPos, *pLight->GetBoundingVolume());
-				break;
 			case eLightType_Point:
 				bAdd = cMath::CheckPointInSphereIntersection(avPos, pLight->GetWorldPosition(), pLight->GetIntensity());
 				break;

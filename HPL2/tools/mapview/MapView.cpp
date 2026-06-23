@@ -534,8 +534,6 @@ public:
 				mpWorld->SetSkyBox(pSkyBox,true);
 				mpWorld->SetSkyBoxActive(true);
 			}
-
-			mpAmbientBox = NULL;
 		}
 				
 		////////////////////////////////
@@ -749,16 +747,6 @@ public:
 		
 		mpPhysicsWorld = mpWorld->GetPhysicsWorld();
 		
-		//Ambient
-		mpAmbientBox = NULL;
-		mpAmbientBox = mpWorld->CreateLightBox("AmbientBoxLight");
-		mpAmbientBox->SetSize(cVector3f(1000,1000,1000));
-		mpAmbientBox->SetDiffuseColor(cColor(0.5f,0));
-		mpAmbientBox->SetBlendFunc(eLightBoxBlendFunc_Add);
-		mpAmbientBox->SetVisible(false);
-		mpAmbientBox->SetBoxLightPrio(1);
-
-
 		//////////////////////////////////
 		//Node container
        	gpNodeContainer = mpWorld->CreateAINodeContainer( gsNodeCont_Name, "Default", gvNodeCont_BodySize, gbNodeCont_NodeAtCenter,
@@ -773,9 +761,7 @@ public:
 			gpSimpleCamera->GetViewport()->SetWorld(mpWorld);
 			renderCallback.mpWorld = mpWorld;
 
-			mpCheckAmbientActive->SetChecked(mpAmbientBox->IsVisible());
-			mpSliderAmbientColor->SetValue( (int)(mpAmbientBox->GetDiffuseColor().r * 255.0 + 0.5f));
-			
+
 			if(abKeepPosition==false && gvStartPostions.size() > 0)
 				gpSimpleCamera->GetCamera()->SetPosition(gvStartPostions[0]);
 
@@ -1169,7 +1155,6 @@ public:
 
 			//Ambient active
 			pCheckBox = pSet->CreateWidgetCheckBox(vGroupPos,vSize,_W("Ambient Active"),pGroup);
-			if(mpAmbientBox)pCheckBox->SetChecked(mpAmbientBox->IsVisible());
 			pCheckBox->AddCallback(eGuiMessage_CheckChange,this, kGuiCallback(ChangeAmbientActive));
 			mpCheckAmbientActive = pCheckBox;
 			vGroupPos.y += 22;
@@ -1180,7 +1165,6 @@ public:
 
 			pSlider = pSet->CreateWidgetSlider(eWidgetSliderOrientation_Horizontal,vAmbSlidePos,vAmbSlideSize,255,pGroup);
 			pSlider->AddCallback(eGuiMessage_SliderMove,this, kGuiCallback(ChangeAmbientColor));
-			if(mpAmbientBox)pSlider->SetValue( (int)(mpAmbientBox->GetDiffuseColor().r * 255.0 + 0.5f));
 			pLabel = pSet->CreateWidgetLabel(vGroupPos, vSize, _W("Intensity:"), pGroup);
 			mpSliderAmbientColor = pSlider;
 
@@ -1452,15 +1436,12 @@ public:
 
 	bool ChangeAmbientActive(iWidget* apWidget,const cGuiMessageData& aData)
 	{
-		mpAmbientBox->SetVisible(aData.mlVal == 1);
-
 		return true;
 	}
 	kGuiCallbackFuncEnd(cSimpleUpdate,ChangeAmbientActive)
 		
 	bool ChangeAmbientColor(iWidget* apWidget,const cGuiMessageData& aData)
 	{
-		mpAmbientBox->SetDiffuseColor(cColor( ((float)aData.mlVal) / 255.0f, 1.0f ));
 		return true;
 	}
 	kGuiCallbackFuncEnd(cSimpleUpdate,ChangeAmbientColor)  
@@ -1889,8 +1870,6 @@ public:
 	EventHandler<const WorldDrawCtx&> mPreWorldDrawHandler;
 
 	cWidgetWindow *mpOptionWindow;
-
-	cLightBox *mpAmbientBox;
 
 	cWorld *mpTestWorld;
 	iPhysicsWorld *mpPhysicsWorld;

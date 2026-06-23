@@ -25,7 +25,6 @@
 #include "EntityWrapperStaticObject.h"
 #include "EntityWrapperEntity.h"
 #include "EntityWrapperSubMesh.h"
-#include "EntityWrapperLightBox.h"
 #include "EntityWrapperLightPoint.h"
 #include "EntityWrapperLightSpot.h"
 #include "EntityWrapperBodyShape.h"
@@ -75,9 +74,6 @@ iEntityWrapper* cEntityWrapperFactory::CreateEntityWrapper(iEditorWorld* apEdito
 	case eEditorEntityType_Light:
 		switch(alEntitySubType)
 		{
-		case eEditorEntityLightType_Box:
-			pEntityWrapper = hplNew(cEntityWrapperLightBox,(apEditorWorld, alID, asName));
-			break;
 		case eEditorEntityLightType_Point:
 			pEntityWrapper = hplNew(cEntityWrapperLightPoint,(apEditorWorld, alID, asName));
 			break;

@@ -29,6 +29,8 @@
 
 #include "EngineEntity.h"
 
+#include "scene/Decal.h" // eDecalReceiver bits for the receiver mask
+
 #include <tinyxml2.h>
 #include "resources/XmlHelper.h"
 
@@ -74,7 +76,6 @@ iEntityWrapperData* cEntityWrapperTypeDecal::CreateSpecificData()
 cEntityWrapperDataDecal::cEntityWrapperDataDecal(iEntityWrapperType* apType) : iEntityWrapperData(apType)
 {
 	mpDecal = NULL;
-	mpMesh = NULL;
 }
 
 //-----------------------------------------------------------------------------------------
@@ -137,8 +138,9 @@ bool cEntityWrapperDataDecal::Load(tinyxml2::XMLElement* apElement)
 		SetFloat(eDecalFloat_Offset, fOffset);
 	}
 
-	cEngine* pEng = mpType->GetWorld()->GetEditor()->GetEngine();
-	mpMesh = cEngineFileLoading::LoadDecalMeshHelper(apElement->FirstChildElement("DecalMesh"), pEng->GetGraphics(), pEng->GetResources(), GetName(), sMaterial, GetColor(eDecalCol_Color));
+	// NOTE: the legacy baked <DecalMesh> geometry (if present in old maps) is
+	// ignored — decals now render via GPU projection from the cDecal oriented
+	// box (cWorld::mpDecalBuffer), driven by the properties loaded above.
 
 	/////////////////////////////////////////////////
 	// Load affected entity IDs
@@ -156,88 +158,11 @@ bool cEntityWrapperDataDecal::SaveSpecific(tinyxml2::XMLElement* apElement)
 	if(iEntityWrapperData::SaveSpecific(apElement)==false || mpDecal==NULL)
 		return false;
 
-	cEngineEntityGeneratedMesh* pDecalMesh = (cEngineEntityGeneratedMesh*)mpDecal->GetEngineEntity();
-	cVertexBuffer* pVB = NULL;
-
-	//////////////////////////////////////////////////
-	// Fix for meshless decals
-	int lVertexNum = 0;
-	int lIndexNum = 0;
-
-	if(pDecalMesh)
-	{
-        pVB = pDecalMesh->GetVertexBuffer();
-		lVertexNum = pVB->GetVertexNum();
-		lIndexNum = pVB->GetIndexNum();
-	}
-
-	tinyxml2::XMLElement* pMesh = apElement->GetDocument()->NewElement("DecalMesh");
-	apElement->InsertEndChild(pMesh);
-	hpl::SetAttributeInt(pMesh, "NumVerts", lVertexNum);
-	hpl::SetAttributeInt(pMesh, "NumInds", lIndexNum);
-
-	if(pVB==NULL)
-		return true;
-
-	//////////////////////////////////////////////
-	// Get data from vertex buffer
-	float* pPositions = pVB->GetFloatArray(eVertexBufferElement_Position);
-	float* pTexCoords = pVB->GetFloatArray(eVertexBufferElement_Texture0);
-	float* pNormals = pVB->GetFloatArray(eVertexBufferElement_Normal);
-	float* pTangents = pVB->GetFloatArray(eVertexBufferElement_Texture1Tangent);
-	unsigned int* pIndices = pVB->GetIndices();
-
-	int lPosStride = pVB->GetElementNum(eVertexBufferElement_Position);
-	int lTexCoordStride = pVB->GetElementNum(eVertexBufferElement_Texture0);
-	int lNormalStride = pVB->GetElementNum(eVertexBufferElement_Normal);
-	int lTangentStride = pVB->GetElementNum(eVertexBufferElement_Texture1Tangent);
-
-	//////////////////////////////////////
-	// Create xml elements
-	tinyxml2::XMLElement* pXmlPositions = pMesh->GetDocument()->NewElement("Positions");
-	pMesh->InsertEndChild(pXmlPositions);
-	tinyxml2::XMLElement* pXmlNormals = pMesh->GetDocument()->NewElement("Normals");
-	pMesh->InsertEndChild(pXmlNormals);
-	tinyxml2::XMLElement* pXmlTangents = pMesh->GetDocument()->NewElement("Tangents");
-	pMesh->InsertEndChild(pXmlTangents);
-	tinyxml2::XMLElement* pXmlTexCoords = pMesh->GetDocument()->NewElement("TexCoords");
-	pMesh->InsertEndChild(pXmlTexCoords);
-	tinyxml2::XMLElement* pXmlIndices = pMesh->GetDocument()->NewElement("Indices");
-	pMesh->InsertEndChild(pXmlIndices);
-
-	tString sPositions;
-	tString sNormals;
-	tString sTangents;
-	tString sTexCoords;
-	tString sIndices;
-
-	///////////////////////////////////////////////////
-	// Iterate through all data and save to temporary strings
-	for(int i=0;i<pVB->GetVertexNum();++i)
-	{
-		SaveGeometryDataToString(sPositions, lPosStride, pPositions);
-		SaveGeometryDataToString(sTexCoords, lTexCoordStride, pTexCoords);
-		SaveGeometryDataToString(sNormals, lNormalStride, pNormals);
-		SaveGeometryDataToString(sTangents, lTangentStride, pTangents);
-
-		pPositions += lPosStride;
-		pTexCoords += lTexCoordStride;
-		pNormals += lNormalStride;
-		pTangents += lTangentStride;
-	}
-
-	sIndices = cString::ToString((int)pIndices[0]);
-	for(int i=1;i<pVB->GetIndexNum();++i)
-		sIndices += " " + cString::ToString((int)pIndices[i]);		
-
-	/////////////////////////////////////////////////
-	// Save strings to elements
-	hpl::SetAttributeString(pXmlPositions, "Array", sPositions);
-	hpl::SetAttributeString(pXmlNormals, "Array", sNormals);
-	hpl::SetAttributeString(pXmlTangents, "Array", sTangents);
-	hpl::SetAttributeString(pXmlTexCoords, "Array", sTexCoords);
-	hpl::SetAttributeString(pXmlIndices, "Array", sIndices);
-
+	// Decals now render via GPU projection from the cDecal oriented box, so the
+	// baked <DecalMesh> geometry is no longer emitted; the loader reconstructs
+	// the decal entirely from the saved properties (material, color, offset,
+	// sub-div, On* flags). Old maps that still carry <DecalMesh> load fine — it
+	// is simply ignored.
 	return true;
 }
 
@@ -259,14 +184,6 @@ iEntityWrapper* cEntityWrapperDataDecal::CreateSpecificEntity()
 		SetInt(eDecalInt_FileIndex, lFileIndexForCurrentFile);
 
 	return hplNew(cEntityWrapperDecal,(this));
-}
-
-//-----------------------------------------------------------------------------------------
-
-void cEntityWrapperDataDecal::SaveGeometryDataToString(tString& asOutput, int alNumElements, float* apData)
-{
-	for(int i=0;i<alNumElements;++i)
-		asOutput += cString::ToString(apData[i], 3, true) + " ";
 }
 
 //-----------------------------------------------------------------------------------------
@@ -530,35 +447,6 @@ void cEntityWrapperDecal::OnPostDeployAll(bool abX)
 
 //-----------------------------------------------------------------------------------------
 
-void cEntityWrapperDecal::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions,iEditorEditMode* apEditMode,
-						bool abIsSelected, const cColor& aHighlightCol, const cColor& aDisabledCol)
-{
-	iEntityWrapper::Draw(apViewport, apFunctions, apEditMode, abIsSelected);
-	if(mbSelected)
-	{
-		//cDecalCreator* pCreator = GetEditorWorld()->GetEditor()->GetEngine()->GetGraphics()->GetDecalCreator();
-		//pCreator->DrawDebug(apFunctions, true, true);
-		//cMatrixf mtxOrientation = mmtxRotate.GetTranspose();
-		//apFunctions->SetTextureRange(NULL,0);
-		//apFunctions->SetDepthTest(true);
-		//apFunctions->SetMatrix(&mmtxTranslate);
-		//apFunctions->DebugDrawLine(0, mtxOrientation.GetRight()*mvScale.x*0.5f, cColor(1,0,0,1));
-		//apFunctions->DebugDrawLine(0, mtxOrientation.GetUp()*mvScale.y*0.5f, cColor(0,1,0,1));
-		//apFunctions->DebugDrawLine(0, mtxOrientation.GetForward()*mvScale.z*0.5f, cColor(0,0,1,1));
-
-		/*apFunctions->SetTextureRange(NULL,0);
-		apFunctions->SetDepthTest(true);
-		apFunctions->SetMatrix(&mmtxTransform);
-		apFunctions->DebugDrawLine(0, cVector3f(1,0,0), cColor(1,0,0,1));
-		apFunctions->DebugDrawLine(0, cVector3f(0,1,0), cColor(0,1,0,1));
-		apFunctions->DebugDrawLine(0, cVector3f(0,0,1), cColor(0,0,1,1));
-		
-		apFunctions->DebugDrawBoxMinMax(-0.5f, 0.5f, cColor(1));*/
-	}
-}
-
-//-----------------------------------------------------------------------------------------
-
 cEditorWindowEntityEditBox* cEntityWrapperDecal::CreateEditBox(cEditorEditModeSelect* apEditMode)
 {
 	return hplNew(cEditorWindowEntityEditBoxDecal,(apEditMode, this));
@@ -643,8 +531,9 @@ void cEntityWrapperDecal::SetColor(const cColor& aX)
 
 	mColor = aX;
 
+	// color is construction-time on cDecal → needs a recreate
 	mbDecalUpdated = true;
-	mbGeometryUpdated = true;
+	mbMaterialUpdated = true;
 }
 
 //-----------------------------------------------------------------------------------------
@@ -656,8 +545,9 @@ void cEntityWrapperDecal::SetUVSubDivisions(const cVector2l& avX)
 
 	mvSubDivisions = avX;
 
+	// sub-div grid is construction-time on cDecal → needs a recreate
 	mbDecalUpdated = true;
-	mbGeometryUpdated = true;
+	mbMaterialUpdated = true;
 }
 
 //-----------------------------------------------------------------------------------------
@@ -677,33 +567,41 @@ void cEntityWrapperDecal::SetCurrentSubDiv(int alX)
 
 void cEntityWrapperDecal::UpdateDecal()
 {
-	if(mpEngineEntity==NULL)
+	bool bForce = cEntityWrapperTypeDecal::IsForcingUpdate();
+
+	/////////////////////////////////////////////////////////////////////////
+	// (Re)create the cDecal when it doesn't exist yet or when a construction-
+	// time property (material/color/sub-div) changed. cDecal carries no
+	// geometry, so a recreate is cheap; the heavy part is CompileDecals() below.
+	if(mpEngineEntity==NULL || bForce || mbMaterialUpdated)
 	{
 		if(CreateEngineEntity()==false)
-			return;
-
-		mbDecalUpdated=false;
-		mbGeometryUpdated=false;
+			mpEngineEntity = NULL;	// e.g. no material yet → wrapper shows its icon
+		mbMaterialUpdated = false;
+		mbDecalUpdated = true;		// force the transform/prop push below
 	}
 
-	if(cEntityWrapperTypeDecal::IsForcingUpdate()==false && mbDecalUpdated==false)
+	if(bForce==false && mbDecalUpdated==false)
 		return;
 	mbDecalUpdated = false;
-
-	if(cEntityWrapperTypeDecal::IsForcingUpdate() || mbGeometryUpdated)
-	{
-		cEngineEntityGeneratedMesh* pMeshEnt = (cEngineEntityGeneratedMesh*)mpEngineEntity;
-		if(pMeshEnt->ReCreate(CreateDecalMesh())==false)
-		{
-			hplDelete(mpEngineEntity);
-			mpEngineEntity = NULL;
-
-			return;
-		}
-	}
-
-
 	mbGeometryUpdated = false;
+
+	/////////////////////////////////////////////////////////////////////////
+	// Push the transform (incl. scale) + live props onto the cDecal BEFORE
+	// rebuilding the per-object association so it reflects the new decal box,
+	// then refresh the association so the GPU projection lands correctly.
+	cWorld* pWorld = GetEditorWorld()->GetWorld();
+	if(mpEngineEntity)
+	{
+		cEngineEntityDecal* pDecalEnt = (cEngineEntityDecal*)mpEngineEntity;
+		pDecalEnt->SetMatrix(mmtxTransform);
+		pDecalEnt->SetCurrentSubDiv(mlCurrentSubDiv);
+		pDecalEnt->SetReceiverMask(GetReceiverMask());
+	}
+	// Covers add/move/edit; a failed create still needs this so the other decals'
+	// association lists stay valid. Debounced — PrepareFrame rebuilds once per
+	// frame (a drag fires this every step but only recompiles once).
+	pWorld->MarkDecalAssociationsDirty();
 }
 
 //-----------------------------------------------------------------------------------------
@@ -811,46 +709,20 @@ cEntityIcon* cEntityWrapperDecal::CreateIcon()
 
 //-----------------------------------------------------------------------------------------
 
-cMesh* cEntityWrapperDecal::CreateDecalMesh()
+int cEntityWrapperDecal::GetReceiverMask() const
 {
-	if(mbDeployed==false)
-		return NULL;
-
-	cMatrixf mtxOrientation = mmtxRotate.GetTranspose();
-
-	iEditorWorld* pWorld= GetEditorWorld();
-	cDecalCreator* pCreator = pWorld->GetEditor()->GetEngine()->GetGraphics()->GetDecalCreator();
-
-	///////////////////////////////////////////////////////////////////////////////////
-	// If this entity comes from loaded data, the mesh object in data will not be null,
-	// return it, else, just build new mesh data.
-	if(mpData)
-	{
-		cMesh* pDecalMesh = ((cEntityWrapperDataDecal*)mpData)->GetMesh();
-		if(pDecalMesh!=NULL)
-			return pDecalMesh;
-	}
-	//////////////////////////////////////////
-	// Check if current parameters are valid
-	cVertexBuffer* pVB = BuildDecalVertexBuffer(pWorld->GetWorld(), pCreator, 
-							mvPosition, mvScale, mfOffset, 
-							mtxOrientation.GetRight(), mtxOrientation.GetUp(), mtxOrientation.GetForward(),
-							msMaterial, mColor,	
-							mvSubDivisions, mlCurrentSubDiv, 
-							mlMaxTriangles,
-							mbAffectsStaticObjects, mbAffectsPrimitives, mbAffectsEntities);
-
-	if(pVB && pVB->GetVertexNum()!=0)
-		return pCreator->CreateDecalMesh();
-
-	return NULL;
+	int lMask = 0;
+	if(mbAffectsStaticObjects) lMask |= eDecalReceiver_Static;
+	if(mbAffectsPrimitives)    lMask |= eDecalReceiver_Primitive;
+	if(mbAffectsEntities)      lMask |= eDecalReceiver_Entity;
+	return lMask;
 }
 
 //-----------------------------------------------------------------------------------------
 
 iEngineEntity* cEntityWrapperDecal::CreateSpecificEngineEntity()
 {
-	return hplNew(cEngineEntityGeneratedMesh,(this, CreateDecalMesh()));
+	return hplNew(cEngineEntityDecal,(this, msMaterial, mColor, mvSubDivisions, mlCurrentSubDiv, GetReceiverMask()));
 }
 
 //-----------------------------------------------------------------------------------------

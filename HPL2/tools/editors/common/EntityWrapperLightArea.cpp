@@ -28,6 +28,8 @@
 
 #include "scene/LightArea.h"
 
+#include <cmath>
+
 //---------------------------------------------------------------------------
 
 /////////////////////////////////////////////////////////////////////////////
@@ -269,6 +271,34 @@ void cEntityWrapperLightArea::DrawLightTypeSpecific(cEditorWindowViewport* apVie
 	apFunctions->DebugDrawLine(vC2, vC3, mcolDiffuseColor);
 	apFunctions->DebugDrawLine(vC3, vC0, mcolDiffuseColor);
 	apFunctions->DebugDrawLine(mvPosition, mvPosition + vNormal * 0.5f, mcolDiffuseColor);
+
+	// Barn-door flaps: one per rect edge, hinged on the edge and tilted from the
+	// emission normal by the barn-door angle θ, extending barnDoorLength L. Each
+	// flap edge runs from a source-rect corner along dir = sinθ*outward + cosθ*normal
+	// (matches barnAxis in ILight.slang), so the four flaps form the exit aperture.
+	// L = 0 (or θ → 90°) means open flaps → nothing to show, like the shader no-op.
+	if(mfBarnDoorLength > 0.0f)
+	{
+		const float sinA = std::sin(mfBarnDoorAngle);
+		const float cosA = std::cos(mfBarnDoorAngle);
+		const float L = mfBarnDoorLength;
+		const cColor colBarn(1.0f, 0.75f, 0.2f, 1.0f); // amber — distinct from the rect
+
+		auto drawFlap = [&](const cVector3f& cA, const cVector3f& cB, const cVector3f& vOutward)
+		{
+			cVector3f vDir = vOutward * sinA + vNormal * cosA;
+			cVector3f tA = cA + vDir * L;
+			cVector3f tB = cB + vDir * L;
+			apFunctions->DebugDrawLine(cA, tA, colBarn);
+			apFunctions->DebugDrawLine(cB, tB, colBarn);
+			apFunctions->DebugDrawLine(tA, tB, colBarn);
+		};
+
+		drawFlap(vC1, vC2,  vRight); // +right edge
+		drawFlap(vC0, vC3, vRight * -1.0f); // -right edge
+		drawFlap(vC2, vC3,  vUp);    // +up edge
+		drawFlap(vC0, vC1, vUp * -1.0f); // -up edge
+	}
 }
 
 //---------------------------------------------------------------------------

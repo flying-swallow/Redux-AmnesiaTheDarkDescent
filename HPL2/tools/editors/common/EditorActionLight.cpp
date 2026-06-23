@@ -23,7 +23,7 @@
 
 #include "EditorWorld.h"
 
-#include "EntityWrapperLightBox.h"
+#include "EntityWrapperLight.h"
 #include "EntityWrapperLightPoint.h"
 #include "EntityWrapperLightSpot.h"
 
@@ -566,115 +566,6 @@ void cEditorActionLightSetBoolProperty::UndoModify()
 			pLight->SetShadowsAffectDynamic(mbOldValue);
 			break;
 		}
-	}
-}
-
-//-------------------------------------------------------------
-//-------------------------------------------------------------
-////////////////////////////////////////////////////////////
-// LIGHT BOX SET SIZE ACTION
-////////////////////////////////////////////////////////////
-//-------------------------------------------------------------
-//-------------------------------------------------------------
-
-//-------------------------------------------------------------
-///////////////////////////////////////////////////////////////
-// CONSTRUCTORS
-///////////////////////////////////////////////////////////////
-//-------------------------------------------------------------
-
-cEditorActionLightBoxSetSizeProperty::cEditorActionLightBoxSetSizeProperty(iEditorWorld* apEditorWorld, int alID,
-																		   const cVector3f& avNewValue)  : iEditorActionWorldModifier("Set box light size", apEditorWorld)
-{
-	mpEditorWorld = apEditorWorld;
-	mlID = alID;
-	mvNewValue = avNewValue;
-
-	cEntityWrapperLightBox* pLight = (cEntityWrapperLightBox*)mpEditorWorld->GetEntity(mlID);
-	
-	mvOldValue = pLight->GetSize();
-}
-
-//-------------------------------------------------------------
-///////////////////////////////////////////////////////////////
-// PUBLIC METHODS
-///////////////////////////////////////////////////////////////
-//-------------------------------------------------------------
-
-void cEditorActionLightBoxSetSizeProperty::DoModify()
-{
-	cEntityWrapperLightBox* pLight = (cEntityWrapperLightBox*)mpEditorWorld->GetEntity(mlID);
-
-	if(pLight)
-	{
-		pLight->SetSize(mvNewValue);
-	}
-}
-
-//-------------------------------------------------------------
-
-void cEditorActionLightBoxSetSizeProperty::UndoModify()
-{
-	cEntityWrapperLightBox* pLight = (cEntityWrapperLightBox*)mpEditorWorld->GetEntity(mlID);
-
-	if(pLight)
-	{
-		pLight->SetSize(mvOldValue);
-	}
-}
-
-
-//-------------------------------------------------------------
-//-------------------------------------------------------------
-////////////////////////////////////////////////////////////
-// LIGHT BOX SET BLEND FUNC ACTION
-////////////////////////////////////////////////////////////
-//-------------------------------------------------------------
-//-------------------------------------------------------------
-
-//-------------------------------------------------------------
-///////////////////////////////////////////////////////////////
-// CONSTRUCTORS
-///////////////////////////////////////////////////////////////
-//-------------------------------------------------------------
-
-cEditorActionLightBoxSetBlendFuncProperty::cEditorActionLightBoxSetBlendFuncProperty(iEditorWorld* apEditorWorld,int alID,
-																					 eLightBoxBlendFunc aFunc)  : iEditorActionWorldModifier("Set box light blend function", apEditorWorld)
-{
-	mpEditorWorld = apEditorWorld;
-	mlID = alID;
-	mNewValue = aFunc;
-	
-	cEntityWrapperLightBox* pLight = (cEntityWrapperLightBox*)mpEditorWorld->GetEntity(mlID);
-	
-	mOldValue = pLight->GetBlendFunc();
-}
-
-//-------------------------------------------------------------
-///////////////////////////////////////////////////////////////
-// PUBLIC METHODS
-///////////////////////////////////////////////////////////////
-//-------------------------------------------------------------
-
-void cEditorActionLightBoxSetBlendFuncProperty::DoModify()
-{
-	cEntityWrapperLightBox* pLight = (cEntityWrapperLightBox*)mpEditorWorld->GetEntity(mlID);
-
-	if(pLight)
-	{
-		pLight->SetBlendFunc(mNewValue);
-	}
-}
-
-//-------------------------------------------------------------
-
-void cEditorActionLightBoxSetBlendFuncProperty::UndoModify()
-{
-	cEntityWrapperLightBox* pLight = (cEntityWrapperLightBox*)mpEditorWorld->GetEntity(mlID);
-
-	if(pLight)
-	{
-		pLight->SetBlendFunc(mOldValue);
 	}
 }
 

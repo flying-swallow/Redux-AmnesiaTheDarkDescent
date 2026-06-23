@@ -56,13 +56,6 @@ iEditorWorld::iEditorWorld(iEditorBase* apEditor, const tString& asElementName)
 
 	//////////////////////////////////////////////
 	// Global light creation
-	mpGlobalAmbientLight = mpWorld->CreateLightBox("GlobalAmbient");
-	mpGlobalAmbientLight->SetPosition(0);
-	mpGlobalAmbientLight->SetDiffuseColor(cColor(0.4f,1));
-	mpGlobalAmbientLight->SetSize(500);
-	mpGlobalAmbientLight->SetBlendFunc(eLightBoxBlendFunc_Add);
-	mpGlobalAmbientLight->SetBoxLightPrio(1);
-
 	mpGlobalPointLight = mpWorld->CreateLightPoint("GlobalPoint");
 	mpGlobalPointLight->SetPosition(cVector3f(0,100,0));
 	mpGlobalPointLight->SetRadius(500);
@@ -268,8 +261,8 @@ void iEditorWorld::ClearEntities()
 
 void iEditorWorld::SetGlobalAmbientLightEnabled(bool abX)
 {
-	if(mpGlobalAmbientLight)
-		mpGlobalAmbientLight->SetVisible(abX);
+	// Box-light-based global ambient was removed; kept as a no-op so existing
+	// editor toolbar/checkbox call sites stay unchanged.
 }
 
 //--------------------------------------------------------------------
@@ -285,9 +278,7 @@ void iEditorWorld::SetGlobalPointLightEnabled(bool abX)
 
 bool iEditorWorld::GetGlobalAmbientLightEnabled()
 {
-	if(mpGlobalAmbientLight)
-		return mpGlobalAmbientLight->IsVisible();
-	
+	// Box-light-based global ambient was removed; always reports disabled.
 	return false;
 }
 

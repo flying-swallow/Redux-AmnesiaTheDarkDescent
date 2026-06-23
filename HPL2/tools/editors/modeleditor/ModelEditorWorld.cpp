@@ -28,7 +28,6 @@
 #include "../common/EntityWrapperJointHinge.h"
 #include "../common/EntityWrapperJointScrew.h"
 #include "../common/EntityWrapperJointSlider.h"
-#include "../common/EntityWrapperLightBox.h"
 #include "../common/EntityWrapperLightPoint.h"
 #include "../common/EntityWrapperLightSpot.h"
 #include "../common/EntityWrapperBillboard.h"

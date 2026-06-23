@@ -23,7 +23,6 @@
 #include "EditorActionHandler.h"
 #include "EditorWorld.h"
 
-#include "EntityWrapperLightBox.h"
 #include "EntityWrapperLightSpot.h"
 #include "EntityWrapperLightPoint.h"
 #include "EntityWrapperLightArea.h"
@@ -118,15 +117,6 @@ bool cEditorEditModeLights::SetUpCreationData(iEntityWrapperData* apData)
 
 	switch(mlSubType)
 	{
-	case eEditorEntityLightType_Box:
-		{
-			cBoxCreator* pCreator = (cBoxCreator*)mpCurrentCreator;
-			apData->SetVec3f(eObjVec3f_Position, pCreator->GetBoxCenter());
-			apData->SetVec3f(eObjVec3f_Scale, pCreator->GetBoxSize());
-			apData->SetVec3f(eLightBoxVec3f_Size, pCreator->GetBoxSize());
-
-			break;
-		}
 	case eEditorEntityLightType_Point:
 		{
 			cSphereCreator* pCreator = (cSphereCreator*)mpCurrentCreator;
@@ -158,10 +148,6 @@ iEditorWindow* cEditorEditModeLights::CreateSpecificWindow()
 
 void cEditorEditModeLights::CreateTypes()
 {
-	mvTypes.push_back(hplNew(cEntityWrapperTypeLightBox,()));
-	mvShapeCreators.push_back(hplNew(cBoxCreator,(this)));
-
-
 	mvTypes.push_back(hplNew(cEntityWrapperTypeLightPoint,()));
 	mvShapeCreators.push_back(hplNew(cSphereCreator,(this)));
 

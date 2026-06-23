@@ -26,7 +26,6 @@ class cEditorEditModeSelect;
 class iEditorWorld;
 
 class cEntityWrapperLight;
-class cEntityWrapperLightBox;
 class cEntityWrapperLightSpot;
 
 //------------------------------------------------------------------------------
@@ -252,60 +251,6 @@ protected:
 
 	bool mbOldValue;
 	bool mbNewValue;
-	
-};
-
-//------------------------------------------------------------------------------
-
-////////////////////////////////////////////////////////////
-// LIGHT BOX SET SIZE ACTION
-////////////////////////////////////////////////////////////
-
-//------------------------------------------------------------------------------
-
-class cEditorActionLightBoxSetSizeProperty : public iEditorActionWorldModifier
-{
-public:
-	cEditorActionLightBoxSetSizeProperty(iEditorWorld* apEditorWorld, int alID,
-										 const cVector3f& avNewValue);
-
-	void DoModify();
-	void UndoModify();
-
-protected:
-	///////////////////////////////////
-	// Data
-	int mlID;
-
-	cVector3f mvOldValue;
-	cVector3f mvNewValue;
-	
-};
-
-//------------------------------------------------------------------------------
-
-////////////////////////////////////////////////////////////
-// LIGHT BOX SET BLEND FUNC ACTION
-////////////////////////////////////////////////////////////
-
-//------------------------------------------------------------------------------
-
-class cEditorActionLightBoxSetBlendFuncProperty : public iEditorActionWorldModifier
-{
-public:
-	cEditorActionLightBoxSetBlendFuncProperty(iEditorWorld* apEditorWorld, int alID,
-											  eLightBoxBlendFunc aFunc);
-
-	void DoModify();
-	void UndoModify();
-
-protected:
-	///////////////////////////////////
-	// Data
-	int mlID;
-
-	eLightBoxBlendFunc mOldValue;
-	eLightBoxBlendFunc mNewValue;
 	
 };
 

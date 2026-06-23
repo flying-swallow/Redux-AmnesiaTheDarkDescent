@@ -48,7 +48,6 @@ protected:
 	// Layout stuff
 	cWidgetGroup* mpSelectionGroup;
 	cEditorInputEnum* mpInpLightType;
-	//cWidgetComboBox* mpBoxLightType;
 };
 
 //----------------------------------------------------------

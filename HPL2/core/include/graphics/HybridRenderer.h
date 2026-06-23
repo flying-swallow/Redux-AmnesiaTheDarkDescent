@@ -1,7 +1,6 @@
 #ifndef HPL_RENDERER_HYBRID_H
 #define HPL_RENDERER_HYBRID_H
 
-#include "graphics/BindlessPool.h"
 #include "graphics/GlobalManagedSets.h"
 #include "graphics/HPLGraphicsConfig.h"
 #include "graphics/Material.h"
@@ -9,27 +8,11 @@
 #include "graphics/Renderer.h"
 #include "graphics/RISegmentAlloc.h"
 #include "graphics/RITypes.h"
-#include "graphics/RIRenderer.h"
-#include "system/Hasher.h"
-#include "system/Event.h"
 #include <array>
-#include <cstring>
-#include <vector>
 
 #include "Constants.h"
-#include "SceneTypes.slang"
-#include "SurfelGI/SurfelTypes.slang"
 
 namespace hpl {
-
-// Guard-band overscan extent: the display dimension `d` grown by
-// kGuardBandFraction on each side (rounded). Single source of truth for every
-// intermediate render target / viewport / dispatch that renders the overscan
-// frame (the swapchain images themselves stay display-size; the present blit
-// crops). See kGuardBandFraction in Constants.h.
-inline uint32_t overscanExtent(uint32_t d) {
-  return (uint32_t)((float)d * (1.0f + 2.0f * kGuardBandFraction) + 0.5f);
-}
 
 class Image;
 class cVertexBuffer;
@@ -71,11 +54,8 @@ private:
   RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> m_indirectSegment;
   struct RIBuffer m_indirectDrawBuffer;
 
-  RISharedPointer<RIBuffer> m_tlasStorage;
-  RISharedPointer<RIAccelStructure> m_tlas;
-  RISharedPointer<RIBuffer> m_tlasInstanceBuffer;
-  uint32_t m_tlasCapacity = 0;
-  uint32_t m_tlasStorageCapacity = 0;
+  // The ray-tracing TLAS (storage + instance buffer) is owned by cWorld and built
+  // in cWorld::PrepareFrame; each RT pass binds it via apWorld->GetTlas().
 
   // (The per-viewport frame textures — surfel result, packed hit info,
   // velocity, direct-lighting history + ping-pong index/init, prev-frame

@@ -49,8 +49,7 @@ protected:
 	void AddPropertyCastShadows(cWidgetTab* apParentTab);
 
 	void AddPropertySetFlicker(cWidgetTab* apParentTab);
-	
-	void AddPropertySetBox(cWidgetTab* apParentTab);
+
 	void AddPropertySetPoint(cWidgetTab* apParentTab);
 	void AddPropertySetSpot(cWidgetTab* apParentTab);
 	void AddPropertySetArea(cWidgetTab* apParentTab);
@@ -139,17 +138,6 @@ protected:
 	cEditorInputNumber* mpInpFlickerFadeOnMaxLength;
 	cEditorInputNumber* mpInpFlickerFadeOffMinLength;
 	cEditorInputNumber* mpInpFlickerFadeOffMaxLength;
-
-	/////////////////////////////////
-	// Box Light specific
-	cWidgetLabel* mpLabelBlendFunc;
-	cWidgetComboBox* mpComboBoxBlendFunc;
-
-	cWidgetLabel* mvLabelBoxSize[4];
-	cWidgetTextBox* mvInputBoxSize[3];
-
-	cEditorInputEnum* mpInpBoxBlendFunc;
-	cEditorInputVec3* mpInpBoxSize;
 
 	///////////////////////////////////
 	// Spot Light specific

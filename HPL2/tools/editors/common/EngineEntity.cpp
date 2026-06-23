@@ -26,6 +26,8 @@
 #include "EditorWindowViewport.h"
 #include "EditorHelper.h"
 
+#include "scene/Decal.h"
+
 //-----------------------------------------------------------------------
 
 void iEngineEntity::SetMatrix(const cMatrixf& amtxX)
@@ -455,6 +457,98 @@ bool cEngineEntityGeneratedMesh::ReCreate(cMesh* apMesh)
 cVertexBuffer* cEngineEntityGeneratedMesh::GetVertexBuffer()
 {
 	return mpMesh->GetSubMesh(0)->GetVertexBuffer();
+}
+
+//-----------------------------------------------------------------------
+
+//////////////////////////////////////////////////////////////////
+// DECAL ENTITY - CONSTRUCTORS
+//////////////////////////////////////////////////////////////////
+
+//-----------------------------------------------------------------------
+
+cEngineEntityDecal::cEngineEntityDecal(iEntityWrapper* apParent, const tString& asMaterial, const cColor& aColor,
+									   const cVector2l& avSubDiv, int alCurrentSubDiv, int alReceiverMask)
+	: iEngineEntity(apParent), msMaterial(asMaterial), mColor(aColor), mvSubDiv(avSubDiv),
+	  mlCurrentSubDiv(alCurrentSubDiv), mlReceiverMask(alReceiverMask)
+{
+}
+
+cEngineEntityDecal::~cEngineEntityDecal()
+{
+	if(mpEntity)
+	{
+		cWorld* pWorld = mpParent->GetEditorWorld()->GetWorld();
+		pWorld->DestroyDecal((cDecal*)mpEntity);
+		// Removing a decal invalidates every receiver's baked decal list; request
+		// a rebuild (debounced in PrepareFrame) so the GPU projection stays
+		// consistent.
+		pWorld->MarkDecalAssociationsDirty();
+	}
+}
+
+//-----------------------------------------------------------------------
+
+bool cEngineEntityDecal::Create(const tString& asName)
+{
+	// A decal with no material can't project — leave mpEntity NULL so the wrapper
+	// shows its icon (matches the legacy "no geometry" behavior).
+	if(msMaterial=="")
+		return false;
+
+	cWorld* pWorld = mpParent->GetEditorWorld()->GetWorld();
+	cDecal* pDecal = pWorld->CreateDecal(asName, msMaterial, mColor, mvSubDiv);
+	if(pDecal==NULL)
+		return false;
+
+	pDecal->SetCurrentSubDiv(mlCurrentSubDiv);
+	pDecal->SetReceiverMask(mlReceiverMask);
+	mpEntity = pDecal;
+
+	// The wrapper applies the world matrix (SetMatrix) and calls CompileDecals()
+	// after creation, so we don't rebuild the association here.
+	return IsCreated();
+}
+
+//-----------------------------------------------------------------------
+
+void cEngineEntityDecal::UpdateVisibility()
+{
+	// cDecal is static set-dressing. NOTE: the GPU projection is baked from
+	// cWorld::mvDecals regardless of the renderable's visible flag, so toggling
+	// editor visibility does not currently hide the projected decal; the flag is
+	// still propagated for any container-side culling.
+	((cDecal*)mpEntity)->SetVisible(mpParent->IsVisible() && mpParent->IsCulledByClipPlanes()==false);
+}
+
+//-----------------------------------------------------------------------
+
+void cEngineEntityDecal::Draw(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, bool abIsSelected, bool abIsActive, const cColor& aHighlightCol)
+{
+	if(abIsSelected==false)
+		return;
+
+	// The decal volume is the unit cube [-0.5,0.5]^3 mapped by the decal world
+	// matrix (translate*rotate*scale) — draw it as the selection box.
+	DebugDraw::DebugDrawOptions options;
+	options.m_transform = mpEntity->GetWorldMatrix();
+	apFunctions->DebugDrawBoxMinMax(cVector3f(-0.5f), cVector3f(0.5f), aHighlightCol, options);
+}
+
+//-----------------------------------------------------------------------
+
+void cEngineEntityDecal::SetCurrentSubDiv(int alX)
+{
+	mlCurrentSubDiv = alX;
+	if(mpEntity)
+		((cDecal*)mpEntity)->SetCurrentSubDiv(alX);
+}
+
+void cEngineEntityDecal::SetReceiverMask(int alMask)
+{
+	mlReceiverMask = alMask;
+	if(mpEntity)
+		((cDecal*)mpEntity)->SetReceiverMask(alMask);
 }
 
 //-----------------------------------------------------------------------

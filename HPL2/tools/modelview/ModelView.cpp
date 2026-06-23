@@ -54,7 +54,6 @@ cMeshEntity *gpFloor=NULL;
 cMeshEntity *gpEntity=NULL;
 
 std::vector<cLightSpot*> gvLights;
-cLightBox * gpLightBox;
 
 std::vector<iPhysicsBody*> gvBodies;
 std::vector<iPhysicsJoint*> gvJoints;
@@ -493,13 +492,7 @@ public:
 			gvLights.push_back(pLightSpot);
 		}
 
-		// Box light
-		gpLightBox = mpWorld->CreateLightBox("BoxLight");
-		gpLightBox->SetVisible(gbAmbientLight);
-		gpLightBox->SetSize(cVector3f(50.0f));
-		gpLightBox->SetDiffuseColor(cColor(0.35f,1.0f));
 
-			
 		/////////////////////////////////
 		// Compile world
 		mpWorld->Compile(false);
@@ -1567,7 +1560,7 @@ public:
 
 			pSlider = pSet->CreateWidgetSlider(eWidgetSliderOrientation_Horizontal,vAmbSlidePos,vAmbSlideSize,255,pGroup);
 			pSlider->AddCallback(eGuiMessage_SliderMove,this, kGuiCallback(ChangeAmbientColor));
-			pSlider->SetValue( (int)(gpLightBox->GetDiffuseColor().r * 255.0 + 0.5f));
+			pSlider->SetValue( (int)(0.35f * 255.0 + 0.5f));
 			pLabel = pSet->CreateWidgetLabel(vGroupPos, vSize, _W("Intensity:"), pGroup);
 			vGroupPos.y += 22;
 			
@@ -1723,14 +1716,12 @@ public:
 	bool ChangeAmbientLight(iWidget* apWidget,const cGuiMessageData& aData)
 	{
 		gbAmbientLight = aData.mlVal == 1;
-		gpLightBox->SetVisible(gbAmbientLight);
 		return true;
 	}
 	kGuiCallbackFuncEnd(cSimpleUpdate,ChangeAmbientLight)  
 	
 	bool ChangeAmbientColor(iWidget* apWidget,const cGuiMessageData& aData)
 	{
-		gpLightBox->SetDiffuseColor(cColor( ((float)aData.mlVal) / 255.0f, 1.0f ));
 		return true;
 	}
 	kGuiCallbackFuncEnd(cSimpleUpdate,ChangeAmbientColor)  

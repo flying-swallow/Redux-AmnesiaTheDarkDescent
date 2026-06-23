@@ -28,8 +28,10 @@
 #include "scene/SceneTypes.h"
 #include "graphics/RITypes.h" // RISharedPointer<RIBuffer> decal buffer members
 #include "graphics/IndexPool.h" // stable per-type GPU light slots
+#include "graphics/RIBootstrap.h" // RIBootstrap::FrameContext (PrepareFrame/TLAS build)
 
 #include <cstdint>
+#include <vector>
 
 namespace tinyxml2 { class XMLElement; }
 
@@ -39,6 +41,8 @@ namespace hpl {
 	class cResources;
 	class cDecal;
 	class cMaterial;
+	class cFrustum;
+	class iRenderable;
 	class cSound;
 	class cPhysics;
 	class cScene;
@@ -53,7 +57,6 @@ namespace hpl {
 	class iLight;
 	class cLightSpot;
 	class cLightPoint;
-	class cLightBox;
 	class cLightArea;
 	class cImageEntity;
 	class cParticleManager;
@@ -81,7 +84,7 @@ namespace hpl {
 	class cFogArea;
 	class cEntFile;
 	class cDummyRenderable;
-	struct SceneConstants; // per-frame UBO (SceneTypes.slang); SubmitToGpu fills the *Count fields
+	struct SceneConstants; // per-frame UBO (SceneTypes.slang); PrepareFrame fills the *Count fields
 
 	
 	typedef std::list<cEntFile*> tEntFileList;
@@ -248,6 +251,20 @@ namespace hpl {
 		cDecal* CreateDecal(const tString& asName, const tString& asMaterial,
 							const cColor& aColor, const cVector2l& avSubDiv);
 
+		// Remove a single decal: unregisters it from the renderable container,
+		// drops it from mvDecals, frees it (and its material) and marks the GPU
+		// buffers dirty. The per-object association is NOT rebuilt here — call
+		// CompileDecals() afterwards (the editor does) so receivers stop
+		// referencing the removed index.
+		void DestroyDecal(cDecal* apDecal);
+
+		// (Re)build the CPU-side decal association only: Morton-sort mvDecals and
+		// fill mvDecalObjectIndices + each renderable's decalList, then mark the
+		// GPU buffers dirty. Split out of Compile() so the editor can refresh
+		// decal projection after add/move/edit/delete without recompiling the
+		// renderable containers or physics world.
+		void CompileDecals();
+
 		// All decals, in stable order (== gDecals[] upload order + the index space
 		// of GetDecalObjectIndices()).
 		const std::vector<cDecal*>& GetDecals() const { return mvDecals; }
@@ -255,7 +272,7 @@ namespace hpl {
 		// (iRenderable::GetDecalList*) addresses a run here. Built by Compile().
 		const std::vector<uint32_t>& GetDecalObjectIndices() const { return mvDecalObjectIndices; }
 
-		// Per-world decal GPU buffers, baked once by SubmitToGpu (geometry from
+		// Per-world decal GPU buffers, baked once by PrepareFrame (geometry from
 		// mvDecals with the bindless slot baked in + a pin per Image; object-index
 		// pool from mvDecalObjectIndices). Re-baked on membership change. Null until
 		// the first bake. The renderer binds these on the composite pass; cWorld
@@ -264,18 +281,39 @@ namespace hpl {
 		RIBuffer* GetDecalObjectIndexBuffer() const { return mpDecalObjectIndexBuffer.Get(); }
 		uint32_t GetDecalCount() const { return (uint32_t)mvDecals.size(); }
 
-		// Single per-frame world→GPU submission, called once by the renderer before
-		// any pass: rebuilds + uploads the light/fog/decal buffers and fills the
-		// perFrame *Count fields. It binds no descriptor set — the light/fog buffers
-		// ride the per-world set kWorldSet, bound by each consuming pass; the set-2
-		// decal buffers are bound at the composite pass.
-		void SubmitToGpu(SceneConstants& perFrame);
+		// Single per-world per-frame GPU publish, driven ONCE per frame by cScene
+		// (before the viewport loop), independent of how many viewports show this
+		// world: rebuilds + uploads the light/fog/decal buffers and builds this
+		// world's ray-tracing TLAS (see BuildTlas). Binds no descriptor set — the
+		// light/fog buffers ride the per-world set kWorldSet, bound by each consuming
+		// pass; the set-2 decal buffers are bound at the composite pass. The renderer
+		// reads the published per-world counts via GetPointLightCount()/etc. Needs the
+		// frame context (BLAS/TLAS build scratch + command buffers).
+		void PrepareFrame(RIBootstrap::FrameContext* cntx);
+
+		// Centralized renderable→bindless-object-slot submission: builds the standard
+		// UniformObject from the renderable (model matrix via apFrustum, material via
+		// submitMaterial, dissolve/illumination/decal list) and submits it with the
+		// vertex/index BDAs for bindless pulling. Returns the stable object slot keyed
+		// on the renderable's unique cookie, UINT32_MAX on skip (missing VB/material or
+		// pool/material-slot exhaustion). cookieSalt != 0 carves a disjoint slot for the
+		// same renderable (the TLAS translucent path vs the translucent-mesh raster
+		// pass). Shared by BuildTlas and the renderer's opaque raster loop.
+		uint32_t SubmitRenderableObject(iRenderable* pObject, RIBootstrap::FrameContext* cntx,
+		                                cFrustum* apFrustum, uint32_t cookieSalt = 0);
+
+		// Per-world ray-tracing TLAS, owned + built by cWorld from its own renderable
+		// set (whole-scene, NO frustum cull — RT shadows/GI need geometry behind the
+		// camera too; the renderer's render list culls separately for the raster
+		// passes). Every RT pass (surfel VBuffer/RT, direct spatial reuse, composite,
+		// water) binds the result via GetTlas(), which is null until the first build.
+		RIAccelStructure* GetTlas() const { return mpTlas.isEmpty() ? nullptr : mpTlas.Get(); }
 
 		// Per-world fog-area buffer (FogAreaParams[], bound on the per-world set
 		// kWorldSet by each consuming pass). Rebuilt + uploaded every frame by
-		// SubmitToGpu over ALL fog areas (no frustum cull — the per-pixel Fog.slang
+		// PrepareFrame over ALL fog areas (no frustum cull — the per-pixel Fog.slang
 		// loop is bounded by the count) and grown on demand. Null until the first
-		// SubmitToGpu.
+		// PrepareFrame.
 		RIBuffer* GetFogAreaBuffer() const { return mpFogAreaBuffer.Get(); }
 		uint32_t GetFogAreaCount() const { return mFogAreaCount; }
 
@@ -283,12 +321,12 @@ namespace hpl {
 		// per-world set kWorldSet). Each light keeps a STABLE per-type slot from the
 		// matching light-slot pool (mPointLightPool/…) for its whole lifetime, so its
 		// packed GPU id (packLightId(type, slot)) is identical every frame — the
-		// identity ReSTIR DI reservoirs persist. SubmitToGpu scatters each light into
+		// identity ReSTIR DI reservoirs persist. PrepareFrame scatters each light into
 		// buffer[slot] (sparse) and uploads up to the high-water slot; grown on demand.
 		// "Counts" are now per-type SLOT CAPACITIES (high-water), which the GPU light
 		// grid + Scene.slang decode consume directly. Unused/destroyed-but-not-reused
 		// slots and invisible lights are zeroed holes (radius 0) the grid skips. Null
-		// until the first SubmitToGpu.
+		// until the first PrepareFrame.
 		RIBuffer* GetPointLightBuffer() const { return mpPointLightBuffer.Get(); }
 		uint32_t  GetPointLightCount()  const { return mPointLightCount; }
 		RIBuffer* GetSpotLightBuffer()  const { return mpSpotLightBuffer.Get(); }
@@ -297,11 +335,18 @@ namespace hpl {
 		uint32_t  GetAreaLightCount()   const { return mAreaLightCount; }
 
 		// No-ops: the light / fog / decal buffers are all rebuilt from the live
-		// lists every frame in SubmitToGpu, so membership changes need no flag.
+		// lists every frame in PrepareFrame, so membership changes need no flag.
 		// Kept so the Create*/Destroy* call sites (incl. the editor) stay unchanged.
 		void MarkLightBuffersDirty() {}
 		void MarkFogBufferDirty()    {}
 		void MarkDecalBuffersDirty() { mbDecalBuffersDirty = true; }
+
+		// Request a decal↔object association rebuild (CompileDecals) without doing
+		// it now. PrepareFrame runs the rebuild at most once per frame when set, so
+		// many editor edits in one frame (e.g. a drag) coalesce into one walk.
+		// Only the editor sets this; the runtime builds associations once at load
+		// (Compile), so gameplay pays no per-frame cost.
+		void MarkDecalAssociationsDirty() { mbDecalAssociationsDirty = true; }
 		cMeshEntity* GetDynamicMeshEntity(const tString& asName);
 		
 		cMeshEntityIterator GetDynamicMeshEntityIterator();
@@ -313,7 +358,6 @@ namespace hpl {
 
 		cLightPoint* CreateLightPoint(const tString &asName="",const tString &asGobo="", bool abStatic=false);
 		cLightSpot* CreateLightSpot(const tString &asName="", const tString &asGobo="", bool abStatic=false);
-		cLightBox* CreateLightBox(const tString &asName="", bool abStatic=false);
 		cLightArea* CreateLightArea(const tString &asName="", bool abStatic=false);
 		void DestroyLight(iLight* apLight);
 		iLight* GetLight(const tString& asName);
@@ -483,11 +527,25 @@ namespace hpl {
 		RISharedPointer<RIBuffer> mpDecalObjectIndexBuffer;
 		std::vector<SharedResourcePin> mvDecalImagePins;
 		bool mbDecalBuffersDirty = true;
-		void BakeDecalBuffers();      // build/upload the per-world decal buffers + pins
-		void DisposeDecalBuffers();   // defer-dispose the decal buffers + release pins
+		// Editor-only: a decal was added/moved/edited/removed; PrepareFrame rebuilds
+		// the association (CompileDecals) once per frame when set (debounce).
+		bool mbDecalAssociationsDirty = false;
+
+		// Per-world ray-tracing TLAS, built each frame by BuildTlas (called from
+		// PrepareFrame) from this world's whole renderable set. Pinned to the defer
+		// queue every frame like the light/fog/decal buffers, so a re-init/grow — or
+		// world teardown while frames are in flight — drops the old copies safely.
+		RISharedPointer<RIAccelStructure> mpTlas;
+		uint32_t mTlasCapacity = 0;
+		uint32_t mTlasStorageCapacity = 0;
+		RISharedPointer<RIBuffer>         mpTlasStorage;
+		RISharedPointer<RIBuffer>         mpTlasInstanceBuffer;
+		// Gather this world's renderable BLAS instances (whole-scene, no cull) and
+		// record the TLAS build; called at the end of PrepareFrame.
+		void BuildTlas(RIBootstrap::FrameContext* cntx, cFrustum* apFrustum);
 
 		// Fog + light buffers are dynamic: rebuilt + uploaded every frame by
-		// SubmitToGpu and grown on demand (reserved = doubling capacity; count =
+		// PrepareFrame and grown on demand (reserved = doubling capacity; count =
 		// elements the last submit wrote, slot = index). Each is pinned to the defer
 		// queue every frame, so a grow — or world teardown — drops the old buffer
 		// safely once the GPU passes the frame; hence no Bake/Refresh/Dispose/dirty.
@@ -499,7 +557,7 @@ namespace hpl {
 		// bottom-up: lowest free slot first). A light requestIdLow()s a slot at
 		// creation and keeps it for life (returnId() on destroy), so its packed GPU
 		// id (packLightId(type, slot)) is identical every frame — the stable identity
-		// ReSTIR DI temporal/spatial reuse needs. SubmitToGpu scatters each light into
+		// ReSTIR DI temporal/spatial reuse needs. PrepareFrame scatters each light into
 		// buffer[slot]; the device buffer grows on demand to fit the high-water slot
 		// (SyncStorageBuffer realloc). Because slots pack from 0, the high-water — and
 		// so the per-cell grid-build loop — tracks the live light count, not the
@@ -511,7 +569,7 @@ namespace hpl {
 
 		// Per-type slot pool for `apLight`'s type, or nullptr for light types not
 		// uploaded to the GPU (box lights). Centralizes the type→pool switch used by
-		// Create*/Destroy/SubmitToGpu.
+		// Create*/Destroy/PrepareFrame.
 		IndexPool* GpuLightPoolFor(iLight* apLight);
 
 		size_t pointLightReserved = 0;

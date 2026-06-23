@@ -49,7 +49,7 @@ public struct Ray
 };
 
 // Packed light id: top 2 bits = type, low 30 bits = the light's STABLE per-type
-// GPU slot (host-side IndexPool, see cWorld::SubmitToGpu). Self-describing — the
+// GPU slot (host-side IndexPool, see cWorld::PrepareFrame). Self-describing — the
 // decode is independent of the per-frame light counts, so a light's id is the
 // same value every frame as long as it lives. This is the identity ReSTIR DI
 // reservoirs persist in Reservoir.y; a count-relative flat index would alias a

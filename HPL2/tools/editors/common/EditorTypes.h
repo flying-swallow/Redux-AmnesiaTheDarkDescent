@@ -192,7 +192,6 @@ enum eEditorResourceType
 
 enum eEditorEntityLightType
 {
-	eEditorEntityLightType_Box,
 	eEditorEntityLightType_Point,
 	eEditorEntityLightType_Spot,
 	eEditorEntityLightType_Area,

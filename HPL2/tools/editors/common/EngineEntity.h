@@ -191,6 +191,52 @@ public:
 //-----------------------------------------------------------------------
 
 //////////////////////////////////////////////////////////////////
+// DECAL ENTITY
+//////////////////////////////////////////////////////////////////
+
+//-----------------------------------------------------------------------
+
+// Engine representation of an editor decal. Unlike the legacy path (a clipped
+// cMesh wrapped in cEngineEntityGeneratedMesh) this owns a lightweight cDecal
+// oriented box on the editor cWorld; the renderer projects it in screen space
+// from cWorld::mpDecalBuffer, so there is no geometry to rebuild on edits.
+// material/color/subdiv are construction-time on cDecal (recreate to change);
+// the transform, current sub-div and receiver mask update in place.
+class cEngineEntityDecal : public iEngineEntity
+{
+public:
+	cEngineEntityDecal(iEntityWrapper* apParent, const tString& asMaterial, const cColor& aColor,
+					   const cVector2l& avSubDiv, int alCurrentSubDiv, int alReceiverMask);
+	~cEngineEntityDecal();
+
+	bool Create(const tString& asName);
+
+	cBoundingVolume* GetPickBV(cEditorWindowViewport* apViewport) { return mpEntity->GetBoundingVolume(); }
+
+	void UpdateVisibility();
+
+	void Draw(cEditorWindowViewport* apViewport,
+				DebugDraw* apFunctions,
+				bool abIsSelected,
+				bool abIsActive, const cColor& aHighlightCol);
+
+	// Live (no-recreate) updates pushed by the wrapper before CompileDecals().
+	void SetCurrentSubDiv(int alX);
+	void SetReceiverMask(int alMask);
+
+	cDecal* GetDecal() { return (cDecal*)mpEntity; }
+
+protected:
+	tString msMaterial;
+	cColor mColor;
+	cVector2l mvSubDiv;
+	int mlCurrentSubDiv;
+	int mlReceiverMask;
+};
+
+//-----------------------------------------------------------------------
+
+//////////////////////////////////////////////////////////////////
 // ICON ENTITY BASE
 //////////////////////////////////////////////////////////////////
 

@@ -311,8 +311,7 @@ void handleHit(TriangleHit triangleHit, inout ScatterPayload scatterPayload)
         // use their full sampler (incl. gobo cube); spot lights use the same
         // cone-restricted SpotLight.sample() as the direct path — matching the
         // reference Falcor SurfelGI, where a spot's analytic GI contribution is
-        // cone-shaped too. Box lights aren't NEE-sampled (and aren't binned into
-        // the grid). The bounce needs outgoing radiance at the hit surface, so
+        // cone-shaped too. The bounce needs outgoing radiance at the hit surface, so
         // albedo re-modulates the standard diffuse lobe's 1/π here. No scale knobs
         // (Falcor parity): the NEE shares shadeAnalyticLight and the same Li units
         // as the direct pass, so indirect lands in direct's units by construction.

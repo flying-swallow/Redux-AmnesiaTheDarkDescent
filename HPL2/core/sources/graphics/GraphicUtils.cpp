@@ -88,22 +88,28 @@ namespace hpl {
 				parentNode->UpdateBeforeUse();
 				for (auto& childNode : parentNode->GetChildNodes()) {
 					childNode->UpdateBeforeUse();
-					eCollision frustumCollision = frustum->CollideNode(childNode);
-					if (frustumCollision == eCollision_Outside && abIgnoreFrustumCull==false) {
-						continue;
-					}
-					if (frustum->CheckAABBNearPlaneIntersection(childNode->GetMin(), childNode->GetMax())) {
-						cVector3f vViewSpacePos = cMath::MatrixMul(frustum->GetViewMatrix(), childNode->GetCenter());
-						childNode->SetViewDistance(vViewSpacePos.z);
-						childNode->SetInsideView(true);
-					} else {
-						// Frustum origin is outside of node. Do intersection test.
-						cVector3f vIntersection;
-						cMath::CheckAABBLineIntersection(
-							childNode->GetMin(), childNode->GetMax(), frustum->GetOrigin(), childNode->GetCenter(), &vIntersection, NULL);
-						cVector3f vViewSpacePos = cMath::MatrixMul(frustum->GetViewMatrix(), vIntersection);
-						childNode->SetViewDistance(vViewSpacePos.z);
-						childNode->SetInsideView(false);
+					// A null frustum means "whole-scene, no cull" (e.g. the viewport-less
+					// per-world TLAS build passes nullptr with abIgnoreFrustumCull=true).
+					// Skip all frustum-dependent culling and view-distance setup; still
+					// recurse into every child so the full renderable set is gathered.
+					if (frustum) {
+						eCollision frustumCollision = frustum->CollideNode(childNode);
+						if (frustumCollision == eCollision_Outside && abIgnoreFrustumCull==false) {
+							continue;
+						}
+						if (frustum->CheckAABBNearPlaneIntersection(childNode->GetMin(), childNode->GetMax())) {
+							cVector3f vViewSpacePos = cMath::MatrixMul(frustum->GetViewMatrix(), childNode->GetCenter());
+							childNode->SetViewDistance(vViewSpacePos.z);
+							childNode->SetInsideView(true);
+						} else {
+							// Frustum origin is outside of node. Do intersection test.
+							cVector3f vIntersection;
+							cMath::CheckAABBLineIntersection(
+								childNode->GetMin(), childNode->GetMax(), frustum->GetOrigin(), childNode->GetCenter(), &vIntersection, NULL);
+							cVector3f vViewSpacePos = cMath::MatrixMul(frustum->GetViewMatrix(), vIntersection);
+							childNode->SetViewDistance(vViewSpacePos.z);
+							childNode->SetInsideView(false);
+						}
 					}
 					walkRenderables(childNode);
 				}

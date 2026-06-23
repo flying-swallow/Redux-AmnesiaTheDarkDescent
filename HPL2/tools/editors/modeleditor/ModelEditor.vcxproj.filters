@@ -288,9 +288,6 @@
     <ClCompile Include="..\common\EntityWrapperLight.cpp">
       <Filter>Common\EntityWrappers\Types</Filter>
     </ClCompile>
-    <ClCompile Include="..\common\EntityWrapperLightBox.cpp">
-      <Filter>Common\EntityWrappers\Types</Filter>
-    </ClCompile>
     <ClCompile Include="..\common\EntityWrapperLightPoint.cpp">
       <Filter>Common\EntityWrappers\Types</Filter>
     </ClCompile>
@@ -600,9 +597,6 @@
       <Filter>Common\EntityWrappers\Types</Filter>
     </ClInclude>
     <ClInclude Include="..\common\EntityWrapperLight.h">
-      <Filter>Common\EntityWrappers\Types</Filter>
-    </ClInclude>
-    <ClInclude Include="..\common\EntityWrapperLightBox.h">
       <Filter>Common\EntityWrappers\Types</Filter>
     </ClInclude>
     <ClInclude Include="..\common\EntityWrapperLightPoint.h">

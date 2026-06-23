@@ -33,7 +33,6 @@
 #include "scene/World.h"
 #include "scene/LightPoint.h"
 #include "scene/LightSpot.h"
-#include "scene/LightBox.h"
 #include "scene/LightArea.h"
 #include "scene/MeshEntity.h"
 #include "scene/SoundEntity.h"
@@ -205,18 +204,8 @@ namespace hpl {
 		bool bStatic = abStatic;
 
 		//////////////////////////
-		// Box Light
-		if(tString(apElement->Value()) == "BoxLight")
-		{
-			cLightBox *pLightBox = apWorld->CreateLightBox(asNamePrefix+sName, bStatic);
-			pLight = pLightBox;
-
-			pLightBox->SetSize(GetAttributeVector3f(apElement, "Size", 1));
-			pLightBox->SetBlendFunc((eLightBoxBlendFunc) GetAttributeInt(apElement, "BlendFunc", 1));
-		}
-		//////////////////////////
 		// Spotlightt
-		else if(tString(apElement->Value()) == "SpotLight")
+		if(tString(apElement->Value()) == "SpotLight")
 		{
 			cLightSpot *pLightSpot = apWorld->CreateLightSpot(asNamePrefix+sName,"", bStatic);
 			pLight = pLightSpot;

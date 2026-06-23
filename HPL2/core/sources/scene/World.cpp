@@ -33,6 +33,7 @@
 #include "engine/Engine.h"
 
 #include "graphics/GlobalManagedSets.h"
+#include "graphics/GraphicUtils.h"
 #include "graphics/Graphics.h"
 #include "graphics/HybridRenderer.h"
 #include "graphics/Image.h"
@@ -64,7 +65,6 @@
 #include "scene/FogArea.h"
 #include "scene/GuiSetEntity.h"
 #include "scene/LightArea.h"
-#include "scene/LightBox.h"
 #include "scene/LightPoint.h"
 #include "scene/LightSpot.h"
 #include "scene/MeshEntity.h"
@@ -203,10 +203,9 @@ cWorld::cWorld(tString asName, cGraphics *apGraphics, cResources *apResources,
 //-----------------------------------------------------------------------
 
 cWorld::~cWorld() {
-  // Decals are baked once, so their buffers + Image pins aren't pinned per frame;
-  // defer-dispose them here. (The fog/light buffers ARE pinned every frame in
-  // SubmitToGpu, so the last frame's copies outlive teardown on their own.)
-  DisposeDecalBuffers();
+  // The decal / fog / light buffers (and the decal diffuse-Image pins) are pinned
+  // every frame in PrepareFrame, so the last frame's copies outlive teardown on
+  // their own once the GPU passes — nothing to dispose here.
 
   if (mpSkyBoxVtxBuffer)
     hplDelete(mpSkyBoxVtxBuffer);
@@ -344,6 +343,23 @@ void cWorld::Compile(bool abCalcPhysicsWorldSize) {
     if (mpRenderableContainer[i])
       mpRenderableContainer[i]->Compile();
 
+  CompileDecals();
+
+  if (mpPhysicsWorld && abCalcPhysicsWorldSize) {
+    iRenderableContainerNode *pStaticRoot =
+        mpRenderableContainer[eWorldContainerType_Static]->GetRoot();
+
+    // Create a 10 m border around the world too
+    cVector3f vMin = pStaticRoot->GetMin() - cVector3f(10, 10, 10);
+    cVector3f vMax = pStaticRoot->GetMax() + cVector3f(10, 10, 10);
+
+    mpPhysicsWorld->SetWorldSize(vMin, vMax);
+  }
+}
+
+//-----------------------------------------------------------------------
+
+void cWorld::CompileDecals() {
   if (mvDecals.size() > 1) {
     cVector3f vBoundsMin(0.0f), vBoundsMax(0.0f);
     bool bFirst = true;
@@ -449,21 +465,10 @@ void cWorld::Compile(bool abCalcPhysicsWorldSize) {
                        eDecalReceiver_Entity | eDecalReceiver_Primitive);
   }
 
-  // Compile only builds the CPU-side decal association (Morton order above +
-  // mvDecalObjectIndices); mark the GPU buffers dirty so the next SubmitToGpu
+  // CompileDecals only builds the CPU-side decal association (Morton order above
+  // + mvDecalObjectIndices); mark the GPU buffers dirty so the next PrepareFrame
   // (re)bakes them from mvDecals / mvDecalObjectIndices.
   MarkDecalBuffersDirty();
-
-  if (mpPhysicsWorld && abCalcPhysicsWorldSize) {
-    iRenderableContainerNode *pStaticRoot =
-        mpRenderableContainer[eWorldContainerType_Static]->GetRoot();
-
-    // Create a 10 m border around the world too
-    cVector3f vMin = pStaticRoot->GetMin() - cVector3f(10, 10, 10);
-    cVector3f vMax = pStaticRoot->GetMax() + cVector3f(10, 10, 10);
-
-    mpPhysicsWorld->SetWorldSize(vMin, vMax);
-  }
 }
 
 //-----------------------------------------------------------------------
@@ -501,89 +506,6 @@ static GpuDecal BuildDecal(cDecal *pDecal) {
   d.subDivY = (uint32_t)sd.y;
   d.subDivIndex = (uint32_t)(pDecal ? pDecal->GetCurrentSubDiv() : 0);
   return d;
-}
-
-//-----------------------------------------------------------------------
-
-void cWorld::BakeDecalBuffers() {
-  mbDecalBuffersDirty = false; // consumed (cleared even if the bake early-outs)
-  DisposeDecalBuffers();       // drop any previous bake (defer + release pins)
-
-  // Build the static GpuDecal[] geometry in stable (Morton-sorted) order, and
-  // hold a pin on each diffuse Image so its baked bindless slot stays valid for
-  // the buffer's lifetime, independent of the decal objects.
-  std::vector<GpuDecal> decals(mvDecals.size());
-  mvDecalImagePins.reserve(mvDecals.size());
-  for (size_t i = 0; i < mvDecals.size(); ++i) {
-    cDecal *pDecal = mvDecals[i];
-    decals[i] = BuildDecal(pDecal);
-    cMaterial *pMat = pDecal ? pDecal->GetMaterial() : nullptr;
-    Image *img = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : nullptr;
-    if (img)
-      mvDecalImagePins.push_back(PinResource(img));
-  }
-
-  const uint32_t kSsboUsage =
-      RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE | RI_BUFFER_USAGE_TRANSFER_DST;
-
-  auto uploadStatic = [&](RIBuffer *buf, const void *src, size_t bytes) {
-    RIResourceBufferTransaction trans = {};
-    trans.target = *buf;
-    trans.size = bytes;
-    trans.offset = 0;
-    // Read-only on set 2 (StructuredBuffer), sampled by the composite compute
-    // pass; FRAGMENT included for safety against future readers.
-    trans.currentState = RI_RESOURCE_STATE_SHADER_RESOURCE;
-    trans.currentStages = RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT;
-    trans.postState = RI_RESOURCE_STATE_SHADER_RESOURCE;
-    trans.postStages = RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT;
-    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
-    std::memcpy(trans.mapped.data, src, bytes);
-    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
-  };
-
-  // gDecals[] — one GpuDecal per world decal. Allocate at least one element so
-  // the set-2 binding stays valid even for a decal-less world (the shader never
-  // reads it then — every object's decalList count is 0).
-  {
-    const size_t count = decals.empty() ? (size_t)1 : decals.size();
-    mpDecalBuffer = RISharedPointer<RIBuffer>(
-        &RI.device, RIBuffer::create(&RI.device,
-                                     {(uint64_t)(count * sizeof(GpuDecal)),
-                                      kSsboUsage, RI_MEMORY_DEVICE, 0}));
-    if (decals.empty() == false)
-      uploadStatic(mpDecalBuffer.Get(), decals.data(),
-                   decals.size() * sizeof(GpuDecal));
-  }
-
-  // gObjectDecalIndices[] — flat per-object pool (built by Compile()). Allocate
-  // at least one element so the set-2 binding stays valid even with no receivers.
-  {
-    const size_t count =
-        mvDecalObjectIndices.empty() ? (size_t)1 : mvDecalObjectIndices.size();
-    mpDecalObjectIndexBuffer = RISharedPointer<RIBuffer>(
-        &RI.device, RIBuffer::create(&RI.device,
-                                     {(uint64_t)(count * sizeof(uint32_t)),
-                                      kSsboUsage, RI_MEMORY_DEVICE, 0}));
-    if (mvDecalObjectIndices.empty() == false)
-      uploadStatic(mpDecalObjectIndexBuffer.Get(), mvDecalObjectIndices.data(),
-                   mvDecalObjectIndices.size() * sizeof(uint32_t));
-  }
-}
-
-void cWorld::DisposeDecalBuffers() {
-  // Defer the buffers + the diffuse-Image pins to the graphics queue: an
-  // in-flight frame may still be reading them (notably on a runtime re-bake), so
-  // they're released only once the GPU passes this frame's timeline value.
-  if (!mpDecalBuffer.isEmpty())
-    RI.graphicsDefer.push(mpDecalBuffer);
-  mpDecalBuffer = {};
-  if (!mpDecalObjectIndexBuffer.isEmpty())
-    RI.graphicsDefer.push(mpDecalObjectIndexBuffer);
-  mpDecalObjectIndexBuffer = {};
-  for (SharedResourcePin &pin : mvDecalImagePins)
-    RI.graphicsDefer.push(std::move(pin));
-  mvDecalImagePins.clear();
 }
 
 //-----------------------------------------------------------------------
@@ -768,7 +690,7 @@ static void SyncStorageBuffer(const std::vector<T> &items,
 
 // Take the lowest free GPU slot (bottom-up keeps the per-type buffer + grid loop
 // packed). If the pool's reserve is exhausted, grow it — which extends the id
-// space so SubmitToGpu's scatter reaches a new high slot and SyncStorageBuffer
+// space so PrepareFrame's scatter reaches a new high slot and SyncStorageBuffer
 // reallocs the device buffer to fit — then re-request, so adding a light never
 // fails.
 static uint32_t AcquireLightSlot(IndexPool &pool) {
@@ -793,15 +715,33 @@ IndexPool *cWorld::GpuLightPoolFor(iLight *apLight) {
   }
 }
 
-void cWorld::SubmitToGpu(SceneConstants &perFrame) {
-  // Pin the dynamic (light + fog) buffers to the deferred-dispose queue every
-  // frame so a realloc below — or world teardown — can drop them safely once this
-  // frame's GPU work completes. (Decals are baked once and managed by
-  // Bake/DisposeDecalBuffers, so they're not pinned here.)
+void cWorld::PrepareFrame(RIBootstrap::FrameContext *cntx) {
+  // Debounced decal association rebuild: the editor marks this on each edit
+  // rather than recompiling synchronously, so a continuous drag coalesces into
+  // one CompileDecals() per frame here (which also marks the GPU buffers dirty
+  // for the bake below). Runtime worlds never set the flag — associations are
+  // built once at load (Compile) — so gameplay pays nothing.
+  if (mbDecalAssociationsDirty) {
+    mbDecalAssociationsDirty = false;
+    CompileDecals();
+  }
+
+  // Pin the per-world GPU buffers to the deferred-dispose queue every frame so a
+  // realloc / re-bake below — or world teardown — can drop them safely once this
+  // frame's GPU work completes. The light + fog buffers realloc on grow; the decal
+  // buffers are baked once but re-baked on membership change. Pushing the current
+  // copies BEFORE the bake/sync keeps them alive for any in-flight frame, so the
+  // overwrite below never frees a buffer the GPU is still reading. The decal
+  // diffuse Images get the same per-frame keep-alive PinnedBindlessSlot gives light
+  // gobo textures — their baked bindless slots reference the Images by index only.
   RI.graphicsDefer.push(mpPointLightBuffer);
   RI.graphicsDefer.push(mpSpotLightBuffer);
   RI.graphicsDefer.push(mpAreaLightBuffer);
   RI.graphicsDefer.push(mpFogAreaBuffer);
+  RI.graphicsDefer.push(mpDecalBuffer);
+  RI.graphicsDefer.push(mpDecalObjectIndexBuffer);
+  for (const SharedResourcePin &pin : mvDecalImagePins)
+    RI.graphicsDefer.push(pin); // copy: keep the baked diffuse Images alive
 
   // Scatter each light into its STABLE per-type slot (assigned from the matching
   // IndexPool at creation) every frame, then grow-or-keep + upload each device
@@ -863,24 +803,343 @@ void cWorld::SubmitToGpu(SceneConstants &perFrame) {
   mFogAreaCount = (uint32_t)fogAreas.size();
 
   // Decals are static set-dressing — bake the buffers once (on membership change /
-  // first submit). The lifetime-stable bindless slot is baked in and a pin per
-  // diffuse Image keeps it valid, so there's nothing to do per frame.
-  if (mbDecalBuffersDirty)
-    BakeDecalBuffers();
+  // first submit). The lifetime-stable bindless slot is baked in; the diffuse
+  // Images are kept alive by the per-frame pin pushes above, so re-baking just
+  // overwrites the buffers (the previous copies were pinned for this frame).
+  if (mbDecalBuffersDirty) {
+    mbDecalBuffersDirty = false; // consumed (cleared even if the bake early-outs)
 
-  // Publish world-total counts — the light grid build + Scene.slang
-  // unified-index decode read these directly.
-  perFrame.pointLightCount = GetPointLightCount();
-  perFrame.spotLightCount = GetSpotLightCount();
-  perFrame.areaLightCount = GetAreaLightCount();
-  perFrame.fogAreaCount = GetFogAreaCount();
-  perFrame.decalCount = GetDecalCount();
+    // Build the static GpuDecal[] geometry in stable (Morton-sorted) order, and
+    // hold a pin on each diffuse Image so its baked bindless slot stays valid for
+    // the buffer's lifetime, independent of the decal objects.
+    std::vector<GpuDecal> decals(mvDecals.size());
+    mvDecalImagePins.clear();
+    mvDecalImagePins.reserve(mvDecals.size());
+    for (size_t i = 0; i < mvDecals.size(); ++i) {
+      cDecal *pDecal = mvDecals[i];
+      decals[i] = BuildDecal(pDecal);
+      cMaterial *pMat = pDecal ? pDecal->GetMaterial() : nullptr;
+      Image *img = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : nullptr;
+      if (img)
+        mvDecalImagePins.push_back(PinResource(img));
+    }
+
+    const uint32_t kSsboUsage =
+        RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE | RI_BUFFER_USAGE_TRANSFER_DST;
+
+    auto uploadStatic = [&](RIBuffer *buf, const void *src, size_t bytes) {
+      RIResourceBufferTransaction trans = {};
+      trans.target = *buf;
+      trans.size = bytes;
+      trans.offset = 0;
+      trans.currentState = RI_RESOURCE_STATE_SHADER_RESOURCE;
+      trans.currentStages = RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT;
+      trans.postState = RI_RESOURCE_STATE_SHADER_RESOURCE;
+      trans.postStages = RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT;
+      RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+      std::memcpy(trans.mapped.data, src, bytes);
+      RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+    };
+
+    // gDecals[] — one GpuDecal per world decal. Allocate at least one element so
+    // the set-2 binding stays valid even for a decal-less world (the shader never
+    // reads it then — every object's decalList count is 0).
+    {
+      const size_t count = decals.empty() ? (size_t)1 : decals.size();
+      mpDecalBuffer = RISharedPointer<RIBuffer>(
+          &RI.device, RIBuffer::create(&RI.device,
+                                       {(uint64_t)(count * sizeof(GpuDecal)),
+                                        kSsboUsage, RI_MEMORY_DEVICE, 0}));
+      if (decals.empty() == false)
+        uploadStatic(mpDecalBuffer.Get(), decals.data(),
+                     decals.size() * sizeof(GpuDecal));
+    }
+
+    // gObjectDecalIndices[] — flat per-object pool (built by Compile()). Allocate
+    // at least one element so the set-2 binding stays valid even with no receivers.
+    {
+      const size_t count =
+          mvDecalObjectIndices.empty() ? (size_t)1 : mvDecalObjectIndices.size();
+      mpDecalObjectIndexBuffer = RISharedPointer<RIBuffer>(
+          &RI.device, RIBuffer::create(&RI.device,
+                                       {(uint64_t)(count * sizeof(uint32_t)),
+                                        kSsboUsage, RI_MEMORY_DEVICE, 0}));
+      if (mvDecalObjectIndices.empty() == false)
+        uploadStatic(mpDecalObjectIndexBuffer.Get(), mvDecalObjectIndices.data(),
+                     mvDecalObjectIndices.size() * sizeof(uint32_t));
+    }
+  }
 
   // No descriptor binding here. The light/fog buffers ride the dedicated
   // per-world set kWorldSet, bound by each consuming pass via
   // RIProgram::bindDescriptors (cached) — see appendWorldLightFog in
   // HybridRenderer.cpp. cWorld only owns + uploads its buffers; the set-2 decal
-  // buffers are bound at the composite pass.
+  // buffers are bound at the composite pass. The per-world counts are read by the
+  // renderer via GetPointLightCount()/etc. into its per-viewport SceneConstants.
+
+  // Build this world's ray-tracing TLAS from its own renderable set (whole-scene,
+  // no frustum cull — meshes' model matrices are frustum-independent, so a null
+  // frustum is fine for this viewport-less per-world prepare). Bound via GetTlas().
+  BuildTlas(cntx, /*apFrustum=*/nullptr);
+}
+
+//-----------------------------------------------------------------------
+
+uint32_t cWorld::SubmitRenderableObject(iRenderable *pObject,
+                                        RIBootstrap::FrameContext *cntx,
+                                        cFrustum *apFrustum,
+                                        uint32_t cookieSalt) {
+  cVertexBuffer *pVB = pObject->GetVertexBuffer();
+  cMaterial *pMat = pObject->GetMaterial();
+  if (!pVB || !pMat)
+    return UINT32_MAX;
+
+  const uint32_t materialId =
+      RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
+          .materialId;
+  if (materialId == UINT32_MAX)
+    return UINT32_MAX; // material-slot pool exhausted — skip this object
+
+  ObjectSubmitDesc d;
+  d.modelMatrix = pObject->GetModelMatrix(apFrustum);
+  d.materialId = materialId;
+  d.dissolveAmount = pObject->GetCoverageAmount();
+  d.illuminationAmount = pObject->GetIlluminationAmount();
+  // Precomputed static decal list (cWorld::Compile): (offset<<8)|count into
+  // gObjectDecalIndices. Dynamic objects keep the default (0,0) → no decals.
+  {
+    const uint32_t off = (uint32_t)pObject->GetDecalListOffset();
+    const uint32_t cnt = (uint32_t)pObject->GetDecalListCount();
+    d.decalList = (off << 8) | (cnt & 0xFFu);
+  }
+
+  // Stable object slot keyed on the renderable's unique cookie (NOT its
+  // transform — a moving object keeps its slot, its surfels follow via
+  // object-space anchoring + the per-frame modelMat upload). A non-zero salt
+  // carves a disjoint slot for the same renderable. kSubmitVertex|kSubmitIndex
+  // fans the VB's per-stream BDAs into the slot's opaque*Handles for bindless
+  // pulling (gbuffer VS / surfel-RT chit), rewritten every frame so a
+  // SubmitToGPU realloc can't dangle them.
+  const hash_t cookie =
+      cookieSalt ? hash_u32(hash_u64(HASH_INITIAL_VALUE,
+                                     pObject->GetUniqueCookie()),
+                            cookieSalt)
+                 : (hash_t)pObject->GetUniqueCookie();
+  return RI.globalset->submitObject(cookie, (uint32_t)RI.frameIndex,
+                                    static_cast<cVertexBuffer *>(pVB), d,
+                                    kSubmitData | kSubmitVertex | kSubmitIndex);
+}
+
+//-----------------------------------------------------------------------
+
+// Gather one TLAS instance per ray-traced renderable (opaque solids +
+// refractive/reflective translucent meshes) across the whole world — NO frustum
+// cull, because RT shadows/GI need geometry behind the camera too. Mirrors the
+// former cHybridRenderer gather: submitMaterial/submitObject stamp the per-frame
+// bindless object slot into instanceCustomIndex (idempotent per cookie, so the
+// renderer's culled raster loop re-fetches the same slot for its indirect draws),
+// and BuildBlas ensures each mesh's BLAS is current before its device address is
+// read. Then grow/upload the instance buffer and record the TLAS build.
+void cWorld::BuildTlas(RIBootstrap::FrameContext *cntx, cFrustum *apFrustum) {
+  // Keep last frame's TLAS resources alive for any in-flight frame (and across
+  // world teardown), exactly like the light/fog/decal buffers above — a re-init
+  // or grow below then just overwrites the members.
+  RI.graphicsDefer.push(mpTlas);
+  RI.graphicsDefer.push(mpTlasStorage);
+  RI.graphicsDefer.push(mpTlasInstanceBuffer);
+
+  std::vector<VkAccelerationStructureInstanceKHR> tlasInstances;
+
+  // Walk both containers with NO frustum cull. Only sub-meshes are ray-traced
+  // (particles/billboards/beams/ropes/decals are never TLAS instances); opaque
+  // meshes always enter, translucent meshes only when refractive/reflective
+  // (matching the surfel ray-bounce set — plain additive/dissolve translucents
+  // would feed a slot with no albedo into the ray cone).
+  auto handler = [&](iRenderable *pObject) {
+    if (!pObject || pObject->GetRenderType() != eRenderableType_SubMesh)
+      return;
+    if (!rendering::IsObjectIsVisible(
+            pObject, eRenderableFlag_VisibleInNonReflection, {}))
+      return;
+    cMaterial *pMat = pObject->GetMaterial();
+    if (!pMat)
+      return;
+    const MaterialID id = pMat->GetMaterialID();
+    if (id == MaterialID::Decal)
+      return;
+    const bool translucent = cMaterial::IsTranslucent(id);
+    // Non-refractive translucents (cobwebs, additive overlays, dissolve sprites)
+    // are NOT ray-traced — the RT primary ray would shade them as opaque diffuse.
+    // The raster translucent pass draws them over the V-buffer instead. Only
+    // refractive (glass/water) translucents enter the TLAS, as kRayMaskTranslucent.
+    if (translucent && !pMat->HasRefraction())
+      return;
+    cVertexBuffer *pVB = pObject->GetVertexBuffer();
+    if (!pVB || pVB->GetIndexNum() <= 0)
+      return;
+    auto *vb = static_cast<cVertexBuffer *>(pVB);
+
+    // BuildBlas submits the VB geometry first (internal SubmitToGPU), so the BLAS
+    // + the submitObject payload (below) see the post-realloc index count.
+    vb->BuildBlas(&RI.blasSubmit.cmds[0], &RI.device, cntx);
+
+    // Submit the renderable into the bindless object pool, stamping its slot into
+    // instanceCustomIndex. The opaque path keys on the raw unique cookie — the
+    // same cookie the renderer's raster loop uses, so both share one stable slot.
+    // The translucent path salts the cookie so its TLAS slot stays disjoint from
+    // the translucent mesh pass's slot for the same renderable (it occupies both).
+    const uint32_t slot = SubmitRenderableObject(
+        pObject, cntx, apFrustum, translucent ? 0x71A57AA5u : 0u);
+    if (slot == UINT32_MAX)
+      return;
+
+    auto blas = vb->accelStructure();
+    if (!blas || blas->vk.handle == VK_NULL_HANDLE)
+      return;
+
+    // VkAccelerationStructureInstanceKHR::transform is row-major 3x4; modelF4 is
+    // column-major (GLSL mat4), so index it as [col*4 + row] to read row-by-row.
+    cMatrixf *pMtx = pObject->GetModelMatrix(apFrustum);
+    const ml::float4x4 modelF4 =
+        cMath::ToFloatTranspose4x4(pMtx ? *pMtx : cMatrixf::Identity);
+    VkAccelerationStructureInstanceKHR inst = {};
+    for (int r = 0; r < 3; ++r)
+      for (int c = 0; c < 4; ++c)
+        inst.transform.matrix[r][c] = modelF4.a[c * 4 + r];
+    inst.instanceCustomIndex = slot;
+    inst.mask = translucent ? kRayMaskTranslucent : kRayMaskOpaque;
+    inst.instanceShaderBindingTableRecordOffset = 0;
+    inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_FLIP_FACING;
+    if (!translucent) {
+      const bool dissolveFlags =
+          pMat->GetImage(eMaterialTexture_DissolveAlpha) ||
+          pMat->GetUseAlphaDissolveFilter();
+      if (!pMat->GetImage(eMaterialTexture_Alpha) &&
+          pObject->GetCoverageAmount() >= 1.0f && !dissolveFlags)
+        inst.flags |= RI_ACCEL_INSTANCE_FORCE_OPAQUE;
+    }
+    assert(blas->vk.deviceAddress != 0);
+    inst.accelerationStructureReference = blas->vk.deviceAddress;
+    tlasInstances.push_back(inst);
+  };
+  for (int i = 0; i < eWorldContainerType_LastEnum; ++i) {
+    iRenderableContainer *container =
+        GetRenderableContainer((eWorldContainerType)i);
+    if (!container)
+      continue;
+    container->UpdateBeforeRendering();
+    rendering::WalkAndPrepareRenderList(container, apFrustum, handler,
+                                        eRenderableFlag_VisibleInNonReflection,
+                                        /*abIgnoreFrustumCull=*/true);
+  }
+
+  // ---------- TLAS build ----------
+  // Emit one TLAS build into the primary cmd buffer. Also runs once with zero
+  // instances when no TLAS exists yet (empty editor world): every RT descriptor
+  // push requires a valid handle, and rays into an empty TLAS just miss.
+  if (tlasInstances.empty() && !mpTlas.isEmpty())
+    return;
+
+  const uint32_t instanceCount = (uint32_t)tlasInstances.size();
+
+  // Grow the instance buffer on demand. Keep at least one element so the
+  // empty-TLAS build still has a valid instance-buffer device address.
+  const uint32_t instanceCapacityNeeded = std::max(instanceCount, 1u);
+  if (instanceCapacityNeeded > mTlasCapacity) {
+    uint32_t newCap = mTlasCapacity ? mTlasCapacity : 256;
+    while (newCap < instanceCapacityNeeded)
+      newCap += (newCap >> 1);
+    // Device-local: the instance buffer is a transfer destination written each
+    // frame via the resource uploader. A persistent host mapping would race the
+    // GPU's TLAS read for the previous frame still in flight.
+    mpTlasInstanceBuffer = RISharedPointer<RIBuffer>(
+        &RI.device,
+        RIBuffer::create(
+            &RI.device,
+            {(uint64_t)newCap * sizeof(VkAccelerationStructureInstanceKHR),
+             RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT |
+                 RI_BUFFER_USAGE_DEVICE_ADDRESS | RI_BUFFER_USAGE_TRANSFER_DST,
+             RI_MEMORY_DEVICE, 16}));
+    mTlasCapacity = newCap;
+  }
+
+  // Stage the instance array through the resource uploader so frame N+1's write
+  // doesn't clobber the buffer mid-build for frame N.
+  if (instanceCount > 0) {
+    RIResourceBufferTransaction trans = {};
+    trans.target = *mpTlasInstanceBuffer;
+    trans.size =
+        (size_t)instanceCount * sizeof(VkAccelerationStructureInstanceKHR);
+    trans.offset = 0;
+    trans.currentState = RI_RESOURCE_STATE_ACCEL_READ;
+    trans.currentStages = RI_STAGE_ACCEL_BUILD;
+    trans.postState = RI_RESOURCE_STATE_ACCEL_READ;
+    trans.postStages = RI_STAGE_ACCEL_BUILD;
+    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+    std::memcpy(trans.mapped.data, tlasInstances.data(), trans.size);
+    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+  }
+
+  // BLAS builds are recorded into RI.blasSubmit (submitted + semaphore-synced
+  // ahead of the primary in CloseAndSubmitActiveSet), so they complete before
+  // this primary buffer's TLAS build runs — no inline accel→accel barrier needed.
+
+  // Size the TLAS for the worst-case instance count we've seen; re-init when the
+  // instance count exceeds what the current storage was sized for.
+  RIAccelStructureDesc tlasDesc = {};
+  tlasDesc.type = RI_ACCEL_STRUCTURE_TYPE_TOP_LEVEL;
+  tlasDesc.flags = RI_ACCEL_BUILD_PREFER_FAST_TRACE;
+  tlasDesc.geometryOrInstanceNum = instanceCount;
+
+  uint64_t tlasStorageSize = 0;
+  uint64_t tlasBuildScratch = 0;
+  tlasDesc.getMemoryReqs(&RI.device, &tlasStorageSize, &tlasBuildScratch,
+                         nullptr);
+
+  if (mpTlas.isEmpty() ||
+      (mpTlasStorage.isEmpty() || tlasStorageSize > mTlasStorageCapacity)) {
+    mpTlasStorage = RISharedPointer<RIBuffer>(
+        &RI.device,
+        RIBuffer::create(&RI.device,
+                         {(uint64_t)tlasStorageSize,
+                          RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE |
+                              RI_BUFFER_USAGE_DEVICE_ADDRESS,
+                          RI_MEMORY_DEVICE, 0}));
+    tlasDesc.storage = mpTlasStorage.Get();
+    tlasDesc.storageOffset = 0;
+    tlasDesc.storageSize = tlasStorageSize;
+    // Build into a local handle, then adopt on success so the TLAS has a single
+    // refcount domain (mpTlas stays empty if init fails → skip build).
+    RIAccelStructure tlas{};
+    if (tlas.init(&RI.device, &tlasDesc) == RI_SUCCESS)
+      mpTlas = RISharedPointer<RIAccelStructure>(&RI.device, tlas);
+    mTlasStorageCapacity = tlasStorageSize;
+  }
+
+  if (!mpTlas.isEmpty()) {
+    // Source TLAS build scratch from the per-frame accel pool (recycled across
+    // frames; oversized one-shot path for builds exceeding blockSize). RIBlockMem
+    // embeds an RIBuffer, so hand its address straight to the build desc.
+    RIBufferScratchAllocReq scratchReq = RIAllocBufferFromScratchAlloc(
+        &RI.device, &cntx->accelScratchAlloc, tlasBuildScratch);
+
+    RIBuildTlasDesc build = {};
+    build.dst = mpTlas.Get();
+    build.src = nullptr;
+    build.mode = RI_ACCEL_BUILD_MODE_BUILD;
+    build.instanceNum = instanceCount;
+    build.instanceBuffer = mpTlasInstanceBuffer.Get();
+    build.instanceOffset = 0;
+    build.scratchBuffer = &scratchReq.block.buffer;
+    build.scratchOffset = scratchReq.bufferOffset;
+    RI.primary.cmds[0].buildTlas(&RI.device, &build, 1);
+
+    // Consumed by both the RT pipelines and fragment-stage ray queries — one
+    // barrier covers both.
+    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+        {RI_RESOURCE_STATE_ACCEL_WRITE, RI_RESOURCE_STATE_ACCEL_READ,
+         RI_STAGE_ACCEL_BUILD, RI_STAGE_FRAGMENT | RI_STAGE_RAY_TRACING});
+  }
 }
 
 //-----------------------------------------------------------------------
@@ -1040,6 +1299,21 @@ cDecal *cWorld::CreateDecal(const tString &asName, const tString &asMaterial,
 
 //-----------------------------------------------------------------------
 
+void cWorld::DestroyDecal(cDecal *apDecal) {
+  if (apDecal == NULL)
+    return;
+
+  RemoveRenderableFromContainer(apDecal);
+  STLFindAndDelete(mvDecals, apDecal);
+
+  // Membership changed → re-bake the GPU buffers. The per-object association
+  // (mvDecalObjectIndices) still references the old indices; the caller must
+  // CompileDecals() to rebuild it before the next render.
+  MarkDecalBuffersDirty();
+}
+
+//-----------------------------------------------------------------------
+
 void cWorld::DestroyMeshEntity(cMeshEntity *apMesh) {
   if (apMesh == NULL)
     return;
@@ -1113,19 +1387,6 @@ cLightSpot *cWorld::CreateLightSpot(const tString &asName,
       Warning("Couldn't load gobo texture '%s' for light '%s'", asGobo.c_str(),
               asName.c_str());
   }
-
-  pLight->SetStatic(abStatic);
-  AddRenderableToContainer(pLight);
-
-  pLight->SetWorld(this);
-
-  MarkLightBuffersDirty(); // membership changed → re-bake the light buffers
-  return pLight;
-}
-
-cLightBox *cWorld::CreateLightBox(const tString &asName, bool abStatic) {
-  cLightBox *pLight = hplNew(cLightBox, (asName, mpResources));
-  mlstLights.push_back(pLight);
 
   pLight->SetStatic(abStatic);
   AddRenderableToContainer(pLight);

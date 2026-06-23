@@ -429,18 +429,6 @@ SHARED_CONST float kDirectVarianceBoost            = 4.0f;    // early-frame (lo
 SHARED_CONST float kReservoirMClamp                = 30.0f;   // temporal staleness cap (× current M)
 SHARED_CONST int   kSpatialSamples                 = 6;       // spatial neighbours resampled
 SHARED_CONST float kSpatialRadius                  = 16.0f;   // spatial search radius (px)
-// Guard band / overscan: the whole frame renders at (1 + 2·kGuardBandFraction)
-// the display size with a correspondingly wider FOV, and the present blit crops
-// the center back to the display. Gives temporal reprojection valid history just
-// off the visible edge so camera pans don't show edge artifacts. Fill cost scales
-// ~(1+2f)². Crop inset per side (UV) = f/(1+2f).
-//
-// DISABLED (set to 0): the overscan render misaligns everything that assumes
-// the authored projection — editor DebugDraw overlays (selection wireframes,
-// gizmos, grid) and UI picking (mouse-ray unproject). Re-enabling requires
-// compensating both the overlay flush (DebugDraw) and the picking path.
-// Original value: 0.06 (≈6% per side).
-SHARED_CONST float kGuardBandFraction              = 0.0f;
 
 // PBR point/spot-light falloff — Falcor LightData semantics, no scale knobs:
 // `intensity` IS the light's radiance (the host uploads the authored engine

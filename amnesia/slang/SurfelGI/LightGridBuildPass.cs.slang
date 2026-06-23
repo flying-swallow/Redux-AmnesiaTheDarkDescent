@@ -21,8 +21,7 @@
 // exact; spotlights additionally get a cone-vs-cell angular cull
 // (coneIntersectsGridCell) so a narrow cone bins only into the cells it can
 // actually reach instead of its whole bounding sphere. Binning stays conservative
-// (downstream SpotLight.sample does the exact cone test); box lights aren't binned
-// (NEE handles them separately).
+// (downstream SpotLight.sample does the exact cone test).
 //
 // Dispatched each frame after the surfel cell scatter and before the surfel
 // ray trace (Stage E) in cHybridRenderer::Draw.

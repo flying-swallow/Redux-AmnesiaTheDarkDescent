@@ -25,7 +25,6 @@
 
 #include "EntityWrapperLight.h"
 #include "EntityWrapperLightSpot.h"
-#include "EntityWrapperLightBox.h"
 #include "EntityWrapperLightArea.h"
 
 #include "EditorAction.h"
@@ -42,9 +41,6 @@ cEditorWindowEntityEditBoxLight::cEditorWindowEntityEditBoxLight(cEditorEditMode
 	mpInpCullingRadius = NULL;
 	mpInpSourceRadius = NULL;
 	mpGroupShadows = NULL;
-
-	// Box Light specific
-	mpComboBoxBlendFunc = NULL;
 }
 
 //------------------------------------------------------------
@@ -69,10 +65,6 @@ void cEditorWindowEntityEditBoxLight::Create()
 
 	switch(mpLight->GetLightType())
 	{
-	case eEditorEntityLightType_Box:
-		pTab = mpTabs->AddTab(_W("Box"));
-		AddPropertySetBox(pTab);
-		break;
 	case eEditorEntityLightType_Point:
 		pTab = mpTabs->AddTab(_W("Point"));
 		AddPropertySetPoint(pTab);
@@ -329,31 +321,6 @@ void cEditorWindowEntityEditBoxLight::AddPropertySetPoint(cWidgetTab* apParentTa
 
 //------------------------------------------------------------
 
-void cEditorWindowEntityEditBoxLight::AddPropertySetBox(cWidgetTab* apParentTab)
-{
-	//AddPropertyRotation(apParentTab);
-	AddPropertyScale(apParentTab);
-	mpInpScale->SetLabel(_W("Size"));
-
-	cVector3f vPos = cVector3f(10,10,0.1f);
-	//mpInpRotation->SetPosition(vPos);
-	//vPos.y += mpInpRotation->GetSize().y+5;
-	mpInpScale->SetPosition(vPos);
-	vPos.y += mpInpScale->GetSize().y+5;
-
-	//mvLabelScale[3]->SetText(_W("Size"));
-
-	mpLabelBlendFunc = mpSet->CreateWidgetLabel(vPos,0,_W("Blend Function"), apParentTab);
-
-	vPos.y+= 15;
-	mpComboBoxBlendFunc = mpSet->CreateWidgetComboBox(vPos,cVector2f(90,25),_W(""),apParentTab);
-	mpComboBoxBlendFunc->AddItem(_W("Replace"));
-	mpComboBoxBlendFunc->AddItem(_W("Add"));
-	mpComboBoxBlendFunc->AddCallback(eGuiMessage_SelectionChange,this,kGuiCallback(InputCallback));
-}
-
-//------------------------------------------------------------
-
 void cEditorWindowEntityEditBoxLight::AddPropertySetSpot(cWidgetTab* apParentTab)
 {
 	cVector3f vPos = cVector3f(10,10,0.1f);
@@ -492,8 +459,6 @@ void cEditorWindowEntityEditBoxLight::OnUpdate(float afTimeStep)
 	if(mpInpCullingRadius) mpInpCullingRadius->SetValue(mpLight->GetRadius(), false);
 	if(mpInpSourceRadius) mpInpSourceRadius->SetValue(mpLight->GetSourceRadius(), false);
 
-	if(mpComboBoxBlendFunc) mpComboBoxBlendFunc->SetSelectedItem( ((cEntityWrapperLightBox*)mpLight)->GetBlendFunc(),false,false );
-
 	int lightType = mpLight->GetLightType();
 	////////////
 	// Spot
@@ -528,14 +493,6 @@ bool cEditorWindowEntityEditBoxLight::InputCallback(iWidget* apWidget, const cGu
 	int lID = mpEntity->GetID();
 	tString strFilename = cString::To8Char(apWidget->GetText());
 	bool bEmptyString = (strFilename=="");
-
-	
-	///////////////////////////////////////////////
-	// Boxlight Blend Func
-	if(apWidget==mpComboBoxBlendFunc)
-	{
-		pAction = mpEntity->CreateSetPropertyActionInt(eLightBoxInt_BlendFunc, mpComboBoxBlendFunc->GetSelectedItem());
-	}
 
 	mpEditor->AddAction(pAction);
 

@@ -211,6 +211,25 @@ namespace hpl {
 
 		RIBootstrap::FrameContext* cntx = RI.GetActiveSet();
 
+		// Publish each visible viewport's world GPU memory (light/fog/decal buffers,
+		// TLAS, bindless object/material slots) ONCE per frame, before any viewport
+		// renders — the data is view-independent and shared by every viewport showing
+		// that world, so building it per-viewport in the loop below would be redundant
+		// (and would rebuild the TLAS N times). cWorld owns + produces it; the
+		// renderers only consume it.
+		std::vector<cWorld*> preparedWorlds; // worlds are few (usually 1)
+		for(cViewport *pViewPort : mlstViewports)
+		{
+			if(pViewPort->IsVisible()==false) continue;
+			cWorld *pWorld = pViewPort->GetWorld();
+			if(pWorld==NULL) continue;
+			bool bAlready=false;
+			for(cWorld *p : preparedWorlds) if(p==pWorld){ bAlready=true; break; }
+			if(bAlready) continue;
+			preparedWorlds.push_back(pWorld);
+			pWorld->PrepareFrame(cntx);
+		}
+
 		for(cViewport *pViewPort : mlstViewports)
 		{
 			if(pViewPort->IsVisible()==false) continue;

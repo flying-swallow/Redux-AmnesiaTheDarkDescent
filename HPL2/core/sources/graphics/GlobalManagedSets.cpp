@@ -612,16 +612,24 @@ uint32_t GlobalManagedSets::submitObject(uint64_t objectCookie,
     ml::float4x4 invF4 = modelF4;
     invF4.Invert();
     std::memcpy(payload.invModelMat, invF4.a, sizeof(payload.invModelMat));
-    // prevModelMat: last frame's matrix for this slot. On first sight or when a
-    // new object took the slot (!found), use the current matrix so the object's
-    // first frame reads zero velocity instead of a teleport. Then remember this
-    // frame's matrix for next time.
-    if (req.found)
-      std::memcpy(payload.prevModelMat, req.state->prevModelMat,
-                  sizeof(payload.prevModelMat));
-    else
-      std::memcpy(payload.prevModelMat, modelF4.a, sizeof(payload.prevModelMat));
-    std::memcpy(req.state->prevModelMat, modelF4.a, sizeof(req.state->prevModelMat));
+    // prevModelMat for motion vectors. Rotate prev<-cur ONLY ONCE per frame per
+    // slot (keyed on frameIndex): submitObject may run multiple times per frame for
+    // the same object (cWorld::PrepareFrame's whole-scene submit + the renderer's
+    // raster loop). Every call must publish the SAME prev (last frame's matrix);
+    // rotating on each call would set prev==cur on the 2nd call and zero the
+    // object's velocity → temporal smear on animated/physics objects. New occupant
+    // (!found): prev = cur so the first frame reads zero velocity, not a teleport.
+    if (!req.found) {
+      std::memcpy(req.state->prevModelMat, modelF4.a, sizeof(req.state->prevModelMat));
+      std::memcpy(req.state->curModelMat, modelF4.a, sizeof(req.state->curModelMat));
+    } else if (req.state->lastSubmitFrame != frameIndex) {
+      std::memcpy(req.state->prevModelMat, req.state->curModelMat,
+                  sizeof(req.state->prevModelMat));
+      std::memcpy(req.state->curModelMat, modelF4.a, sizeof(req.state->curModelMat));
+    }
+    req.state->lastSubmitFrame = frameIndex;
+    std::memcpy(payload.prevModelMat, req.state->prevModelMat,
+                sizeof(payload.prevModelMat));
     const ml::float4x4 uvF4 = cMath::ToFloatTranspose4x4(desc.uvMatrix);
     std::memcpy(payload.uvMat, uvF4.a, sizeof(payload.uvMat));
 
