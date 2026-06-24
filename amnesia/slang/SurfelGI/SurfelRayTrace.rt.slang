@@ -17,6 +17,7 @@
 
 import SceneTypes;
 import Scene;
+import Material;             // load*Material / materialAlphaTest / traceShadowRay / traceReflectionHit
 import bindless;
 import Brdf;                    // decodeMaterialRoughness (diffuse-lobe roughness)
 import HitInfo;
@@ -104,7 +105,7 @@ float3x3 buildTangentSpace(float3 n)
     return float3x3(t, b, n);
 }
 
-// Shadow visibility moved to gScene.materials.traceShadowRay (Scene.slang)
+// Shadow visibility moved to traceShadowRay (Material.slang)
 // — the local implementation here skipped the candidate-commit loop
 // required by the engine's non-opaque BLAS, silently reporting every NEE
 // shadow ray as unoccluded. Use the shared helper instead.
@@ -232,7 +233,7 @@ bool finalize(inout ScatterPayload scatterPayload, const VertexData v, const Tri
 {
     uint flattenIndex;
     CellInfo cellInfo;
-    if (!lookupSurfelCell(v.posW, gScene.camera.getPosition(), flattenIndex, cellInfo))
+    if (!lookupSurfelCell(v.posW, gPerFrame.posW, flattenIndex, cellInfo))
         return false;
 
     // Crowded cell, or randomly bounce through to keep paths exploring (the
@@ -266,9 +267,9 @@ bool finalize(inout ScatterPayload scatterPayload, const VertexData v, const Tri
 
 void handleHit(TriangleHit triangleHit, inout ScatterPayload scatterPayload)
 {
-    VertexData v = gScene.getVertexData(triangleHit);
-    uint materialID = gScene.getMaterialID(triangleHit.instanceID);
-    float illuminationAmount = gScene.getObject(triangleHit.instanceID).illuminationAmount;
+    VertexData v = getVertexData(triangleHit);
+    uint materialID = gSceneObjects[triangleHit.instanceID].materialID;
+    float illuminationAmount = gSceneObjects[triangleHit.instanceID].illuminationAmount;
     DiffuseShading sd = prepareDiffuseShading(v, materialID, illuminationAmount,
                                               /*decodeRoughness=*/true);
 
@@ -298,12 +299,12 @@ void handleHit(TriangleHit triangleHit, inout ScatterPayload scatterPayload)
     // among only the lights whose radius reaches this shading point's cell
     // (pdf = 1/count). Empty / out-of-grid cell → no contribution.
     // next_uint(N) covers [0,N) (the old `N-1` form dropped the last light).
-    CellLights cl = gScene.getCellLights(sd.posW);
+    CellLights cl = getCellLights(sd.posW);
     if (cl.count != 0u)
     {
         float3 V        = -scatterPayload.direction;
         uint   pick     = rng.next_uint(cl.count);
-        uint   lightIdx = gScene.cellLightAt(cl, pick);
+        uint   lightIdx = cellLightAt(cl, pick);
         float  invPdf   = float(cl.count);
 
         // Type-aware shade shared with the direct path (shadeAnalyticLight:
@@ -400,10 +401,10 @@ void scatterAnyHit(inout ScatterPayload scatterPayload, BuiltInTriangleIntersect
     hit.instanceID     = InstanceID();
     hit.primitiveIndex = PrimitiveIndex();
     hit.barycentrics   = attribs.barycentrics;
-    VertexData v = gScene.getVertexData(hit);
-    uint materialID = gScene.getMaterialID(hit.instanceID);
-    if (gScene.materials.alphaTest(v, materialID, 0.f,
-                                   gSceneObjects[hit.instanceID].dissolveAmount))
+    VertexData v = getVertexData(hit);
+    uint materialID = gSceneObjects[hit.instanceID].materialID;
+    if (materialAlphaTest(v, materialID, 0.f,
+                          gSceneObjects[hit.instanceID].dissolveAmount))
         IgnoreHit();
 }
 

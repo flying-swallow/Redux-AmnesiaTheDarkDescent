@@ -48,11 +48,11 @@ void csMain(
         return;
 
     TriangleHit triangleHit = hitInfo.getTriangleHit();
-    VertexData v = gScene.getVertexData(triangleHit);
+    VertexData v = getVertexData(triangleHit);
 
     uint flattenIndex;
     CellInfo cellInfo;
-    if (!lookupSurfelCell(v.posW, gScene.camera.getPosition(), flattenIndex, cellInfo))
+    if (!lookupSurfelCell(v.posW, gPerFrame.posW, flattenIndex, cellInfo))
         return;
 
     float4 indirectLighting = float4(0.f);

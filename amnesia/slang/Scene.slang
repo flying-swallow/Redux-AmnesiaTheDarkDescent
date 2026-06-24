@@ -1,24 +1,24 @@
 #pragma once
 
-// Global Scene wrapper for the engine's bindless set (set 0) + per-frame
-// UBO (set 1). Surfel-port shaders that previously imported Falcor's
-// `Scene.Scene` now `import Scene;` instead and call `gScene.foo(...)`.
+// Free functions over the engine's bindless set (set 0) + per-frame UBO (set 1):
+// triangle-hit vertex fetch, the world-space light-grid walkers, and the pinhole
+// camera ray. There is no Scene object — callers read gPerFrame / gSceneObjects
+// directly for trivial values (camera position, object transform) and call these
+// functions for the composite operations.
 //
 // Design choices:
 //   * Lights use a single dispatcher: getLight returns the ILight interface
 //     for a flat index, and callers invoke .sample() on it. There are no
-//     typed gScene.getPointLight() / etc. accessors — iterate
-//     0..getLightCount().
-//   * Materials use one flat header table (gMaterials): the header tags the
-//     type and holds the BDA of the typed payload in the data arena. Callers
-//     branch on isWater / isTranslucent and fetch via getDiffuseMaterial /
-//     getTranslucentMaterial / getWaterMaterial (field-wise BDA loaders).
+//     typed getPointLight() / etc. accessors — iterate 0..getLightCount().
+//   * Materials live in Material.slang: read loadMaterialHeader(id).type to
+//     branch, then loadDiffuseMaterial / loadTranslucentMaterial /
+//     loadWaterMaterial for the typed payload (field-wise BDA reads).
 //   * Vertex fetch delegates to BindlessTriangle.slang; barycentric
 //     interpolation + object-to-world transform happen here.
 //
 // Known stubs / non-goals (see implementation plan):
-//   * gScene.rtAccel — TLAS binding not added yet.
-//   * gScene.envMap.eval — env map binding not declared yet.
+//   * RT acceleration structure — exposed as the bindless gRtAccel global.
+//   * Env map binding not declared yet.
 //   * Per-light gobo + LUT attenuation: PointLight.sample / SpotLight.sample
 //     in ILight.slang do analytic fallback only today; the
 //     unified dispatcher inherits that.
@@ -29,8 +29,6 @@
 import SceneTypes;
 import bindless;
 __exported import ILight;
-__exported import IMaterial;     // IMaterial interface + per-struct conformances
-import MaterialFactory;          // getMaterial(materialID) -> IMaterial dispatch
 import PerFrame.resource;
 import BindlessTriangle;
 import Brdf;                    // evalDiffuseDemodulated (standard diffuse lobe)
@@ -74,353 +72,44 @@ public ILight getLight(uint ID)
     uint slot = lightIdSlot(ID);
     switch (lightIdType(ID))
     {
-    case kLightTypePoint: return gPointLights[slot];
-    case kLightTypeSpot:  return gSpotLights[slot];
-    default:              return gAreaLights[slot];
+        case kLightTypePoint: return gPointLights[slot];
+        case kLightTypeSpot:  return gSpotLights[slot];
+        default:              return gAreaLights[slot];
     }
 }
 
-public struct SceneCamera
+// Non-normalized primary ray direction for a pinhole camera, matching
+// Falcor's Scene::Camera::computeNonNormalizedRayDirPinhole. The pixel
+// origin is top-left; `+ndc.x*cameraU + ndc.y*cameraV + cameraW` walks
+// out from the optical axis along the pre-scaled basis vectors filled
+// host-side in cHybridRenderer::Draw().
+float3 computeNonNormalizedRayDirPinhole(uint2 pixel, uint2 frameDim, bool applyJitter)
 {
-    public float3 getPosition()
-    {
-        return gPerFrame.posW;
-    }
+    float2 p = (float2(pixel) + float2(0.5f, 0.5f)) / float2(frameDim);
+    if (applyJitter) p += float2(-gPerFrame.jitterX, gPerFrame.jitterY);
+    float2 ndc = float2(2.0f, -2.0f) * p + float2(-1.0f, 1.0f);
+    return ndc.x * gPerFrame.cameraU + ndc.y * gPerFrame.cameraV + gPerFrame.cameraW;
+}
 
-    public float4x4 getViewProj()
-    {
-        return mul(gPerFrame.projMat, gPerFrame.viewMat);
-    }
-
-    // No jitter on the engine UBO today; alias of getViewProj. When TAA /
-    // temporal jitter lands, separate the two and update callers that
-    // explicitly want the no-jitter matrix (visibility reprojection).
-    public float4x4 getViewProjNoJitter()
-    {
-        return mul(gPerFrame.projMat, gPerFrame.viewMat);
-    }
-
-    // Last frame's no-jitter view-proj — paired with getViewProjNoJitter() and
-    // UniformObject.prevModelMat to build motion vectors in the gbuffer.
-    public float4x4 getPrevViewProj()
-    {
-        return mul(gPerFrame.prevProjMat, gPerFrame.prevViewMat);
-    }
-
-    // Non-normalized primary ray direction for a pinhole camera, matching
-    // Falcor's Scene::Camera::computeNonNormalizedRayDirPinhole. The pixel
-    // origin is top-left; `+ndc.x*cameraU + ndc.y*cameraV + cameraW` walks
-    // out from the optical axis along the pre-scaled basis vectors filled
-    // host-side in cHybridRenderer::Draw().
-    public float3 computeNonNormalizedRayDirPinhole(uint2 pixel, uint2 frameDim, bool applyJitter)
-    {
-        float2 p = (float2(pixel) + float2(0.5f, 0.5f)) / float2(frameDim);
-        if (applyJitter) p += float2(-gPerFrame.jitterX, gPerFrame.jitterY);
-        float2 ndc = float2(2.0f, -2.0f) * p + float2(-1.0f, 1.0f);
-        return ndc.x * gPerFrame.cameraU + ndc.y * gPerFrame.cameraV + gPerFrame.cameraW;
-    }
-
-    // World-space pinhole ray, Falcor parity. tMin/tMax scale by 1/cos(theta)
-    // so the engine's view-space near/far planes map exactly onto ray length
-    // — same trick Falcor uses to keep ray bounds tight at the frustum edge.
-    public Ray computeRayPinhole(uint2 pixel, uint2 frameDim, bool applyJitter = true)
-    {
-        Ray r;
-        r.origin = gPerFrame.posW;
-        r.dir    = normalize(computeNonNormalizedRayDirPinhole(pixel, frameDim, applyJitter));
-
-        float invCos = 1.0f / dot(normalize(gPerFrame.cameraW), r.dir);
-        r.tMin = gPerFrame.zNear * invCos;
-        r.tMax = (gPerFrame.zFar > 0.0f ? gPerFrame.zFar : 1e6f) * invCos;
-        return r;
-    }
-};
-
-public struct SceneMaterials
+// World-space pinhole ray, Falcor parity. tMin/tMax scale by 1/cos(theta)
+// so the engine's view-space near/far planes map exactly onto ray length
+// — same trick Falcor uses to keep ray bounds tight at the frustum edge.
+// (Trivial camera values — eye position gPerFrame.posW, view-proj
+// mul(gPerFrame.projMat, gPerFrame.viewMat) — are read inline at call sites.)
+public Ray cameraComputeRayPinhole(uint2 pixel, uint2 frameDim, bool applyJitter = true)
 {
-    // Falcor-style typed material reads. gMaterials[materialID] is a fixed-size
-    // MaterialDataBlob; we reinterpret<T> it into the concrete struct (the host
-    // memcpys the struct into the blob, scalar layout keeps offsets identical).
-    // reinterpret handles the inner tex[8] array correctly, unlike a BDA
-    // struct-pointer cast (slangc 2026+ zeros those — see BindlessTriangle.slang).
-    public MaterialHeader getHeader(uint materialID)
-    {
-        return reinterpret<MaterialHeader, MaterialDataBlob>(gMaterials[materialID]);
-    }
-    public DiffuseMaterial loadDiffuseMaterial(uint materialID)
-    {
-        return reinterpret<DiffuseMaterial, MaterialDataBlob>(gMaterials[materialID]);
-    }
-    public TranslucentMaterial loadTranslucentMaterial(uint materialID)
-    {
-        return reinterpret<TranslucentMaterial, MaterialDataBlob>(gMaterials[materialID]);
-    }
-    public WaterMaterial loadWaterMaterial(uint materialID)
-    {
-        return reinterpret<WaterMaterial, MaterialDataBlob>(gMaterials[materialID]);
-    }
+    Ray r;
+    r.origin = gPerFrame.posW;
+    r.dir    = normalize(computeNonNormalizedRayDirPinhole(pixel, frameDim, applyJitter));
 
-    // Alpha-test for the diffuse opaque path: read tex[2] (alpha slot —
-    // see SceneTypes.slang DiffuseMaterial comment), sample at lod with
-    // gMaterialSampler, reject when a < 0.5 (matches the GLSL
-    // ALPHA_REJECT default). Dedicated grayscale alpha maps (e.g.
-    // chandelier_simple_alpha.tga, loaded as R8_UNORM) carry the mask in
-    // .r — kMaterialFlagIsAlphaSingleChannel picks the channel.
-    // Alpha test + CoverageAmount dissolve — ONE gate for every ray/raster
-    // context (gbuffer FS, V-buffer anyhit, surfel scatter anyhit, shadow /
-    // reflection RayQuery loops), so a fading object's primary visibility,
-    // shadows, and direct lighting all dissolve consistently instead of a
-    // half-dissolved mesh casting a full-strength ghost shadow.
-    //
-    // Dissolve math mirrors the legacy solid_z.frag.fsl (noise reshape per
-    // material variant, threshold at the z-pass ALPHA_REJECT 0.5) with one
-    // deviation: the noise is sampled in UV space (v.texC, wrap) instead of
-    // legacy screen space — RayQuery callers have no pixel coordinate, and a
-    // UV-anchored pattern sticks to the object instead of crawling with the
-    // camera. `dissolveAmount` is UniformObject.dissolveAmount
-    // (GetCoverageAmount); pass 1.0 semantics come from the object, not a
-    // default, so every caller fetches it. NOTE: rays only reach this for
-    // non-FORCE_OPAQUE instances — cHybridRenderer drops that flag while
-    // coverage < 1 or the material carries dissolve variants.
-    public bool alphaTest(VertexData v, uint materialID, float lod, float dissolveAmount)
-    {
-        // One blob load; `type` is at offset 0 for every material struct, so
-        // reinterpreting as DiffuseMaterial reads the discriminator regardless.
-        DiffuseMaterial m = loadDiffuseMaterial(materialID);
-        if (m.type != MATERIAL_TYPE_DIFFUSE) return false;  // only diffuse/decal alpha-test
-
-        float a = 1.0f;     // plain solids dissolve from full alpha
-        uint alphaIdx = m.tex[2];
-        if (alphaIdx != kInvalidTextureIndex)
-        {
-            float4 s = sampleBindless2DLevel(alphaIdx, v.texC, lod);
-            a = (m.materialConfig & kMaterialFlagIsAlphaSingleChannel) != 0u ? s.r : s.a;
-        }
-        else if (dissolveAmount >= 1.0f &&
-                 (m.materialConfig & (kMaterialFlagEnableDissolveAlpha
-                                    | kMaterialFlagUseDissolveFilter)) == 0u)
-        {
-            return false;   // plain solid at full coverage — cheap keep
-        }
-
-        bool hasDissolveAlpha  = (m.materialConfig & kMaterialFlagEnableDissolveAlpha) != 0u;
-        bool hasDissolveFilter = (m.materialConfig & kMaterialFlagUseDissolveFilter)  != 0u;
-        if (dissolveAmount < 1.0f || hasDissolveAlpha || hasDissolveFilter)
-        {
-            float d = gDissolveMap.SampleLevel(gMaterialSampler, v.texC, 0.f).x;
-            if (hasDissolveAlpha)
-            {
-                // Combine the global noise with the material's DissolveAlpha
-                // map (tex[6]): noise squeezed to [0.75,1], map subtracts up
-                // to 0.25 — matches the legacy HasDissolveAlpha branch.
-                d = d * 0.25f + 0.75f;
-                uint dat = m.tex[6];
-                float da = 1.0f;
-                if (dat != kInvalidTextureIndex)
-                    da = sampleBindless2DLevel(dat, v.texC, lod).r;
-                d -= (0.25f - da * 0.25f);
-            }
-            else
-            {
-                d = d * 0.5f + 0.5f;
-            }
-            a = d - (1.0f - dissolveAmount * a) * 0.5f;
-        }
-        return a < 0.5f;
-    }
-
-    // True when the diffuse material at `materialID` carries a reflection
-    // cubemap slot — used by SurfelVBuffer.rt to gate the optional
-    // mirror-bounce on chrome / glassy surfaces. Matches the legacy engine
-    // "has cubemap" check (DiffuseMaterial::cubeMapTextureIndex valid).
-    public bool isReflective(uint materialID)
-    {
-        IMaterial mat = getMaterial(materialID);   // polymorphic IMaterial dispatch
-        // Gate stays diffuse-only (mirror-bounce on diffuse chrome surfaces).
-        return mat.getType() == MATERIAL_TYPE_DIFFUSE && mat.isReflective();
-    }
-
-    // True when the material's header is tagged translucent.
-    public bool isTranslucent(uint materialID)
-    {
-        return getMaterial(materialID).getType() == MATERIAL_TYPE_TRANSLUCENT;
-    }
-
-    // True when the material was flagged HasRefraction host-side
-    // (MaterialResource.cpp:CreateMaterailConfigFlags). Only translucent (glass)
-    // materials carry the flag; reads it from the translucent payload. Drives the
-    // SurfelVBuffer.rt closeHit ray-bend so the V-buffer stores the refracted
-    // background instead of the glass itself. (Water refraction is handled by
-    // the earlier isWater branch.)
-    public bool isRefractive(uint materialID)
-    {
-        // DiffuseMaterial/WaterMaterial report false; TranslucentMaterial checks
-        // the HasRefraction flag — matches the old translucent-only semantics.
-        return getMaterial(materialID).isRefractive();
-    }
-
-    // True when the material's header is tagged water. Drives the
-    // SurfelVBuffer.rt wave-animated water branch, which re-traces the
-    // refraction ray as a kind-0 bounce so the GI composite shades the
-    // refracted underwater background. Checked before the generic glass
-    // (isRefractive) branch.
-    public bool isWater(uint materialID)
-    {
-        return getMaterial(materialID).getType() == MATERIAL_TYPE_WATER;
-    }
-
-    // Inline non-opaque shadow query. The BLAS is built with
-    // VK_GEOMETRY_OPAQUE_BIT cleared (VertexBuffer_RI.cpp:589 sets
-    // geom.flags = 0), so the driver reports every triangle hit as a
-    // *candidate* — the shader must explicitly commit. A plain
-    // `Proceed() + CommittedStatus()` (no commit call) silently reports
-    // every shadow ray as unoccluded, which is why direct-light shadows
-    // were missing from the GI composite before this helper landed.
-    //
-    // Loops while candidates remain, runs the diffuse alpha test on each
-    // non-opaque triangle, and commits when alpha passes. Returns true
-    // when [origin, origin + dir*tMax] is unoccluded — matches the GLSL
-    // twin in amnesia/glsl/traceray_rq.glsl::AnyHit.
-    public bool traceShadowRay(float3 origin, float3 dir, float tMax)
-    {
-        RayDesc ray;
-        ray.Origin    = origin;
-        ray.Direction = dir;
-        ray.TMin      = 0.f;
-        ray.TMax      = tMax;
-
-        RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
-               | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES
-               | RAY_FLAG_CULL_FRONT_FACING_TRIANGLES> q;
-        q.TraceRayInline(gRtAccel, 0, kRayMaskOpaque, ray);
-
-        while (q.Proceed())
-        {
-            if (q.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
-            {
-                TriangleHit hit;
-                hit.instanceID     = q.CandidateInstanceID();
-                hit.primitiveIndex = q.CandidatePrimitiveIndex();
-                hit.barycentrics   = q.CandidateTriangleBarycentrics();
-
-                uint materialID = gScene.getMaterialID(hit.instanceID);
-                VertexData v    = gScene.getVertexData(hit);
-
-                if (!alphaTest(v, materialID, 0.f,
-                               gSceneObjects[hit.instanceID].dissolveAmount))
-                    q.CommitNonOpaqueTriangleHit();
-            }
-        }
-        return q.CommittedStatus() == COMMITTED_NOTHING;
-    }
-
-    // Inline ray-traced reflection lookup. Walks the TLAS in `dir` starting
-    // at `origin` (already biased off the surface by the caller), commits
-    // the first non-opaque alpha-passing hit, and returns the hit's diffuse
-    // albedo as the reflection contribution. Misses return float3(0) and
-    // set `hit` = false so the caller can fall back to a cube-map sample.
-    //
-    // This is the Phase 4 starting cut for ray-traced reflections — it
-    // gives correct mirrored geometry (right object in the right pixel),
-    // but the reflection colour is just the hit material's albedo rather
-    // than fully GI-shaded. Promote to a full evaluation when the visual
-    // gap shows; the surfel radiance gather (the SurfelEvaluation chain)
-    // is the next step but its weighting / cell-hash lookup pulls in the
-    // full evaluation path.
-    public float3 traceReflection(float3 origin, float3 dir, float tMax,
-                                  out bool hit)
-    {
-        RayDesc ray;
-        ray.Origin    = origin;
-        ray.Direction = dir;
-        ray.TMin      = 0.f;
-        ray.TMax      = tMax;
-
-        RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES
-               | RAY_FLAG_CULL_BACK_FACING_TRIANGLES> q;
-        q.TraceRayInline(gRtAccel, 0, kRayMaskOpaque, ray);
-
-        while (q.Proceed())
-        {
-            if (q.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
-            {
-                TriangleHit candidate;
-                candidate.instanceID     = q.CandidateInstanceID();
-                candidate.primitiveIndex = q.CandidatePrimitiveIndex();
-                candidate.barycentrics   = q.CandidateTriangleBarycentrics();
-
-                uint matID  = gScene.getMaterialID(candidate.instanceID);
-                VertexData v = gScene.getVertexData(candidate);
-                if (!alphaTest(v, matID, 0.f,
-                               gSceneObjects[candidate.instanceID].dissolveAmount))
-                    q.CommitNonOpaqueTriangleHit();
-            }
-        }
-
-        if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
-        {
-            hit = false;
-            return float3(0.f);
-        }
-
-        hit = true;
-
-        TriangleHit triangleHit;
-        triangleHit.instanceID     = q.CommittedInstanceID();
-        triangleHit.primitiveIndex = q.CommittedPrimitiveIndex();
-        triangleHit.barycentrics   = q.CommittedTriangleBarycentrics();
-
-        VertexData v        = gScene.getVertexData(triangleHit);
-        uint materialID     = gScene.getMaterialID(triangleHit.instanceID);
-        DiffuseMaterial m   = gScene.getDiffuseMaterial(materialID);
-        uint diffuseTex     = m.tex[0];
-        if (diffuseTex == kInvalidTextureIndex)
-            return float3(0.5f);  // fallback grey
-        return sampleBindless2DLevel(diffuseTex, v.texC, 0.f).rgb;
-    }
-
-    // Like traceReflection but returns the committed TriangleHit (not just its
-    // albedo) so the caller can fully lit-shade it — used by the raster water
-    // pass for sharp lit reflections. Returns false (outHit zeroed) on miss.
-    public bool traceReflectionHit(float3 origin, float3 dir, float tMax, out TriangleHit outHit)
-    {
-        outHit.instanceID = 0u; outHit.primitiveIndex = 0u; outHit.barycentrics = float2(0.f);
-
-        RayDesc ray;
-        ray.Origin = origin; ray.Direction = dir; ray.TMin = 0.f; ray.TMax = tMax;
-
-        RayQuery<RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES
-               | RAY_FLAG_CULL_BACK_FACING_TRIANGLES> q;
-        q.TraceRayInline(gRtAccel, 0, kRayMaskOpaque, ray);
-
-        while (q.Proceed())
-        {
-            if (q.CandidateType() == CANDIDATE_NON_OPAQUE_TRIANGLE)
-            {
-                TriangleHit c;
-                c.instanceID     = q.CandidateInstanceID();
-                c.primitiveIndex = q.CandidatePrimitiveIndex();
-                c.barycentrics   = q.CandidateTriangleBarycentrics();
-                uint matID  = gScene.getMaterialID(c.instanceID);
-                VertexData v = gScene.getVertexData(c);
-                if (!alphaTest(v, matID, 0.f,
-                               gSceneObjects[c.instanceID].dissolveAmount))
-                    q.CommitNonOpaqueTriangleHit();
-            }
-        }
-
-        if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
-            return false;
-
-        outHit.instanceID     = q.CommittedInstanceID();
-        outHit.primitiveIndex = q.CommittedPrimitiveIndex();
-        outHit.barycentrics   = q.CommittedTriangleBarycentrics();
-        return true;
-    }
-};
+    float invCos = 1.0f / dot(normalize(gPerFrame.cameraW), r.dir);
+    r.tMin = gPerFrame.zNear * invCos;
+    r.tMax = (gPerFrame.zFar > 0.0f ? gPerFrame.zFar : 1e6f) * invCos;
+    return r;
+}
 
 // One world-space light-grid cell's light list, resolved once by
-// Scene.getCellLights() so the four light-grid walkers (composite eval, reservoir
+// getCellLights() so the four light-grid walkers (composite eval, reservoir
 // build, surfel NEE, lightLevelAt) share the cell-lookup boilerplate instead of
 // each re-deriving cell → validate → flatten → count.
 public struct CellLights
@@ -430,204 +119,158 @@ public struct CellLights
     public bool valid;  // false ⇒ no lights / out-of-grid; count is then 0
 };
 
-public struct Scene
+// --- Lights ---------------------------------------------------------------
+// gPerFrame.{point,spot,area}LightCount are now per-type SLOT CAPACITIES
+// (host high-water of stable slots), not live light counts — sparse slots
+// may include zeroed holes. Used only as a ">0 any lights?" guard here, so
+// capacity semantics are fine; per-light enumeration goes through the grid.
+public uint getLightCount()
 {
-    public SceneCamera    camera;
-    public SceneMaterials materials;
+    return gPerFrame.pointLightCount
+         + gPerFrame.spotLightCount
+         + gPerFrame.areaLightCount;
+}
 
-    // --- Objects / materials --------------------------------------------------
-    public UniformObject getObject(uint slot)
+// Resolve the world-space light-grid cell at `posW` to its light list once.
+// Shared by every light-grid walker so the cell-lookup boilerplate lives in
+// one place; callers loop 0..count and fetch indices via cellLightAt.
+public CellLights getCellLights(float3 posW)
+{
+    CellLights c;
+    int3 cell = gridCellPos(posW, gPerFrame.posW, kLightGridUnit);
+    c.valid = (getLightCount() > 0u) && gridCellValid(cell, kLightGridDim);
+    if (!c.valid)
     {
-        return gSceneObjects[slot];
-    }
-
-    // Material accessors over the flat material table (gMaterials, see
-    // Constants.h). Each reinterprets the fixed-size MaterialDataBlob at
-    // `materialID` into the concrete struct. Entry shaders go through these rather
-    // than touching gMaterials directly, so a layout change only touches
-    // Scene.slang + SceneTypes.slang. Each accessor is valid only when the header
-    // type matches (use isTranslucent / isWater, or MaterialFactory.getMaterial).
-    public DiffuseMaterial getDiffuseMaterial(uint materialID)
-    {
-        return materials.loadDiffuseMaterial(materialID);
-    }
-
-    public TranslucentMaterial getTranslucentMaterial(uint materialID)
-    {
-        return materials.loadTranslucentMaterial(materialID);
-    }
-
-    public WaterMaterial getWaterMaterial(uint materialID)
-    {
-        return materials.loadWaterMaterial(materialID);
-    }
-
-    // Convenience accessors used by GBuffer / V-buffer entry points.
-    public uint getMaterialID(uint objectSlot)
-    {
-        return gSceneObjects[objectSlot].materialID;
-    }
-
-    public float4x4 getWorldMatrix(uint objectSlot)
-    {
-        return gSceneObjects[objectSlot].modelMat;
-    }
-
-    // --- Lights ---------------------------------------------------------------
-    // gPerFrame.{point,spot,area}LightCount are now per-type SLOT CAPACITIES
-    // (host high-water of stable slots), not live light counts — sparse slots
-    // may include zeroed holes. Used only as a ">0 any lights?" guard here, so
-    // capacity semantics are fine; per-light enumeration goes through the grid.
-    public uint getLightCount()
-    {
-        return gPerFrame.pointLightCount
-             + gPerFrame.spotLightCount
-             + gPerFrame.areaLightCount;
-    }
-
-    // Resolve the world-space light-grid cell at `posW` to its light list once.
-    // Shared by every light-grid walker so the cell-lookup boilerplate lives in
-    // one place; callers loop 0..count and fetch indices via cellLightAt.
-    public CellLights getCellLights(float3 posW)
-    {
-        CellLights c;
-        int3 cell = gridCellPos(posW, camera.getPosition(), kLightGridUnit);
-        c.valid = (getLightCount() > 0u) && gridCellValid(cell, kLightGridDim);
-        if (!c.valid)
-        {
-            c.flat  = 0u;
-            c.count = 0u;
-            return c;
-        }
-        c.flat  = gridFlattenCellIndex(cell, kLightGridDim);
-        c.count = min(gLightGridCount[c.flat], kLightsPerCellMax);
+        c.flat  = 0u;
+        c.count = 0u;
         return c;
     }
+    c.flat  = gridFlattenCellIndex(cell, kLightGridDim);
+    c.count = min(gLightGridCount[c.flat], kLightsPerCellMax);
+    return c;
+}
 
-    // The global (unified point+spot) light index of the k-th light in a cell.
-    public uint cellLightAt(CellLights c, uint k)
+// The global (unified point+spot) light index of the k-th light in a cell.
+public uint cellLightAt(CellLights c, uint k)
+{
+    return gLightGridList[c.flat * kLightsPerCellMax + k];
+}
+
+// The per-light diffuse shade helpers — shadeAnalyticLight (hard),
+// shadeAnalyticLightSoft (jittered disk), unshadowedAnalyticLight (no ray) —
+// are lighting-evaluation utilities, not scene-data accessors, so they live
+// as free functions in DiffuseShading.slang alongside the eval / reservoir
+// helpers that use them. They compose the scene data primitives
+// (getLight().sample / sampleSourcePoint, gPerFrame.posW, traceShadowRay).
+
+// Scalar "surrounding light" heuristic for AffectedByLightLevel
+// translucents — base-game afLightLevel semantics (the legacy CPU loop in
+// MaterialType_BasicTranslucent::SetupObjectSpecificData): sum
+// maxChannel(authored color) · saturate(1 − d/authoredRadius) over the
+// lights binned to the grid cell at posW, saturated at 1. Normal-free and
+// shadow-free: billboards have no normal and the legacy heuristic never
+// had occlusion (or a spot-cone term — spots fall off radially like
+// points, matching the original).
+//   * `intensity` IS the authored engine radius (uploaded verbatim for
+//     both light types — Falcor LightData semantics, no scale knobs), so
+//     it is used directly. The struct's `radius` field is the grid-bin
+//     reach, a different quantity.
+//   * GPU light colors are linear (sRGB-decoded at upload) while the
+//     legacy heuristic read the authored sRGB values, so the max channel
+//     is re-encoded to match the CPU translucent-mesh path's dimming
+//     curve.
+//   * Out-of-grid points return 1.0 (don't darken) — distant geometry
+//     beyond the camera-centered grid shouldn't fade to black.
+public float lightLevelAt(float3 posW)
+{
+    // Out-of-grid points return 1.0 (don't darken) — note this differs from
+    // the shaded walkers, which treat an invalid cell as no contribution.
+    CellLights cl = getCellLights(posW);
+    if (!cl.valid)
+        return 1.0f;
+
+    float sum = 0.0f;
+    for (uint k = 0u; k < cl.count; ++k)
     {
-        return gLightGridList[c.flat * kLightsPerCellMax + k];
-    }
-
-    // The per-light diffuse shade helpers — shadeAnalyticLight (hard),
-    // shadeAnalyticLightSoft (jittered disk), unshadowedAnalyticLight (no ray) —
-    // are lighting-evaluation utilities, not scene-data accessors, so they live
-    // as free functions in DiffuseShading.slang alongside the eval / reservoir
-    // helpers that use them. They compose Scene's data primitives
-    // (getLight().sample / sampleSourcePoint / getPosition, materials.traceShadowRay).
-
-    // Scalar "surrounding light" heuristic for AffectedByLightLevel
-    // translucents — base-game afLightLevel semantics (the legacy CPU loop in
-    // MaterialType_BasicTranslucent::SetupObjectSpecificData): sum
-    // maxChannel(authored color) · saturate(1 − d/authoredRadius) over the
-    // lights binned to the grid cell at posW, saturated at 1. Normal-free and
-    // shadow-free: billboards have no normal and the legacy heuristic never
-    // had occlusion (or a spot-cone term — spots fall off radially like
-    // points, matching the original).
-    //   * `intensity` IS the authored engine radius (uploaded verbatim for
-    //     both light types — Falcor LightData semantics, no scale knobs), so
-    //     it is used directly. The struct's `radius` field is the grid-bin
-    //     reach, a different quantity.
-    //   * GPU light colors are linear (sRGB-decoded at upload) while the
-    //     legacy heuristic read the authored sRGB values, so the max channel
-    //     is re-encoded to match the CPU translucent-mesh path's dimming
-    //     curve.
-    //   * Out-of-grid points return 1.0 (don't darken) — distant geometry
-    //     beyond the camera-centered grid shouldn't fade to black.
-    public float lightLevelAt(float3 posW)
-    {
-        // Out-of-grid points return 1.0 (don't darken) — note this differs from
-        // the shaded walkers, which treat an invalid cell as no contribution.
-        CellLights cl = getCellLights(posW);
-        if (!cl.valid)
-            return 1.0f;
-
-        float sum = 0.0f;
-        for (uint k = 0u; k < cl.count; ++k)
+        uint li   = cellLightAt(cl, k);   // packed type|slot
+        uint slot = lightIdSlot(li);
+        float3 lpos;
+        float3 lcolor;
+        float  lintensity;
+        switch (lightIdType(li))
         {
-            uint li   = cellLightAt(cl, k);   // packed type|slot
-            uint slot = lightIdSlot(li);
-            float3 lpos;
-            float3 lcolor;
-            float  lintensity;
-            switch (lightIdType(li))
-            {
-            case kLightTypePoint:
-                lpos       = gPointLights[slot].position;
-                lcolor     = gPointLights[slot].color;
-                lintensity = gPointLights[slot].intensity;
-                break;
-            case kLightTypeSpot:
-                lpos       = gSpotLights[slot].position;
-                lcolor     = gSpotLights[slot].color;
-                lintensity = gSpotLights[slot].intensity;
-                break;
-            default:
-                lpos       = gAreaLights[slot].position;
-                lcolor     = gAreaLights[slot].color;
-                lintensity = gAreaLights[slot].intensity;
-                break;
-            }
-
-            float authoredRadius = lintensity;
-            if (authoredRadius <= 0.0f) continue;
-
-            float maxC = linearToSRGB(max(lcolor.x, max(lcolor.y, lcolor.z)));
-            float dist = length(posW - lpos);
-            sum += maxC * saturate(1.0f - dist / authoredRadius);
-            if (sum >= 1.0f) return 1.0f;
+        case kLightTypePoint:
+            lpos       = gPointLights[slot].position;
+            lcolor     = gPointLights[slot].color;
+            lintensity = gPointLights[slot].intensity;
+            break;
+        case kLightTypeSpot:
+            lpos       = gSpotLights[slot].position;
+            lcolor     = gSpotLights[slot].color;
+            lintensity = gSpotLights[slot].intensity;
+            break;
+        default:
+            lpos       = gAreaLights[slot].position;
+            lcolor     = gAreaLights[slot].color;
+            lintensity = gAreaLights[slot].intensity;
+            break;
         }
-        return sum;
+
+        float authoredRadius = lintensity;
+        if (authoredRadius <= 0.0f) continue;
+
+        float maxC = linearToSRGB(max(lcolor.x, max(lcolor.y, lcolor.z)));
+        float dist = length(posW - lpos);
+        sum += maxC * saturate(1.0f - dist / authoredRadius);
+        if (sum >= 1.0f) return 1.0f;
     }
+    return sum;
+}
 
-    // --- Mesh / hit data ------------------------------------------------------
-    // Reconstruct world-space VertexData for a triangle hit. Instance
-    // transform comes from gSceneObjects[hit.instanceID]; vertex streams
-    // come from the per-instance BDA handle arrays via BindlessTriangle.
-    public VertexData getVertexData(TriangleHit hit)
-    {
-        BindlessTriangleVtx vtx;
-        return getVertexDataAndTri(hit, vtx);
-    }
+// --- Mesh / hit data ------------------------------------------------------
+// Reconstruct world-space VertexData for a triangle hit. Instance
+// transform comes from gSceneObjects[hit.instanceID]; vertex streams
+// come from the per-instance BDA handle arrays via BindlessTriangle.
+public VertexData getVertexData(TriangleHit hit)
+{
+    BindlessTriangleVtx vtx;
+    return getVertexDataAndTri(hit, vtx);
+}
 
-    // Same as getVertexData, but also returns the raw per-vertex triangle data
-    // (positions / normals / tangents / UVs). Parallax mapping needs the
-    // per-vertex UVs to invert a UV offset back into a barycentric delta — see
-    // SurfelVBuffer.rt.slang. Fetches the bindless triangle once so callers that
-    // want both don't pay the BDA handle loads twice.
-    public VertexData getVertexDataAndTri(TriangleHit hit, out BindlessTriangleVtx vtx)
-    {
-        fetchBindlessTriangle(hit.instanceID, hit.primitiveIndex, vtx);
+// Same as getVertexData, but also returns the raw per-vertex triangle data
+// (positions / normals / tangents / UVs). Parallax mapping needs the
+// per-vertex UVs to invert a UV offset back into a barycentric delta — see
+// SurfelVBuffer.rt.slang. Fetches the bindless triangle once so callers that
+// want both don't pay the BDA handle loads twice.
+public VertexData getVertexDataAndTri(TriangleHit hit, out BindlessTriangleVtx vtx)
+{
+    fetchBindlessTriangle(hit.instanceID, hit.primitiveIndex, vtx);
 
-        float b1 = hit.barycentrics.x;
-        float b2 = hit.barycentrics.y;
-        float b0 = 1.0f - b1 - b2;
+    float b1 = hit.barycentrics.x;
+    float b2 = hit.barycentrics.y;
+    float b0 = 1.0f - b1 - b2;
 
-        float3 posL    = vtx.posL[0]    * b0 + vtx.posL[1]    * b1 + vtx.posL[2]    * b2;
-        float3 normalL = vtx.normalL[0] * b0 + vtx.normalL[1] * b1 + vtx.normalL[2] * b2;
-        float3 tanL    = vtx.tangentL[0].xyz * b0
-                       + vtx.tangentL[1].xyz * b1
-                       + vtx.tangentL[2].xyz * b2;
-        float2 uv      = vtx.uv[0]      * b0 + vtx.uv[1]      * b1 + vtx.uv[2]      * b2;
+    float3 posL    = vtx.posL[0]    * b0 + vtx.posL[1]    * b1 + vtx.posL[2]    * b2;
+    float3 normalL = vtx.normalL[0] * b0 + vtx.normalL[1] * b1 + vtx.normalL[2] * b2;
+    float3 tanL    = vtx.tangentL[0].xyz * b0
+                   + vtx.tangentL[1].xyz * b1
+                   + vtx.tangentL[2].xyz * b2;
+    float2 uv      = vtx.uv[0]      * b0 + vtx.uv[1]      * b1 + vtx.uv[2]      * b2;
 
-        UniformObject obj = gSceneObjects[hit.instanceID];
-        float4x4 modelMat = obj.modelMat;
-        // Upper-3x3 carries rotation + uniform scale; for normals we'd
-        // ideally want the inverse-transpose, but the engine ships
-        // uniform-scaled meshes, so the upper-3x3 of modelMat is
-        // equivalent up to a normalize().
-        float3x3 nrmMat = float3x3(modelMat[0].xyz,
-                                   modelMat[1].xyz,
-                                   modelMat[2].xyz);
+    UniformObject obj = gSceneObjects[hit.instanceID];
+    float4x4 modelMat = obj.modelMat;
+    // Upper-3x3 carries rotation + uniform scale; for normals we'd
+    // ideally want the inverse-transpose, but the engine ships
+    // uniform-scaled meshes, so the upper-3x3 of modelMat is
+    // equivalent up to a normalize().
+    float3x3 nrmMat = float3x3(modelMat[0].xyz,
+                               modelMat[1].xyz,
+                               modelMat[2].xyz);
 
-        VertexData v;
-        v.posW     = mul(modelMat, float4(posL, 1.0f)).xyz;
-        v.normalW  = normalize(mul(nrmMat, normalL));
-        v.tangentW = normalize(mul(nrmMat, tanL));
-        v.texC     = uv;
-        return v;
-    }
-};
-
-public static Scene gScene;
+    VertexData v;
+    v.posW     = mul(modelMat, float4(posL, 1.0f)).xyz;
+    v.normalW  = normalize(mul(nrmMat, normalL));
+    v.tangentW = normalize(mul(nrmMat, tanL));
+    v.texC     = uv;
+    return v;
+}

@@ -14,8 +14,8 @@ HOST_NAMESPACE_BEGIN
 // Type discriminators. Every Light/Material struct stores its discriminator
 // in `type` at offset 0, so any consumer can read the first 4 bytes of a
 // record to identify its concrete kind without knowing which buffer it came
-// from. This is the contract the ILight / IMaterial interfaces and the
-// surfel GI iteration loops rely on.
+// from. This is the contract the ILight interface, the Material.slang loaders,
+// and the surfel GI iteration loops rely on.
 // -----------------------------------------------------------------------------
 
 

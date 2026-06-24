@@ -13,6 +13,8 @@
 // surfel_update_collect.comp consume via unpackHit().
 
 import Scene;
+import PerFrame.resource;     // gPerFrame (camera view-proj / eye position)
+import Material;             // load*Material / materialAlphaTest / traceShadowRay / traceReflectionHit
 import SceneTypes;
 import bindless;
 
@@ -58,7 +60,7 @@ VSOut vsMain(uint vertexID    : SV_VertexID,
 
     // Stream BDAs now live in the per-object UniformObject (folded in from the
     // former gOpaque*Handles buffers).
-    UniformObject obj = gScene.getObject(instanceID);
+    UniformObject obj = gSceneObjects[instanceID];
     uint64_t indexAddr = obj.indexHandle;
     uint64_t posAddr   = obj.posHandle;
     uint64_t uv0Addr   = obj.uv0Handle;
@@ -80,12 +82,16 @@ VSOut vsMain(uint vertexID    : SV_VertexID,
 
     float4 worldP     = mul(obj.modelMat,     float4(aPos, 1.0f));
     float4 prevWorldP = mul(obj.prevModelMat, float4(aPos, 1.0f));
-    o.posH       = mul(gScene.camera.getViewProj(), worldP);
-    o.curClip    = mul(gScene.camera.getViewProjNoJitter(), worldP);
-    o.prevClip   = mul(gScene.camera.getPrevViewProj(), prevWorldP);
+    float4x4 viewProj     = mul(gPerFrame.projMat, gPerFrame.viewMat);
+    // curClip wants the no-jitter view-proj for motion vectors; identical to
+    // viewProj until TAA jitter lands (then split the jitter out here).
+    float4x4 prevViewProj = mul(gPerFrame.prevProjMat, gPerFrame.prevViewMat);
+    o.posH       = mul(viewProj, worldP);
+    o.curClip    = mul(viewProj, worldP);
+    o.prevClip   = mul(prevViewProj, prevWorldP);
     o.texC       = mul(obj.uvMat, float4(aUv, 0.0f, 1.0f)).xy;
     o.instanceID = instanceID;
-    o.materialID = gScene.getMaterialID(instanceID);
+    o.materialID = gSceneObjects[instanceID].materialID;
     return o;
 }
 
@@ -100,8 +106,8 @@ GBufferOut psMain(VSOut vsOut,
     // target.
     VertexData v = {};
     v.texC = vsOut.texC;
-    if (gScene.materials.alphaTest(v, vsOut.materialID, 0.0f,
-                                   gSceneObjects[vsOut.instanceID].dissolveAmount))
+    if (materialAlphaTest(v, vsOut.materialID, 0.0f,
+                          gSceneObjects[vsOut.instanceID].dissolveAmount))
         discard;
 
     GBufferOut o;

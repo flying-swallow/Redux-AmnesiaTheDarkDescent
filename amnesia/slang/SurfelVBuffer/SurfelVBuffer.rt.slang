@@ -11,15 +11,15 @@
 // Ported from Falcor's SurfelVBuffer.rt.slang to the project Scene + bindless
 // surface. The Falcor anyhit helpers (`getGeometryInstanceID()`,
 // `getVertexData(id, prim, attribs)`) are replaced with `InstanceID()` +
-// `gScene.getVertexData(triangleHit)`. `gScene.rtAccel` is replaced with the
-// bindless `gRtAccel` global, and the Falcor `Ray.toRayDesc()` helper is
-// expanded inline because the project's Ray struct doesn't carry that
-// method.
+// `getVertexData(triangleHit)`, the `gRtAccel` bindless global is used
+// directly, and the Falcor `Ray.toRayDesc()` helper is expanded inline
+// because the project's Ray struct doesn't carry that method.
 
 #include "../HostDefinitions.h"
 
 import SceneTypes;
 import Scene;
+import Material;             // load*Material / materialAlphaTest / traceShadowRay / traceReflectionHit
 import bindless;
 import HitInfo;
 import PerFrame.resource;
@@ -74,17 +74,17 @@ void miss(inout Payload payload)
 void anyHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attribs)
 {
     // Alpha test + CoverageAmount dissolve against the diffuse material —
-    // the single shared gate (Scene.slang alphaTest), so a cutout mask or an
+    // the single shared gate (Material.slang materialAlphaTest), so a cutout mask or an
     // in-progress fade decides hit-vs-through consistently across the raster
     // gbuffer, both V-buffer ray kinds, shadow rays, and surfel rays.
     TriangleHit hit;
     hit.instanceID     = InstanceID();
     hit.primitiveIndex = PrimitiveIndex();
     hit.barycentrics   = attribs.barycentrics;
-    VertexData v = gScene.getVertexData(hit);
-    uint materialID = gScene.getMaterialID(hit.instanceID);
-    if (gScene.materials.alphaTest(v, materialID, 0.f,
-                                   gSceneObjects[InstanceID()].dissolveAmount))
+    VertexData v = getVertexData(hit);
+    uint materialID = gSceneObjects[hit.instanceID].materialID;
+    if (materialAlphaTest(v, materialID, 0.f,
+                          gSceneObjects[InstanceID()].dissolveAmount))
         IgnoreHit();
 }
 
@@ -98,7 +98,7 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
     triangleHit.primitiveIndex = PrimitiveIndex();
     triangleHit.barycentrics   = attribs.barycentrics;
 
-    uint materialID = gScene.getMaterialID(triangleHit.instanceID);
+    uint materialID = gSceneObjects[triangleHit.instanceID].materialID;
 
     // Parallax occlusion mapping for primary hits on height-mapped opaque
     // diffuse surfaces. The V-buffer stores only barycentrics, so we express the
@@ -107,16 +107,14 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
     // with no consumer changes. Water/glass refract instead (handled below) and
     // are deliberately skipped.
     if (payload.length == 0u
-        && gScene.materials.getHeader(materialID).type == MATERIAL_TYPE_DIFFUSE
-        && !gScene.materials.isWater(materialID)
-        && !gScene.materials.isRefractive(materialID))
+        && loadMaterialHeader(materialID).type == MATERIAL_TYPE_DIFFUSE)
     {
-        DiffuseMaterial m = gScene.getDiffuseMaterial(materialID);
+        DiffuseMaterial m = loadDiffuseMaterial(materialID);
         if ((m.materialConfig & kMaterialFlagEnableHeight) != 0u
             && m.tex[4] != kInvalidTextureIndex)
         {
             BindlessTriangleVtx vtx;
-            VertexData v = gScene.getVertexDataAndTri(triangleHit, vtx);
+            VertexData v = getVertexDataAndTri(triangleHit, vtx);
 
             // World TBN. The bitangent must match the convention the height-map
             // UVs were authored against — the legacy parallax basis
@@ -176,10 +174,10 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
     // surface (tint + reflection) is drawn in the raster water pass. No reflection
     // bounce / bounce buffers anymore. Checked before the generic glass branch
     // (water also sets HasRefraction) so it uses the wave normal, not the flat one.
-    if (gScene.materials.isWater(materialID))
+    if (loadMaterialHeader(materialID).type == MATERIAL_TYPE_WATER)
     {
-        VertexData v = gScene.getVertexData(triangleHit);
-        WaterMaterial water = gScene.getWaterMaterial(materialID);
+        VertexData v = getVertexData(triangleHit);
+        WaterMaterial water = loadWaterMaterial(materialID);
 
         // World-space TBN from the hit, then the wave-perturbed normal.
         float3 N = normalize(v.normalW);
@@ -228,9 +226,13 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
     // refraction ray as a kind-0 bounce that clobbers gPackedHitInfo with the
     // refracted background (the GI pass shades it). The glass surface itself is
     // rasterised on top in Translucent.frag.slang.
-    if (gScene.materials.isRefractive(materialID))
+    // Refractive == translucent (glass) carrying the host-set HasRefraction flag.
+    // Water already returned above, so a plain header read suffices here.
+    MaterialHeader hdr = loadMaterialHeader(materialID);
+    if (hdr.type == MATERIAL_TYPE_TRANSLUCENT
+        && (hdr.materialConfig & kMaterialFlagHasRefraction) != 0u)
     {
-        VertexData v          = gScene.getVertexData(triangleHit);
+        VertexData v          = getVertexData(triangleHit);
         float3 incidentRayDir = normalize(payload.direction);
         float3 normalW        = normalize(v.normalW);
 
@@ -238,7 +240,7 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
         // shader used this as a screen-space distortion magnitude; reusing
         // it here as a relative IOR offset keeps materials authoring the
         // same scalar for both renderers. eta = n1/n2 (ratio entering).
-        TranslucentMaterial mat = gScene.getTranslucentMaterial(materialID);
+        TranslucentMaterial mat = loadTranslucentMaterial(materialID);
         float refractScale  = max(mat.refractionScale, 0.0f);
 
         // Distinguish entry vs exit by sign of dot(incident, normal). On
@@ -294,7 +296,7 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
 void rayGen()
 {
     uint2 pixelPos = DispatchRaysIndex().xy;
-    Ray ray = gScene.camera.computeRayPinhole(pixelPos, DispatchRaysDimensions().xy);
+    Ray ray = cameraComputeRayPinhole(pixelPos, DispatchRaysDimensions().xy);
 
     Payload payload;
     payload.origin           = ray.origin;

@@ -2,7 +2,7 @@
 /// SPDX-License-Identifier: GPL-3.0
 //
 // Alpha-tested outline fragment. Samples the material's Alpha (cutout) texture
-// and discards below the 0.5 gate the engine uses (Scene.slang alphaTest), so
+// and discards below the 0.5 gate the engine uses (Material.slang materialAlphaTest), so
 // the hover outline's stencil mark + rim follow the visible silhouette of
 // cutout geometry instead of the full mesh quad. Channel selection mirrors the
 // engine: single-channel alpha maps carry the mask in .r, otherwise .a

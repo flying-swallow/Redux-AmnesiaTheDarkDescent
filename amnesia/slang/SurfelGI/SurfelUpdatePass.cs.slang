@@ -8,7 +8,7 @@
 //
 // Ported from SurfelGI/SurfelUpdatePass.cs.slang. Buffers come from the
 // engine bindless set (set 0) via bindless; camera + per-frame
-// state come from Scene (gScene.*).
+// state come from Scene (free functions over set 0 + gPerFrame).
 
 #include "../Constants.h"
 
@@ -187,11 +187,11 @@ void collectCellInfo(uint3 dispatchThreadId: SV_DispatchThreadID)
     InterlockedAdd(gSurfelCounter[kSurfelCounterValid], 1u, validSurfelCount);
     gSurfelValidIndexBuffer[validSurfelCount] = surfelIndex;
 
-    float3 cameraPos  = gScene.camera.getPosition();
+    float3 cameraPos  = gPerFrame.posW;
     uint2  resolution = uint2(gPerFrame.viewportSize);
     float  fovy       = gPerFrame.cameraFov;
 
-    reprojectSurfel(surfel, gScene.getVertexData(hit), isSleeping,
+    reprojectSurfel(surfel, getVertexData(hit), isSleeping,
                     cameraPos, resolution, fovy);
     publishSurfelBounds(surfelIndex, surfel);
     countIntersectingCells(surfel, cameraPos);
@@ -245,7 +245,7 @@ void updateCellToSurfelBuffer(uint3 dispatchThreadId: SV_DispatchThreadID)
     uint surfelIndex = gSurfelValidIndexBuffer[dispatchThreadId.x];
     Surfel surfel = gSurfelBuffer[surfelIndex];
 
-    float3 cameraPos = gScene.camera.getPosition();
+    float3 cameraPos = gPerFrame.posW;
     int3 cellPos = getCellPos(surfel.position, cameraPos, kCellUnit);
     for (uint i = 0; i < kSurfelNeighborCellCount; ++i)
     {

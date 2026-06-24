@@ -26,6 +26,7 @@
 import bindless;
 import SceneTypes;
 import Scene;
+import Material;             // load*Material / materialAlphaTest / traceShadowRay / traceReflectionHit
 import BlendModes;   // displaySpaceSample / encodeBlendOutputLinear / kBlendMode*
 
 #define DECAL_ALPHA_REJECT 0.01f
@@ -52,7 +53,7 @@ struct DecalVSOut
 float4 psMain(DecalVSOut psIn) : SV_TARGET
 {
     UniformObject   obj = gSceneObjects[psIn.objectId];
-    DiffuseMaterial mat = gScene.getDiffuseMaterial(obj.materialID);
+    DiffuseMaterial mat = loadDiffuseMaterial(obj.materialID);
 
     // Display-space source: re-encode the sRGB-decoded sample, multiply by
     // the raw authored vertex tint — exactly the legacy product.

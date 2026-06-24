@@ -187,7 +187,7 @@ public RWStructuredBuffer<uint> gLightGridList;
 public RWStructuredBuffer<UniformObject> gSceneObjects;
 
 // Flat material table (Falcor MaterialSystem model). gMaterials[materialID] is a
-// fixed-size MaterialDataBlob; SceneMaterials / MaterialFactory read the type from
+// fixed-size MaterialDataBlob; the Material.slang loaders read the type from
 // its header and reinterpret<T> it into the concrete material struct. Replaces the
 // old typed DiffuseMaterial / TranslucentMaterial / WaterMaterial / DecalMaterial SSBOs.
 [vk::binding(kBindingMaterials, 0)]
@@ -253,7 +253,7 @@ public SamplerState gSurfelDepthSampler;
 
 // core_dissolve.tga — the legacy 128×128 dissolve noise (solid_z.frag.fsl).
 // Immutable, written once at init; sampled UV-space (wrap) by the shared
-// SceneMaterials.alphaTest for the CoverageAmount dissolve fade.
+// Material.alphaTest for the CoverageAmount dissolve fade.
 [vk::binding(kBindingDissolveMap, 0)]
 public Texture2D<float4> gDissolveMap;
 

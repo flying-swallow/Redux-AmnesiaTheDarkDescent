@@ -15,6 +15,7 @@ import bindless;
 import SceneTypes;
 import PerFrame.resource;
 import Scene;
+import Material;             // load*Material / materialAlphaTest / traceShadowRay / traceReflectionHit
 import Fog;          // computeFog — shared world + fog-area visibility
 import BlendModes;   // displaySpaceSample / applyBlendModulation / encodeBlendOutputLinear
 
@@ -46,7 +47,7 @@ float4 psMain(ParticleVSOut psIn) : SV_TARGET
     UniformObject       obj = gSceneObjects[psIn.objectId];
     // Particle materials are all Type="translucent", so the material blob is
     // tagged MATERIAL_TYPE_TRANSLUCENT. Read them the same way Translucent.frag does.
-    TranslucentMaterial mat = gScene.getTranslucentMaterial(obj.materialID);
+    TranslucentMaterial mat = loadTranslucentMaterial(obj.materialID);
 
     // Legacy display-space source: the base game blended raw gamma texels ×
     // authored vertex colors in a UNORM display target. Re-encode the
@@ -76,12 +77,12 @@ float4 psMain(ParticleVSOut psIn) : SV_TARGET
     float finalAlpha = pc.sceneAlpha * fog.visibility;
 
     // AffectedByLightLevel materials dim with the surrounding analytic light
-    // (base-game afLightLevel behavior — see gScene.lightLevelAt). Per-pixel,
+    // (base-game afLightLevel behavior — see lightLevelAt). Per-pixel,
     // so large billboards get an exact gradient across the quad.
     float lightLevel = 1.0f;
     if ((mat.materialConfig & kMaterialFlagAffectedByLightLevel) != 0u)
     {
-        lightLevel = gScene.lightLevelAt(surfacePosW);
+        lightLevel = lightLevelAt(surfacePosW);
     }
 
     // Shared legacy blend math (see BlendModes.slang): display-space source

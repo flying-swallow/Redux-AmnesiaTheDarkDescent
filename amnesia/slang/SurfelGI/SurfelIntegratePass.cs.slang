@@ -12,6 +12,7 @@
 import bindless;
 import SceneTypes;
 import Scene;
+import PerFrame.resource;     // gPerFrame (camera view-proj / eye position)
 import Utils.Color.ColorHelpers;
 import SurfelGI.SurfelTypes;
 import SurfelGI.SurfelUtils;
@@ -112,7 +113,7 @@ void csMain(uint3 dispatchThreadId: SV_DispatchThreadID)
     float4 sharedRadiance = float4(0.f);
     uint flattenIndex;
     CellInfo cellInfo;
-    if (lookupSurfelCell(surfel.position, gScene.camera.getPosition(), flattenIndex, cellInfo))
+    if (lookupSurfelCell(surfel.position, gPerFrame.posW, flattenIndex, cellInfo))
     {
         const float3 centerPos    = surfel.position;
         const float3 centerNormal = surfel.normal;

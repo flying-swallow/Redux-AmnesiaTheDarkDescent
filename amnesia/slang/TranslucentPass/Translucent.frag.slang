@@ -30,6 +30,7 @@ import SceneTypes;
 import PerFrame.resource;
 import Fog;
 import Scene;
+import Material;             // load*Material / materialAlphaTest / traceShadowRay / traceReflectionHit
 // Shared legacy blend math (kBlendMode* + the display-space modulation /
 // decode stages). This pass keeps the two stages SEPARATE — unlike
 // Particle.frag — because the display-space cube-map reflection + rim add
@@ -81,7 +82,7 @@ float computeFresnel(float afEDotN, float afFresnelBias, float afFresnelPow)
 float4 psMain(TranslucentVSOut psIn) : SV_TARGET
 {
     UniformObject       obj = gSceneObjects[psIn.objectId];
-    TranslucentMaterial mat = gScene.getTranslucentMaterial(obj.materialID);
+    TranslucentMaterial mat = loadTranslucentMaterial(obj.materialID);
 
     // Reference mask: when the second cube-map-only draw runs, the diffuse /
     // illumination / etc. sample paths are switched off so only the
@@ -119,14 +120,14 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
     float finalAlpha = pc.sceneAlpha * fog.visibility;
 
     // AffectedByLightLevel materials dim with the surrounding analytic light
-    // (base-game afLightLevel behavior — see gScene.lightLevelAt). Per-pixel,
+    // (base-game afLightLevel behavior — see lightLevelAt). Per-pixel,
     // gated on the raw material config (not the illumination-draw-masked
     // textureConfig) so the cube-map second draw dims its reflection too,
     // matching the legacy shader's afLightLevel use on the reflection terms.
     float lightLevel = 1.0f;
     if ((mat.materialConfig & kMaterialFlagAffectedByLightLevel) != 0u)
     {
-        lightLevel = gScene.lightLevelAt(surfacePosW);
+        lightLevel = lightLevelAt(surfacePosW);
     }
 
     // Stage 1 of the shared blend scheme: display-space source modulation

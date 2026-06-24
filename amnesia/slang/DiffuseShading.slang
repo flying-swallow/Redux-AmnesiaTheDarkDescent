@@ -14,7 +14,8 @@
 #include "Constants.h"
 
 import SceneTypes;          // VertexData, DiffuseMaterial, kInvalidTextureIndex, kDefaultDiffuseRoughness
-import Scene;               // gScene data primitives (+ ILight/LightSample via __exported)
+import Scene;               // scene data primitives (+ ILight/LightSample via __exported)
+import Material;             // load*Material / materialAlphaTest / traceShadowRay / traceReflectionHit
 import bindless;            // gTextures2D, gMaterialSampler
 import Brdf;                // decodeMaterialRoughness, evalDiffuseDemodulated
 import PerFrame.resource;   // gPerFrame.point/spotLightCount
@@ -51,7 +52,7 @@ public DiffuseShading prepareDiffuseShading(VertexData v, uint materialID,
     DiffuseShading sd;
     sd.posW    = v.posW;
     sd.normalW = normalize(v.normalW);
-    DiffuseMaterial m = gScene.getDiffuseMaterial(materialID);
+    DiffuseMaterial m = loadDiffuseMaterial(materialID);
 
     if (applyNormalMap && (m.materialConfig & kMaterialFlagEnableNormal) != 0u &&
         m.tex[1] != kInvalidTextureIndex)
@@ -114,7 +115,7 @@ public float3 shadeAnalyticLight(float3 posW, float3 normalW, float3 V,
     float3 contrib;
     if (!sampleLightShade(lightIndex, posW, normalW, V, rough, ls, contrib))
         return float3(0.f);
-    if (!gScene.materials.traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
+    if (!traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
     return contrib;
 }
 
@@ -142,7 +143,7 @@ public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW, float3 V,
     float  sMax = length(toT);
     float3 sDir = toT / max(sMax, 1.0e-6f);
 
-    if (!gScene.materials.traceShadowRay(origin, sDir, sMax)) return float3(0.f);
+    if (!traceShadowRay(origin, sDir, sMax)) return float3(0.f);
     return contrib;
 }
 

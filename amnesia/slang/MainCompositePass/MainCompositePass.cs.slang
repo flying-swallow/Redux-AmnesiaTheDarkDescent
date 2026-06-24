@@ -205,7 +205,7 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     }
 
     TriangleHit triangleHit = hitInfo.getTriangleHit();
-    uint materialID = gScene.getMaterialID(triangleHit.instanceID);
+    uint materialID = gSceneObjects[triangleHit.instanceID].materialID;
 
     // Water and glass refraction need no swap here: SurfelVBuffer.rt re-traces the
     // refraction ray as a kind-0 bounce that clobbers gPackedHitInfo with the
@@ -213,8 +213,8 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // background at water/glass pixels. The water surface (tint + reflection) and
     // the glass surface are drawn on top in their raster passes.
 
-    VertexData v = gScene.getVertexData(triangleHit);
-    UniformObject obj = gScene.getObject(triangleHit.instanceID);
+    VertexData v = getVertexData(triangleHit);
+    UniformObject obj = gSceneObjects[triangleHit.instanceID];
     DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount);
 
     // Composite clustered OOB decals straight onto the base albedo, before

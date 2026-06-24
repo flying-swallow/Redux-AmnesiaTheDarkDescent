@@ -54,9 +54,9 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     }
 
     TriangleHit th  = hitInfo.getTriangleHit();
-    uint materialID = gScene.getMaterialID(th.instanceID);
-    VertexData v    = gScene.getVertexData(th);
-    UniformObject obj = gScene.getObject(th.instanceID);
+    uint materialID = gSceneObjects[th.instanceID].materialID;
+    VertexData v    = getVertexData(th);
+    UniformObject obj = gSceneObjects[th.instanceID];
     DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount,
                                               /*decodeRoughness*/ false, /*applyNormalMap*/ true);
 

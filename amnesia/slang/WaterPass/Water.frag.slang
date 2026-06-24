@@ -17,6 +17,7 @@
 
 import SceneTypes;
 import Scene;
+import Material;             // load*Material / materialAlphaTest / traceShadowRay / traceReflectionHit
 import bindless;
 import PerFrame.resource;
 import SurfelGI.SurfelShade;        // DiffuseShading / prepareDiffuseShading / evalAnalyticLight / gatherSurfelIndirect
@@ -54,9 +55,9 @@ float computeFresnel(float edotN, float bias, float pw)
 // + emission — the same energy convention as the primary composite.
 float3 shadeReflectionHit(TriangleHit th)
 {
-    uint matID  = gScene.getMaterialID(th.instanceID);
-    VertexData v = gScene.getVertexData(th);
-    float illum = gScene.getObject(th.instanceID).illuminationAmount;
+    uint matID  = gSceneObjects[th.instanceID].materialID;
+    VertexData v = getVertexData(th);
+    float illum = gSceneObjects[th.instanceID].illuminationAmount;
     DiffuseShading sd = prepareDiffuseShading(v, matID, illum);
     float3 direct   = (kDefaultRenderDirectLighting   != 0u) ? evalAnalyticLight(sd) : float3(0.f);
     float3 indirect = (kDefaultRenderIndirectLighting != 0u)
@@ -70,7 +71,7 @@ float3 shadeReflectionHit(TriangleHit th)
 float4 psMain(WaterVSOut psIn) : SV_TARGET
 {
     UniformObject obj   = gSceneObjects[psIn.objectId];
-    WaterMaterial water = gScene.getWaterMaterial(obj.materialID);
+    WaterMaterial water = loadWaterMaterial(obj.materialID);
 
     if (pc.pass == 0u)
     {
@@ -92,7 +93,7 @@ float4 psMain(WaterVSOut psIn) : SV_TARGET
     // doesn't use the normal, so the symptom is "water but no reflection". The
     // geometric normal from ddx/ddy(posW) is exact for the flat surface and
     // independent of the mesh's vertex attributes.
-    float3 eye  = normalize(psIn.posW - gScene.camera.getPosition()); // camera -> surface
+    float3 eye  = normalize(psIn.posW - gPerFrame.posW); // camera -> surface
     float3 dpdx = ddx(psIn.posW);
     float3 dpdy = ddy(psIn.posW);
     float3 N    = normalize(cross(dpdx, dpdy));
@@ -130,7 +131,7 @@ float4 psMain(WaterVSOut psIn) : SV_TARGET
     float3 origin = psIn.posW + waveN * 1.0e-3f;
     TriangleHit rh;
     float3 reflColor = float3(0.0f);
-    if (gScene.materials.traceReflectionHit(origin, reflectedDir, 1.0e30f, rh))
+    if (traceReflectionHit(origin, reflectedDir, 1.0e30f, rh))
         reflColor = shadeReflectionHit(rh) * kWaterReflectionExposure;
 
     return float4(reflColor * fresnel, 1.0f);

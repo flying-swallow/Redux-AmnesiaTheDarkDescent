@@ -38,16 +38,16 @@ float3 evalAnalyticLight(DiffuseShading sd)
 {
     float3 Lr = float3(0.f);
     float3 origin = sd.posW + sd.normalW * kShadeRayEps;
-    float3 V = normalize(gScene.camera.getPosition() - sd.posW);
+    float3 V = normalize(gPerFrame.posW - sd.posW);
 
     // Walk the point/spot lights binned to this point's cell in the coarse world
     // light grid (built each frame by LightGridBuildPass). Conservative binning
     // means every light whose reach-sphere touches the cell is present, so the
     // deterministic sum is exact apart from the kLightsPerCellMax cap.
-    CellLights cl = gScene.getCellLights(sd.posW);
+    CellLights cl = getCellLights(sd.posW);
     for (uint k = 0u; k < cl.count; ++k)
         Lr += shadeAnalyticLight(sd.posW, sd.normalW, V, sd.rough,
-                                        gScene.cellLightAt(cl, k), origin);
+                                        cellLightAt(cl, k), origin);
 
     return Lr;
 }
@@ -64,7 +64,7 @@ static const float3 kReservoirLum = float3(0.2126f, 0.7152f, 0.0722f);
 // receiving pixel whenever a neighbour's or previous frame's sample is reused.
 float directTargetPdf(DiffuseShading sd, uint lightIndex)
 {
-    float3 V = normalize(gScene.camera.getPosition() - sd.posW);
+    float3 V = normalize(gPerFrame.posW - sd.posW);
     return dot(unshadowedAnalyticLight(sd.posW, sd.normalW, V, sd.rough,
                                               lightIndex),
                kReservoirLum);
@@ -77,11 +77,11 @@ Reservoir buildDirectReservoir(DiffuseShading sd, inout RNG rng)
 {
     Reservoir r; r.init();
 
-    CellLights cl = gScene.getCellLights(sd.posW);
-    float3 V  = normalize(gScene.camera.getPosition() - sd.posW);
+    CellLights cl = getCellLights(sd.posW);
+    float3 V  = normalize(gPerFrame.posW - sd.posW);
     for (uint k = 0u; k < cl.count; ++k)
     {
-        uint li = gScene.cellLightAt(cl, k);
+        uint li = cellLightAt(cl, k);
         float pHat = dot(unshadowedAnalyticLight(sd.posW, sd.normalW, V,
                                                         sd.rough, li),
                          kReservoirLum);
@@ -97,7 +97,7 @@ float3 resolveDirectReservoir(DiffuseShading sd, Reservoir r, inout RNG rng)
 {
     if (r.isEmpty())
         return float3(0.f);
-    float3 V = normalize(gScene.camera.getPosition() - sd.posW);
+    float3 V = normalize(gPerFrame.posW - sd.posW);
     float3 origin = sd.posW + sd.normalW * kShadeRayEps;
     float3 shaded = shadeAnalyticLightSoft(sd.posW, sd.normalW, V, sd.rough,
                                                   r.y, origin, rng);
@@ -115,7 +115,7 @@ float3 gatherSurfelIndirect(float3 posW, float3 normalW)
 {
     uint flattenIndex;
     CellInfo cellInfo;
-    if (!lookupSurfelCell(posW, gScene.camera.getPosition(), flattenIndex, cellInfo))
+    if (!lookupSurfelCell(posW, gPerFrame.posW, flattenIndex, cellInfo))
         return float3(0.f);
 
     float4 indirect = float4(0.f);

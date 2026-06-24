@@ -68,7 +68,7 @@ void csMain(
                         dispatchThreadId.y < resolution.y);
 
     uint2 pixelPos   = dispatchThreadId.xy;
-    float3 cameraPos = gScene.camera.getPosition();
+    float3 cameraPos = gPerFrame.posW;
     float  fovy      = gPerFrame.cameraFov;
 
     RNG randomState;
@@ -79,7 +79,7 @@ void csMain(
     // gather loop never runs, indirectLighting.w stays 0, and the `if
     // (indirectLighting.w > 0)` block (the only writer of gOutput) is skipped
     // for every pixel. Stays inside the `active` guard so off-screen threads
-    // don't dereference gPackedHitInfo / gScene with invalid pixel coords.
+    // don't dereference gPackedHitInfo / scene buffers with invalid pixel coords.
     HitInfo  hitInfo;
     hitInfo.packed = uint4(0u, 0u, 0u, 0u);
     VertexData v        = {};
@@ -96,7 +96,7 @@ void csMain(
         else
         {
             TriangleHit triangleHit = hitInfo.getTriangleHit();
-            v = gScene.getVertexData(triangleHit);
+            v = getVertexData(triangleHit);
             // Linear, scale-correct placement depth. The reference used NDC
             // z/w here, but under this engine's 0.05–1000 camera far plane that
             // ratio saturates to ~1 for all geometry past ~1 m, defeating the
