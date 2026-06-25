@@ -18,45 +18,45 @@ extern cOAL_Device* gpDevice;
 
 // Effect Slots
 
-LPALGENAUXILIARYEFFECTSLOTS alGenAuxiliaryEffectSlots = NULL;
-LPALDELETEAUXILIARYEFFECTSLOTS alDeleteAuxiliaryEffectSlots = NULL;
-LPALISAUXILIARYEFFECTSLOT alIsAuxiliaryEffectSlot = NULL;
-LPALAUXILIARYEFFECTSLOTI alAuxiliaryEffectSloti = NULL;
-LPALAUXILIARYEFFECTSLOTIV alAuxiliaryEffectSlotiv = NULL;
-LPALAUXILIARYEFFECTSLOTF alAuxiliaryEffectSlotf = NULL;
-LPALAUXILIARYEFFECTSLOTFV alAuxiliaryEffectSlotfv = NULL;
-LPALGETAUXILIARYEFFECTSLOTI alGetAuxiliaryEffectSloti = NULL;
-LPALGETAUXILIARYEFFECTSLOTIV alGetAuxiliaryEffectSlotiv = NULL;
-LPALGETAUXILIARYEFFECTSLOTF alGetAuxiliaryEffectSlotf = NULL;
-LPALGETAUXILIARYEFFECTSLOTFV alGetAuxiliaryEffectSlotfv = NULL;
+LPALGENAUXILIARYEFFECTSLOTS oalw_alGenAuxiliaryEffectSlots = NULL;
+LPALDELETEAUXILIARYEFFECTSLOTS oalw_alDeleteAuxiliaryEffectSlots = NULL;
+LPALISAUXILIARYEFFECTSLOT oalw_alIsAuxiliaryEffectSlot = NULL;
+LPALAUXILIARYEFFECTSLOTI oalw_alAuxiliaryEffectSloti = NULL;
+LPALAUXILIARYEFFECTSLOTIV oalw_alAuxiliaryEffectSlotiv = NULL;
+LPALAUXILIARYEFFECTSLOTF oalw_alAuxiliaryEffectSlotf = NULL;
+LPALAUXILIARYEFFECTSLOTFV oalw_alAuxiliaryEffectSlotfv = NULL;
+LPALGETAUXILIARYEFFECTSLOTI oalw_alGetAuxiliaryEffectSloti = NULL;
+LPALGETAUXILIARYEFFECTSLOTIV oalw_alGetAuxiliaryEffectSlotiv = NULL;
+LPALGETAUXILIARYEFFECTSLOTF oalw_alGetAuxiliaryEffectSlotf = NULL;
+LPALGETAUXILIARYEFFECTSLOTFV oalw_alGetAuxiliaryEffectSlotfv = NULL;
 
 // Effects
 
-LPALGENEFFECTS alGenEffects = NULL;
-LPALDELETEEFFECTS alDeleteEffects = NULL;
-LPALISEFFECT alIsEffect = NULL;
-LPALEFFECTI alEffecti = NULL;
-LPALEFFECTIV alEffectiv = NULL;
-LPALEFFECTF alEffectf = NULL;
-LPALEFFECTFV alEffectfv = NULL;
-LPALGETEFFECTI alGetEffecti = NULL;
-LPALGETEFFECTIV alGetEffectiv = NULL;
-LPALGETEFFECTF alGetEffectf = NULL;
-LPALGETEFFECTFV alGetEffectfv = NULL;
+LPALGENEFFECTS oalw_alGenEffects = NULL;
+LPALDELETEEFFECTS oalw_alDeleteEffects = NULL;
+LPALISEFFECT oalw_alIsEffect = NULL;
+LPALEFFECTI oalw_alEffecti = NULL;
+LPALEFFECTIV oalw_alEffectiv = NULL;
+LPALEFFECTF oalw_alEffectf = NULL;
+LPALEFFECTFV oalw_alEffectfv = NULL;
+LPALGETEFFECTI oalw_alGetEffecti = NULL;
+LPALGETEFFECTIV oalw_alGetEffectiv = NULL;
+LPALGETEFFECTF oalw_alGetEffectf = NULL;
+LPALGETEFFECTFV oalw_alGetEffectfv = NULL;
 
 // Filters
 
-LPALGENFILTERS alGenFilters = NULL;
-LPALDELETEFILTERS alDeleteFilters = NULL;
-LPALISFILTER alIsFilter = NULL;
-LPALFILTERI alFilteri = NULL;
-LPALFILTERIV alFilteriv = NULL;
-LPALFILTERF alFilterf = NULL;
-LPALFILTERFV alFilterfv = NULL;
-LPALGETFILTERI alGetFilteri = NULL;
-LPALGETFILTERIV alGetFilteriv = NULL;
-LPALGETFILTERF alGetFilterf = NULL;
-LPALGETFILTERFV alGetFilterfv = NULL;
+LPALGENFILTERS oalw_alGenFilters = NULL;
+LPALDELETEFILTERS oalw_alDeleteFilters = NULL;
+LPALISFILTER oalw_alIsFilter = NULL;
+LPALFILTERI oalw_alFilteri = NULL;
+LPALFILTERIV oalw_alFilteriv = NULL;
+LPALFILTERF oalw_alFilterf = NULL;
+LPALFILTERFV oalw_alFilterfv = NULL;
+LPALGETFILTERI oalw_alGetFilteri = NULL;
+LPALGETFILTERIV oalw_alGetFilteriv = NULL;
+LPALGETFILTERF oalw_alGetFilterf = NULL;
+LPALGETFILTERFV oalw_alGetFilterfv = NULL;
 
 cOAL_EFXManager::cOAL_EFXManager() : mlNumSlots(0), mpvSlots(NULL), mplstEffectList(NULL), mplstFilterList(NULL)  
 {
@@ -81,55 +81,55 @@ bool cOAL_EFXManager::Initialize(int alNumSlotsHint, int alNumSends, bool abUseT
 
 
 	// Slot funcs
-	alGenAuxiliaryEffectSlots		=	(LPALGENAUXILIARYEFFECTSLOTS) alGetProcAddress ("alGenAuxiliaryEffectSlots");
-	alDeleteAuxiliaryEffectSlots	=	(LPALDELETEAUXILIARYEFFECTSLOTS) alGetProcAddress ("alDeleteAuxiliaryEffectSlots");
-	alIsAuxiliaryEffectSlot			=	(LPALISAUXILIARYEFFECTSLOT) alGetProcAddress ("alIsAuxiliaryEffectSlot");
-	alAuxiliaryEffectSloti			=	(LPALAUXILIARYEFFECTSLOTI) alGetProcAddress ("alAuxiliaryEffectSloti");
-	alAuxiliaryEffectSlotiv			=	(LPALAUXILIARYEFFECTSLOTIV) alGetProcAddress ("alAuxiliaryEffectSlotiv");
-	alAuxiliaryEffectSlotf			=	(LPALAUXILIARYEFFECTSLOTF) alGetProcAddress ("alAuxiliaryEffectSlotf");
-	alAuxiliaryEffectSlotfv			=	(LPALAUXILIARYEFFECTSLOTFV) alGetProcAddress ("alAuxiliaryEffectSlotfv");
-	alGetAuxiliaryEffectSloti		=	(LPALGETAUXILIARYEFFECTSLOTI) alGetProcAddress ("alGetAuxiliaryEffectSloti");
-	alGetAuxiliaryEffectSlotiv		=	(LPALGETAUXILIARYEFFECTSLOTIV) alGetProcAddress ("alGetAuxiliaryEffectSlotiv");
-	alGetAuxiliaryEffectSlotf		=	(LPALGETAUXILIARYEFFECTSLOTF) alGetProcAddress ("alGetAuxiliaryEffectSlotf");
-	alGetAuxiliaryEffectSlotfv		=	(LPALGETAUXILIARYEFFECTSLOTFV) alGetProcAddress ("alGetAuxiliaryEffectSlotfv");
+	oalw_alGenAuxiliaryEffectSlots		=	(LPALGENAUXILIARYEFFECTSLOTS) alGetProcAddress ("alGenAuxiliaryEffectSlots");
+	oalw_alDeleteAuxiliaryEffectSlots	=	(LPALDELETEAUXILIARYEFFECTSLOTS) alGetProcAddress ("alDeleteAuxiliaryEffectSlots");
+	oalw_alIsAuxiliaryEffectSlot			=	(LPALISAUXILIARYEFFECTSLOT) alGetProcAddress ("alIsAuxiliaryEffectSlot");
+	oalw_alAuxiliaryEffectSloti			=	(LPALAUXILIARYEFFECTSLOTI) alGetProcAddress ("alAuxiliaryEffectSloti");
+	oalw_alAuxiliaryEffectSlotiv			=	(LPALAUXILIARYEFFECTSLOTIV) alGetProcAddress ("alAuxiliaryEffectSlotiv");
+	oalw_alAuxiliaryEffectSlotf			=	(LPALAUXILIARYEFFECTSLOTF) alGetProcAddress ("alAuxiliaryEffectSlotf");
+	oalw_alAuxiliaryEffectSlotfv			=	(LPALAUXILIARYEFFECTSLOTFV) alGetProcAddress ("alAuxiliaryEffectSlotfv");
+	oalw_alGetAuxiliaryEffectSloti		=	(LPALGETAUXILIARYEFFECTSLOTI) alGetProcAddress ("alGetAuxiliaryEffectSloti");
+	oalw_alGetAuxiliaryEffectSlotiv		=	(LPALGETAUXILIARYEFFECTSLOTIV) alGetProcAddress ("alGetAuxiliaryEffectSlotiv");
+	oalw_alGetAuxiliaryEffectSlotf		=	(LPALGETAUXILIARYEFFECTSLOTF) alGetProcAddress ("alGetAuxiliaryEffectSlotf");
+	oalw_alGetAuxiliaryEffectSlotfv		=	(LPALGETAUXILIARYEFFECTSLOTFV) alGetProcAddress ("alGetAuxiliaryEffectSlotfv");
 
 	// Effect funcs
-	alGenEffects	=	(LPALGENEFFECTS) alGetProcAddress ("alGenEffects");
-	alDeleteEffects =	(LPALDELETEEFFECTS) alGetProcAddress ("alDeleteEffects");
-	alIsEffect		=	(LPALISEFFECT) alGetProcAddress ("alIsEffect");
-	alEffecti		=	(LPALEFFECTI) alGetProcAddress ("alEffecti");
-	alEffectiv		=	(LPALEFFECTIV) alGetProcAddress ("alEffectiv");
-	alEffectf		=	(LPALEFFECTF) alGetProcAddress ("alEffectf");
-	alEffectfv		=	(LPALEFFECTFV) alGetProcAddress ("alEffectfv");
-	alGetEffecti	=	(LPALGETEFFECTI) alGetProcAddress ("alGetEffecti");
-	alGetEffectiv	=	(LPALGETEFFECTIV) alGetProcAddress ("alGetEffectiv");
-	alGetEffectf	=	(LPALGETEFFECTF) alGetProcAddress ("alGetEffectf");
-	alGetEffectfv	=	(LPALGETEFFECTFV) alGetProcAddress ("alGetEffectfv");
+	oalw_alGenEffects	=	(LPALGENEFFECTS) alGetProcAddress ("alGenEffects");
+	oalw_alDeleteEffects =	(LPALDELETEEFFECTS) alGetProcAddress ("alDeleteEffects");
+	oalw_alIsEffect		=	(LPALISEFFECT) alGetProcAddress ("alIsEffect");
+	oalw_alEffecti		=	(LPALEFFECTI) alGetProcAddress ("alEffecti");
+	oalw_alEffectiv		=	(LPALEFFECTIV) alGetProcAddress ("alEffectiv");
+	oalw_alEffectf		=	(LPALEFFECTF) alGetProcAddress ("alEffectf");
+	oalw_alEffectfv		=	(LPALEFFECTFV) alGetProcAddress ("alEffectfv");
+	oalw_alGetEffecti	=	(LPALGETEFFECTI) alGetProcAddress ("alGetEffecti");
+	oalw_alGetEffectiv	=	(LPALGETEFFECTIV) alGetProcAddress ("alGetEffectiv");
+	oalw_alGetEffectf	=	(LPALGETEFFECTF) alGetProcAddress ("alGetEffectf");
+	oalw_alGetEffectfv	=	(LPALGETEFFECTFV) alGetProcAddress ("alGetEffectfv");
 	
 	// Filter funcs
-	alGenFilters	= (LPALGENFILTERS) alGetProcAddress ("alGenFilters");
-	alDeleteFilters = (LPALDELETEFILTERS) alGetProcAddress ("alDeleteFilters");
-	alIsFilter		= (LPALISFILTER) alGetProcAddress ("alIsFilter");
-	alFilteri		= (LPALFILTERI) alGetProcAddress ("alFilteri");
-	alFilteriv		= (LPALFILTERIV) alGetProcAddress ("alFilteriv");
-	alFilterf		= (LPALFILTERF) alGetProcAddress ("alFilterf");
-	alFilterfv		= (LPALFILTERFV) alGetProcAddress ("alFilterfv");
-	alGetFilteri	= (LPALGETFILTERI) alGetProcAddress ("alGetFilteri");
-	alGetFilteriv	= (LPALGETFILTERIV) alGetProcAddress ("alGetFilteriv");
-	alGetFilterf	= (LPALGETFILTERF) alGetProcAddress ("alGetFilterf");
-	alGetFilterfv	= (LPALGETFILTERFV) alGetProcAddress ("alGetFilterfv");
+	oalw_alGenFilters	= (LPALGENFILTERS) alGetProcAddress ("alGenFilters");
+	oalw_alDeleteFilters = (LPALDELETEFILTERS) alGetProcAddress ("alDeleteFilters");
+	oalw_alIsFilter		= (LPALISFILTER) alGetProcAddress ("alIsFilter");
+	oalw_alFilteri		= (LPALFILTERI) alGetProcAddress ("alFilteri");
+	oalw_alFilteriv		= (LPALFILTERIV) alGetProcAddress ("alFilteriv");
+	oalw_alFilterf		= (LPALFILTERF) alGetProcAddress ("alFilterf");
+	oalw_alFilterfv		= (LPALFILTERFV) alGetProcAddress ("alFilterfv");
+	oalw_alGetFilteri	= (LPALGETFILTERI) alGetProcAddress ("alGetFilteri");
+	oalw_alGetFilteriv	= (LPALGETFILTERIV) alGetProcAddress ("alGetFilteriv");
+	oalw_alGetFilterf	= (LPALGETFILTERF) alGetProcAddress ("alGetFilterf");
+	oalw_alGetFilterfv	= (LPALGETFILTERFV) alGetProcAddress ("alGetFilterfv");
 
-	if (!(alGenAuxiliaryEffectSlots && alDeleteAuxiliaryEffectSlots && alIsAuxiliaryEffectSlot &&
-		alAuxiliaryEffectSloti && alAuxiliaryEffectSlotiv && alAuxiliaryEffectSlotf && alAuxiliaryEffectSlotfv &&
-		alGetAuxiliaryEffectSloti && alGetAuxiliaryEffectSlotiv && alGetAuxiliaryEffectSlotf && alGetAuxiliaryEffectSlotfv &&
+	if (!(oalw_alGenAuxiliaryEffectSlots && oalw_alDeleteAuxiliaryEffectSlots && oalw_alIsAuxiliaryEffectSlot &&
+		oalw_alAuxiliaryEffectSloti && oalw_alAuxiliaryEffectSlotiv && oalw_alAuxiliaryEffectSlotf && oalw_alAuxiliaryEffectSlotfv &&
+		oalw_alGetAuxiliaryEffectSloti && oalw_alGetAuxiliaryEffectSlotiv && oalw_alGetAuxiliaryEffectSlotf && oalw_alGetAuxiliaryEffectSlotfv &&
 
-		alGenEffects && alDeleteEffects && alIsEffect &&
-		alEffecti && alEffectiv && alEffectf && alEffectfv && 
-		alGetEffecti && alGetEffectiv && alGetEffectf && alGetEffectfv &&
+		oalw_alGenEffects && oalw_alDeleteEffects && oalw_alIsEffect &&
+		oalw_alEffecti && oalw_alEffectiv && oalw_alEffectf && oalw_alEffectfv && 
+		oalw_alGetEffecti && oalw_alGetEffectiv && oalw_alGetEffectf && oalw_alGetEffectfv &&
 
-		alGenFilters && alDeleteFilters && alIsFilter &&
-		alFilteri && alFilteriv && alFilterf && alFilterfv &&
-		alGetFilteri && alGetFilteriv && alGetFilterf && alGetFilterfv))
+		oalw_alGenFilters && oalw_alDeleteFilters && oalw_alIsFilter &&
+		oalw_alFilteri && oalw_alFilteriv && oalw_alFilterf && oalw_alFilterfv &&
+		oalw_alGetFilteri && oalw_alGetFilteriv && oalw_alGetFilterf && oalw_alGetFilterfv))
 	{
 		LogMsg("",eOAL_LogVerbose_Medium, eOAL_LogMsg_Error, "Failed initializing function pointers\n" );
 		return false;
@@ -140,7 +140,7 @@ bool cOAL_EFXManager::Initialize(int alNumSlotsHint, int alNumSends, bool abUseT
 
 	while ( mlNumSlots < alNumSlotsHint )
 	{
-		RUN_AL_FUNC(alGenAuxiliaryEffectSlots(1,&lTempSlot[mlNumSlots]));
+		RUN_AL_FUNC(oalw_alGenAuxiliaryEffectSlots(1,&lTempSlot[mlNumSlots]));
 		if (!AL_ERROR_OCCURED)
 		{
 			LogMsg("",eOAL_LogVerbose_High, eOAL_LogMsg_Info, "Effect Slot Object successfully created\n" );
@@ -158,7 +158,7 @@ bool cOAL_EFXManager::Initialize(int alNumSlotsHint, int alNumSends, bool abUseT
 
 	LogMsg("",eOAL_LogVerbose_Medium, eOAL_LogMsg_Info, "Created %d Low Level Effect Slots, %d hinted\n", mlNumSlots, alNumSlotsHint);
 
-	RUN_AL_FUNC(alDeleteAuxiliaryEffectSlots ( mlNumSlots, lTempSlot ));
+	RUN_AL_FUNC(oalw_alDeleteAuxiliaryEffectSlots ( mlNumSlots, lTempSlot ));
 	
 	mpvSlots = hplNew (tSlotVector ,());
 	mpvSlots->reserve(mlNumSlots);

@@ -30,7 +30,7 @@ bool cOAL_EffectSlot::CreateLowLevelID()
 	DEF_FUNC_NAME("cOAL_EffectSlot::CreateLowLevelID()");
 	FUNC_USES_AL;
 
-	RUN_AL_FUNC(alGenAuxiliaryEffectSlots(1,&mlObjectId));
+	RUN_AL_FUNC(oalw_alGenAuxiliaryEffectSlots(1,&mlObjectId));
 
 	return (!AL_ERROR_OCCURED && IsValidObject());
 }
@@ -40,7 +40,7 @@ bool cOAL_EffectSlot::DestroyLowLevelID()
 	DEF_FUNC_NAME("cOAL_EffectSlot::DestroyLowLevelID()");
 	FUNC_USES_AL;
 
-	RUN_AL_FUNC(alDeleteAuxiliaryEffectSlots(1,&mlObjectId));
+	RUN_AL_FUNC(oalw_alDeleteAuxiliaryEffectSlots(1,&mlObjectId));
 
 	return (!AL_ERROR_OCCURED && !IsValidObject());
 }
@@ -50,7 +50,7 @@ bool cOAL_EffectSlot::IsValidObject()
 	DEF_FUNC_NAME("cOAL_EffectSlot::IsValidObject()");
 	FUNC_USES_AL;
 
-	return (alIsAuxiliaryEffectSlot(mlObjectId) == AL_TRUE);
+	return (oalw_alIsAuxiliaryEffectSlot(mlObjectId) == AL_TRUE);
 
 }
 
@@ -67,7 +67,7 @@ bool cOAL_EffectSlot::AttachEffect ( cOAL_Effect *apEffect )
 
     mpEffect = apEffect;
 
-	RUN_AL_FUNC ( alAuxiliaryEffectSloti (mlObjectId, AL_EFFECTSLOT_EFFECT, ((mpEffect == NULL)? AL_EFFECT_NULL : mpEffect->GetEffectID()) ) );
+	RUN_AL_FUNC ( oalw_alAuxiliaryEffectSloti (mlObjectId, AL_EFFECTSLOT_EFFECT, ((mpEffect == NULL)? AL_EFFECT_NULL : mpEffect->GetEffectID()) ) );
 	
 	return !AL_ERROR_OCCURED;
 }
@@ -81,7 +81,7 @@ void cOAL_EffectSlot::SetGain ( float afGain )
 		afGain = 0;
 	if (afGain >1)
 		afGain = 1;
-	RUN_AL_FUNC( alAuxiliaryEffectSlotf (mlObjectId, AL_EFFECTSLOT_GAIN, afGain));
+	RUN_AL_FUNC( oalw_alAuxiliaryEffectSlotf (mlObjectId, AL_EFFECTSLOT_GAIN, afGain));
 }
 
 void cOAL_EffectSlot::SetAutoAdjust( bool abAuto )
@@ -89,7 +89,7 @@ void cOAL_EffectSlot::SetAutoAdjust( bool abAuto )
 	DEF_FUNC_NAME("");
 	FUNC_USES_AL;
 
-	RUN_AL_FUNC( alAuxiliaryEffectSloti (mlObjectId, AL_EFFECTSLOT_AUXILIARY_SEND_AUTO, (ALboolean) abAuto));
+	RUN_AL_FUNC( oalw_alAuxiliaryEffectSloti (mlObjectId, AL_EFFECTSLOT_AUXILIARY_SEND_AUTO, (ALboolean) abAuto));
 }
 
 void cOAL_EffectSlot::Update()
@@ -102,7 +102,7 @@ void cOAL_EffectSlot::Update()
 		mpEffect->Lock();
 		if (mpEffect->NeedsUpdate())
 		{
-			RUN_AL_FUNC( alAuxiliaryEffectSloti(mlObjectId, AL_EFFECTSLOT_EFFECT, mpEffect->GetEffectID()) );
+			RUN_AL_FUNC( oalw_alAuxiliaryEffectSloti(mlObjectId, AL_EFFECTSLOT_EFFECT, mpEffect->GetEffectID()) );
 			//LogMsg("",eOAL_LogVerbose_Medium, eOAL_LogMsg_Info, "Slot updated\n");
 			mpEffect->SetUpdated();
 		}

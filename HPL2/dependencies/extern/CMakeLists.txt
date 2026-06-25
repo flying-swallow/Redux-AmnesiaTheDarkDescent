@@ -43,13 +43,25 @@ if(USE_SYSTEM_ZLIB)
     add_library(zlib ALIAS ZLIB::ZLIB)
   endif()
 else()
-  file(GLOB ZLIB_SOURCES CONFIGURE_DEPENDS "${HPL2_DEPS_SOURCE_DIR}/zlib/*.c")
-  add_library(zlib STATIC ${ZLIB_SOURCES})
-  add_library(ZLIB::ZLIB ALIAS zlib)
-  target_include_directories(zlib PUBLIC "${HPL2_DEPS_SOURCE_DIR}/zlib")
-  set_target_properties(zlib PROPERTIES POSITION_INDEPENDENT_CODE ON)
-  set(ZLIB_INCLUDE_DIR "${HPL2_DEPS_SOURCE_DIR}/zlib" CACHE PATH "" FORCE)
-  set(ZLIB_INCLUDE_DIRS "${HPL2_DEPS_SOURCE_DIR}/zlib" CACHE PATH "" FORCE)
+  # The bundled zlib is built from its own (portable, cross-platform) CMake
+  # rather than the Windows-oriented vendored sources under sources/zlib, which
+  # hardcode _open/_wopen and don't build on Linux. zlib's CMake generates
+  # zconf.h into its build dir, so we add the submodule instead of globbing.
+  option(ZLIB_BUILD_EXAMPLES "" OFF)
+  add_subdirectory(zlib)
+  set_output_dir(zlib "")
+  # zlib's CMake uses directory-level include_directories that don't propagate
+  # through the target; wire the source + generated-header dirs onto the target
+  # so consumers (png, DevIL) find zlib.h / zconf.h.
+  target_include_directories(zlib PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/zlib"
+    "${CMAKE_CURRENT_BINARY_DIR}/zlib"
+  )
+  if(NOT TARGET ZLIB::ZLIB)
+    add_library(ZLIB::ZLIB ALIAS zlib)
+  endif()
+  set(ZLIB_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/zlib;${CMAKE_CURRENT_BINARY_DIR}/zlib" CACHE STRING "" FORCE)
+  set(ZLIB_INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/zlib;${CMAKE_CURRENT_BINARY_DIR}/zlib" CACHE STRING "" FORCE)
   set(ZLIB_LIBRARY zlib CACHE STRING "" FORCE)
   set(ZLIB_LIBRARIES zlib CACHE STRING "" FORCE)
 endif()
@@ -78,6 +90,10 @@ else()
   list(REMOVE_ITEM VORBIS_SOURCES
     "${HPL2_DEPS_SOURCE_DIR}/vorbis/vorbisenc.c"
     "${HPL2_DEPS_SOURCE_DIR}/vorbis/vorbisfile.c"
+    # Standalone programs (each has its own main()), not part of libvorbis.
+    "${HPL2_DEPS_SOURCE_DIR}/vorbis/psytune.c"
+    "${HPL2_DEPS_SOURCE_DIR}/vorbis/tone.c"
+    "${HPL2_DEPS_SOURCE_DIR}/vorbis/barkmel.c"
   )
 
   add_library(vorbis STATIC ${VORBIS_SOURCES})
@@ -113,19 +129,16 @@ endif()
 
 if(USE_SYSTEM_SDL2)
   find_package(SDL2 REQUIRED GLOBAL)
-elseif(EXISTS "${HPL2_DEPS_SOURCE_DIR}/SDL2/CMakeLists.txt")
+else()
   option(SDL_RPATH "" OFF)
   option(SDL_SHARED "" ON)
   option(SDL_STATIC "" OFF)
   option(SDL_SHARED_ENABLED_BY_DEFAULT "" OFF)
   option(SDL_TEST "" OFF)
   option(SDL2_DISABLE_INSTALL "" ON)
-  add_subdirectory("${HPL2_DEPS_SOURCE_DIR}/SDL2" "${CMAKE_CURRENT_BINARY_DIR}/SDL2")
+  add_subdirectory(SDL)
   set_output_dir(SDL2 "")
-  set(SDL2_INCLUDE_DIR "${HPL2_DEPS_INCLUDE_DIR}/SDL2" CACHE PATH "" FORCE)
-else()
-  message(STATUS "Bundled SDL2 source has no CMakeLists.txt; using system SDL2.")
-  find_package(SDL2 REQUIRED GLOBAL)
+  set(SDL2_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/SDL/include" CACHE PATH "" FORCE)
 endif()
 
 if(NOT TARGET SDL2::SDL2)
