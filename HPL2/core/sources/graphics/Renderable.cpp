@@ -40,7 +40,7 @@ namespace hpl {
 
 		mbStatic = false;
 
-		mlRenderFlags =eRenderableFlag_VisibleInReflection | eRenderableFlag_VisibleInNonReflection;
+		mlRenderFlags =eRenderableFlag_VisibleInReflection | eRenderableFlag_VisibleInNonReflection | eRenderableFlag_ShadowCaster;
 		
 		mfIlluminationAmount = 1.0f;
 		mfCoverageAmount = 1.0f;

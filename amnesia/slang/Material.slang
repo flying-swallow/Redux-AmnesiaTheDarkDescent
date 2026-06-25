@@ -130,7 +130,10 @@ public bool traceShadowRay(float3 origin, float3 dir, float tMax)
     RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
            | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES
            | RAY_FLAG_CULL_FRONT_FACING_TRIANGLES> q;
-    q.TraceRayInline(gRtAccel, 0, kRayMaskOpaque, ray);
+    // Cull on the shadow-caster bit: only instances whose ShadowCaster flag is on
+    // carry kRayMaskShadow, so non-casters stop blocking light (still visible/lit
+    // via the kRayMaskOpaque rays elsewhere).
+    q.TraceRayInline(gRtAccel, 0, kRayMaskShadow, ray);
 
     while (q.Proceed())
     {

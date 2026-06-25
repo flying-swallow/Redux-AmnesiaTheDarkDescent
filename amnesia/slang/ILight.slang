@@ -32,6 +32,10 @@ public interface ILight
     public float getRadius();         // light-grid bin reach (world units); 0 => skip
     public bool sample(float3 shadingPosW, out LightSample ls);
 
+    // Whether this light casts shadows (GetCastShadows). When false the NEE
+    // shadow ray is skipped — the light fully lights its targets, no occlusion.
+    public bool castsShadow();
+
     // Jittered point on the emitter for soft-shadow rays. `dirToLight` is the unit
     // direction from the shading point to the light (used to orient a perpendicular
     // disk for spherical point/spot sources; area lights ignore it and sample their
@@ -79,6 +83,7 @@ public extension PointLight : ILight
     public float3 getColor()    { return color; }
     public float3 getPosition() { return position; }
     public float getRadius()       { return radius; }
+    public bool castsShadow()   { return shadowEnabled != 0u; }
     public float3 sampleSourcePoint(float3 dirToLight, float2 u)
     {
         return diskSourcePoint(position, sourceRadius, dirToLight, u);
@@ -118,6 +123,7 @@ public extension SpotLight : ILight
     public float3 getColor()    { return color; }
     public float3 getPosition() { return position; }
     public float getRadius()       { return radius; }
+    public bool castsShadow()   { return shadowEnabled != 0u; }
     public float3 sampleSourcePoint(float3 dirToLight, float2 u)
     {
         return diskSourcePoint(position, sourceRadius, dirToLight, u);
@@ -166,6 +172,7 @@ public extension RectLight : ILight
     public float3 getColor()    { return color; }
     public float3 getPosition() { return position; }
     public float getRadius()       { return radius; }
+    public bool castsShadow()   { return shadowEnabled != 0u; }
     // Soft shadows sample the actual rectangle: a uniform point across the
     // width×height plane (right/up axes). The area itself IS the source, so there
     // is no disk radius — a larger source rectangle casts a softer penumbra.

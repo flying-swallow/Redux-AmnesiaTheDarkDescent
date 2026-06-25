@@ -565,6 +565,7 @@ static PointLight BuildPointLight(iLight *pLight) {
   pl.radius = pLight->GetRadius();
   pl.sourceRadius = pLight->GetSourceRadius();
   pl.goboTextureIndex = PinnedBindlessSlot(pLight->GetGoboImage());
+  pl.shadowEnabled = pLight->GetCastShadows() ? 1u : 0u;
   const cMatrixf &world = pLight->GetWorldMatrix();
   pl.worldToLightX[0] = world.m[0][0];
   pl.worldToLightX[1] = world.m[0][1];
@@ -637,6 +638,7 @@ static RectLight BuildRectLight(iLight *pLight) {
   al.barnDoorAngle = pArea->GetBarnDoorAngle();
   al.barnDoorLength = pArea->GetBarnDoorLength();
   al.sourceTextureIndex = PinnedBindlessSlot(pArea->GetGoboImage());
+  al.shadowEnabled = pArea->GetCastShadows() ? 1u : 0u;
   // UE Rect Light basis: width = local +Y (world col 1), height = local +Z
   // (col 2), emission normal = local +X (col 0).
   const cMatrixf &world = pArea->GetWorldMatrix();
@@ -1008,6 +1010,12 @@ void cWorld::BuildTlas(RIBootstrap::FrameContext *cntx, cFrustum *apFrustum) {
         inst.transform.matrix[r][c] = modelF4.a[c * 4 + r];
     inst.instanceCustomIndex = slot;
     inst.mask = translucent ? kRayMaskTranslucent : kRayMaskOpaque;
+    // Shadow-caster bit: opaque instances whose ShadowCaster flag is on also get
+    // kRayMaskShadow, which the NEE shadow ray culls on. Non-casters keep only
+    // kRayMaskOpaque, so they stay visible / lit / reflected but stop blocking
+    // light. Translucents never cast shadows (unchanged).
+    if (!translucent && pObject->GetRenderFlagBit(eRenderableFlag_ShadowCaster))
+      inst.mask |= kRayMaskShadow;
     inst.instanceShaderBindingTableRecordOffset = 0;
     inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_FLIP_FACING;
     if (!translucent) {

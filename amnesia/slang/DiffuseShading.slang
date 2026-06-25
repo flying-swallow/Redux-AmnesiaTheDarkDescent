@@ -115,7 +115,9 @@ public float3 shadeAnalyticLight(float3 posW, float3 normalW, float3 V,
     float3 contrib;
     if (!sampleLightShade(lightIndex, posW, normalW, V, rough, ls, contrib))
         return float3(0.f);
-    if (!traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
+    // A light with cast-shadows off lights its targets unoccluded (skip the ray).
+    if (getLight(lightIndex).castsShadow() &&
+        !traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
     return contrib;
 }
 
@@ -143,7 +145,8 @@ public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW, float3 V,
     float  sMax = length(toT);
     float3 sDir = toT / max(sMax, 1.0e-6f);
 
-    if (!traceShadowRay(origin, sDir, sMax)) return float3(0.f);
+    if (getLight(lightIndex).castsShadow() &&
+        !traceShadowRay(origin, sDir, sMax)) return float3(0.f);
     return contrib;
 }
 

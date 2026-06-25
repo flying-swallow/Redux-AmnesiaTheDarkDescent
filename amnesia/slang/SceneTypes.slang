@@ -43,6 +43,7 @@ SLANG_PUBLIC struct PointLight {
     SLANG_PUBLIC float3  worldToLightZ;
     SLANG_PUBLIC float radius;                       // CPU-precomputed light-grid bin reach (world units); 0 ⇒ skip
     SLANG_PUBLIC float sourceRadius;                 // physical source radius (world units); 0 ⇒ hard shadow. Penumbra.
+    SLANG_PUBLIC uint  shadowEnabled;                // 0 or 1 — gate the NEE shadow ray (GetCastShadows)
 };
 
 // Scalar-layout spot light. `intensity` = luminous power (same convention as
@@ -92,6 +93,7 @@ SLANG_PUBLIC struct RectLight {
     SLANG_PUBLIC float radius;                       // attenuation radius (world units); falloff windows to 0 here; 0 ⇒ skip
     SLANG_PUBLIC float barnDoorAngle;                // flap tilt from normal (radians); 90° ⇒ open
     SLANG_PUBLIC float barnDoorLength;               // flap length (world units); 0 ⇒ disabled
+    SLANG_PUBLIC uint  shadowEnabled;                // 0 or 1 — gate the NEE shadow ray (GetCastShadows)
 };
 
 // Per-fog-area params for the screen-space fog iteration. One entry per

@@ -171,6 +171,11 @@ SHARED_CONST uint kAnimModeOscillate         = 2u;
 // via MSME and surfaces as NaN in SurfelGenerationPass gOutput.
 SHARED_CONST uint kRayMaskOpaque             = 0x01u;
 SHARED_CONST uint kRayMaskTranslucent        = 0x02u;
+// Shadow-caster bit: set ONLY on opaque instances whose eRenderableFlag_ShadowCaster
+// is on. Shadow rays cull on this bit (so non-casters stop blocking light) while
+// primary / GI / reflection rays keep using kRayMaskOpaque (non-casters stay
+// visible, lit, reflected, and contribute GI).
+SHARED_CONST uint kRayMaskShadow             = 0x04u;
 SHARED_CONST uint kRayMaskAll                = 0xffu;
 
 // -----------------------------------------------------------------------------
