@@ -1,33 +1,21 @@
-[submodule "extern/volk"]
-	path = extern/volk
-	url = https://github.com/zeux/volk.git
-[submodule "extern/VulkanMemoryAllocator"]
-	path = extern/VulkanMemoryAllocator
-	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
-[submodule "extern/zlib"]
-	path = extern/zlib
-	url = https://github.com/madler/zlib.git
-[submodule "extern/openal-soft"]
-	path = extern/openal-soft
+[submodule "HPL2/dependencies/extern/openal-soft"]
+	path = HPL2/dependencies/extern/openal-soft
 	url = https://github.com/kcat/openal-soft.git
-[submodule "extern/tinyxml2"]
-	path = extern/tinyxml2
+[submodule "HPL2/dependencies/extern/tinyxml2"]
+	path = HPL2/dependencies/extern/tinyxml2
 	url = https://github.com/leethomason/tinyxml2.git
-[submodule "extern/ogg"]
-	path = extern/ogg
-	url = https://github.com/xiph/ogg.git
-[submodule "extern/vorbis"]
-	path = extern/vorbis
-	url = https://github.com/xiph/vorbis.git
-[submodule "extern/SDL"]
-	path = extern/SDL
-	url = https://github.com/libsdl-org/SDL.git
-[submodule "extern/MathLib"]
-	path = extern/MathLib
-	url = https://github.com/NVIDIA-RTX/MathLib.git
-[submodule "extern/Vulkan-Headers"]
-	path = extern/Vulkan-Headers
-	url = https://github.com/KhronosGroup/Vulkan-Headers.git
-[submodule "extern/tracy"]
-	path = extern/tracy
+[submodule "HPL2/dependencies/extern/volk"]
+	path = HPL2/dependencies/extern/volk
+	url = https://github.com/zeux/volk.git
+[submodule "HPL2/dependencies/extern/tracy"]
+	path = HPL2/dependencies/extern/tracy
 	url = https://github.com/wolfpld/tracy.git
+[submodule "HPL2/dependencies/extern/MathLib"]
+	path = HPL2/dependencies/extern/MathLib
+	url = https://github.com/NVIDIA-RTX/MathLib.git
+[submodule "HPL2/dependencies/extern/Vulkan-Headers"]
+	path = HPL2/dependencies/extern/Vulkan-Headers
+	url = https://github.com/KhronosGroup/Vulkan-Headers
+[submodule "HPL2/dependencies/extern/VulkanMemoryAllocator"]
+	path = HPL2/dependencies/extern/VulkanMemoryAllocator
+	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
