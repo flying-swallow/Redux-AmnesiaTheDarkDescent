@@ -294,9 +294,6 @@
     <ClInclude Include="include\scene\LightSpot.h">
       <Filter>Scene</Filter>
     </ClInclude>
-    <ClInclude Include="include\scene\LightBox.h">
-      <Filter>Scene</Filter>
-    </ClInclude>
     <ClInclude Include="include\scene\MeshEntity.h">
       <Filter>Scene</Filter>
     </ClInclude>
@@ -1063,9 +1060,6 @@
     <ClInclude Include="include\scene\Decal.h">
       <Filter>Scene</Filter>
     </ClInclude>
-    <ClInclude Include="include\graphics\HybridGlobalManagedSet.h">
-      <Filter>Graphics</Filter>
-    </ClInclude>
     <ClInclude Include="include\graphics\DebugDraw.h">
       <Filter>Graphics</Filter>
     </ClInclude>
@@ -1126,6 +1120,12 @@
     <ClInclude Include="include\graphics\RITimeline.h" />
     <ClInclude Include="include\scene\LightArea.h">
       <Filter>Scene</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\GlobalManagedSets.h">
+      <Filter>Graphics</Filter>
+    </ClInclude>
+    <ClInclude Include="include\graphics\RIPreamble.h">
+      <Filter>Graphics</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -1313,9 +1313,6 @@
       <Filter>Scene</Filter>
     </ClCompile>
     <ClCompile Include="sources\scene\LightSpot.cpp">
-      <Filter>Scene</Filter>
-    </ClCompile>
-    <ClCompile Include="sources\scene\LightBox.cpp">
       <Filter>Scene</Filter>
     </ClCompile>
     <ClCompile Include="sources\scene\MeshEntity.cpp">
@@ -1984,9 +1981,6 @@
     <ClCompile Include="sources\system\Hasher.cpp">
       <Filter>System</Filter>
     </ClCompile>
-    <ClCompile Include="sources\graphics\HybridGlobalManagedSet.cpp">
-      <Filter>Graphics</Filter>
-    </ClCompile>
     <ClCompile Include="sources\graphics\DebugDraw.cpp">
       <Filter>Graphics</Filter>
     </ClCompile>
@@ -2031,6 +2025,9 @@
     </ClCompile>
     <ClCompile Include="sources\scene\LightArea.cpp">
       <Filter>Scene</Filter>
+    </ClCompile>
+    <ClCompile Include="sources\graphics\GlobalManagedSets.cpp">
+      <Filter>Graphics</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

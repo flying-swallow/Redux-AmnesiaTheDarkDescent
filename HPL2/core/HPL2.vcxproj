@@ -171,9 +171,9 @@
     <ClInclude Include="include\graphics\FrameSubImage.h" />
     <ClInclude Include="include\graphics\FrameTexture.h" />
     <ClInclude Include="include\graphics\GBufferMRTPipelineDesc.h" />
+    <ClInclude Include="include\graphics\GlobalManagedSets.h" />
     <ClInclude Include="include\graphics\GraphicUtils.h" />
     <ClInclude Include="include\graphics\HPLGraphicsConfig.h" />
-    <ClInclude Include="include\graphics\HybridGlobalManagedSet.h" />
     <ClInclude Include="include\graphics\HybridRenderer.h" />
     <ClInclude Include="include\graphics\Image.h" />
     <ClInclude Include="include\graphics\IndexPool.h" />
@@ -195,6 +195,7 @@
     <ClInclude Include="include\graphics\RIFormat.h" />
     <ClInclude Include="include\graphics\RIGPUPreset.h" />
     <ClInclude Include="include\graphics\RIPogoBuffer.h" />
+    <ClInclude Include="include\graphics\RIPreamble.h" />
     <ClInclude Include="include\graphics\RIProgram.h" />
     <ClInclude Include="include\graphics\RIProgramHelpers.h" />
     <ClInclude Include="include\graphics\RIRenderer.h" />
@@ -303,7 +304,6 @@
     <ClInclude Include="include\scene\Light.h" />
     <ClInclude Include="include\scene\LightPoint.h" />
     <ClInclude Include="include\scene\LightSpot.h" />
-    <ClInclude Include="include\scene\LightBox.h" />
     <ClInclude Include="include\scene\MeshEntity.h" />
     <ClInclude Include="include\scene\Node3D.h" />
     <ClInclude Include="include\scene\NodeState.h" />
@@ -523,9 +523,9 @@
     <ClCompile Include="sources\graphics\FrameSubImage.cpp" />
     <ClCompile Include="sources\graphics\FrameTexture.cpp" />
     <ClCompile Include="sources\graphics\GBufferMRTPipelineDesc.cpp" />
+    <ClCompile Include="sources\graphics\GlobalManagedSets.cpp" />
     <ClCompile Include="sources\graphics\GraphicUtils.cpp" />
     <ClCompile Include="sources\graphics\Texture.cpp" />
-    <ClCompile Include="sources\graphics\HybridGlobalManagedSet.cpp" />
     <ClCompile Include="sources\graphics\HybridRenderer.cpp" />
     <ClCompile Include="sources\graphics\Image.cpp" />
     <ClCompile Include="sources\graphics\IndexPool.cpp" />
@@ -632,7 +632,6 @@
     <ClCompile Include="sources\scene\Light.cpp" />
     <ClCompile Include="sources\scene\LightPoint.cpp" />
     <ClCompile Include="sources\scene\LightSpot.cpp" />
-    <ClCompile Include="sources\scene\LightBox.cpp" />
     <ClCompile Include="sources\scene\MeshEntity.cpp" />
     <ClCompile Include="sources\scene\Node3D.cpp" />
     <ClCompile Include="sources\scene\NodeState.cpp" />
