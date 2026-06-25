@@ -20,6 +20,7 @@ import Scene;
 import Material;             // load*Material / materialAlphaTest / traceShadowRay / traceReflectionHit
 import bindless;
 import PerFrame.resource;
+import Fog;                  // computeFog — fade the water surface into world/area fog
 import SurfelGI.SurfelShade;        // DiffuseShading / prepareDiffuseShading / evalAnalyticLight / gatherSurfelIndirect
 import TranslucentPass.WaterCommon; // waterWaveNormalTangent
 
@@ -73,14 +74,26 @@ float4 psMain(WaterVSOut psIn) : SV_TARGET
     UniformObject obj   = gSceneObjects[psIn.objectId];
     WaterMaterial water = loadWaterMaterial(obj.materialID);
 
+    // World + area fog at the water surface. We fog the water exactly like the
+    // opaque composite does (applyFog: dst = visibility·color + fogColor), just
+    // split across the two hardware blend passes (MUL then ADD):
+    //   pass 0 MUL: dst *= tint·exp·visibility  -> refr·tint·exp·visibility
+    //   pass 1 ADD: dst += reflColor·fresnel·visibility + fog.color
+    //   sum = visibility·(refr·tint·exp + reflColor·fresnel) + fogColor.
+    // At full fog visibility→0 so the surface collapses to fogColor and the water
+    // dissolves into the fog like everything else, regardless of how shallow /
+    // weakly-fogged the refracted background is.
+    FogResult fog = computeFog(psIn.posW, gPerFrame.posW);
+
     if (pc.pass == 0u)
     {
-        // Tint (+ refraction-exposure lift) of the refracted background (MUL).
+        // Tint (+ refraction-exposure lift) of the refracted background (MUL),
+        // faded to zero as fog thickens.
         float3 tint = float3(1.f);
         uint   diffuseTex = water.tex[0];
         if (diffuseTex != kInvalidTextureIndex)
             tint = sampleBindless2D(diffuseTex, psIn.uv).rgb;
-        return float4(tint * kWaterRefractionExposure, 1.0f);
+        return float4(tint * kWaterRefractionExposure * fog.visibility, 1.0f);
     }
 
     // pass 1 — Fresnel-weighted lit reflection (ADD).
@@ -134,5 +147,8 @@ float4 psMain(WaterVSOut psIn) : SV_TARGET
     if (traceReflectionHit(origin, reflectedDir, 1.0e30f, rh))
         reflColor = shadeReflectionHit(rh) * kWaterReflectionExposure;
 
-    return float4(reflColor * fresnel, 1.0f);
+    // Fade the reflection by fog visibility, then add the fog colour exactly
+    // once (the MUL pass already zeroed the surface at full fog) so the water
+    // composites to fogColor in the distance — matching opaque applyFog.
+    return float4(reflColor * fresnel * fog.visibility + fog.color, 1.0f);
 }

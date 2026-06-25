@@ -181,6 +181,10 @@ public:
 
     RISharedPointer<RITexture> depthTextures[RI_MAX_SWAPCHAIN_IMAGES];
     RISharedPointer<RITextureView> depthView[RI_MAX_SWAPCHAIN_IMAGES];
+    // Depth-aspect-only SRV of the SAME depthTextures[] image — the combined
+    // depthView above can't be sampled (Vulkan forbids sampling a DEPTH|STENCIL
+    // view). Bound by the particle pass for soft-particle scene-depth reads.
+    RISharedPointer<RITextureView> depthSampleView[RI_MAX_SWAPCHAIN_IMAGES];
 
     RISharedPointer<RITexture> visibilityTexture[RI_MAX_SWAPCHAIN_IMAGES];
     RISharedPointer<RITextureView> visibilityView[RI_MAX_SWAPCHAIN_IMAGES];
@@ -201,6 +205,19 @@ public:
     // color target; sampled by temporal passes.
     RISharedPointer<RITexture> velocityTexture[RI_MAX_SWAPCHAIN_IMAGES];
     RISharedPointer<RITextureView> velocityView[RI_MAX_SWAPCHAIN_IMAGES];
+
+    // Decal accumulators — Type="Decal" mesh decals (Mul/MulX2/Add, no alpha)
+    // rasterized each frame before the composite. The composite applies
+    // albedo = albedo * decalMul + decalAdd before lighting, so decals are lit +
+    // fogged like the surface. Two targets because Mul and Add can't share one
+    // op: decalMul holds the multiplicative factor (cleared WHITE = identity;
+    // Mul/MulX2 accumulate), decalAdd the additive term (cleared BLACK = identity;
+    // Add accumulates). COLOR_ATTACHMENT for the raster, SHADER_RESOURCE for the
+    // composite read.
+    RISharedPointer<RITexture> decalMulTexture[RI_MAX_SWAPCHAIN_IMAGES];
+    RISharedPointer<RITextureView> decalMulView[RI_MAX_SWAPCHAIN_IMAGES];
+    RISharedPointer<RITexture> decalAddTexture[RI_MAX_SWAPCHAIN_IMAGES];
+    RISharedPointer<RITextureView> decalAddView[RI_MAX_SWAPCHAIN_IMAGES];
 
     // Direct-lighting accumulation history (RGBA16F ping-pong, kept in
     // GENERAL). [directLightingIndex] is this frame's write target; [^1] is

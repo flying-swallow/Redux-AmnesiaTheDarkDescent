@@ -285,20 +285,21 @@ namespace hpl {
 					if(animMode == eTextureAnimMode_None)
 						pGoboTex = apResources->GetTextureManager()->Create2DImage(sGobo,true).Release();
 					else
-						pGoboTex = apResources->GetTextureManager()->CreateAnimImage(sGobo, true, eTextureType_2D).Release();
+						pGoboTex = apResources->GetTextureManager()->CreateAnimImage(sGobo, true, eTextureType_2D,
+								eTextureUsage_Normal,0,false,animMode,fAnimFrameTime).Release();
 				}
 				else
 				{
 					if(animMode == eTextureAnimMode_None)
 						pGoboTex = apResources->GetTextureManager()->CreateCubeMapImage(sGobo,true).Release();
 					else
-						pGoboTex = apResources->GetTextureManager()->CreateAnimImage(sGobo,true, eTextureType_CubeMap).Release();
+						pGoboTex = apResources->GetTextureManager()->CreateAnimImage(sGobo,true, eTextureType_CubeMap,
+								eTextureUsage_Normal,0,false,animMode,fAnimFrameTime).Release();
 				}
 
 				if(pGoboTex)
 				{
 					pLight->SetGoboTexture(pGoboTex);
-					pGoboTex->SetFrameTime(fAnimFrameTime);
 				}
 			}
 		}

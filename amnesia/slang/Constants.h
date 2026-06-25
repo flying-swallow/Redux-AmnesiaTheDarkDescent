@@ -90,6 +90,10 @@ SHARED_CONST uint kBindingPackedReflectionHitInfo     = 44u;  // RGBA32UI storag
 // are now free — decal data moved to the per-world set kWorldDecalSet, baked
 // static by cWorld::Compile. See kBindingWorldDecals below.
 SHARED_CONST uint kBindingDissolveMap                 = 48u;  // immutable core_dissolve noise (128px), UV-sampled by the shared alphaTest dissolve fade
+// set 1: depth-aspect SRV of the scene depth buffer (opaque geometry), bound
+// per-frame by the particle pass for the soft-particle depth fade. Reflected
+// per-program (like gPerFrame / the surfel set-1 images), not a fixed layout.
+SHARED_CONST uint kBindingSceneDepth                  = 49u;  // Texture2D<float> scene depth (soft particles)
 
 // Per-world decal data baked by cWorld::Compile, bound on the MainCompositePass.
 // It rides set 2 — the conventional per-pass compute-I/O set — alongside the
@@ -216,6 +220,12 @@ SHARED_CONST uint kMaterialFlagAffectedByLightLevel     = 1u << 17;
 // power-law distribution of the sRGB decode; lower biases brighter
 // (toward the plain-linear look). Tune against the base game.
 SHARED_CONST float kPerceptualBlendExp = 2.2f;
+
+// Soft particles: world-space view-depth band (meters) over which a particle
+// fades to zero alpha as it approaches the opaque geometry behind it. Larger =
+// softer/wider fade; smaller = closer to the old hard intersection edge.
+// Amnesia is meter-scale (see surfel-gi-world-scale).
+SHARED_CONST float kSoftParticleFadeDistance = 0.35f;
 
 // Blend-mode value families (see BlendModes.slang for the shared math).
 // Two DIFFERENT encodings of the same modes — do not mix them up:

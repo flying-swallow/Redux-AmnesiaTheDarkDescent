@@ -76,6 +76,22 @@ float4 psMain(ParticleVSOut psIn) : SV_TARGET
     FogResult fog = computeFog(surfacePosW, gPerFrame.posW);
     float finalAlpha = pc.sceneAlpha * fog.visibility;
 
+    // Soft particles: fade alpha as this camera-facing fragment approaches the
+    // opaque geometry behind it, replacing the hard intersection edge with a
+    // smooth gradient. Sample the scene depth (opaque) at this pixel, linearize
+    // both to positive view-space distance (VK z[0,1]: 0 = near, 1 = far), and
+    // fade across kSoftParticleFadeDistance meters. finalAlpha is the single
+    // operand applyBlendModulation folds in for every blend mode (ADD/MUL/MULX2
+    // toward their neutral, ALPHA/PREMUL via .a), so this fades all modes.
+    float2 screenUV  = psIn.posH.xy * gPerFrame.viewTexel;
+    float  sceneZdev = gSceneDepth.SampleLevel(gMaterialSampler, screenUV, 0.0f).r;
+    float  sceneLinear =
+        gPerFrame.zNear * gPerFrame.zFar /
+        (gPerFrame.zFar - sceneZdev * (gPerFrame.zFar - gPerFrame.zNear));
+    float  particleLinear = -psIn.viewPos.z;   // view forward = -Z
+    float  soft = saturate((sceneLinear - particleLinear) / kSoftParticleFadeDistance);
+    finalAlpha *= soft;
+
     // AffectedByLightLevel materials dim with the surrounding analytic light
     // (base-game afLightLevel behavior — see lightLevelAt). Per-pixel,
     // so large billboards get an exact gradient across the quad.

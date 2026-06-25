@@ -79,7 +79,7 @@ struct PSIn
 float4 psMain(PSIn pin) : SV_Target
 {
     float3 hdr = sourceInput.Sample(inputSampler, pin.v_uv).rgb * pc.exposure;
-    float3 display = saturate(ACESFitted(linearToSRGB(hdr)));   // display-encoded sRGB [0,1]
+    float3 display = saturate(linearToSRGB(hdr));   // display-encoded sRGB [0,1]
     // User gamma adjust (final): gamma 1.0 = identity, <1 darker / >1 brighter.
     display = pow(display, (1.0f / max(pc.gamma, 1e-4f)).xxx);
     return float4(display, 1.0f);

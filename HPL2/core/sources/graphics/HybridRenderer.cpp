@@ -317,13 +317,28 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
     // DEPTH|STENCIL view: the Z passes only touch the depth aspect, but
     // cLuxEffectRenderer's outline pass binds this same view as a stencil
     // attachment (mark silhouette -> NOTEQUAL composite), so the view must
-    // carry the stencil aspect. The depth aspect is never sampled (surfel
-    // passes sample their own depth atlas), so one combined view suffices.
+    // carry the stencil aspect. For sampling the depth aspect (soft particles)
+    // we add a separate depth-only SRV below — a combined view can't be sampled.
     CreateViewportAttachmentTexture(
         &RI.device, renderW, renderH, RIBootstrap::DepthFormat,
         RI_USAGE_DEPTH_STENCIL_ATTACHMENT | RI_USAGE_SHADER_RESOURCE,
         RI_VIEWTYPE_DEPTH_STENCIL_ATTACHMENT,
         &depthTextures[i], &depthView[i], "HybridViewportState.depth");
+
+    // Second view of the SAME depth image, depth-aspect only (SHADER_RESOURCE
+    // view → RITextureView::create selects DEPTH_BIT, dropping the stencil bit
+    // that makes the combined depthView above unsampleable). The particle pass
+    // binds this as gSceneDepth for the soft-particle depth fade.
+    {
+      RITextureViewDesc dsv = {};
+      dsv.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
+      dsv.format = RIBootstrap::DepthFormat;
+      dsv.mipNum = 1;
+      dsv.layerNum = 1;
+      RITextureView v =
+          RITextureView::create(&RI.device, depthTextures[i].Get(), dsv);
+      depthSampleView[i] = RISharedPointer<RITextureView>(&RI.device, v);
+    }
 
     CreateViewportAttachmentTexture(
         &RI.device, renderW, renderH, RIBootstrap::VisibilityFormat,
@@ -354,6 +369,21 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
         RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &velocityTexture[i], &velocityView[i],
         "HybridViewportState.velocity");
+
+    // Decal accumulators — Mul/MulX2 into decalMul, Add into decalAdd; the
+    // composite applies albedo = albedo*decalMul + decalAdd before lighting.
+    // RGBA16F (PogoColorFormat) so the linear factors don't band; COLOR_ATTACHMENT
+    // for the raster, SHADER_RESOURCE for the composite read.
+    CreateViewportAttachmentTexture(
+        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE,
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &decalMulTexture[i], &decalMulView[i],
+        "HybridViewportState.decalMul");
+    CreateViewportAttachmentTexture(
+        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE,
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &decalAddTexture[i], &decalAddView[i],
+        "HybridViewportState.decalAdd");
   }
 
   // Direct-lighting accumulation ping-pong + parallel surface-key textures —
@@ -409,13 +439,18 @@ cViewport::HybridViewportState::~HybridViewportState() {
     RI.graphicsDefer.push(surfelResultTexture[i]);
     RI.graphicsDefer.push(packedHitInfoTexture[i]);
     RI.graphicsDefer.push(velocityTexture[i]);
+    RI.graphicsDefer.push(decalMulTexture[i]);
+    RI.graphicsDefer.push(decalAddTexture[i]);
 
     RI.graphicsDefer.push(renderTargetView[i]);
     RI.graphicsDefer.push(depthView[i]);
+    RI.graphicsDefer.push(depthSampleView[i]);
     RI.graphicsDefer.push(visibilityView[i]);
     RI.graphicsDefer.push(surfelResultView[i]);
     RI.graphicsDefer.push(packedHitInfoView[i]);
     RI.graphicsDefer.push(velocityView[i]);
+    RI.graphicsDefer.push(decalMulView[i]);
+    RI.graphicsDefer.push(decalAddView[i]);
   }
   for (uint32_t i = 0; i < 2; i++) {
     RI.graphicsDefer.push(directLightingTexture[i]);
@@ -641,8 +676,19 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     std::memcpy(perFrame.invViewRotationMat, invViewRot.a,
                 sizeof(perFrame.invViewRotationMat));
   }
-  // Fog params + worldFogColor default to zero — fine for the first pass;
-  // populate when the deferred-fog path needs them.
+  // World fog — copy the per-world settings into the per-frame UBO so Fog.slang's
+  // world-fog block activates. Mirrors cWorld::BuildFogParams colour handling
+  // (sRGB->linear, alpha kept linear). Leaving worldFogLength at 0 (the default
+  // zero-init) disables world fog, matching the shader's `worldFogLength > 0` guard.
+  if (apWorld->GetFogActive()) {
+    const cColor fc = apWorld->GetFogColor();
+    perFrame.worldFogStart = apWorld->GetFogStart();
+    perFrame.worldFogLength = apWorld->GetFogEnd() - apWorld->GetFogStart();
+    perFrame.fogFalloffExp = apWorld->GetFogFalloffExp();
+    perFrame.worldFogColor = float4{sRGBToLinear(fc.r), sRGBToLinear(fc.g),
+                                    sRGBToLinear(fc.b), fc.a};
+    perFrame.oneMinusFogAlpha = 1.0f - fc.a;
+  }
 
   // Pinhole camera basis from the view-inverse rows (camera world-space
   // right/up/back/origin). The -matrix-layout-column-major slangc flag makes
@@ -1651,6 +1697,182 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     depthFlippedForReadOnly = true;
   };
 
+  // --------------------------------------------------------------------
+  // Decal pre-pass — rasterize Type="Decal" meshes (dirt_floor / moist_wall /
+  // pool_wine / trails, …) into two per-viewport accumulators BEFORE the
+  // composite, which then applies albedo = albedo*decalMul + decalAdd ahead of
+  // lighting + fog so the decals are lit + fogged like the surface they sit on
+  // (the V-buffer renderer has no albedo G-buffer to write them into the way the
+  // original deferred engine did). These decals carry no alpha — transparency is
+  // the blend-mode identity (white for Mul/MulX2, black for Add) — so a single
+  // premultiplied-over buffer turned their no-op areas opaque. Two accumulators
+  // reproduce the real blend: Mul/MulX2 multiply into decalMul (cleared white),
+  // Add adds into decalAdd (cleared black). Depth-tested ≤ against the gbuffer
+  // depth (no write); both accumulators are CLEARED every frame so the composite
+  // never samples stale contents. (Linear×linear multiply equals the legacy
+  // gamma multiply via the power law; Add is a close linear approximation.)
+  // --------------------------------------------------------------------
+  {
+    std::vector<iRenderable *> mulDecals; // Mul / MulX2 -> decalMul
+    std::vector<iRenderable *> addDecals; // Add        -> decalAdd
+    for (iRenderable *pObj :
+         m_rendererList.GetRenderableItems(eRenderListType_Decal)) {
+      if (!pObj)
+        continue;
+      cMaterial *pMat = pObj->GetMaterial();
+      if (!pMat)
+        continue;
+      cVertexBuffer *pVB = pObj->GetVertexBuffer();
+      if (!pVB || pVB->GetIndexNum() <= 0)
+        continue;
+      switch (pMat->GetBlendMode()) {
+      case eMaterialBlendMode_Mul:
+      case eMaterialBlendMode_MulX2:
+        mulDecals.push_back(pObj);
+        break;
+      case eMaterialBlendMode_Add:
+        addDecals.push_back(pObj);
+        break;
+      default:
+        break; // Type="Decal" content is Mul/MulX2/Add only; skip others.
+      }
+    }
+
+    auto decalBlend = [](eMaterialBlendMode m) -> DecalPipelineDesc::BlendMode {
+      switch (m) {
+      case eMaterialBlendMode_MulX2:
+        return DecalPipelineDesc::BLEND_MULX2;
+      case eMaterialBlendMode_Add:
+        return DecalPipelineDesc::BLEND_ADD;
+      default:
+        return DecalPipelineDesc::BLEND_MUL;
+      }
+    };
+
+    flipDepthToReadOnly();
+
+    // One accumulator pass: clear `tex` to the blend identity, depth-test the
+    // family's decals against the gbuffer depth (read-only), and blend each with
+    // its material blend mode. Always run (even empty) so the texture is cleared
+    // and ends in SHADER_RESOURCE for the composite.
+    auto renderDecalAccumulator = [&](RITexture *tex, const RITextureView &view,
+                                      const float clearRGBA[4],
+                                      const std::vector<iRenderable *> &list) {
+      RI.primary.cmds[0].vk_d3d12_textureBarrier(
+          {tex, RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_RENDER_TARGET,
+           RI_STAGE_NONE, RI_STAGE_FRAGMENT});
+
+      RIRenderingAttachment color = {};
+      color.view = view;
+      color.loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
+      color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+      color.clearValue.color[0] = clearRGBA[0];
+      color.clearValue.color[1] = clearRGBA[1];
+      color.clearValue.color[2] = clearRGBA[2];
+      color.clearValue.color[3] = clearRGBA[3];
+
+      RIRenderingAttachment depth = {};
+      depth.view = *state.depthView[RI.swapchainIndex];
+      depth.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
+      depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+      depth.readOnly = true;
+
+      RIBeginRenderingDesc beginDesc = {};
+      beginDesc.renderArea.width = (int16_t)renderWidth;
+      beginDesc.renderArea.height = (int16_t)renderHeight;
+      beginDesc.colorCount = 1;
+      beginDesc.colors = &color;
+      beginDesc.depthStencil = &depth;
+      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
+
+      RIViewport vp = {};
+      vp.x = 0.0f;
+      vp.y = (float)renderHeight;
+      vp.width = (float)renderWidth;
+      vp.height = -(float)renderHeight;
+      vp.depthMin = 0.0f;
+      vp.depthMax = 1.0f;
+      RIRect sc = {};
+      sc.width = (int16_t)renderWidth;
+      sc.height = (int16_t)renderHeight;
+      RI.primary.cmds[0].setViewport(&RI.device, vp);
+      RI.primary.cmds[0].setScissor(&RI.device, sc);
+
+      if (!list.empty()) {
+        m_decal.bindBindlessDescriptorSet(&RI.primary.cmds[0],
+                                          &RI.globalset->m_bindlessSet, 0);
+        {
+          // VS reads gPerFrame (view/proj) + gSceneObjects; FS emits the linear
+          // decal colour. No fog/light buffers — the composite lights and fogs.
+          RIProgram::DescriptorBinding b;
+          b.handle = DescriptorBindingID::Create("gPerFrame");
+          RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+          m_decal.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
+                                  &b, 1);
+        }
+
+        for (iRenderable *pObj : list) {
+          cVertexBuffer *pVB = pObj->GetVertexBuffer();
+          cMaterial *pMat = pObj->GetMaterial();
+          const int indexCount = pVB->GetIndexNum();
+
+          uint32_t materialId =
+              RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
+                  .materialId;
+          if (materialId == UINT32_MAX) {
+            Warning("Material Slot exhausted (decal)");
+            continue;
+          }
+
+          ObjectSubmitDesc d; // decals fold into albedo; lit by the composite
+          d.modelMatrix = pObj->GetModelMatrix(apFrustum);
+          d.uvMatrix = pMat->GetUvMatrix();
+          d.materialId = materialId;
+          d.dissolveAmount = pObj->GetCoverageAmount();
+
+          const uint32_t slot = RI.globalset->submitObject(
+              pObj->GetUniqueCookie(), (uint32_t)RI.frameIndex,
+              static_cast<cVertexBuffer *>(pVB), d);
+          if (slot == UINT32_MAX) {
+            Warning("bindless pool exhausted (decal)");
+            continue;
+          }
+
+          uint32_t vtxMask = 0;
+          if (!detail::BindVertexStreams(&RI.primary.cmds[0], pVB, "decal",
+                                         &vtxMask))
+            continue;
+
+          DecalPipelineDesc pipelineDesc(RIBootstrap::PogoColorFormat,
+                                         RIBootstrap::DepthFormat,
+                                         decalBlend(pMat->GetBlendMode()),
+                                         vtxMask);
+          m_decal.bindPipeline(&RI.device, &RI.primary.cmds[0], pipelineDesc.hash,
+                               "Decal", &pipelineDesc.createInfo);
+
+          RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1u, 0u,
+                                         0, slot);
+        }
+      }
+
+      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
+
+      // COLOR_ATTACHMENT -> SHADER_RESOURCE for the composite read.
+      RI.primary.cmds[0].vk_d3d12_textureBarrier(
+          {tex, RI_RESOURCE_STATE_RENDER_TARGET, RI_RESOURCE_STATE_SHADER_RESOURCE,
+           RI_STAGE_FRAGMENT, RI_STAGE_COMPUTE});
+    };
+
+    const float kIdentityMul[4] = {1.0f, 1.0f, 1.0f, 1.0f}; // ×1
+    const float kIdentityAdd[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // +0
+    renderDecalAccumulator(state.decalMulTexture[RI.swapchainIndex].Get(),
+                           *state.decalMulView[RI.swapchainIndex], kIdentityMul,
+                           mulDecals);
+    renderDecalAccumulator(state.decalAddTexture[RI.swapchainIndex].Get(),
+                           *state.decalAddView[RI.swapchainIndex], kIdentityAdd,
+                           addDecals);
+  }
+
   // Surfel-GI compute pass — one thread per pixel writes the composite into the
   // pogo attach bound as gOutput (storage image, GENERAL).
   {
@@ -1664,7 +1886,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                               VK_PIPELINE_BIND_POINT_COMPUTE);
 
     std::vector<RIProgram::DescriptorBinding> bnd;
-    bnd.reserve(8);
+    bnd.reserve(10);
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
@@ -1702,6 +1924,15 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     bnd.emplace_back("gOutput",
                      RIDescriptor::storageImage(
                          &RI.device, state.renderTargetView[RI.swapchainIndex].Get()));
+
+    // Decal accumulators from the pre-pass above (already in SHADER_RESOURCE):
+    // the composite applies albedo = albedo*gDecalMul + gDecalAdd before lighting.
+    bnd.emplace_back("gDecalMul",
+                     RIDescriptor::sampledImage(
+                         &RI.device, state.decalMulView[RI.swapchainIndex].Get()));
+    bnd.emplace_back("gDecalAdd",
+                     RIDescriptor::sampledImage(
+                         &RI.device, state.decalAddView[RI.swapchainIndex].Get()));
 
     // Per-world static decal buffers (set kWorldDecalSet), baked once by
     // cWorld::Compile. RIProgram reflects them as set 2 and binds a rotated set.
@@ -1765,167 +1996,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // the decal pre-pass, and shared with the particle / translucent passes
   // below.)
 
-  // --------------------------------------------------------------------
-  // Decal mesh pass — flat decal-quad static meshes (Type="Decal" materials:
-  // pool_wine/dirt_floor/moist_wall/cobweb, etc.) routed to
-  // eRenderListType_Decal. A thin overlay on the lit opaque scene: depth-tested
-  // ≤ against the gbuffer depth, no depth write (DecalPipelineDesc),
-  // hardware-blended per the material's blend mode. Runs before the translucent
-  // particle/mesh passes so decals sit under translucents. Their VBs were
-  // uploaded in the decal prepare loop earlier in Draw(); they're never TLAS
-  // instances. Mirrors the translucent mesh pass minus the light-level calc,
-  // cube-map second draw, and push constant (Decal.frag emits raw diffuse*color
-  // and lets the blender do the rest).
-  // --------------------------------------------------------------------
-  {
-    std::vector<iRenderable *> decals;
-    for (iRenderable *pObj :
-         m_rendererList.GetRenderableItems(eRenderListType_Decal)) {
-      if (!pObj)
-        continue;
-      cMaterial *pMat = pObj->GetMaterial();
-      if (!pMat)
-        continue;
-      const eMaterialBlendMode mode = pMat->GetBlendMode();
-      if (mode == eMaterialBlendMode_None ||
-          mode >= eMaterialBlendMode_LastEnum)
-        continue;
-      cVertexBuffer *pVB = pObj->GetVertexBuffer();
-      if (!pVB || pVB->GetIndexNum() <= 0)
-        continue;
-      decals.push_back(pObj);
-    }
-
-    if (!decals.empty()) {
-      flipDepthToReadOnly();
-
-      VkImage pogoReadImage = state.renderTarget[RI.swapchainIndex]->vk.image;
-      VkImageView pogoReadView =
-          state.renderTargetView[RI.swapchainIndex]->vk.image;
-
-      {
-        RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoAttachmentBarrier(
-            state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
-      }
-
-      RITextureView colorView = {};
-      colorView.vk.image = pogoReadView;
-      RIRenderingAttachment color = {};
-      color.view = colorView;
-      color.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
-      color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
-
-      RIRenderingAttachment depth = {};
-      depth.view = *state.depthView[RI.swapchainIndex];
-      depth.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
-      depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
-      depth.readOnly = true;
-
-      RIBeginRenderingDesc beginDesc = {};
-      beginDesc.renderArea.width = (int16_t)renderWidth;
-      beginDesc.renderArea.height = (int16_t)renderHeight;
-      beginDesc.colorCount = 1;
-      beginDesc.colors = &color;
-      beginDesc.depthStencil = &depth;
-      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
-
-      RIViewport vp = {};
-      vp.x = 0.0f;
-      vp.y = (float)renderHeight;
-      vp.width = (float)renderWidth;
-      vp.height = -(float)renderHeight;
-      vp.depthMin = 0.0f;
-      vp.depthMax = 1.0f;
-      RIRect sc = {};
-      sc.width = (int16_t)renderWidth;
-      sc.height = (int16_t)renderHeight;
-      RI.primary.cmds[0].setViewport(&RI.device, vp);
-      RI.primary.cmds[0].setScissor(&RI.device, sc);
-
-      m_decal.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                        &RI.globalset->m_bindlessSet, 0);
-      {
-        RIProgram::DescriptorBinding b;
-        b.handle = DescriptorBindingID::Create("gPerFrame");
-        RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-        m_decal.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
-                                &b, 1);
-      }
-
-      auto remapDecalBlend = [](eMaterialBlendMode m) {
-        switch (m) {
-        case eMaterialBlendMode_Add:
-          return DecalPipelineDesc::BLEND_ADD;
-        case eMaterialBlendMode_Mul:
-          return DecalPipelineDesc::BLEND_MUL;
-        case eMaterialBlendMode_MulX2:
-          return DecalPipelineDesc::BLEND_MULX2;
-        case eMaterialBlendMode_Alpha:
-          return DecalPipelineDesc::BLEND_ALPHA;
-        case eMaterialBlendMode_PremulAlpha:
-          return DecalPipelineDesc::BLEND_PREMUL_ALPHA;
-        default:
-          return DecalPipelineDesc::BLEND_ALPHA;
-        }
-      };
-
-      for (iRenderable *pObj : decals) {
-        cVertexBuffer *pVB = pObj->GetVertexBuffer();
-        cMaterial *pMat = pObj->GetMaterial();
-        const int indexCount = pVB->GetIndexNum();
-
-        uint32_t materialId =
-            RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
-                .materialId;
-        if (materialId == UINT32_MAX) {
-          Warning("Material Slot exhausted (decal)");
-          continue;
-        }
-
-        ObjectSubmitDesc d; // decals are unlit overlays
-        d.modelMatrix = pObj->GetModelMatrix(apFrustum);
-        d.uvMatrix = pMat->GetUvMatrix();
-        d.materialId = materialId;
-        d.dissolveAmount = pObj->GetCoverageAmount();
-
-        const uint32_t slot = RI.globalset->submitObject(
-            pObj->GetUniqueCookie(), (uint32_t)RI.frameIndex,
-            static_cast<cVertexBuffer *>(pVB), d);
-        if (slot == UINT32_MAX) {
-          Warning("bindless pool exhausted (decal)");
-          continue;
-        }
-
-        uint32_t vtxMask = 0;
-        if (!detail::BindVertexStreams(&RI.primary.cmds[0], pVB, "decal",
-                                       &vtxMask))
-          continue;
-
-        const DecalPipelineDesc::BlendMode mode =
-            remapDecalBlend(pMat->GetBlendMode());
-        DecalPipelineDesc pipelineDesc(RIBootstrap::PogoColorFormat,
-                                       RIBootstrap::DepthFormat, mode, vtxMask);
-        m_decal.bindPipeline(&RI.device, &RI.primary.cmds[0], pipelineDesc.hash,
-                             "Decal", &pipelineDesc.createInfo);
-
-        // Decal.frag's per-blend-mode output conversion (display-space source
-        // → linear) needs the mode — mirrors the particle pass push block.
-        const uint32_t push = (uint32_t)mode;
-        RI.primary.cmds[0].vk_d3d12_setPushConstants(&RI.device, m_decal, 0,
-                                                     sizeof(push), &push);
-
-        RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1u,
-                                       0u, 0, slot);
-      }
-
-      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
-
-      {
-        RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
-            state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
-      }
-    }
-  }
+  // (The Type="Decal" mesh decals are rasterized in the decal pre-pass above,
+  // before the composite, into the decal-overlay target — not here. The
+  // composite folds that overlay onto the base albedo so they are lit + fogged.)
 
   // --------------------------------------------------------------------
   // Water pass — raster the water surface over the refracted background that
@@ -2186,13 +2259,23 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                            &RI.globalset->m_bindlessSet, 0);
 
       std::vector<RIProgram::DescriptorBinding> particleBindings;
-      particleBindings.reserve(1);
+      particleBindings.reserve(2);
       {
         RIProgram::DescriptorBinding b;
         b.handle = DescriptorBindingID::Create("gPerFrame");
         RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
         particleBindings.push_back(b);
       }
+      // Soft particles: scene depth (opaque geometry) for the per-pixel fade.
+      // Runs after flipDepthToReadOnly() above, so the image is already in
+      // DEPTH_READ_ONLY_OPTIMAL — the same layout this sampled descriptor
+      // declares, and the depth attachment is read-only, so the feedback loop
+      // is legal with no extra barrier.
+      particleBindings.emplace_back(
+          "gSceneDepth",
+          RIDescriptor::sampledImage(&RI.device,
+                                     state.depthSampleView[RI.swapchainIndex].Get(),
+                                     RI_RESOURCE_STATE_DEPTH_READ));
       appendWorldLightFog(particleBindings, apWorld);
       m_particle.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
                                  particleBindings.data(),

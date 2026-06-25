@@ -244,12 +244,8 @@ namespace hpl {
 
 		if(animMode != eTextureAnimMode_None)
 		{
-			pImage = mpTextureManager->CreateAnimImage(sTexture,true,eTextureType_2D);
-			if(pImage)
-			{
-				pImage->SetAnimMode(animMode);
-				pImage->SetFrameTime(fFrameTime);
-			}
+			pImage = mpTextureManager->CreateAnimImage(sTexture,true,eTextureType_2D,
+				eTextureUsage_Normal,0,false,animMode,fFrameTime);
 		}
 		else
 		{

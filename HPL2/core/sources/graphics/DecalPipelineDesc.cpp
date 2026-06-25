@@ -78,8 +78,9 @@ DecalPipelineDesc::DecalPipelineDesc(RI_Format_e colorFormat,
 
   blendAttachment = {};
   blendAttachment.blendEnable = VK_TRUE;
-  // RGB only — decals must not write scene alpha into the post-lighting pogo
-  // buffer (matches the reference renderer's decal blend).
+  // RGB only — the decal pass renders into the decalMul / decalAdd accumulators,
+  // whose RGB the composite reads (albedo = albedo*decalMul + decalAdd). Alpha is
+  // unused; leave it at the clear identity rather than accumulating it.
   blendAttachment.colorWriteMask =
       VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
       VK_COLOR_COMPONENT_B_BIT;

@@ -64,12 +64,15 @@ namespace hpl {
 		/**
 		 * Create an animated Image from a frame-numbered sequence. The first frame name must
 		 * end in "01.<ext>"; subsequent frames are discovered as "02.<ext>", "03.<ext>", ...
-		 * The returned Image holds an Image::AnimatedImage variant; cTextureManager::Update
-		 * advances the frame index over time.
+		 * The returned Image holds an Image::AnimatedImage variant. aAnimMode / aFrameTime are
+		 * baked into the per-slot gAnimTex record (uploaded once when the bindless slot is
+		 * assigned); frame selection then happens entirely in-shader from gPerFrame.afT, so
+		 * there is no per-frame GPU transfer regardless of how many animated gobos a map has.
 		 */
 		SharedResourceHandle<Image> CreateAnimImage(const tString& asName, bool abUseMipMaps, eTextureType aType,
 								eTextureUsage aUsage=eTextureUsage_Normal,
-								unsigned int alTextureSizeLevel=0, bool abSRGB=false);
+								unsigned int alTextureSizeLevel=0, bool abSRGB=false,
+								eTextureAnimMode aAnimMode=eTextureAnimMode_Loop, float aFrameTime=1.0f);
 
 		void Unload(iResourceBase* apResource);
 
@@ -87,6 +90,11 @@ namespace hpl {
 		// ReleaseImageBindlessSlot when an Image is destroyed.
 		void ReturnBindlessSlot(uint32_t slot, bool isCube, bool isArray);
 
+		// Editor live-reload: set an animated Image's anim mode / frame time and
+		// re-upload its per-slot gAnimTex record, but only if the values changed.
+		// The runtime bakes these at the single load-time write and never calls this.
+		void UpdateAnimParams(Image* apImage, eTextureAnimMode aMode, float aFrameTime);
+
 	private:
 		SharedResourceHandle<Image> _wrapperImageResource(const tString& asName, std::function<Image*(const tString& asName, const tWString& path, cBitmap* bitmap)> createImageHandler);
 		Image* FindImageResource(const tString &asName, tWString &asFilePath);
@@ -96,6 +104,8 @@ namespace hpl {
 		void AssignBindlessSlot(Image* apImage, bool abCube);
 		// (Re)write apImage's descriptor at its slot if the active view changed.
 		void WriteImageDescriptor(Image* apImage);
+		// (Re)upload an animated Image's per-slot gAnimTex record from its current params.
+		void WriteAnimRecord(Image* apImage);
 
 		tStringVec mvCubeSideSuffixes;
 

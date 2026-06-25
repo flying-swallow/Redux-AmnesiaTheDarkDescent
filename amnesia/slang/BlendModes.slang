@@ -102,12 +102,25 @@ public float4 encodeBlendOutputLinear(uint blendMode, float4 displayColor)
             break;
         }
         case kBlendModeAlpha:
+        {
+            // Energy-conserving variant: the powered premultiplied weights
+            // src·pow(a,k) / dst·pow(1−a,k) sum to LESS than 1 at partial
+            // alpha (worst near a=0.5), so the legacy form darkened/lost
+            // energy and made low-alpha surfaces (dust, haze) nearly vanish.
+            // Normalize the two weights to sum to 1 — keeps the perceptual
+            // bias SHAPE but removes the darkening dip.
+            float a  = saturate(displayColor.a);
+            float ws = pow(a, k);
+            float wd = pow(1.0f - a, k);
+            float n  = max(ws + wd, 1e-4f);
+            displayColor.xyz = sRGBToLinear(displayColor.xyz) * (ws / n);
+            displayColor.a   = ws / n;          // HW dst factor (1 − src.a) = wd/n
+            break;
+        }
         case kBlendModePremulAlpha:
         {
             float a = saturate(displayColor.a);
             displayColor.xyz = sRGBToLinear(displayColor.xyz);
-            if (blendMode == kBlendModeAlpha)
-                displayColor.xyz *= pow(a, k);
             displayColor.a = 1.0f - pow(1.0f - a, k);
             break;
         }

@@ -377,7 +377,8 @@ SharedResourceHandle<Image> cTextureManager::CreateCubeMapImage(
 SharedResourceHandle<Image>
 cTextureManager::CreateAnimImage(const tString &asName, bool abUseMipMaps,
                                  eTextureType aType, eTextureUsage aUsage,
-                                 unsigned int alTextureSizeLevel, bool abSRGB) {
+                                 unsigned int alTextureSizeLevel, bool abSRGB,
+                                 eTextureAnimMode aAnimMode, float aFrameTime) {
   BeginLoad(asName);
 
   // First frame must contain "01" before the extension.
@@ -494,8 +495,8 @@ cTextureManager::CreateAnimImage(const tString &asName, bool abUseMipMaps,
 
       Image::AnimatedImage anim = {};
       anim.frameCount = (uint32_t)vBitmaps.size();
-      anim.frameTime = 1.0f;
-      anim.animMode = eTextureAnimMode_Loop;
+      anim.frameTime = aFrameTime;
+      anim.animMode = aAnimMode;
       cTexture::BitmapLoadOptions opts = {0};
       opts.use_mipmaps = abUseMipMaps;
       opts.use_array = true;
@@ -602,28 +603,57 @@ void cTextureManager::WriteImageDescriptor(Image *apImage) {
   g.m_bindlessSet.writeDescriptors(&RI.device, {&binding, 1});
   apImage->SetBindlessViewCookie(tex->view.cookie);
 
-  // Animated: write the per-slot animation record once so the shader can pick
-  // the layer from gPerFrame.afT (gAnimTex[slot] = {frameCount, frameTime,
-  // mode}).
-  if (apImage->IsBindlessArray()) {
-    AnimTexRec rec = {};
-    rec.frameCount = apImage->GetAnimFrameCount();
-    rec.frameTime = apImage->GetFrameTime();
-    rec.mode = (apImage->GetAnimMode() == eTextureAnimMode_Oscillate)
-                   ? kAnimModeOscillate
-                   : kAnimModeLoop;
-    RIResourceBufferTransaction trans = {};
-    trans.target = g.m_animTexBuffer;
-    trans.size = sizeof(AnimTexRec);
-    trans.offset = (size_t)slot * sizeof(AnimTexRec);
-    trans.currentState = RI_RESOURCE_STATE_SHADER_RESOURCE;
-    trans.currentStages = RI_STAGE_ALL_SHADER;
-    trans.postState = RI_RESOURCE_STATE_SHADER_RESOURCE;
-    trans.postStages = RI_STAGE_ALL_SHADER;
-    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
-    std::memcpy(trans.mapped.data, &rec, sizeof(rec));
-    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
-  }
+  // Animated: write the per-slot animation record so the shader can pick the
+  // layer from gPerFrame.afT (gAnimTex[slot] = {frameCount, frameTime, mode}).
+  WriteAnimRecord(apImage);
+}
+
+// Upload an animated Image's per-slot gAnimTex record from its CURRENT params.
+// Split out of WriteImageDescriptor so the editor can re-upload after a gobo
+// param edit (UpdateAnimParams); the runtime writes it once at slot assignment.
+void cTextureManager::WriteAnimRecord(Image *apImage) {
+  if (apImage == nullptr || !apImage->IsBindlessArray())
+    return;
+  const uint32_t slot = apImage->GetRawBindlessSlot();
+  if (slot == kInvalidTextureIndex)
+    return;
+  if (RI.globalset == nullptr)
+    return;
+  GlobalManagedSets &g = *RI.globalset;
+
+  AnimTexRec rec = {};
+  rec.frameCount = apImage->GetAnimFrameCount();
+  rec.frameTime = apImage->GetFrameTime();
+  rec.mode = (apImage->GetAnimMode() == eTextureAnimMode_Oscillate)
+                 ? kAnimModeOscillate
+                 : kAnimModeLoop;
+  RIResourceBufferTransaction trans = {};
+  trans.target = g.m_animTexBuffer;
+  trans.size = sizeof(AnimTexRec);
+  trans.offset = (size_t)slot * sizeof(AnimTexRec);
+  trans.currentState = RI_RESOURCE_STATE_SHADER_RESOURCE;
+  trans.currentStages = RI_STAGE_ALL_SHADER;
+  trans.postState = RI_RESOURCE_STATE_SHADER_RESOURCE;
+  trans.postStages = RI_STAGE_ALL_SHADER;
+  RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+  std::memcpy(trans.mapped.data, &rec, sizeof(rec));
+  RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+}
+
+// Editor live-reload: update an animated Image's playback params and re-upload
+// its GPU record, but only when they actually changed (no transfer otherwise).
+// Used so editing a gobo's anim mode / frame time updates the preview, even when
+// CreateAnimImage returned a path-cached Image with the old params. Not called
+// by the runtime loaders, which bake correct params at the single load-time write.
+void cTextureManager::UpdateAnimParams(Image *apImage, eTextureAnimMode aMode,
+                                       float aFrameTime) {
+  if (apImage == nullptr || !apImage->isAnimated())
+    return;
+  if (apImage->GetAnimMode() == aMode && apImage->GetFrameTime() == aFrameTime)
+    return;
+  apImage->SetAnimMode(aMode);
+  apImage->SetFrameTime(aFrameTime);
+  WriteAnimRecord(apImage);
 }
 
 void cTextureManager::ReturnBindlessSlot(uint32_t slot, bool isCube,

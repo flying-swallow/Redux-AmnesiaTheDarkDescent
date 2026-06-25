@@ -1734,10 +1734,21 @@ struct RITextureView RITextureView::create(struct RIDevice *device,
 #if (DEVICE_IMPL_VULKAN)
   if (RIIsTargetSelected(RI_DEVICE_API_VK)) {
     const struct RIFormatProps *props = GetRIFormatProps(desc.format);
-    VkImageAspectFlags aspect =
-        props->isDepth ? (VK_IMAGE_ASPECT_DEPTH_BIT |
-                          (props->isStencil ? VK_IMAGE_ASPECT_STENCIL_BIT : 0))
-                       : VK_IMAGE_ASPECT_COLOR_BIT;
+    // A sampled (shader-resource) view of a depth/stencil image must select a
+    // SINGLE aspect — Vulkan forbids sampling a combined DEPTH|STENCIL view. So
+    // an SRV over a D32S8 image (e.g. the soft-particle scene-depth read) gets
+    // the depth aspect only; attachment views keep the combined aspect (the
+    // LuxEffect outline pass binds the depth view as a stencil attachment).
+    const bool isShaderResourceView =
+        desc.viewType < RI_VIEWTYPE_COLOR_ATTACHMENT;
+    VkImageAspectFlags aspect;
+    if (props->isDepth) {
+      aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
+      if (props->isStencil && !isShaderResourceView)
+        aspect |= VK_IMAGE_ASPECT_STENCIL_BIT;
+    } else {
+      aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+    }
     VkImageViewCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
     ci.image = tex->vk.image;
     ci.viewType = ri_vk_RITextureViewTypeToVK(desc.viewType);

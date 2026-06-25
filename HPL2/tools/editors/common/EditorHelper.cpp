@@ -655,12 +655,14 @@ bool cEditorHelper::LoadTextureResource(eEditorTextureResourceType aTexType, con
 		else if(sAnimMode=="oscillate")
 			animMode = eTextureAnimMode_Oscillate;
 
-		pTexture = pManager->CreateAnimImage(asFile, true, texType).Release();
+		pTexture = pManager->CreateAnimImage(asFile, true, texType,
+			eTextureUsage_Normal, 0, false, animMode, afFrameTime).Release();
+		// CreateAnimImage caches by path: editing only the anim mode / frame time
+		// re-loads the same file and hits the cache with the OLD params, so force
+		// the current params + re-upload the record (no-op if unchanged) so the
+		// editor preview updates live.
 		if(pTexture)
-		{
-			pTexture->SetAnimMode(animMode);
-			pTexture->SetFrameTime(afFrameTime);
-		}
+			pManager->UpdateAnimParams(pTexture, animMode, afFrameTime);
 	}
 
 	if(apTexture==NULL)

@@ -334,7 +334,7 @@ namespace hpl {
 
 			if(animMode != eTextureAnimMode_None)
 			{
-				pImage = mpResources->GetTextureManager()->CreateAnimImage(sFile,bMipMaps,type,eTextureUsage_Normal,mlTextureSizeDownScaleLevel, bSRGB);
+				pImage = mpResources->GetTextureManager()->CreateAnimImage(sFile,bMipMaps,type,eTextureUsage_Normal,mlTextureSizeDownScaleLevel, bSRGB, animMode, fFrameTime);
 			}
 			else
 			{
@@ -370,8 +370,6 @@ namespace hpl {
 				return NULL;
 			}
 
-			pImage->SetFrameTime(fFrameTime);
-			pImage->SetAnimMode(animMode);
 
 			// Wrap is per-material in the new model; record the last texture entry's wrap.
 			pMat->setTextureWrap(wrap);

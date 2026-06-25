@@ -251,6 +251,13 @@ public Texture2D<float2> gSurfelDepth;
 [vk::binding(kBindingSurfelDepthSampler, 0)]
 public SamplerState gSurfelDepthSampler;
 
+// Scene depth (opaque geometry) — depth-aspect SRV of the main depth buffer.
+// Bound per-frame on set 1 by the particle pass for the soft-particle fade.
+// Only the particle shader samples it; other importers of `bindless` that
+// don't reference it emit no binding (slang strips the unused declaration).
+[vk::binding(kBindingSceneDepth, 1)]
+public Texture2D<float> gSceneDepth;
+
 // core_dissolve.tga — the legacy 128×128 dissolve noise (solid_z.frag.fsl).
 // Immutable, written once at init; sampled UV-space (wrap) by the shared
 // Material.alphaTest for the CoverageAmount dissolve fade.

@@ -79,6 +79,17 @@ StructuredBuffer<GpuDecal> gDecals;
 [vk::binding(kBindingWorldObjectDecalIndices, kWorldDecalSet)]
 StructuredBuffer<uint> gObjectDecalIndices;
 
+// Per-viewport decal accumulators: Type="Decal" meshes (Mul/MulX2/Add, no alpha)
+// rasterized this frame. decalMul holds the multiplicative factor (white where
+// no decal), decalAdd the additive term (black where no decal). Applied to the
+// base albedo before lighting: albedo = albedo*decalMul + decalAdd, so the mesh
+// decals are lit + fogged by the composite (the V-buffer renderer has no albedo
+// G-buffer to write them into). Set-2 slots 6,7 after the world decal buffers.
+[vk::binding(6, 2)]
+Texture2D<float4> gDecalMul;
+[vk::binding(7, 2)]
+Texture2D<float4> gDecalAdd;
+
 // --- Decal projection (folded in from the old albedo_resolve pass) ----------
 // Clustered OOB decals are composited directly onto the base albedo here, before
 // lighting, so they get lit like the surface — no separate albedo buffer/pass.
@@ -221,6 +232,16 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // lighting, so they get lit like the surface (replaces the old albedo_resolve
     // buffer + decal raster pass).
     sd.albedo = compositeDecals(sd.albedo, v.posW, sd.normalW, obj.decalList);
+
+    // Rasterized Type="Decal" mesh decals (Mul/MulX2/Add): apply the multiply
+    // factor then the additive term (same place + reason as the clustered decals
+    // above). Done in DISPLAY (gamma) space — matching the legacy gamma diffuse
+    // G-buffer — so MulX2's 0.5-gray neutral stays neutral (2×0.5=1) instead of
+    // darkening; saturate matches the legacy UNORM [0,1] clamp. White/black
+    // identities leave non-decal pixels unchanged. Lit + fogged below.
+    float3 albedoG = linearToSRGB(sd.albedo);
+    albedoG = saturate(albedoG * gDecalMul[pixelPos].rgb + gDecalAdd[pixelPos].rgb);
+    sd.albedo = sRGBToLinear(albedoG);
 
     bool wantDirect   = kDefaultRenderDirectLighting   != 0u;
     bool wantIndirect = kDefaultRenderIndirectLighting != 0u;
