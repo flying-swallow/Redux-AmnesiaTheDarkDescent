@@ -19,3 +19,9 @@
 [submodule "HPL2/dependencies/extern/VulkanMemoryAllocator"]
 	path = HPL2/dependencies/extern/VulkanMemoryAllocator
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
+[submodule "HPL2/dependencies/extern/SDL"]
+	path = HPL2/dependencies/extern/SDL
+	url = https://github.com/libsdl-org/SDL.git
+[submodule "HPL2/dependencies/extern/zlib"]
+	path = HPL2/dependencies/extern/zlib
+	url = https://github.com/madler/zlib.git

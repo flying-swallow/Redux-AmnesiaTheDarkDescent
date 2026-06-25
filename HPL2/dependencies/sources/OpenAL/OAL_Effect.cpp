@@ -20,7 +20,7 @@ bool cOAL_Effect::CreateLowLevelID()
 	FUNC_USES_AL;
 
 	
-	RUN_AL_FUNC(alGenEffects ( 1, &mlEffectId );)
+	RUN_AL_FUNC(oalw_alGenEffects ( 1, &mlEffectId );)
 	
 	return (!AL_ERROR_OCCURED && (IsValidObject()));
 }
@@ -34,7 +34,7 @@ bool cOAL_Effect::DestroyLowLevelID()
 	bool bSuccess = true;
 	if ( IsValidObject() )
 	{
-		RUN_AL_FUNC(alDeleteEffects( 1, &mlEffectId ));
+		RUN_AL_FUNC(oalw_alDeleteEffects( 1, &mlEffectId ));
 		
 		bSuccess = bSuccess && !AL_ERROR_OCCURED;
 	}
@@ -46,7 +46,7 @@ bool cOAL_Effect::IsValidObject()
 	DEF_FUNC_NAME("cOAL_Effect::IsValidObject()");
 	FUNC_USES_AL;
 
-	return (alIsEffect(mlEffectId) == AL_TRUE);
+	return (oalw_alIsEffect(mlEffectId) == AL_TRUE);
 }
 
 

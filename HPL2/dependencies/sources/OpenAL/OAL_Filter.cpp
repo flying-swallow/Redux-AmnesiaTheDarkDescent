@@ -28,7 +28,7 @@ bool cOAL_Filter::CreateLowLevelID()
 	FUNC_USES_AL;
 
 	// Create a Filter Object
-	RUN_AL_FUNC(alGenFilters ( 1, &mlObjectId );)
+	RUN_AL_FUNC(oalw_alGenFilters ( 1, &mlObjectId );)
 	
 	return (!AL_ERROR_OCCURED && (IsValidObject()));
 }
@@ -43,7 +43,7 @@ bool cOAL_Filter::DestroyLowLevelID()
 	bool bSuccess = true;
 	if ( IsValidObject() )
 	{
-		RUN_AL_FUNC(alDeleteFilters( 1, &mlObjectId ));
+		RUN_AL_FUNC(oalw_alDeleteFilters( 1, &mlObjectId ));
 		
 		bSuccess = bSuccess && !AL_ERROR_OCCURED;
 	}
@@ -54,7 +54,7 @@ bool cOAL_Filter::DestroyLowLevelID()
 
 bool cOAL_Filter::IsValidObject()
 {
-	return (alIsFilter(mlObjectId) == AL_TRUE);
+	return (oalw_alIsFilter(mlObjectId) == AL_TRUE);
 }
 
 void cOAL_Filter::SetType(eOALFilterType aType)
@@ -81,7 +81,7 @@ void cOAL_Filter::SetType(eOALFilterType aType)
 		break;
 	}
 
-	RUN_AL_FUNC ( alFilteri (mlObjectId, AL_FILTER_TYPE, lType) );
+	RUN_AL_FUNC ( oalw_alFilteri (mlObjectId, AL_FILTER_TYPE, lType) );
 	mbStatus = !AL_ERROR_OCCURED;
 }
 
@@ -100,7 +100,7 @@ void cOAL_Filter::SetGain (float afGain)
 
 	mfGain = afGain;
 
-	RUN_AL_FUNC ( alFilterf (mlObjectId, 0x0001, mfGain) );
+	RUN_AL_FUNC ( oalw_alFilterf (mlObjectId, 0x0001, mfGain) );
 }
 
 void cOAL_Filter::SetGainHF(float afGainHF)
@@ -132,7 +132,7 @@ void cOAL_Filter::SetGainHF(float afGainHF)
 
 	mfGainHF = afGainHF;
 
-	RUN_AL_FUNC ( alFilterf (mlObjectId, lParam, mfGainHF) );
+	RUN_AL_FUNC ( oalw_alFilterf (mlObjectId, lParam, mfGainHF) );
 }
 
 void cOAL_Filter::SetGainLF(float afGainLF)
@@ -164,6 +164,6 @@ void cOAL_Filter::SetGainLF(float afGainLF)
 
 	mfGainLF = afGainLF;
 
-	RUN_AL_FUNC(alFilterf(mlObjectId, lParam, mfGainLF));
+	RUN_AL_FUNC(oalw_alFilterf(mlObjectId, lParam, mfGainLF));
 }
 
