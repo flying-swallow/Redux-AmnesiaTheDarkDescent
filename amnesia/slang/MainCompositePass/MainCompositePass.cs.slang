@@ -209,14 +209,25 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // Modes 1–5 are already rendered as diagnostic colors by
     // SurfelGenerationPass. Display them without albedo, direct lighting,
     // emission, decals, or fog modifying them.
-    if (overlayMode >= 1u && overlayMode <= 5u)
+    if (overlayMode >= kOverlayModeVariance && overlayMode <= kOverlayModeCoverage)
     {
         gOutput[pixelPos] = float4(gIndirectLighting[pixelPos].xyz, 1.f);
         return;
     }
 
     TriangleHit triangleHit = hitInfo.getTriangleHit();
-    uint materialID = gSceneObjects[triangleHit.instanceID].materialID;
+    UniformObject obj = gSceneObjects[triangleHit.instanceID];
+
+    if (overlayMode == kOverlayModeShadowFlag)
+    {
+        const bool castsShadow = (obj.renderFlags & kObjectFlagShadowCaster) != 0u;
+        gOutput[pixelPos] = float4(castsShadow ? float3(0.f, 1.f, 0.f)
+                                               : float3(1.f, 0.f, 0.f),
+                                   1.f);
+        return;
+    }
+
+    uint materialID = obj.materialID;
 
     // Water and glass refraction need no swap here: SurfelVBuffer.rt re-traces the
     // refraction ray as a kind-0 bounce that clobbers gPackedHitInfo with the
@@ -225,7 +236,6 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // the glass surface are drawn on top in their raster passes.
 
     VertexData v = getVertexData(triangleHit);
-    UniformObject obj = gSceneObjects[triangleHit.instanceID];
     DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount);
 
     // Composite clustered OOB decals straight onto the base albedo, before
@@ -246,12 +256,12 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     bool wantDirect   = kDefaultRenderDirectLighting   != 0u;
     bool wantIndirect = kDefaultRenderIndirectLighting != 0u;
 
-    if (overlayMode == 6u) // Direct only
+    if (overlayMode == kOverlayModeDirectOnly)
     {
         wantDirect   = true;
         wantIndirect = false;
     }
-    else if (overlayMode == 7u) // Indirect only
+    else if (overlayMode == kOverlayModeIndirectOnly)
     {
         wantDirect   = false;
         wantIndirect = true;
@@ -269,7 +279,7 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // inline evalAnalyticLight path and the base game's albedo·color·atten·NdotL).
     float3 finalGather = sd.albedo * (direct + indirect);
 
-    if (!(overlayMode == 6u || overlayMode == 7u))
+    if (!(overlayMode == kOverlayModeDirectOnly || overlayMode == kOverlayModeIndirectOnly))
     {
         // Emissive (illumination-map) surfaces glow regardless of the direct /
         // indirect toggles — added on top so glowing textures aren't dark.

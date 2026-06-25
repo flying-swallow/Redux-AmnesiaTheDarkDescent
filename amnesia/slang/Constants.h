@@ -374,12 +374,26 @@ SHARED_CONST float kWaterRefractionExposure = 2.0f; //0.5f;
 // mirror, 1 = full wave distortion.
 SHARED_CONST float kWaterReflectionTurbulence = 0.3f;
 
-// Evaluation overlay (SurfelEvaluationPass). 0 = normal indirect lighting.
+// Evaluation / composite overlay modes. 0 = normal indirect lighting.
 // Non-zero values render diagnostic visualizations:
-//   1 = variance, 2 = ray count, 3 = ref count, 4 = life, 5 = coverage.
+//   1 = variance, 2 = ray count, 3 = ref count, 4 = life, 5 = coverage,
+//   6 = direct only, 7 = indirect only, 8 = shadow-caster flag.
 // Initial value for the runtime overlay-mode push constant. The host may
 // change the active mode at runtime without recompiling the shader.
-SHARED_CONST uint  kDefaultOverlayMode          = 0u;
+SHARED_CONST uint  kOverlayModeIndirectLighting = 0u;
+SHARED_CONST uint  kOverlayModeVariance         = 1u;
+SHARED_CONST uint  kOverlayModeRayCount         = 2u;
+SHARED_CONST uint  kOverlayModeRefCount         = 3u;
+SHARED_CONST uint  kOverlayModeLife             = 4u;
+SHARED_CONST uint  kOverlayModeCoverage         = 5u;
+SHARED_CONST uint  kOverlayModeDirectOnly       = 6u;
+SHARED_CONST uint  kOverlayModeIndirectOnly     = 7u;
+SHARED_CONST uint  kOverlayModeShadowFlag       = 8u;
+SHARED_CONST uint  kDefaultOverlayMode          = kOverlayModeIndirectLighting;
+
+// Per-object render flag bits mirrored from GraphicsTypes.h for shader-side
+// diagnostics. UniformObject.renderFlags stores the raw iRenderable flags.
+SHARED_CONST uint  kObjectFlagShadowCaster      = 0x00000001u;
 
 // MainCompositePass per-component toggles. 0 = skip that term, 1 = add
 // it. The host used to drive these via a per-pass CB (SurfelGIRenderCB);

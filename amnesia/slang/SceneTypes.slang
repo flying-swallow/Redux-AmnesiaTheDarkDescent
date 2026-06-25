@@ -209,15 +209,17 @@ SLANG_PUBLIC struct UniformObject {
     // dynamic/movable objects, so they never receive decals. compositeDecals
     // iterates only this list — no spatial grid, no receiver-category bits.
     SLANG_PUBLIC uint  decalList;
+    // Raw iRenderable render flags. Used by diagnostics (for example the
+    // Shadow Flag overlay) without affecting ray masks or material data.
+    SLANG_PUBLIC uint  renderFlags;
 
     // Per-object vertex/index stream device addresses (BDAs), folded in from the
     // former gOpaque*Handles bindless buffers — they were always indexed by this
     // same object slot. submitObject writes them from the renderable's vertex
     // buffer (or an explicit override for particle scratch streams); 0 = stream
     // absent. fetchBindlessTriangle() and the gbuffer / particle vertex shaders
-    // read these instead of six parallel StructuredBuffer<uint64_t>. Placed last:
-    // offset 272 is 8-byte aligned, so the uint64 block needs no padding (272 →
-    // 320 bytes; struct alignment becomes 8 to match scalar layout).
+    // read these instead of six parallel StructuredBuffer<uint64_t>. Placed last;
+    // the uint64 block stays 8-byte aligned under scalar layout.
     SLANG_PUBLIC uint64_t posHandle;
     SLANG_PUBLIC uint64_t normalHandle;
     SLANG_PUBLIC uint64_t tangentHandle;

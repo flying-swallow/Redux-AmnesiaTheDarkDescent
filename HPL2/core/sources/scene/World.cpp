@@ -907,6 +907,7 @@ uint32_t cWorld::SubmitRenderableObject(iRenderable *pObject,
   d.materialId = materialId;
   d.dissolveAmount = pObject->GetCoverageAmount();
   d.illuminationAmount = pObject->GetIlluminationAmount();
+  d.renderFlags = pObject->GetRenderFlags();
   // Precomputed static decal list (cWorld::Compile): (offset<<8)|count into
   // gObjectDecalIndices. Dynamic objects keep the default (0,0) → no decals.
   {

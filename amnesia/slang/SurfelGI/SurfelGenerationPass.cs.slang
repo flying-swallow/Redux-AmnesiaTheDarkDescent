@@ -205,21 +205,24 @@ void csMain(
         }
 
         // Coverage remains meaningful when no surfels contribute filtered lighting.
-        if (overlayMode == 5u)
+        if (overlayMode == kOverlayModeCoverage)
         {
             gOutput[pixelPos] = float4(lerpColor(smoothstep(kDefaultPlacementThreshold, kDefaultRemovalThreshold, coverage)), 1.f);
         }
         else if (totalWeight > 0.f)
         {
-            if (overlayMode == 0u || overlayMode == 6u || overlayMode == 7u)
+            if (overlayMode == kOverlayModeIndirectLighting
+                || overlayMode == kOverlayModeDirectOnly
+                || overlayMode == kOverlayModeIndirectOnly
+                || overlayMode == kOverlayModeShadowFlag)
                 gOutput[pixelPos] = indirectLighting;
-            else if (overlayMode == 1u)
+            else if (overlayMode == kOverlayModeVariance)
                 gOutput[pixelPos] = float4(stepColor(maxVariance * kDefaultVarianceSensitivity, 0.8f, 0.5f), 1.f);
-            else if (overlayMode == 2u)
+            else if (overlayMode == kOverlayModeRayCount)
                 gOutput[pixelPos] = float4(stepColor(rayCountEx, 48.f, 32.f), 1.f);
-            else if (overlayMode == 3u)
+            else if (overlayMode == kOverlayModeRefCount)
                 gOutput[pixelPos] = float4(lerpColor(float(refCount) / 256.f), 1.f);
-            else if (overlayMode == 4u)
+            else if (overlayMode == kOverlayModeLife)
                 gOutput[pixelPos] = float4(step(float(life), 0.f), step(1.f, float(life)), 0.f, 1.f);
         }
 

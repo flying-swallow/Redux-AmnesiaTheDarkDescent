@@ -575,6 +575,9 @@ void cLevelEditor::OnInitLayout()
 	vHandlePos += cVector3f(pHandle->GetSize().x+10, 0, 0);
 	pHandle = mpLowerToolbar->AddVisibilityControls();
 	pHandle->SetPosition(vHandlePos);
+	vHandlePos += cVector3f(pHandle->GetSize().x + 10, 0, 0);
+	pHandle = mpLowerToolbar->AddDebugControls();
+	pHandle->SetPosition(vHandlePos);
 
 	////////////////////////////////////
 	// Search Window

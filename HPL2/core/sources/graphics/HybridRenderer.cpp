@@ -1829,6 +1829,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           d.uvMatrix = pMat->GetUvMatrix();
           d.materialId = materialId;
           d.dissolveAmount = pObj->GetCoverageAmount();
+          d.renderFlags = pObj->GetRenderFlags();
 
           const uint32_t slot = RI.globalset->submitObject(
               pObj->GetUniqueCookie(), (uint32_t)RI.frameIndex,
@@ -2120,6 +2121,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         d.materialId =
             mat.materialId; // water ids fall in the water range of materialID
         d.dissolveAmount = pObj->GetCoverageAmount();
+        d.renderFlags = pObj->GetRenderFlags();
 
         const uint32_t slot = RI.globalset->submitObject(
             pObj->GetUniqueCookie(), (uint32_t)RI.frameIndex,
@@ -2565,6 +2567,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         d.uvMatrix = pMat->GetUvMatrix();
         d.materialId = materialId;
         d.dissolveAmount = pObj->GetCoverageAmount();
+        d.renderFlags = pObj->GetRenderFlags();
 
         // Stable slot keyed on the renderable's unique cookie. submitObject
         // bumps the slot generation on (re)assignment so a surfel anchored to a

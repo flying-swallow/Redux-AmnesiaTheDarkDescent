@@ -31,6 +31,8 @@
 #include "../common/EditorWorld.h"
 #include "../common/EditorActionMisc.h"
 
+#include "graphics/HybridRenderer.h"
+
 //---------------------------------------------------------------
 
 //////////////////////////////////////////////////////////////////
@@ -60,6 +62,9 @@ iEditorWindowLowerToolbar::iEditorWindowLowerToolbar(iEditorBase* apEditor) : iE
 	mpBAreas = NULL;
 	mpBBlockers = NULL;
 	mpBFog = NULL;
+
+	mpDebugControlsGroup = NULL;
+	mpBShadowFlag = NULL;
 
 	mpHandleCamera = NULL;
 	mpBCameraLockToGrid = NULL;
@@ -188,6 +193,23 @@ iWidget* iEditorWindowLowerToolbar::AddVisibilityControls()
 	mpBFog->SetToggleable(true);
 
 	return mpHandleVisibility;
+}
+
+iWidget* iEditorWindowLowerToolbar::AddDebugControls()
+{
+	// Debug Controls group
+	mpDebugControlsGroup = mpSet->CreateWidgetGroup(0, cVector2f(120, 43), _W("Debug Controls"), mpBGFrame);
+	mpDebugControlsGroup->SetDefaultFontSize(iEditorInput::GetFontSize());
+
+	// Shadow Flag
+	mpBShadowFlag = mpSet->CreateWidgetButton(cVector3f(15, 9, 0.1f), cVector2f(85, 25), _W("Shadow Flag"), mpDebugControlsGroup);
+	mpBShadowFlag->SetDefaultFontSize(13);
+	mpBShadowFlag->AddCallback(eGuiMessage_ButtonPressed, this, kGuiCallback(InputCallback));
+	mpBShadowFlag->SetToolTip(_W("Toggle debug overlay for \"Cast shadows\" flag"));
+	mpBShadowFlag->SetToolTipEnabled(true);
+	mpBShadowFlag->SetToggleable(true);
+
+	return mpDebugControlsGroup;
 }
 
 iWidget* iEditorWindowLowerToolbar::AddViewportControls()
@@ -494,6 +516,17 @@ bool iEditorWindowLowerToolbar::InputCallback(iWidget* apWidget, const cGuiMessa
 		// Fog reads the visibility flag through SetFogActive (not UpdateVisibility),
 		// so re-apply it now to take effect immediately.
 		mpEditor->GetEditorWorld()->SetFogActive(mpEditor->GetEditorWorld()->GetFogActive());
+	}
+	else if(apWidget==mpBShadowFlag)
+	{
+		cHybridRenderer* pHybridRenderer = static_cast<cHybridRenderer*>(
+			mpEditor->GetEngine()->GetGraphics()->GetRenderer(eRenderer_Main));
+		if(pHybridRenderer)
+		{
+			pHybridRenderer->SetOverlay(mpBShadowFlag->IsPressed()
+				? (int)kOverlayModeShadowFlag
+				: (int)kOverlayModeIndirectLighting);
+		}
 	}
 	///////////////////////////
 	// Camera lock to grid button

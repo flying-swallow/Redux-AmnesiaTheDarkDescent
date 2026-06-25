@@ -134,6 +134,7 @@ struct ObjectSubmitDesc {
   float           dissolveAmount     = 0.0f;
   float           illuminationAmount = 0.0f;
   uint32_t        decalList   = 0;
+  uint32_t        renderFlags = 0;
 
   // Explicit per-stream vertex/index device addresses (BDAs), folded into the
   // UniformObject. When `set`, submitObject uses these verbatim instead of

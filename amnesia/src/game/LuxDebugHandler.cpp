@@ -1199,6 +1199,7 @@ void cLuxDebugHandler::CreateGuiWindow()
 		mpCBEvaluationOverlay->AddItem("Coverage");
 		mpCBEvaluationOverlay->AddItem("Direct Only");
 		mpCBEvaluationOverlay->AddItem("Indirect Only");
+		mpCBEvaluationOverlay->AddItem("Shadow Flag");
 		mpCBEvaluationOverlay->SetSelectedItem(-1);
 		mpCBEvaluationOverlay->AddCallback(eGuiMessage_SelectionChange, this, kGuiCallback(ChangeEvaluationOverlay));
 		vGroupPos.y += 22;

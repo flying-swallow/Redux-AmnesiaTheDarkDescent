@@ -42,6 +42,7 @@ public:
 	iWidget* AddCameraControls();
 	iWidget* AddClipPlaneControls();
 	iWidget* AddVisibilityControls();
+	iWidget* AddDebugControls();
 
 	void SetFocusedClipPlane(int alX);
 	int GetFocusedClipPlane();
@@ -85,6 +86,10 @@ protected:
 	cWidgetButton* mpBAreas;
 	cWidgetButton* mpBBlockers;
 	cWidgetButton* mpBFog;
+
+	// Debug Controls
+	cWidgetGroup* mpDebugControlsGroup;
+	cWidgetButton* mpBShadowFlag;
 
 	// Camera controls
 	cWidgetDummy* mpHandleCamera;
