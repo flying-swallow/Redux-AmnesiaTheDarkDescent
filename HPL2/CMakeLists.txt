@@ -6,7 +6,6 @@ set(HPL2_VERSION_MAJOR 2)
 set(HPL2_VERSION_MINOR 0)
 
 add_definitions(
-  -DUSE_OALWRAPPER
   -DUSE_SDL2
 )
 
