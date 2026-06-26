@@ -118,7 +118,7 @@ if(NOT SDL2_INCLUDE_DIR)
   if(SDL2_INCLUDE_DIRS)
     set(SDL2_INCLUDE_DIR "${SDL2_INCLUDE_DIRS}" CACHE PATH "" FORCE)
   else()
-    set(SDL2_INCLUDE_DIR "${HPL2_DEPS_INCLUDE_DIR}/SDL2" CACHE PATH "" FORCE)
+    set(SDL2_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/SDL/include" CACHE PATH "" FORCE)
   endif()
 endif()
 
@@ -198,7 +198,7 @@ target_link_libraries(OALWrapper
     freealut
 )
 set_target_properties(OALWrapper PROPERTIES POSITION_INDEPENDENT_CODE ON)
-set(OALWRAPPER_INCLUDE_DIR "${HPL2_DEPS_INCLUDE_DIR}" CACHE PATH "" FORCE)
+set(OALWRAPPER_INCLUDE_DIR "${HPL2_DEPS_SOURCE_DIR}/OpenAL" CACHE PATH "" FORCE)
 
 if(MSVC)
   enable_language(ASM_MASM)
@@ -329,7 +329,7 @@ add_library(Newton STATIC
   "${NEWTON_SOURCE_DIR}/newton/NewtonClass.cpp"
 )
 target_include_directories(Newton
-  PUBLIC "${HPL2_DEPS_INCLUDE_DIR}"
+  PUBLIC "${HPL2_DEPS_SOURCE_DIR}/Newton"
   PRIVATE
     "${NEWTON_SOURCE_DIR}/core"
     "${NEWTON_SOURCE_DIR}/physics"
@@ -398,7 +398,7 @@ else()
   option(IL_TESTS "" OFF)
   option(BUILD_SHARED_LIBS "" OFF)
   add_subdirectory("${HPL2_DEPS_SOURCE_DIR}/DevIL" "${CMAKE_CURRENT_BINARY_DIR}/DevIL")
-  set(IL_INCLUDE_DIR "${HPL2_DEPS_INCLUDE_DIR}" CACHE PATH "" FORCE)
+  set(IL_INCLUDE_DIR "${HPL2_DEPS_SOURCE_DIR}/DevIL/include" CACHE PATH "" FORCE)
 endif()
 
 add_subdirectory(MathLib)

@@ -28,9 +28,9 @@ set(DEVIL_INC_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/include")
 # This must come before DEVIL_INC_DIR on the include path so the configured
 # header wins over the template-style copy that lives in DEVIL_INC_DIR.
 set(DEVIL_CFG_DIR  "${CMAKE_CURRENT_SOURCE_DIR}/DevIL/src-IL/include")
-# Public IL/il.h, IL/devil_internal_exports.h, etc. live in the shared deps
-# include tree — not under sources/.
-set(DEVIL_PUBLIC_INC_DIR "${CMAKE_SOURCE_DIR}/HPL2/dependencies/include")
+# Public IL/il.h, IL/devil_internal_exports.h, etc. live alongside DevIL's
+# internal headers under sources/DevIL/include/IL.
+set(DEVIL_PUBLIC_INC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/include")
 
 file(GLOB DevIL_SRCS "${DEVIL_SRC_DIR}/*.cpp")
 file(GLOB DevIL_INC
