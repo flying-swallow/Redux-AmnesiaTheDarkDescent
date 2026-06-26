@@ -65,13 +65,19 @@ function mathlib_use()
     filter {}
 end
 
--- Vulkan headers + VMA are header-only.
+-- Vulkan headers + VMA are header-only. Also emit the platform surface defines:
+-- CMake sets these PUBLIC on the volk target (extern/volk/CMakeLists.txt), so
+-- every volk consumer inherits them. premake has no such propagation, and the
+-- engine's surface-creation code (RISwapchain.cpp) is #ifdef-gated on
+-- VK_USE_PLATFORM_*_KHR -- without the define here the surface is never created
+-- and the first vkGetPhysicalDeviceSurfaceSupportKHR call dereferences garbage.
 function vulkan_includes()
     includedirs {
         DEPS_EXTERN .. "/Vulkan-Headers/include",
         DEPS_EXTERN .. "/VulkanMemoryAllocator/include",
         DEPS_EXTERN .. "/volk",
     }
+    vulkan_platform_defines()
 end
 
 -- Per-platform Vulkan surface defines, mirroring extern/CMakeLists.txt VOLK_STATIC_DEFINES.
