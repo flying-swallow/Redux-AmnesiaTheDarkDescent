@@ -28,6 +28,7 @@
 #include <math.h>
 #include <string.h>
 #include <ctype.h>
+#include <stdarg.h>
 #include <new>
 
 
@@ -138,6 +139,14 @@
 //************************************************************
 #if !(defined (_WIN_32_VER) || defined (_WIN_64_VER))
 	#define _ASSERTE(x)
+	// MSVC/CRT debug helpers that don't exist outside Windows. The trace/assert
+	// call sites below are only compiled in _DEBUG builds, so neutralise them so
+	// Newton's debug configuration builds on Linux/Mac.
+	#define _ASSERT(x)
+	#define OutputDebugStringA(x) fputs ((x), stderr)
+	// __FUNCDNAME__ is MSVC's decorated function name; __FUNCTION__ is the
+	// portable (GCC/Clang) undecorated equivalent, good enough for trace text.
+	#define __FUNCDNAME__ __FUNCTION__
 #endif
 
 #define __USE_CPU_FOUND__

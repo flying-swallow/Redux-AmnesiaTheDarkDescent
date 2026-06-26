@@ -25,3 +25,9 @@
 [submodule "HPL2/dependencies/extern/zlib"]
 	path = HPL2/dependencies/extern/zlib
 	url = https://github.com/madler/zlib.git
+[submodule "HPL2/dependencies/extern/ogg"]
+	path = HPL2/dependencies/extern/ogg
+	url = https://github.com/xiph/ogg.git
+[submodule "HPL2/dependencies/extern/vorbis"]
+	path = HPL2/dependencies/extern/vorbis
+	url = https://github.com/xiph/vorbis.git

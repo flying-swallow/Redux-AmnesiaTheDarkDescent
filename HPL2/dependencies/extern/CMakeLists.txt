@@ -5,7 +5,6 @@ option(ENABLE_PCH OFF)
 option(ENABLE_CTEST OFF)
 
 get_filename_component(HPL2_DEPS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
-set(HPL2_DEPS_INCLUDE_DIR "${HPL2_DEPS_DIR}/include")
 set(HPL2_DEPS_SOURCE_DIR "${HPL2_DEPS_DIR}/sources")
 
 set(VOLK_STATIC_DEFINES "")
@@ -69,62 +68,20 @@ endif()
 if(USE_SYSTEM_OGG)
   find_package(Ogg REQUIRED GLOBAL)
 else()
-  add_library(ogg STATIC
-    "${HPL2_DEPS_SOURCE_DIR}/ogg/bitwise.c"
-    "${HPL2_DEPS_SOURCE_DIR}/ogg/framing.c"
-  )
-  add_library(Ogg::ogg ALIAS ogg)
-  target_include_directories(ogg
-    PUBLIC "${HPL2_DEPS_INCLUDE_DIR}"
-    PRIVATE "${HPL2_DEPS_SOURCE_DIR}/ogg"
-  )
+  # ogg submodule builds its own target (ogg / Ogg::ogg) and generates
+  # ogg/config_types.h from config_types.h.in.
+  add_subdirectory(ogg)
   set_target_properties(ogg PROPERTIES POSITION_INDEPENDENT_CODE ON)
-  set(OGG_INCLUDE_DIR "${HPL2_DEPS_INCLUDE_DIR}" CACHE PATH "" FORCE)
-  set(OGG_LIBRARY ogg CACHE STRING "" FORCE)
 endif()
 
 if(USE_SYSTEM_VORBIS)
   find_package(Vorbis REQUIRED GLOBAL)
 else()
-  file(GLOB VORBIS_SOURCES CONFIGURE_DEPENDS "${HPL2_DEPS_SOURCE_DIR}/vorbis/*.c")
-  list(REMOVE_ITEM VORBIS_SOURCES
-    "${HPL2_DEPS_SOURCE_DIR}/vorbis/vorbisenc.c"
-    "${HPL2_DEPS_SOURCE_DIR}/vorbis/vorbisfile.c"
-    # Standalone programs (each has its own main()), not part of libvorbis.
-    "${HPL2_DEPS_SOURCE_DIR}/vorbis/psytune.c"
-    "${HPL2_DEPS_SOURCE_DIR}/vorbis/tone.c"
-    "${HPL2_DEPS_SOURCE_DIR}/vorbis/barkmel.c"
-  )
-
-  add_library(vorbis STATIC ${VORBIS_SOURCES})
-  add_library(Vorbis::vorbis ALIAS vorbis)
-  target_include_directories(vorbis
-    PUBLIC "${HPL2_DEPS_INCLUDE_DIR}"
-    PRIVATE "${HPL2_DEPS_SOURCE_DIR}/vorbis"
-  )
-  target_link_libraries(vorbis PUBLIC Ogg::ogg PRIVATE $<$<BOOL:${UNIX}>:m>)
-  set_target_properties(vorbis PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
-  add_library(vorbisfile STATIC "${HPL2_DEPS_SOURCE_DIR}/vorbis/vorbisfile.c")
-  add_library(Vorbis::vorbisfile ALIAS vorbisfile)
-  target_include_directories(vorbisfile
-    PUBLIC "${HPL2_DEPS_INCLUDE_DIR}"
-    PRIVATE "${HPL2_DEPS_SOURCE_DIR}/vorbis"
-  )
-  target_link_libraries(vorbisfile PUBLIC Vorbis::vorbis Ogg::ogg)
-  set_target_properties(vorbisfile PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
-  add_library(vorbisenc STATIC "${HPL2_DEPS_SOURCE_DIR}/vorbis/vorbisenc.c")
-  add_library(Vorbis::vorbisenc ALIAS vorbisenc)
-  target_include_directories(vorbisenc
-    PUBLIC "${HPL2_DEPS_INCLUDE_DIR}"
-    PRIVATE "${HPL2_DEPS_SOURCE_DIR}/vorbis"
-  )
-  target_link_libraries(vorbisenc PUBLIC Vorbis::vorbis Ogg::ogg)
-  set_target_properties(vorbisenc PROPERTIES POSITION_INDEPENDENT_CODE ON)
-
-  set(VORBIS_INCLUDE_DIR "${HPL2_DEPS_INCLUDE_DIR}" CACHE PATH "" FORCE)
-  set(VORBISFILE_INCLUDE_DIR "${HPL2_DEPS_INCLUDE_DIR}" CACHE PATH "" FORCE)
+  # vorbis submodule builds vorbis / vorbisfile / vorbisenc (+ Vorbis:: aliases)
+  # and finds Ogg::ogg from the target added above.
+  add_subdirectory(vorbis)
+  set_target_properties(vorbis vorbisfile vorbisenc
+    PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 
 if(USE_SYSTEM_SDL2)
@@ -203,11 +160,12 @@ file(GLOB FREEALUT_SOURCES CONFIGURE_DEPENDS "${HPL2_DEPS_SOURCE_DIR}/freealut/*
 add_library(freealut STATIC ${FREEALUT_SOURCES})
 target_include_directories(freealut
   PUBLIC
-    "${HPL2_DEPS_INCLUDE_DIR}"
-    "${HPL2_DEPS_INCLUDE_DIR}/AL"
-  PRIVATE
+    # AL/alut.h, AL/EFX-Util.h, AL/xram.h (freealut-owned, openal-soft lacks them)
     "${HPL2_DEPS_SOURCE_DIR}/freealut"
+  PRIVATE
+    "${HPL2_DEPS_SOURCE_DIR}/freealut/AL"   # freealut's own sources use <alut.h>
 )
+# Core AL headers (AL/al.h, AL/alc.h, AL/alext.h) come from openal-soft.
 target_link_libraries(freealut PUBLIC OpenAL::OpenAL)
 target_compile_definitions(freealut PRIVATE HAVE_STDINT_H=1)
 if(WIN32)
@@ -221,13 +179,12 @@ endif()
 set_target_properties(freealut PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 file(GLOB OALWRAPPER_SOURCES CONFIGURE_DEPENDS "${HPL2_DEPS_SOURCE_DIR}/OpenAL/*.cpp")
-file(GLOB OALWRAPPER_HEADERS CONFIGURE_DEPENDS "${HPL2_DEPS_INCLUDE_DIR}/OpenAL/*.h")
+file(GLOB OALWRAPPER_HEADERS CONFIGURE_DEPENDS "${HPL2_DEPS_SOURCE_DIR}/OpenAL/OpenAL/*.h")
 add_library(OALWrapper STATIC ${OALWRAPPER_SOURCES} ${OALWRAPPER_HEADERS})
 target_compile_definitions(OALWrapper PUBLIC USE_SDL2)
 target_include_directories(OALWrapper
-  PUBLIC "${HPL2_DEPS_INCLUDE_DIR}"
+  PUBLIC "${HPL2_DEPS_SOURCE_DIR}/OpenAL"   # "OpenAL/OAL_*.h" public headers
   PRIVATE
-    "${HPL2_DEPS_SOURCE_DIR}/OpenAL"
     "${CMAKE_SOURCE_DIR}/HPL2/core/include"
 )
 target_link_libraries(OALWrapper
