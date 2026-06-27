@@ -97,7 +97,7 @@ podman unshare rm -rf build/
 
 ## 4. `build-windows.ps1`
 
-Run from a *Developer PowerShell for VS 2022* so MSBuild and CMake are on `PATH`:
+Requires `premake5.exe` on `PATH` and a VS 2022 install (MSBuild is auto-located via `vswhere`, so any PowerShell works — not just a Developer PowerShell):
 
 ```powershell
 .\build-windows.ps1                                  # release
@@ -105,16 +105,16 @@ Run from a *Developer PowerShell for VS 2022* so MSBuild and CMake are on `PATH`
 .\build-windows.ps1 release -Clean                   # wipe build dir
 .\build-windows.ps1 release -NoDeploy                # skip asset staging
 .\build-windows.ps1 release -GameDir "C:\...\Amnesia The Dark Descent"
-.\build-windows.ps1 release -- -DUSE_SYSTEM_ZLIB=ON
+.\build-windows.ps1 release -- --with-tools=no
 ```
 
-The script uses the `Visual Studio 17 2022` generator targeting `x64`. Output goes to `build\bin\`.
+The script generates a Visual Studio 2022 solution via `premake5 vs2022` and builds it with `msbuild` targeting `x64`. Extra args after `--` are forwarded to `premake5 vs2022` (premake options, e.g. `--with-tools=no`, `--slangc=...`), not to MSBuild. Output goes to `build-premake\amnesia\<Config>\`.
 
 ## 5. Native build details (when you want to drop the wrappers)
 
 ### Linux
 
-Dependencies: GCC 10+ or Clang 11+, CMake >= 3.18, GNU Make or Ninja, an assembler (NASM/GAS), plus X11/Wayland headers if those backends are enabled. Bundled dependency sources under `extern/` and `HPL2/dependencies/` cover the rest, so a system-wide install of SDL2/OpenAL/etc. is optional.
+Dependencies: GCC 10+ or Clang 11+, CMake >= 3.18, GNU Make or Ninja, an assembler (NASM/GAS), plus X11/Wayland headers if those backends are enabled. Bundled dependency sources under `HPL2/extern/` cover the rest, so a system-wide install of SDL2/OpenAL/etc. is optional.
 
 ### Shader compilers
 

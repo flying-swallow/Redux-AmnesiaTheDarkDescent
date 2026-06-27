@@ -1,8 +1,8 @@
 -- premake/helpers.lua -- shared paths, glob, output-dir and prebuild helpers.
 -- All helpers are global so the dofile'd sub-scripts can use them directly.
 
-DEPS_EXTERN  = ROOT .. "/HPL2/dependencies/extern"
-DEPS_SOURCES = ROOT .. "/HPL2/dependencies/sources"
+DEPS_EXTERN  = ROOT .. "/HPL2/extern"
+DEPS_SOURCES = DEPS_EXTERN   -- merged: submodules + vendored sources share one dir
 CONFIG_DIR   = ROOT .. "/premake/config"   -- pre-generated, per-platform config headers
 BUILD_OUT    = "%{wks.location}"           -- build-premake/
 
@@ -39,6 +39,11 @@ function set_output(kind)
     objdir (BUILD_OUT .. "/obj/%{prj.name}/%{cfg.buildcfg}")
     if kind == "runtime" then
         targetdir (runtime_dir(""))
+        -- The engine resolves config/resources relative to the working dir, and
+        -- the Windows WinMain entry (unlike the Linux main) does not chdir to the
+        -- data dir. Make F5/Debug from VS run inside the deployed game folder so
+        -- it finds resources.cfg / config/*.cfg next to the exe.
+        debugdir (runtime_dir(""))
     else
         targetdir (BUILD_OUT .. "/lib/%{cfg.buildcfg}")
     end

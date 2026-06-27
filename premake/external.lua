@@ -12,8 +12,14 @@
 
 EXT_ROOT = ROOT .. "/build-premake/external"
 local RUNTIME_LIBS = ROOT .. "/build-premake/amnesia/%{cfg.buildcfg}/libs"
+-- On Windows the loader searches next to the .exe (no rpath/libs subdir), so the
+-- shared libs are copied directly into the runtime exe dir alongside the game.
+local RUNTIME_EXE  = ROOT .. "/build-premake/amnesia/%{cfg.buildcfg}"
+local function winpath(p) return (p:gsub("/", "\\")) end
 
-local function cmake_makefile(name, srcdir, extra_args, copy_glob)
+-- copy_glob: posix shared-lib glob copied next to the game (Linux, into libs/).
+-- win_glob:  Windows DLL glob (in the MSVC <config> subdir) copied next to the .exe.
+local function cmake_makefile(name, srcdir, extra_args, copy_glob, win_glob)
     local bdir = EXT_ROOT .. "/" .. name .. "/%{cfg.buildcfg}"
     project(name)
         kind "Makefile"
@@ -35,6 +41,11 @@ local function cmake_makefile(name, srcdir, extra_args, copy_glob)
                 string.format('mkdir -p "%s"', RUNTIME_LIBS),
                 string.format('cp -P %s "%s"/ 2>/dev/null || true', bdir .. "/" .. copy_glob, RUNTIME_LIBS),
             }
+        filter "system:windows"
+            buildcommands {
+                string.format('if not exist "%s" mkdir "%s"', winpath(RUNTIME_EXE), winpath(RUNTIME_EXE)),
+                string.format('copy /Y "%s" "%s\\"', winpath(bdir .. "/%{cfg.buildcfg}/" .. win_glob), winpath(RUNTIME_EXE)),
+            }
         filter {}
 end
 
@@ -42,7 +53,7 @@ end
 cmake_makefile("sdl2_ext",
     DEPS_EXTERN .. "/SDL",
     "-DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF -DSDL2_DISABLE_INSTALL=ON -DSDL_RPATH=OFF",
-    "libSDL2*.so*")
+    "libSDL2*.so*", "SDL2*.dll")
 
 function link_sdl2()
     dependson { "sdl2_ext" }
@@ -70,6 +81,11 @@ function link_sdl2()
         links { "SDL2-2.0d" }
     filter "system:windows"
         libdirs { EXT_ROOT .. "/sdl2_ext/%{cfg.buildcfg}/%{cfg.buildcfg}" }
+    -- SDL2's CMake build applies the debug postfix 'd', so the Debug import
+    -- library on disk is SDL2d.lib (mirrors the Linux SDL2-2.0 / SDL2-2.0d split).
+    filter { "system:windows", "configurations:Debug" }
+        links { "SDL2d" }
+    filter { "system:windows", "configurations:Release" }
         links { "SDL2" }
     filter {}
 end
@@ -80,7 +96,7 @@ cmake_makefile("openal_ext",
     "-DLIBTYPE=SHARED -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF -DALSOFT_INSTALL=OFF "
         .. "-DALSOFT_INSTALL_CONFIG=OFF -DALSOFT_INSTALL_HRTF_DATA=OFF -DALSOFT_INSTALL_AMBDEC_PRESETS=OFF "
         .. "-DALSOFT_INSTALL_EXAMPLES=OFF -DALSOFT_INSTALL_UTILS=OFF -DALSOFT_UPDATE_BUILD_VERSION=OFF",
-    "libopenal.so*")
+    "libopenal.so*", "OpenAL32.dll")
 
 function link_openal()
     dependson { "openal_ext" }

@@ -52,6 +52,10 @@ project "Amnesia"
 -- ---- deploy action --------------------------------------------------------
 -- Mirrors the CMake `deploy` target: copy the installed game assets next to the
 -- built executable. Run with:  premake5 deploy --game-dir="/path/to/Amnesia TDD"
+--
+-- Implemented as a portable Lua walk (os.matchfiles + os.copyfile) so it works
+-- on both Linux and Windows; the previous `find ... cp --parents` pipeline was
+-- Unix-only.
 newaction {
     trigger = "deploy",
     description = "Copy Amnesia game assets next to the built executable",
@@ -61,15 +65,28 @@ newaction {
             print("error: --game-dir=<path to Amnesia: The Dark Descent> is required")
             return
         end
+        -- Same exclusion set as the CMake copy_game_assets.cmake / the old shell
+        -- pipeline: skip the prebuilt game binaries, DLLs/EXEs and bulky archives.
+        local function excluded(name)
+            return name:match("^Amnesia")
+                or name:match("%.rar$")
+                or name:match("%.pdf$")
+                or name:match("%.dll$")
+                or name:match("%.exe$")
+        end
+        local gd = path.getabsolute(gamedir)
         for _, cfg in ipairs({ "Debug", "Release" }) do
             local dest = ROOT .. "/build-premake/amnesia/" .. cfg
             if os.isdir(dest) then
                 print("Deploying assets to " .. dest)
-                -- exclude the binaries/archives the CMake copy_game_assets.cmake skips
-                os.execute(string.format(
-                    'cd "%s" && find . -type f ! -name "Amnesia*" ! -name "*.rar" ! -name "*.pdf" '
-                    .. '! -name "*.dll" ! -name "*.exe" -exec cp --parents {} "%s"/ \\;',
-                    gamedir, dest))
+                for _, src in ipairs(os.matchfiles(gd .. "/**")) do
+                    local rel = path.getrelative(gd, src)
+                    if not excluded(path.getname(rel)) then
+                        local target = dest .. "/" .. rel
+                        os.mkdir(path.getdirectory(target))
+                        os.copyfile(src, target)
+                    end
+                end
             end
         end
     end

@@ -32,6 +32,11 @@ workspace "Amnesia"
     -- Match CMP0091 / CMAKE_MSVC_RUNTIME_LIBRARY = MultiThreaded$<Debug>DLL
     staticruntime "off"
 
+    -- CMake-generated VS projects default to MultiByte; the HPL2 sources assume
+    -- UNICODE/_UNICODE are not defined globally (PlatformWin32.cpp opts in
+    -- file-locally). premake defaults to Unicode, so set MBCS to match CMake.
+    characterset "MBCS"
+
     filter "configurations:Debug"
         defines { "_DEBUG" }
         symbols "On"

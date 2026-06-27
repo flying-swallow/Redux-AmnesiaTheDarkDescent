@@ -56,6 +56,7 @@ project "HPL2"
         ROOT .. "/amnesia/slang",
         DEPS_SOURCES .. "/AngelScript/include",
         DEPS_EXTERN .. "/tinyxml2",
+        DEPS_EXTERN .. "/zlib",             -- zlib.h/zconf.h for BinaryBuffer/SerializeClass
     }
     deps_public_includes()   -- ogg/vorbis/IL/Newton/OALWrapper public headers
     vulkan_includes()
@@ -77,6 +78,9 @@ project "HPL2"
         exceptionhandling "Off"             -- mirrors -fno-exceptions
         linkgroups "On"                     -- resolve circular static-lib deps
     filter "system:windows"
-        defines { "WIN32_LEAN_AND_MEAN", "SDL_MAIN_HANDLED", "IL_STATIC_LIB" }
+        -- _NEWTON_USE_LIB matches the define in premake/deps/newton.lua so
+        -- Newton.h drops its __declspec(dllimport) decoration on consumer
+        -- TUs (we link the static Newton.lib, not a DLL).
+        defines { "WIN32_LEAN_AND_MEAN", "SDL_MAIN_HANDLED", "IL_STATIC_LIB", "_NEWTON_USE_LIB=1" }
         buildoptions { "/EHs-c-" }
     filter {}

@@ -1,33 +1,33 @@
 [submodule "HPL2/dependencies/extern/openal-soft"]
-	path = HPL2/dependencies/extern/openal-soft
+	path = HPL2/extern/openal-soft
 	url = https://github.com/kcat/openal-soft.git
 [submodule "HPL2/dependencies/extern/tinyxml2"]
-	path = HPL2/dependencies/extern/tinyxml2
+	path = HPL2/extern/tinyxml2
 	url = https://github.com/leethomason/tinyxml2.git
 [submodule "HPL2/dependencies/extern/volk"]
-	path = HPL2/dependencies/extern/volk
+	path = HPL2/extern/volk
 	url = https://github.com/zeux/volk.git
 [submodule "HPL2/dependencies/extern/tracy"]
-	path = HPL2/dependencies/extern/tracy
+	path = HPL2/extern/tracy
 	url = https://github.com/wolfpld/tracy.git
 [submodule "HPL2/dependencies/extern/MathLib"]
-	path = HPL2/dependencies/extern/MathLib
+	path = HPL2/extern/MathLib
 	url = https://github.com/NVIDIA-RTX/MathLib.git
 [submodule "HPL2/dependencies/extern/Vulkan-Headers"]
-	path = HPL2/dependencies/extern/Vulkan-Headers
+	path = HPL2/extern/Vulkan-Headers
 	url = https://github.com/KhronosGroup/Vulkan-Headers
 [submodule "HPL2/dependencies/extern/VulkanMemoryAllocator"]
-	path = HPL2/dependencies/extern/VulkanMemoryAllocator
+	path = HPL2/extern/VulkanMemoryAllocator
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git
 [submodule "HPL2/dependencies/extern/SDL"]
-	path = HPL2/dependencies/extern/SDL
+	path = HPL2/extern/SDL
 	url = https://github.com/libsdl-org/SDL.git
 [submodule "HPL2/dependencies/extern/zlib"]
-	path = HPL2/dependencies/extern/zlib
+	path = HPL2/extern/zlib
 	url = https://github.com/madler/zlib.git
 [submodule "HPL2/dependencies/extern/ogg"]
-	path = HPL2/dependencies/extern/ogg
+	path = HPL2/extern/ogg
 	url = https://github.com/xiph/ogg.git
 [submodule "HPL2/dependencies/extern/vorbis"]
-	path = HPL2/dependencies/extern/vorbis
+	path = HPL2/extern/vorbis
 	url = https://github.com/xiph/vorbis.git

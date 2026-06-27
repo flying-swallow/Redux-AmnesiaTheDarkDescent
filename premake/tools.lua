@@ -40,7 +40,13 @@ end
 
 local function editor_target(name, subdir, basenames)
     project(name)
-        kind "ConsoleApp"
+        -- HPL2's entry wrapper (LowLevelSystemSDL.cpp) provides WinMain on Windows
+        -- (GUI subsystem) and main elsewhere -- mirror amnesia.lua's kind split.
+        filter "system:windows"
+            kind "WindowedApp"
+        filter "system:not windows"
+            kind "ConsoleApp"
+        filter {}
         language "C++"
         set_output("runtime")
         files (resolve(basenames))
