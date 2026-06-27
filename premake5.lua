@@ -20,6 +20,7 @@ ROOT = _MAIN_SCRIPT_DIR
 
 dofile "premake/options.lua"
 dofile "premake/helpers.lua"
+dofile "premake/slang.lua"   -- Slang slangc download + per-file SPIR-V build rule (uses runtime_dir from helpers)
 
 workspace "Amnesia"
     location (ROOT .. "/build-premake")

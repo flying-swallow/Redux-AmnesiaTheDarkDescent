@@ -5,7 +5,7 @@ newoption {
     value = "PATH",
     description = "Path to a slangc executable. If omitted, the script reuses one already "
         .. "extracted under build/_deps/ (CMake), otherwise it downloads the pinned release "
-        .. "(SLANG_VERSION in premake/helpers.lua) at configure time."
+        .. "(SLANG_VERSION in premake/slang.lua) at configure time."
 }
 
 newoption {

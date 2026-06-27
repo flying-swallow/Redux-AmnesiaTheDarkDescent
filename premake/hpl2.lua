@@ -5,7 +5,10 @@ project "HPL2"
     kind "StaticLib"
     language "C++"
     set_output("static")
-    defines { "USE_SDL2" }
+    -- USE_OALWRAPPER gates the OpenAL sound backend (LowLevelSoundOpenAL.cpp,
+    -- OpenALSound{Data,Channel}.h). CMake defines it globally
+    -- (HPL2/CMakeLists.txt); without it HPL2 compiles with no sound backend.
+    defines { "USE_SDL2", "USE_OALWRAPPER" }
 
     -- All source patterns are run through glob()/os.matchfiles so, exactly like
     -- CMake's file(GLOB ...), patterns matching nothing are silently dropped
