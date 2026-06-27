@@ -63,7 +63,10 @@ function link_sdl2()
     -- video drivers). With the wrong order the engine compiles SDL_syswm with no
     -- SDL_VIDEO_DRIVER_* defined and GetWindowHandle() hits assert(false).
     includedirs {
-        -- generated SDL_config.h candidates (standalone build tree) -- FIRST
+        -- generated SDL_config.h / SDL_revision.h from the sdl2_ext build tree --
+        -- FIRST so they win over the submodule's committed SDL_config.h (whose
+        -- Linux fallback is SDL_config_minimal.h). The generated config also matches
+        -- exactly what the SDL library was built with (X11/Wayland drivers, etc.).
         EXT_ROOT .. "/sdl2_ext/%{cfg.buildcfg}/include-config-release/SDL2",
         EXT_ROOT .. "/sdl2_ext/%{cfg.buildcfg}/include-config-debug/SDL2",
         EXT_ROOT .. "/sdl2_ext/%{cfg.buildcfg}/include",
@@ -73,7 +76,6 @@ function link_sdl2()
         DEPS_EXTERN .. "/SDL/include/SDL2",
     }
     filter "system:linux"
-        includedirs { CONFIG_DIR .. "/linux/SDL2" }   -- harvested fallback
         libdirs { EXT_ROOT .. "/sdl2_ext/%{cfg.buildcfg}" }
     filter { "system:linux", "configurations:Release" }
         links { "SDL2-2.0" }
