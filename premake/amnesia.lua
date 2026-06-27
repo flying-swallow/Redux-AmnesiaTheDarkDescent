@@ -36,7 +36,8 @@ project "Amnesia"
 
     link_engine()      -- HPL2 + full dependency set (no transitive propagation in premake)
 
-    -- Compile shaders next to the executable (reuses scripts/compile_slang_shaders.py).
+    -- Per-shader Slang -> SPIR-V build rules next to the executable (native port of
+    -- cmake/shaders.cmake; incremental, no python).
     slang_prebuild()
 
     -- RPATH so the colocated SDL2/OpenAL shared libs in ./libs are found.

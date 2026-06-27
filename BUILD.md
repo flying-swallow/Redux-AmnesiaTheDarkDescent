@@ -120,6 +120,8 @@ Dependencies: GCC 10+ or Clang 11+, CMake >= 3.18, GNU Make or Ninja, an assembl
 
 GLSL shaders (`.vert`, `.frag`, `.comp`, `.rgen`, etc.) compile to SPIR-V via the bundled `glslang` submodule. Slang shaders (`.slang`) compile via a prebuilt `slangc` automatically downloaded from the [Slang releases page](https://github.com/shader-slang/slang/releases) at configure time. Override with `-DSLANGC_EXECUTABLE=/path/to/slangc` (e.g. from the Vulkan SDK) to skip the download and use a local install. The pinned Slang version is set in [`cmake/slang.cmake`](cmake/slang.cmake) (`SLANG_VERSION`).
 
+The **premake** build mirrors this in pure Lua (premake's built-in `http.download` + `zip.extract`, no extra tooling): running `premake5` auto-downloads the pinned `slangc` into `build-premake/_deps/slang-prebuilt/` at configure time. Override with `--slangc=/path/to/slangc` to skip the download. The pinned version lives in [`premake/helpers.lua`](premake/helpers.lua) (`SLANG_VERSION`), kept in sync with `cmake/slang.cmake`.
+
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
       -DAMNESIA_GAME_DIRECTORY="$HOME/.steam/steam/steamapps/common/Amnesia The Dark Descent"

@@ -3,8 +3,9 @@
 newoption {
     trigger = "slangc",
     value = "PATH",
-    description = "Path to a slangc executable. If omitted, the script reuses the one the "
-        .. "CMake build downloaded under build/_deps/, or downloads a pinned release."
+    description = "Path to a slangc executable. If omitted, the script reuses one already "
+        .. "extracted under build/_deps/ (CMake), otherwise it downloads the pinned release "
+        .. "(SLANG_VERSION in premake/helpers.lua) at configure time."
 }
 
 newoption {

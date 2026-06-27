@@ -10,8 +10,8 @@
 # ./build-linux-docker.sh, which bind-mounts the source tree and runs the
 # premake build inside the container so build outputs land back on the host.
 #
-# Ships premake5 (drives the gmake2 build) and python3 (the slang_prebuild
-# step runs scripts/compile_slang_shaders.py) in addition to the system dev
+# Ships premake5 (drives the gmake2 build) and python3 (used by the
+# scripts/hpl2_amnesia_patch.py source patch) in addition to the system dev
 # libraries the in-tree SDL2/openal-soft/HPL2 builds need. cmake is still
 # required: SDL2 and openal-soft are built via their own CMake as premake
 # "Makefile" projects (premake/external.lua).
