@@ -64,17 +64,20 @@ end
 
 -- MathLib is header-only. Consumers call mathlib_use() to pull in its include dir.
 --
--- Do NOT add -march/-msse here. MathLib (ml.h) auto-selects ML_INTRINSIC_LEVEL from
--- the compiler's arch macros: __SSE4_2__ -> SSE4, else -> SSE3. The CMake build
--- (HPL2/extern/MathLib/CMakeLists.txt) passes no arch flag on Linux/x86_64, so it
--- runs MathLib at the SSE3 level. Forcing -msse4.2 here bumped premake to the SSE4
--- path, which diverged the renderer's vector/matrix math (frustum/bounding-volume
--- culling, decal projection) from the reference build and made some transparent
--- meshes and decals disappear. Match CMake: rely on the default baseline so the
--- intrinsic level is identical. (MSVC defines ML_INTRINSIC_LEVEL=1 via premake5.lua,
--- mirroring CMakeLists.txt -- that path is unchanged.)
+-- On Linux/x86_64 ml.h falls back to ML_INTRINSIC_LEVEL = SSE3 (no __SSE4_2__ macro).
+-- That level's SSE4.1 emulation (emu_mm_dp_ps) is built from the SSE3 intrinsic
+-- _mm_hadd_ps, which GCC will not inline unless SSSE3 is enabled at the target. The
+-- x86_64 baseline is only SSE2, so we enable it explicitly with -mssse3 (SSSE3 -- NOT
+-- -msse4.2). -mssse3 makes the intrinsics compile WITHOUT defining __SSE4_2__, so the
+-- intrinsic level stays SSE3 and the math is bit-identical to the reference build.
+-- Do NOT use -msse4.2: it bumps ML_INTRINSIC_LEVEL to SSE4 and diverged the renderer's
+-- vector/matrix math (culling, decal projection) -> missing meshes/decals.
+-- (MSVC defines ML_INTRINSIC_LEVEL=1 via premake5.lua, mirroring CMakeLists.txt.)
 function mathlib_use()
     includedirs { DEPS_EXTERN .. "/MathLib" }
+    filter "toolset:gcc or clang"
+        buildoptions { "-mssse3" }
+    filter {}
 end
 
 -- Vulkan headers + VMA are header-only. Also emit the platform surface defines:
