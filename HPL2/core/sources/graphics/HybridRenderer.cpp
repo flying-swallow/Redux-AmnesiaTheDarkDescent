@@ -1165,7 +1165,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   gbufferBeginDesc.colorCount = 2;
   gbufferBeginDesc.colors = gbufferColorAttachments;
   gbufferBeginDesc.depthStencil = &depthAttachment;
-  RI.profiler.beginScope(&RI.primary.cmds[0], "GBuffer");
+  RIGpuScope _gsGBuffer(&RI.profiler, &RI.primary.cmds[0], "GBuffer");
   RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, gbufferBeginDesc);
 
   RIViewport vkViewport = {};
@@ -1198,7 +1198,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   }
 
   RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
-  RI.profiler.endScope(&RI.primary.cmds[0]); // end GBuffer
 
   // Gbuffer output -> SHADER_READ_ONLY for the surfel-generation compute
   // pass (and any later fragment consumer). Includes depth, which the
@@ -1275,6 +1274,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // hit in gPackedHitInfo until a future sparse refraction RT pass lands.
   // ----------------------------------------------------------------------
   {
+    RIGpuScope _gsSurfelPomBary(&RI.profiler, &RI.primary.cmds[0], "SurfelPomBary");
     VkComputePipelineCreateInfo ci = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kPomHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
@@ -1479,6 +1479,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo ci = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    RIGpuScope _gsDirectLighting(&RI.profiler, &RI.primary.cmds[0], "DirectLighting");
     m_directLighting.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
                                          "DirectLightingPass.cs", &ci);
     m_directLighting.bindBindlessDescriptorSet(&RI.primary.cmds[0],
@@ -1539,6 +1540,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // frame's temporal history) and directLighting[dlCur] (the à-trous input).
     // ----------------------------------------------------------------
     {
+      RIGpuScope _gsDirectSpatialReuse(&RI.profiler, &RI.primary.cmds[0], "DirectSpatialReuse");
       m_directSpatialReuse.bindComputePipeline(
           &RI.device, &RI.primary.cmds[0], kHash, "DirectSpatialReusePass.cs",
           &ci);
@@ -1613,6 +1615,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // ping-pong the directAtrous scratch. All textures stay GENERAL.
     // ----------------------------------------------------------------
     directResultView = state.directLightingView[dlCur].Get();
+    RIGpuScope _gsDirectAtrous(&RI.profiler, &RI.primary.cmds[0], "DirectAtrous");
     for (int it = 0; it < kAtrousIterations; ++it) {
       RITextureView *inView = (it == 0)
                                ? state.directLightingView[dlCur].Get()
@@ -1663,7 +1666,6 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
            RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
       directResultView = outView;
     }
-    RI.profiler.endScope(&RI.primary.cmds[0]); // end DirectAtrous
   }
 
   // --------------------------------------------------------------------
