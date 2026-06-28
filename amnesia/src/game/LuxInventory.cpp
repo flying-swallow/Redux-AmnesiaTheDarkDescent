@@ -2516,11 +2516,14 @@ tWString cLuxInventory::ParseStringForGamepadIconsRemoval(const tWString & asCur
 
 tWString cLuxInventory::AddGamepadTextAtPosition(const tWString& asCommand, int alPosition)
 {
-	////////////
-	// Convert the command from wString to tString
 	tString sCommand;
-	sCommand.resize(asCommand.size());
-	std::copy(asCommand.begin(), asCommand.end(), sCommand.begin());
+	sCommand.reserve(asCommand.size());
+
+	for (wchar_t ch : asCommand)
+	{
+		assert(ch <= 0x7F); // Command tokens should be plain ASCII.
+		sCommand.push_back(static_cast<char>(ch));
+	}
 
 	////////////////
 	// Get icon from command string
