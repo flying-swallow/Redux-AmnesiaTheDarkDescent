@@ -154,8 +154,8 @@ void csMain(
                                    sb.radius, hit))
             {
                 const SurfelRecycleInfo surfelRecycleInfo = gSurfelRecycleInfoBuffer[surfelIndex];
-                bool isSleeping = surfelRecycleInfo.status & 0x0001;
-                bool lastSeen   = surfelRecycleInfo.status & 0x0002;
+                bool isSleeping = (surfelRecycleInfo.status & 0x0001u) != 0u;
+                bool lastSeen   = (surfelRecycleInfo.status & 0x0002u) != 0u;
 
                 if (!isSleeping)
                 {

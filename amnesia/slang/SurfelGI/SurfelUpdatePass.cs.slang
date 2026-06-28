@@ -34,10 +34,10 @@ import SurfelGI.SurfelLifecycle;    // releaseSurfel
 SurfelRecycleInfo tickSurfelLifecycle(SurfelRecycleInfo info, bool hasEnoughRefCount,
                                       inout bool isSleeping)
 {
-    bool lastSeen = info.status & 0x0002;
+    bool lastSeen = (uint(info.status) & 0x0002u) != 0u;
 
-    info.life  = max(asint(info.life) - 1, 0);
-    info.frame = clamp(asint(info.frame) + 1, 0, 65535);
+    info.life  = uint16_t(max(int(info.life) - 1, 0));
+    info.frame = uint16_t(clamp(int(info.frame) + 1, 0, 65535));
 
     if (lastSeen)
     {
@@ -135,9 +135,9 @@ void allocateSurfelRays(uint surfelIndex, inout Surfel surfel, bool isSleeping)
     uint upper = isSleeping ?  kDefaultMinRayCount       :  kDefaultMaxRayCount;
 
     uint rayOffset = 0;
-    uint rayRequestCount = clamp(
-        lerp(lower, upper, length(surfel.msmeData.variance) * kDefaultVarianceSensitivity),
-        lower, upper);
+    uint rayRequestCount = uint(clamp(
+        lerp(float(lower), float(upper), length(surfel.msmeData.variance) * kDefaultVarianceSensitivity),
+        float(lower), float(upper)));
     InterlockedAdd(gSurfelCounter[kSurfelCounterRequestedRay], rayRequestCount, rayOffset);
 
     if (rayOffset < kRayBudget)
@@ -167,7 +167,7 @@ void collectCellInfo(uint3 dispatchThreadId: SV_DispatchThreadID)
     Surfel surfel = gSurfelBuffer[surfelIndex];
 
     SurfelRecycleInfo surfelRecycleInfo = gSurfelRecycleInfoBuffer[surfelIndex];
-    bool isSleeping = surfelRecycleInfo.status & 0x0001;
+    bool isSleeping = (uint(surfelRecycleInfo.status) & 0x0001u) != 0u;
     const bool hasEnoughRefCount = gSurfelRefCounter[surfelIndex] > kRefCountThreshold;
     surfelRecycleInfo = tickSurfelLifecycle(surfelRecycleInfo, hasEnoughRefCount, isSleeping);
 
@@ -197,7 +197,7 @@ void collectCellInfo(uint3 dispatchThreadId: SV_DispatchThreadID)
     countIntersectingCells(surfel, cameraPos);
     allocateSurfelRays(surfelIndex, surfel, isSleeping);
 
-    surfelRecycleInfo.status = isSleeping ? 0x0001 : 0x0000;   // clears lastSeen
+    surfelRecycleInfo.status = uint16_t(isSleeping ? 0x0001u : 0x0000u);   // clears lastSeen
     gSurfelRecycleInfoBuffer[surfelIndex] = surfelRecycleInfo;
     gSurfelBuffer[surfelIndex] = surfel;
     gSurfelRefCounter[surfelIndex] = 0u;
