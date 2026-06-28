@@ -1,10 +1,9 @@
 -- premake5.lua -- alternative build system for HPL2 / Amnesia (Surfel-GI fork)
 --
--- This is *additive*: the CMake build (CMakeLists.txt) and the Visual Studio
--- solution (Amnesia.sln) are untouched and remain the primary build paths.
--- This file lets you generate a Visual Studio solution or gmake2 Makefiles via:
+-- This is *additive*: the CMake build (CMakeLists.txt) is untouched. This file
+-- lets you generate a Visual Studio solution or gmake2 Makefiles via:
 --
---     premake5 vs2022       (Windows)
+--     premake5 vs2026       (Windows)
 --     premake5 gmake2       (Linux)
 --     make -C build-premake config=release -j$(nproc)
 --
@@ -62,7 +61,7 @@ workspace "Amnesia"
     filter "system:windows"
         systemversion "latest"
         defines { "NOMINMAX=1", "ML_INTRINSIC_LEVEL=1", "_CRT_SECURE_NO_WARNINGS" }
-        flags { "MultiProcessorCompile" }
+        multiprocessorcompile "On"
     filter {}
 
 -- External CMake-driven dependencies (SDL2 + openal-soft).

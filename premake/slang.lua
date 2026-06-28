@@ -13,6 +13,8 @@ local function slangc_exe()
     return os.target() == "windows" and "slangc.exe" or "slangc"
 end
 
+local function winpath(p) return (p:gsub("/", "\\")) end
+
 -- Host CPU -> Slang asset arch token. The workspace pins x86_64, but detect so an
 -- aarch64 host still resolves the right asset (mirrors cmake/slang.cmake).
 local function slang_host_arch()
@@ -169,6 +171,14 @@ function slang_prebuild()
         buildcommands {
             string.format('if not exist "%s" mkdir "%s"', out, out),
             compile,
+        }
+    filter {}
+
+    filter "system:windows"
+        postbuildcommands {
+            'if not "$(ATDD_DIR)"=="" if not exist "$(ATDD_DIR)\\core\\shaders" mkdir "$(ATDD_DIR)\\core\\shaders"',
+            string.format('if not "$(ATDD_DIR)"=="" if exist "%s\\*.spv" copy /Y "%s\\*.spv" "$(ATDD_DIR)\\core\\shaders\\" >nul',
+                winpath(out), winpath(out)),
         }
     filter {}
 end

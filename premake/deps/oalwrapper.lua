@@ -6,6 +6,9 @@ project "OALWrapper"
 
     files { DEPS_SOURCES .. "/OpenAL/*.cpp" }
     defines { "USE_SDL2" }
+    filter "system:windows"
+        defines { "AL_LIBTYPE_STATIC" }
+    filter {}
     includedirs {
         CONFIG_DIR .. "/common",            -- generated <ogg/config_types.h>
         DEPS_EXTERN .. "/ogg/include",      -- <ogg/*.h>

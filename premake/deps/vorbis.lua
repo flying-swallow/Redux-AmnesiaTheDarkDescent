@@ -29,12 +29,19 @@ local function vorbis_includes()
     }
 end
 
+local function vorbis_warning_filters()
+    filter "system:windows"
+        disablewarnings { "4244", "4267", "4305" }
+    filter {}
+end
+
 project "vorbis"
     kind "StaticLib"
     language "C"
     set_output("static")
     files (vorbis_srcs)
     vorbis_includes()
+    vorbis_warning_filters()
     links { "ogg" }
     filter "system:not windows"
         links { "m" }
@@ -46,6 +53,7 @@ project "vorbisfile"
     set_output("static")
     files { VORBIS_LIB .. "/vorbisfile.c" }
     vorbis_includes()
+    vorbis_warning_filters()
     links { "vorbis", "ogg" }
 
 project "vorbisenc"
@@ -54,4 +62,5 @@ project "vorbisenc"
     set_output("static")
     files { VORBIS_LIB .. "/vorbisenc.c" }
     vorbis_includes()
+    vorbis_warning_filters()
     links { "vorbis", "ogg" }

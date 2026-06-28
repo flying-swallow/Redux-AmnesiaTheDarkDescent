@@ -40,11 +40,13 @@ function set_output(kind)
     objdir (BUILD_OUT .. "/obj/%{prj.name}/%{cfg.buildcfg}")
     if kind == "runtime" then
         targetdir (runtime_dir(""))
-        -- The engine resolves config/resources relative to the working dir, and
-        -- the Windows WinMain entry (unlike the Linux main) does not chdir to the
-        -- data dir. Make F5/Debug from VS run inside the deployed game folder so
-        -- it finds resources.cfg / config/*.cfg next to the exe.
-        debugdir (runtime_dir(""))
+        -- The engine resolves config/resources relative to the working dir.
+        -- Windows developers set ATDD_DIR to the game install/data directory.
+        filter "system:windows"
+            debugdir "$(ATDD_DIR)"
+        filter "system:not windows"
+            debugdir (runtime_dir(""))
+        filter {}
     else
         targetdir (BUILD_OUT .. "/lib/%{cfg.buildcfg}")
     end
@@ -137,6 +139,26 @@ function link_engine()
     link_openal()
     filter "system:linux"
         links { "pthread", "dl" }
+    filter "system:windows"
+        -- Static SDL2/openal-soft do not bring their CMake target dependency
+        -- lists with them, so final Windows executables link the Win32 libs here.
+        links {
+            "kernel32",
+            "setupapi",
+            "winmm",
+            "imm32",
+            "version",
+            "cfgmgr32",
+            "ole32",
+            "oleaut32",
+            "uuid",
+            "advapi32",
+            "user32",
+            "gdi32",
+            "shell32",
+            "avrt",
+            "dinput8",
+        }
     filter "toolset:gcc or clang"
         linkgroups "On"
     filter {}

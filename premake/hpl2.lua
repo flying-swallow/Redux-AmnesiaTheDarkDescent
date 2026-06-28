@@ -70,8 +70,8 @@ project "HPL2"
     link_openal()    -- openal-soft headers + link + dependson
     mathlib_use()
 
-    -- Link the full dependency set; premake propagates these to the final
-    -- executables that link HPL2.
+    -- Keep HPL2 aware of its dependency set; final executables still call
+    -- link_engine() because static-library links are not relied on transitively.
     links {
         "OALWrapper", "AngelScript", "Newton", "tinyxml2",
         "vorbisfile", "vorbis", "ogg", "freealut",
@@ -87,6 +87,15 @@ project "HPL2"
         -- _NEWTON_USE_LIB matches the define in premake/deps/newton.lua so
         -- Newton.h drops its __declspec(dllimport) decoration on consumer
         -- TUs (we link the static Newton.lib, not a DLL).
-        defines { "WIN32_LEAN_AND_MEAN", "SDL_MAIN_HANDLED", "IL_STATIC_LIB", "_NEWTON_USE_LIB=1" }
-        buildoptions { "/EHs-c-" }
+        -- AL_LIBTYPE_STATIC does the same for OpenAL Soft's AL/ALC headers.
+        defines {
+            "WIN32_LEAN_AND_MEAN",
+            "SDL_MAIN_HANDLED",
+            "IL_STATIC_LIB",
+            "_NEWTON_USE_LIB=1",
+            "AL_LIBTYPE_STATIC",
+        }
+        -- Premake's MSVC projects include STL-heavy generated headers; keeping
+        -- unwind semantics enabled avoids C4530 warnings from headers like <vector>.
+        exceptionhandling "On"
     filter {}

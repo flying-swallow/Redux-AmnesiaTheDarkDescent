@@ -1,80 +1,165 @@
-# Windows build wrapper for Amnesia64 (premake5 + MSBuild).
-# Requires premake5.exe on PATH and a VS 2022 install (MSBuild is auto-located
-# via vswhere, so any PowerShell works -- not just a Developer PowerShell).
-
-[CmdletBinding()]
-param(
-    [ValidateSet('release', 'debug')]
-    [string]$Config = 'release',
-    [switch]$Clean,
-    [switch]$NoDeploy,
-    [string]$GameDir,
-    [Parameter(ValueFromRemainingArguments=$true)]
-    [string[]]$ExtraArgs
-)
+# Windows build wrapper for Amnesia64 (Premake + MSBuild).
+# This is a convenience path for command-line builds; developers can still open
+# build-premake\Amnesia.sln directly after running `premake5 vs2026`.
+# Requires premake5.exe on PATH and a VS 2026 install. MSBuild is auto-located
+# via vswhere, so a regular PowerShell is enough.
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+function Show-Usage {
+    Write-Host @'
+Usage: .\build-windows.ps1 [release|debug] [options] [-- <extra premake args>]
+
+Options:
+    -Clean              Remove build-premake\ before generating
+    -NoDeploy           Skip the premake deploy action
+    -GameDir <path>     Path to your Amnesia: The Dark Descent install
+                        (default: ATDD_DIR or AMNESIA_GAME_DIRECTORY)
+    -Help               Show this help
+
+Examples:
+    .\build-windows.ps1
+    .\build-windows.ps1 debug
+    .\build-windows.ps1 release -Clean
+    .\build-windows.ps1 release -NoDeploy
+    .\build-windows.ps1 release -GameDir "C:\Games\Amnesia The Dark Descent"
+    .\build-windows.ps1 release -- --with-tools=no
+'@
+}
+
+$config = 'release'
+$clean = $false
+$noDeploy = $false
+$gameDir = $null
+$extraArgs = @()
+
+$scriptArgs = @($args)
+$i = 0
+while ($i -lt $scriptArgs.Count) {
+    $arg = [string]$scriptArgs[$i]
+
+    if ($arg -eq '--') {
+        if ($i + 1 -lt $scriptArgs.Count) {
+            $extraArgs = @($scriptArgs[($i + 1)..($scriptArgs.Count - 1)])
+        }
+        break
+    } elseif ($arg -ieq 'release' -or $arg -ieq 'debug') {
+        $config = $arg.ToLowerInvariant()
+        $i++
+    } elseif ($arg -ieq '-Clean' -or $arg -ieq '--clean') {
+        $clean = $true
+        $i++
+    } elseif ($arg -ieq '-NoDeploy' -or $arg -ieq '--no-deploy') {
+        $noDeploy = $true
+        $i++
+    } elseif ($arg -ieq '-GameDir' -or $arg -ieq '--game-dir') {
+        if ($i + 1 -ge $scriptArgs.Count) {
+            throw "$arg requires a path argument."
+        }
+        $gameDir = [string]$scriptArgs[$i + 1]
+        $i += 2
+    } elseif ($arg.StartsWith('--game-dir=')) {
+        $gameDir = $arg.Substring('--game-dir='.Length)
+        $i++
+    } elseif ($arg -ieq '-Help' -or $arg -ieq '--help' -or $arg -ieq '-h' -or $arg -ieq '/?') {
+        Show-Usage
+        exit 0
+    } else {
+        Show-Usage
+        throw "Unknown argument: $arg"
+    }
+}
+
+if ([System.Environment]::OSVersion.Platform -ne [System.PlatformID]::Win32NT) {
+    throw "build-windows.ps1 must be run on Windows."
+}
+
+$root = $PSScriptRoot
+if (-not $root) {
+    $root = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
+$root = [System.IO.Path]::GetFullPath($root)
 Set-Location $root
 
-if (-not (Test-Path 'HPL2/extern/SDL/CMakeLists.txt')) {
+$cfgName = if ($config -eq 'release') { 'Release' } else { 'Debug' }
+$buildDir = [System.IO.Path]::GetFullPath((Join-Path $root 'build-premake'))
+
+if ($clean -and (Test-Path -LiteralPath $buildDir)) {
+    $expected = [System.IO.Path]::GetFullPath((Join-Path $root 'build-premake'))
+    if ($buildDir -ne $expected) {
+        throw "Refusing to clean unexpected build directory: $buildDir"
+    }
+    Write-Host "==> Cleaning $buildDir"
+    Remove-Item -LiteralPath $buildDir -Recurse -Force
+}
+
+if (-not (Test-Path -LiteralPath (Join-Path $root 'HPL2\extern\SDL\CMakeLists.txt'))) {
     Write-Host "==> Initialising git submodules"
-    git submodule update --init --recursive
+    & git submodule update --init --recursive
     if ($LASTEXITCODE -ne 0) { throw "submodule init failed" }
 }
 
-$cfgName  = if ($Config -eq 'release') { 'Release' } else { 'Debug' }
-$buildDir = Join-Path $root 'build-premake'
-
-if ($Clean -and (Test-Path $buildDir)) {
-    Write-Host "==> Cleaning $buildDir"
-    Remove-Item -Recurse -Force $buildDir
+if (-not $gameDir -and $env:ATDD_DIR) {
+    $gameDir = $env:ATDD_DIR
+} elseif (-not $gameDir -and $env:AMNESIA_GAME_DIRECTORY) {
+    $gameDir = $env:AMNESIA_GAME_DIRECTORY
 }
 
-if (-not $GameDir -and $env:ATDD_DIR) {
-    $GameDir = $env:ATDD_DIR
-} elseif (-not $GameDir -and $env:AMNESIA_GAME_DIRECTORY) {
-    $GameDir = $env:AMNESIA_GAME_DIRECTORY
+if ($gameDir) {
+    $gameDir = [System.IO.Path]::GetFullPath($gameDir)
+    if (-not (Test-Path -LiteralPath $gameDir -PathType Container)) {
+        throw "Game directory not found: $gameDir"
+    }
+
+    # The generated VS projects use $(ATDD_DIR) for Debugging > Working Directory
+    # and for copying freshly compiled Slang shaders into the game data folder.
+    $env:ATDD_DIR = $gameDir
+    Write-Host "==> ATDD_DIR=$gameDir"
 }
 
-# Extra args go to `premake5 vs2022` (e.g. --with-tools=no, --slangc=...),
-# mirroring how build-linux-docker.sh forwards `--`-args to `premake5 gmake2`.
-$premakeArgs = @('vs2022')
-if ($ExtraArgs) {
-    $premakeArgs += $ExtraArgs
+$premake = (Get-Command premake5 -ErrorAction SilentlyContinue).Source
+if (-not $premake) {
+    throw "premake5.exe was not found on PATH."
 }
 
-Write-Host "==> Generating Visual Studio solution"
-& premake5 @premakeArgs
-if ($LASTEXITCODE -ne 0) { throw "premake5 vs2022 failed" }
+$premakeArgs = @('vs2026')
+if ($extraArgs) {
+    $premakeArgs += $extraArgs
+}
+
+Write-Host "==> Generating Visual Studio 2026 solution"
+& $premake @premakeArgs
+if ($LASTEXITCODE -ne 0) { throw "premake5 vs2026 failed" }
 
 $sln = Join-Path $buildDir 'Amnesia.sln'
+if (-not (Test-Path -LiteralPath $sln)) {
+    throw "Expected solution was not generated: $sln"
+}
 
-# Prefer msbuild on PATH (Developer PowerShell); otherwise locate it via vswhere
-# so the script also works from a regular PowerShell.
 $msbuild = (Get-Command msbuild -ErrorAction SilentlyContinue).Source
 if (-not $msbuild) {
     $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-    if (-not (Test-Path $vswhere)) {
-        throw "msbuild not on PATH and vswhere not found at $vswhere -- install VS 2022 (or its Build Tools)."
+    if (-not (Test-Path -LiteralPath $vswhere)) {
+        throw "msbuild not on PATH and vswhere not found at $vswhere. Install VS 2026 or VS Build Tools."
     }
-    $msbuild = & $vswhere -latest -requires Microsoft.Component.MSBuild `
+
+    $msbuild = & $vswhere -latest -products * -requires Microsoft.Component.MSBuild `
         -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
-    if (-not $msbuild) { throw "vswhere did not return an MSBuild.exe path" }
+    if (-not $msbuild) { throw "vswhere did not return an MSBuild.exe path." }
 }
 
-Write-Host "==> Building ($cfgName) with $msbuild"
+Write-Host "==> Building $cfgName with $msbuild"
 & $msbuild $sln "/p:Configuration=$cfgName" '/p:Platform=x64' '/m' '/v:m'
 if ($LASTEXITCODE -ne 0) { throw "msbuild failed" }
 
-if (-not $NoDeploy) {
-    if (-not $GameDir) {
-        Write-Host "==> No game dir set; skipping deploy. Pass -GameDir or set ATDD_DIR / AMNESIA_GAME_DIRECTORY."
-    } else {
-        Write-Host "==> Deploying assets from $GameDir"
-        & premake5 deploy "--game-dir=$GameDir"
-        if ($LASTEXITCODE -ne 0) { throw "deploy failed" }
-    }
+if ($noDeploy) {
+    Write-Host "==> -NoDeploy: skipping asset staging"
+} elseif (-not $gameDir) {
+    Write-Host "==> No game dir set; skipping deploy. Pass -GameDir or set ATDD_DIR."
+} else {
+    Write-Host "==> Deploying assets from $gameDir"
+    & $premake deploy "--game-dir=$gameDir"
+    if ($LASTEXITCODE -ne 0) { throw "deploy failed" }
 }
 
 Write-Host "==> Build complete: build-premake\amnesia\$cfgName\"

@@ -1,6 +1,6 @@
 # Building Amnesia64
 
-Amnesia64 uses CMake (>= 3.18) defined in [`CMakeLists.txt`](CMakeLists.txt). The wrapper scripts below cover the common paths so you don't have to remember per-platform build commands.
+Amnesia64 has two maintained build paths: CMake (primarily for Linux/native builds) and a Premake-generated Visual Studio solution for Windows. The wrapper scripts below cover the common paths so you don't have to remember per-platform build commands.
 
 A Visual Studio solution ([`Amnesia.sln`](Amnesia.sln)) is also shipped as an alternative Windows path — see [README.md](README.md) for details. macOS builds are not yet supported.
 
@@ -14,7 +14,7 @@ One script per platform — pick the one matching your host:
 | Linux (containerized) | `./build-linux-docker.sh`     |
 | Windows (PowerShell)  | `.\build-windows.ps1`         |
 
-Both default to a release build, init submodules on first run, configure CMake, build, and stage assets via the `deploy` target. Output ends up in `build/bin/`.
+Each defaults to a release build, initializes submodules on first run, and builds the chosen configuration. Linux native builds use CMake and output under `build/`; the Windows wrapper generates `build-premake\Amnesia.sln` with Premake and outputs under `build-premake\amnesia\<Config>\`.
 
 ## 1. Clone the repository
 
@@ -27,7 +27,7 @@ cd Amnesia64
 
 ## 2. Game assets (required for `deploy`)
 
-The `deploy` target copies the freshly built binaries into your Amnesia: The Dark Descent install folder so the executable can find its assets. You need a legitimate copy of **Amnesia: The Dark Descent** (e.g. via Steam).
+The `deploy` target copies your installed Amnesia: The Dark Descent assets next to the freshly built executable so it can find its configs, maps, scripts, and core data. You need a legitimate copy of **Amnesia: The Dark Descent** (e.g. via Steam).
 
 Point the build at it with `-DAMNESIA_GAME_DIRECTORY=...` (the wrapper scripts also accept `--game-dir` / `-GameDir`):
 
@@ -36,7 +36,7 @@ Point the build at it with `-DAMNESIA_GAME_DIRECTORY=...` (the wrapper scripts a
 .\build-windows.ps1 release -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Amnesia The Dark Descent"
 ```
 
-On Linux, `AMNESIA_GAME_DIRECTORY` defaults to `~/.local/share/Steam/steamapps/common/Amnesia The Dark Descent`. On Windows the path must be set explicitly (the wrapper also accepts the `ATDD_DIR` env var used by the VS solution).
+On Linux, `AMNESIA_GAME_DIRECTORY` defaults to `~/.local/share/Steam/steamapps/common/Amnesia The Dark Descent`. On Windows the wrapper accepts `-GameDir`, `ATDD_DIR`, or `AMNESIA_GAME_DIRECTORY`; when a path is available it passes `ATDD_DIR` through to MSBuild for the generated VS projects.
 
 ## 3. `build-linux.sh`
 
@@ -97,7 +97,7 @@ podman unshare rm -rf build/
 
 ## 4. `build-windows.ps1`
 
-Requires `premake5.exe` on `PATH` and a VS 2022 install (MSBuild is auto-located via `vswhere`, so any PowerShell works — not just a Developer PowerShell):
+Requires `premake5.exe` on `PATH` and a VS 2026 install (MSBuild is auto-located via `vswhere`, so any PowerShell works — not just a Developer PowerShell):
 
 ```powershell
 .\build-windows.ps1                                  # release
@@ -108,7 +108,7 @@ Requires `premake5.exe` on `PATH` and a VS 2022 install (MSBuild is auto-located
 .\build-windows.ps1 release -- --with-tools=no
 ```
 
-The script generates a Visual Studio 2022 solution via `premake5 vs2022` and builds it with `msbuild` targeting `x64`. Extra args after `--` are forwarded to `premake5 vs2022` (premake options, e.g. `--with-tools=no`, `--slangc=...`), not to MSBuild. Output goes to `build-premake\amnesia\<Config>\`.
+The script is a thin command-line wrapper around the Premake VS workflow: it generates a Visual Studio 2026 solution under `build-premake\` via `premake5 vs2026`, builds it with `msbuild` targeting `x64`, and optionally runs the Premake `deploy` action. Extra args after `--` are forwarded to `premake5 vs2026` (premake options, e.g. `--with-tools=no`, `--slangc=...`), not to MSBuild. Generated project files and output stay under `build-premake\`; runtime output goes to `build-premake\amnesia\<Config>\`.
 
 ## 5. Native build details (when you want to drop the wrappers)
 
@@ -131,7 +131,7 @@ cmake --build build --target deploy -j"$(nproc)"
 
 ### Windows
 
-From a *Developer Command Prompt for VS 2022*:
+From a *Developer Command Prompt for VS 2026*:
 
 ```bat
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^

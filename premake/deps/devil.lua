@@ -22,6 +22,7 @@ project "IL"
     filter "system:windows"
         includedirs { CONFIG_DIR .. "/windows/zlib" }
         defines { "IL_STATIC_LIB", "JPEGSTATIC" }
+        disablewarnings { "4101", "5033" }
     filter "toolset:gcc or clang"
         buildoptions { "-fpermissive" }
     filter {}

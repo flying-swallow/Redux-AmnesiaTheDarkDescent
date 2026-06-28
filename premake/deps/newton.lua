@@ -38,6 +38,7 @@ project "Newton"
 
     filter "system:windows"
         defines { "_NEWTON_USE_LIB=1", "_WIN_64_VER" }
+        disablewarnings { "4312" }
     filter "system:linux"
         defines { "_LINUX_VER", "_LINUX_VER_64" }
     filter "toolset:gcc or clang"

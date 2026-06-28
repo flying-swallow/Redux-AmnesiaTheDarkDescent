@@ -16,7 +16,7 @@ project "freealut"
     defines { "HAVE_STDINT_H=1" }
 
     filter "system:windows"
-        defines { "HAVE__STAT=1", "HAVE_SLEEP=1", "HAVE_WINDOWS_H=1" }
+        defines { "HAVE__STAT=1", "HAVE_SLEEP=1", "HAVE_WINDOWS_H=1", "AL_LIBTYPE_STATIC" }
     filter "system:not windows"
         defines { "HAVE_STAT=1", "HAVE_UNISTD_H=1", "HAVE_USLEEP=1" }
     filter "toolset:gcc or clang"
