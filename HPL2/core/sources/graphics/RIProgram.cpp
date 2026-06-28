@@ -410,6 +410,19 @@ void RIProgram::traceRays(struct RICmd *cmd, hash_t pipelineHash,
 #endif
 }
 
+void RIProgram::traceRaysIndirect(struct RICmd *cmd, hash_t pipelineHash,
+                                  VkDeviceAddress indirectAddress) {
+#if (DEVICE_IMPL_VULKAN)
+  auto it = rtPipeline.find(pipelineHash);
+  assert(it != rtPipeline.end() &&
+         "traceRaysIndirect called before bindRayTracingPipeline");
+  const auto &slot = it->second.vk;
+  vkCmdTraceRaysIndirectKHR(cmd->vk.cmd, &slot.raygenRegion, &slot.missRegion,
+                             &slot.hitRegion, &slot.callableRegion,
+                             indirectAddress);
+#endif
+}
+
 void RIProgram::bindDescriptors(struct RIDevice* device, struct RICmd* cmd, uint32_t frameIndex, DescriptorBinding* bindings, size_t bindingCount, VkPipelineBindPoint bindPoint) {
 #if ( DEVICE_IMPL_VULKAN )
 	{

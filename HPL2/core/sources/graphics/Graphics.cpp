@@ -251,6 +251,7 @@ namespace hpl {
 		RI.graphicsCmdRing.init( &RI.device, graphicsQueue,
 		                         RI_NUMBER_FRAMES_FLIGHT, RI_NUMBER_SUB_COMMANDS, true );
 		RI.graphicsTimeline.init( &RI.device );
+		RI.profiler.init( &RI.device );
 		for(auto& set: RI.frameSets) {
 			struct RIScratchAllocDesc uboDesc = {
 					.blockSize = 256 * 128,

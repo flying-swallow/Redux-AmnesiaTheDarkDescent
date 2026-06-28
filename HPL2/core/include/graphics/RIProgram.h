@@ -206,6 +206,10 @@ public:
   // The pipeline must have been created earlier via bindRayTracingPipeline.
   void traceRays(struct RICmd *cmd, hash_t pipelineHash, uint32_t width,
                  uint32_t height, uint32_t depth);
+  // Issue vkCmdTraceRaysIndirectKHR: dimensions come from a VkTraceRaysIndirectCommandKHR
+  // struct at indirectAddress (a device address into a SHADER_DEVICE_ADDRESS buffer).
+  void traceRaysIndirect(struct RICmd *cmd, hash_t pipelineHash,
+                         VkDeviceAddress indirectAddress);
   void bindDescriptors(
       struct RIDevice *device, struct RICmd *cmd, uint32_t frameIndex,
       DescriptorBinding *binding, size_t bindingCount,
