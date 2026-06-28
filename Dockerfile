@@ -32,7 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # premake5: prebuilt Linux binary from the project's GitHub releases. The asset
 # is named premake-<ver>-linux.tar.gz and contains a single `premake5` binary.
-ARG PREMAKE_VERSION=5.0.0-beta3
+ARG PREMAKE_VERSION=5.0.0-beta8
 RUN curl -fsSL -o /tmp/premake.tar.gz \
         "https://github.com/premake/premake-core/releases/download/v${PREMAKE_VERSION}/premake-${PREMAKE_VERSION}-linux.tar.gz" \
     && tar -xzf /tmp/premake.tar.gz -C /usr/local/bin premake5 \

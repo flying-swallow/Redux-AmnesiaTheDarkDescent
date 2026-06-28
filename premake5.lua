@@ -62,9 +62,8 @@ workspace "Amnesia"
         systemversion "latest"
         defines { "NOMINMAX=1", "ML_INTRINSIC_LEVEL=1", "_CRT_SECURE_NO_WARNINGS" }
     filter {}
-if multiprocessorcompile then
     multiprocessorcompile "On"
-end
+
 
 -- External CMake-driven dependencies (SDL2 + openal-soft).
 dofile "premake/external.lua"
