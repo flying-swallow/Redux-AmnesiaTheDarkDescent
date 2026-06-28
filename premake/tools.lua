@@ -1,0 +1,231 @@
+-- HPL2 editors + MshConverter -- mirrors HPL2/tools/CMakeLists.txt and
+-- HPL2/tools/editors/CMakeLists.txt. The legacy viewers (MapViewer/ModelViewer/
+-- ParticleViewer) are disabled in CMake and omitted here too.
+local TOOLS   = ROOT .. "/HPL2/tools"
+local EDITORS = TOOLS .. "/editors"
+
+-- Resolve a list of bare source names recursively under the editors tree,
+-- mirroring CMake's file(GLOB_RECURSE ... <name>.cpp).
+local function resolve(basenames)
+    local out = {}
+    for _, n in ipairs(basenames) do
+        for _, f in ipairs(os.matchfiles(EDITORS .. "/**/" .. n)) do
+            table.insert(out, f)
+        end
+    end
+    return out
+end
+
+-- Shared scaffolding for every editor target (mirrors AddToolTarget + the
+-- engine include set the editor sources need).
+local function editor_includes()
+    includedirs {
+        EDITORS .. "/common",
+        ROOT .. "/HPL2/core/include",
+        ROOT .. "/HPL2/tools/tests/Common",
+        ROOT .. "/amnesia/slang",     -- HPL2 headers pull in Constants.h
+        ROOT .. "/amnesia/glsl",
+        DEPS_SOURCES .. "/AngelScript/include",
+        DEPS_EXTERN .. "/tinyxml2",
+    }
+    deps_public_includes()
+    vulkan_includes()
+    mathlib_use()
+    defines { "USERDIR_RESOURCES" }
+    link_engine()
+    filter "system:linux"
+        linkoptions { "-Wl,-rpath,'$$ORIGIN/libs'", "-Wl,-rpath,'$$ORIGIN'" }
+    filter {}
+end
+
+local function editor_target(name, subdir, basenames)
+    project(name)
+        -- HPL2's entry wrapper (LowLevelSystemSDL.cpp) provides WinMain on Windows
+        -- (GUI subsystem) and main elsewhere -- mirror amnesia.lua's kind split.
+        filter "system:windows"
+            kind "WindowedApp"
+        filter "system:not windows"
+            kind "ConsoleApp"
+        filter {}
+        language "C++"
+        set_output("runtime")
+        files (resolve(basenames))
+        includedirs { EDITORS .. "/" .. subdir }
+        editor_includes()
+        buildid(name, EDITORS .. "/" .. subdir)
+end
+
+local leveleditor = {
+    "BoxCreator.cpp", "DirectoryHandler.cpp", "EditorAction.cpp",
+    "EditorActionArea.cpp", "EditorActionCompoundObject.cpp",
+    "EditorActionDynamicEntity.cpp", "EditorActionEntity.cpp",
+    "EditorActionHandler.cpp", "EditorActionMisc.cpp", "EditorActionSelection.cpp",
+    "EditorAxisAlignedPlane.cpp", "EditorBaseClasses.cpp", "EditorClipPlane.cpp",
+    "EditorEditMode.cpp", "EditorEditModeAreas.cpp", "EditorEditModeBillboards.cpp",
+    "EditorEditModeCombine.cpp", "EditorEditModeDecals.cpp",
+    "EditorEditModeEntities.cpp", "EditorEditModeFogAreas.cpp",
+    "EditorEditModeLights.cpp", "EditorEditModeParticleSystems.cpp",
+    "EditorEditModePrimitive.cpp", "EditorEditModeSelect.cpp",
+    "EditorEditModeSelectTool.cpp", "EditorEditModeSelectToolRotate.cpp",
+    "EditorEditModeSelectToolScale.cpp", "EditorEditModeSelectToolTranslate.cpp",
+    "EditorEditModeSounds.cpp", "EditorEditModeStaticObjects.cpp", "EditorGrid.cpp",
+    "EditorHelper.cpp", "EditorIndex.cpp", "EditorInput.cpp", "EditorSelection.cpp",
+    "EditorThumbnailBuilder.cpp", "EditorUserClassDefinitionManager.cpp",
+    "EditorVar.cpp", "EditorViewport.cpp", "EditorWindow.cpp",
+    "EditorWindowAreas.cpp", "EditorWindowBillboards.cpp", "EditorWindowCombine.cpp",
+    "EditorWindowDecals.cpp", "EditorWindowEditModeSidebar.cpp",
+    "EditorWindowEntities.cpp", "EditorWindowEntityEditBox.cpp",
+    "EditorWindowEntityEditBoxArea.cpp", "EditorWindowEntityEditBoxBillboard.cpp",
+    "EditorWindowEntityEditBoxCompound.cpp", "EditorWindowEntityEditBoxDecal.cpp",
+    "EditorWindowEntityEditBoxEntity.cpp", "EditorWindowEntityEditBoxFogArea.cpp",
+    "EditorWindowEntityEditBoxGroup.cpp", "EditorWindowEntityEditBoxLight.cpp",
+    "EditorWindowEntityEditBoxParticleSystem.cpp",
+    "EditorWindowEntityEditBoxPrimitive.cpp", "EditorWindowEntityEditBoxSound.cpp",
+    "EditorWindowEntityEditBoxStaticObject.cpp", "EditorWindowEntitySearch.cpp",
+    "EditorWindowFactory.cpp", "EditorWindowFogAreas.cpp", "EditorWindowLights.cpp",
+    "EditorWindowLoaderStatus.cpp", "EditorWindowLowerToolbar.cpp",
+    "EditorWindowMaterialEditor.cpp", "EditorWindowObjectBrowser.cpp",
+    "EditorWindowOptions.cpp", "EditorWindowParticleSystems.cpp",
+    "EditorWindowPrimitives.cpp", "EditorWindowSelect.cpp",
+    "EditorWindowSoundBrowser.cpp", "EditorWindowSounds.cpp",
+    "EditorWindowStaticObjects.cpp", "EditorWindowTextureBrowser.cpp",
+    "EditorWindowViewport.cpp", "EditorWorld.cpp", "EngineEntity.cpp",
+    "EntityIcon.cpp", "EntityPicker.cpp", "EntityWrapper.cpp",
+    "EntityWrapperArea.cpp", "EntityWrapperBillboard.cpp",
+    "EntityWrapperCompoundObject.cpp", "EntityWrapperDecal.cpp",
+    "EntityWrapperEntity.cpp", "EntityWrapperFogArea.cpp", "EntityWrapperLight.cpp",
+    "EntityWrapperLightBox.cpp", "EntityWrapperLightPoint.cpp",
+    "EntityWrapperLightSpot.cpp", "EntityWrapperLightArea.cpp",
+    "EntityWrapperParticleSystem.cpp", "EntityWrapperPrimitive.cpp",
+    "EntityWrapperPrimitivePlane.cpp", "EntityWrapperSound.cpp",
+    "EntityWrapperStaticObject.cpp", "SphereCreator.cpp", "StdAfx.cpp",
+    "SurfacePicker.cpp",
+    "LevelEditor.cpp", "LevelEditorActions.cpp", "LevelEditorMain.cpp",
+    "LevelEditorStaticObjectCombo.cpp", "LevelEditorWindow.cpp",
+    "LevelEditorWindowGroup.cpp", "LevelEditorWindowLevelSettings.cpp",
+    "LevelEditorWorld.cpp",
+}
+
+local modeleditor = {
+    "BoxCreator.cpp", "DirectoryHandler.cpp", "EditorAction.cpp",
+    "EditorActionCompoundObject.cpp", "EditorActionEntity.cpp",
+    "EditorActionHandler.cpp", "EditorActionMisc.cpp", "EditorActionSelection.cpp",
+    "EditorActionsBodies.cpp", "EditorActionsSubMesh.cpp",
+    "EditorAxisAlignedPlane.cpp", "EditorBaseClasses.cpp", "EditorClipPlane.cpp",
+    "EditorEditMode.cpp", "EditorEditModeBillboards.cpp", "EditorEditModeBodies.cpp",
+    "EditorEditModeJoints.cpp", "EditorEditModeLights.cpp",
+    "EditorEditModeParticleSystems.cpp", "EditorEditModeSelect.cpp",
+    "EditorEditModeSelectTool.cpp", "EditorEditModeSelectToolRotate.cpp",
+    "EditorEditModeSelectToolScale.cpp", "EditorEditModeSelectToolTranslate.cpp",
+    "EditorEditModeSounds.cpp", "EditorGrid.cpp", "EditorHelper.cpp",
+    "EditorIndex.cpp", "EditorInput.cpp", "EditorSelection.cpp",
+    "EditorThumbnailBuilder.cpp", "EditorUserClassDefinitionManager.cpp",
+    "EditorVar.cpp", "EditorViewport.cpp", "EditorWindow.cpp",
+    "EditorWindowBillboards.cpp", "EditorWindowBodies.cpp",
+    "EditorWindowEditModeSidebar.cpp", "EditorWindowEntities.cpp",
+    "EditorWindowEntityEditBox.cpp", "EditorWindowEntityEditBoxBillboard.cpp",
+    "EditorWindowEntityEditBoxBody.cpp", "EditorWindowEntityEditBoxBodyShape.cpp",
+    "EditorWindowEntityEditBoxBone.cpp", "EditorWindowEntityEditBoxCompound.cpp",
+    "EditorWindowEntityEditBoxGroup.cpp", "EditorWindowEntityEditBoxGroupShapes.cpp",
+    "EditorWindowEntityEditBoxJoint.cpp", "EditorWindowEntityEditBoxLight.cpp",
+    "EditorWindowEntityEditBoxParticleSystem.cpp",
+    "EditorWindowEntityEditBoxSound.cpp", "EditorWindowEntityEditBoxSubMesh.cpp",
+    "EditorWindowEntitySearch.cpp", "EditorWindowFactory.cpp",
+    "EditorWindowJoints.cpp", "EditorWindowLights.cpp",
+    "EditorWindowLoaderStatus.cpp", "EditorWindowLowerToolbar.cpp",
+    "EditorWindowMaterialEditor.cpp", "EditorWindowObjectBrowser.cpp",
+    "EditorWindowOptions.cpp", "EditorWindowParticleSystems.cpp",
+    "EditorWindowSelect.cpp", "EditorWindowSoundBrowser.cpp",
+    "EditorWindowSounds.cpp", "EditorWindowTextureBrowser.cpp",
+    "EditorWindowViewport.cpp", "EditorWorld.cpp", "EngineEntity.cpp",
+    "EntityIcon.cpp", "EntityPicker.cpp", "EntityWrapper.cpp",
+    "EntityWrapperBillboard.cpp", "EntityWrapperBody.cpp",
+    "EntityWrapperBodyShape.cpp", "EntityWrapperBone.cpp",
+    "EntityWrapperCompoundObject.cpp", "EntityWrapperJoint.cpp",
+    "EntityWrapperJointBall.cpp", "EntityWrapperJointHinge.cpp",
+    "EntityWrapperJointScrew.cpp", "EntityWrapperJointSlider.cpp",
+    "EntityWrapperLight.cpp", "EntityWrapperLightBox.cpp",
+    "EntityWrapperLightPoint.cpp", "EntityWrapperLightSpot.cpp",
+    "EntityWrapperLightArea.cpp", "EntityWrapperParticleSystem.cpp",
+    "EntityWrapperSound.cpp", "EntityWrapperSubMesh.cpp", "SphereCreator.cpp",
+    "StdAfx.cpp", "SurfacePicker.cpp",
+    "ModelEditor.cpp", "ModelEditorActions.cpp", "ModelEditorLowerToolbar.cpp",
+    "ModelEditorMain.cpp", "ModelEditorWindowAnimations.cpp",
+    "ModelEditorWindowOutline.cpp", "ModelEditorWindowPhysicsTest.cpp",
+    "ModelEditorWindowUserSettings.cpp", "ModelEditorWorld.cpp",
+}
+
+local particleeditor = {
+    "DirectoryHandler.cpp", "EditorAction.cpp", "EditorActionCompoundObject.cpp",
+    "EditorActionEntity.cpp", "EditorActionHandler.cpp", "EditorActionMisc.cpp",
+    "EditorActionSelection.cpp", "EditorAxisAlignedPlane.cpp",
+    "EditorBaseClasses.cpp", "EditorClipPlane.cpp", "EditorEditMode.cpp",
+    "EditorEditModeSelect.cpp", "EditorEditModeSelectTool.cpp",
+    "EditorEditModeSelectToolRotate.cpp", "EditorEditModeSelectToolScale.cpp",
+    "EditorEditModeSelectToolTranslate.cpp", "EditorGrid.cpp", "EditorHelper.cpp",
+    "EditorIndex.cpp", "EditorInput.cpp", "EditorSelection.cpp",
+    "EditorThumbnailBuilder.cpp", "EditorUserClassDefinitionManager.cpp",
+    "EditorVar.cpp", "EditorViewport.cpp", "EditorWindow.cpp",
+    "EditorWindowEditModeSidebar.cpp", "EditorWindowEntityEditBox.cpp",
+    "EditorWindowEntityEditBoxCompound.cpp", "EditorWindowEntityEditBoxGroup.cpp",
+    "EditorWindowEntitySearch.cpp", "EditorWindowFactory.cpp",
+    "EditorWindowLoaderStatus.cpp", "EditorWindowLowerToolbar.cpp",
+    "EditorWindowMaterialEditor.cpp", "EditorWindowOptions.cpp",
+    "EditorWindowSelect.cpp", "EditorWindowSoundBrowser.cpp",
+    "EditorWindowTextureBrowser.cpp", "EditorWindowViewport.cpp", "EditorWorld.cpp",
+    "EngineEntity.cpp", "EntityIcon.cpp", "EntityPicker.cpp", "EntityWrapper.cpp",
+    "EntityWrapperCompoundObject.cpp", "StdAfx.cpp", "SurfacePicker.cpp",
+    "EntityWrapperParticleEmitter.cpp", "ParticleEditor.cpp",
+    "ParticleEditorActions.cpp", "ParticleEditorMain.cpp",
+    "ParticleEditorWindowEmitterParams.cpp", "ParticleEditorWindowEmitters.cpp",
+    "ParticleEditorWorld.cpp",
+}
+
+local materialeditor = {
+    "DirectoryHandler.cpp", "EditorAction.cpp", "EditorActionCompoundObject.cpp",
+    "EditorActionEntity.cpp", "EditorActionHandler.cpp", "EditorActionMisc.cpp",
+    "EditorActionSelection.cpp", "EditorAxisAlignedPlane.cpp",
+    "EditorBaseClasses.cpp", "EditorClipPlane.cpp", "EditorEditMode.cpp",
+    "EditorEditModeSelect.cpp", "EditorEditModeSelectTool.cpp",
+    "EditorEditModeSelectToolRotate.cpp", "EditorEditModeSelectToolScale.cpp",
+    "EditorEditModeSelectToolTranslate.cpp", "EditorGrid.cpp", "EditorHelper.cpp",
+    "EditorIndex.cpp", "EditorInput.cpp", "EditorSelection.cpp",
+    "EditorThumbnailBuilder.cpp", "EditorUserClassDefinitionManager.cpp",
+    "EditorVar.cpp", "EditorViewport.cpp", "EditorWindow.cpp",
+    "EditorWindowEditModeSidebar.cpp", "EditorWindowEntityEditBox.cpp",
+    "EditorWindowEntityEditBoxCompound.cpp", "EditorWindowEntityEditBoxGroup.cpp",
+    "EditorWindowEntitySearch.cpp", "EditorWindowFactory.cpp",
+    "EditorWindowLoaderStatus.cpp", "EditorWindowLowerToolbar.cpp",
+    "EditorWindowMaterialEditor.cpp", "EditorWindowOptions.cpp",
+    "EditorWindowSelect.cpp", "EditorWindowSoundBrowser.cpp",
+    "EditorWindowTextureBrowser.cpp", "EditorWindowViewport.cpp", "EditorWorld.cpp",
+    "EngineEntity.cpp", "EntityIcon.cpp", "EntityPicker.cpp", "EntityWrapper.cpp",
+    "EntityWrapperCompoundObject.cpp", "StdAfx.cpp", "SurfacePicker.cpp",
+    "MaterialEditor.cpp", "MaterialEditorMain.cpp",
+}
+
+editor_target("LevelEditor",    "leveleditor",    leveleditor)
+editor_target("ModelEditor",    "modeleditor",    modeleditor)
+editor_target("ParticleEditor", "particleeditor", particleeditor)
+editor_target("MaterialEditor", "materialeditor", materialeditor)
+
+-- MshConverter -- single source file, links HPL2 directly (not via AddToolTarget).
+project "MshConverter"
+    kind "ConsoleApp"
+    language "C++"
+    set_output("runtime")
+    files { TOOLS .. "/mshconverter/MshConverter.cpp" }
+    includedirs {
+        ROOT .. "/HPL2/core/include",
+        ROOT .. "/amnesia/slang",
+        ROOT .. "/amnesia/glsl",
+        DEPS_SOURCES .. "/AngelScript/include",
+        DEPS_EXTERN .. "/tinyxml2",
+    }
+    deps_public_includes()
+    vulkan_includes()
+    mathlib_use()
+    link_engine()
+    filter "system:linux"
+        linkoptions { "-Wl,-rpath,'$$ORIGIN/libs'", "-Wl,-rpath,'$$ORIGIN'" }
+    filter {}

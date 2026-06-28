@@ -58,8 +58,8 @@ void csMain(uint3 dispatchThreadId: SV_DispatchThreadID)
         float2 uv = octEncode(normalize(dirLocal));
 
         uint2 surfelDepthTextureOffset = kSurfelDepthTextureHalfUnit + int2(
-            sign(uv.x) * round(abs(uv.x * (kSurfelDepthTextureHalfUnit.x - 1))),
-            sign(uv.y) * round(abs(uv.y * (kSurfelDepthTextureHalfUnit.y - 1))));
+            int(sign(uv.x) * round(abs(uv.x * (kSurfelDepthTextureHalfUnit.x - 1)))),
+            int(sign(uv.y) * round(abs(uv.y * (kSurfelDepthTextureHalfUnit.y - 1)))));
         uint2 surfelDepthTextureCoord = surfelDepthLT + surfelDepthTextureOffset;
 
         float2 signedUV = ((int2)surfelDepthTextureOffset - kSurfelDepthTextureHalfUnit)

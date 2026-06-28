@@ -36,7 +36,7 @@ bool __RequestScratchSegment(RIBootstrap::FrameContext *cntx,
   struct RISegmentAllocDesc segmentAllocDesc = {0};
   segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
   segmentAllocDesc.elementStride = elementStride;
-  segmentAllocDesc.maxElements = std::max<size_t>(alloc.maxElements, 4096);
+  segmentAllocDesc.maxElements = static_cast<uint32_t>(std::max<size_t>(alloc.maxElements, 4096));
   do {
     segmentAllocDesc.maxElements =
         segmentAllocDesc.maxElements + (segmentAllocDesc.maxElements >> 1);
@@ -98,6 +98,7 @@ void RIBootstrap::Dispose() {
   // anything still pending was deferred for a frame that never submitted
   // (teardown mid-frame). Release all of it, then drop the timeline itself.
   graphicsDefer.drainAll();
+  profiler.dispose(&device);
   graphicsTimeline.dispose(&device);
 
   for (auto &set : frameSets) {
@@ -237,7 +238,11 @@ void RIBootstrap::BeginActiveSet() {
   RI.blasSubmit.wait(&RI.device);
   RI.primary.pool->reset(&RI.device);
 
-  RI.graphicsDefer.drain(RI.graphicsTimeline.completed(&RI.device));
+  const uint64_t completedTimeline = RI.graphicsTimeline.completed(&RI.device);
+  RI.graphicsDefer.drain(completedTimeline);
+  // Read back any GPU timing slot whose frame has finished (uses the same
+  // completed value as the deferral drain), before this frame overwrites a slot.
+  RI.profiler.resolve(&RI.device, completedTimeline);
 
   RI.swapchainIndex = RISwapchainAcquireNextTexture(&RI.device, &RI.swapchain);
 
@@ -260,6 +265,14 @@ void RIBootstrap::BeginActiveSet() {
     toColor.after = RI_RESOURCE_STATE_RENDER_TARGET_READ;
     RI.primary.cmds[0].vk_d3d12_textureBarrier(toColor);
   }
+
+  // Reset this frame's GPU-timing query pool on the primary CB (must be outside
+  // any dynamic-rendering scope — true here, before any pass records). The value
+  // passed is the timeline value CloseAndSubmitActiveSet will reserve via next()
+  // (== pending() + 1), so resolve() can gate readback on it.
+  RI.profiler.beginFrame(&RI.primary.cmds[0],
+                         RI.frameIndex % RI_NUMBER_FRAMES_FLIGHT,
+                         RI.graphicsTimeline.pending() + 1);
 }
 
 void RIBootstrap::UpdateFrameUBO(RIDescriptor *descriptor, void *data,

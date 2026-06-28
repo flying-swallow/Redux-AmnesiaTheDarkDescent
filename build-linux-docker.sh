@@ -1,31 +1,42 @@
 #!/usr/bin/env bash
-# Run build-linux.sh inside a Docker / Podman container.
+# Run the premake build inside a Docker / Podman container.
 #
 # Bind-mounts the project tree at its REAL host path inside the container so
-# the CMakeCache.txt source path matches between host and container runs (you
-# can switch between ./build-linux.sh and this wrapper without --clean).
+# absolute paths in the generated build-premake/ makefiles line up identically
+# between host and container runs (you can switch between a native premake
+# build and this wrapper without a full clean).
 #
-# All args are forwarded to build-linux.sh. Examples:
+# The wrapper accepts the same options as a native premake build and runs
+# `premake5 gmake2` + `make` (+ optional `premake5 deploy`) in the container.
+# Examples:
 #   ./build-linux-docker.sh                          # release
 #   ./build-linux-docker.sh debug --clean
-#   ./build-linux-docker.sh release -- -DAMNESIA_GAME_DIRECTORY=/path
+#   ./build-linux-docker.sh release --game-dir "/path/to/Amnesia TDD"
+#   ./build-linux-docker.sh release -- --slangc=/path/to/slangc
+#
+# Options:
+#   release | debug     Build configuration (default: release)
+#   --clean             Remove build-premake/ before generating
+#   --no-deploy         Skip `premake5 deploy` (copying game assets next to the
+#                       built executable)
+#   --game-dir <path>   Path to your installed Amnesia: The Dark Descent folder
+#                       (falls back to $AMNESIA_GAME_DIRECTORY)
+#   -- <args>           Extra args forwarded to `premake5 gmake2`
 #
 # Extra bind mounts (for tools that live outside the project tree, e.g. a
 # locally-built slangc):
 #
 #   AMNESIA_DOCKER_MOUNTS="$HOME/projects/slang" \
 #       ./build-linux-docker.sh release -- \
-#       -DSLANGC_EXECUTABLE="$HOME/projects/slang/build/Release/bin/slangc"
+#       --slangc="$HOME/projects/slang/build/Release/bin/slangc"
 #
 # Multiple paths can be colon-separated. Each is mounted at the same path
-# inside the container, so cmake args referring to host paths "just work".
+# inside the container, so args referring to host paths "just work".
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 IMAGE="${AMNESIA_DOCKER_IMAGE:-amnesia64-build:ubuntu-24.04}"
-
-docker build -t "$IMAGE" -f "$ROOT/Dockerfile" "$ROOT"
 
 # Rootless podman maps container-root back to the host user via subuid/subgid
 # — passing --user there would shift to a different in-container uid that
@@ -44,6 +55,8 @@ if [[ -z "$RUNTIME" ]]; then
     fi
 fi
 
+"$RUNTIME" build -t "$IMAGE" -f "$ROOT/Dockerfile" "$ROOT"
+
 USER_ARGS=()
 if [[ "$RUNTIME" == "podman" ]]; then
     echo "==> Runtime: podman (rootless) — container root maps to host uid $(id -u)."
@@ -58,29 +71,33 @@ if [ -t 1 ]; then
     TTY_ARGS+=("-t")
 fi
 
-# Project tree mounted at its real host path so absolute paths in
-# CMakeCache.txt / build.ninja line up identically inside and out.
+# Project tree mounted at its real host path so absolute paths in the generated
+# build-premake/ makefiles line up identically inside and out.
 MOUNT_ARGS=(
     --mount "type=bind,source=$ROOT,target=$ROOT"
 )
 
-# Auto-mount the game directory: the `deploy` target copies binaries into it,
-# so it has to be writable from inside the container. Peek at the forwarded
-# args for `--game-dir <path>` (the arg form build-linux.sh accepts), falling
-# back to the AMNESIA_GAME_DIRECTORY env var that build-linux.sh defaults to.
-# Args are not consumed — build-linux.sh re-parses them inside the container.
+# Parse build options. The premake `deploy` action copies game assets *out of*
+# the game dir into build-premake/, so the game dir must be mounted (read
+# access) whenever we deploy; --game-dir falls back to the AMNESIA_GAME_DIRECTORY
+# env var. Everything after `--` is forwarded verbatim to `premake5 gmake2`.
 #
-# When --no-deploy is passed, nothing gets written to the game dir, so don't
-# bother resolving/mounting it (and don't require it to exist on the host).
+# When --no-deploy is passed, the game dir is never read, so don't bother
+# resolving/mounting it (and don't require it to exist on the host).
+CONFIG="release"
+CLEAN=0
 GAME_DIR=""
 NO_DEPLOY=0
-_prev=""
-for _a in "$@"; do
-    if [[ "$_prev" == "--game-dir" ]]; then
-        GAME_DIR="$_a"
-    fi
-    [[ "$_a" == "--no-deploy" ]] && NO_DEPLOY=1
-    _prev="$_a"
+EXTRA_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        release|debug) CONFIG="$1"; shift ;;
+        --clean)       CLEAN=1; shift ;;
+        --no-deploy)   NO_DEPLOY=1; shift ;;
+        --game-dir)    GAME_DIR="${2:-}"; shift 2 ;;
+        --)            shift; EXTRA_ARGS=("$@"); break ;;
+        *)             echo "error: unknown argument '$1'" >&2; exit 1 ;;
+    esac
 done
 GAME_DIR="${GAME_DIR:-${AMNESIA_GAME_DIRECTORY:-}}"
 
@@ -93,14 +110,12 @@ elif [[ -n "$GAME_DIR" ]]; then
         # a symlink (external drives, Flatpak Steam, etc.); podman binds the
         # source you give it as-is, so if we passed a symlinked path the
         # target inside would shadow the real directory but contain nothing.
-        # Mount the resolved real path AT the original path inside, so cmake
-        # — which references the original path string via AMNESIA_GAME_DIRECTORY
-        # — reads through the bind mount and sees the real contents.
+        # Mount the resolved real path AT the original path inside, so the
+        # `premake5 deploy` action — which is handed the original path string
+        # via --game-dir — reads through the bind mount and sees the real
+        # contents.
         GAME_DIR_REAL="$(realpath "$GAME_DIR")"
         MOUNT_ARGS+=(--mount "type=bind,source=$GAME_DIR_REAL,target=$GAME_DIR")
-        # Forward the env var too so the in-container build-linux.sh picks it
-        # up as its default when --game-dir wasn't passed explicitly.
-        ENV_ARGS+=(-e "AMNESIA_GAME_DIRECTORY=$GAME_DIR")
         if [[ "$GAME_DIR_REAL" != "$GAME_DIR" ]]; then
             echo "==> Mounting game dir: $GAME_DIR (resolved: $GAME_DIR_REAL)"
         else
@@ -112,7 +127,7 @@ elif [[ -n "$GAME_DIR" ]]; then
 fi
 
 # Any extra host paths the user wants visible — typically a locally-built
-# slangc tree referenced via -DSLANGC_EXECUTABLE=...
+# slangc tree referenced via -- --slangc=...
 if [[ -n "${AMNESIA_DOCKER_MOUNTS:-}" ]]; then
     IFS=':' read -r -a _extra <<<"$AMNESIA_DOCKER_MOUNTS"
     for p in "${_extra[@]}"; do
@@ -121,9 +136,36 @@ if [[ -n "${AMNESIA_DOCKER_MOUNTS:-}" ]]; then
     done
 fi
 
-exec docker run --rm "${TTY_ARGS[@]}" "${USER_ARGS[@]}" \
+# Deploy unless --no-deploy and only when a game dir is available.
+DEPLOY=1
+[[ "$NO_DEPLOY" == "1" || -z "$GAME_DIR" ]] && DEPLOY=0
+
+ENV_ARGS+=(
+    -e "PM_CONFIG=$CONFIG"
+    -e "PM_CLEAN=$CLEAN"
+    -e "PM_DEPLOY=$DEPLOY"
+    -e "PM_GAME_DIR=$GAME_DIR"
+)
+
+# Run the premake build inside the container. Build options arrive via PM_*
+# env vars; the `--`-forwarded extra args are passed as positional args to the
+# inner shell ($0 is a label, $@ is the extra args) and handed to gmake2.
+exec "$RUNTIME" run --rm "${TTY_ARGS[@]}" "${USER_ARGS[@]}" \
     "${ENV_ARGS[@]}" \
     "${MOUNT_ARGS[@]}" \
     -w "$ROOT" \
     "$IMAGE" \
-    ./build-linux.sh "$@"
+    bash -lc '
+        set -euo pipefail
+        [[ "$PM_CLEAN" == 1 ]] && rm -rf build-premake
+        JOBS="$(nproc 2>/dev/null || echo 4)"
+        echo "==> Generating gmake2 project files"
+        premake5 gmake2 "$@"
+        echo "==> Building ($PM_CONFIG)"
+        make -C build-premake config="$PM_CONFIG" -j"$JOBS"
+        if [[ "$PM_DEPLOY" == 1 ]]; then
+            echo "==> Deploying game assets from $PM_GAME_DIR"
+            premake5 deploy --game-dir="$PM_GAME_DIR"
+        fi
+        echo "==> Build complete: build-premake/amnesia/"
+    ' premake-build "${EXTRA_ARGS[@]}"

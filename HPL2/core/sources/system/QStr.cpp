@@ -220,7 +220,7 @@ struct QStr qStrDup(const struct QStr* str)
     if (result.buf == NULL)
         return result;
     memcpy(result.buf, str->buf, str->len);
-    result.buf[result.len] = str->len;
+    result.buf[result.len] = static_cast<char>(str->len);
     return result;
 }
 
@@ -271,7 +271,7 @@ int qstrfmtll(struct QStrSpan slice, long long value)
         *p++ = '-';
 
     /* Compute length and add null term. */
-    const int len = p - slice.buf;
+    const int len = static_cast<int>(p - slice.buf);
 
     /* Reverse the string. */
     p--;
@@ -302,7 +302,7 @@ int qstrfmtull(struct QStrSpan slice, unsigned long long value)
     } while (value);
 
     /* Compute length and add null term. */
-    const int len = p - slice.buf;
+    const int len = static_cast<int>(p - slice.buf);
 
     /* Reverse the string. */
     p--;
@@ -354,7 +354,7 @@ bool qstrcatfmt(struct QStr* s, char const* fmt, ...)
             {
             case 'c':
                 num = va_arg(ap, int);
-                s->buf[s->len++] = num;
+                s->buf[s->len++] = static_cast<char>(num);
                 break;
             case 's': {
                 char *str = va_arg( ap, char * );
@@ -890,7 +890,7 @@ static inline int qStrIndexOfCmp(const struct QStrSpan haystack, size_t offset, 
             {
                 if (handle(QStrSpan{  haystack.buf + i, needle.len }, needle))
                 {
-                    return i;
+                    return static_cast<int>(i);
                 }
             }
         }
@@ -901,11 +901,11 @@ static inline int qStrIndexOfCmp(const struct QStrSpan haystack, size_t offset, 
     char skip_table[CHAR_TABLE_LEN] = { 0 };
     for (size_t i = 0; i < CHAR_TABLE_LEN; i++)
     {
-        skip_table[i] = needle.len;
+        skip_table[i] = static_cast<char>(needle.len);
     }
     for (size_t i = 0; i < needle.len - 1; i++)
     {
-        skip_table[(unsigned char)needle.buf[i]] = needle.len - i - 1;
+        skip_table[(unsigned char)needle.buf[i]] = static_cast<char>(needle.len - i - 1);
     }
 
     size_t i = offset;
@@ -913,7 +913,7 @@ static inline int qStrIndexOfCmp(const struct QStrSpan haystack, size_t offset, 
     {
         if (qStrEqual(QStrSpan{ haystack.buf + i,  needle.len }, needle))
         {
-            return i;
+            return static_cast<int>(i);
         }
         i += skip_table[(unsigned char)haystack.buf[i + needle.len - 1]];
     }
@@ -938,7 +938,7 @@ static inline int qstrLastIndexOfCmp(const struct QStrSpan haystack, size_t offs
             {
                 if (handle(QStrSpan{ haystack.buf + i, needle.len }, needle))
                 {
-                    return i;
+                    return static_cast<int>(i);
                 }
             }
             if (i == 0)
@@ -952,12 +952,12 @@ static inline int qstrLastIndexOfCmp(const struct QStrSpan haystack, size_t offs
     char skip_table[256] = { 0 };
     for (size_t i = 0; i < 256; i++)
     {
-        skip_table[i] = needle.len;
+        skip_table[i] = static_cast<char>(needle.len);
     }
 
     for (size_t i = needle.len - 1;; i--)
     {
-        skip_table[(unsigned char)needle.buf[i]] = i;
+        skip_table[(unsigned char)needle.buf[i]] = static_cast<char>(i);
         if (i == 1)
             break;
     }
@@ -967,7 +967,7 @@ static inline int qstrLastIndexOfCmp(const struct QStrSpan haystack, size_t offs
     {
         if (handle(QStrSpan{ haystack.buf + i, needle.len }, needle))
         {
-            return i;
+            return static_cast<int>(i);
         }
         const size_t skip = skip_table[(unsigned char)haystack.buf[i]];
         if (skip > i)
@@ -1025,7 +1025,7 @@ int qStrIndexOfAny(const struct QStrSpan haystack, const struct QStrSpan charact
         {
             if (haystack.buf[i] == characters.buf[j])
             {
-                return i;
+                return static_cast<int>(i);
             }
         }
     }
@@ -1094,7 +1094,7 @@ int qStrLastIndexOfAny(const struct QStrSpan haystack, const struct QStrSpan cha
         {
             if (haystack.buf[i] == characters.buf[j])
             {
-                return i;
+                return static_cast<int>(i);
             }
         }
     }
@@ -1151,7 +1151,7 @@ int qPrettyPrintBytes(struct QStrSpan slice, size_t numBytes)
         return -1;
     memcpy(slice.buf + pos, strs[i].buf, len);
     pos += len;
-    return pos;
+    return static_cast<int>(pos);
 }
 
 int qPrettyPrintDuration(struct QStrSpan slice, double ns)
@@ -1202,7 +1202,7 @@ int qPrettyPrintDuration(struct QStrSpan slice, double ns)
         return -1;
     memcpy(slice.buf + pos, strs[i].buf, len);
     pos += len;
-    return pos;
+    return static_cast<int>(pos);
 }
 
 

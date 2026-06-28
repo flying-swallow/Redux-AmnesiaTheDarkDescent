@@ -1122,7 +1122,7 @@ void cWorld::BuildTlas(RIBootstrap::FrameContext *cntx, cFrustum *apFrustum) {
     RIAccelStructure tlas{};
     if (tlas.init(&RI.device, &tlasDesc) == RI_SUCCESS)
       mpTlas = RISharedPointer<RIAccelStructure>(&RI.device, tlas);
-    mTlasStorageCapacity = tlasStorageSize;
+    mTlasStorageCapacity = static_cast<uint32_t>(tlasStorageSize);
   }
 
   if (!mpTlas.isEmpty()) {

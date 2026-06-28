@@ -15,7 +15,7 @@ The repository ships **two parallel build systems**: a Visual Studio solution (`
 
 ## Prerequisites
 - A legitimate copy of **Amnesia: The Dark Descent** (e.g. via Steam). The build only produces the executable; assets, scripts, configs, and shaders come from your installed copy.
-- **Git**. The tree includes bundled dependency sources under `extern/` and `HPL2/dependencies/`, so no submodule init is required. On Windows, enable long paths first: `git config --system core.longpaths true`.
+- **Git**. The tree includes bundled dependency sources under `HPL2/extern/`, so no submodule init is required. On Windows, enable long paths first: `git config --system core.longpaths true`.
 - **Perl** on `PATH`, used by `HPL2/core/buildcounter.pl` to stamp build IDs during compilation. Strawberry Perl works.
 - A C++20-capable toolchain — see each build path below for specifics.
 

@@ -193,17 +193,17 @@ namespace hpl {
 		uint32_t selectedAdapterIdx = 0;
 		for( size_t i = 1; i < numAdapters; i++ ) {
 			if( physicalAdapters[i].type > physicalAdapters[selectedAdapterIdx].type )
-				selectedAdapterIdx = i;
+				selectedAdapterIdx = static_cast<uint32_t>(i);
 			if( physicalAdapters[i].type < physicalAdapters[selectedAdapterIdx].type )
 				continue;
 
 			if( physicalAdapters[i].presetLevel > physicalAdapters[selectedAdapterIdx].presetLevel ) 
-				selectedAdapterIdx = i;
+				selectedAdapterIdx = static_cast<uint32_t>(i);
 			if( physicalAdapters[i].presetLevel < physicalAdapters[selectedAdapterIdx].presetLevel )
 				continue;
 			
 			if(physicalAdapters[i].videoMemorySize > physicalAdapters[selectedAdapterIdx].videoMemorySize) 
-				selectedAdapterIdx = i;
+				selectedAdapterIdx = static_cast<uint32_t>(i);
 		}
 		struct RIDeviceDesc deviceInit = { 0 };
 		deviceInit.physicalAdapter = &physicalAdapters[selectedAdapterIdx];
@@ -251,6 +251,7 @@ namespace hpl {
 		RI.graphicsCmdRing.init( &RI.device, graphicsQueue,
 		                         RI_NUMBER_FRAMES_FLIGHT, RI_NUMBER_SUB_COMMANDS, true );
 		RI.graphicsTimeline.init( &RI.device );
+		RI.profiler.init( &RI.device );
 		for(auto& set: RI.frameSets) {
 			struct RIScratchAllocDesc uboDesc = {
 					.blockSize = 256 * 128,

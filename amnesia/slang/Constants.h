@@ -272,7 +272,7 @@ SHARED_CONST uint  kRayBudget           = kTotalSurfelLimit * 64u;
 SHARED_CONST uint  kCellDimension       = 250u;
 SHARED_CONST uint  kCellCount           = kCellDimension * kCellDimension * kCellDimension;
 SHARED_CONST uint  kCellToSurfelCapacity = kTotalSurfelLimit * 125u;
-SHARED_CONST float kCellUnit            = 0.5f;
+SHARED_CONST float kCellUnit            = 0.25f;
 SHARED_CONST float kSurfelTargetArea    = 50000.0f;
 SHARED_CONST uint  kPerCellSurfelLimit  = 1024u;
 SHARED_CONST uint  kRefCountThreshold   = 32u;
@@ -288,11 +288,12 @@ SHARED_CONST uint2 kSurfelDepthTextureUnit = uint2(7, 7);
 SHARED_CONST uint2 kSurfelDepthTextureHalfUnit = uint2(3, 3);
 
 // World-space light grid (coarse, camera-centered) for surfel NEE importance
-// sampling. Covers the same extent as the surfel grid (kCellDimension·kCellUnit)
-// but at a coarse resolution so per-cell light lists stay short. Built each
-// frame by LightGridBuildPass; read by SurfelRayTrace.rt evalAnalyticLight.
-SHARED_CONST uint  kLightGridDim       = 128u;
-SHARED_CONST float kLightGridUnit      = (float(kCellDimension) * kCellUnit) / float(kLightGridDim);
+// sampling. kLightGridExtent sets the per-axis world coverage independently of
+// the surfel grid; kLightGridUnit is derived from it. Built each frame by
+// LightGridBuildPass; read by SurfelRayTrace.rt evalAnalyticLight.
+SHARED_CONST uint  kLightGridDim       = 32u;
+SHARED_CONST float kLightGridExtent    = float(kCellDimension) * kCellUnit;
+SHARED_CONST float kLightGridUnit      = kLightGridExtent / float(kLightGridDim);
 SHARED_CONST uint  kLightGridCellCount = kLightGridDim * kLightGridDim * kLightGridDim;  // 32768
 SHARED_CONST uint  kLightsPerCellMax   = 128u;                                           // per-cell light-list cap (list buffer = kLightGridCellCount·this·4B); lights past it are dropped by atomic order
 
@@ -458,6 +459,12 @@ SHARED_CONST float kDirectVarianceBoost            = 4.0f;    // early-frame (lo
 SHARED_CONST float kReservoirMClamp                = 30.0f;   // temporal staleness cap (× current M)
 SHARED_CONST int   kSpatialSamples                 = 6;       // spatial neighbours resampled
 SHARED_CONST float kSpatialRadius                  = 16.0f;   // spatial search radius (px)
+// Screen-space direct-lighting reuse in surfel bounce NEE. When 1 the surfel RT
+// shader projects each bounce hit into screen space and reads gDirectLightingSSReuse
+// (written by the early DirectSpatialReusePass) instead of firing a shadow ray.
+// Falls back to 1-sample NEE when the hit is off-screen. Set to 0 to revert to
+// pure NEE for A/B comparison (no code path changes, just a compile-time gate).
+SHARED_CONST uint  kSurfelDirectScreenReuse            = 1u;
 
 // PBR point/spot-light falloff — Falcor LightData semantics, no scale knobs:
 // `intensity` IS the light's radiance (the host uploads the authored engine

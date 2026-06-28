@@ -120,7 +120,7 @@ GBufferOut psMain(VSOut vsOut,
     o.hit.x = vsOut.instanceID;
     o.hit.y = primitiveID;
     o.hit.z = b1 | (b2 << 16);
-    o.hit.w = 0u;
+    o.hit.w = 1u;
 
     // Screen-space velocity = curUV - prevUV (resolve samples history at
     // uv - velocity). NDC→UV uses the engine's y-down convention

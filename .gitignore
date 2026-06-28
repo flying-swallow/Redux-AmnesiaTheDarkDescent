@@ -25,10 +25,8 @@ mono_crash.*
 
 # Build results
 [Dd]ebug/
-!HPL2/dependencies/lib/Win64/Debug/
 [Dd]ebugPublic/
 [Rr]elease/
-!HPL2/dependencies/lib/Win64/Release/
 [Rr]eleases/
 x64/
 x86/
@@ -83,7 +81,6 @@ StyleCopReport.xml
 *.iobj
 *.pch
 *.pdb
-!HPL2/dependencies/lib/Win64/Debug/OpenAL32.pdb
 *.ipdb
 *.pgc
 *.pgd
@@ -360,3 +357,4 @@ MigrationBackup/
 .ionide/
 
 build/
+build-premake/

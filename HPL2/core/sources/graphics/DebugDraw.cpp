@@ -463,7 +463,7 @@ namespace hpl {
 			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 			segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 			segmentAllocDesc.elementStride = sizeof(DebugVertex);
-			segmentAllocDesc.maxElements = std::max<size_t>(m_vertexAlloc.maxElements, 1024);
+			segmentAllocDesc.maxElements = static_cast<uint32_t>(std::max<size_t>(m_vertexAlloc.maxElements, 1024));
 			do {
 				segmentAllocDesc.maxElements = (segmentAllocDesc.maxElements + (segmentAllocDesc.maxElements >> 1));
 			} while(segmentAllocDesc.maxElements < alNumVertices);
@@ -485,7 +485,7 @@ namespace hpl {
 			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 			segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 			segmentAllocDesc.elementStride = sizeof(uint32_t);
-			segmentAllocDesc.maxElements = std::max<size_t>(m_indexAlloc.maxElements, 1024);
+			segmentAllocDesc.maxElements = static_cast<uint32_t>(std::max<size_t>(m_indexAlloc.maxElements, 1024));
 			do {
 				segmentAllocDesc.maxElements = (segmentAllocDesc.maxElements + (segmentAllocDesc.maxElements >> 1));
 			} while(segmentAllocDesc.maxElements < alNumIndices);
