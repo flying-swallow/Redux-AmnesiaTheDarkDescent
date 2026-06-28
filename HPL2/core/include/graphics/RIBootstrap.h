@@ -4,6 +4,7 @@
 
 #include "graphics/GraphicsTypes.h"
 #include "graphics/HPLGraphicsConfig.h"
+#include "graphics/RIGpuProfiler.h"
 #include "graphics/RISegmentAlloc.h"
 #include "graphics/RITimeline.h"
 #include "graphics/RITypes.h"
@@ -208,6 +209,11 @@ public:
 
   FrameDeferral graphicsDefer;
   RITimeline graphicsTimeline;
+
+  // Per-pass GPU timing (timestamp queries) + debug-utils labels. Reset/resolved
+  // each frame in BeginActiveSet; scopes are opened at pass sites in
+  // cHybridRenderer::Draw via RIGpuScope.
+  RIGpuProfiler profiler;
 
   struct RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> guiVertexAlloc;
   RISharedPointer<RIBuffer> guiVertexBuffer;

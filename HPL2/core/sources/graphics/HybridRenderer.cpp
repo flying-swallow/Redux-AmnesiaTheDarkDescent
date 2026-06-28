@@ -114,21 +114,6 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       m_gbuffer.initialize(&RI.device, stages, externalLayouts);
     }
 
-    // SurfelVBuffer — one .spv, four entry points (rayGen / miss / closeHit /
-    // anyHit) sharing a single blob.
-    {
-      auto vb_bin = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
-                                               "SurfelVBuffer.rt.spv");
-      std::array<RIProgram::ModuleStage, 4> stages = {
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_RAYGEN, vb_bin,
-                                 "rayGen"},
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_MISS, vb_bin, "miss"},
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_CLOSEST_HIT, vb_bin,
-                                 "closeHit"},
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_ANY_HIT, vb_bin,
-                                 "anyHit"}};
-      m_surfelVBuffer.initialize(&RI.device, stages, externalLayouts);
-    }
     auto loadComputeProgram = [&](RIProgram &prog, const char *name) {
       auto bin =
           RIProgram::loadShaderStage(apResources->GetFileSearcher(), name);
@@ -146,6 +131,10 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::PROGRAM_STAGE_COMPUTE, bin, entryPoint}};
       prog.initialize(&RI.device, stages, externalLayouts);
     };
+    // SurfelPomBary — compute pass that copies the raster V-buffer into
+    // packedHitInfoTexture and applies parallax-occlusion barycentric
+    // correction for height-mapped diffuse surfaces.
+    loadSlangCompute(m_surfelPomBary, "SurfelPomBary.cs.spv", "csMain");
     loadSlangCompute(m_surfelPrepare, "SurfelPreparePass.cs.spv", "csMain");
     // SurfelUpdatePass — one .spv, three entry points (collectCellInfo /
     // accumulateCellInfo / updateCellToSurfelBuffer). The blob vector must
@@ -257,6 +246,14 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     m_indirectDrawBuffer = detail::CreateBindlessSlotBuffer(
         &RI.device, indirectDesc.maxElements, sizeof(VkDrawIndirectCommand),
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+
+    // VkTraceRaysIndirectCommandKHR — 3 × uint32: {width, height=1, depth=1}.
+    // Width is patched each frame via vkCmdCopyBuffer from gSurfelCounter[kSurfelCounterRequestedRay].
+    // SHADER_DEVICE_ADDRESS_BIT is required by vkCmdTraceRaysIndirectKHR.
+    m_surfelRTIndirectBuf = detail::CreateBindlessSlotBuffer(
+        &RI.device, 3u, sizeof(uint32_t),
+        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 
     for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
       RITextureDesc desc = {};
@@ -811,10 +808,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     RI.primary.cmds[0].vk_d3d12_textureBarriers<3>(3, attachmentBarriers);
   }
 
-  // MRT color targets, both cleared to all-zero. Visibility: psMain writes .w=0
-  // for hit; the depth test at the composite gates miss pixels independently,
-  // so no miss sentinel needed. Velocity: static/uncovered pixels read zero
-  // motion. (uint vs float clear is bit-identical at zero.)
+  // MRT color targets, both cleared to all-zero. Visibility: psMain writes .w=1
+  // (valid hit sentinel) or zero on sky/miss pixels (clear value). Velocity:
+  // static/uncovered pixels read zero motion. (uint vs float clear is
+  // bit-identical at zero.)
   RIRenderingAttachment gbufferColorAttachments[2] = {};
   gbufferColorAttachments[0].view = *state.visibilityView[RI.swapchainIndex];
   gbufferColorAttachments[0].loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
@@ -840,6 +837,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    RIGpuScope _gsSurfelPrepare(&RI.profiler, &RI.primary.cmds[0], "SurfelPrepare");
     m_surfelPrepare.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
                                         "SurfelPreparePass.cs", &computeCreate);
     m_surfelPrepare.bindBindlessDescriptorSet(&RI.primary.cmds[0],
@@ -873,81 +871,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   {
     RI.primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_UNORDERED_ACCESS,
-         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING});
+         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
   }
-
-  // ----------------------------------------------------------------------
-  // Stage B — primary-ray VBuffer.
-  //
-  // RT pipeline that traces one ray per swapchain pixel through the world's TLAS and
-  // packs the closest-hit (instanceCustomIndex, primitiveID, attribs) into
-  // state.packedHitInfoTexture. Stages D/F consume this image; for the current
-  // frame the output goes unused so the dispatch's correctness needs to be
-  // verified through validation-layer signals (no SBT/descriptor errors,
-  // no VK_ERROR_DEVICE_LOST).
-  // ----------------------------------------------------------------------
-  {
-    // Primary V-buffer: UNDEFINED -> GENERAL for the RT pipeline to store into.
-    // (No bounce buffers to clear anymore — water/glass refraction clobbers
-    // this primary image, water reflection is in the raster water pass.)
-    RI.primary.cmds[0].vk_d3d12_textureBarrier(
-        {state.packedHitInfoTexture[RI.swapchainIndex].Get(),
-         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_STORAGE_WRITE,
-         RI_STAGE_NONE, RI_STAGE_RAY_TRACING});
-  }
-
-  if (apWorld->GetTlas() != nullptr) {
-    VkRayTracingPipelineCreateInfoKHR rtCreate = {
-        VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR};
-    // closeHit fires one recursive TraceRay before recording the second hit,
-    // so the pipeline needs depth=2 (raygen→chit = depth 1, the recursive
-    // TraceRay lands at depth 2). depth=1 silently leaves hit pixels unwritten
-    // — "holes" in gPackedHitInfo against the UNDEFINED initial contents.
-    rtCreate.maxPipelineRayRecursionDepth = 2;
-    const hash_t kVBufferHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_surfelVBuffer.bindRayTracingPipeline(&RI.device, &RI.primary.cmds[0],
-                                           kVBufferHash, "SurfelVBuffer.rt",
-                                           &rtCreate);
-    m_surfelVBuffer.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
-        VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
-
-    std::vector<RIProgram::DescriptorBinding> vbBindings;
-    vbBindings.reserve(3);
-    {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("gPerFrame");
-      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-      vbBindings.push_back(b);
-    }
-    vbBindings.emplace_back("gPackedHitInfo",
-                            RIDescriptor::storageImage(
-                                &RI.device, state.packedHitInfoView[RI.swapchainIndex].Get()));
-    vbBindings.emplace_back("gRtAccel",
-                            RIDescriptor::accelerationStructure(&RI.device, apWorld->GetTlas()));
-
-    m_surfelVBuffer.bindDescriptors(
-        &RI.device, &RI.primary.cmds[0], RI.frameIndex, vbBindings.data(),
-        vbBindings.size(), VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
-
-    m_surfelVBuffer.traceRays(&RI.primary.cmds[0], kVBufferHash, renderWidth,
-                              renderHeight, 1u);
-  }
-
-  {
-    // state.packedHitInfoTexture is written by the rgen + miss + chit triplet
-    // above. Transition it to SHADER_READ_ONLY_OPTIMAL so consumers can
-    // Downstream consumers (SurfelEvaluation / SurfelGeneration /
-    // SurfelGIRender) read gPackedHitInfo via direct `[pixel]` storage
-    // loads on the bindless RWTexture2D — layout must stay GENERAL
-    // through the frame, so this is just a memory/execution sync, not
-    // a layout transition. The bindless descriptor was written with
-    // VK_IMAGE_LAYOUT_GENERAL at frame start.
-    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
-        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
-         RI_STAGE_RAY_TRACING,
-         RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT | RI_STAGE_RAY_TRACING});
-  }
+  // Stage B (packedHitInfo) is now produced by the raster G-buffer +
+  // SurfelPomBary compute pass later in the frame. SurfelUpdate (Stage D)
+  // reads cached geometry anchors (gSurfelGeometryBuffer), not gPackedHitInfo,
+  // so it does not need the V-buffer this early.
 
   // ----------------------------------------------------------------------
   // (Surfels anchored to destroyed geometry are handled before the opaque
@@ -974,6 +903,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    RIGpuScope _gsSurfelCollect(&RI.profiler, &RI.primary.cmds[0], "SurfelUpdateCollect");
     m_surfelUpdateCollect.bindComputePipeline(
         &RI.device, &RI.primary.cmds[0], kHash,
         "SurfelUpdatePass.cs:collectCellInfo", &computeCreate);
@@ -993,7 +923,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                           RI.frameIndex, bnd.data(), bnd.size(),
                                           VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    RI.primary.cmds[0].dispatch(&RI.device, (kTotalSurfelLimit + 31u) / 32u,
+    RI.primary.cmds[0].dispatch(&RI.device, (kTotalSurfelLimit + 63u) / 64u,
                                 1u, 1u);
   }
   // RAW: accumulate reads cellInfo.surfelCount (collect-written) and reads
@@ -1009,6 +939,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    RIGpuScope _gsSurfelAccum(&RI.profiler, &RI.primary.cmds[0], "SurfelUpdateAccumulate");
     m_surfelUpdateAccumulate.bindComputePipeline(
         &RI.device, &RI.primary.cmds[0], kHash,
         "SurfelUpdatePass.cs:accumulateCellInfo", &computeCreate);
@@ -1031,6 +962,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    RIGpuScope _gsSurfelScatter(&RI.profiler, &RI.primary.cmds[0], "SurfelUpdateScatter");
     m_surfelUpdateScatter.bindComputePipeline(
         &RI.device, &RI.primary.cmds[0], kHash,
         "SurfelUpdatePass.cs:updateCellToSurfelBuffer", &computeCreate);
@@ -1050,7 +982,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                           RI.frameIndex, bnd.data(), bnd.size(),
                                           VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    RI.primary.cmds[0].dispatch(&RI.device, (kTotalSurfelLimit + 31u) / 32u,
+    RI.primary.cmds[0].dispatch(&RI.device, (kTotalSurfelLimit + 63u) / 64u,
                                 1u, 1u);
   }
   {
@@ -1074,6 +1006,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    RIGpuScope _gsLightGridBin(&RI.profiler, &RI.primary.cmds[0], "LightGridBin");
     m_lightGridBin.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
                                        "LightGridBuildPass.cs:binLights",
                                        &computeCreate);
@@ -1114,6 +1047,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // first time each swapchain image appears. Subsequent frames skip this —
   // the atlas stays in GENERAL for life so integrate's EMA-blend reads keep
   // working and cross-frame sync goes through the engine frame fence.
+  if (!m_surfelRTIndirectInit) {
+    // Seed the fixed height=1 and depth=1 words once. Width (offset 0) is
+    // overwritten each frame from the surfel counter via vkCmdCopyBuffer.
+    vkCmdFillBuffer(RI.primary.cmds[0].vk.cmd, m_surfelRTIndirectBuf.vk.buffer,
+                    4u, 4u, 1u);  // height = 1 at offset 4
+    vkCmdFillBuffer(RI.primary.cmds[0].vk.cmd, m_surfelRTIndirectBuf.vk.buffer,
+                    8u, 4u, 1u);  // depth  = 1 at offset 8
+    m_surfelRTIndirectInit = true;
+  }
+
   if (!m_surfelAtlasesInitialized[RI.swapchainIndex]) {
     // First touch of this swapchain image's atlas: UNDEFINED -> GENERAL and
     // *seed its contents*. SurfelIntegratePass accumulates into it via an EMA
@@ -1159,14 +1102,33 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // (maxPipelineRayRecursionDepth = 1).
   //
   // The reference's expected per-surfel ray count is bounded by
-  // gMaxRayCount = 64; the dispatched width is kRayBudget = 9.6M, the rgen
-  // early-outs past RequestedRay so unused slots cost nothing.
+  // gMaxRayCount = 64; the actual requested count lives in
+  // gSurfelCounter[kSurfelCounterRequestedRay] and is copied into the
+  // indirect args buffer so only the requested rays are launched.
   // ----------------------------------------------------------------------
   if (apWorld->GetTlas() != nullptr) {
+    // Copy the requested ray count (4 bytes) from the surfel counter buffer
+    // into m_surfelRTIndirectBuf.width (offset 0). Height and depth were
+    // seeded to 1 once at m_surfelRTIndirectInit time above.
+    {
+      VkBufferCopy region = {};
+      region.srcOffset = static_cast<VkDeviceSize>(kSurfelCounterRequestedRay) * sizeof(uint32_t);
+      region.dstOffset = 0u;
+      region.size      = sizeof(uint32_t);
+      vkCmdCopyBuffer(RI.primary.cmds[0].vk.cmd,
+                      RI.globalset->m_surfelCounterBuffer.vk.buffer,
+                      m_surfelRTIndirectBuf.vk.buffer, 1u, &region);
+    }
+    // TRANSFER_WRITE → INDIRECT_COMMAND_READ before the RT dispatch reads the args.
+    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+        {RI_RESOURCE_STATE_COPY_DST, RI_RESOURCE_STATE_INDIRECT_ARGUMENT,
+         RI_STAGE_COPY, RI_STAGE_DRAW_INDIRECT | RI_STAGE_RAY_TRACING});
+
     VkRayTracingPipelineCreateInfoKHR rtCreate = {
         VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR};
     rtCreate.maxPipelineRayRecursionDepth = 1;
     const hash_t kRtHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    RIGpuScope _gsSurfelRT(&RI.profiler, &RI.primary.cmds[0], "SurfelRT");
     m_surfelRT.bindRayTracingPipeline(&RI.device, &RI.primary.cmds[0], kRtHash,
                                       "SurfelRayTrace.rt", &rtCreate);
     m_surfelRT.bindBindlessDescriptorSet(
@@ -1188,7 +1150,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                rtBnd.data(), rtBnd.size(),
                                VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
 
-    m_surfelRT.traceRays(&RI.primary.cmds[0], kRtHash, kRayBudget, 1u, 1u);
+    const VkDeviceAddress indirectAddr = m_surfelRTIndirectBuf.GetDeviceHandle(&RI.device);
+    m_surfelRT.traceRaysIndirect(&RI.primary.cmds[0], kRtHash, indirectAddr);
   }
   {
     RI.primary.cmds[0].vk_d3d12_memoryBarrier(
@@ -1202,6 +1165,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   gbufferBeginDesc.colorCount = 2;
   gbufferBeginDesc.colors = gbufferColorAttachments;
   gbufferBeginDesc.depthStencil = &depthAttachment;
+  RI.profiler.beginScope(&RI.primary.cmds[0], "GBuffer");
   RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, gbufferBeginDesc);
 
   RIViewport vkViewport = {};
@@ -1234,13 +1198,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   }
 
   RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
+  RI.profiler.endScope(&RI.primary.cmds[0]); // end GBuffer
 
   // Gbuffer output -> SHADER_READ_ONLY for the surfel-generation compute
   // pass (and any later fragment consumer). Includes depth, which the
   // gbuffer left in DEPTH_STENCIL_ATTACHMENT_OPTIMAL. The surfel result
   // image transitions UNDEFINED -> GENERAL for its first compute write.
+  // packedHitInfoTexture transitions UNDEFINED -> STORAGE_WRITE for the
+  // POM compute pass that follows immediately.
   {
-    RITextureBarrier toRead[4] = {};
+    RITextureBarrier toRead[5] = {};
     // Visibility -> SHADER_READ for the fragment + compute consumers.
     toRead[0] = {state.visibilityTexture[RI.swapchainIndex].Get(),
                  RI_RESOURCE_STATE_RENDER_TARGET,
@@ -1274,7 +1241,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                  RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_NONE,
                  RI_STAGE_COMPUTE};
 
-    RI.primary.cmds[0].vk_d3d12_textureBarriers<4>(4, toRead);
+    // packedHitInfo: UNDEFINED -> STORAGE_WRITE for the POM compute pass.
+    // Previously written by the Stage B RT V-buffer; now produced by
+    // SurfelPomBary.cs immediately after this barrier.
+    toRead[4] = {state.packedHitInfoTexture[RI.swapchainIndex].Get(),
+                 RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_STORAGE_WRITE,
+                 RI_STAGE_NONE, RI_STAGE_COMPUTE};
+
+    RI.primary.cmds[0].vk_d3d12_textureBarriers<5>(5, toRead);
   }
 
   // Clear the surfel-result image to zero indirect (see toRead[2] above), then
@@ -1292,6 +1266,58 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   }
 
   // ----------------------------------------------------------------------
+  // Stage B — POM barycentric correction (replaces the old RT V-buffer).
+  //
+  // Copies visibilityTexture (raw raster hit, gPackedHitInfoRaster) into
+  // packedHitInfoTexture (gPackedHitInfo) and applies the parallax-occlusion
+  // barycentric perturbation for height-mapped diffuse surfaces. Water/glass
+  // refraction is not handled here; those pixels carry the raster surface
+  // hit in gPackedHitInfo until a future sparse refraction RT pass lands.
+  // ----------------------------------------------------------------------
+  {
+    VkComputePipelineCreateInfo ci = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    const hash_t kPomHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_surfelPomBary.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+                                        kPomHash, "SurfelPomBary.cs", &ci);
+    m_surfelPomBary.bindBindlessDescriptorSet(
+        &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_COMPUTE);
+
+    std::vector<RIProgram::DescriptorBinding> pomBnd;
+    pomBnd.reserve(3);
+    {
+      RIProgram::DescriptorBinding b;
+      b.handle = DescriptorBindingID::Create("gPerFrame");
+      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      pomBnd.push_back(b);
+    }
+    pomBnd.emplace_back(
+        "gPackedHitInfoRaster",
+        RIDescriptor::sampledImage(&RI.device,
+                                   state.visibilityView[RI.swapchainIndex].Get(),
+                                   RI_RESOURCE_STATE_SHADER_RESOURCE));
+    pomBnd.emplace_back(
+        "gPackedHitInfo",
+        RIDescriptor::storageImage(&RI.device,
+                                   state.packedHitInfoView[RI.swapchainIndex].Get()));
+
+    m_surfelPomBary.bindDescriptors(&RI.device, &RI.primary.cmds[0],
+                                    RI.frameIndex, pomBnd.data(), pomBnd.size(),
+                                    VK_PIPELINE_BIND_POINT_COMPUTE);
+    RI.primary.cmds[0].dispatch(&RI.device, (renderWidth + 15u) / 16u,
+                                (renderHeight + 15u) / 16u, 1u);
+  }
+  {
+    // packedHitInfo storage write -> shader read for integrate/generate/
+    // direct-lighting/composite passes. Layout stays GENERAL.
+    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
+         RI_STAGE_COMPUTE,
+         RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT | RI_STAGE_RAY_TRACING});
+  }
+
+  // ----------------------------------------------------------------------
   // Surfel integrate + generation.
   //   integrate: per valid surfel, MSME-blend the per-frame raytraced radiance
   //              (gSurfelRayResultBuffer) into surfel.radiance.
@@ -1303,6 +1329,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    RIGpuScope _gsSurfelIntegrate(&RI.profiler, &RI.primary.cmds[0], "SurfelIntegrate");
     m_surfelIntegrate.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
                                           kHash, "SurfelIntegratePass.cs",
                                           &computeCreate);
@@ -1348,6 +1375,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    RIGpuScope _gsSurfelGenerate(&RI.profiler, &RI.primary.cmds[0], "SurfelGenerate");
     m_surfelGenerate.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
                                          "SurfelGenerationPass.cs",
                                          &computeCreate);
@@ -1394,10 +1422,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   }
 
   // --------------------------------------------------------------------
-  // Direct-lighting pass — soft-shadowed analytic direct lighting, temporally
-  // accumulated through the velocity texture, into the ping-pong direct texture
-  // the composite samples. The V-buffer (gPackedHitInfo), raster fallback, and
-  // velocity are all ready by here.
+  // DirectAtrousPass — SVGF-lite edge-aware à-trous spatial denoise.
+  // DirectLightingPass + DirectSpatialReusePass were moved before SurfelRayTrace
+  // above so gDirectLighting[dlCur] is ready for surfel bounce NEE screen-space
+  // reuse. This block only runs the atrous denoise on that already-resolved buffer.
   // --------------------------------------------------------------------
   // The image the composite samples for direct lighting: the raw accumulation
   // when à-trous is disabled, else the final à-trous iteration's output.
@@ -1635,6 +1663,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
            RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
       directResultView = outView;
     }
+    RI.profiler.endScope(&RI.primary.cmds[0]); // end DirectAtrous
   }
 
   // --------------------------------------------------------------------
@@ -1713,6 +1742,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // gamma multiply via the power law; Add is a close linear approximation.)
   // --------------------------------------------------------------------
   {
+    RIGpuScope _gsDecal(&RI.profiler, &RI.primary.cmds[0], "Decal");
     std::vector<iRenderable *> mulDecals; // Mul / MulX2 -> decalMul
     std::vector<iRenderable *> addDecals; // Add        -> decalAdd
     for (iRenderable *pObj :
@@ -1880,6 +1910,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo surfelCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    RIGpuScope _gsMainComposite(&RI.profiler, &RI.primary.cmds[0], "MainComposite");
     m_mainComposite.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
                                         "MainCompositePass.cs", &surfelCreate);
     m_mainComposite.bindBindlessDescriptorSet(&RI.primary.cmds[0],
@@ -2011,6 +2042,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Pogo-read-half barriers as the other translucent sub-passes.
   // --------------------------------------------------------------------
   {
+    RIGpuScope _gsWater(&RI.profiler, &RI.primary.cmds[0], "Water");
     std::vector<iRenderable *> waters;
     for (iRenderable *pObj :
          m_rendererList.GetRenderableItems(eRenderListType_Translucent)) {
@@ -2187,6 +2219,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   {
     // Collect particle emitters from the translucent list once so we can
     // skip the whole pass (and its barriers/begin-rendering) when empty.
+    RIGpuScope _gsParticle(&RI.profiler, &RI.primary.cmds[0], "Particle");
     std::vector<iParticleEmitter *> emitters;
     for (iRenderable *pObj :
          m_rendererList.GetRenderableItems(eRenderListType_Translucent)) {
@@ -2407,6 +2440,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // raster pass (m_water) over that refracted background.
   // --------------------------------------------------------------------
   {
+    RIGpuScope _gsTranslucent(&RI.profiler, &RI.primary.cmds[0], "TranslucentMesh");
     std::vector<iRenderable *> meshes;
     for (iRenderable *pObj :
          m_rendererList.GetRenderableItems(eRenderListType_Translucent)) {
@@ -2725,6 +2759,8 @@ cHybridRenderer::~cHybridRenderer() {
     m_surfelDepthTexture[i].dispose(&RI.device);
     m_surfelDepthTexture[i] = {};
   }
+  m_surfelRTIndirectBuf.dispose(&RI.device);
+  m_surfelRTIndirectBuf = {};
 }
 
 } // namespace hpl

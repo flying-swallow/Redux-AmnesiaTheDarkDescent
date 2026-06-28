@@ -286,10 +286,6 @@ void closeHit(inout Payload payload, BuiltInTriangleIntersectionAttributes attri
             );
         }
     }
-
-    // No ray-traced reflection bounce: reflection in this game is cubemap-based
-    // (static cubemap Fresnel in Translucent.frag for glass). Water is the only
-    // surface that ray-traces a reflection, handled in its branch above.
 }
 
 [shader("raygeneration")]

@@ -20,6 +20,7 @@
 #include "LuxDebugHandler.h"
 
 #include "graphics/DebugDraw.h"
+#include "graphics/RIBootstrap.h"
 
 #include "LuxMap.h"
 #include "LuxPlayer.h"
@@ -394,6 +395,25 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 			_W("FrameTime: %.1fms FPS: %.1f\n"),gpBase->mpEngine->GetAvgFrameTimeInMS(), gpBase->mpEngine->GetFPS());
 		fY+=13.0f;
+
+		// Per-pass GPU timing from RIGpuProfiler (timestamp queries, resolved each
+		// frame in RIBootstrap::BeginActiveSet). Empty until a frame slot completes
+		// (first couple of frames) or if the device lacks timestamp support.
+		const std::vector<hpl::GpuPassTiming>& vGpuTimings = hpl::RI.profiler.lastResults();
+		if(!vGpuTimings.empty())
+		{
+			const float fGpuTotal = hpl::RI.profiler.lastTotalMs();
+			gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1,0,1),
+				_W("GPU total: %.2f ms"), fGpuTotal);
+			fY+=13.0f;
+			for(const hpl::GpuPassTiming& gpuPass : vGpuTimings)
+			{
+				const float fPct = fGpuTotal > 0.0f ? (gpuPass.ms / fGpuTotal * 100.0f) : 0.0f;
+				gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(15,fY,10),13,cColor(1,1),
+					_W("%ls: %.3f ms (%4.1f%%)"), cString::To16Char(gpuPass.name).c_str(), gpuPass.ms, fPct);
+				fY+=12.0f;
+			}
+		}
 	}
 
 	////////////////////

@@ -156,7 +156,7 @@ void allocateSurfelRays(uint surfelIndex, inout Surfel surfel, bool isSleeping)
 // tick lifecycle → alive? (radius, life, anchor) → reproject + publish cull
 // record + bin into cells + allocate rays → write state back; dead surfels
 // return to the free list.
-[numthreads(32, 1, 1)]
+[numthreads(64, 1, 1)]
 void collectCellInfo(uint3 dispatchThreadId: SV_DispatchThreadID)
 {
     uint dirtySurfelCount = gSurfelCounter[kSurfelCounterDirty];
@@ -208,34 +208,55 @@ void collectCellInfo(uint3 dispatchThreadId: SV_DispatchThreadID)
 // Dispatch shape: host issues (63, 63, 63) workgroups (ceil(250/4) per
 // axis), so each thread maps 1:1 to a cell in the 250³ uniform grid.
 // numthreads(4,4,4) = 64 threads/group keeps the same group size the
-// host's `(kCellDimension + 3u) / 4u` math expects. Bounds check trims
-// the 252³ thread cube to the 250³ valid range; the flat index ordering
+// host's `(kCellDimension + 3u) / 4u` math expects and exactly fills one
+// RDNA/RDNA2 wave (wave width = 64). Bounds check trims the 252³ thread
+// cube to the 250³ valid range; the flat index ordering
 // (z*D*D + y*D + x) matches getFlattenCellIndex in SurfelUtils.slang.
+//
+// Wave-level atomic batching: instead of one InterlockedAdd per non-empty
+// cell (potentially millions of serialized atomics on a single counter),
+// each wave gathers its threads' contributions with WavePrefixSum, then
+// one thread per wave does a single InterlockedAdd for the wave's total.
+// This bounds global atomic contention at O(workgroups) = ~250K regardless
+// of surfel density.
 [numthreads(4, 4, 4)]
 void accumulateCellInfo(uint3 dispatchThreadId: SV_DispatchThreadID)
 {
-    if (any(dispatchThreadId >= uint3(kCellDimension)))
-        return;
+    bool validCell = !any(dispatchThreadId >= uint3(kCellDimension));
 
-    uint flattenIndex =
-        dispatchThreadId.z * (kCellDimension * kCellDimension) +
-        dispatchThreadId.y * kCellDimension +
-        dispatchThreadId.x;
-    gSurfelReservationBuffer[flattenIndex] = 0u;
+    uint flattenIndex = 0u;
+    if (validCell)
+    {
+        flattenIndex =
+            dispatchThreadId.z * (kCellDimension * kCellDimension) +
+            dispatchThreadId.y * kCellDimension +
+            dispatchThreadId.x;
+        gSurfelReservationBuffer[flattenIndex] = 0u;
+    }
 
-    if (gCellInfoBuffer[flattenIndex].surfelCount == 0)
-        return;
+    uint count = (validCell && gCellInfoBuffer[flattenIndex].surfelCount > 0u)
+                 ? gCellInfoBuffer[flattenIndex].surfelCount : 0u;
 
-    InterlockedAdd(
-        gSurfelCounter[kSurfelCounterCell],
-        gCellInfoBuffer[flattenIndex].surfelCount,
-        gCellInfoBuffer[flattenIndex].cellToSurfelBufferOffset);
+    uint waveLocalOffset = WavePrefixSum(count);
+    uint waveTotal       = WaveActiveSum(count);
 
-    gCellInfoBuffer[flattenIndex].surfelCount = 0;
+    uint waveBase = 0u;
+    if (WaveIsFirstLane() && waveTotal > 0u)
+        InterlockedAdd(gSurfelCounter[kSurfelCounterCell], waveTotal, waveBase);
+    waveBase = WaveReadLaneFirst(waveBase);
+
+    if (validCell && count > 0u)
+    {
+        gCellInfoBuffer[flattenIndex].cellToSurfelBufferOffset = waveBase + waveLocalOffset;
+        gCellInfoBuffer[flattenIndex].surfelCount = 0u;
+    }
 }
 
 // Scatter valid surfel indices into cell-to-surfel table at computed offsets.
-[numthreads(32, 1, 1)]
+// Reads the compact 32-byte SurfelBounds (position + radius) rather than the
+// full 128-byte Surfel — both fields needed for getCellPos / intersection test
+// are already there, reducing memory bandwidth 4× vs. the naive path.
+[numthreads(64, 1, 1)]
 void updateCellToSurfelBuffer(uint3 dispatchThreadId: SV_DispatchThreadID)
 {
     uint validSurfelCount = gSurfelCounter[kSurfelCounterValid];
@@ -243,14 +264,14 @@ void updateCellToSurfelBuffer(uint3 dispatchThreadId: SV_DispatchThreadID)
         return;
 
     uint surfelIndex = gSurfelValidIndexBuffer[dispatchThreadId.x];
-    Surfel surfel = gSurfelBuffer[surfelIndex];
+    SurfelBounds bounds = gSurfelBoundsBuffer[surfelIndex];
 
     float3 cameraPos = gPerFrame.posW;
-    int3 cellPos = getCellPos(surfel.position, cameraPos, kCellUnit);
+    int3 cellPos = getCellPos(bounds.position, cameraPos, kCellUnit);
     for (uint i = 0; i < kSurfelNeighborCellCount; ++i)
     {
         int3 neighborPos = surfelNeighborCellPos(cellPos, i);
-        if (isSurfelIntersectCell(surfel, neighborPos, cameraPos, kCellUnit))
+        if (isSurfelIntersectCell(bounds.position, bounds.radius, neighborPos, cameraPos, kCellUnit))
         {
             uint flattenIndex = getFlattenCellIndex(neighborPos);
 

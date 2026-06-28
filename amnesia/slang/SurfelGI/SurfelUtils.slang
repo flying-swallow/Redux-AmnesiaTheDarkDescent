@@ -96,6 +96,18 @@ bool isSurfelIntersectCell(Surfel surfel, int3 cellPos, float3 cameraPosW, float
     return dist < surfel.radius;
 }
 
+bool isSurfelIntersectCell(float3 pos, float radius, int3 cellPos, float3 cameraPosW, float cellUnit)
+{
+    if (!isCellValid(cellPos))
+        return false;
+
+    float3 minPosW = cellPos * cellUnit - float3(cellUnit, cellUnit, cellUnit) / 2.0f + cameraPosW;
+    float3 maxPosW = cellPos * cellUnit + float3(cellUnit, cellUnit, cellUnit) / 2.0f + cameraPosW;
+    float3 closePoint = min(max(pos, minPosW), maxPosW);
+
+    return distance(closePoint, pos) < radius;
+}
+
 // The coarse world-grid helpers (light + decal grids) live in Grid.slang as
 // generic free functions parameterized by gridDim / gridUnit.
 

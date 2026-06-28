@@ -141,7 +141,7 @@ SHADERS
     ./slang/DirectLightingPass/DirectLightingPass.cs.slang
     ./slang/DirectLightingPass/DirectSpatialReusePass.cs.slang
     ./slang/DirectLightingPass/DirectAtrousPass.cs.slang
-    ./slang/SurfelVBuffer/SurfelVBuffer.rt.slang
+    ./slang/SurfelVBuffer/SurfelPomBary.cs.slang
     ./slang/PostEffect/posteffect_fullscreen.vert.slang
     ./slang/PostEffect/posteffect_blit.frag.slang
     ./slang/PostEffect_ToneMap/posteffect_tonemap.frag.slang

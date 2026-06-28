@@ -76,12 +76,12 @@ private:
   // SurfelGI port. Until Stage F lands, the visibility_shade composite
   // reads vec3(0) indirect — direct lighting still renders correctly.
 
-  // Stage B: primary-ray VBuffer. RT pipeline (rgen + chit + ahit + miss)
-  // that writes a packed uvec4 TriangleHit into the viewport state's packedHitInfoTexture.
-  // Same hit-pack convention as the Slang reference's TriangleHit.pack(),
-  // so Stage D update / Stage F generation+composite can consume the
-  // resulting visibility data.
-  RIProgram m_surfelVBuffer;
+  // Stage B: POM barycentric correction compute pass.
+  // Copies visibilityTexture (raw raster hit) → packedHitInfoTexture and
+  // perturbs barycentrics on height-mapped diffuse surfaces so downstream
+  // getVertexData() reconstructs the parallax-occluded point.
+  // Water/glass refraction pixels are handled by a follow-up sparse RT pass.
+  RIProgram m_surfelPomBary;
 
   // Stage D: surfel prepare / cell-clear / update chain. Each .comp maps to
   // one of the SurfelGI reference's csMain entry points (the reference is
@@ -101,6 +101,10 @@ private:
   // closest-hit handles material shading + next-event-estimation using an
   // inline ray-query for shadow visibility.
   RIProgram m_surfelRT;
+  // Indirect args for vkCmdTraceRaysIndirectKHR: VkTraceRaysIndirectCommandKHR
+  // {width, height=1, depth=1}. Width is copied from gSurfelCounter[kSurfelCounterRequestedRay]
+  // each frame so the RT dispatch scales to actual ray demand.
+  struct RIBuffer m_surfelRTIndirectBuf;
 
   // Stage F: integrate + generation. The integrate pass folds ray results
   // into per-surfel radiance via MSME; the generation pass walks the
@@ -166,6 +170,7 @@ private:
 	// transition once on its first appearance; after that the atlas data
 	// must persist (integrate EMA-blends with the prior frame's values).
 	std::array<bool, RI_MAX_SWAPCHAIN_IMAGES> m_surfelAtlasesInitialized = {};
+  bool m_surfelRTIndirectInit = false;
 
 	struct OverlayPushConstants { uint32_t overlayMode; };
 	uint32_t m_overlayMode = kDefaultOverlayMode;
