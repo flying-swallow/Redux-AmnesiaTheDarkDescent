@@ -45,7 +45,18 @@ workspace "Amnesia"
     filter "configurations:Release"
         defines { "NDEBUG" }
         optimize "On"
+        symbols "On"      -- RelWithDebInfo: -O2 + -g (DWARF) for profiling/RGP
         runtime "Release"
+    filter {}
+
+    -- HPL2 / the RI layer use unions + type-punning that violate strict aliasing.
+    -- At -O2 gcc/clang's strict-aliasing assumption miscompiles them (release-only
+    -- SIGSEGV in RISharedPointer<RITextureView>::Get / cHybridRenderer::Draw). MSVC
+    -- doesn't assume strict aliasing, so this is gcc/clang only. Workspace-wide so
+    -- HPL2, the game, the tools and the from-source deps all get it (the game-only
+    -- amnesia.lua flag covered just Amnesia and missed the engine).
+    filter "system:not windows"
+        buildoptions { "-fno-strict-aliasing" }
     filter {}
 
     filter "system:windows"
