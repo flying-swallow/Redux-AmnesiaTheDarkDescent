@@ -5,10 +5,13 @@ project "HPL2"
     kind "StaticLib"
     language "C++"
     set_output("static")
-    -- USE_OALWRAPPER gates the OpenAL sound backend (LowLevelSoundOpenAL.cpp,
-    -- OpenALSound{Data,Channel}.h). CMake defines it globally
-    -- (HPL2/CMakeLists.txt); without it HPL2 compiles with no sound backend.
-    defines { "USE_SDL2", "USE_OALWRAPPER" }
+    -- USE_OALWRAPPER only selects the legacy OALWrapper/-prefixed header path in
+    -- LowLevelSoundOpenAL.cpp and OpenALSound{Data,Channel}.h (it gates no backend
+    -- code -- those sources are compiled unconditionally via the glob below). The
+    -- old CMake layout put headers under include/OALWrapper/; the vendored premake
+    -- layout puts them under HPL2/extern/OpenAL/OpenAL/, so the #else "OpenAL/"
+    -- prefix is the correct one. Leave the macro undefined to take that branch.
+    defines { "USE_SDL2" }
 
     -- All source patterns are run through glob()/os.matchfiles so, exactly like
     -- CMake's file(GLOB ...), patterns matching nothing are silently dropped

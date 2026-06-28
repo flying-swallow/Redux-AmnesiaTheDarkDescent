@@ -139,10 +139,21 @@ function slang_prebuild()
     -- Same flag set as cmake/shaders.cmake (incl. -emit-spirv-directly). %{file.*}
     -- tokens are expanded per shader at build time; %{file.basename} strips only the
     -- trailing .slang (foo.vert.slang -> foo.vert), matching CMake's STEM LAST_ONLY.
+    --
+    -- Only the slang root (-I"<src>") is passed -- NOT a per-file -I"%{file.directory}".
+    -- Under MSBuild that token expands to %(RootDir)%(Directory), which ends in a
+    -- trailing backslash, so the emitted argument is -I"C:\...\Dir\". The terminal \"
+    -- is parsed as an escaped quote by the Windows command-line tokenizer, swallowing
+    -- the closing quote and corrupting the following -I"<src>" -- the real include
+    -- root is lost and every `import` fails (cannot open file 'bindless.slang' etc.),
+    -- so no .spv is produced. The per-file include is redundant anyway: every module
+    -- import resolves from the slang root (bare names map to root-level .slang;
+    -- dotted names like SurfelGI.SurfelTypes map to subpaths), and #include "..." is
+    -- resolved relative to the including file's own directory by slangc automatically.
     local flags = "-target spirv -profile sm_6_6 -emit-spirv-directly "
         .. "-fvk-use-entrypoint-name -matrix-layout-column-major -fvk-use-scalar-layout"
     local compile = string.format(
-        '"%s" "%%{file.abspath}" %s -I"%%{file.directory}" -I"%s" -o "%s/%%{file.basename}.spv"',
+        '"%s" "%%{file.abspath}" %s -I"%s" -o "%s/%%{file.basename}.spv"',
         slangc, flags, src, out)
 
     filter "files:**.slang"
