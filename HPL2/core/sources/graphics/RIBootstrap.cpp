@@ -36,7 +36,7 @@ bool __RequestScratchSegment(RIBootstrap::FrameContext *cntx,
   struct RISegmentAllocDesc segmentAllocDesc = {0};
   segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
   segmentAllocDesc.elementStride = elementStride;
-  segmentAllocDesc.maxElements = std::max<size_t>(alloc.maxElements, 4096);
+  segmentAllocDesc.maxElements = static_cast<uint32_t>(std::max<size_t>(alloc.maxElements, 4096));
   do {
     segmentAllocDesc.maxElements =
         segmentAllocDesc.maxElements + (segmentAllocDesc.maxElements >> 1);

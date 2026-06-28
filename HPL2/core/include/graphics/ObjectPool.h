@@ -36,7 +36,7 @@ public:
   void reset() {
     end = NULL;
     start = NULL;
-    for (size_t i = 0; i < arrlen(pool); ++i) {
+    for (size_t i = 0; i < static_cast<size_t>(arrlen(pool)); ++i) {
       PoolSlot *slot = (PoolSlot *)pool[i];
       for (size_t j = 0; j < chunkSize; ++j) {
         if (end)
@@ -60,7 +60,7 @@ public:
   }
 
   ~ObjectPool() {
-    for (size_t i = 0; i < arrlen(pool); ++i) {
+    for (size_t i = 0; i < static_cast<size_t>(arrlen(pool)); ++i) {
       free(pool[i]);
     }
     arrfree(pool);

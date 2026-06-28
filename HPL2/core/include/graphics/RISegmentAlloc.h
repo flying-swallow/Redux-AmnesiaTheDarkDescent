@@ -62,7 +62,7 @@ bool RISegmentAlloc<N>::request(uint32_t frameIndex, size_t reqElements,
   // reclaim segments that are unused
   while (tail != head && frameIndex >= (segment[tail].frameNum + numSegments)) {
     assert(numElements >= segment[tail].numElements);
-    numElements -= segment[tail].numElements;
+    numElements -= static_cast<uint32_t>(segment[tail].numElements);
     elementOffset = (elementOffset + segment[tail].numElements) % maxElements;
     segment[tail].numElements = 0;
     segment[tail].frameNum = 0;
@@ -84,7 +84,7 @@ bool RISegmentAlloc<N>::request(uint32_t frameIndex, size_t reqElements,
   // remaning and move the cursor to the start
   if (elementOffset < elmentEndOffset &&
       elmentEndOffset + reqElements > maxElements) {
-    const uint32_t remaining = (maxElements - elmentEndOffset);
+    const uint32_t remaining = static_cast<uint32_t>((maxElements - elmentEndOffset));
     segment[head].numElements += remaining;
     numElements += remaining;
     elmentEndOffset = 0;
@@ -103,12 +103,12 @@ bool RISegmentAlloc<N>::request(uint32_t frameIndex, size_t reqElements,
     return false;
   }
   segment[head].numElements += reqElements;
-  numElements += reqElements;
+  numElements += static_cast<uint32_t>(reqElements);
 
-  req->elementOffset = elmentEndOffset;
+  req->elementOffset = static_cast<uint32_t>(elmentEndOffset);
   req->elementStride = elementStride;
   req->numElements =
-      reqElements; // includes the padding on the end of the buffer
+      static_cast<uint32_t>(reqElements); // includes the padding on the end of the buffer
   return true;
 }
 

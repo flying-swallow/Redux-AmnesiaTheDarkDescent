@@ -256,7 +256,7 @@ int cVertexBuffer::GetElementNum(eVertexBufferElement aElement) {
       m_vertexElements.begin(), m_vertexElements.end(),
       [aElement](const auto &element) { return element.type == aElement; });
   if (element != m_vertexElements.end()) {
-    return element->num;
+    return static_cast<int>(element->num);
   }
   return 0;
 }
@@ -332,12 +332,12 @@ bool cVertexBuffer::Compile(tVertexCompileFlag aFlags) {
 
     cMath::CreateTriTangentVectors(
         reinterpret_cast<float *>(tangentElement->m_shadowData.data()),
-        m_indices.data(), m_indices.size(),
+        m_indices.data(), static_cast<int>(m_indices.size()),
         reinterpret_cast<float *>(positionElement->m_shadowData.data()),
-        positionElement->num,
+        static_cast<int>(positionElement->num),
         reinterpret_cast<float *>(textureElement->m_shadowData.data()),
         reinterpret_cast<float *>(normalElement->m_shadowData.data()),
-        positionElement->NumElements());
+        static_cast<int>(positionElement->NumElements()));
   }
   //// Shared deleter: route through the active frame's deferred-free queue so
   //// the VkBuffer outlives any in-flight upload / draw command buffer that
@@ -821,10 +821,10 @@ int cVertexBuffer::GetVertexNum() {
                    });
   assert(positionElement != m_vertexElements.end() &&
          "No position element found");
-  return positionElement->NumElements();
+  return static_cast<int>(positionElement->NumElements());
 }
 
-int cVertexBuffer::GetIndexNum() { return m_indices.size(); }
+int cVertexBuffer::GetIndexNum() { return static_cast<int>(m_indices.size()); }
 
 cBoundingVolume cVertexBuffer::CreateBoundingVolume() {
   cBoundingVolume bv;
@@ -855,7 +855,7 @@ cBoundingVolume cVertexBuffer::CreateBoundingVolume() {
   bv.AddArrayPoints(
       reinterpret_cast<float *>(positionElement->m_shadowData.data()),
       GetVertexNum());
-  bv.CreateFromPoints(positionElement->num);
+  bv.CreateFromPoints(static_cast<int>(positionElement->num));
 
   return bv;
 }

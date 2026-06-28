@@ -155,7 +155,7 @@ void VK_ConfigureBufferQueueFamilies(VkBufferCreateInfo *info,
       uniqueQueue |= queueBit;
     }
   }
-  info->queueFamilyIndexCount = queueFamilyIndexCount;
+  info->queueFamilyIndexCount = static_cast<uint32_t>(queueFamilyIndexCount);
   info->pQueueFamilyIndices = queueFamilies;
   info->sharingMode = (queueFamilyIndexCount > 1) ? VK_SHARING_MODE_CONCURRENT
                                                   : VK_SHARING_MODE_EXCLUSIVE;
@@ -177,7 +177,7 @@ void VK_ConfigureImageQueueFamilies(VkImageCreateInfo *info,
       uniqueQueue |= queueBit;
     }
   }
-  info->queueFamilyIndexCount = queueFamilyIndexCount;
+  info->queueFamilyIndexCount = static_cast<uint32_t>(queueFamilyIndexCount);
   info->pQueueFamilyIndices = queueFamilies;
   info->sharingMode = (queueFamilyIndexCount > 1) ? VK_SHARING_MODE_CONCURRENT
                                                   : VK_SHARING_MODE_EXCLUSIVE;
@@ -437,9 +437,9 @@ int EnumerateRIAdapters(struct RIPhysicalAdapter *adapters,
 
         physicalAdapter->viewportMaxNum = limits->maxViewports;
         physicalAdapter->viewportBoundsRange[0] =
-            limits->viewportBoundsRange[0];
+            static_cast<int32_t>(limits->viewportBoundsRange[0]);
         physicalAdapter->viewportBoundsRange[1] =
-            limits->viewportBoundsRange[1];
+            static_cast<int32_t>(limits->viewportBoundsRange[1]);
 
         physicalAdapter->attachmentMaxDim =
             std::min(limits->maxFramebufferWidth, limits->maxFramebufferHeight);
@@ -901,12 +901,12 @@ int RIDevice::init(struct RIDeviceDesc *init) {
         if (configureQueue[configureIdx].queueType == RI_QUEUE_GRAPHICS &&
             (configureQueue[configureIdx].requiredBits &
              queueFamilyProps[familyIdx].queueFlags) > 0) {
-          bestQueueFamilyIdx = familyIdx;
+          bestQueueFamilyIdx = static_cast<uint32_t>(familyIdx);
           break;
         }
         VkDeviceQueueCreateInfo *createInfo = __VK_findQueueCreateInfo(
             deviceQueueCreateInfo, deviceCreateInfo.queueCreateInfoCount,
-            familyIdx);
+            static_cast<uint32_t>(familyIdx));
         if (queueFamilyProps[familyIdx].queueCount == 0) {
           continue;
         }
@@ -919,7 +919,7 @@ int RIDevice::init(struct RIDeviceDesc *init) {
             ((queueFamilyProps[familyIdx].queueFlags & ~requiredBits) == 0) &&
             (queueFamilyProps[familyIdx].queueCount -
              (createInfo ? createInfo->queueCount : 0)) > 0) {
-          bestQueueFamilyIdx = familyIdx;
+          bestQueueFamilyIdx = static_cast<uint32_t>(familyIdx);
           break;
         }
 
@@ -929,7 +929,7 @@ int RIDevice::init(struct RIDeviceDesc *init) {
         // family 1
         if (matchingQueueFlags && ((queueFamilyProps[familyIdx].queueFlags -
                                     matchingQueueFlags) < minQueueFlag)) {
-          bestQueueFamilyIdx = familyIdx;
+          bestQueueFamilyIdx = static_cast<uint32_t>(familyIdx);
           minQueueFlag =
               (queueFamilyProps[familyIdx].queueFlags - matchingQueueFlags);
         }

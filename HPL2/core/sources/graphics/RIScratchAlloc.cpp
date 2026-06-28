@@ -68,15 +68,15 @@ void FreeRIScratchAlloc( struct RIDevice *device, struct RIScratchAlloc *pool ) 
 		__FreeRIBlockMem( device, &pool->current );
 	}
 
-	for( size_t i = 0; i < arrlen( pool->recycle ); i++ ) {
+	for( size_t i = 0; i < static_cast<size_t>(arrlen( pool->recycle )); i++ ) {
 		__FreeRIBlockMem( device, &pool->recycle[i] );
 	}
 
-	for( size_t i = 0; i < arrlen( pool->pool ); i++ ) {
+	for( size_t i = 0; i < static_cast<size_t>(arrlen( pool->pool )); i++ ) {
 		__FreeRIBlockMem( device, &pool->pool[i] );
 	}
 
-	for( size_t i = 0; i < arrlen( pool->oversized ); i++ ) {
+	for( size_t i = 0; i < static_cast<size_t>(arrlen( pool->oversized )); i++ ) {
 		__FreeRIBlockMem( device, &pool->oversized[i] );
 	}
 #endif
@@ -87,7 +87,7 @@ void FreeRIScratchAlloc( struct RIDevice *device, struct RIScratchAlloc *pool ) 
 
 void RIResetScratchAlloc( struct RIDevice *device, struct RIScratchAlloc *pool )
 {
-	for( size_t i = 0; i < arrlen( pool->recycle ); i++ ) {
+	for( size_t i = 0; i < static_cast<size_t>(arrlen( pool->recycle )); i++ ) {
 		arrpush( pool->pool, pool->recycle[i] );
 	}
 	arrsetlen( pool->recycle, 0 );
@@ -95,7 +95,7 @@ void RIResetScratchAlloc( struct RIDevice *device, struct RIScratchAlloc *pool )
 	// Oversized one-shots can't be reused — they don't match blockSize.
 	// Free them outright; a caller asking for the same size next frame
 	// will pay for a fresh allocation.
-	for( size_t i = 0; i < arrlen( pool->oversized ); i++ ) {
+	for( size_t i = 0; i < static_cast<size_t>(arrlen( pool->oversized )); i++ ) {
 		__FreeRIBlockMem( device, &pool->oversized[i] );
 	}
 	arrsetlen( pool->oversized, 0 );

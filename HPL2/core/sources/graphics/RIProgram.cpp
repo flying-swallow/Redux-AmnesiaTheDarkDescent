@@ -453,7 +453,7 @@ void RIProgram::bindDescriptors(struct RIDevice* device, struct RICmd* cmd, uint
 						continue;
 
 					if( numWrites == ARRAY_COUNT( descriptorWrite ) ) {
-						vkUpdateDescriptorSets( device->vk.device, numWrites, descriptorWrite, 0, NULL );
+						vkUpdateDescriptorSets( device->vk.device, static_cast<uint32_t>(numWrites), descriptorWrite, 0, NULL );
 						numWrites = 0;
 					}
 					VkWriteDescriptorSet *vkDesc = descriptorWrite + ( numWrites++ );
@@ -499,7 +499,7 @@ void RIProgram::bindDescriptors(struct RIDevice* device, struct RICmd* cmd, uint
 					}
 				}
 				if( numWrites > 0 ) {
-					vkUpdateDescriptorSets( device->vk.device, numWrites, descriptorWrite, 0, NULL );
+					vkUpdateDescriptorSets( device->vk.device, static_cast<uint32_t>(numWrites), descriptorWrite, 0, NULL );
 				}
 			}
 
@@ -882,7 +882,7 @@ void RIProgram::initialize(RIDevice* device, std::span<ModuleStage> moduleInit,
 	  for( size_t bindingIdx = 0; bindingIdx < DESCRIPTOR_SET_MAX; bindingIdx++ ) {
 		  if( descriptorSetLayoutBindings[bindingIdx].size() > 0 ||
 		      externalLayoutFor(bindingIdx) != VK_NULL_HANDLE ) {
-			  numLayoutCount = bindingIdx + 1;
+			  numLayoutCount = static_cast<uint32_t>(bindingIdx + 1);
 		  }
 	  }
 
@@ -895,11 +895,11 @@ void RIProgram::initialize(RIDevice* device, std::span<ModuleStage> moduleInit,
 				programDescriptors[bindingIdx].isExternal = true;
 			} else if(descriptorSetLayoutBindings[bindingIdx].size() > 0 ) {
 				VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
-				bindingFlagsInfo.bindingCount = descriptorBindingFlags[bindingIdx].size();
+				bindingFlagsInfo.bindingCount = static_cast<uint32_t>(descriptorBindingFlags[bindingIdx].size());
 				bindingFlagsInfo.pBindingFlags = descriptorBindingFlags[bindingIdx].data();
 
 				VkDescriptorSetLayoutCreateInfo createSetLayoutInfo = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-				createSetLayoutInfo.bindingCount = descriptorSetLayoutBindings[bindingIdx].size();
+				createSetLayoutInfo.bindingCount = static_cast<uint32_t>(descriptorSetLayoutBindings[bindingIdx].size());
 				createSetLayoutInfo.pBindings = descriptorSetLayoutBindings[bindingIdx].data();
 				R_VK_ADD_STRUCT( &createSetLayoutInfo, &bindingFlagsInfo );
 

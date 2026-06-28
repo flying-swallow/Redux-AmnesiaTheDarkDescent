@@ -97,7 +97,7 @@ static inline hash_t hash_data_hsieh( hash_t hash, const void *buf, size_t len )
   /* Main loop */
   for (; len > 0; len--) {
     hash += get16bits(s);
-    tmp = (get16bits(s + 2) << 11) ^ hash;
+    tmp = static_cast<uint32_t>((get16bits(s + 2) << 11) ^ hash);
     hash = (hash << 16) ^ tmp;
     s += 2 * sizeof(uint16_t);
     hash += hash >> 11;

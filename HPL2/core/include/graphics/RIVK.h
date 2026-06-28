@@ -186,20 +186,20 @@ static inline VkImageUsageFlags ri_vk_RITextureUsageToVK(uint32_t usage) {
 
 static inline VkRect2D RIToVKRect2D(struct RIRect* in) {
 	VkRect2D out;
-	out.extent.width = in->width;
-	out.extent.height = in->height;
-	out.offset.x = in->x;
-	out.offset.y = in->y;
+	out.extent.width = static_cast<uint32_t>(in->width);
+	out.extent.height = static_cast<uint32_t>(in->height);
+	out.offset.x = static_cast<int32_t>(in->x);
+	out.offset.y = static_cast<int32_t>(in->y);
 	return out;
 }
 
 static inline VkRect2D RIViewportToRect2D( struct RIViewport *in )
 {
 	VkRect2D out;
-	out.extent.width = in->width;
-	out.extent.height = in->height;
-	out.offset.x = in->x;
-	out.offset.y = in->y;
+	out.extent.width = static_cast<uint32_t>(in->width);
+	out.extent.height = static_cast<uint32_t>(in->height);
+	out.offset.x = static_cast<int32_t>(in->x);
+	out.offset.y = static_cast<int32_t>(in->y);
 	return out;
 }
 

@@ -546,7 +546,7 @@ namespace hpl {
 		  struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 		  segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 		  segmentAllocDesc.elementStride = sizeof(PositionTexColor);
-		  segmentAllocDesc.maxElements = std::max<size_t>(RI.guiVertexAlloc.maxElements, 1024);
+		  segmentAllocDesc.maxElements = static_cast<uint32_t>(std::max<size_t>(RI.guiVertexAlloc.maxElements, 1024));
 		  do {
 			  segmentAllocDesc.maxElements = ( segmentAllocDesc.maxElements + ( segmentAllocDesc.maxElements >> 1 ) );
 		  } while( segmentAllocDesc.maxElements < m_setRenderObjects.size() * 4);
@@ -567,7 +567,7 @@ namespace hpl {
 			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 			segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 			segmentAllocDesc.elementStride = sizeof(uint32_t);
-			segmentAllocDesc.maxElements = std::max<size_t>(RI.guiIndexAlloc.maxElements, 1024);
+			segmentAllocDesc.maxElements = static_cast<uint32_t>(std::max<size_t>(RI.guiIndexAlloc.maxElements, 1024));
 			do {
 				segmentAllocDesc.maxElements = ( segmentAllocDesc.maxElements + ( segmentAllocDesc.maxElements >> 1 ) );
 			} while( segmentAllocDesc.maxElements < m_setRenderObjects.size() * 6);
@@ -947,13 +947,13 @@ namespace hpl {
 					}
 				}
 
-				reinterpret_cast<uint32_t*>(eleMemory)[indexBufferOffset + (indexBufferIndex++)] = vertexBufferIndex - 4;
-				reinterpret_cast<uint32_t*>(eleMemory)[indexBufferOffset + (indexBufferIndex++)] = vertexBufferIndex - 3;
-				reinterpret_cast<uint32_t*>(eleMemory)[indexBufferOffset + (indexBufferIndex++)] = vertexBufferIndex - 2;
+				reinterpret_cast<uint32_t*>(eleMemory)[indexBufferOffset + (indexBufferIndex++)] = static_cast<uint32_t>(vertexBufferIndex - 4);
+				reinterpret_cast<uint32_t*>(eleMemory)[indexBufferOffset + (indexBufferIndex++)] = static_cast<uint32_t>(vertexBufferIndex - 3);
+				reinterpret_cast<uint32_t*>(eleMemory)[indexBufferOffset + (indexBufferIndex++)] = static_cast<uint32_t>(vertexBufferIndex - 2);
 
-				reinterpret_cast<uint32_t*>(eleMemory)[indexBufferOffset + (indexBufferIndex++)] = vertexBufferIndex - 4;
-				reinterpret_cast<uint32_t*>(eleMemory)[indexBufferOffset + (indexBufferIndex++)] = vertexBufferIndex - 2;
-				reinterpret_cast<uint32_t*>(eleMemory)[indexBufferOffset + (indexBufferIndex++)] = vertexBufferIndex - 1;
+				reinterpret_cast<uint32_t*>(eleMemory)[indexBufferOffset + (indexBufferIndex++)] = static_cast<uint32_t>(vertexBufferIndex - 4);
+				reinterpret_cast<uint32_t*>(eleMemory)[indexBufferOffset + (indexBufferIndex++)] = static_cast<uint32_t>(vertexBufferIndex - 2);
+				reinterpret_cast<uint32_t*>(eleMemory)[indexBufferOffset + (indexBufferIndex++)] = static_cast<uint32_t>(vertexBufferIndex - 1);
 
 
 				///////////////////////////
@@ -979,7 +979,7 @@ namespace hpl {
 			uint64_t ibOffset = idxOffset + indexBufferOffset * sizeof(uint32_t);
 			vkCmdBindVertexBuffers(RI.primary.cmds[0].vk.cmd, 0, 1, &RI.guiVertexBuffer->vk.buffer, &vbOffset);
 			vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, RI.guiIndexBuffer->vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
-			RI.primary.cmds[0].drawIndexed(&RI.device, indexBufferIndex, 1, 0, 0, 0);
+			RI.primary.cmds[0].drawIndexed(&RI.device, static_cast<uint32_t>(indexBufferIndex), 1, 0, 0, 0);
 
 			vertexBufferOffset += vertexBufferIndex;
 			indexBufferOffset += indexBufferIndex;

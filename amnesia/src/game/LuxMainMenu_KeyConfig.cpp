@@ -334,7 +334,7 @@ eInputMenuEntryPos cLuxInputMenuEntry::GetGamepadHatStatePos(eGamepadHat aHat, e
 	{
 		const cSubActionWrapper& subAction = mvSubActions[i];
 		if(subAction.mGamepadInputType==eGamepadInputType_Hat &&
-			subAction.mlInputId==aHat && subAction.mfInputValue==aState)
+			subAction.mlInputId==aHat && subAction.mfInputValue==static_cast<float>(aState))
 			return (eInputMenuEntryPos)i;
 	}
 
@@ -347,7 +347,7 @@ eInputMenuEntryPos cLuxInputMenuEntry::GetGamepadAxisPos(eGamepadAxis aAxis, eGa
 	{
 		const cSubActionWrapper& subAction = mvSubActions[i];
 		if(subAction.mGamepadInputType==eGamepadInputType_Axis &&
-			subAction.mlInputId==aAxis && subAction.mfInputValue==aRange)
+			subAction.mlInputId==aAxis && subAction.mfInputValue==static_cast<float>(aRange))
 			return (eInputMenuEntryPos)i;
 	}
 

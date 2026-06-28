@@ -779,7 +779,7 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 		};
 
 		// Shared pulse (0.5..1.0), matching the original's single fGlobalAlpha.
-		const float fGlobalAlpha = (0.5f + mFlashOscill.val * 0.5f) * 0.1;
+		const float fGlobalAlpha = (0.5f + mFlashOscill.val * 0.5f) * 0.1f;
 		if (bHasFlash)
 			drawObjects(mvFlashObjects, kFlashGlow, fGlobalAlpha,
 						/*alphaTest=*/true, /*drawCount=*/2);

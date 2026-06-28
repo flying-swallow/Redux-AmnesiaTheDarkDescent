@@ -149,7 +149,7 @@ struct RIDescriptorSetResult resolveDescriptorSetAlloc( struct RIDevice *device,
 void freeDescriptorSetAlloc( struct RIDevice *device, struct RIDescriptorSetAlloc *alloc )
 {
 #if ( DEVICE_IMPL_VULKAN )
-	for( size_t i = 0; i < arrlen( alloc->blocks ); i++ ) {
+	for( size_t i = 0; i < static_cast<size_t>(arrlen( alloc->blocks )); i++ ) {
 		// TODO: do i need to free indivudal descriptor sets or can i just free the entire pool
 		// for(size_t blockIdx = 0; blockIdx < RESERVE_BLOCK_SIZE; blockIdx++) {
 		//	vkFreeDescriptorSets(device->vk.device, alloc->blocks[i]->vk.pool, )
@@ -157,7 +157,7 @@ void freeDescriptorSetAlloc( struct RIDevice *device, struct RIDescriptorSetAllo
 		free( alloc->blocks[i] );
 	}
 	arrfree( alloc->blocks );
-	for( size_t i = 0; i < arrlen( alloc->pools ); i++ ) {
+	for( size_t i = 0; i < static_cast<size_t>(arrlen( alloc->pools )); i++ ) {
 		vkDestroyDescriptorPool( device->vk.device, alloc->pools[i].vk.handle, NULL );
 	}
 	arrfree( alloc->pools );
