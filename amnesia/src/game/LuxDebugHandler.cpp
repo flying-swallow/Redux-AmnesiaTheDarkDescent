@@ -983,7 +983,7 @@ void cLuxDebugHandler::CreateGuiWindow()
 
 	///////////////////////////
 	//Window
-	cVector2f vSize = cVector2f(250, 845);
+	cVector2f vSize = cVector2f(250, 860);
 	vGroupSize.x = vSize.x - 20;
 	cVector3f vPos = cVector3f(mpGuiSet->GetVirtualSize().x - vSize.x - 10, 10, 0);
 	mpDebugWindow = mpGuiSet->CreateWidgetWindow(0,vPos,vSize,_W("Debug Toolbar") );
@@ -1222,6 +1222,13 @@ void cLuxDebugHandler::CreateGuiWindow()
 		mpCBEvaluationOverlay->AddItem("Shadow Flag");
 		mpCBEvaluationOverlay->SetSelectedItem(-1);
 		mpCBEvaluationOverlay->AddCallback(eGuiMessage_SelectionChange, this, kGuiCallback(ChangeEvaluationOverlay));
+		vGroupPos.y += 22;
+
+		// Force shadows
+		pCheckBox = mpGuiSet->CreateWidgetCheckBox(cVector3f(vGroupPos.x, vGroupPos.y + 8, vGroupPos.z), vSize, _W("Force shadows"), pGroup);
+		pCheckBox->SetChecked(hpl::RI.forceShadows, false);
+		pCheckBox->SetUserValue(19);
+		pCheckBox->AddCallback(eGuiMessage_CheckChange, this, kGuiCallback(ChangeDebugText));
 		vGroupPos.y += 22;
 
 		// Group end
@@ -1629,7 +1636,8 @@ bool cLuxDebugHandler::ChangeDebugText(iWidget* apWidget, const cGuiMessageData&
 	else if(lNum == 14)  gpBase->mpPlayer->SetFreeCamSpeed( cMath::Max((float)aData.mlVal/ 100.0f, 0.001f) );
 
 	else if(lNum == 17)  SetFastForward(bActive);
-	
+
+	else if (lNum == 19) hpl::RI.forceShadows = bActive;
 
 	return true;
 }

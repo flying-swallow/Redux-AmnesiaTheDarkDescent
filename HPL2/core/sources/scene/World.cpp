@@ -565,7 +565,7 @@ static PointLight BuildPointLight(iLight *pLight) {
   pl.radius = pLight->GetRadius();
   pl.sourceRadius = pLight->GetSourceRadius();
   pl.goboTextureIndex = PinnedBindlessSlot(pLight->GetGoboImage());
-  pl.shadowEnabled = pLight->GetCastShadows() ? 1u : 0u;
+  pl.shadowEnabled = (RI.forceShadows || pLight->GetCastShadows()) ? 1u : 0u;
   const cMatrixf &world = pLight->GetWorldMatrix();
   pl.worldToLightX[0] = world.m[0][0];
   pl.worldToLightX[1] = world.m[0][1];
@@ -611,7 +611,7 @@ static SpotLight BuildSpotLight(iLight *pLight) {
   sl.radius = pSpot->GetRadius();
   sl.sourceRadius = pSpot->GetSourceRadius();
   sl.goboTextureIndex = PinnedBindlessSlot(pSpot->GetGoboImage());
-  sl.shadowEnabled = pSpot->GetCastShadows() ? 1u : 0u;
+  sl.shadowEnabled = (RI.forceShadows || pSpot->GetCastShadows()) ? 1u : 0u;
   const ml::float4x4 vpF4 =
       cMath::ToFloatTranspose4x4(pSpot->GetViewProjMatrix());
   std::memcpy(sl.viewProjection, vpF4.a, sizeof(sl.viewProjection));
@@ -638,7 +638,7 @@ static RectLight BuildRectLight(iLight *pLight) {
   al.barnDoorAngle = pArea->GetBarnDoorAngle();
   al.barnDoorLength = pArea->GetBarnDoorLength();
   al.sourceTextureIndex = PinnedBindlessSlot(pArea->GetGoboImage());
-  al.shadowEnabled = pArea->GetCastShadows() ? 1u : 0u;
+  al.shadowEnabled = (RI.forceShadows || pArea->GetCastShadows()) ? 1u : 0u;
   // UE Rect Light basis: width = local +Y (world col 1), height = local +Z
   // (col 2), emission normal = local +X (col 0).
   const cMatrixf &world = pArea->GetWorldMatrix();
@@ -1015,7 +1015,9 @@ void cWorld::BuildTlas(RIBootstrap::FrameContext *cntx, cFrustum *apFrustum) {
     // kRayMaskShadow, which the NEE shadow ray culls on. Non-casters keep only
     // kRayMaskOpaque, so they stay visible / lit / reflected but stop blocking
     // light. Translucents never cast shadows (unchanged).
-    if (!translucent && pObject->GetRenderFlagBit(eRenderableFlag_ShadowCaster))
+    if (!translucent &&
+        (RI.forceShadows ||
+         pObject->GetRenderFlagBit(eRenderableFlag_ShadowCaster)))
       inst.mask |= kRayMaskShadow;
     inst.instanceShaderBindingTableRecordOffset = 0;
     inst.flags = RI_ACCEL_INSTANCE_TRIANGLE_FLIP_FACING;

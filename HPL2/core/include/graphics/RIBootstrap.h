@@ -251,6 +251,10 @@ public:
   uint32_t swapchainIndex;
   uint32_t frameIndex = 0;
 
+  // Debug override: ignore authored CastShadows / ShadowCaster flags and use
+  // the pre-shadow-flag behavior where every opaque instance blocks shadow rays.
+  bool forceShadows = false;
+
   struct RIResourceUploader uploader = {};
 
   // Engine-lifetime set-0 tables (bindless / object / material / light); owned

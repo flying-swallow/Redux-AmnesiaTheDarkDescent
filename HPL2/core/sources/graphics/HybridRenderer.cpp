@@ -658,6 +658,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   perFrame.fireflyClampThreshold = 10.0f;
   perFrame.zNear = apFrustum->GetNearPlane();
   perFrame.zFar = apFrustum->GetFarPlane();
+  perFrame.forceShadows = RI.forceShadows ? 1u : 0u;
   // invViewRotationMat = rotation part of the inverse view matrix (camera
   // world-space basis, translation zeroed). Translucent.frag rotates the
   // view-space cube-map reflection vector into world space with it (matching
