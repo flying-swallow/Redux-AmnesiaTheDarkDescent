@@ -76,12 +76,12 @@ private:
   // SurfelGI port. Until Stage F lands, the visibility_shade composite
   // reads vec3(0) indirect — direct lighting still renders correctly.
 
-  // Stage B: POM barycentric correction compute pass.
+  // VBuffer POM barycentric correction compute pass (amnesia/slang/VBuffer/).
   // Copies visibilityTexture (raw raster hit) → packedHitInfoTexture and
   // perturbs barycentrics on height-mapped diffuse surfaces so downstream
   // getVertexData() reconstructs the parallax-occluded point.
   // Water/glass refraction pixels are handled by a follow-up sparse RT pass.
-  RIProgram m_surfelPomBary;
+  RIProgram m_vBufferPomBary;
 
   // Stage D: surfel prepare / cell-clear / update chain. Each .comp maps to
   // one of the SurfelGI reference's csMain entry points (the reference is
@@ -94,7 +94,7 @@ private:
   RIProgram m_surfelUpdateCollect;
   RIProgram m_surfelUpdateAccumulate;
   RIProgram m_surfelUpdateScatter;
-  RIProgram m_lightGridBin;
+  RIProgram m_lightGrid;
 
   // Stage E: path-tracer RT pipeline. One ray per pending SurfelRayResult
   // slot; the rgen drives an iterative trace loop (no recursive TraceRay),
@@ -114,13 +114,13 @@ private:
   RIProgram m_surfelIntegrate;
   RIProgram m_surfelGenerate;
 
-  // Final composite (Slang MainCompositePass.cs.slang). Reads
+  // Final composite (amnesia/slang/Composite/MainCompositePass.cs.slang). Reads
   // gPackedHitInfo + gIndirectLighting + gDirectLighting and writes gOutput.
-  RIProgram m_mainComposite;
+  RIProgram m_composite;
 
-  // Direct-lighting pass (DirectLightingPass.cs.slang): soft-shadowed analytic
-  // direct lighting, temporally accumulated via the velocity texture. Writes the
-  // ping-pong direct texture the composite then samples.
+  // Direct-lighting passes (amnesia/slang/DirectLighting/):
+  // DirectLightingPass.cs — soft-shadowed analytic direct lighting, temporally
+  // accumulated via the velocity texture; writes the ping-pong direct texture.
   RIProgram m_directLighting;
   // ReSTIR DI spatial reuse + resolve (DirectSpatialReusePass.cs).
   RIProgram m_directSpatialReuse;

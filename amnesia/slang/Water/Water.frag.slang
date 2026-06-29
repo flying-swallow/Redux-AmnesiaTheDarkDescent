@@ -22,7 +22,7 @@ import bindless;
 import PerFrame.resource;
 import Fog;                  // computeFog — fade the water surface into world/area fog
 import SurfelGI.SurfelShade;        // DiffuseShading / prepareDiffuseShading / evalAnalyticLight / gatherSurfelIndirect
-import TranslucentPass.WaterCommon; // waterWaveNormalTangent
+import Translucent.WaterCommon; // waterWaveNormalTangent
 
 struct WaterPC
 {

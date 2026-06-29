@@ -133,10 +133,10 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::PROGRAM_STAGE_COMPUTE, bin, entryPoint}};
       prog.initialize(&mpGraphics->device, stages, externalLayouts);
     };
-    // SurfelPomBary — compute pass that copies the raster V-buffer into
+    // VBufferPomBary — compute pass that copies the raster V-buffer into
     // packedHitInfoTexture and applies parallax-occlusion barycentric
     // correction for height-mapped diffuse surfaces.
-    loadSlangCompute(m_surfelPomBary, "SurfelPomBary.cs.spv", "csMain");
+    loadSlangCompute(m_vBufferPomBary, "VBufferPomBary.cs.spv", "csMain");
     loadSlangCompute(m_surfelPrepare, "SurfelPreparePass.cs.spv", "csMain");
     // SurfelUpdatePass — one .spv, three entry points (collectCellInfo /
     // accumulateCellInfo / updateCellToSurfelBuffer). The blob vector must
@@ -173,20 +173,20 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     }
     // LightGridBuildPass — single compute entry (binLights) that bins
     // point/spot lights into the coarse world-space light grid each frame.
-    loadSlangCompute(m_lightGridBin, "LightGridBuildPass.cs.spv", "binLights");
+    loadSlangCompute(m_lightGrid, "LightGridBuildPass.cs.spv", "binLights");
     loadSlangCompute(m_surfelIntegrate, "SurfelIntegratePass.cs.spv", "csMain");
     loadSlangCompute(m_surfelGenerate, "SurfelGenerationPass.cs.spv", "csMain");
-    // MainComposite — compute pass: one thread per pixel writes the composite
+    // Composite — compute pass: one thread per pixel writes the composite
     // (albedo + inline decals + lighting) into the pogo attach bound as
     // gOutput. The renderer transitions the attach to GENERAL around the
     // dispatch and back to COLOR_ATTACHMENT_OPTIMAL afterwards.
-    loadSlangCompute(m_mainComposite, "MainCompositePass.cs.spv", "csMain");
+    loadSlangCompute(m_composite, "MainCompositePass.cs.spv", "csMain");
     loadSlangCompute(m_directLighting, "DirectLightingPass.cs.spv", "csMain");
     loadSlangCompute(m_directSpatialReuse, "DirectSpatialReusePass.cs.spv",
                      "csMain");
     loadSlangCompute(m_directAtrous, "DirectAtrousPass.cs.spv", "csMain");
     {
-      // Particle pass (amnesia/slang/ParticlePass).
+      // Particle pass (amnesia/slang/Particle).
       auto p_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
                                                "Particle.vert.spv");
       auto p_frag = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
@@ -199,7 +199,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       m_particle.initialize(&mpGraphics->device, stages, externalLayouts);
     }
     {
-      // Translucent mesh pass (amnesia/slang/TranslucentPass). Shares
+      // Translucent mesh pass (amnesia/slang/Translucent). Shares
       // externalLayouts with m_particle so the same bindless set / per-frame
       // UBO bindings light up.
       auto t_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
@@ -214,7 +214,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       m_translucentMesh.initialize(&mpGraphics->device, stages, externalLayouts);
     }
     {
-      // Decal pass (amnesia/slang/DecalPass). Reuses the translucent 5-stream
+      // Decal pass (amnesia/slang/Decal). Reuses the translucent 5-stream
       // vertex layout + bindless/UBO layouts.
       auto d_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
                                                "Decal.vert.spv");
@@ -777,8 +777,8 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
 
   // state.packedHitInfoView / m_surfelDepthView and the
   // freshly built TLAS now live on set 1 and are pushed per-dispatch via
-  // RIProgram::bindDescriptors below (see the m_surfelVBuffer / m_surfelRT
-  // / m_surfelIntegrate / m_surfelGenerate / m_mainComposite call sites).
+  // RIProgram::bindDescriptors below (see the m_vBufferPomBary / m_surfelRT
+  // / m_surfelIntegrate / m_surfelGenerate / m_composite call sites).
   // Set 1 is allocated from a frame-rotated pool, so each frame's writes
   // land on an idle descriptor set.
 
@@ -885,7 +885,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
          RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
   }
   // Stage B (packedHitInfo) is now produced by the raster G-buffer +
-  // SurfelPomBary compute pass later in the frame. SurfelUpdate (Stage D)
+  // VBufferPomBary compute pass later in the frame. SurfelUpdate (Stage D)
   // reads cached geometry anchors (gSurfelGeometryBuffer), not gPackedHitInfo,
   // so it does not need the V-buffer this early.
 
@@ -1008,7 +1008,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
 
   // ----------------------------------------------------------------------
   // World-space light grid build (feeds the surfel ray-trace NEE importance
-  // sampling + the MainCompositePass direct cull). Per-cell gather: one thread
+  // sampling + the Composite direct cull). Per-cell gather: one thread
   // per grid cell walks the light list and writes that cell's count + list. The
   // light SSBOs were uploaded + barriered to SHADER_READ earlier this frame, so
   // binLights reads them directly. No per-cell count clear is needed — every
@@ -1020,12 +1020,12 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsLightGridBin(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
-                               "LightGridBin");
-    m_lightGridBin.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
-                                       "LightGridBuildPass.cs:binLights",
+    RIGpuScope _gsLightGrid(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
+                               "LightGrid");
+    m_lightGrid.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
+                                       "LightGrid.cs:binLights",
                                        &computeCreate);
-    m_lightGridBin.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
+    m_lightGrid.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
                                              &mpGraphics->globalset->m_bindlessSet, 0,
                                              VK_PIPELINE_BIND_POINT_COMPUTE);
     std::vector<RIProgram::DescriptorBinding> bnd;
@@ -1037,7 +1037,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
       bnd.push_back(b);
     }
     appendWorldLightFog(bnd, apWorld);
-    m_lightGridBin.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+    m_lightGrid.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                    mpGraphics->frameIndex, bnd.data(), bnd.size(),
                                    VK_PIPELINE_BIND_POINT_COMPUTE);
     // One thread per grid cell (the shader early-outs past
@@ -1251,7 +1251,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
 
     // packedHitInfo: UNDEFINED -> STORAGE_WRITE for the POM compute pass.
     // Previously written by the Stage B RT V-buffer; now produced by
-    // SurfelPomBary.cs immediately after this barrier.
+    // VBufferPomBary.cs immediately after this barrier.
     toRead[4] = {state.packedHitInfoTexture[mpGraphics->swapchainIndex].Get(),
                  RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_STORAGE_WRITE,
                  RI_STAGE_NONE, RI_STAGE_COMPUTE};
@@ -1284,14 +1284,14 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   // hit in gPackedHitInfo until a future sparse refraction RT pass lands.
   // ----------------------------------------------------------------------
   {
-    RIGpuScope _gsSurfelPomBary(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
-                                "SurfelPomBary");
+    RIGpuScope _gsVBufferPomBary(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
+                                "VBufferPomBary");
     VkComputePipelineCreateInfo ci = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kPomHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_surfelPomBary.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
-                                        kPomHash, "SurfelPomBary.cs", &ci);
-    m_surfelPomBary.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
+    m_vBufferPomBary.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                        kPomHash, "VBufferPomBary.cs", &ci);
+    m_vBufferPomBary.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
                                               &mpGraphics->globalset->m_bindlessSet, 0,
                                               VK_PIPELINE_BIND_POINT_COMPUTE);
 
@@ -1313,7 +1313,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
         RIDescriptor::storageImage(
             &mpGraphics->device, state.packedHitInfoView[mpGraphics->swapchainIndex].Get()));
 
-    m_surfelPomBary.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+    m_vBufferPomBary.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                     mpGraphics->frameIndex, pomBnd.data(), pomBnd.size(),
                                     VK_PIPELINE_BIND_POINT_COMPUTE);
     mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (renderWidth + 15u) / 16u,
@@ -1439,7 +1439,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
 
   // --------------------------------------------------------------------
   // DirectAtrousPass — SVGF-lite edge-aware à-trous spatial denoise.
-  // DirectLightingPass + DirectSpatialReusePass were moved before
+  // DirectLighting + DirectSpatialReuse were moved before
   // SurfelRayTrace above so gDirectLighting[dlCur] is ready for surfel bounce
   // NEE screen-space reuse. This block only runs the atrous denoise on that
   // already-resolved buffer.
@@ -1702,7 +1702,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   }
 
   // --------------------------------------------------------------------
-  // MainCompositePass — compute pass. Reads gIndirectLighting
+  // Composite — compute pass. Reads gIndirectLighting
   // (state.surfelResultView, from SurfelGenerationPass above) + gPackedHitInfo
   // / gPackedHitInfoRaster / TLAS / gPerFrame, and writes the composited color
   // into the viewport render target. The forward passes draw on top of it; the
@@ -1948,11 +1948,11 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo surfelCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsMainComposite(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
-                                "MainComposite");
-    m_mainComposite.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
-                                        "MainCompositePass.cs", &surfelCreate);
-    m_mainComposite.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
+    RIGpuScope _gsComposite(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
+                                "Composite");
+    m_composite.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
+                                        "Composite.cs", &surfelCreate);
+    m_composite.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
                                               &mpGraphics->globalset->m_bindlessSet, 0,
                                               VK_PIPELINE_BIND_POINT_COMPUTE);
 
@@ -2033,14 +2033,14 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
     }
 
     appendWorldLightFog(bnd, apWorld);
-    m_mainComposite.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+    m_composite.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                     mpGraphics->frameIndex, bnd.data(), bnd.size(),
                                     VK_PIPELINE_BIND_POINT_COMPUTE);
 
     static_assert(sizeof(OverlayPushConstants) == 4);
     const OverlayPushConstants push{m_overlayMode};
     vkCmdPushConstants(mpGraphics->primary.cmds[0].vk.cmd,
-                       m_mainComposite.getPipelineLayout(),
+                       m_composite.getPipelineLayout(),
                        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
 
     mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (renderWidth + 15u) / 16u,
@@ -2819,10 +2819,10 @@ cHybridRenderer::~cHybridRenderer() {
   // SBT buffer — the last of which is a VMA allocation that otherwise trips the
   // vmaDestroyAllocator leak assert at device teardown. Safe on an unused program.
   RIProgram *programs[] = {
-      &m_gbuffer,        &m_surfelPomBary,        &m_surfelPrepare,
+      &m_gbuffer,        &m_vBufferPomBary,        &m_surfelPrepare,
       &m_surfelUpdateCollect, &m_surfelUpdateAccumulate, &m_surfelUpdateScatter,
-      &m_lightGridBin,   &m_surfelRT,             &m_surfelIntegrate,
-      &m_surfelGenerate, &m_mainComposite,        &m_directLighting,
+      &m_lightGrid,   &m_surfelRT,             &m_surfelIntegrate,
+      &m_surfelGenerate, &m_composite,        &m_directLighting,
       &m_directSpatialReuse, &m_directAtrous,     &m_particle,
       &m_translucentMesh, &m_decal,               &m_water,
   };

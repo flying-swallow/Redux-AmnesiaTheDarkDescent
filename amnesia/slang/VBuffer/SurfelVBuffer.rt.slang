@@ -26,7 +26,7 @@ import PerFrame.resource;
 import Brdf;
 import BindlessTriangle;               // BindlessTriangleVtx (raw tri UVs for POM)
 import Parallax;                       // parallaxOcclusionUV (height-map relief march)
-import TranslucentPass.WaterCommon;   // waterWaveNormalTangent (shared with Water.frag)
+import Translucent.WaterCommon;   // waterWaveNormalTangent (shared with Water.frag)
 
 // Resolution comes from DispatchRaysDimensions() — no per-pass CB.
 //
