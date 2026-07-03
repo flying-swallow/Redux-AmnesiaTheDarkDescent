@@ -21,7 +21,7 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential clang ninja-build cmake python3 bear \
+        build-essential clang ninja-build cmake python3 \
         git ca-certificates curl \
         libx11-dev libxext-dev libxi-dev libxcursor-dev libxrandr-dev libxss-dev \
         libgl-dev libglu1-mesa-dev libegl1-mesa-dev \

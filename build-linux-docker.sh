@@ -19,8 +19,11 @@
 #   --clean             Remove build-premake/ before generating
 #   --no-deploy         Skip `premake5 deploy` (copying game assets next to the
 #                       built executable)
-#   --compile-commands  Wrap the build with `bear` to generate compile_commands.json
-#                       in the repo root (for clangd/LSP tooling)
+#   --compile-commands  Run `premake5 export-compile-commands` and symlink its
+#                       output to compile_commands.json in the repo root (for
+#                       clangd/LSP tooling). Reads the project model directly,
+#                       so it doesn't need a build and every path in the
+#                       output is absolute.
 #   --game-dir <path>   Path to your installed Amnesia: The Dark Descent folder
 #                       (falls back to $AMNESIA_GAME_DIRECTORY)
 #   -- <args>           Extra args forwarded to `premake5 gmake2`
@@ -166,12 +169,17 @@ exec "$RUNTIME" run --rm "${TTY_ARGS[@]}" "${USER_ARGS[@]}" \
         JOBS="$(nproc 2>/dev/null || echo 4)"
         echo "==> Generating gmake2 project files"
         premake5 gmake2 "$@"
-        echo "==> Building ($PM_CONFIG)"
         if [[ "$PM_COMPILE_COMMANDS" == 1 ]]; then
-            bear -- make -C build-premake config="$PM_CONFIG" -j"$JOBS"
-        else
-            make -C build-premake config="$PM_CONFIG" -j"$JOBS"
+            # Reads the already-resolved premake project model directly, so
+            # it needs no compile step and every path it emits (`directory`
+            # and each `-I`) is absolute -- no base-directory ambiguity for
+            # tools consuming the database from outside build-premake/.
+            echo "==> Exporting compile_commands.json ($PM_CONFIG)"
+            premake5 export-compile-commands
+            ln -sf "build-premake/compile_commands/$PM_CONFIG.json" compile_commands.json
         fi
+        echo "==> Building ($PM_CONFIG)"
+        make -C build-premake config="$PM_CONFIG" -j"$JOBS"
         if [[ "$PM_DEPLOY" == 1 ]]; then
             echo "==> Deploying game assets from $PM_GAME_DIR"
             premake5 deploy --game-dir="$PM_GAME_DIR"
