@@ -19,6 +19,8 @@
 #   --clean             Remove build-premake/ before generating
 #   --no-deploy         Skip `premake5 deploy` (copying game assets next to the
 #                       built executable)
+#   --compile-commands  Wrap the build with `bear` to generate compile_commands.json
+#                       in the repo root (for clangd/LSP tooling)
 #   --game-dir <path>   Path to your installed Amnesia: The Dark Descent folder
 #                       (falls back to $AMNESIA_GAME_DIRECTORY)
 #   -- <args>           Extra args forwarded to `premake5 gmake2`
@@ -88,13 +90,15 @@ CONFIG="release"
 CLEAN=0
 GAME_DIR=""
 NO_DEPLOY=0
+COMPILE_COMMANDS=0
 EXTRA_ARGS=()
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        release|debug) CONFIG="$1"; shift ;;
-        --clean)       CLEAN=1; shift ;;
-        --no-deploy)   NO_DEPLOY=1; shift ;;
-        --game-dir)    GAME_DIR="${2:-}"; shift 2 ;;
+        release|debug)       CONFIG="$1"; shift ;;
+        --clean)             CLEAN=1; shift ;;
+        --no-deploy)         NO_DEPLOY=1; shift ;;
+        --compile-commands)  COMPILE_COMMANDS=1; shift ;;
+        --game-dir)          GAME_DIR="${2:-}"; shift 2 ;;
         --)            shift; EXTRA_ARGS=("$@"); break ;;
         *)             echo "error: unknown argument '$1'" >&2; exit 1 ;;
     esac
@@ -145,6 +149,7 @@ ENV_ARGS+=(
     -e "PM_CLEAN=$CLEAN"
     -e "PM_DEPLOY=$DEPLOY"
     -e "PM_GAME_DIR=$GAME_DIR"
+    -e "PM_COMPILE_COMMANDS=$COMPILE_COMMANDS"
 )
 
 # Run the premake build inside the container. Build options arrive via PM_*
@@ -162,7 +167,11 @@ exec "$RUNTIME" run --rm "${TTY_ARGS[@]}" "${USER_ARGS[@]}" \
         echo "==> Generating gmake2 project files"
         premake5 gmake2 "$@"
         echo "==> Building ($PM_CONFIG)"
-        make -C build-premake config="$PM_CONFIG" -j"$JOBS"
+        if [[ "$PM_COMPILE_COMMANDS" == 1 ]]; then
+            bear -- make -C build-premake config="$PM_CONFIG" -j"$JOBS"
+        else
+            make -C build-premake config="$PM_CONFIG" -j"$JOBS"
+        fi
         if [[ "$PM_DEPLOY" == 1 ]]; then
             echo "==> Deploying game assets from $PM_GAME_DIR"
             premake5 deploy --game-dir="$PM_GAME_DIR"
