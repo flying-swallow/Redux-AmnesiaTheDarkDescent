@@ -12,7 +12,7 @@ namespace hpl {
 // out increasing values with next(), the submit that does the work signals that
 // value, and completed() reports how far the GPU has actually progressed.
 //
-// Deferred resource reclamation is layered on top by RIBootstrap::FrameDeferral,
+// Deferred resource reclamation is layered on top by cGraphics::FrameDeferral,
 // which parks per-frame resources against a value and frees them once
 // completed() passes it. This struct deliberately knows nothing about that
 // bookkeeping.

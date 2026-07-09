@@ -46,8 +46,8 @@ struct RIGpuProfiler {
 
   // Read back any slot the GPU has finished (timelineValue <= completedTimeline)
   // into lastResults. Non-blocking. completedTimeline is
-  // RI.graphicsTimeline.completed(device) — passed in so the profiler stays
-  // decoupled from the RIBootstrap frame-orchestration layer.
+  // cGraphics::graphicsTimeline.completed(device) — passed in so the profiler stays
+  // decoupled from the cGraphics frame-orchestration layer.
   void resolve(struct RIDevice *device, uint64_t completedTimeline);
 
   const std::vector<GpuPassTiming> &lastResults() const { return m_lastResults; }
@@ -82,7 +82,7 @@ private:
 };
 
 // RAII pass bracket. One line at the top of a pass block:
-//   RIGpuScope _s(&RI.profiler, &RI.primary.cmds[0], "SurfelRT");
+//   RIGpuScope _s(&cGraphics::profiler, &cGraphics::primary.cmds[0], "SurfelRT");
 struct RIGpuScope {
   RIGpuScope(RIGpuProfiler *profiler, struct RICmd *cmd, const char *name)
       : m_profiler(profiler), m_cmd(cmd) {

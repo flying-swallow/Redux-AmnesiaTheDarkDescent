@@ -29,7 +29,7 @@ public:
   // kObjectSlotCapacity / kTextureSlotCapacity / kMaterialCapacity and
   // kTotalSurfelLimit / kRayBudget come from amnesia/glsl/forward_shared.h.
 
-  virtual void Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
+  virtual void Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                     float afFrameTime, cFrustum *apFrustum, cWorld *apWorld,
                     cRenderSettings *apSettings,
                     bool abSendFrameBufferToPostEffects) override;
@@ -48,7 +48,7 @@ private:
   // longer holds the cache, the per-slot hooks, or a geometry-dirty array.
 
   // Default-value fallback vertex streams for renderables that omit an optional
-  // stream now live globally in RIBootstrap (RI.fallback*Vertex), created once
+  // stream now live on the cGraphics singleton (Interface<cGraphics>::Get()->fallback*Vertex), created once
   // at init; detail::BindVertexStreams binds them in the raster passes.
 
   RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS> m_indirectSegment;

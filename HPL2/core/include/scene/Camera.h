@@ -44,7 +44,6 @@ namespace hpl {
 
 	//--------------------------------------------
 
-	class iLowLevelGraphics;
 	class iEntity3D;
 	
 	class cCamera
@@ -186,9 +185,6 @@ namespace hpl {
 		
 		const cMatrixf& GetMoveMatrix();
 
-		//iCamera stuff:
-		void SetModelViewMatrix(iLowLevelGraphics* apLowLevel);
-		void SetProjectionMatrix(iLowLevelGraphics* apLowLevel);
 		cVector3f GetEyePosition(); 
 
 		//////////////////////////////////////////////////

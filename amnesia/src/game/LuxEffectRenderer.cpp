@@ -24,7 +24,7 @@
 #include "graphics/Texture.h"
 #include "graphics/Image.h"
 #include "graphics/Material.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIBarrier.h"
 #include "graphics/RIFormat.h"
 #include "graphics/RIPogoBuffer.h"
@@ -153,14 +153,14 @@ void BindGeomPipeline(RIProgram &aProgram, RICmd *apCmd, eGeomPassMode aMode,
 	const bool bHasStencil = (aMode == eGeomPassMode_OutlineMark ||
 							  aMode == eGeomPassMode_OutlineRim);
 
-	VkFormat colorFormat = RIFormatToVK(RIBootstrap::PogoColorFormat);
+	VkFormat colorFormat = RIFormatToVK(cGraphics::PogoColorFormat);
 	VkPipelineRenderingCreateInfo pipelineRendering = {
 		VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
 	pipelineRendering.colorAttachmentCount = 1;
 	pipelineRendering.pColorAttachmentFormats = &colorFormat;
-	pipelineRendering.depthAttachmentFormat = RIFormatToVK(RIBootstrap::DepthFormat);
+	pipelineRendering.depthAttachmentFormat = RIFormatToVK(cGraphics::DepthFormat);
 	pipelineRendering.stencilAttachmentFormat =
-		bHasStencil ? RIFormatToVK(RIBootstrap::DepthFormat) : VK_FORMAT_UNDEFINED;
+		bHasStencil ? RIFormatToVK(cGraphics::DepthFormat) : VK_FORMAT_UNDEFINED;
 
 	VkPipelineViewportStateCreateInfo viewportState = {
 		VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO};
@@ -252,7 +252,7 @@ void BindGeomPipeline(RIProgram &aProgram, RICmd *apCmd, eGeomPassMode aMode,
 	hash_t hash = hash_u32(HASH_INITIAL_VALUE, (uint32_t)aMode);
 	hash = hash_u32(hash, abNormalPresent ? 1u : 0u);
 	hash = hash_u32(hash, abUvLayout ? 1u : 0u);
-	aProgram.bindPipeline(&RI.device, apCmd, hash, asDebugName, &createInfo);
+	aProgram.bindPipeline(&Interface<cGraphics>::Get()->device, apCmd, hash, asDebugName, &createInfo);
 }
 
 // Fullscreen-triangle pipeline (no vertex input, no depth, cull NONE). When
@@ -279,7 +279,7 @@ void BindFullscreenPipeline(RIProgram &aProgram, RICmd *apCmd, bool abAdditive,
 	dynamicState.dynamicStateCount = 2;
 	dynamicState.pDynamicStates = dynamicStates;
 
-	VkFormat colorFormat = RIFormatToVK(RIBootstrap::PogoColorFormat);
+	VkFormat colorFormat = RIFormatToVK(cGraphics::PogoColorFormat);
 	VkPipelineRenderingCreateInfo pipelineRendering = {
 		VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
 	pipelineRendering.colorAttachmentCount = 1;
@@ -337,7 +337,7 @@ void BindFullscreenPipeline(RIProgram &aProgram, RICmd *apCmd, bool abAdditive,
 	createInfo.pDepthStencilState = &depthStencil;
 	createInfo.pColorBlendState = &colorBlend;
 
-	aProgram.bindPipeline(&RI.device, apCmd, aSeed, asDebugName, &createInfo);
+	aProgram.bindPipeline(&Interface<cGraphics>::Get()->device, apCmd, aSeed, asDebugName, &createInfo);
 }
 
 // Bind a renderable's position + normal streams (bindings 0/1). Substitutes
@@ -356,9 +356,9 @@ bool BindGeomStreams(RICmd *apCmd, cVertexBuffer *apVB, bool *abNormalPresent) {
 	RIBuffer *nrm = bufOf(eVertexBufferElement_Normal);
 	if (abNormalPresent)
 		*abNormalPresent = (nrm != nullptr);
-	RIBuffer *vertBufs[2] = {pos, nrm ? nrm : &RI.fallbackNormalVertex};
+	RIBuffer *vertBufs[2] = {pos, nrm ? nrm : &Interface<cGraphics>::Get()->fallbackNormalVertex};
 	apCmd->bindVertexBuffers<2>(0, 2, vertBufs);
-	apCmd->bindIndexBuffer(&RI.device, idx, 0, RI_INDEX_TYPE_32);
+	apCmd->bindIndexBuffer(&Interface<cGraphics>::Get()->device, idx, 0, RI_INDEX_TYPE_32);
 	return true;
 }
 
@@ -378,7 +378,7 @@ bool BindGeomStreamsUv(RICmd *apCmd, cVertexBuffer *apVB) {
 		return false;
 	RIBuffer *vertBufs[2] = {pos, uv};
 	apCmd->bindVertexBuffers<2>(0, 2, vertBufs);
-	apCmd->bindIndexBuffer(&RI.device, idx, 0, RI_INDEX_TYPE_32);
+	apCmd->bindIndexBuffer(&Interface<cGraphics>::Get()->device, idx, 0, RI_INDEX_TYPE_32);
 	return true;
 }
 
@@ -492,16 +492,16 @@ void cLuxEffectRenderer::EnsurePrograms()
 	if (mbProgramsLoaded) return;
 	cResources *pResources = gpBase->mpEngine->GetResources();
 
-	LoadSlangGraphics(&RI.device, mGeomProgram, pResources,
+	LoadSlangGraphics(&Interface<cGraphics>::Get()->device, mGeomProgram, pResources,
 					  "outline_geom.vert.spv", "outline_geom.frag.spv");
-	LoadSlangGraphics(&RI.device, mAlphaProgram, pResources,
+	LoadSlangGraphics(&Interface<cGraphics>::Get()->device, mAlphaProgram, pResources,
 					  "outline_alpha.vert.spv", "outline_alpha.frag.spv");
-	LoadSlangGraphics(&RI.device, mGlowProgram, pResources,
+	LoadSlangGraphics(&Interface<cGraphics>::Get()->device, mGlowProgram, pResources,
 					  "glow_object.vert.spv", "glow_object.frag.spv");
-	LoadSlangGraphics(&RI.device, mBlurProgram, pResources,
+	LoadSlangGraphics(&Interface<cGraphics>::Get()->device, mBlurProgram, pResources,
 					  "posteffect_fullscreen.vert.spv",
 					  "posteffect_bloom_blur.frag.spv");
-	LoadSlangGraphics(&RI.device, mCompositeProgram, pResources,
+	LoadSlangGraphics(&Interface<cGraphics>::Get()->device, mCompositeProgram, pResources,
 					  "posteffect_fullscreen.vert.spv",
 					  "outline_composite.frag.spv");
 	mbProgramsLoaded = true;
@@ -515,7 +515,7 @@ void cLuxEffectRenderer::EnsureTargets(uint32_t alWidth, uint32_t alHeight)
 		m_outlineColor.height != alHeight) {
 		DestroyPostEffectColorTarget(m_outlineColor);
 		CreatePostEffectColorTarget(m_outlineColor, alWidth, alHeight,
-									RIBootstrap::PogoColorFormat, 0u,
+									cGraphics::PogoColorFormat, 0u,
 									"LuxOutline.color");
 		mbOutlineColorInit = true;
 	}
@@ -527,10 +527,10 @@ void cLuxEffectRenderer::EnsureTargets(uint32_t alWidth, uint32_t alHeight)
 		DestroyPostEffectColorTarget(m_blur[0]);
 		DestroyPostEffectColorTarget(m_blur[1]);
 		CreatePostEffectColorTarget(m_blur[0], blurW, blurH,
-									RIBootstrap::PogoColorFormat, 0u,
+									cGraphics::PogoColorFormat, 0u,
 									"LuxOutline.blur0");
 		CreatePostEffectColorTarget(m_blur[1], blurW, blurH,
-									RIBootstrap::PogoColorFormat, 0u,
+									cGraphics::PogoColorFormat, 0u,
 									"LuxOutline.blur1");
 		mbBlurInit = true;
 	}
@@ -575,7 +575,7 @@ void cLuxEffectRenderer::OnPostWorldDraw(const PostWorldDrawCtx &ctx)
 		std::memcpy(ubo.view, view.a, sizeof(ubo.view));
 	}
 	RIDescriptor passDesc = {};
-	RI.UpdateFrameUBO(&passDesc, (void *)&ubo, sizeof(ubo));
+	Interface<cGraphics>::Get()->UpdateFrameUBO(&passDesc, (void *)&ubo, sizeof(ubo));
 
 	/////////////////////////////
 	// Outline silhouette + blur into the offscreen scratch (untouched pogo)
@@ -606,7 +606,7 @@ void cLuxEffectRenderer::OnPostWorldDraw(const PostWorldDrawCtx &ctx)
 		beginDesc.renderArea.height = (int16_t)h;
 		beginDesc.colorCount = 1;
 		beginDesc.colors = &color;
-		pCmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
+		pCmd->vk_d3d12_beginRendering(&Interface<cGraphics>::Get()->device, beginDesc);
 
 		const VkViewport fsViewport = {0.0f, 0.0f, (float)w, (float)h, 0.0f, 1.0f};
 		vkCmdSetViewport(pCmd->vk.cmd, 0, 1, &fsViewport);
@@ -615,7 +615,7 @@ void cLuxEffectRenderer::OnPostWorldDraw(const PostWorldDrawCtx &ctx)
 		BindFullscreenPipeline(mCompositeProgram, pCmd, /*additive=*/true,
 							   hash_u32(HASH_INITIAL_VALUE, 0u),
 							   "LuxOutline.composite");
-		auto pSampler = RI.resolve_filter_descriptor(
+		auto pSampler = Interface<cGraphics>::Get()->resolve_filter_descriptor(
 			eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 			eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 		RIProgram::DescriptorBinding bindings[2] = {};
@@ -626,7 +626,7 @@ void cLuxEffectRenderer::OnPostWorldDraw(const PostWorldDrawCtx &ctx)
 		mCompositeProgram.bindDescriptors(ctx.device, pCmd, ctx.frameIndex, bindings, 2);
 		vkCmdDraw(pCmd->vk.cmd, 3, 1, 0, 0);
 
-		pCmd->vk_d3d12_endRendering(&RI.device);
+		pCmd->vk_d3d12_endRendering(&Interface<cGraphics>::Get()->device);
 
 		// Restore blur[1]'s rest state (RENDER_TARGET) for the next frame's
 		// ping-pong — matches the Bloom blur convention.
@@ -681,7 +681,7 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 		std::memcpy(ubo.view, view.a, sizeof(ubo.view));
 	}
 	RIDescriptor passDesc = {};
-	RI.UpdateFrameUBO(&passDesc, (void *)&ubo, sizeof(ubo));
+	Interface<cGraphics>::Get()->UpdateFrameUBO(&passDesc, (void *)&ubo, sizeof(ubo));
 
 	// Borrow the BackBuffer: SHADER_RESOURCE -> RENDER_TARGET for the additive
 	// draws, then back to SHADER_RESOURCE so the feed blit finds it as the
@@ -713,12 +713,12 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 		beginDesc.colorCount = 1;
 		beginDesc.colors = &color;
 		beginDesc.depthStencil = &depth;
-		pCmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
+		pCmd->vk_d3d12_beginRendering(&Interface<cGraphics>::Get()->device, beginDesc);
 
 		vkCmdSetViewport(pCmd->vk.cmd, 0, 1, &flippedViewport);
 		vkCmdSetScissor(pCmd->vk.cmd, 0, 1, &scissor);
 
-		auto pDiffSampler = RI.resolve_filter_descriptor(
+		auto pDiffSampler = Interface<cGraphics>::Get()->resolve_filter_descriptor(
 			eTextureWrap_Repeat, eTextureWrap_Repeat, eTextureWrap_Repeat,
 			eTextureFilter_Bilinear);
 
@@ -774,7 +774,7 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 				mGlowProgram.bindDescriptors(ctx.device, pCmd, ctx.frameIndex, bindings, 3);
 
 				for (int d = 0; d < alDrawCount; ++d)
-					pCmd->drawIndexed(&RI.device, (uint32_t)pVB->GetIndexNum(), 1, 0, 0, 0);
+					pCmd->drawIndexed(&Interface<cGraphics>::Get()->device, (uint32_t)pVB->GetIndexNum(), 1, 0, 0, 0);
 			}
 		};
 
@@ -787,7 +787,7 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 			drawObjects(mvEnemyGlowObjects, kEnemyGlow, fGlobalAlpha,
 						/*alphaTest=*/false, /*drawCount=*/1);
 
-		pCmd->vk_d3d12_endRendering(&RI.device);
+		pCmd->vk_d3d12_endRendering(&Interface<cGraphics>::Get()->device);
 	}
 
 	// Return the BackBuffer to SHADER_RESOURCE for the feed blit.
@@ -880,7 +880,7 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 		beginDesc.colorCount = 1;
 		beginDesc.colors = &color;
 		beginDesc.depthStencil = &depth;
-		apCmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
+		apCmd->vk_d3d12_beginRendering(&Interface<cGraphics>::Get()->device, beginDesc);
 
 		const VkViewport flippedViewport = {0.0f, (float)alHeight, (float)alWidth,
 											-(float)alHeight, 0.0f, 1.0f};
@@ -941,7 +941,7 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 									   VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
 									   0, sizeof(pc), &pc);
 
-					auto pSampler = RI.resolve_filter_descriptor(
+					auto pSampler = Interface<cGraphics>::Get()->resolve_filter_descriptor(
 						eTextureWrap_Repeat, eTextureWrap_Repeat, eTextureWrap_Repeat,
 						eTextureFilter_Bilinear);
 					RIProgram::DescriptorBinding bindings[3] = {};
@@ -953,7 +953,7 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 					bindings[2].handle = DescriptorBindingID::Create("alphaMap");
 					mAlphaProgram.bindDescriptors(ctx.device, apCmd, ctx.frameIndex, bindings, 3);
 
-					apCmd->drawIndexed(&RI.device, (uint32_t)pVB->GetIndexNum(), 1, 0, 0, 0);
+					apCmd->drawIndexed(&Interface<cGraphics>::Get()->device, (uint32_t)pVB->GetIndexNum(), 1, 0, 0, 0);
 					bDrewAlpha = true;
 				}
 				if (bDrewAlpha) continue;
@@ -979,11 +979,11 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 				b.handle = DescriptorBindingID::Create("pass");
 				mGeomProgram.bindDescriptors(ctx.device, apCmd, ctx.frameIndex, &b, 1);
 
-				apCmd->drawIndexed(&RI.device, (uint32_t)pVB->GetIndexNum(), 1, 0, 0, 0);
+				apCmd->drawIndexed(&Interface<cGraphics>::Get()->device, (uint32_t)pVB->GetIndexNum(), 1, 0, 0, 0);
 			}
 		}
 
-		apCmd->vk_d3d12_endRendering(&RI.device);
+		apCmd->vk_d3d12_endRendering(&Interface<cGraphics>::Get()->device);
 	}
 
 	// Offscreen color -> SHADER_RESOURCE for the blur to sample.
@@ -1007,7 +1007,7 @@ void cLuxEffectRenderer::BlurOutline(RICmd *apCmd, uint32_t alBlurW, uint32_t al
 		mbBlurInit = false;
 	}
 
-	auto pSampler = RI.resolve_filter_descriptor(
+	auto pSampler = Interface<cGraphics>::Get()->resolve_filter_descriptor(
 		eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 		eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 
@@ -1033,7 +1033,7 @@ void cLuxEffectRenderer::BlurOutline(RICmd *apCmd, uint32_t alBlurW, uint32_t al
 		beginDesc.renderArea.height = (int16_t)alBlurH;
 		beginDesc.colorCount = 1;
 		beginDesc.colors = &color;
-		apCmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
+		apCmd->vk_d3d12_beginRendering(&Interface<cGraphics>::Get()->device, beginDesc);
 
 		vkCmdSetViewport(apCmd->vk.cmd, 0, 1, &viewport);
 		vkCmdSetScissor(apCmd->vk.cmd, 0, 1, &scissor);
@@ -1045,7 +1045,7 @@ void cLuxEffectRenderer::BlurOutline(RICmd *apCmd, uint32_t alBlurW, uint32_t al
 		bindings[0].handle = DescriptorBindingID::Create("inputSampler");
 		bindings[1].descriptor = inputDesc;
 		bindings[1].handle = DescriptorBindingID::Create("sourceInput");
-		mBlurProgram.bindDescriptors(&RI.device, apCmd, RI.frameIndex, bindings, 2);
+		mBlurProgram.bindDescriptors(&Interface<cGraphics>::Get()->device, apCmd, Interface<cGraphics>::Get()->frameIndex, bindings, 2);
 
 		BlurPushConstants pc = {};
 		pc.blurDir[0] = dirX;
@@ -1053,7 +1053,7 @@ void cLuxEffectRenderer::BlurOutline(RICmd *apCmd, uint32_t alBlurW, uint32_t al
 		vkCmdPushConstants(apCmd->vk.cmd, mBlurProgram.getPipelineLayout(),
 						   VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 		vkCmdDraw(apCmd->vk.cmd, 3, 1, 0, 0);
-		apCmd->vk_d3d12_endRendering(&RI.device);
+		apCmd->vk_d3d12_endRendering(&Interface<cGraphics>::Get()->device);
 	};
 
 	const float fBlurSize = 1.0f;

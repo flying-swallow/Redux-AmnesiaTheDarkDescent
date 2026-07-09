@@ -66,11 +66,21 @@ private:
 
 	cGuiGfxElement *mpBlackGfx;
 
-	cVector2f mvScreenSize;
 	cVector2f mvGuiSetSize;
 	cVector2f mvGuiSetCenterSize;
 	cVector2f mvGuiSetOffset;
 	cVector3f mvGuiSetStartPos;
+
+	// Re-derive the pinned GUI-set virtual size/offset when the swapchain
+	// changes size; connected via mScreenSizeChangedHandler in the ctor.
+	void OnScreenSizeChange(const cVector2l& avSize)
+	{
+		LuxCalcGuiSetScreenOffset(mvGuiSetCenterSize, mvGuiSetSize, mvGuiSetOffset);
+		mvGuiSetStartPos = cVector3f(-mvGuiSetOffset.x, -mvGuiSetOffset.y, 0);
+		if(mpGuiSet)
+			mpGuiSet->SetVirtualSize(mvGuiSetSize, -1000, 1000, mvGuiSetOffset);
+	}
+	EventHandler<const cVector2l&> mScreenSizeChangedHandler;
 
 	cVector2f mvNormalFontSize;
 	cVector2f mvHeaderFontSize;

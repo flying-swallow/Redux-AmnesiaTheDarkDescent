@@ -25,17 +25,12 @@
 #include "impl/GamepadSDL2.h"
 
 #include "system/LowLevelSystem.h"
-#include "graphics/LowLevelGraphics.h"
+#include "graphics/Window.h"
 
 #include "engine/Engine.h"
+#include "engine/Interface.h"
 
-#if USE_SDL2
 #include "SDL2/SDL.h"
-#include "SDL2/SDL_syswm.h"
-#else
-#include "SDL/SDL.h"
-#include "SDL/SDL_syswm.h"
-#endif
 
 #if defined _WIN32 && !SDL_VERSION_ATLEAST(2,0,0)
 #include <Windows.h>
@@ -50,8 +45,8 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cLowLevelInputSDL::cLowLevelInputSDL(iLowLevelGraphics *apLowLevelGraphics)
-        : mpLowLevelGraphics(apLowLevelGraphics), mbQuitMessagePosted(false)
+	cLowLevelInputSDL::cLowLevelInputSDL(cWindow *apWindow)
+        : mpWindow(apWindow), mbQuitMessagePosted(false)
 	{
 		LockInput(true);
 		RelativeMouse(false);
@@ -82,81 +77,70 @@ namespace hpl {
 	
 	void cLowLevelInputSDL::LockInput(bool abX)
 	{
-		mpLowLevelGraphics->SetWindowGrab(abX);
+		mpWindow->SetGrab(abX);
 	}
 
 	void cLowLevelInputSDL::RelativeMouse(bool abX)
 	{
-		mpLowLevelGraphics->SetRelativeMouse(abX);
+		mpWindow->SetRelativeMouse(abX);
 	}
 	
+	//-----------------------------------------------------------------------
+
+	void cLowLevelInputSDL::ConnectToEventBus()
+	{
+		// Source device events from cEngine's OS-event bus instead of polling
+		// SDL ourselves (cEngine now owns the single per-frame pump).
+		mSdlEventHandler = Event<const SDL_Event&>::Handler(
+			[this](const SDL_Event& aEvent) { OnSdlEvent(aEvent); });
+		if (cEngine* pEngine = Interface<cEngine>::Get())
+			mSdlEventHandler.Connect(pEngine->OnSDLEvent());
+	}
+
+	//-----------------------------------------------------------------------
+
+	void cLowLevelInputSDL::OnSdlEvent(const SDL_Event& aEvent)
+	{
+		// Gamepad hotplug: flag a rescan. The event still falls through to
+		// mlstEvents below so the gamepad device processes it too.
+		if (aEvent.type == SDL_CONTROLLERDEVICEADDED)
+			cEngine::SetDeviceWasPlugged();
+		else if (aEvent.type == SDL_CONTROLLERDEVICEREMOVED)
+			cEngine::SetDeviceWasRemoved();
+
+#if defined (__APPLE__)
+		// Cmd+Q quits; swallow it rather than forwarding as a keypress.
+		if (aEvent.type == SDL_KEYDOWN &&
+			aEvent.key.keysym.sym == SDLK_q && (aEvent.key.keysym.mod & KMOD_GUI))
+		{
+			mbQuitMessagePosted = true;
+			return;
+		}
+#endif
+
+		if (aEvent.type == SDL_QUIT)
+			mbQuitMessagePosted = true;
+		else
+			mlstEvents.push_back(aEvent);
+	}
+
 	//-----------------------------------------------------------------------
 
 	void cLowLevelInputSDL::BeginInputUpdate()
 	{
-		SDL_Event sdlEvent;
-
-		mlstEvents.clear();
-		while(SDL_PollEvent(&sdlEvent)!=0)
-		{
-#if defined _WIN32 && !SDL_VERSION_ATLEAST(2,0,0)
-			if(sdlEvent.type==SDL_SYSWMEVENT)
-			{
-				SDL_SysWMmsg* pMsg = sdlEvent.syswm.msg;
-				
-				// This is bad, cos it is actually Windows specific code, should not be here. TODO: move it, obviously
-				if(pMsg->msg==WM_DEVICECHANGE)
-				{
-					if(pMsg->wParam==DBT_DEVICEARRIVAL)
-					{
-						cEngine::SetDeviceWasPlugged();
-					}
-					else if(pMsg->wParam==DBT_DEVICEREMOVECOMPLETE)
-					{
-						cEngine::SetDeviceWasRemoved();
-					}
-				}
-			}
-			else
-#endif //WIN32
-#if SDL_VERSION_ATLEAST(2, 0, 0)
-            // built-in SDL2 gamepad hotplug code
-            // this whole contract should be rewritten to allow clean adding/removing
-            // of controllers, instead of brute force rescanning
-            if (sdlEvent.type==SDL_CONTROLLERDEVICEADDED)
-            {
-                // sdlEvent.cdevice.which is the device #
-                cEngine::SetDeviceWasPlugged();
-            } else if (sdlEvent.type==SDL_CONTROLLERDEVICEREMOVED)
-            {
-                // sdlEvent.cdevice.which is the instance # (not device #).
-                // instance # increases as devices are plugged and unplugged.
-                cEngine::SetDeviceWasRemoved();
-            }
-#endif
-#if defined (__APPLE__)
-            if (sdlEvent.type==SDL_KEYDOWN)
-            {
-                if (sdlEvent.key.keysym.sym == SDLK_q && sdlEvent.key.keysym.mod & KMOD_GUI) {
-                    mbQuitMessagePosted = true;
-                } else {
-                    mlstEvents.push_back(sdlEvent);
-                }
-            } else
-#endif
-            if (sdlEvent.type==SDL_QUIT)
-            {
-                mbQuitMessagePosted = true;
-            } else
-				mlstEvents.push_back(sdlEvent);
-		}
+		// The pump now lives in cEngine; the bus handler (OnSdlEvent) has
+		// already filled mlstEvents for this frame. Nothing to do here.
 	}
-	
+
 	//-----------------------------------------------------------------------
 
 	void cLowLevelInputSDL::EndInputUpdate()
 	{
-		
+		// Consume-once: the device loop in cInput::Update has read this frame's
+		// events, so clear them. cEngine pumps once per rendered frame, so no
+		// events arrive between logic ticks; a 0-tick frame keeps them until the
+		// next tick consumes them.
+		mlstEvents.clear();
 	}
 
 	//-----------------------------------------------------------------------

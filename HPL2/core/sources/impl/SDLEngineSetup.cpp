@@ -31,7 +31,7 @@
 
 #include "impl/KeyboardSDL.h"
 #include "impl/MouseSDL.h"
-#include "impl/LowLevelGraphicsSDL.h"
+#include "graphics/Window.h"
 #include "impl/LowLevelResourcesSDL.h"
 #include "impl/LowLevelSystemSDL.h"
 #include "impl/LowLevelInputSDL.h"
@@ -114,16 +114,16 @@ namespace hpl {
 		mpLowLevelSystem = hplNew( cLowLevelSystemSDL, () );
 		
 		//////////////////////////
-		// Graphics
-		mpLowLevelGraphics = hplNew( cLowLevelGraphicsSDL,() );
-		
+		// Window
+		mpWindow = hplNew( cWindow,() );
+
 		//////////////////////////
 		// Input
-		mpLowLevelInput = hplNew( cLowLevelInputSDL,(mpLowLevelGraphics) );
-		
+		mpLowLevelInput = hplNew( cLowLevelInputSDL,(mpWindow) );
+
 		//////////////////////////
 		// Resources
-		mpLowLevelResources = hplNew( cLowLevelResourcesSDL,(mpLowLevelGraphics) );
+		mpLowLevelResources = hplNew( cLowLevelResourcesSDL,() );
 		
 		//////////////////////////
 		// Sound
@@ -159,8 +159,8 @@ namespace hpl {
 		hplDelete(mpLowLevelResources);
 		Log("  System\n");
 		hplDelete(mpLowLevelSystem);
-		Log("  Graphics\n");
-		hplDelete(mpLowLevelGraphics);
+		Log("  Window\n");
+		hplDelete(mpWindow);
 		Log("  Haptic\n");
 #ifdef INCLUDE_HAPTIC 	
 		hplDelete(mpLowLevelHaptic);
@@ -190,15 +190,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	
-	/**
-	 * \todo Lowlevelresource and resource both use lowlevel graphics. Can this be fixed??
-	 * \param apGraphics 
-	 * \return 
-	 */
 	cResources* cSDLEngineSetup::CreateResources(cGraphics* apGraphics)
 	{
-		cResources *pResources = hplNew( cResources, (mpLowLevelResources,mpLowLevelGraphics) );
+		cResources *pResources = hplNew( cResources, (mpLowLevelResources) );
 		return pResources;
 	}
 	
@@ -222,7 +216,7 @@ namespace hpl {
 
 	cGraphics* cSDLEngineSetup::CreateGraphics()
 	{
-		cGraphics *pGraphics = hplNew( cGraphics, (mpLowLevelGraphics,mpLowLevelResources) );
+		cGraphics *pGraphics = hplNew( cGraphics, (mpWindow,mpLowLevelResources) );
 		return pGraphics;
 	}
 	//-----------------------------------------------------------------------

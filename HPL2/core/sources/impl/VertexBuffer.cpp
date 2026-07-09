@@ -18,7 +18,7 @@
  */
 
 #include "graphics/VertexBuffer.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIResourceUploader.h"
 #include "math/Math.h"
@@ -67,11 +67,10 @@ static const char* elementTypeName(eVertexBufferElement type) {
     }
 }
 
-cVertexBuffer::cVertexBuffer(iLowLevelGraphics* apLowLevelGraphics,
-			eVertexBufferType aType,
+cVertexBuffer::cVertexBuffer(eVertexBufferType aType,
 			eVertexBufferDrawType aDrawType,eVertexBufferUsageType aUsageType,
 			int alReserveVtxSize,int alReserveIdxSize)
-    : mpLowLevelGraphics(apLowLevelGraphics), mType(aType), mVertexFlags(0),
+    : mType(aType), mVertexFlags(0),
       mDrawType(aDrawType), mUsageType(aUsageType),
       mlReservedVtxSize(alReserveVtxSize), mlReservedIdxSize(alReserveIdxSize),
       mlElementNum(-1), mbTangents(false) {
@@ -345,14 +344,14 @@ bool cVertexBuffer::Compile(tVertexCompileFlag aFlags) {
   //// rotates back around (i.e. RI_NUMBER_FRAMES_FLIGHT frames later).
   //auto destroyBuffer = [](RIBuffer *b) {
   //  if (b->vk.buffer) {
-  //    auto *cntx = RI.GetActiveSet();
+  //    auto *cntx = Interface<cGraphics>::Get()->GetActiveSet();
   //    cntx->freelist.push_back(RIFree(b->vk.buffer));
   //    cntx->freelist.push_back(RIFree(b->vk.allocation));
   //  }
   //  delete b;
   //};
 
-  //VmaAllocator allocator = RI.device.vk.vmaAllocator;
+  //VmaAllocator allocator = Interface<cGraphics>::Get()->device.vk.vmaAllocator;
 
   //auto elementTypeName = [](eVertexBufferElement type) -> const char * {
   //  switch (type) {
@@ -384,7 +383,7 @@ bool cVertexBuffer::Compile(tVertexCompileFlag aFlags) {
 
   //  uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
   //  VkBufferCreateInfo bci = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-  //  VK_ConfigureBufferQueueFamilies(&bci, RI.device.queues, RI_QUEUE_LEN,
+  //  VK_ConfigureBufferQueueFamilies(&bci, Interface<cGraphics>::Get()->device.queues, RI_QUEUE_LEN,
   //                                  queueFamilies, RI_QUEUE_LEN);
   //  bci.size = size;
   //  bci.usage = usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
@@ -403,7 +402,7 @@ bool cVertexBuffer::Compile(tVertexCompileFlag aFlags) {
   //        VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, NULL,
   //        VK_OBJECT_TYPE_BUFFER, (uint64_t)buf->vk.buffer, debugName};
   //    VK_WrapResult(
-  //        vkSetDebugUtilsObjectNameEXT(RI.device.vk.device, &nameInfo));
+  //        vkSetDebugUtilsObjectNameEXT(Interface<cGraphics>::Get()->device.vk.device, &nameInfo));
   //  }
 
   //  RIResourceBufferTransaction trans = {};
@@ -414,11 +413,11 @@ bool cVertexBuffer::Compile(tVertexCompileFlag aFlags) {
   //  trans.currentStages = RI_STAGE_NONE;
   //  trans.postState = postState;
   //  trans.postStages = postStages;
-  //  RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+  //  RI_ResourceBeginCopyBuffer(&Interface<cGraphics>::Get()->device, &Interface<cGraphics>::Get()->uploader, &trans);
   //  std::memcpy(trans.mapped.data, src, size);
-  //  RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+  //  RI_ResourceEndCopyBuffer(&Interface<cGraphics>::Get()->device, &Interface<cGraphics>::Get()->uploader, &trans);
   //  
-  //  auto *cntx = RI.GetActiveSet();
+  //  auto *cntx = Interface<cGraphics>::Get()->GetActiveSet();
   //  cntx->bufferLink.push_back(buf);
 
   //  return buf;
@@ -459,7 +458,8 @@ bool cVertexBuffer::Compile(tVertexCompileFlag aFlags) {
 }
 
 void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
-                                    RIBootstrap::FrameContext *cntx) {
+                                    cGraphics::FrameContext *cntx) {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   assert(cmd);
   assert(device);
   assert(cntx);
@@ -499,9 +499,9 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
     trans.currentStages = RI_STAGE_NONE;
     trans.postState = postState;
     trans.postStages = postStages;
-    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+    RI_ResourceBeginCopyBuffer(&pGraphics->device, &pGraphics->uploader, &trans);
     std::memcpy(trans.mapped.data, src, size);
-    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+    RI_ResourceEndCopyBuffer(&pGraphics->device, &pGraphics->uploader, &trans);
   };
 
   // Set when any stream gets a fresh VkBuffer below (first submit, shadow-data
@@ -530,9 +530,9 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
       // Defer the old buffer (if we own one) so an in-flight draw can't read a
       // freed handle, then take the new one by value.
       if (!element.buffer.isEmpty())
-        RI.graphicsDefer.push(element.buffer);
+        pGraphics->graphicsDefer.push(element.buffer);
       element.buffer = RISharedPointer<RIBuffer>(
-          &RI.device, allocBuffer(needed, usage, elementTypeName(element.type)));
+          &pGraphics->device, allocBuffer(needed, usage, elementTypeName(element.type)));
       element.m_internalBufferSize = needed;
       reallocated = true;
     }
@@ -553,9 +553,9 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
         m_indexBuffer.isEmpty() || m_indexBufferCapacity < needed;
     if (needsAlloc) {
       if (!m_indexBuffer.isEmpty())
-        RI.graphicsDefer.push(m_indexBuffer);
+        pGraphics->graphicsDefer.push(m_indexBuffer);
       m_indexBuffer =
-          RISharedPointer<RIBuffer>(&RI.device, allocBuffer(needed, idxUsage, "Index"));
+          RISharedPointer<RIBuffer>(&pGraphics->device, allocBuffer(needed, idxUsage, "Index"));
       m_indexBufferCapacity = needed;
       reallocated = true;
     }
@@ -578,7 +578,8 @@ void cVertexBuffer::SubmitToGPU(RICmd *cmd, RIDevice *device,
 }
 
 void cVertexBuffer::BuildBlas(RICmd *cmd, RIDevice *device,
-                                RIBootstrap::FrameContext *cntx) {
+                                cGraphics::FrameContext *cntx) {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   // Streams must be current before any build — no-op if a prior submit (e.g.
   // the translucent/decal prepare) already uploaded this generation.
   SubmitToGPU(cmd, device, cntx);
@@ -603,9 +604,9 @@ void cVertexBuffer::BuildBlas(RICmd *cmd, RIDevice *device,
   // Defer the previous BLAS + storage; an in-flight TLAS build/trace may still
   // reference them until the GPU passes this frame's timeline value.
   if (!m_blas.isEmpty())
-    RI.graphicsDefer.push(m_blas);
+    pGraphics->graphicsDefer.push(m_blas);
   if (!m_blasStorage.isEmpty())
-    RI.graphicsDefer.push(m_blasStorage);
+    pGraphics->graphicsDefer.push(m_blasStorage);
   m_blas = {};
   m_blasStorage = {};
 
@@ -710,16 +711,17 @@ RIBuffer *cVertexBuffer::GetIndexRIBuffer() const {
 // once the GPU passes the next submit's timeline value (so an in-flight draw
 // can't read a freed handle). Called from the destructor.
 void cVertexBuffer::DeferOwnedResources() {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   for (auto &element : m_vertexElements) {
     if (!element.buffer.isEmpty())
-      RI.graphicsDefer.push(element.buffer);
+      pGraphics->graphicsDefer.push(element.buffer);
   }
   if (!m_indexBuffer.isEmpty())
-    RI.graphicsDefer.push(m_indexBuffer);
+    pGraphics->graphicsDefer.push(m_indexBuffer);
   if (!m_blas.isEmpty())
-    RI.graphicsDefer.push(m_blas);
+    pGraphics->graphicsDefer.push(m_blas);
   if (!m_blasStorage.isEmpty())
-    RI.graphicsDefer.push(m_blasStorage);
+    pGraphics->graphicsDefer.push(m_blasStorage);
 }
 
 void cVertexBuffer::UpdateData(tVertexElementFlag aTypes, bool abIndices) {
@@ -982,7 +984,7 @@ cVertexBuffer *cVertexBuffer::CreateCopy(eVertexBufferType aType,
                                            eVertexBufferUsageType aUsageType,
                                            tVertexElementFlag alVtxToCopy) {
   auto *vertexBuffer =
-      new cVertexBuffer(mpLowLevelGraphics, mType, mDrawType, aUsageType, GetIndexNum(), GetVertexNum());
+      new cVertexBuffer(mType, mDrawType, aUsageType, GetIndexNum(), GetVertexNum());
   vertexBuffer->m_indices = m_indices;
 
   for (auto element : m_vertexElements) {

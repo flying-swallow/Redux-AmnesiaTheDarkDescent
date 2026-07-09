@@ -19,7 +19,6 @@
 
 #include "scene/LightPoint.h"
 
-#include "graphics/LowLevelGraphics.h"
 #include "scene/Camera.h"
 #include "math/Math.h"
 

@@ -28,7 +28,6 @@
 
 namespace hpl {
 
-	class iLowLevelGraphics;
 	class iRenderableContainerNode;
 
 	//-----------------------------------------------
@@ -91,8 +90,6 @@ namespace hpl {
 		cBoundingVolume* GetOriginBV();
 
 		cVector3f GetForward();
-
-		void Draw(iLowLevelGraphics* apLowLevelGraphics, const cColor& aColor) {} // STUB
 
 	private:
 		eCollision CollideFustrumSphere(const cVector3f& avCenter, float afRadius);

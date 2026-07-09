@@ -25,7 +25,6 @@
 #include "impl/HapticSurfaceHaptX.h"
 
 #include "system/LowLevelSystem.h"
-#include "graphics/LowLevelGraphics.h"
 
 namespace hpl {
 
@@ -137,32 +136,6 @@ namespace hpl {
 	}
 
 	//-----------------------------------------------------------------------
-
-	void cHapticShapeHaptX::RenderDebug(iLowLevelGraphics *apLowLevel, const cColor &aColor)
-	{
-		/*for(int i=0; i<mlPosNum; ++i)
-		{
-			Vec3f vPos = mpHxPositions[i];
-			apLowLevel->DrawSphere(cVector3f(vPos.x,vPos.y, vPos.z),0.01,aColor);
-		}*/
-
-		/*for(int i=0; i<mlIndexNum; i+=3)
-		{
-			Vec3f &vPos1 = mpHxPositions[mpIndices[i]];
-			Vec3f &vPos2 = mpHxPositions[mpIndices[i+1]];
-			Vec3f &vPos3 = mpHxPositions[mpIndices[i+2]];
-
-			apLowLevel->DrawLine(	cVector3f(vPos1.x,vPos1.y, vPos1.z),
-									cVector3f(vPos2.x,vPos2.y, vPos2.z),
-									aColor);
-			apLowLevel->DrawLine(	cVector3f(vPos2.x,vPos2.y, vPos2.z),
-									cVector3f(vPos3.x,vPos3.y, vPos3.z),
-									aColor);
-			apLowLevel->DrawLine(	cVector3f(vPos3.x,vPos3.y, vPos3.z),
-									cVector3f(vPos1.x,vPos1.y, vPos1.z),
-									aColor);
-		}*/
-	}
 
 	//-----------------------------------------------------------------------
 	

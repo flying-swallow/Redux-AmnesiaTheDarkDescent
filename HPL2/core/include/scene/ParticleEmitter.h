@@ -203,20 +203,20 @@ namespace hpl {
 		// scratch buffers (one copy per viewport, billboarded to its camera).
 
 		// Placement of one frame/viewport's particle geometry inside the shared
-		// scratch buffers (RI.translucentVtx/IdxBuffer). All offsets are bytes.
+		// scratch buffers (Interface<cGraphics>::Get()->translucentVtx/IdxBuffer). All offsets are bytes.
 		struct ParticleScratchGeometry {
 			bool     valid = false;        // false ⇒ skip the draw (0 particles / faded / OOM)
 			uint32_t vertexCount = 0;      // numParticles * 4
 			uint32_t indexCount  = 0;      // numParticles * 6
-			size_t   posByteOffset = 0;    // into RI.translucentVtxBuffer
+			size_t   posByteOffset = 0;    // into Interface<cGraphics>::Get()->translucentVtxBuffer
 			size_t   colByteOffset = 0;
 			size_t   uvByteOffset  = 0;    // valid only when abWithUv
-			size_t   idxByteOffset = 0;    // into RI.translucentIdxBuffer
+			size_t   idxByteOffset = 0;    // into Interface<cGraphics>::Get()->translucentIdxBuffer
 		};
 
 		/**
 		 * Build this frame/viewport's camera-facing quads + quad indices into
-		 * the shared per-frame scratch buffers (RI.translucentVtx/IdxBuffer) —
+		 * the shared per-frame scratch buffers (Interface<cGraphics>::Get()->translucentVtx/IdxBuffer) —
 		 * the single producer for all renderers (wireframe/simple panes bind
 		 * the returned offsets; the hybrid resolves them to BDAs). abWithUv
 		 * builds the uv stream too (8 vs 11 floats/vertex). Returns

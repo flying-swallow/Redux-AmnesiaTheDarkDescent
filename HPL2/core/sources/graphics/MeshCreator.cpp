@@ -20,7 +20,6 @@
 #include "graphics/MeshCreator.h"
 #include "system/String.h"
 #include "system/LowLevelSystem.h"
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/VertexBuffer.h"
 #include "resources/Resources.h"
 #include "graphics/Mesh.h"
@@ -37,9 +36,8 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cMeshCreator::cMeshCreator(iLowLevelGraphics *apLowLevelGraphics, cResources *apResources)
+	cMeshCreator::cMeshCreator(cResources *apResources)
 	{
-		mpLowLevelGraphics = apLowLevelGraphics;
 		mpResources = apResources;
 	}
 
@@ -182,7 +180,7 @@ namespace hpl {
 			vCoords[i]-=vFirstCorner;
 		}
 		
-		cVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(
+		cVertexBuffer* pVtxBuffer = new cVertexBuffer(
 								eVertexBufferType_Hardware,
 								eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic,4,6);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);
@@ -230,7 +228,7 @@ namespace hpl {
 	{
 		//////////////////////////////////////////////////
 		// Create vertex buffer
-		cVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
+		cVertexBuffer* pVtxBuffer = new cVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
 																	eVertexBufferUsageType_Static);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Normal,eVertexBufferElementFormat_Float,3);
@@ -322,7 +320,7 @@ namespace hpl {
 
 	cMesh* cMeshCreator::CreateCylinder(const tString& asName, const cVector2f &avSize, int alSections, const tString &asMaterial)
 	{
-		cVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
+		cVertexBuffer* pVtxBuffer = new cVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
 																	eVertexBufferUsageType_Static);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Normal,eVertexBufferElementFormat_Float,3);
@@ -398,7 +396,7 @@ namespace hpl {
 
 	cMesh* cMeshCreator::CreateCapsule(const tString &asName, const cVector2f &avSize, int alSections, int alSlices, const tString &asMaterial)
 	{
-		cVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
+		cVertexBuffer* pVtxBuffer = new cVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
 																	eVertexBufferUsageType_Static);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Normal,eVertexBufferElementFormat_Float,3);
@@ -526,7 +524,7 @@ namespace hpl {
 	{
 		//////////////////////////////////////////
 		// Create Vertex Buffer
-		cVertexBuffer* pVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
+		cVertexBuffer* pVtxBuffer = new cVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, 
 																	eVertexBufferUsageType_Static);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Normal,eVertexBufferElementFormat_Float,3);
@@ -603,7 +601,7 @@ namespace hpl {
 
 	cVertexBuffer* cMeshCreator::CreateSkyBoxVertexBuffer(float afSize)
 	{
-		cVertexBuffer* pSkyBox = mpLowLevelGraphics->CreateVertexBuffer(
+		cVertexBuffer* pSkyBox = new cVertexBuffer(
 										eVertexBufferType_Hardware,
 										eVertexBufferDrawType_Quad,eVertexBufferUsageType_Static);
 		pSkyBox->CreateElementArray(eVertexBufferElement_Color0,eVertexBufferElementFormat_Float,4);
@@ -681,7 +679,7 @@ namespace hpl {
 
 	cVertexBuffer* cMeshCreator::CreateBoxVertexBuffer(cVector3f avSize)
 	{
-		cVertexBuffer* pBox = mpLowLevelGraphics->CreateVertexBuffer(
+		cVertexBuffer* pBox = new cVertexBuffer(
 			eVertexBufferType_Hardware,
 			eVertexBufferDrawType_Tri,eVertexBufferUsageType_Static);
 		pBox->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);

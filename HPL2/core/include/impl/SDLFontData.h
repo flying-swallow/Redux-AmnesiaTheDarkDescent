@@ -30,7 +30,7 @@ namespace hpl {
 	class cSDLFontData : public iFontData
 	{
 	public:
-		cSDLFontData(const tString &asName, iLowLevelGraphics* apLowLevelGraphics);
+		cSDLFontData(const tString &asName);
 		cSDLFontData();
 
 		bool CreateFromFontFile(const tWString &asFileName, int alSize,unsigned short alFirstChar, 

@@ -21,7 +21,6 @@
 #include "system/String.h"
 #include "system/LowLevelSystem.h"
 
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/Bitmap.h"
 
 
@@ -44,12 +43,9 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cImageManager::cImageManager(	cResources *mpResources, iLowLevelGraphics *apLowLevelGraphics,
-									iLowLevelSystem *apLowLevelSystem)
+	cImageManager::cImageManager(	cResources *mpResources, iLowLevelSystem *apLowLevelSystem)
 	: iResourceManager(mpResources->GetFileSearcher(), mpResources->GetLowLevel(),apLowLevelSystem)
 	{
-       mpLowLevelGraphics = apLowLevelGraphics;
-
 	   mpBitmapLoaderHandler = mpResources->GetBitmapLoaderHandler();
 
 	   mvFrameSize = cVector2l(512,512);

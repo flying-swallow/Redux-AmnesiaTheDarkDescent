@@ -1,6 +1,6 @@
 #include "graphics/PostEffectHelpers.h"
 
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
 
@@ -16,6 +16,7 @@ void CreatePostEffectColorTarget(PostEffectColorTarget &out, uint32_t width,
                                  uint32_t height, enum RI_Format_e format,
                                  uint32_t additionalUsage,
                                  const char *debugName) {
+    cGraphics* pGraphics = Interface<cGraphics>::Get();
     out.width  = width;
     out.height = height;
     out.valid  = false;
@@ -27,7 +28,7 @@ void CreatePostEffectColorTarget(PostEffectColorTarget &out, uint32_t width,
     desc.height = height;
     desc.usage  = RI_USAGE_SHADER_RESOURCE | RI_USAGE_COLOR_ATTACHMENT |
                   additionalUsage;
-    out.texture = RITexture::create(&RI.device, desc);
+    out.texture = RITexture::create(&pGraphics->device, desc);
     if (out.texture.isEmpty())
         return;
 
@@ -36,7 +37,7 @@ void CreatePostEffectColorTarget(PostEffectColorTarget &out, uint32_t width,
     viewDesc.format   = format;
     viewDesc.mipNum   = 1;
     viewDesc.layerNum = 1;
-    out.view = RITextureView::create(&RI.device, &out.texture, viewDesc);
+    out.view = RITextureView::create(&pGraphics->device, &out.texture, viewDesc);
 
 #if (DEVICE_IMPL_VULKAN)
     if (debugName && vkSetDebugUtilsObjectNameEXT) {
@@ -45,7 +46,7 @@ void CreatePostEffectColorTarget(PostEffectColorTarget &out, uint32_t width,
         name.objectType   = VK_OBJECT_TYPE_IMAGE;
         name.objectHandle = reinterpret_cast<uint64_t>(out.texture.vk.image);
         name.pObjectName  = debugName;
-        vkSetDebugUtilsObjectNameEXT(RI.device.vk.device, &name);
+        vkSetDebugUtilsObjectNameEXT(pGraphics->device.vk.device, &name);
     }
 #endif
 
@@ -53,11 +54,12 @@ void CreatePostEffectColorTarget(PostEffectColorTarget &out, uint32_t width,
 }
 
 void DestroyPostEffectColorTarget(PostEffectColorTarget &target) {
+    cGraphics* pGraphics = Interface<cGraphics>::Get();
 #if (DEVICE_IMPL_VULKAN)
     if (!target.valid)
         return;
-    target.view.dispose(&RI.device);
-    target.texture.dispose(&RI.device);
+    target.view.dispose(&pGraphics->device);
+    target.texture.dispose(&pGraphics->device);
     target.texture    = RITexture{};
     target.valid      = false;
     target.width = target.height = 0;

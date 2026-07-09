@@ -22,7 +22,7 @@
 
 #include "graphics/Graphics.h"
 #include "graphics/PostEffectHelpers.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIProgramHelpers.h"
 #include "system/Hasher.h"
 
@@ -54,13 +54,13 @@ struct BloomCompositePushConstants {
 cPostEffectType_Bloom::cPostEffectType_Bloom(cGraphics *apGraphics,
                                              cResources *apResources)
     : iPostEffectType("Bloom", apGraphics, apResources) {
-    LoadSlangGraphics(&RI.device, m_downsampleProgram, apResources,
+    LoadSlangGraphics(&mpGraphics->device, m_downsampleProgram, apResources,
                       "posteffect_fullscreen.vert.spv",
                       "posteffect_bloom_downsample.frag.spv");
-    LoadSlangGraphics(&RI.device, m_upsampleProgram, apResources,
+    LoadSlangGraphics(&mpGraphics->device, m_upsampleProgram, apResources,
                       "posteffect_fullscreen.vert.spv",
                       "posteffect_bloom_upsample.frag.spv");
-    LoadSlangGraphics(&RI.device, m_compositeProgram, apResources,
+    LoadSlangGraphics(&mpGraphics->device, m_compositeProgram, apResources,
                       "posteffect_fullscreen.vert.spv",
                       "posteffect_bloom_composite.frag.spv");
 }
@@ -115,7 +115,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
             char name[48];
             snprintf(name, sizeof(name), "PostEffect_Bloom.mip%d", i);
             CreatePostEffectColorTarget(m_mips[(size_t)i], mw, mh,
-                                        RIBootstrap::PogoColorFormat, 0u, name);
+                                        cGraphics::PogoColorFormat, 0u, name);
             // Rest state: every mip lives in SHADER_RESOURCE between frames.
             RITextureBarrier init(&m_mips[(size_t)i].texture,
                              RI_RESOURCE_STATE_UNDEFINED,
@@ -127,16 +127,16 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
         m_mipsH = ctx.height;
     }
 
-    auto samplerDesc = RI.resolve_filter_descriptor(
+    auto samplerDesc = mpGraphics->resolve_filter_descriptor(
         eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
         eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 
     // Pipelines: downsample + composite are opaque; upsample blends additively
     // (ONE/ONE/ADD) onto the destination mip's own downsample content.
     PostEffectPipelineState downState{};
-    InitPostEffectPipelineState(downState, RIBootstrap::PogoColorFormat, false);
+    InitPostEffectPipelineState(downState, cGraphics::PogoColorFormat, false);
     PostEffectPipelineState upState{};
-    InitPostEffectPipelineState(upState, RIBootstrap::PogoColorFormat, true);
+    InitPostEffectPipelineState(upState, cGraphics::PogoColorFormat, true);
     upState.blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
     upState.blendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
     upState.blendAttachment.colorBlendOp        = VK_BLEND_OP_ADD;
@@ -144,7 +144,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
     upState.blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     upState.blendAttachment.alphaBlendOp        = VK_BLEND_OP_ADD;
     PostEffectPipelineState compState{};
-    InitPostEffectPipelineState(compState, RIBootstrap::PogoColorFormat, false);
+    InitPostEffectPipelineState(compState, cGraphics::PogoColorFormat, false);
 
     const hash_t kDownHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
     const hash_t kUpHash   = hash_u32(HASH_INITIAL_VALUE, /*variant=*/1u);
@@ -180,28 +180,28 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
         beginDesc.renderArea.height = (int16_t)mh;
         beginDesc.colorCount = 1;
         beginDesc.colors     = &color;
-        ctx.cmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
+        ctx.cmd->vk_d3d12_beginRendering(&mpGraphics->device, beginDesc);
 
         VkViewport vp = {0.0f, 0.0f, (float)mw, (float)mh, 0.0f, 1.0f};
         vkCmdSetViewport(cmd, 0, 1, &vp);
         VkRect2D sc = {{0, 0}, {mw, mh}};
         vkCmdSetScissor(cmd, 0, 1, &sc);
 
-        prog.bindPipeline(&RI.device, ctx.cmd, pipeHash, dbgName, pipeCI);
+        prog.bindPipeline(&mpGraphics->device, ctx.cmd, pipeHash, dbgName, pipeCI);
 
         RIProgram::DescriptorBinding bindings[2] = {};
         bindings[0].descriptor = *samplerDesc;
         bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
         bindings[1].descriptor = inputDesc;
         bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-        prog.bindDescriptors(&RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
+        prog.bindDescriptors(&mpGraphics->device, ctx.cmd, ctx.frameIndex, bindings, 2);
 
         if (pc && pcSize)
             vkCmdPushConstants(cmd, prog.getPipelineLayout(),
                                VK_SHADER_STAGE_FRAGMENT_BIT, 0, pcSize, pc);
 
         vkCmdDraw(cmd, 3, 1, 0, 0);
-        ctx.cmd->vk_d3d12_endRendering(&RI.device);
+        ctx.cmd->vk_d3d12_endRendering(&mpGraphics->device);
     };
 
     auto mipW = [&](int i) { return std::max(ctx.width >> (i + 1), 1u); };
@@ -274,7 +274,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
     outBeginDesc.renderArea.height = (int16_t)ctx.height;
     outBeginDesc.colorCount = 1;
     outBeginDesc.colors     = &outColor;
-    ctx.cmd->vk_d3d12_beginRendering(&RI.device, outBeginDesc);
+    ctx.cmd->vk_d3d12_beginRendering(&mpGraphics->device, outBeginDesc);
 
     VkViewport viewport = {0.0f, 0.0f, (float)ctx.width, (float)ctx.height, 0.0f,
                            1.0f};
@@ -282,7 +282,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
     VkRect2D scissor = {{0, 0}, {ctx.width, ctx.height}};
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
-    mpBloomType->m_compositeProgram.bindPipeline(&RI.device, ctx.cmd, kCompHash,
+    mpBloomType->m_compositeProgram.bindPipeline(&mpGraphics->device, ctx.cmd, kCompHash,
                                                  "PostEffect_Bloom.composite",
                                                  &compState.createInfo);
     {
@@ -294,7 +294,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
         bindings[2].descriptor = m_mips[0].descriptor();
         bindings[2].handle     = DescriptorBindingID::Create("bloomInput");
         mpBloomType->m_compositeProgram.bindDescriptors(
-            &RI.device, ctx.cmd, ctx.frameIndex, bindings, 3);
+            &mpGraphics->device, ctx.cmd, ctx.frameIndex, bindings, 3);
     }
 
     BloomCompositePushConstants cpc{};
@@ -303,7 +303,7 @@ void cPostEffect_Bloom::RenderEffect(const PostEffectRenderCtx &ctx) {
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(cpc), &cpc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
-    ctx.cmd->vk_d3d12_endRendering(&RI.device);
+    ctx.cmd->vk_d3d12_endRendering(&mpGraphics->device);
     // Exit invariant restored: every mip is back in SHADER_RESOURCE.
 }
 

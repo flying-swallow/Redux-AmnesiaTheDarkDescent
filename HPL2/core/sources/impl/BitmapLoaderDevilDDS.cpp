@@ -22,7 +22,6 @@
 #include "graphics/Bitmap.h"
 #include "system/LowLevelSystem.h"
 #include "system/String.h"
-#include "graphics/LowLevelGraphics.h"
 
 namespace hpl {
 
@@ -116,7 +115,7 @@ namespace hpl {
 
 		//////////////////////////////////////////////////
 		// Load compressed image
-		if(	lDXTFormat != IL_DXT_NO_COMP && //mpLowLevelGraphics->GetCaps(eGraphicCaps_TextureCompression_DXTC) &&
+		if(	lDXTFormat != IL_DXT_NO_COMP && // (legacy GL checked DXTC caps here) &&
 			(aFlags & eBitmapLoadFlag_ForceNoCompression)==0 )
 		{
 			ePixelFormat compressedPixelFormat = GetPixelFormatFromILDXT(lDXTFormat);

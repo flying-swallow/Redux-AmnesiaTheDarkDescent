@@ -22,21 +22,18 @@
 
 #include <list>
 #include "input/LowLevelInput.h"
+#include "system/Event.h"
 
-#if USE_SDL2
 #include "SDL2/SDL_events.h"
-#else
-#include "SDL/SDL_events.h"
-#endif
 
 namespace hpl {
 
-	class iLowLevelGraphics;
+	class cWindow;
 
 	class cLowLevelInputSDL : public iLowLevelInput
 	{
 	public:
-		cLowLevelInputSDL(iLowLevelGraphics *apLowLevelGraphics);
+		cLowLevelInputSDL(cWindow *apWindow);
 		~cLowLevelInputSDL();
 
 		void LockInput(bool abX);
@@ -44,6 +41,8 @@ namespace hpl {
 
 		void BeginInputUpdate();
 		void EndInputUpdate();
+
+		void ConnectToEventBus();
 
 		void InitGamepadSupport();
 		void DropGamepadSupport();
@@ -54,16 +53,19 @@ namespace hpl {
 		iKeyboard* CreateKeyboard();
 		iGamepad* CreateGamepad(int alIndex);
 
-		iLowLevelGraphics* GetLowLevelGraphics() { return mpLowLevelGraphics; }
-
 		bool isQuitMessagePosted();
 		void resetQuitMessagePosted();
 	public:
 		std::list<SDL_Event> mlstEvents;
 
-	private: 
-		iLowLevelGraphics *mpLowLevelGraphics;
+	private:
+		// Bus handler: classifies each SDL event pumped by cEngine into device
+		// events (mlstEvents) + quit / gamepad-hotplug side-effects.
+		void OnSdlEvent(const SDL_Event& aEvent);
+
+		cWindow *mpWindow;
 		bool mbQuitMessagePosted;
+		Event<const SDL_Event&>::Handler mSdlEventHandler;
 	};
 };
 #endif // HPL_LOWLEVELINPUT_SDL_H

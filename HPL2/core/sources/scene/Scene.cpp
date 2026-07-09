@@ -35,12 +35,12 @@
 
 #include "graphics/DebugDraw.h"
 #include "graphics/Graphics.h"
+#include "graphics/Window.h"
 #include "graphics/Renderer.h"
 #include "graphics/PostEffectComposite.h"
 #include "graphics/PostEffectHelpers.h"
 #include "graphics/RIPogoBuffer.h"
 #include "system/Hasher.h"
-#include "graphics/LowLevelGraphics.h"
 
 #include "sound/Sound.h"
 #include "sound/LowLevelSound.h"
@@ -50,7 +50,6 @@
 #include "gui/GuiSet.h"
 
 #include "physics/Physics.h"
-
 
 namespace hpl {
 
@@ -74,6 +73,12 @@ namespace hpl {
 		mpHaptic = apHaptic;
 
 		mpCurrentListener = NULL;
+
+		// Re-apply the screen aspect to perspective cameras when the swapchain
+		// changes size — CreateCamera bakes the aspect in once at creation.
+		mScreenSizeChangedHandler = Event<const cVector2l&>::Handler(
+			[this](const cVector2l& avSize){ OnScreenSizeChange(avSize); });
+		mScreenSizeChangedHandler.Connect(Interface<cWindow>::Get()->OnScreenSizeChanged());
 	}
 
 	//-----------------------------------------------------------------------
@@ -88,7 +93,22 @@ namespace hpl {
 		STLDeleteAll(mlstCameras);
 
 		Log("--------------------------------------------------------\n\n");
+	}
 
+	//-----------------------------------------------------------------------
+
+	void cScene::OnScreenSizeChange(const cVector2l& avSize)
+	{
+		if(avSize.y <= 0)
+			return;
+
+		const float fAspect = (float)avSize.x / (float)avSize.y;
+		for(tCameraListIt it = mlstCameras.begin(); it != mlstCameras.end(); ++it)
+		{
+			cCamera *pCamera = *it;
+			if(pCamera->GetProjectionType() == eProjectionType_Perspective)
+				pCamera->SetAspect(fAspect);
+		}
 	}
 
 	//-----------------------------------------------------------------------
@@ -185,8 +205,8 @@ namespace hpl {
 	cCamera* cScene::CreateCamera(eCameraMoveMode aMoveMode)
 	{
 		cCamera *pCamera = hplNew( cCamera, () );
-		pCamera->SetAspect(mpGraphics->GetLowLevel()->GetScreenSizeFloat().x /
-							mpGraphics->GetLowLevel()->GetScreenSizeFloat().y);
+		pCamera->SetAspect(Interface<cWindow>::Get()->GetSizeF().x /
+							Interface<cWindow>::Get()->GetSizeF().y);
 
 		//Add Camera to list
 		mlstCameras.push_back(pCamera);
@@ -209,7 +229,7 @@ namespace hpl {
 		//Increase the frame count (do this at top, so render count is valid until this Render is called again!)
 		iRenderer::IncRenderFrameCount();
 
-		RIBootstrap::FrameContext* cntx = RI.GetActiveSet();
+		cGraphics::FrameContext* cntx = mpGraphics->GetActiveSet();
 
 		// Publish each visible viewport's world GPU memory (light/fog/decal buffers,
 		// TLAS, bindless object/material slots) ONCE per frame, before any viewport
@@ -260,7 +280,7 @@ namespace hpl {
 				// Color LOADs the world composite when present, else CLEARs (also
 				// establishes the UNDEFINED → COLOR transition).
 				RIRenderingAttachment color = {};
-				color.view = RI.swapchainView[RI.swapchainIndex];
+				color.view = *mpGraphics->swapchain->textureView(mpGraphics->swapchainIndex);
 				color.loadOp = worldRendered ? RI_ATTACHMENT_LOAD_OP_LOAD
 											  : RI_ATTACHMENT_LOAD_OP_CLEAR;
 				color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
@@ -274,15 +294,15 @@ namespace hpl {
 				}
 
 				RIBeginRenderingDesc beginDesc = {};
-				beginDesc.renderArea.width = (int16_t)RI.swapchain.width;
-				beginDesc.renderArea.height = (int16_t)RI.swapchain.height;
+				beginDesc.renderArea.width = (int16_t)mpGraphics->swapchain->width;
+				beginDesc.renderArea.height = (int16_t)mpGraphics->swapchain->height;
 				beginDesc.colorCount = 1;
 				beginDesc.colors = &color;
 				beginDesc.depthStencil = pGuiDepthView ? &depth : NULL;
 
-				// GuiSet builds its pipelines for RI.swapchain.format / RIBootstrap::DepthFormat
+				// GuiSet builds its pipelines for Interface<cGraphics>::Get()->swapchain.format / cGraphics::DepthFormat
 				// (see GuiSet.cpp). If the attachments here ever change, update GuiSet to match.
-				RI.primary.cmds[0].vk_d3d12_beginRendering( &RI.device, beginDesc );
+				mpGraphics->primary.cmds[0].vk_d3d12_beginRendering( &mpGraphics->device, beginDesc );
 
 				if(alFlags & tSceneRenderFlag_World)
 				{
@@ -297,7 +317,7 @@ namespace hpl {
 					STOP_TIMING(RenderGUI)
 				}
 
-				RI.primary.cmds[0].vk_d3d12_endRendering( &RI.device );
+				mpGraphics->primary.cmds[0].vk_d3d12_endRendering( &mpGraphics->device );
 			}
 		}
 	}

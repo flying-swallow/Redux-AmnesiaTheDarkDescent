@@ -23,7 +23,7 @@
 
 #include "graphics/Texture.h"
 #include "graphics/Image.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
 #include "scene/Viewport.h"
@@ -43,6 +43,7 @@ static constexpr uint32_t kThumbnailSize = 128;
 // mid-flight is safe.
 static std::optional<cTexture> CreateThumbnailCacheTexture()
 {
+	cGraphics* pGraphics = Interface<cGraphics>::Get();
 	cTexture texture;
 
 	VkImageCreateInfo imageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
@@ -58,12 +59,12 @@ static std::optional<cTexture> CreateThumbnailCacheTexture()
 
 	uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
 	imageInfo.pQueueFamilyIndices = queueFamilies;
-	VK_ConfigureImageQueueFamilies(&imageInfo, RI.device.queues, RI_QUEUE_LEN,
+	VK_ConfigureImageQueueFamilies(&imageInfo, pGraphics->device.queues, RI_QUEUE_LEN,
 								   queueFamilies, RI_QUEUE_LEN);
 
 	VmaAllocationCreateInfo allocInfo = {};
 	allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-	if(!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo,
+	if(!VK_WrapResult(vmaCreateImage(pGraphics->device.vk.vmaAllocator, &imageInfo,
 									 &allocInfo, &texture.handle.vk.image,
 									 &texture.handle.vk.allocation, NULL)))
 	{
@@ -76,11 +77,11 @@ static std::optional<cTexture> CreateThumbnailCacheTexture()
 	viewDesc.format = VKToRIFormat(imageInfo.format);
 	viewDesc.mipNum = 1;
 	viewDesc.layerNum = 1;
-	texture.view = RITextureView::create(&RI.device, &texture.handle, viewDesc);
+	texture.view = RITextureView::create(&pGraphics->device, &texture.handle, viewDesc);
 	if(texture.view.isEmpty())
 	{
 		Error("ThumbnailBuilder: failed to create cache image view\n");
-		vmaDestroyImage(RI.device.vk.vmaAllocator, texture.handle.vk.image,
+		vmaDestroyImage(pGraphics->device.vk.vmaAllocator, texture.handle.vk.image,
 						texture.handle.vk.allocation);
 		texture.handle.vk.image = VK_NULL_HANDLE;
 		texture.handle.vk.allocation = NULL;
@@ -123,7 +124,7 @@ cEditorThumbnailBuilder::cEditorThumbnailBuilder(iEditorBase* apEditor)
 	// 128x128 RGBA8_SRGB render target: the sRGB attachment write encodes
 	// linear->display for free; TRANSFER_SRC backs the per-thumbnail cache
 	// copy after delivery.
-	if(!CreateViewportColorTexture(&RI.device, kThumbnailSize, kThumbnailSize,
+	if(!CreateViewportColorTexture(&Interface<cGraphics>::Get()->device, kThumbnailSize, kThumbnailSize,
 								   RI_FORMAT_RGBA8_SRGB,
 								   RI_USAGE_COLOR_ATTACHMENT |
 								   RI_USAGE_SHADER_RESOURCE |
@@ -182,7 +183,7 @@ cEditorThumbnailBuilder::~cEditorThumbnailBuilder()
 
 	////////////////////////////////////////
 	// GPU handles go to the graphics deferral queue — freed once the in-flight
-	// pipeline is done with them (or in RIBootstrap::Dispose at shutdown).
+	// pipeline is done with them (or in cGraphics::Dispose at shutdown).
 	ReleaseViewportAttachmentTexture(&mTargetTexture, &mTargetView);
 
 	if(mpViewport)
@@ -349,7 +350,7 @@ void cEditorThumbnailBuilder::Pump(float afFrameTime)
 	FocusCameraOnEntity(pEntity);
 
 	mpActiveCopyDst = pImage->GetTexture();
-	mpViewport->Evaluate(RI.GetActiveSet(), afFrameTime, tSceneRenderFlag_World);
+	mpViewport->Evaluate(Interface<cGraphics>::Get()->GetActiveSet(), afFrameTime, tSceneRenderFlag_World);
 
 	pEntity->SetVisible(false);
 	pEntity->SetActive(false);

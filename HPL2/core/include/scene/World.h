@@ -28,7 +28,7 @@
 #include "scene/SceneTypes.h"
 #include "graphics/RITypes.h" // RISharedPointer<RIBuffer> decal buffer members
 #include "graphics/IndexPool.h" // stable per-type GPU light slots
-#include "graphics/RIBootstrap.h" // RIBootstrap::FrameContext (PrepareFrame/TLAS build)
+#include "graphics/Graphics.h" // cGraphics::FrameContext (PrepareFrame/TLAS build)
 
 #include <cstdint>
 #include <vector>
@@ -289,7 +289,7 @@ namespace hpl {
 		// pass; the set-2 decal buffers are bound at the composite pass. The renderer
 		// reads the published per-world counts via GetPointLightCount()/etc. Needs the
 		// frame context (BLAS/TLAS build scratch + command buffers).
-		void PrepareFrame(RIBootstrap::FrameContext* cntx);
+		void PrepareFrame(cGraphics::FrameContext* cntx);
 
 		// Centralized renderable→bindless-object-slot submission: builds the standard
 		// UniformObject from the renderable (model matrix via apFrustum, material via
@@ -299,7 +299,7 @@ namespace hpl {
 		// pool/material-slot exhaustion). cookieSalt != 0 carves a disjoint slot for the
 		// same renderable (the TLAS translucent path vs the translucent-mesh raster
 		// pass). Shared by BuildTlas and the renderer's opaque raster loop.
-		uint32_t SubmitRenderableObject(iRenderable* pObject, RIBootstrap::FrameContext* cntx,
+		uint32_t SubmitRenderableObject(iRenderable* pObject, cGraphics::FrameContext* cntx,
 		                                cFrustum* apFrustum, uint32_t cookieSalt = 0);
 
 		// Per-world ray-tracing TLAS, owned + built by cWorld from its own renderable
@@ -542,7 +542,7 @@ namespace hpl {
 		RISharedPointer<RIBuffer>         mpTlasInstanceBuffer;
 		// Gather this world's renderable BLAS instances (whole-scene, no cull) and
 		// record the TLAS build; called at the end of PrepareFrame.
-		void BuildTlas(RIBootstrap::FrameContext* cntx, cFrustum* apFrustum);
+		void BuildTlas(cGraphics::FrameContext* cntx, cFrustum* apFrustum);
 
 		// Fog + light buffers are dynamic: rebuilt + uploaded every frame by
 		// PrepareFrame and grown on demand (reserved = doubling capacity; count =

@@ -25,7 +25,6 @@
 #include "graphics/FrameSubImage.h"
 #include "graphics/FrameTexture.h"
 #include "graphics/Image.h"
-#include "graphics/LowLevelGraphics.h"
 #include "resources/BitmapLoaderHandler.h"
 #include "resources/ImageManager.h"
 #include "resources/ResourceBase.h"
@@ -45,9 +44,8 @@ namespace hpl {
 
 //-----------------------------------------------------------------------
 
-cSDLFontData::cSDLFontData(const tString &asName,
-                           iLowLevelGraphics *apLowLevelGraphics)
-    : iFontData(asName, apLowLevelGraphics) {}
+cSDLFontData::cSDLFontData(const tString &asName)
+    : iFontData(asName) {}
 
 //-----------------------------------------------------------------------
 
@@ -154,7 +152,6 @@ bool cSDLFontData::CreateFromBitmapFile(const tWString &asFileName) {
     tString sName = cString::SetFileExt(cString::To8Char(asFileName), "") +
                     "_" + cString::ToString(lCount);
     // iTexture *pTexture =
-    // mpLowLevelGraphics->CreateTexture("",eTextureType_2D,eTextureUsage_Normal);
     Image::SingleImage singleImage = {};
     singleImage.image.emplace();
     cTexture::BitmapLoadOptions opts = {0};

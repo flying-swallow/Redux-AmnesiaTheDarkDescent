@@ -26,17 +26,15 @@
 
 namespace hpl {
 
-	class iLowLevelGraphics;
 	class cResources;
 
 	class cTextureCreator
 	{
 	public:
-		cTextureCreator(iLowLevelGraphics *apLowLevelGraphics, cResources *apResources);
+		cTextureCreator(cResources *apResources);
 		~cTextureCreator();
 
 	private:
-		iLowLevelGraphics *mpLowLevelGraphics;
 		cResources *mpResources;
 	};
 

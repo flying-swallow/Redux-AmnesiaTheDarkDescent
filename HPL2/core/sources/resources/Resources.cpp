@@ -62,11 +62,10 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cResources::cResources(iLowLevelResources *apLowLevelResources,iLowLevelGraphics *apLowLevelGraphics)
+	cResources::cResources(iLowLevelResources *apLowLevelResources)
 		: iUpdateable("Resources")
 	{
 		mpLowLevelResources = apLowLevelResources;
-		mpLowLevelGraphics = apLowLevelGraphics;
 
 		mpFileSearcher = hplNew( cFileSearcher, () );
 
@@ -272,7 +271,7 @@ namespace hpl {
 
 		Log(" Creating resource managers\n");
 
-		mpImageManager = hplNew( cImageManager,(this,mpLowLevelGraphics,mpLowLevelSystem) );
+		mpImageManager = hplNew( cImageManager,(this,mpLowLevelSystem) );
 		mlstManagers.push_back(mpImageManager);
 		mpParticleManager = hplNew( cParticleManager,(apGraphics, this) );
 		mlstManagers.push_back(mpParticleManager);

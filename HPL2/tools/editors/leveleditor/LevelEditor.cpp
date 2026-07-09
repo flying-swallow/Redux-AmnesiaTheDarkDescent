@@ -622,7 +622,7 @@ void cLevelEditor::OnPostUpdateLayout()
 
 	tString sModified = mpEditorWorld->IsModified()?"(modified)":"";
 
-    mpEngine->GetGraphics()->GetLowLevel()->SetWindowCaption(sTitlebarFilename + sModified + " - " + msCaption);
+    mpEngine->GetGraphics()->GetWindow()->SetCaption(sTitlebarFilename + sModified + " - " + msCaption);
 
 	///////////////////////////////////////
 	// Update Recent Files

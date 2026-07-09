@@ -63,10 +63,14 @@ cLuxInventory::cLuxInventory() : iLuxUpdateable("LuxInventory")
 	mpGuiSet->SetVirtualSize(mvGuiSetSize, -1000,1000, mvGuiSetOffset);
 	mpGuiSet->SetActive(false);
 	mpGuiSet->SetDrawMouse(false);//Init
+
+	// Re-apply the pinned virtual size/offset on a swapchain resize.
+	mScreenSizeChangedHandler = EventHandler<const cVector2l&>(
+		[this](const cVector2l& avSize){ OnScreenSizeChange(avSize); });
+	mScreenSizeChangedHandler.Connect(Interface<cWindow>::Get()->OnScreenSizeChanged());
 	
 	///////////////////////////////
 	//Load settings
-	mvScreenSize = gpBase->mpEngine->GetGraphics()->GetLowLevel()->GetScreenSizeFloat();
 
 	mfFadeInTime = gpBase->mpMenuCfg->GetFloat("Inventory","FadeInTime", 10);
 	mfFadeOutTime = gpBase->mpMenuCfg->GetFloat("Inventory","FadeOutTime",10);
@@ -152,8 +156,6 @@ cLuxInventory::cLuxInventory() : iLuxUpdateable("LuxInventory")
 	mpFrameGenericBorders[3] = mpGui->CreateGfxImage("inventory_frame_generic_border_l.tga", eGuiMaterial_Alpha);
 
 	mpWhiteGfx = mpGui->CreateGfxFilledRect(cColor(1,1), eGuiMaterial_Alpha);
-
-	mScreenEffect.Init(mpGui);
 
 	mpFontDefault = NULL;
 	mpFontHeader = NULL;
@@ -692,6 +694,9 @@ void cLuxInventory::Update(float afTimeStep)
 		}
 	}
 
+	// Crossfade the live backdrop (sharp -> desaturated/darkened) with the menu fade.
+	gpBase->mpMapHandler->SetBackdropStrength(mfAlpha);
+
 	/////////////////////////////
 	/// Update misc alpha faders
 	for(int i=0; i<eLuxInventoryFader_LastEnum; ++i)
@@ -766,9 +771,11 @@ void cLuxInventory::OnEnterContainer(const tString& asOldContainer)
 	mbActive = true;
 
 	gpBase->mpInputHandler->ChangeState(eLuxInputState_Inventory);
-	
-	mpViewport->SetActive(true);
-	mpViewport->SetVisible(true);
+
+	// The menu's own viewport stays hidden — our GUI set is rendered by the
+	// (still-visible) gameplay viewport instead (see CreateBackground), so the
+	// live blurred/desaturated world shows through. Only one viewport may target
+	// the swapchain at a time.
 	mpGuiSet->SetActive(true);
 
 #ifdef USE_GAMEPAD
@@ -871,20 +878,9 @@ static int StatusToIndex(float afX)
 
 void cLuxInventory::OnDraw(float afFrameTime)
 {
-	////////////////////////
-	//Draw background
-	//
-	// Suppress the snapshot quads until the deferred OnPostRender capture has
-	// run at least once — otherwise we'd sample texture memory that's still
-	// in its initial UNDEFINED layout.
-	if(mScreenEffect.IsCaptured())
-	{
-		if(mScreenEffect.GetScreenGfx() && mfAlpha<1)
-			mpGuiSet->DrawGfx(mScreenEffect.GetScreenGfx(),mvGuiSetStartPos+cVector3f(0,0,0),mvGuiSetSize);
-
-		if(mScreenEffect.GetScreenBgGfx())
-			mpGuiSet->DrawGfx(mScreenEffect.GetScreenBgGfx(),mvGuiSetStartPos+cVector3f(0,0,0.2f),mvGuiSetSize,cColor(1, mfAlpha));
-	}
+	// The backdrop is drawn live by the gameplay viewport's desaturate/darken
+	// post-effect (strength driven from mfAlpha in Update), so there is no
+	// snapshot quad to draw here anymore.
 
 	//////////////////////////////////
 	//Fade
@@ -1524,22 +1520,19 @@ bool cLuxInventory::CheckSpecialCombineAction(cLuxInventory_Item *apItemA, cLuxI
 
 void cLuxInventory::CreateBackground()
 {
-	mScreenEffect.CreateTextures();
-	mScreenEffect.RequestCapture();
+	// The backdrop is now the live (paused) gameplay viewport, desaturate/
+	// darkened by a post-effect, instead of a frozen cLuxScreenCapture snapshot.
+	// Render our UI on that viewport and switch the backdrop effect on.
+	gpBase->mpMapHandler->GetViewport()->AddGuiSet(mpGuiSet);
+	gpBase->mpMapHandler->EnableBackdrop(eLuxMenuBackdrop_Desaturate);
 }
 
 //-----------------------------------------------------------------------
 
 void cLuxInventory::DestroyBackground()
 {
-	mScreenEffect.Destroy();
-}
-
-//-----------------------------------------------------------------------
-
-void cLuxInventory::OnPostRender(float afFrameTime)
-{
-	mScreenEffect.OnPostRender();
+	gpBase->mpMapHandler->GetViewport()->RemoveGuiSet(mpGuiSet);
+	gpBase->mpMapHandler->DisableBackdrop();
 }
 
 //-----------------------------------------------------------------------

@@ -17,7 +17,7 @@
 #pragma once
 
 #include "graphics/Color.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIProgram.h"
 #include "graphics/RISegmentAlloc.h"
 #include "graphics/RITypes.h"
@@ -135,9 +135,9 @@ public:
     // the scene depth (LOADed, read-only — the pipelines never write depth).
     // Sets its own Y-flipped viewport/scissor to the target extent. Calls
     // Reset() at the end.
-    void flush(RIBootstrap::FrameContext* cntx, struct RICmd* cmd, const cFrustum* apFrustum,
+    void flush(cGraphics::FrameContext* cntx, struct RICmd* cmd, const cFrustum* apFrustum,
                uint32_t alTargetWidth, uint32_t alTargetHeight,
-               enum RI_Format_e aColorFormat = RIBootstrap::PogoColorFormat);
+               enum RI_Format_e aColorFormat = cGraphics::PogoColorFormat);
 
 private:
     // Mirrors the unified vertex stream the DebugDraw slang shaders declare
@@ -192,7 +192,7 @@ private:
     // Grow-on-demand per-frame streaming ring (GuiSet pattern): on overflow
     // the buffer is recreated 1.5x larger and the old one is deferred onto
     // the frame freelist.
-    bool RequestStream(RIBootstrap::FrameContext* cntx, size_t alNumVertices, size_t alNumIndices,
+    bool RequestStream(cGraphics::FrameContext* cntx, size_t alNumVertices, size_t alNumIndices,
                        struct RISegmentReq* apVtxReq, struct RISegmentReq* apIdxReq);
 
     std::vector<LineSegmentRequest> m_lineSegments;

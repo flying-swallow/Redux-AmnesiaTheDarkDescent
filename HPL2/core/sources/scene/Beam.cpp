@@ -34,7 +34,6 @@
 #include "graphics/VertexBuffer.h"
 #include "graphics/Material.h"
 #include "graphics/MaterialType.h"
-#include "graphics/LowLevelGraphics.h"
 
 #include "scene/Camera.h"
 #include "scene/World.h"
@@ -55,7 +54,6 @@ namespace hpl {
 	{
 		mpMaterialManager = apResources->GetMaterialManager();
 		mpFileSearcher = apResources->GetFileSearcher();
-		mpLowLevelGraphics = apGraphics->GetLowLevel();
 		
 		msFileName = "";
 
@@ -68,7 +66,7 @@ namespace hpl {
 		mlLastRenderCount = -1;
 		
 
-		mpVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(
+		mpVtxBuffer = new cVertexBuffer(
 								eVertexBufferType_Hardware,
 								eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic,4,6);
 		mpVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);

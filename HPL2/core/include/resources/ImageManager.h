@@ -30,7 +30,6 @@ namespace hpl {
 	class cFrameSubImage;
 	class cFrameTexture;
 	class cFrameBitmap;
-	class iLowLevelGraphics;
 	class cBitmap;
 	class cBitmapLoaderHandler;
 	class Image;
@@ -45,8 +44,7 @@ namespace hpl {
 	{
 	friend class cFrameTexture;
 	public:
-		cImageManager(	cResources *mpResources, iLowLevelGraphics *apLowLevelGraphics,
-						iLowLevelSystem *apLowLevelSystem);
+		cImageManager(	cResources *mpResources, iLowLevelSystem *apLowLevelSystem);
 		~cImageManager();
 		
 		
@@ -76,7 +74,6 @@ namespace hpl {
         int CreateFrame(cVector2l avSize);
 		void SetFrameLocked(int alHandle, bool abLocked);
 	private:
-		iLowLevelGraphics *mpLowLevelGraphics;
 		cBitmapLoaderHandler *mpBitmapLoaderHandler;
 		
 		tFrameBitmapList mlstBitmapFrames;

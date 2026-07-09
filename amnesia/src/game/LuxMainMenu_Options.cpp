@@ -1136,7 +1136,7 @@ void cLuxMainMenu_Options::SetInputValues(cResourceVarsObject& aObj)
 					if(vVidModes[i].mvScreenSize == vVidModes[j].mvScreenSize)
 					{
 						lRemove++;
-						lRefreshRate = cMath::Max(lRefreshRate, vVidModes[i].mlRefreshRate);
+						lRefreshRate = cMath::Max(lRefreshRate, vVidModes[j].mlRefreshRate);
 					}
 					else break;
 				}
@@ -1153,6 +1153,11 @@ void cLuxMainMenu_Options::SetInputValues(cResourceVarsObject& aObj)
 			}
 
 			mpCBResolution->ClearItems();
+			// Rebuild the backing vector alongside the combobox so their indices
+			// stay in lockstep. SetInputValues() runs on every Options open, so
+			// without this clear mvScreenSizes accumulates and the selected item
+			// index maps to the wrong cVideoMode on Apply.
+			mvScreenSizes.clear();
 			for(size_t i=0;i<vVidModes.size();++i)
 			{
 				const cVideoMode& mode = vVidModes[i];
@@ -1471,8 +1476,19 @@ void cLuxMainMenu_Options::ApplyChanges()
 		pCfgHdr->mbFullscreen = mpChBFullScreen->IsChecked();
 		pCfgHdr->mbVSync = mpChBVSync->IsChecked();
 //		pCfgHdr->mbAdaptiveVSync = mpChBAdaptiveVSync->IsChecked();
-		// pGfx->GetLowLevel()->SetVsyncActive(pCfgHdr->mbVSync, pCfgHdr->mbAdaptiveVSync);
 		gpBase->mpConfigHandler->SetGamma(GetGamma());
+
+		// Apply resolution / fullscreen / vsync live: resize the OS window, then
+		// recreate the swapchain at the actual new size. Viewports (via
+		// GetTargetSize) and GUI sets (via GetVirtualSize) pull the new size
+		// on their next use — no notification needed.
+		pGfx->GetWindow()->SetSize(pCfgHdr->mvScreenSize, pCfgHdr->mbFullscreen);
+		// Defer the swapchain rebuild to the next BeginActiveSet boundary (before
+		// acquire) rather than rebuilding synchronously here in OnDraw. A mid-frame
+		// rebuild strands the already-acquired image's semaphore and deadlocks the
+		// next submit; the deferred path reads the actual window size at the
+		// boundary and applies the new vsync.
+		pGfx->SetVsync(pCfgHdr->mbVSync);
 
 		// Parallax
 		//int lParallax = (int)mpCBParallaxQuality->GetSelectedItem() - 1;

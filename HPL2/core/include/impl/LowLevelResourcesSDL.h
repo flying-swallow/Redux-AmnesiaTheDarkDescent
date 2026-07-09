@@ -27,14 +27,13 @@ namespace hpl {
 
 	//----------------------------------------
 
-	class iLowLevelGraphics;
 
 	//----------------------------------------
 
 	class cLowLevelResourcesSDL : public iLowLevelResources
 	{
 	public:
-		cLowLevelResourcesSDL(iLowLevelGraphics *apLowLevelGraphics);
+		cLowLevelResourcesSDL();
 		~cLowLevelResourcesSDL();
 
 		void AddBitmapLoaders(cBitmapLoaderHandler* apHandler);
@@ -42,7 +41,6 @@ namespace hpl {
 		void AddVideoLoaders(cVideoLoaderHandler* apHandler);
 
 	private:
-		iLowLevelGraphics *mpLowLevelGraphics;
 	};
 };
 #endif // HPL_LOWLEVELRESOURCES_SDL_H

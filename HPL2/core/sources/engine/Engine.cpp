@@ -36,19 +36,23 @@
 #include "system/Mutex.h"
 
 #include "input/Input.h"
+#include "input/LowLevelInput.h"
 #include "input/Mouse.h"
 
-#include "graphics/LowLevelGraphics.h"
+#include "graphics/Window.h"
 #include "graphics/Renderer.h"
 
 #include "engine/Updater.h"
 #include "engine/ScriptFuncs.h"
 #include "engine/EngineInitVars.h"
+#include "engine/Interface.h"
 
 #include "system/LowLevelSystem.h"
 #include "engine/LowLevelEngineSetup.h"
 
 #include "impl/SDLEngineSetup.h"
+
+#include "SDL2/SDL.h"
 
 namespace hpl {
 
@@ -162,14 +166,17 @@ namespace hpl {
 	
 	cEngine* CreateHPLEngine(eHplAPI aApi, tFlag alHplModuleFlags, cEngineInitVars *apVars)
 	{
+		if(apVars == NULL) FatalError("CreateHPLEngine called with NULL init vars!\n");
+
 		iLowLevelEngineSetup *pGameSetup = NULL;
 
 		switch(aApi)
 		{
 			case eHplAPI_OpenGL: pGameSetup = hplNew(cSDLEngineSetup, (alHplModuleFlags) ); break;
+			default: FatalError("CreateHPLEngine called with unknown API %d!\n", aApi);
 		}
 
-		return hplNew( cEngine,  (pGameSetup,alHplModuleFlags, apVars) ); 
+		return hplNew( cEngine,  (pGameSetup,alHplModuleFlags, apVars) );
 	}
 
 	//-----------------------------------------------------------------------
@@ -194,15 +201,6 @@ namespace hpl {
 
 	cEngine::cEngine(iLowLevelEngineSetup *apGameSetup,tFlag alHplSetupFlags, cEngineInitVars *apVars)
 	{
-		GameInit(apGameSetup,alHplSetupFlags, apVars);
-
-		//Set up variables
-		mbWaitIfAppOutOfFocus = false;
-
-		mbApplicationHasInputFocus = false;
-		mbApplicationHasMouseFocus = false;
-		mbApplicationIsVisible = false;
-
 		mvEngineTypeStrings.resize(eVariableType_LastEnum);
 		mvEngineTypeStrings[eVariableType_Int] =	"Int";
 		mvEngineTypeStrings[eVariableType_Float] =	"Float";
@@ -212,6 +210,13 @@ namespace hpl {
 		mvEngineTypeStrings[eVariableType_String] =	"String";
 		mvEngineTypeStrings[eVariableType_Enum] =	"Enum";
 		mvEngineTypeStrings[eVariableType_Bool] =	"Bool";
+
+		// Registered before GameInit so code reached from the module Init
+		// calls can see the engine (module pointers are still null until
+		// their Create* runs). Unregistered at the top of ~cEngine.
+		Interface<cEngine>::Register(this);
+
+		GameInit(apGameSetup,alHplSetupFlags, apVars);
 	}
 
 
@@ -225,33 +230,56 @@ namespace hpl {
 		Log("--------------------------------------------------------\n");
 
 		//Create the modules that game connects to and init them!
+		// Each module registers with Interface<T> right after creation —
+		// before any of the Init calls below — so it is globally reachable
+		// from the moment it exists (cGraphics::Init and InitGlobalManagedSets
+		// already rely on Interface<cGraphics>::Get()). All are unregistered
+		// in one block at the very end of ~cEngine.
 		Log(" Creating graphics module\n");
 		mpGraphics = mpGameSetup->CreateGraphics();
-		
+		Interface<cGraphics>::Register(mpGraphics);
+		// The window (owned by the engine setup, created before the cGraphics
+		// ctor) is the single source of truth for the window/screen size.
+		Interface<cWindow>::Register(mpGraphics->GetWindow());
+		// Subscribe the window to the OS-event bus so it re-broadcasts its own
+		// resize event (cEngine is already Interface-registered above).
+		mpGraphics->GetWindow()->ConnectToEventBus();
+
 		Log(" Creating system module\n");
 		mpSystem = mpGameSetup->CreateSystem();
+		Interface<cSystem>::Register(mpSystem);
 
 		Log(" Creating resource module\n");
 		mpResources = mpGameSetup->CreateResources(mpGraphics);
+		Interface<cResources>::Register(mpResources);
 
 		Log(" Creating input module\n");
 		mpInput = mpGameSetup->CreateInput(mpGraphics);
+		Interface<cInput>::Register(mpInput);
+		// Subscribe the low-level input to the OS-event bus; it classifies device
+		// events into its per-frame list for the keyboard/mouse/gamepad devices.
+		mpInput->GetLowLevel()->ConnectToEventBus();
 
 		Log(" Creating sound module\n");
 		mpSound = mpGameSetup->CreateSound();
+		Interface<cSound>::Register(mpSound);
 
 		Log(" Creating physics module\n");
 		mpPhysics = mpGameSetup->CreatePhysics();
+		Interface<cPhysics>::Register(mpPhysics);
 
 		Log(" Creating ai module\n");
 		mpAI = mpGameSetup->CreateAI();
+		Interface<cAI>::Register(mpAI);
 
 		Log(" Creating gui module\n");
 		mpGui = hplNew(cGui,());
+		Interface<cGui>::Register(mpGui);
 
 		Log(" Creating haptic module\n");
 #ifdef INCLUDE_HAPTIC
 		mpHaptic = mpGameSetup->CreateHaptic();
+		if(mpHaptic) Interface<cHaptic>::Register(mpHaptic);
 #else
 		mpHaptic = NULL;
 #endif
@@ -259,6 +287,7 @@ namespace hpl {
 
 		Log(" Creating scene module\n");
 		mpScene = mpGameSetup->CreateScene(mpGraphics, mpResources, mpSound,mpPhysics,mpSystem,mpAI,mpGui,mpHaptic);
+		Interface<cScene>::Register(mpScene);
 
 		Log("--------------------------------------------------------\n\n");
 
@@ -267,28 +296,10 @@ namespace hpl {
 		mpResources->Init(mpGraphics,mpSystem, mpSound,mpScene,mpGui, mpPhysics);
 
 		//Init the graphics
-		mpGraphics->Init(	apVars->mGraphics.mvScreenSize.x,
-							apVars->mGraphics.mvScreenSize.y,
-							apVars->mGraphics.mlDisplay,
-							apVars->mGraphics.mlScreenBpp,
-							apVars->mGraphics.mbFullscreen,
-							apVars->mGraphics.msWindowCaption,
-							apVars->mGraphics.mvWindowPosition,
-							mpResources,alHplSetupFlags);
-		
+		mpGraphics->Init(apVars->mGraphics, mpResources, alHplSetupFlags);
+
 		//Init Sound
-		mpSound->Init(mpResources, apVars->mSound.mlSoundDeviceID,
-						apVars->mSound.mbUseEnvironmentalAudio,
-						apVars->mSound.mbUseHRTF,
-						apVars->mSound.mlMaxChannels,
-						apVars->mSound.mlStreamUpdateFreq,
-						apVars->mSound.mbUseThreading,
-						apVars->mSound.mbUseVoiceManagement,
-						apVars->mSound.mlMaxMonoChannelsHint,
-						apVars->mSound.mlMaxStereoChannelsHint,
-						apVars->mSound.mlStreamBufferSize,
-						apVars->mSound.mlStreamBufferCount,
-						apVars->mSound.mbLowLevelLogging);
+		mpSound->Init(mpResources, apVars->mSound);
 
 		//Init physics
 		mpPhysics->Init(mpResources);
@@ -307,6 +318,7 @@ namespace hpl {
 		//Create the updatehandler
 		Log(" Adding engine updates\n");
 		mpUpdater = hplNew( cUpdater,(mpSystem->GetLowLevel()));
+		Interface<cUpdater>::Register(mpUpdater);
 
 		//Add some loaded modules to the updater
 		mpUpdater->AddGlobalUpdate(mpInput);
@@ -332,17 +344,6 @@ namespace hpl {
 		
 		mpMutex = cPlatform::CreateMutEx();
 
-		//Since game is not done:
-		mbGameIsDone=false;
-
-		mbPaused = false;
-
-		mbRenderOnce = false;
-
-		mfGameTime =0;
-
-		mbLimitFPS = true;
-
 		mpFPSCounter = hplNew( cFPSCounter,(mpSystem->GetLowLevel()) );
 		mpFrameTimer = cPlatform::CreateTimer();
 		Log("--------------------------------------------------------\n\n");
@@ -357,27 +358,63 @@ namespace hpl {
 	{
 		Log("--------------------------------------------------------\n\n");
 
+		// Capture the window pointer while cGraphics is still alive; the deletes
+		// below free cGraphics (and the setup that owns the window), so the
+		// UnRegister block can only pass this dangling value (never deref it).
+		cWindow *pWindow = mpGraphics ? mpGraphics->GetWindow() : nullptr;
+
 		hplDelete(mpLogicTimer);
 		hplDelete(mpFPSCounter);
 		hplDelete(mpFrameTimer);
 		hplDelete(mpMutex);
-		
+
 		hplDelete(mpUpdater);
-		
+
 		hplDelete(mpGui);
 		hplDelete(mpScene);
 		if(mpHaptic) hplDelete(mpHaptic);
 		hplDelete(mpInput);
 		hplDelete(mpSound);
-		hplDelete(mpGraphics);
+		// Two-phase graphics teardown around cResources:
+		// Phase 1 destroys the render objects (materials, renderers, managed
+		// sets) and drains the deferral queue — this needs the cResources
+		// managers alive, since drained pins call their manager's FreeResource.
+		mpGraphics->DestroyRenderObjects();
+		// The manager destructors free their remaining GPU resources through
+		// Interface<cGraphics>::Get()->device and push final deferrals into
+		// graphicsDefer — cGraphics must still be alive and registered here.
 		hplDelete(mpResources);
+		// Phase 2 (~cGraphics -> Dispose): drain those final deferrals, then
+		// tear down the swapchain, uploader, device, and RI instance.
+		hplDelete(mpGraphics);
 		hplDelete(mpPhysics);
 		hplDelete(mpAI);
 		hplDelete(mpSystem);
-		
+
 		Log(" Deleting game setup provided by user\n");
 		hplDelete(mpGameSetup);
-		
+
+		// Unregister everything only now, after all deletes: unregistering
+		// earlier would break teardown — GPU-resource destructors that run
+		// inside ~cResources, ~cGraphics and the other module deletes reach
+		// the device via Interface<cGraphics>::Get(). The stored pointers are
+		// dangling at this point, but UnRegister only compares the pointer
+		// value (never dereferences); the calls exist so a subsequent engine
+		// instance can register cleanly.
+		if(mpHaptic) Interface<cHaptic>::UnRegister(mpHaptic);
+		Interface<cUpdater>::UnRegister(mpUpdater);
+		Interface<cScene>::UnRegister(mpScene);
+		Interface<cGui>::UnRegister(mpGui);
+		Interface<cAI>::UnRegister(mpAI);
+		Interface<cPhysics>::UnRegister(mpPhysics);
+		Interface<cSound>::UnRegister(mpSound);
+		Interface<cInput>::UnRegister(mpInput);
+		Interface<cResources>::UnRegister(mpResources);
+		Interface<cSystem>::UnRegister(mpSystem);
+		Interface<cWindow>::UnRegister(pWindow);
+		Interface<cGraphics>::UnRegister(mpGraphics);
+		Interface<cEngine>::UnRegister(this);
+
 		Log("HPL Exit was successful!\n");
 	}
 
@@ -417,9 +454,14 @@ namespace hpl {
 		
 		//cMemoryManager::SetLogCreation(true);
 
-		RI.BeginActiveSet();
+		mpGraphics->BeginActiveSet();
 		while(!GetGameIsDone())
 		{
+			//////////////////////////
+			//Drain the OS event queue first thing so resize/quit/input are
+			//serviced once per rendered frame, then broadcast on the bus.
+			PumpEvents();
+
 			//////////////////////////
 			//Check if application is in focus.
 			if(mbWaitIfAppOutOfFocus) CheckIfAppInFocusElseWait();
@@ -498,9 +540,9 @@ namespace hpl {
 			
 				
 				//Log("Swap done: %d\n", cPlatform::GetApplicationTime());
-				RI.CloseAndSubmitActiveSet();
+				mpGraphics->CloseAndSubmitActiveSet();
 				mpUpdater->RunMessage(eUpdateableMessage_OnPostBufferSwap);
-				RI.BeginActiveSet();
+				mpGraphics->BeginActiveSet();
 				bSwappedOnce =true;
 				if(mbRenderOnce) continue;
 			}
@@ -530,7 +572,6 @@ namespace hpl {
 				
 				START_TIMING(FlushRender)
 				// IMPORTANT: CHECK IF THIS IS PROBLEMATIC
-				// mpGraphics->GetLowLevel()->FlushRendering();
 				STOP_TIMING(FlushRender)
 				
 				//Update fps counter.
@@ -793,10 +834,10 @@ namespace hpl {
 		bool bHadMouseFocus = mbApplicationHasMouseFocus;
 		bool bHadVisibility = mbApplicationIsVisible;
 
-        iLowLevelGraphics *pllGfx = mpGraphics->GetLowLevel();
-		mbApplicationHasInputFocus = pllGfx->GetWindowInputFocus();
-		mbApplicationHasMouseFocus = pllGfx->GetWindowMouseFocus();
-		mbApplicationIsVisible = pllGfx->GetWindowIsVisible();
+		cWindow *pWindow = mpGraphics->GetWindow();
+		mbApplicationHasInputFocus = pWindow->HasInputFocus();
+		mbApplicationHasMouseFocus = pWindow->HasMouseFocus();
+		mbApplicationIsVisible = pWindow->IsVisible();
 
 		if(bHadInputFocus && !mbApplicationHasInputFocus) mpUpdater->RunMessage(eUpdateableMessage_AppLostInputFocus);
 		if(!bHadInputFocus && mbApplicationHasInputFocus) mpUpdater->RunMessage(eUpdateableMessage_AppGotInputFocus);
@@ -812,10 +853,14 @@ namespace hpl {
 
 	void cEngine::CheckIfAppInFocusElseWait()
 	{
-		iLowLevelGraphics *pllGfx = mpGraphics->GetLowLevel();
-		while(	pllGfx->GetWindowInputFocus()==false)
+		cWindow *pWindow = mpGraphics->GetWindow();
+		while(	pWindow->HasInputFocus()==false)
 		{
 			cPlatform::Sleep(100);
+			// Keep draining the OS queue while unfocused so SDL updates the
+			// focus flags and we can detect regaining focus (the pump no longer
+			// lives inside mpInput->Update()).
+			PumpEvents();
 			mpInput->Update(1.0f/10.0f);
 		}
 	}
@@ -834,6 +879,22 @@ namespace hpl {
 		{
 			mbDeviceRemoved = false;
 			mpUpdater->RunMessage(eUpdateableMessage_AppDeviceWasRemoved);
+		}
+	}
+
+	//-----------------------------------------------------------------------
+
+	void cEngine::PumpEvents()
+	{
+		// The single drain of the OS event queue: run first thing each frame so
+		// the queue is serviced once per rendered frame (not gated on the logic
+		// timer). Every event is broadcast on the bus; consumers classify it —
+		// the low-level input builds device state, each cWindow filters for its
+		// own window and re-broadcasts a typed resize.
+		SDL_Event sdlEvent;
+		while(SDL_PollEvent(&sdlEvent) != 0)
+		{
+			mOnSDLEvent.Signal(sdlEvent);
 		}
 	}
 

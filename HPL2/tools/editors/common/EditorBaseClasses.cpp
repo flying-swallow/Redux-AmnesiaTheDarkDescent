@@ -186,6 +186,7 @@ iEditorBase::iEditorBase(const tWString& asFileCategoryName, const tWString& asF
 	mbLayoutNeedsUpdate = false;
 	mbDestroyingEditor = false;
 	mbWorldModified = false;
+	mbOwnsEngine = false;
 
 	mbVisibilityTypes[eEditorVisibilityType_Icons] = true;
 	mbVisibilityTypes[eEditorVisibilityType_Areas] = true;
@@ -198,8 +199,6 @@ iEditorBase::iEditorBase(const tWString& asFileCategoryName, const tWString& asF
 	mpTempWorld=NULL;
 
 	mpEntityLoader=NULL;
-
-	mbDestroyEngineOnExit=false;
 
 	mbViewportLocked = false;
 
@@ -236,8 +235,13 @@ iEditorBase::~iEditorBase()
 	//Destroy all Widgets
 	mpEngine->GetGui()->DestroySet(mpSet);
 
-	if(mbDestroyEngineOnExit)
+	// Only destroy the engine if this editor created it itself (Init(NULL, ...));
+	// a borrowed engine is owned by whoever handed it in.
+	if(mbOwnsEngine)
+	{
 		DestroyHPLEngine(mpEngine);
+		mpEngine = nullptr;
+	}
 }
 
 //-----------------------------------------------------------------------
@@ -710,10 +714,8 @@ bool iEditorBase::OnChangeFlags(int alFlags)
 
 //-----------------------------------------------------------------------
 
-cEngine* iEditorBase::Init(cEngine* apEngine, const char* asName, const char* asBuildDate, bool abDestroyEngineOnExit)
+void iEditorBase::Init(cEngine* apEngine, const char* asName, const char* asBuildDate)
 {
-	mbDestroyEngineOnExit = abDestroyEngineOnExit;
-
 	LoadConfig();
 
 	bool bEngineWasCreated = apEngine!=NULL; //If engine was supplied as argument or not.
@@ -731,13 +733,14 @@ cEngine* iEditorBase::Init(cEngine* apEngine, const char* asName, const char* as
 	else
 	{
 		cEngineInitVars vars;
-		vars.mGraphics.mvScreenSize.x = cString::ToInt(GetSetting("ScreenWidth").c_str(),1024);
-		vars.mGraphics.mvScreenSize.y = cString::ToInt(GetSetting("ScreenHeight").c_str(), 768);
+		vars.mGraphics.mvScreenSize = cVector2l(cString::ToInt(GetSetting("ScreenWidth").c_str(), 1024),
+									   cString::ToInt(GetSetting("ScreenHeight").c_str(), 768));
 		vars.mGraphics.mbFullscreen = cString::ToBool(GetSetting("FullScreen").c_str(), false);
 		vars.mGraphics.msWindowCaption = msCaption;
 
-		iRenderer::SetShadowMapQuality(eShadowMapQuality_Medium);		
+		iRenderer::SetShadowMapQuality(eShadowMapQuality_Medium);
 
+		mbOwnsEngine = true;
 		mpEngine = CreateHPLEngine(eHplAPI_OpenGL, eHplSetup_All, &vars);
 		mpEngine->GetInput()->GetLowLevel()->LockInput(false);
 		mpEngine->GetInput()->GetLowLevel()->RelativeMouse(false);
@@ -827,8 +830,6 @@ cEngine* iEditorBase::Init(cEngine* apEngine, const char* asName, const char* as
 	// Final init stuff
 	Reset();
 	OnNew();
-
-	return mpEngine;
 }
 
 

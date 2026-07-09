@@ -367,16 +367,19 @@ public:
 	// Execution Control
 	/**
 	 * Init the editor
-	 * \param apEngine If this is null, then the editor will will init engine by itself and use settings from the setting file. Else current settings are used. 
+	 * \param apEngine If this is null, then the editor will will init engine by itself and use settings from the setting file. Else current settings are used.
 	 */
-	cEngine* Init(cEngine* apEngine, const char* asName, const char* asBuildDate, bool abDestroyEngineOnExit=false);
-	
+	void Init(cEngine* apEngine, const char* asName, const char* asBuildDate);
+
 
 	///////////////////////////////////
 	// HPL Engine stuff
 	cGuiSet* GetSet() { return mpSet; }
 	cGuiSkin* GetSkin() { return mpSkin; }
 	cEngine* GetEngine() { return mpEngine; }
+
+	// Enter the engine main loop (works for both a self-created and a borrowed engine).
+	void Run() { if(mpEngine) mpEngine->Run(); }
 
 	cViewport* GetEngineViewport() { return mpViewport; }
 
@@ -482,7 +485,6 @@ protected:
 
 	////////////////////////////////////////////////////////////////////////////////////
 	// Data
-	bool mbDestroyEngineOnExit;
 	bool mbDestroyingEditor;
 	bool mbWorldModified;
 	bool mbSelectionChanged;
@@ -525,7 +527,8 @@ protected:
 	std::map<tString, tString> mmapEditorSettings;
 
 	/////////////////////////
-	// Engine stuff	
+	// Engine stuff
+	bool mbOwnsEngine; // true iff this editor created mpEngine itself (Init(NULL, ...))
 	cEngine* mpEngine;
 	cGuiSet* mpSet;
 	cGuiSkin* mpSkin;

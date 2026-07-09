@@ -22,7 +22,7 @@
 
 #include "graphics/Graphics.h"
 #include "graphics/PostEffectHelpers.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIProgramHelpers.h"
 #include "graphics/RIRenderer.h"
 #include "system/Hasher.h"
@@ -41,7 +41,7 @@ struct RadialBlurPushConstants {
 cPostEffectType_RadialBlur::cPostEffectType_RadialBlur(cGraphics *apGraphics,
                                                        cResources *apResources)
     : iPostEffectType("RadialBlur", apGraphics, apResources) {
-    LoadSlangGraphics(&RI.device, m_program, apResources,
+    LoadSlangGraphics(&mpGraphics->device, m_program, apResources,
                       "posteffect_fullscreen.vert.spv",
                       "posteffect_radial_blur.frag.spv");
 }
@@ -81,7 +81,7 @@ void cPostEffect_RadialBlur::RenderEffect(const PostEffectRenderCtx &ctx) {
     beginDesc.renderArea.height = (int16_t)ctx.height;
     beginDesc.colorCount = 1;
     beginDesc.colors     = &color;
-    ctx.cmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
+    ctx.cmd->vk_d3d12_beginRendering(&mpGraphics->device, beginDesc);
 
     VkViewport viewport = {0.0f,
                            0.0f,
@@ -94,14 +94,14 @@ void cPostEffect_RadialBlur::RenderEffect(const PostEffectRenderCtx &ctx) {
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     PostEffectPipelineState state{};
-    InitPostEffectPipelineState(state, RIBootstrap::PogoColorFormat, false);
+    InitPostEffectPipelineState(state, cGraphics::PogoColorFormat, false);
 
     const hash_t pipelineHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    mpRadialBlurType->m_program.bindPipeline(&RI.device, ctx.cmd, pipelineHash,
+    mpRadialBlurType->m_program.bindPipeline(&mpGraphics->device, ctx.cmd, pipelineHash,
                                              "PostEffect_RadialBlur",
                                              &state.createInfo);
 
-    auto samplerDesc = RI.resolve_filter_descriptor(
+    auto samplerDesc = mpGraphics->resolve_filter_descriptor(
         eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
         eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 
@@ -110,7 +110,7 @@ void cPostEffect_RadialBlur::RenderEffect(const PostEffectRenderCtx &ctx) {
     bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
     bindings[1].descriptor = ctx.inputSrv;
     bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-    mpRadialBlurType->m_program.bindDescriptors(&RI.device, ctx.cmd,
+    mpRadialBlurType->m_program.bindDescriptors(&mpGraphics->device, ctx.cmd,
                                                 ctx.frameIndex, bindings, 2);
 
     RadialBlurPushConstants pc{};
@@ -122,7 +122,7 @@ void cPostEffect_RadialBlur::RenderEffect(const PostEffectRenderCtx &ctx) {
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
-    ctx.cmd->vk_d3d12_endRendering(&RI.device);
+    ctx.cmd->vk_d3d12_endRendering(&mpGraphics->device);
 }
 
 } // namespace hpl

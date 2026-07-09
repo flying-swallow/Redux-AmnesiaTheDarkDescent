@@ -31,7 +31,6 @@
 class cLuxMapHandler;
 class cLuxMapHelper;
 class cLuxInputHandler;
-class cLuxScreenCapture;
 
 class cLuxEffectHandler;
 
@@ -142,6 +141,10 @@ public:
 
 	void RunModuleMessage(eLuxUpdateableMessage aMessage, void * apData=NULL);
 
+	// cWindow::OnScreenSizeChanged() handler: re-derive the HUD virtual space
+	// and re-apply it to the HUD + direct-to-screen sets.
+	void OnScreenSizeChange(const cVector2l& avSize);
+
 	bool StartGame(const tString& asFile, const tString& asFolder, const tString& asStartPos);
 	bool StartCustomStory();
 
@@ -179,10 +182,6 @@ public:
 	
 	bool LoadLanguage(const tString& asName, bool abForceReload=false);
 	tString GetCurrentLanguage() const { return msCurrentLanguage; }
-
-	// The shared menu-backdrop capture (a global module). Reused by the
-	// inventory, journal and escape-menu backdrops.
-	cLuxScreenCapture* GetScreenCapture() { return mpScreenCapture; }
 
 	iLuxUpdateable *AddModule(iLuxUpdateable *apModule, const tString& asContainer);
 	iLuxUpdateable *AddGlobalModule(iLuxUpdateable *apModule);
@@ -247,7 +246,6 @@ public:
 	cLuxCredits *mpCredits;
 	cLuxDemoEnd* mpDemoEnd;
 	iLuxAchievementHandler* mpAchievementHandler;
-	cLuxScreenCapture *mpScreenCapture;
 
 	tString msGameName;
 	tWString msErrorMessage;
@@ -312,6 +310,9 @@ public:
     bool mbSaveConfigAtExit;
 
 	std::vector<iLuxUpdateable*> mvModules;
+
+	// Re-syncs the HUD virtual space when the swapchain changes size.
+	EventHandler<const cVector2l&> mScreenSizeChangedHandler;
 
 };
 

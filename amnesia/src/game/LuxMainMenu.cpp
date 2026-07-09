@@ -83,7 +83,6 @@ iLuxMainMenuWindow::iLuxMainMenuWindow(cGuiSet *apGuiSet, cGuiSkin *apGuiSkin)
 
 	mpWindow = NULL;
 
-	mvScreenSize = gpBase->mpEngine->GetGraphics()->GetLowLevel()->GetScreenSizeFloat();
 }
 
 void iLuxMainMenuWindow::SetActive(bool abX)
@@ -172,7 +171,6 @@ cLuxMainMenu::cLuxMainMenu() : iLuxUpdateable("LuxDebugHandler")
 
 	///////////////////////
 	// Load settings
-	mvScreenSize = gpBase->mpEngine->GetGraphics()->GetLowLevel()->GetScreenSizeFloat();
 
 	mfMainFadeInTime = gpBase->mpMenuCfg->GetFloat("Main","MainFadeInTime", 0);
 	mfMainFadeOutTimeFast = gpBase->mpMenuCfg->GetFloat("Main","MainFadeOutTimeFast", 0);
@@ -180,20 +178,13 @@ cLuxMainMenu::cLuxMainMenu() : iLuxUpdateable("LuxDebugHandler")
 	 
 	mfTopMenuFadeInTime = gpBase->mpMenuCfg->GetFloat("Main","TopMenuFadeInTime", 0);
 	mfTopMenuFadeOutTime = gpBase->mpMenuCfg->GetFloat("Main","TopMenuFadeOutTime", 0);
-	
-	mvTopMenuStartPos = gpBase->mpMenuCfg->GetVector2f("Main","TopMenuStartRelativePos", 0) * mvScreenSize;
-	mvTopMenuStartPos.z = 2;
-	mvTopMenuFontSize = gpBase->mpMenuCfg->GetVector2f("Main","TopMenuFontRelativeSize", 0) * mvScreenSize;
 
-	mvTopMenuStartPosInGame = gpBase->mpMenuCfg->GetVector2f("Main", "TopMenuStartRelativePosInGame", 0) * mvScreenSize;
-	mvTopMenuStartPosInGame.z = 2;
-	
-	mvTopMenuFontSize.x  *= (mvScreenSize.y / mvScreenSize.x) / (3.0f/4.0f);//Make font more narrow to compensate for wide screen.
+	//Null before RecalcLayout: it now reads mpLogoGfx to apply the aspect
+	//correction, and the gfx is only created later in CreateBackground.
+	mpLogoGfx = NULL;
 
-	mvLogoPos = gpBase->mpMenuCfg->GetVector2f("Main", "MainMenuLogoStartRelativePos", 0) * mvScreenSize;
-	mvLogoPos.z = 2;
-	mvLogoSize = gpBase->mpMenuCfg->GetVector2f("Main", "MainMenuLogoRelativeSize", 0) * mvScreenSize;
-	
+	RecalcLayout();
+
 	msMusic = gpBase->mpMenuCfg->GetString("Main", "Music", "");
 	msZoomSound = gpBase->mpMenuCfg->GetString("Main", "ZoomSound", "");
 
@@ -206,9 +197,6 @@ cLuxMainMenu::cLuxMainMenu() : iLuxUpdateable("LuxDebugHandler")
 
 	mpTopBackground = mpGui->CreateGfxFilledRect(cColor(0,1),eGuiMaterial_Alpha);
 	mpBlackFade = mpGui->CreateGfxFilledRect(cColor(0,1),eGuiMaterial_Alpha);
-
-	// Snapshot-blur pipeline for the in-game (escape) menu backdrop.
-	mScreenEffect.Init(mpGui, cLuxScreenEffect::Effect::Blur);
 
 	mpBgCamera = NULL;
 	mpBgWorld = NULL;
@@ -225,6 +213,13 @@ cLuxMainMenu::cLuxMainMenu() : iLuxUpdateable("LuxDebugHandler")
 	mpLastFocusedItem = NULL;
 	mpSaveCost = NULL;
 	mpNumTinderboxes = NULL;
+
+	//////////////////////////////
+	// React to swapchain resizes: menu layout is snapshotted from the screen
+	// size, so re-derive it and rebuild the GUI when the size changes.
+	mScreenSizeChangedHandler = EventHandler<const cVector2l&>(
+		[this](const cVector2l& avSize){ OnScreenSizeChange(avSize); });
+	mScreenSizeChangedHandler.Connect(Interface<cWindow>::Get()->OnScreenSizeChanged());
 
 	Reset();
 }
@@ -337,10 +332,21 @@ void cLuxMainMenu::OnEnterContainer(const tString& asOldContainer)
 	//Set up states and viewport
 	gpBase->mpInputHandler->ChangeState(eLuxInputState_MainMenu);
 
-	mpViewport->SetActive(true);
-	mpViewport->SetVisible(true);
+	// Startup main menu renders its own 3D background world in this viewport.
+	// The in-game (escape) menu instead renders our UI on the still-visible
+	// gameplay viewport (see CreateBackground), so keep our own viewport hidden
+	// there — only one viewport may target the swapchain at a time.
+	if(gpBase->mpMapHandler->MapIsLoaded()==false)
+	{
+		// Returning to the main menu from an in-game menu destroys the map but
+		// leaves the gameplay viewport visible; hide it so this menu's own
+		// viewport is the sole swapchain-compositing viewport.
+		gpBase->mpMapHandler->GetViewport()->SetVisible(false);
 
-	
+		mpViewport->SetActive(true);
+		mpViewport->SetVisible(true);
+	}
+
 //	gpBase->SetDrawOnLiveCursor(false);
 
 	mpGuiSet->SetActive(true);
@@ -471,21 +477,13 @@ void cLuxMainMenu::Update(float afTimeStep)
 
 void cLuxMainMenu::OnDraw(float afFrameTime)
 {
+	const cVector2f mvScreenSize = ScreenSizeF();
+
 	/////////////////////////////////
-	//Screen background (in-game escape menu: blurred snapshot)
-	if(mScreenEffect.GetScreenGfx())
+	//In-game escape menu: backdrop is the live blurred gameplay viewport (via
+	//the menu-backdrop post-effect); just draw the exit fade + top-menu backing.
+	if(gpBase->mpMapHandler->MapIsLoaded())
 	{
-		// Suppress the snapshot quads until the deferred OnPostRender capture
-		// has run once — otherwise we'd sample still-UNDEFINED texture memory.
-		if(mScreenEffect.IsCaptured())
-		{
-			if(mfMenuFadeAlpha>0)
-				mpGuiSet->DrawGfx(mScreenEffect.GetScreenGfx(),cVector3f(0,0,0),mvScreenSize);
-
-			if(mScreenEffect.GetScreenBgGfx())
-				mpGuiSet->DrawGfx(mScreenEffect.GetScreenBgGfx(),cVector3f(0,0,0.2f),mvScreenSize,cColor(1, 1-mfMenuFadeAlpha));
-		}
-
 		if(	mfMenuFadeAlpha > 0 && mbExiting && mExitMessage != eLuxMainMenuExit_ReturnToGame )
 		{
 			mpGuiSet->DrawGfx(	mpBlackFade,cVector3f(0,0,50), mvScreenSize, cColor(1 ,mfMenuFadeAlpha));
@@ -497,7 +495,7 @@ void cLuxMainMenu::OnDraw(float afFrameTime)
 							cColor(1 ,0.5f*mfTopMenuAlpha));
 	}
 	/////////////////////////////////
-	//3D background
+	//Startup main menu: live 3D background world in this viewport.
 	else
 	{
 		if(mfMenuFadeAlpha > 0)
@@ -506,14 +504,6 @@ void cLuxMainMenu::OnDraw(float afFrameTime)
 		if(mpLogoGfx)
 			mpGuiSet->DrawGfx( mpLogoGfx, mvLogoPos, mvLogoSize, cColor(1, mfTopMenuAlpha) );
 	}
-}
-
-//-----------------------------------------------------------------------
-
-void cLuxMainMenu::OnPostRender(float afFrameTime)
-{
-	// Deferred screen-snapshot capture for the in-game (escape) menu backdrop.
-	mScreenEffect.OnPostRender();
 }
 
 //-----------------------------------------------------------------------
@@ -814,6 +804,11 @@ void cLuxMainMenu::UpdateBase(float afTimeStep)
 			if(mfMenuFadeAlpha < 0.0f) mfMenuFadeAlpha =0;
 		}
 	}
+
+	// In-game escape menu: crossfade the live backdrop blur with the menu fade
+	// (mfMenuFadeAlpha 1 -> 0 = sharp -> blurred; reversed while exiting).
+	if(gpBase->mpMapHandler->MapIsLoaded())
+		gpBase->mpMapHandler->SetBackdropStrength(1.0f - mfMenuFadeAlpha);
 }
 
 //-----------------------------------------------------------------------
@@ -919,6 +914,53 @@ void cLuxMainMenu::SetTopMenuVisible(bool abVisible)
 
 //-----------------------------------------------------------------------
 
+cVector2f cLuxMainMenu::ScreenSizeF() const
+{
+	return Interface<cWindow>::Get()->GetSizeF();
+}
+
+//-----------------------------------------------------------------------
+
+void cLuxMainMenu::RecalcLayout()
+{
+	const cVector2f mvScreenSize = ScreenSizeF();
+
+	mvTopMenuStartPos = gpBase->mpMenuCfg->GetVector2f("Main","TopMenuStartRelativePos", 0) * mvScreenSize;
+	mvTopMenuStartPos.z = 2;
+	mvTopMenuFontSize = gpBase->mpMenuCfg->GetVector2f("Main","TopMenuFontRelativeSize", 0) * mvScreenSize;
+
+	mvTopMenuStartPosInGame = gpBase->mpMenuCfg->GetVector2f("Main", "TopMenuStartRelativePosInGame", 0) * mvScreenSize;
+	mvTopMenuStartPosInGame.z = 2;
+
+	mvTopMenuFontSize.x  *= (mvScreenSize.y / mvScreenSize.x) / (3.0f/4.0f);//Make font more narrow to compensate for wide screen.
+
+	mvLogoPos = gpBase->mpMenuCfg->GetVector2f("Main", "MainMenuLogoStartRelativePos", 0) * mvScreenSize;
+	mvLogoPos.z = 2;
+	mvLogoSize = gpBase->mpMenuCfg->GetVector2f("Main", "MainMenuLogoRelativeSize", 0) * mvScreenSize;
+
+	//The config only drives the logo height; the width must follow the image
+	//aspect. Re-apply it here so a resize keeps the logo undistorted (the
+	//correction in CreateBackground only runs once, on menu entry).
+	if(mpLogoGfx)
+	{
+		float fLogoAspect = mpLogoGfx->GetActiveSize().x/mpLogoGfx->GetActiveSize().y;
+		mvLogoSize.x = mvLogoSize.y*fLogoAspect;
+	}
+}
+
+//-----------------------------------------------------------------------
+
+void cLuxMainMenu::OnScreenSizeChange(const cVector2l& /*avSize*/)
+{
+	// The size is pulled live from cGraphics in RecalcLayout / draw; just
+	// recompute the layout and flag a deferred GUI rebuild. Sub-windows relayout
+	// when the GUI is recreated (they read the size live too).
+	RecalcLayout();
+	mbRecreateGui = true;
+}
+
+//-----------------------------------------------------------------------
+
 void cLuxMainMenu::CreateGui()
 {
 	/////////////////////////////
@@ -983,6 +1025,7 @@ void cLuxMainMenu::CreateTopMenuGui()
 	cWidgetLabel *pLabel =0;
 	cWidgetLabel *pSaveLabel = 0;
 
+	const cVector2f mvScreenSize = ScreenSizeF();
 
 	float fInvScreenRatio = mvScreenSize.y / mvScreenSize.x;
 	float fWidthMul = fInvScreenRatio / (3.0f/4.0f);
@@ -1265,11 +1308,13 @@ void cLuxMainMenu::CreateTopMenuGui()
 void cLuxMainMenu::CreateBackground()
 {
 	////////////////////////////
-	// A map is loaded, use a screen shot as background.
+	// A map is loaded (in-game escape menu): the backdrop is the live (paused)
+	// gameplay viewport, blurred by a post-effect instead of a frozen snapshot.
+	// Render our UI on that viewport and switch the blur on.
 	if(gpBase->mpMapHandler->MapIsLoaded())
 	{
-		mScreenEffect.CreateTextures();
-		mScreenEffect.RequestCapture();
+		gpBase->mpMapHandler->GetViewport()->AddGuiSet(mpGuiSet);
+		gpBase->mpMapHandler->EnableBackdrop(eLuxMenuBackdrop_Blur);
 	}
 	////////////////////////////
 	// No map is loaded, create scene.
@@ -1294,7 +1339,7 @@ void cLuxMainMenu::CreateBackground()
 		mpBgCamera->SetRotateMode(eCameraRotateMode_Matrix);
 
 		//Camera Settings
-		cVector2f vScreenSize = gpBase->mpEngine->GetGraphics()->GetLowLevel()->GetScreenSizeFloat();
+		cVector2f vScreenSize = Interface<cWindow>::Get()->GetSizeF();
 		float mfAspect = vScreenSize.x / vScreenSize.y;
 		mpBgCamera->SetFOV(mfBgCamera_FOV);
 		mpBgCamera->SetAspect(mfAspect);
@@ -1340,10 +1385,12 @@ void cLuxMainMenu::DestroyBackground()
 		mpBgWorld = NULL;
 	}
 	///////////////////////////
-	//No background world — the in-game menu used a screen snapshot instead.
+	//No background world — the in-game (escape) menu rendered our UI on the
+	//gameplay viewport with the live blur backdrop; undo both.
 	else
 	{
-		mScreenEffect.Destroy();
+		gpBase->mpMapHandler->GetViewport()->RemoveGuiSet(mpGuiSet);
+		gpBase->mpMapHandler->DisableBackdrop();
 	}
 }
 

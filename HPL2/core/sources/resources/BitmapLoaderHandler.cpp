@@ -100,7 +100,6 @@ namespace hpl {
 	{
 		iBitmapLoader *pBitmapLoader = static_cast<iBitmapLoader*>(apLoader);
 
-		pBitmapLoader->mpLowLevelGraphics = mpGraphics->GetLowLevel();
 	}
 	
 	//-----------------------------------------------------------------------

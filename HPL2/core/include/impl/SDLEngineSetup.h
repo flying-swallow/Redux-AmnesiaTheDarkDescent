@@ -25,8 +25,8 @@
 
 namespace hpl {
 
-	class iLowLevelSystem;;
-	class iLowLevelGraphics;
+	class iLowLevelSystem;
+	class cWindow;
 	class iLowLevelInput;
 	class iLowLevelResources;
 	class iLowLevelSound;
@@ -52,7 +52,7 @@ namespace hpl {
 
 	private:
 		iLowLevelSystem *mpLowLevelSystem;
-		iLowLevelGraphics *mpLowLevelGraphics;
+		cWindow *mpWindow;
 		iLowLevelInput *mpLowLevelInput;
 		iLowLevelResources *mpLowLevelResources;
 //		#ifdef _WIN32

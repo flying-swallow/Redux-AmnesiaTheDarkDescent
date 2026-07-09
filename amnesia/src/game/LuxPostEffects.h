@@ -25,6 +25,7 @@
 #include "LuxBase.h"
 #include "graphics/Image.h"
 #include "graphics/RIProgram.h"
+#include "graphics/PostEffectHelpers.h"
 
 //----------------------------------------
 
@@ -71,6 +72,49 @@ private:
 	float mfWaveAlpha;
 	float mfZoomAlpha;
 	float mfWaveSpeed;
+};
+
+
+//----------------------------------------
+
+// Live backdrop for the inventory / journal / escape menu. Replaces the old
+// cLuxScreenCapture snapshot + cLuxScreenEffect GUI quads: the gameplay
+// viewport keeps rendering (world simulation paused) and this effect blurs or
+// desaturate/darkens the final display-space image in place, at negative
+// priority (post-tonemap). The active menu drives mfStrength (0 = untouched
+// scene, 1 = full effect) for the fade-in crossfade, and toggles SetActive.
+//
+// It reuses the shaders the snapshot path used:
+//   Blur            -> posteffect_bloom_blur.frag (separable H/V ping-pong)
+//   DesaturateDarken-> inventory_post.frag (single pass, strength-lerped)
+
+class cLuxPostEffect_MenuBackdrop : public iLuxPostEffect
+{
+public:
+	enum class Mode { Blur, DesaturateDarken };
+
+	cLuxPostEffect_MenuBackdrop(cGraphics *apGraphics, cResources *apResources);
+	~cLuxPostEffect_MenuBackdrop();
+
+	void SetMode(Mode aMode){ mMode = aMode; }
+	void SetStrength(float afX){ mfStrength = afX; }
+
+private:
+	void RenderEffect(const hpl::PostEffectRenderCtx &ctx) override;
+	void RenderDesaturate(const hpl::PostEffectRenderCtx &ctx);
+	void RenderBlur(const hpl::PostEffectRenderCtx &ctx);
+	void EnsureScratch(uint32_t alWidth, uint32_t alHeight);
+
+	hpl::RIProgram m_blurProgram;  // posteffect_bloom_blur.frag
+	hpl::RIProgram m_desatProgram; // inventory_post.frag
+
+	// Ping-pong scratch for the separable blur (Blur mode only). Re-created when
+	// the pogo dimensions change, so window resize is handled by the normal path.
+	hpl::PostEffectColorTarget m_scratchA;
+	hpl::PostEffectColorTarget m_scratchB;
+
+	Mode  mMode      = Mode::Blur;
+	float mfStrength = 0.0f;
 };
 
 

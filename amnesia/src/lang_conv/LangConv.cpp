@@ -21,7 +21,6 @@
 
 using namespace hpl;
 
-cEngine *gpEngine=NULL;
 
 //------------------------------------------
 
@@ -168,7 +167,7 @@ void ConverLangToText()
 {
 	//////////////////////////
 	// Load lang file
-	cLanguageFile *pLangFile = hplNew(cLanguageFile, (gpEngine->GetResources()));
+	cLanguageFile *pLangFile = hplNew(cLanguageFile, (Interface<cEngine>::Get()->GetResources()));
 	printf("Loading file %s\n", cString::To8Char(gsFilePath).c_str());
 	if(pLangFile->AddFromFile(cString::To8Char(gsFilePath), false)==false)
 	{
@@ -316,8 +315,8 @@ void ConverTextToLang()
 int main(int argc, const char* argv[])
 {
 	cEngineInitVars vars;
-	gpEngine = CreateHPLEngine(eHplAPI_OpenGL, 0, &vars);
-	
+	cEngine* gpEngine = CreateHPLEngine(eHplAPI_OpenGL, 0, &vars);
+
 	ParseCommandLine(argc, argv);
 
 	if(glTypeOfConv==0)
@@ -325,7 +324,6 @@ int main(int argc, const char* argv[])
 	else if(glTypeOfConv==1)
 		ConverTextToLang();
 
-	
 	DestroyHPLEngine(gpEngine);
 	
 	return 0;

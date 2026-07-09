@@ -47,7 +47,7 @@ namespace hpl {
 
 		hplDelete(mpSoundHandler);
 		hplDelete(mpMusicHandler);
-		
+
 		Log("--------------------------------------------------------\n\n");
 	}
 
@@ -69,19 +69,17 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cSound::Init(	cResources *apResources, int alSoundDeviceID, bool abUseEnvAudio, bool abUseHRTF, int alMaxChannels,
-						int alStreamUpdateFreq, bool abUseThreading, bool abUseVoiceManagement,
-						int alMaxMonoSourceHint, int alMaxStereoSourceHint,
-						int alStreamingBufferSize, int alStreamingBufferCount, bool abEnableLowLevelLog)
+	void cSound::Init(cResources *apResources, const cEngineInitVars::cSoundVars& aVars)
 	{
 		mpResources = apResources;
-		
+
 		Log("Initializing Sound Module\n");
 		Log("--------------------------------------------------------\n");
 
-		mpLowLevelSound->Init(	alSoundDeviceID, abUseEnvAudio, abUseHRTF, alMaxChannels, alStreamUpdateFreq, abUseThreading,
-								abUseVoiceManagement, alMaxMonoSourceHint, alMaxStereoSourceHint,
-								alStreamingBufferSize, alStreamingBufferCount, abEnableLowLevelLog);
+		mpLowLevelSound->Init(	aVars.mlSoundDeviceID, aVars.mbUseEnvironmentalAudio, aVars.mbUseHRTF,
+								aVars.mlMaxChannels, aVars.mlStreamUpdateFreq, aVars.mbUseThreading,
+								aVars.mbUseVoiceManagement, aVars.mlMaxMonoChannelsHint, aVars.mlMaxStereoChannelsHint,
+								aVars.mlStreamBufferSize, aVars.mlStreamBufferCount, aVars.mbLowLevelLogging);
 		
 		mpSoundHandler = hplNew( cSoundHandler, (mpLowLevelSound, mpResources) );
 		mpMusicHandler = hplNew( cMusicHandler, (mpLowLevelSound, mpResources) );

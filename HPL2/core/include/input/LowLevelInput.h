@@ -52,6 +52,13 @@ namespace hpl {
 		 */
 		virtual void EndInputUpdate()=0;
 
+		/**
+		 * Subscribe the low-level input to cEngine's OS-event bus. Called once,
+		 * after cEngine is Interface-registered. Default no-op for backends that
+		 * do not source events from the bus.
+		 */
+		virtual void ConnectToEventBus() {}
+
 		virtual bool isQuitMessagePosted()=0;
         virtual void resetQuitMessagePosted()=0;
 

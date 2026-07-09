@@ -28,7 +28,6 @@
 
 namespace hpl {
 
-	class iLowLevelGraphics;
 	class cBitmap;
 
 	class iBitmapLoader : public iResourceLoader
@@ -41,7 +40,6 @@ namespace hpl {
 		virtual bool SaveBitmap(cBitmap* apBitmap,const tWString& asFile, tBitmapLoadFlag aFlags)=0;
 		
 	protected:
-		iLowLevelGraphics *mpLowLevelGraphics;
 	};
 
 };

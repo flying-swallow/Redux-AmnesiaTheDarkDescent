@@ -37,7 +37,6 @@
 
 #include "system/LowLevelSystem.h"
 #include "graphics/VertexBuffer.h"
-#include "graphics/LowLevelGraphics.h"
 #include "math/Math.h"
 #include "resources/BinaryBuffer.h"
 
@@ -686,55 +685,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	static iLowLevelGraphics *gpLowLevelGraphics;
 	static cColor gDebugColor;
-
-	static void RenderDebugPolygon(void* apUserData, int alVertexCount, const dFloat* apFaceArray, int alFaceId)
-	{
-		int i;
-
-		i = alVertexCount - 1;
-		cVector3f vP0(apFaceArray[i * 3 + 0], apFaceArray[i * 3 + 1], apFaceArray[i * 3 + 2]);
-		for (i = 0; i < alVertexCount; ++i)
-		{
-			cVector3f vP1 (apFaceArray[i * 3 + 0], apFaceArray[i * 3 + 1], apFaceArray[i * 3 + 2]);
-
-			// gpLowLevelGraphics->DrawLine(vP0, vP1,gDebugColor); // IMPORTANT: CHECK IF THIS IS PROBLEMATIC
-
-			vP0 = vP1;
-		}
-
-	}
-
-	//-----------------------------------------------------------------------
-
-	void cPhysicsWorldNewton::RenderShapeDebugGeometry(	iCollideShape *apShape, const cMatrixf& a_mtxTransform, 
-														iLowLevelGraphics *apLowLevel, const cColor& aColor)
-	{
-		gpLowLevelGraphics = apLowLevel;
-		gDebugColor = aColor;
-
-		cCollideShapeNewton *pNewtonShape = static_cast<cCollideShapeNewton*>(apShape);
-    auto transpose = a_mtxTransform.GetTranspose();
-		NewtonCollisionForEachPolygonDo (	pNewtonShape->GetNewtonCollision(), 
-											&transpose.m[0][0],
-											RenderDebugPolygon,
-											NULL);
-	}
-	
-	//-----------------------------------------------------------------------
-
-	void cPhysicsWorldNewton::RenderDebugGeometry(iLowLevelGraphics *apLowLevel,const cColor &aColor)
-	{
-		tPhysicsBodyListIt it = mlstBodies.begin();
-		for(;it != mlstBodies.end(); ++it)
-		{
-			iPhysicsBody *pBody = *it;
-			pBody->RenderDebugGeometry(apLowLevel,aColor);
-		}
-	}
-
-	//-----------------------------------------------------------------------
 
 	static DebugDraw* gpDebugDraw = NULL;
 

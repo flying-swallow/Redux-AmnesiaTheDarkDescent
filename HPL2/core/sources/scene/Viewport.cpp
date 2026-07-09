@@ -21,7 +21,7 @@
 
 #include "graphics/PostEffectComposite.h"
 #include "graphics/PostEffectHelpers.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
 #include "graphics/Renderer.h"
@@ -68,10 +68,10 @@ namespace hpl {
 	{
 		// GPU teardown of the viewport-owned targets: everything goes to the
 		// frame freelist — freed once the in-flight pipeline is done with it
-		// (or in RIBootstrap::Dispose at shutdown). No stall. The backend
+		// (or in cGraphics::Dispose at shutdown). No stall. The backend
 		// state's resources are deferred by its destructor when m_state is
 		// destroyed below; only the pogo buffer needs an explicit hand-off.
-		RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
+		cGraphics::FrameContext *cntx = Interface<cGraphics>::Get()->GetActiveSet();
 		ReleasePogoBuffer(cntx);
 	}
 
@@ -89,8 +89,9 @@ namespace hpl {
 			[](auto &&arg) -> cVector2l {
 				using T = std::decay_t<decltype(arg)>;
 				if constexpr (std::is_same_v<T, TargetSwapchain>) {
-					return cVector2l((int)RI.swapchain.width,
-									 (int)RI.swapchain.height);
+					cGraphics* pGraphics = Interface<cGraphics>::Get();
+					return cVector2l((int)pGraphics->swapchain->width,
+									 (int)pGraphics->swapchain->height);
 				} else {
 					return cVector2l((int)arg.width, (int)arg.height);
 				}
@@ -106,7 +107,7 @@ namespace hpl {
 				if constexpr (std::is_same_v<T, std::monostate>) {
 					return nullptr;
 				} else {
-					return arg.width != 0 ? arg.depthView[RI.swapchainIndex].Get()
+					return arg.width != 0 ? arg.depthView[Interface<cGraphics>::Get()->swapchainIndex].Get()
 										  : nullptr;
 				}
 			},
@@ -121,7 +122,7 @@ namespace hpl {
 				if constexpr (std::is_same_v<T, std::monostate>) {
 					return nullptr;
 				} else {
-					return arg.width != 0 ? arg.depthTextures[RI.swapchainIndex].Get()
+					return arg.width != 0 ? arg.depthTextures[Interface<cGraphics>::Get()->swapchainIndex].Get()
 										  : nullptr;
 				}
 			},
@@ -229,11 +230,12 @@ bool CreateViewportAttachmentTexture(struct RIDevice *device, uint32_t width,
 
 void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 									  RISharedPointer<RITextureView> *view) {
+	cGraphics* pGraphics = Interface<cGraphics>::Get();
 	if (!view->isEmpty()) {
-		RI.graphicsDefer.push(*view);
+		pGraphics->graphicsDefer.push(*view);
 	}
 	if (!tex->isEmpty()) {
-		RI.graphicsDefer.push(*tex);
+		pGraphics->graphicsDefer.push(*tex);
 	}
 	*view = {};
 	*tex = {};
@@ -247,7 +249,7 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 
 	//-----------------------------------------------------------------------
 
-	RI_PogoBuffer* cViewport::PreparePogoBuffer(RIBootstrap::FrameContext *cntx)
+	RI_PogoBuffer* cViewport::PreparePogoBuffer(cGraphics::FrameContext *cntx)
 	{
 		const cVector2l vSize = GetTargetSize();
 		const uint32_t alWidth = (uint32_t)vSize.x;
@@ -266,26 +268,27 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 		// stall.
 		ReleasePogoBuffer(cntx);
 
-		RI_PogoBufferInit(&RI.device, &mPogoBuffer, alWidth, alHeight,
-		                  RIBootstrap::PogoColorFormat);
+		RI_PogoBufferInit(&Interface<cGraphics>::Get()->device, &mPogoBuffer, alWidth, alHeight,
+		                  cGraphics::PogoColorFormat);
 		mlPogoWidth = alWidth;
 		mlPogoHeight = alHeight;
 		return &mPogoBuffer;
 	}
 
-	void cViewport::ReleasePogoBuffer(RIBootstrap::FrameContext *cntx)
+	void cViewport::ReleasePogoBuffer(cGraphics::FrameContext *cntx)
 	{
+		cGraphics* pGraphics = Interface<cGraphics>::Get();
 		if(mlPogoWidth == 0) return;
 
 		for(size_t p = 0; p < 2; p++)
 		{
 			if(!mPogoBuffer.pogoView[p].isEmpty())
 			{
-				RI.graphicsDefer.push(mPogoBuffer.pogoView[p]);
+				pGraphics->graphicsDefer.push(mPogoBuffer.pogoView[p]);
 			}
 			if(!mPogoBuffer.textures[p].isEmpty())
 			{
-				RI.graphicsDefer.push(mPogoBuffer.textures[p]);
+				pGraphics->graphicsDefer.push(mPogoBuffer.textures[p]);
 			}
 			mPogoBuffer.pogoView[p] = {};
 			mPogoBuffer.textures[p] = {};
@@ -330,6 +333,7 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 						  uint32_t alWidth, uint32_t alHeight, enum RI_Format_e aFormat,
 						  uint32_t alHashSalt, const char *asLabel)
 	{
+		cGraphics* pGraphics = Interface<cGraphics>::Get();
 		RITextureView colorView = {};
 		colorView.vk.image = aView;
 		RIRenderingAttachment color = {};
@@ -342,12 +346,12 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 		beginDesc.renderArea.height = (int16_t)alHeight;
 		beginDesc.colorCount = 1;
 		beginDesc.colors     = &color;
-		RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
+		pGraphics->primary.cmds[0].vk_d3d12_beginRendering(&pGraphics->device, beginDesc);
 
 		VkViewport vp = { 0.0f, 0.0f, (float)alWidth, (float)alHeight, 0.0f, 1.0f };
-		vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &vp);
+		vkCmdSetViewport(pGraphics->primary.cmds[0].vk.cmd, 0, 1, &vp);
 		VkRect2D scr = { { 0, 0 }, { alWidth, alHeight } };
-		vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &scr);
+		vkCmdSetScissor(pGraphics->primary.cmds[0].vk.cmd, 0, 1, &scr);
 
 		PostEffectPipelineState blitState{};
 		InitPostEffectPipelineState(blitState, aFormat, false);
@@ -356,10 +360,10 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 		// targets sharing a salt but differing in format must not collide.
 		const hash_t kHash =
 			hash_u32(hash_u32(HASH_INITIAL_VALUE, alHashSalt), (uint32_t)aFormat);
-		RI.postEffectBlit.bindPipeline(&RI.device, &RI.primary.cmds[0], kHash,
+		pGraphics->postEffectBlit.bindPipeline(&pGraphics->device, &pGraphics->primary.cmds[0], kHash,
 		                               asLabel, &blitState.createInfo);
 
-		auto samplerDesc = RI.resolve_filter_descriptor(
+		auto samplerDesc = pGraphics->resolve_filter_descriptor(
 		    eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 		    eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 		RIProgram::DescriptorBinding bindings[2] = {};
@@ -367,27 +371,28 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 		bindings[0].handle     = DescriptorBindingID::Create("inputSampler");
 		bindings[1].descriptor = RI_PogoBufferShaderResource(apPogo);
 		bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
-		RI.postEffectBlit.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, bindings, 2);
+		pGraphics->postEffectBlit.bindDescriptors(&pGraphics->device, &pGraphics->primary.cmds[0], pGraphics->frameIndex, bindings, 2);
 
-		vkCmdDraw(RI.primary.cmds[0].vk.cmd, 3, 1, 0, 0);
-		RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
+		vkCmdDraw(pGraphics->primary.cmds[0].vk.cmd, 3, 1, 0, 0);
+		pGraphics->primary.cmds[0].vk_d3d12_endRendering(&pGraphics->device);
 	}
 
 	} // namespace
 
 	//-----------------------------------------------------------------------
 
-	bool cViewport::Evaluate(RIBootstrap::FrameContext *cntx, float afFrameTime, tFlag alFlags)
+	bool cViewport::Evaluate(cGraphics::FrameContext *cntx, float afFrameTime, tFlag alFlags)
 	{
+		cGraphics* pGraphics = Interface<cGraphics>::Get();
 		// Once per frame: the renderers' initial UNDEFINED backbuffer barriers
 		// have an empty before-scope, so a second draw of the same per-
 		// swapchain-image backbuffer would race this evaluation's feed blit.
-		if(mlLastEvaluatedFrame == RI.frameIndex)
+		if(mlLastEvaluatedFrame == pGraphics->frameIndex)
 		{
 			assert(false && "cViewport::Evaluate called twice in one frame");
 			return false;
 		}
-		mlLastEvaluatedFrame = RI.frameIndex;
+		mlLastEvaluatedFrame = pGraphics->frameIndex;
 
 		cFrustum* pFrustum = mpCamera ? mpCamera->GetFrustum() : NULL;
 
@@ -400,13 +405,13 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 			const cVector2l vPreSize = GetTargetSize();
 			WorldDrawCtx preCtx{};
 			preCtx.viewport   = this;
-			preCtx.cmd        = &RI.primary.cmds[0];
-			preCtx.device     = &RI.device;
+			preCtx.cmd        = &pGraphics->primary.cmds[0];
+			preCtx.device     = &pGraphics->device;
 			preCtx.frame      = cntx;
 			preCtx.frustum    = pFrustum;
 			preCtx.width      = (uint32_t)vPreSize.x;
 			preCtx.height     = (uint32_t)vPreSize.y;
-			preCtx.frameIndex = RI.frameIndex;
+			preCtx.frameIndex = pGraphics->frameIndex;
 			preCtx.frameTime  = afFrameTime;
 			m_onPreWorldDraw.Signal(preCtx);
 			if (worldRendered) {
@@ -428,13 +433,13 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 				// SHADER_READ for the feed blit below.
 				PostTranslucenceDrawCtx transCtx{};
 				transCtx.viewport   = this;
-				transCtx.cmd        = &RI.primary.cmds[0];
-				transCtx.device     = &RI.device;
+				transCtx.cmd        = &pGraphics->primary.cmds[0];
+				transCtx.device     = &pGraphics->device;
 				transCtx.frame      = cntx;
 				transCtx.frustum    = pFrustum;
 				transCtx.width      = (uint32_t)preCtx.width;
 				transCtx.height     = (uint32_t)preCtx.height;
-				transCtx.frameIndex = RI.frameIndex;
+				transCtx.frameIndex = pGraphics->frameIndex;
 				transCtx.frameTime  = afFrameTime;
 				transCtx.depthView  = GetDepthView();   // pogo not created yet
 				m_onPostTranslucenceDraw.Signal(transCtx);
@@ -476,7 +481,7 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 				RI_PogoAttachmentBarrier(
 							 pPogo->textures[pPogo->attachmentIndex].Get(), /*initial=*/true),
 			};
-			RI.primary.cmds[0].vk_d3d12_textureBarriers<3>(3, pre);
+			pGraphics->primary.cmds[0].vk_d3d12_textureBarriers<3>(3, pre);
 
 			VkImageBlit region = {};
 			region.srcSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
@@ -486,7 +491,7 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 			region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
 			region.dstOffsets[0]  = { 0, 0, 0 };
 			region.dstOffsets[1]  = { (int32_t)backBuffer.width, (int32_t)backBuffer.height, 1 };
-			vkCmdBlitImage(RI.primary.cmds[0].vk.cmd, srcImage,
+			vkCmdBlitImage(pGraphics->primary.cmds[0].vk.cmd, srcImage,
 			               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
 			               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region,
 			               VK_FILTER_NEAREST);
@@ -502,27 +507,27 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 							 RI_RESOURCE_STATE_COPY_DST, RI_STAGE_BLIT,
 							 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT),
 			};
-			RI.primary.cmds[0].vk_d3d12_textureBarriers<2>(2, post);
+			pGraphics->primary.cmds[0].vk_d3d12_textureBarriers<2>(2, post);
 
 			cPostEffectComposite *pComposite = GetPostEffectComposite();
 			if(pComposite && (alFlags & tSceneRenderFlag_PostEffects) &&
 			   pComposite->HasActiveEffects())
 			{
-				pComposite->Render(afFrameTime, &RI.primary.cmds[0], pPogo,
+				pComposite->Render(afFrameTime, &pGraphics->primary.cmds[0], pPogo,
 				                   (uint32_t)vTargetSize.x, (uint32_t)vTargetSize.y,
-				                   RI.frameIndex);
+				                   pGraphics->frameIndex);
 			}
 
 			// The pogo read half holds the final (post-processed) image.
 			PostWorldDrawCtx postCtx{};
 			postCtx.viewport   = this;
-			postCtx.cmd        = &RI.primary.cmds[0];
-			postCtx.device     = &RI.device;
+			postCtx.cmd        = &pGraphics->primary.cmds[0];
+			postCtx.device     = &pGraphics->device;
 			postCtx.frame      = cntx;
 			postCtx.frustum    = pFrustum;
 			postCtx.width      = (uint32_t)vTargetSize.x;
 			postCtx.height     = (uint32_t)vTargetSize.y;
-			postCtx.frameIndex = RI.frameIndex;
+			postCtx.frameIndex = pGraphics->frameIndex;
 			postCtx.frameTime  = afFrameTime;
 			postCtx.pogo       = pPogo;
 			postCtx.depthView  = GetDepthView();
@@ -542,13 +547,13 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 		const cVector2l vDeliverSize = GetTargetSize();
 		WorldDrawCtx deliverCtx{};
 		deliverCtx.viewport   = this;
-		deliverCtx.cmd        = &RI.primary.cmds[0];
-		deliverCtx.device     = &RI.device;
+		deliverCtx.cmd        = &pGraphics->primary.cmds[0];
+		deliverCtx.device     = &pGraphics->device;
 		deliverCtx.frame      = cntx;
 		deliverCtx.frustum    = pFrustum;
 		deliverCtx.width      = (uint32_t)vDeliverSize.x;
 		deliverCtx.height     = (uint32_t)vDeliverSize.y;
-		deliverCtx.frameIndex = RI.frameIndex;
+		deliverCtx.frameIndex = pGraphics->frameIndex;
 		deliverCtx.frameTime  = afFrameTime;
 		if(const auto *pView = std::get_if<TargetView>(&mTarget))
 		{
@@ -559,14 +564,14 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 				// rewritten; also covers its first use) -> COLOR for the
 				// delivery draw, then -> SHADER_READ for the consumer.
 				RITexture *pViewTexture = const_cast<RITexture *>(&pView->texture);
-				RI.primary.cmds[0].vk_d3d12_textureBarrier(ColorBarrier(pViewTexture,
+				pGraphics->primary.cmds[0].vk_d3d12_textureBarrier(ColorBarrier(pViewTexture,
 								 RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_FRAGMENT,
 								 RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE));
 
 				DrawPogoToTarget(pPogo, pView->view.vk.image, pView->width, pView->height,
 								 pView->format, 2u, "PostEffect.targetViewBlit");
 
-				RI.primary.cmds[0].vk_d3d12_textureBarrier(ColorBarrier(pViewTexture,
+				pGraphics->primary.cmds[0].vk_d3d12_textureBarrier(ColorBarrier(pViewTexture,
 								 RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE,
 								 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT));
 
@@ -586,14 +591,14 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 				// Swapchain images are raw VkImage handles — bridge through
 				// a stack RITexture for the barrier.
 				RITexture swapchainTexture = {};
-				swapchainTexture.vk.image = RI.swapchain.vk.images[RI.swapchainIndex];
-				RI.primary.cmds[0].vk_d3d12_textureBarrier(ColorBarrier(&swapchainTexture,
+				swapchainTexture.vk.image = pGraphics->swapchain->vk.images[pGraphics->swapchainIndex];
+				pGraphics->primary.cmds[0].vk_d3d12_textureBarrier(ColorBarrier(&swapchainTexture,
 								 RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_NONE,
 								 RI_RESOURCE_STATE_RENDER_TARGET, RI_STAGE_NONE));
 
-				DrawPogoToTarget(pPogo, RI.swapchainView[RI.swapchainIndex].vk.image,
-								 RI.swapchain.width, RI.swapchain.height,
-								 (RI_Format_e)RI.swapchain.format, 1u,
+				DrawPogoToTarget(pPogo, pGraphics->swapchain->textureView(pGraphics->swapchainIndex)->vk.image,
+								 pGraphics->swapchain->width, pGraphics->swapchain->height,
+								 (RI_Format_e)pGraphics->swapchain->format, 1u,
 								 "PostEffect.tailBlit");
 
 				m_onPostDelivery.Signal(deliverCtx);

@@ -33,7 +33,6 @@ namespace hpl {
 	class cResources;
 	class cGraphics;
 	class cFileSearcher;
-	class iLowLevelGraphics;
 	class cMaterial;
 	class cVertexBuffer;
 	
@@ -126,7 +125,6 @@ namespace hpl {
 	private:
 		cMaterialManager* mpMaterialManager;
 		cFileSearcher *mpFileSearcher;
-		iLowLevelGraphics* mpLowLevelGraphics;
 		
 		SharedResourceHandle<cMaterial> mpMaterial;
 		cVertexBuffer* mpVtxBuffer;

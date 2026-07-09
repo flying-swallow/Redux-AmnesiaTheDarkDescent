@@ -49,7 +49,6 @@
 #include "graphics/Image.h"
 #include "graphics/Mesh.h"
 #include "graphics/SubMesh.h"
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/VertexBuffer.h"
 #include "graphics/MeshCreator.h"
 
@@ -595,7 +594,7 @@ namespace hpl {
 			
 			////////////////////
 			// Vertex data
-			cVertexBuffer* pVtxBuff = mpGraphics->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri,
+			cVertexBuffer* pVtxBuff = new cVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri,
 																					eVertexBufferUsageType_Static, 0, 0);
 			{
 				int lVtxNum = binBuff.GetInt32();
@@ -1356,7 +1355,7 @@ namespace hpl {
 
 		///////////////////////////////////////////
 		//Create the vertex buffer (skipping color!)
-		cVertexBuffer *pVtxBuffer = mpGraphics->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri,
+		cVertexBuffer *pVtxBuffer = new cVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri,
 																					eVertexBufferUsageType_Static,lTotalVtxAmount, lTotalIdxAmount);
 
 		//Set up what data arrays to use
@@ -1521,7 +1520,7 @@ namespace hpl {
 
 		///////////////////////////////////////////
 		//Create the vertex buffer (skipping color!)
-		cVertexBuffer *pVtxBuffer = mpGraphics->GetLowLevel()->CreateVertexBuffer(	eVertexBufferType_Software, eVertexBufferDrawType_Tri,
+		cVertexBuffer *pVtxBuffer = new cVertexBuffer(	eVertexBufferType_Software, eVertexBufferDrawType_Tri,
 																					eVertexBufferUsageType_Dynamic,lTotalVtxAmount, lTotalIdxAmount);
 
 		pVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float, 4);

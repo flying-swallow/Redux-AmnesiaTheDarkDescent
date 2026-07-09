@@ -64,7 +64,7 @@ struct TranslucentMeshPipelineDesc {
   // vertexPresentMask is a bitset of eVertexElementFlag_* naming the optional
   // streams (Normal / Texture1 tangent / Color0 / Texture0) the renderable
   // actually supplies. Absent streams get their binding stride zeroed so a
-  // single-vertex fallback buffer (RI.fallback*Vertex) reads its one default
+  // single-vertex fallback buffer (cGraphics::fallback*Vertex) reads its one default
   // for every vertex; the mask folds into `hash` so RIProgram caches a distinct
   // pipeline per presence combination. Position is always present.
   TranslucentMeshPipelineDesc(RI_Format_e colorFormat, RI_Format_e depthFormat,

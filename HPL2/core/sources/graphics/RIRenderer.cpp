@@ -1894,8 +1894,28 @@ void RIQueue::waitIdle(struct RIDevice *device) {
 
 void RIDevice::dispose() {
 #if (DEVICE_IMPL_VULKAN)
-  if (vk.vmaAllocator)
+  if (vk.vmaAllocator) {
+    // Leak diagnostic: vmaDestroyAllocator asserts if any allocation survives.
+    // Dump what is still live (count/bytes + the detailed per-block JSON, whose
+    // sizes identify the offending resource) before the assert fires.
+    VmaTotalStatistics stats = {};
+    vmaCalculateStatistics(vk.vmaAllocator, &stats);
+    if (stats.total.statistics.allocationCount > 0) {
+      fprintf(stderr,
+              "[VMA LEAK] %u allocation(s) still live at device teardown, "
+              "%llu bytes\n",
+              stats.total.statistics.allocationCount,
+              (unsigned long long)stats.total.statistics.allocationBytes);
+      char *json = nullptr;
+      vmaBuildStatsString(vk.vmaAllocator, &json, VK_TRUE);
+      if (json) {
+        fprintf(stderr, "[VMA LEAK] %s\n", json);
+        vmaFreeStatsString(vk.vmaAllocator, json);
+      }
+      fflush(stderr);
+    }
     vmaDestroyAllocator(vk.vmaAllocator);
+  }
   if (vk.device)
     vkDestroyDevice(vk.device, NULL);
 

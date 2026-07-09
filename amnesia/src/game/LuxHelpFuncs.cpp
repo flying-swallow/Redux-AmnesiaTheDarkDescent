@@ -123,8 +123,6 @@ cLuxHelpFuncs::cLuxHelpFuncs() : iLuxUpdateable("LuxHelpFuncs")
 	mpSet->SetActive(false);
 	mpSet->SetVirtualSize(gpBase->mvHudVirtualSize,-1000, 1000, gpBase->mvHudVirtualOffset);
 
-	mpLowLevelGfx = gpBase->mpEngine->GetGraphics()->GetLowLevel();
-
 	mpFontDefault = NULL;
 
 	mfTextDuration_StartTime = gpBase->mpMenuCfg->GetFloat("General", "TextDuration_StartTime",0);
@@ -132,6 +130,14 @@ cLuxHelpFuncs::cLuxHelpFuncs() : iLuxUpdateable("LuxHelpFuncs")
 	mfTextDuration_CharTime = gpBase->mpMenuCfg->GetFloat("General", "TextDuration_CharTime",0);
 
 	Reset();
+}
+
+//-----------------------------------------------------------------------
+
+void cLuxHelpFuncs::RefreshHudVirtualSize()
+{
+	if(mpSet)
+		mpSet->SetVirtualSize(gpBase->mvHudVirtualSize,-1000, 1000, gpBase->mvHudVirtualOffset);
 }
 
 //-----------------------------------------------------------------------
@@ -185,28 +191,28 @@ bool cLuxHelpFuncs::PlayGuiSoundData(const tString& asName,eSoundEntryType aDest
 void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
                                     cGuiSet *apSet) {
 
-  RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
+  cGraphics::FrameContext *cntx = Interface<cGraphics>::Get()->GetActiveSet();
 
   // Ensure we actually have a live primary command buffer for this frame.
-  // RI.primary is otherwise just zero/null until something acquires it.
-  if (RI.primary.cmds == NULL)
+  // Interface<cGraphics>::Get()->primary is otherwise just zero/null until something acquires it.
+  if (Interface<cGraphics>::Get()->primary.cmds == NULL)
   {
-	  RI.primary = RI.graphicsCmdRing.acquire(
-		  &RI.device,
+	  Interface<cGraphics>::Get()->primary = Interface<cGraphics>::Get()->graphicsCmdRing.acquire(
+		  &Interface<cGraphics>::Get()->device,
 		  RI_NUMBER_SUB_COMMANDS
 	  );
 
-	  if (RI.primary.pool == NULL || RI.primary.cmds == NULL)
+	  if (Interface<cGraphics>::Get()->primary.pool == NULL || Interface<cGraphics>::Get()->primary.cmds == NULL)
 	  {
 		  FatalError("Failed to acquire Vulkan primary command buffer!\n");
 		  return;
 	  }
 
-	  RI.primary.pool->reset(&RI.device);
-	  RI.primary.cmds[0].begin(&RI.device);
+	  Interface<cGraphics>::Get()->primary.pool->reset(&Interface<cGraphics>::Get()->device);
+	  Interface<cGraphics>::Get()->primary.cmds[0].begin(&Interface<cGraphics>::Get()->device);
   }
 
-  VkCommandBuffer cmd = RI.primary.cmds[0].vk.cmd;
+  VkCommandBuffer cmd = Interface<cGraphics>::Get()->primary.cmds[0].vk.cmd;
 
   if (cmd == VK_NULL_HANDLE)
   {
@@ -217,7 +223,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   // Swapchain color LOADs whatever the scene composite left (attachAndClear is
   // false); the clear color is kept for parity but unused under LOAD.
   RIRenderingAttachment color = {};
-  color.view = RI.swapchainView[RI.swapchainIndex];
+  color.view = *Interface<cGraphics>::Get()->swapchain->textureView(Interface<cGraphics>::Get()->swapchainIndex);
   color.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
   color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
   color.clearValue.color[0] = aCol.r;
@@ -246,15 +252,15 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   //}
 
   RIBeginRenderingDesc beginDesc = {};
-  beginDesc.renderArea.width = (int16_t)RI.swapchain.width;
-  beginDesc.renderArea.height = (int16_t)RI.swapchain.height;
+  beginDesc.renderArea.width = (int16_t)Interface<cGraphics>::Get()->swapchain->width;
+  beginDesc.renderArea.height = (int16_t)Interface<cGraphics>::Get()->swapchain->height;
   beginDesc.colorCount = 1;
   beginDesc.colors = &color;
   beginDesc.depthStencil = pDepthView ? &depth : NULL;
 
-  // GuiSet builds its pipelines for RI.swapchain.format / RIBootstrap::DepthFormat
+  // GuiSet builds its pipelines for Interface<cGraphics>::Get()->swapchain.format / cGraphics::DepthFormat
   // (see GuiSet.cpp). If the attachments here ever change, update GuiSet to match.
-  RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
+  Interface<cGraphics>::Get()->primary.cmds[0].vk_d3d12_beginRendering(&Interface<cGraphics>::Get()->device, beginDesc);
 
   ///////////////////////////
   // Draw set
@@ -265,7 +271,7 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   pSet->Render(NULL, pViewport);
   pSet->ClearRenderObjects();
 
-  RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
+  Interface<cGraphics>::Get()->primary.cmds[0].vk_d3d12_endRendering(&Interface<cGraphics>::Get()->device);
 
   //mpLowLevelGfx->FlushRendering();
   //mpLowLevelGfx->SwapBuffers();

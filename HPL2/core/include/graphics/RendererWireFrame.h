@@ -42,7 +42,7 @@ namespace hpl {
 		void DestroyData() override {}
 
 		virtual void Draw(
-				RIBootstrap::FrameContext* cntx,
+				cGraphics::FrameContext* cntx,
 				cViewport* viewport,
 				float afFrameTime,
 				cFrustum* apFrustum,

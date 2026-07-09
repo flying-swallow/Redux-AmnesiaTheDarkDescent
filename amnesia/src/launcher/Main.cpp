@@ -45,7 +45,6 @@ using namespace hpl;
 
 //-----------------------------------------------------------------------
 
-cEngine* gpEngine = NULL;
 
 #ifdef USERDIR_RESOURCES
 tWString gsUserResourceDir;
@@ -409,7 +408,7 @@ int hplMain(const tString &asCommandLine)
 	iLowLevelSound::SetSoundDeviceNameFilter("software");
 	#endif
 
-	gpEngine = CreateHPLEngine(eHplAPI_OpenGL, eHplSetup_Video, &vars);
+	cEngine* gpEngine = CreateHPLEngine(eHplAPI_OpenGL, eHplSetup_Video, &vars);
 	
 	/////////////////////////////////////////////////
 	// Load presets
@@ -432,8 +431,8 @@ int hplMain(const tString &asCommandLine)
 	{
 		while(exitflag==-1)
 		{
-			LoadLanguage(gpEngine, pMainConfig->GetString("Main", "StartLanguage", "english.lang"), true);
-			cUserInterface* win = hplNew(cUserInterface,(exitflag, pMainConfig, bConfigFileExists, bLastInitCrashed, sCardString, pChooser, gvPresets, gpEngine ));
+			LoadLanguage(Interface<cEngine>::Get(), pMainConfig->GetString("Main", "StartLanguage", "english.lang"), true);
+			cUserInterface* win = hplNew(cUserInterface,(exitflag, pMainConfig, bConfigFileExists, bLastInitCrashed, sCardString, pChooser, gvPresets, Interface<cEngine>::Get() ));
 
 			int ret = win->Run();
 			if(ret) 

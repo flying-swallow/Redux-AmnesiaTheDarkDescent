@@ -1,5 +1,5 @@
 #include "graphics/GraphicsTypes.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/Texture.h"
 #include "graphics/RIFormat.h"
 #include "graphics/RIRenderer.h"
@@ -37,9 +37,10 @@ cTexture &cTexture::operator=(cTexture &&other) noexcept {
     if (!view.isEmpty() || !handle.isEmpty()) {
       RITextureView oldView = view;
       RITexture oldHandle = handle;
-      RI.graphicsDefer.push(std::function<void()>([oldView, oldHandle]() mutable {
-        oldView.dispose(&RI.device);
-        oldHandle.dispose(&RI.device);
+      Interface<cGraphics>::Get()->graphicsDefer.push(std::function<void()>([oldView, oldHandle]() mutable {
+        cGraphics* pGraphics = Interface<cGraphics>::Get();
+        oldView.dispose(&pGraphics->device);
+        oldHandle.dispose(&pGraphics->device);
       }));
     }
     handle = other.handle;
@@ -56,16 +57,17 @@ cTexture &cTexture::operator=(cTexture &&other) noexcept {
 }
 
 cTexture::~cTexture() {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   // Free the GPU resources directly — no freelist deferral needed. The owning
   // Image is parked (via a SharedResourcePin) in that frame set's resourceLink,
   // and BeginActiveSet waits the ring fence before clearing it, so by the time
   // the Image (and thus this texture) is freed the GPU is done with it.
-  view.dispose(&RI.device);   // owned image view (was binding's inline view)
-  handle.dispose(&RI.device);  // image + VMA allocation
+  view.dispose(&pGraphics->device);   // owned image view (was binding's inline view)
+  handle.dispose(&pGraphics->device);  // image + VMA allocation
 }
 
 RIDescriptor cTexture::descriptor() {
-  return RIDescriptor::sampledImage(&RI.device, &view);
+  return RIDescriptor::sampledImage(&Interface<cGraphics>::Get()->device, &view);
 }
 
 RI_Format from_hpl_format(ePixelFormat format) {
@@ -271,7 +273,7 @@ void cTexture::setDebugName(const char* name) {
 			(uint64_t)handle.vk.image, 
 			name 
 		};
-		VK_WrapResult( vkSetDebugUtilsObjectNameEXT( RI.device.vk.device, &debugName ) );
+		VK_WrapResult( vkSetDebugUtilsObjectNameEXT( Interface<cGraphics>::Get()->device.vk.device, &debugName ) );
 	}
 
 }
@@ -290,6 +292,7 @@ static void __UploadBitmapSubresource(struct RITexture &target,
                                       uint32_t currentStages,
                                       enum RIResourceState_e postState,
                                       uint32_t postStages) {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   const struct RIFormatProps *srcProps = GetRIFormatProps(sourceFormat);
   const struct RIFormatProps *destProps = GetRIFormatProps(destFormat);
 
@@ -315,7 +318,7 @@ static void __UploadBitmapSubresource(struct RITexture &target,
   uploadDesc.currentStages = currentStages;
   uploadDesc.postState = postState;
   uploadDesc.postStages = postStages;
-  RI_ResourceBeginCopyTexture(&RI.device, &RI.uploader, &uploadDesc);
+  RI_ResourceBeginCopyTexture(&pGraphics->device, &pGraphics->uploader, &uploadDesc);
 
   // Iterate rows-of-blocks (== rows when blockHeight == 1).
   // alignSlicePitch is already bytes-per-slice, so the z term must not
@@ -346,13 +349,14 @@ static void __UploadBitmapSubresource(struct RITexture &target,
       }
     }
   }
-  RI_ResourceEndCopyTexture(&RI.device, &RI.uploader, &uploadDesc);
+  RI_ResourceEndCopyTexture(&pGraphics->device, &pGraphics->uploader, &uploadDesc);
 }
 
 bool cTexture::LoadBitmap(
                           enum RIResourceState_e postState, uint32_t postStages,
                             cBitmap &bitmap,
                             const BitmapLoadOptions &options) {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   width = bitmap.GetWidth();
   height = bitmap.GetHeight();
   depth = bitmap.GetDepth();
@@ -400,7 +404,7 @@ bool cTexture::LoadBitmap(
   desc.usage = RI_USAGE_SHADER_RESOURCE | RI_USAGE_TRANSFER_SRC |
                RI_USAGE_TRANSFER_DST;
   desc.flags = texFlags;
-  handle = RITexture::create(&RI.device, desc);
+  handle = RITexture::create(&pGraphics->device, desc);
   if (handle.isEmpty()) {
     return false;
   }
@@ -419,7 +423,7 @@ bool cTexture::LoadBitmap(
 	viewDesc.format = destFormat;
 	viewDesc.mipNum = std::max<uint32_t>(mipLevels, 1);
 	viewDesc.layerNum = arrayLayers;
-	view = RITextureView::create( &RI.device, &handle, viewDesc );
+	view = RITextureView::create( &pGraphics->device, &handle, viewDesc );
 	
 	setDebugName(bitmap.GetFileName());
   RI_Format sourceFormat = from_hpl_format(bitmap.GetPixelFormat());

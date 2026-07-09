@@ -25,6 +25,7 @@
 #include <list>
 
 #include "engine/EngineTypes.h"
+#include "system/Event.h"
 #include "system/SystemTypes.h"
 
 #include "engine/Updateable.h"
@@ -117,6 +118,10 @@ private:
                    float afTimeStep);
   void RenderScreenGui(cViewport *apViewPort, float afTimeStep);
 
+  // cWindow::OnScreenSizeChanged() handler: perspective cameras bake the
+  // screen aspect at creation, so re-apply it after a resize.
+  void OnScreenSizeChange(const cVector2l &avSize);
+
   cGraphics *mpGraphics;
   cResources *mpResources;
   cSound *mpSound;
@@ -131,6 +136,9 @@ private:
   tViewportList mlstViewports;
   tWorldList mlstWorlds;
   tCameraList mlstCameras;
+
+  // Re-applies the screen aspect to perspective cameras on a swapchain resize.
+  Event<const cVector2l &>::Handler mScreenSizeChangedHandler;
 };
 
 }; // namespace hpl

@@ -364,7 +364,7 @@ void cModelEditor::OnPostUpdateLayout()
 		sTitlebarFilename = cString::To8Char(cString::SubW(msSaveFilename, sLastSlashPos+1)) + sModified;
 	}
 
-    mpEngine->GetGraphics()->GetLowLevel()->SetWindowCaption(sTitlebarFilename + " - " + msCaption);
+    mpEngine->GetGraphics()->GetWindow()->SetCaption(sTitlebarFilename + " - " + msCaption);
 
 	mpMainMenuRecent->ClearMenuItems();
 

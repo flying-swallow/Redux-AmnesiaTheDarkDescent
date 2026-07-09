@@ -25,7 +25,6 @@
 
 using namespace hpl;
 
-cEngine *gpEngine=NULL;
 cSimpleCamera *gpSimpleCamera=NULL;
 
 tString gsModelFile = "";
@@ -180,7 +179,7 @@ public:
 
 	void OnPreWorldDraw()
 	{
-		DebugDraw* pDebugDraw = gpEngine->GetGraphics()->GetDebugDraw();
+		DebugDraw* pDebugDraw = Interface<cEngine>::Get()->GetGraphics()->GetDebugDraw();
 		if(pDebugDraw==NULL) return;
 
 		// Legacy drew these sections depth-test-off (always on top).
@@ -359,7 +358,7 @@ class cSimpleUpdate : public iUpdateable
 public:
 	cSimpleUpdate() : iUpdateable("Simple3D")
 	{
-		mpLowLevelGraphics = gpEngine->GetGraphics()->GetLowLevel();
+		mpWindow = Interface<cEngine>::Get()->GetGraphics()->GetWindow();
 
 
 		////////////////////////////////
@@ -371,22 +370,22 @@ public:
 		
 		////////////////////////////////
 		// Rendering setup
-		gpEngine->GetResources()->GetMaterialManager()->SetTextureFilter(eTextureFilter_Trilinear);
-		gpEngine->GetResources()->GetMaterialManager()->SetTextureSizeDownScaleLevel(0);
+		Interface<cEngine>::Get()->GetResources()->GetMaterialManager()->SetTextureFilter(eTextureFilter_Trilinear);
+		Interface<cEngine>::Get()->GetResources()->GetMaterialManager()->SetTextureSizeDownScaleLevel(0);
 
 		////////////////////////////////
 		// Setup load
-		gpEngine->GetResources()->AddEntityLoader(hplNew(cSimpleObjectLoader,("Object")),true);
+		Interface<cEngine>::Get()->GetResources()->AddEntityLoader(hplNew(cSimpleObjectLoader,("Object")),true);
 
 		////////////////////////////////
 		// Create world
-		mpWorld = gpEngine->GetScene()->CreateWorld("Test");
+		mpWorld = Interface<cEngine>::Get()->GetScene()->CreateWorld("Test");
 		
 		////////////////////////////////
 		// Create physics world
-		gpEngine->GetPhysics()->LoadSurfaceData("materials.cfg");
+		Interface<cEngine>::Get()->GetPhysics()->LoadSurfaceData("materials.cfg");
 
-		mpPhysicsWorld = gpEngine->GetPhysics()->CreateWorld(true);
+		mpPhysicsWorld = Interface<cEngine>::Get()->GetPhysics()->CreateWorld(true);
 		mpPhysicsWorld->SetAccuracyLevel(ePhysicsAccuracy_Medium);
 		mpPhysicsWorld->SetWorldSize(-300,300);
 		mpPhysicsWorld->SetMaxTimeStep(1.0f / 60.0f);
@@ -412,7 +411,7 @@ public:
 				
 		/////////////////
 		//Floor
-		pMesh = gpEngine->GetResources()->GetMeshManager()->CreateMesh("modelview_rect.dae");
+		pMesh = Interface<cEngine>::Get()->GetResources()->GetMeshManager()->CreateMesh("modelview_rect.dae");
 		gpFloor = mpWorld->CreateMeshEntity("Floor",pMesh,true);
 		gpFloor->SetMatrix(cMath::MatrixScale(6));
 		gpFloor->SetRenderFlagBit(eRenderableFlag_ShadowCaster, true);
@@ -441,7 +440,7 @@ public:
 		if(gsModelFile != "") 
 			LoadModel(gsModelFile);
 		else
-			mpLowLevelGraphics->SetWindowCaption("ModelView - No model loaded!");
+			mpWindow->SetCaption("ModelView - No model loaded!");
 
 		/////////////////////////////////
 		// Create Lights
@@ -500,8 +499,8 @@ public:
 		/////////////////////////////////
 		// Load extra
 
-		mpTexDiffuseNull = gpEngine->GetResources()->GetTextureManager()->Create2DImage("modelview_diffuse_null.jpg",true);
-		mpTexNMapNull = gpEngine->GetResources()->GetTextureManager()->Create2DImage("modelview_nmap_null.jpg",true);
+		mpTexDiffuseNull = Interface<cEngine>::Get()->GetResources()->GetTextureManager()->Create2DImage("modelview_diffuse_null.jpg",true);
+		mpTexNMapNull = Interface<cEngine>::Get()->GetResources()->GetTextureManager()->Create2DImage("modelview_nmap_null.jpg",true);
 		
 		/////////////////////////////////
 		// Init variables
@@ -513,8 +512,8 @@ public:
 
 	void SetupView()
 	{
-		gpEngine->GetInput()->GetLowLevel()->LockInput(false);
-		gpEngine->GetInput()->GetLowLevel()->RelativeMouse(false);
+		Interface<cEngine>::Get()->GetInput()->GetLowLevel()->LockInput(false);
+		Interface<cEngine>::Get()->GetInput()->GetLowLevel()->RelativeMouse(false);
 
 		cRenderSettings *pSettings = gpSimpleCamera->GetViewport()->GetRenderSettings();
 
@@ -529,7 +528,7 @@ public:
 
 		//////////////////////////
 		//Set up post effects
-		cGraphics *pGraphics = gpEngine->GetGraphics();
+		cGraphics *pGraphics = Interface<cEngine>::Get()->GetGraphics();
 		gpPostEffectComp = pGraphics->CreatePostEffectComposite();
 		gpSimpleCamera->GetViewport()->SetPostEffectComposite(gpPostEffectComp);
 
@@ -599,7 +598,7 @@ public:
 	{
 		/////////////////////////
 		// Get the paths
-		tWString sPath = gpEngine->GetResources()->GetFileSearcher()->GetFilePath(pMesh->GetName());		
+		tWString sPath = Interface<cEngine>::Get()->GetResources()->GetFileSearcher()->GetFilePath(pMesh->GetName());		
 		if(sPath == _W("")){
 			FatalError("Could not find path for mesh file '%s'\n", pMesh->GetName().c_str());
 		}
@@ -611,7 +610,7 @@ public:
 		
 		/////////////////////////
 		// Create Xml document
-		iXmlDocument *pXmlDoc = gpEngine->GetResources()->GetLowLevel()->CreateXmlDocument("Material");
+		iXmlDocument *pXmlDoc = Interface<cEngine>::Get()->GetResources()->GetLowLevel()->CreateXmlDocument("Material");
 		
 		/////////////////////////
 		// Main
@@ -630,13 +629,13 @@ public:
 			///////////////////////
 			//Set up vars
 			eMaterialTexture textureType = (eMaterialTexture)i;
-			tString sElementName = gpEngine->GetResources()->GetMaterialManager()->GetTextureString(textureType);
+			tString sElementName = Interface<cEngine>::Get()->GetResources()->GetMaterialManager()->GetTextureString(textureType);
 			tWStringVec vExt = GetTextureExtensions(textureType);
 			
 			///////////////////////
 			//Get the file name
 			bool bFoundFile = false;
-			tStringVec *apFileFormatsVec = gpEngine->GetResources()->GetBitmapLoaderHandler()->GetSupportedTypes();
+			tStringVec *apFileFormatsVec = Interface<cEngine>::Get()->GetResources()->GetBitmapLoaderHandler()->GetSupportedTypes();
 			tWString sFilePath = _W("");
 			for(tStringVecIt it = apFileFormatsVec->begin();it!=apFileFormatsVec->end();++it)
 			{
@@ -679,7 +678,7 @@ public:
 		/////////////////////////
 		// Variables
 		cXmlElement *pSpecificVariablesElem = pXmlDoc->CreateChildElement("SpecificVariables");
-		iMaterialType *pMatType = gpEngine->GetGraphics()->GetMaterialType("SolidDiffuse");
+		iMaterialType *pMatType = Interface<cEngine>::Get()->GetGraphics()->GetMaterialType("SolidDiffuse");
 		if(pMatType)
 		{
 			for(int i=0; i<pMatType->GetUserVariableNum(); ++i)
@@ -698,7 +697,7 @@ public:
 		pXmlDoc->SaveToFile(sMatPath);
 		hplDelete(pXmlDoc);
 
-		gpEngine->GetResources()->AddResourceDir(sDir, false, "*.*");
+		Interface<cEngine>::Get()->GetResources()->AddResourceDir(sDir, false, "*.*");
 	}
 	
 	//--------------------------------------------------------------
@@ -709,7 +708,7 @@ public:
 		tWString sFilePath = cString::SetFilePathW(sFileName, asPath);
 
 		Log(" Searching for textures in dir: '%s'\n", cString::To8Char(asPath).c_str());
-		tStringVec *apFileFormatsVec = gpEngine->GetResources()->GetBitmapLoaderHandler()->GetSupportedTypes();
+		tStringVec *apFileFormatsVec = Interface<cEngine>::Get()->GetResources()->GetBitmapLoaderHandler()->GetSupportedTypes();
 		for(tStringVecIt it = apFileFormatsVec->begin();it!=apFileFormatsVec->end();++it)
 		{
 			tWString sNewName = cString::SetFileExtW(sFilePath,cString::To16Char(*it));
@@ -794,7 +793,7 @@ public:
 				tString sMeshPath = cString::GetFilePath(cString::To8Char(pMesh->GetFullPath()));
 				tString sMatPath = cString::SetFilePath(sMatName, sMeshPath);
 				
-				pMat = gpEngine->GetResources()->GetMaterialManager()->CreateMaterial(sMatPath);
+				pMat = Interface<cEngine>::Get()->GetResources()->GetMaterialManager()->CreateMaterial(sMatPath);
 				if(pMat==NULL) FatalError("Created material '%s' could not be loaded!\n",sMatPath.c_str());
 
 				pMatData->mpMat = pMat;
@@ -862,7 +861,7 @@ public:
 		// Dae files
 		if(sExt == "dae" || sExt == "dae_anim" || sExt == "msh"/* || sExt == "fbx"*/)
 		{
-			pMesh = gpEngine->GetResources()->GetMeshManager()->CreateMesh(asFileName);
+			pMesh = Interface<cEngine>::Get()->GetResources()->GetMeshManager()->CreateMesh(asFileName);
 			if(pMesh==NULL) FatalError("Could not load '%s'\n", asFileName.c_str());
 			gpEntity = mpWorld->CreateMeshEntity("Model",pMesh,false);
 			gpEntity->SetRenderFlagBit(eRenderableFlag_ShadowCaster, true);
@@ -919,7 +918,7 @@ public:
 		else
 			SetPhysicsActive(gbPhysicsActive);
 
-		mpLowLevelGraphics->SetWindowCaption("ModelView - "+cString::GetFileName(asFileName));
+		mpWindow->SetCaption("ModelView - "+cString::GetFileName(asFileName));
 
 		Log("--------- MODEL INFO ------------------\n");
 
@@ -1661,7 +1660,7 @@ public:
 		tWString& sFilePath = mvPickedFiles[0];
 
 		msCurrentFilePath = cString::GetFilePathW(sFilePath);
-		gpEngine->GetResources()->AddResourceDir(msCurrentFilePath,false);
+		Interface<cEngine>::Get()->GetResources()->AddResourceDir(msCurrentFilePath,false);
 		
 		gsModelFile = cString::To8Char(sFilePath);
 		LoadModel(gsModelFile);  
@@ -1915,11 +1914,11 @@ public:
 		tWString& sFilePath = mvPickedFiles[0];
 
 		msCurrentFilePath = cString::GetFilePathW(sFilePath);
-		gpEngine->GetResources()->AddResourceDir(msCurrentFilePath,false);
+		Interface<cEngine>::Get()->GetResources()->AddResourceDir(msCurrentFilePath,false);
 
 		tString sAnimFile = cString::To8Char(cString::GetFileNameW(sFilePath));
 		
-		cAnimation *pAnim = gpEngine->GetResources()->GetAnimationManager()->CreateAnimation(sAnimFile).Release();
+		cAnimation *pAnim = Interface<cEngine>::Get()->GetResources()->GetAnimationManager()->CreateAnimation(sAnimFile).Release();
 		if(pAnim == NULL)
 		{
 			cPlatform::CreateMessageBox(_W("Error"),_W("Could not load animation '%ls'"), sFilePath.c_str());
@@ -2022,7 +2021,7 @@ public:
 			iFontData *pFont = gpSimpleCamera->GetFont();
 
 
-			int lTexMem = gpEngine->GetResources()->GetTextureManager()->GetMemoryUsage()/1024;
+			int lTexMem = Interface<cEngine>::Get()->GetResources()->GetTextureManager()->GetMemoryUsage()/1024;
 			pSet->DrawFont(pFont,cVector3f(5,fY,0),14,cColor(1,1),	_W("Texture memory usage: %d kb / %.1f Mb"),
 							lTexMem, ((float)lTexMem) / 1024.0);
 			fY += 16;
@@ -2037,8 +2036,8 @@ public:
 				tStringVec vSoundNames;
 				std::vector<cSoundEntry*> vEntries;
 
-				cSoundHandler *pSoundHandler = gpEngine->GetSound()->GetSoundHandler();
-				cMusicHandler *pMusicHandler = gpEngine->GetSound()->GetMusicHandler();
+				cSoundHandler *pSoundHandler = Interface<cEngine>::Get()->GetSound()->GetSoundHandler();
+				cMusicHandler *pMusicHandler = Interface<cEngine>::Get()->GetSound()->GetMusicHandler();
 
 				//////////////////////////////
 				//Sounds
@@ -2140,11 +2139,11 @@ public:
 
 		//////////////////////////////////////////
 		// Body picking
-		if(gbPhysicsActive && gvBodies.size()>0 && gpEngine->GetInput()->IsTriggerd("LeftMouse"))
+		if(gbPhysicsActive && gvBodies.size()>0 && Interface<cEngine>::Get()->GetInput()->IsTriggerd("LeftMouse"))
 		{
 			cCamera *pCam = gpSimpleCamera->GetCamera();
 
-			cVector2l vMousePosInt = gpEngine->GetInput()->GetMouse()->GetAbsPosition();
+			cVector2l vMousePosInt = Interface<cEngine>::Get()->GetInput()->GetMouse()->GetAbsPosition();
 			cVector2f vMousePos = cVector2f((float)vMousePosInt.x, (float)vMousePosInt.y);
 
 			if(mBodyPicker.mpPickedBody)
@@ -2155,7 +2154,7 @@ public:
 
 				//Get Drag pos
 				cVector3f vDir;
-				pCam->UnProject(NULL,&vDir,vMousePos, mpLowLevelGraphics->GetScreenSizeFloat());
+				pCam->UnProject(NULL,&vDir,vMousePos, Interface<cWindow>::Get()->GetSizeF());
 				renderCallback.mvDragPos = pCam->GetPosition() + vDir*mBodyPicker.mfDist;
 
 				//Spring testing:
@@ -2169,7 +2168,7 @@ public:
 			else
 			{
 				cVector3f vDir;
-				pCam->UnProject(NULL,&vDir,vMousePos, mpLowLevelGraphics->GetScreenSizeFloat());
+				pCam->UnProject(NULL,&vDir,vMousePos, Interface<cWindow>::Get()->GetSizeF());
 				cVector3f vOrigin = pCam->GetPosition();
 				cVector3f vEnd = pCam->GetPosition() + vDir*100.0f;
 
@@ -2206,7 +2205,7 @@ public:
 	}
 
 public:
-	iLowLevelGraphics* mpLowLevelGraphics;
+	cWindow* mpWindow;
 	cWorld* mpWorld;
 	iPhysicsWorld *mpPhysicsWorld;
 	
@@ -2279,7 +2278,6 @@ int hplMain(const tString &asCommandline)
 	//iResourceBase::SetLogCreateAndDelete(true);
 	//iGpuProgram::SetLogDebugInformation(true); 
 
-	//iLowLevelGraphics::SetForceShaderModel3And4Off(true);
 	tWString sPersonalDir = cString::ReplaceCharToW(cPlatform::GetSystemSpecialPath(eSystemPath_Personal), _W("\\"), _W("/"));
 #ifdef USERDIR_RESOURCES
 	tWString sUserResourceDir = sPersonalDir + PERSONAL_RELATIVEROOT PERSONAL_RELATIVEGAME_PARENT PERSONAL_RESOURCES;
@@ -2298,15 +2296,12 @@ int hplMain(const tString &asCommandline)
 
 	//Init the game engine
 	cEngineInitVars vars;
-	vars.mGraphics.mvScreenSize.x = 1024;
-	vars.mGraphics.mvScreenSize.y = 768;
-	vars.mGraphics.mbFullscreen = false;
-	vars.mGraphics.msWindowCaption = "ModelView - Initalizing...";
-	//vars.mGraphics.mvWindowPosition = cVector2l(0,0);
-	gpEngine = CreateHPLEngine(eHplAPI_OpenGL, eHplSetup_All, &vars);
-	gpEngine->SetLimitFPS(false);
-	gpEngine->GetGraphics()->GetLowLevel()->SetVsyncActive(false);
-	gpEngine->SetWaitIfAppOutOfFocus(true);
+	vars.mGraphics.mvScreenSize = {1024, 768};
+	vars.mGraphics.msWindowCaption = "ModelView - Initializing...";
+	cEngine* gpEngine = CreateHPLEngine(eHplAPI_OpenGL, eHplSetup_All, &vars);
+	Interface<cEngine>::Get()->SetLimitFPS(false);
+	Interface<cEngine>::Get()->GetGraphics()->SetVsync(false);
+	Interface<cEngine>::Get()->SetWaitIfAppOutOfFocus(true);
 	
 
 	if(asCommandline != "")
@@ -2317,33 +2312,33 @@ int hplMain(const tString &asCommandline)
 		tString sModelDir = cString::GetFilePath(gsModelFile);
 		tWString sDir = cString::To16Char(sModelDir);
 		if(sDir != _W(""))
-			gpEngine->GetResources()->AddResourceDir(sDir,false);
+			Interface<cEngine>::Get()->GetResources()->AddResourceDir(sDir,false);
 	}
 	
 	//Add resources
 #ifdef USERDIR_RESOURCES
-	gpEngine->GetResources()->LoadResourceDirsFile("resources.cfg", sUserResourceDir);
+	Interface<cEngine>::Get()->GetResources()->LoadResourceDirsFile("resources.cfg", sUserResourceDir);
 #else
-	gpEngine->GetResources()->LoadResourceDirsFile("resources.cfg");
+	Interface<cEngine>::Get()->GetResources()->LoadResourceDirsFile("resources.cfg");
 #endif
 #ifdef __APPLE__
-	gpEngine->GetResources()->AddResourceDir(sEditorDir + _W("viewer/"), true);
+	Interface<cEngine>::Get()->GetResources()->AddResourceDir(sEditorDir + _W("viewer/"), true);
 #endif
 	
 	//Add updates
 	cSimpleUpdate Update;
-	gpEngine->GetUpdater()->AddUpdate("Default", &Update);
+	Interface<cEngine>::Get()->GetUpdater()->AddUpdate("Default", &Update);
 	
-	gpSimpleCamera = hplNew(cSimpleCamera, (Update.GetName(),gpEngine, Update.mpWorld, 10, cVector3f(0,0,9), true) );
+	gpSimpleCamera = hplNew(cSimpleCamera, (Update.GetName(),Interface<cEngine>::Get(), Update.mpWorld, 10, cVector3f(0,0,9), true) );
 	
-	gpEngine->GetUpdater()->AddUpdate("Default", gpSimpleCamera);
+	Interface<cEngine>::Get()->GetUpdater()->AddUpdate("Default", gpSimpleCamera);
 
 	Update.SetupView();
 
 	//Run the engine
 	gpEngine->Run();
 
-	
+
 	hplDelete (gpSimpleCamera);
 
 	//Delete the engine

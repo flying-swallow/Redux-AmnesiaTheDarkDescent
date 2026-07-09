@@ -20,7 +20,6 @@
 #include "math/BoundingVolume.h"
 
 #include "math/Math.h"
-#include "graphics/LowLevelGraphics.h"
 
 
 namespace hpl {

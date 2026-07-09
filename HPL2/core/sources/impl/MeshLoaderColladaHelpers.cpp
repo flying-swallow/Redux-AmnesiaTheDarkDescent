@@ -20,7 +20,6 @@
 #include "impl/MeshLoaderCollada.h"
 
 #include "system/LowLevelSystem.h"
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/VertexBuffer.h"
 #include "system/String.h"
 
@@ -665,7 +664,7 @@ namespace hpl {
 		//vExtraVtxVec = aGeometry.mvExtraVtxVec;
 
 		//Create vertex buffer and fill it
-		cVertexBuffer *pVtxBuff = mpLowLevelGraphics->CreateVertexBuffer(
+		cVertexBuffer *pVtxBuff = new cVertexBuffer(
 			eVertexBufferType_Hardware,
 			eVertexBufferDrawType_Tri, aUsageType,
 			(int)aGeometry.mvVertexVec.size(), (int)aGeometry.mvIndexVec.size());

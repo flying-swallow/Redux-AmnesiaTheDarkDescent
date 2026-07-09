@@ -23,7 +23,7 @@
 #include "graphics/Graphics.h"
 #include "graphics/Texture.h"
 #include "graphics/PostEffectHelpers.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIProgramHelpers.h"
 #include "math/Math.h"
 #include "resources/Resources.h"
@@ -42,7 +42,7 @@ struct ColorConvPushConstants {
 cPostEffectType_ColorConvTex::cPostEffectType_ColorConvTex(
     cGraphics *apGraphics, cResources *apResources)
     : iPostEffectType("ColorConvTex", apGraphics, apResources) {
-    LoadSlangGraphics(&RI.device, m_program, apResources,
+    LoadSlangGraphics(&mpGraphics->device, m_program, apResources,
                       "posteffect_fullscreen.vert.spv",
                       "posteffect_color_conv.frag.spv");
 }
@@ -92,7 +92,7 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
     // composite skip our pogo half by drawing a passthrough blit. The
     // simplest passthrough is to just copy the input straight into the
     // output via vkCmdBlitImage (the formats match: both pogo halves share
-    // RIBootstrap::PogoColorFormat). This keeps the composite chain
+    // cGraphics::PogoColorFormat). This keeps the composite chain
     // consistent even when the LUT failed to load.
     if (!mpColorConvTex || !mpColorConvTex->GetTexture() ||
         mpColorConvTex->GetTexture()->view.isEmpty()) {
@@ -113,7 +113,7 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
     beginDesc.renderArea.height = (int16_t)ctx.height;
     beginDesc.colorCount = 1;
     beginDesc.colors     = &color;
-    ctx.cmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
+    ctx.cmd->vk_d3d12_beginRendering(&mpGraphics->device, beginDesc);
 
     VkViewport viewport = {0.0f,
                            0.0f,
@@ -126,14 +126,14 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     PostEffectPipelineState state{};
-    InitPostEffectPipelineState(state, RIBootstrap::PogoColorFormat, false);
+    InitPostEffectPipelineState(state, cGraphics::PogoColorFormat, false);
 
     const hash_t pipelineHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    mpSpecificType->m_program.bindPipeline(&RI.device, ctx.cmd, pipelineHash,
+    mpSpecificType->m_program.bindPipeline(&mpGraphics->device, ctx.cmd, pipelineHash,
                                            "PostEffect_ColorConvTex",
                                            &state.createInfo);
 
-    auto samplerDesc = RI.resolve_filter_descriptor(
+    auto samplerDesc = mpGraphics->resolve_filter_descriptor(
         eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
         eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 
@@ -144,7 +144,7 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
     bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
     bindings[2].descriptor = mpColorConvTex->GetTexture()->descriptor();
     bindings[2].handle     = DescriptorBindingID::Create("colorConv");
-    mpSpecificType->m_program.bindDescriptors(&RI.device, ctx.cmd,
+    mpSpecificType->m_program.bindDescriptors(&mpGraphics->device, ctx.cmd,
                                               ctx.frameIndex, bindings, 3);
 
     ColorConvPushConstants pc{};
@@ -153,7 +153,7 @@ void cPostEffect_ColorConvTex::RenderEffect(const PostEffectRenderCtx &ctx) {
                        VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
     vkCmdDraw(cmd, 3, 1, 0, 0);
-    ctx.cmd->vk_d3d12_endRendering(&RI.device);
+    ctx.cmd->vk_d3d12_endRendering(&mpGraphics->device);
 }
 
 } // namespace hpl

@@ -23,7 +23,6 @@
 //----------------------------------------------
 
 #include "LuxBase.h"
-#include "LuxScreenEffect.h"
 
 //----------------------------------------------
 
@@ -194,7 +193,6 @@ public:
 	void OnLeaveContainer(const tString& asNewContainer);
 
 	void OnDraw(float afFrameTime);
-	void OnPostRender(float afFrameTime);
 
 	cGuiSet* GetSet() { return mpGuiSet; }
 
@@ -420,14 +418,23 @@ private:
 	
 	std::vector<cWidgetImage*> mvImageWidgets;
 	
-	cVector2f mvScreenSize;
 	cVector2f mvGuiSetCenterSize;
 	cVector2f mvGuiSetSize;
 	cVector2f mvGuiSetOffset;
 	cVector3f mvGuiSetStartPos;
 
+	// Re-derive the pinned GUI-set virtual size/offset when the swapchain
+	// changes size; connected via mScreenSizeChangedHandler in the ctor.
+	void OnScreenSizeChange(const cVector2l& avSize)
+	{
+		LuxCalcGuiSetScreenOffset(mvGuiSetCenterSize, mvGuiSetSize, mvGuiSetOffset);
+		mvGuiSetStartPos = cVector3f(-mvGuiSetOffset.x, -mvGuiSetOffset.y, 0);
+		if(mpGuiSet)
+			mpGuiSet->SetVirtualSize(mvGuiSetSize, -1000, 1000, mvGuiSetOffset);
+	}
+	EventHandler<const cVector2l&> mScreenSizeChangedHandler;
+
 	// Screen-snapshot pipeline drawn behind the inventory GUI (RI backend).
-	cLuxScreenEffect mScreenEffect;
 
 	cGuiGfxElement* mpFrameHealthCorners[4];
 	cGuiGfxElement* mpFrameHealthBorders[4];

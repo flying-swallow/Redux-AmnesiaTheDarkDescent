@@ -23,7 +23,7 @@
 #define HPL_VIEWPORT_H
 
 #include "graphics/GraphicsTypes.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIPogoBuffer.h"
 #include "gui/GuiTypes.h"
 #include "math/MathTypes.h"
@@ -68,9 +68,9 @@ struct cTexture;
 //        depthView; pogo read half = final post-processed image)
 struct WorldDrawCtx {
   cViewport                 *viewport;   // who fired — replaces a captured mpViewport
-  struct RICmd            *cmd;        // = &RI.primary.cmds[0]
-  struct RIDevice         *device;     // = &RI.device
-  RIBootstrap::FrameContext *frame;      // active set (scratch allocs, freelist)
+  struct RICmd            *cmd;        // = &Interface<cGraphics>::Get()->primary.cmds[0]
+  struct RIDevice         *device;     // = &Interface<cGraphics>::Get()->device
+  cGraphics::FrameContext *frame;      // active set (scratch allocs, freelist)
   cFrustum                  *frustum;
   uint32_t                   width, height;
   uint32_t                   frameIndex;
@@ -96,7 +96,7 @@ struct PostWorldDrawCtx : WorldDrawCtx {
 // Texture helpers the viewport-state backends build their targets with
 // (Update + destructor impls live in the renderer .cpps). Create lives against
 // the device; Release hands every GPU handle to the frame freelist (drained
-// once the pipeline is done with them — or at RIBootstrap::Dispose).
+// once the pipeline is done with them — or at cGraphics::Dispose).
 
 // One color image + a cookie-stamped sampled view — the single-image
 // equivalent of RI_PogoBufferInit (same create flags / view usage so the
@@ -155,7 +155,7 @@ public:
   // cHybridRenderer: overscan intermediates — renderTarget is a SINGLE image
   // (the main draw never ping-pongs; the composite writes once and the
   // forward passes draw on top), depth + packed-TriangleHit visibility back
-  // the same overscan frame. Arrays are indexed by RI.swapchainIndex.
+  // the same overscan frame. Arrays are indexed by Interface<cGraphics>::Get()->swapchainIndex.
   struct HybridViewportState {
     uint32_t width = 0;        // image extent = overscanExtent(target size)
     uint32_t height = 0;
@@ -169,11 +169,12 @@ public:
     HybridViewportState(HybridViewportState &&rhs) noexcept = default;
     HybridViewportState &operator=(HybridViewportState &&rhs) noexcept;
 
-    void Update(RIBootstrap::FrameContext *cntx, cVector2l size);
+    void Update(cGraphics::FrameContext *cntx, cVector2l size);
     BackBuffer GetBackBuffer() {
+      const uint32_t swapchainIndex = Interface<cGraphics>::Get()->swapchainIndex;
       return {(width - targetWidth) / 2, (height - targetHeight) / 2,
-              targetWidth, targetHeight, *renderTarget[RI.swapchainIndex],
-              *renderTargetView[RI.swapchainIndex]};
+              targetWidth, targetHeight, *renderTarget[swapchainIndex],
+              *renderTargetView[swapchainIndex]};
     }
 
     RISharedPointer<RITexture> renderTarget[RI_MAX_SWAPCHAIN_IMAGES];
@@ -276,10 +277,11 @@ public:
     SimpleViewportState(SimpleViewportState &&rhs) noexcept = default;
     SimpleViewportState &operator=(SimpleViewportState &&rhs) noexcept;
 
-    void Update(RIBootstrap::FrameContext *cntx, cVector2l size);
+    void Update(cGraphics::FrameContext *cntx, cVector2l size);
     BackBuffer GetBackBuffer() {
-      return {0, 0, width, height, *renderTarget[RI.swapchainIndex],
-              *renderTargetView[RI.swapchainIndex]};
+      const uint32_t swapchainIndex = Interface<cGraphics>::Get()->swapchainIndex;
+      return {0, 0, width, height, *renderTarget[swapchainIndex],
+              *renderTargetView[swapchainIndex]};
     }
 
     RISharedPointer<RITexture> renderTarget[RI_MAX_SWAPCHAIN_IMAGES];
@@ -314,7 +316,7 @@ public:
     // Format of `view` — the delivery draw's color attachment (and pipeline
     // key). Defaults to the pogo format; readback consumers (thumbnails) can
     // hand an RGBA8 target instead.
-    enum RI_Format_e format = RIBootstrap::PogoColorFormat;
+    enum RI_Format_e format = cGraphics::PogoColorFormat;
   };
   using Target = std::variant<TargetSwapchain, TargetView>;
 
@@ -350,7 +352,7 @@ public:
 
   // Per-viewport pogo (ping-pong), sized to GetTargetSize(). Resizes hand
   // the old halves to the frame freelist — no stall.
-  RI_PogoBuffer *PreparePogoBuffer(RIBootstrap::FrameContext *cntx);
+  RI_PogoBuffer *PreparePogoBuffer(cGraphics::FrameContext *cntx);
   // Read-only: the existing pogo, or nullptr if none was created yet (no
   // world evaluated at this viewport so far).
   RI_PogoBuffer *PogoBuffer() { return mlPogoWidth != 0 ? &mPogoBuffer : nullptr; }
@@ -371,8 +373,8 @@ public:
   // the editor thumbnail builder. At most ONE Evaluate per viewport per
   // frame: the renderers' initial UNDEFINED backbuffer barriers have an
   // empty before-scope, so a second draw would race the first evaluation's
-  // pending feed blit of the shared renderTarget[RI.swapchainIndex].
-  bool Evaluate(RIBootstrap::FrameContext *cntx, float afFrameTime, tFlag alFlags);
+  // pending feed blit of the shared renderTarget[Interface<cGraphics>::Get()->swapchainIndex].
+  bool Evaluate(cGraphics::FrameContext *cntx, float afFrameTime, tFlag alFlags);
 
 
   struct RITextureView *GetDepthView();
@@ -383,7 +385,7 @@ public:
 
   // Pipeline-stage events, signaled by Evaluate. Handlers run inside the
   // frame's command-recording window and may record their own commands into
-  // RI.primary.cmds[0] (e.g. a readback copy of the delivered TargetView —
+  // Interface<cGraphics>::Get()->primary.cmds[0] (e.g. a readback copy of the delivered TargetView —
   // see the editor thumbnail builder).
   //  - OnPreWorldDraw: before the renderer Draw (also on world-less frames).
   //  - OnPostTranslucenceDraw: after the renderer Draw but BEFORE the feed
@@ -406,7 +408,7 @@ public:
   Event<const WorldDrawCtx &> &OnPostDelivery() { return m_onPostDelivery; }
 
   template <typename Backend>
-  Backend *PrepareToRender(RIBootstrap::FrameContext *cntx) {
+  Backend *PrepareToRender(cGraphics::FrameContext *cntx) {
     const cVector2l size = GetTargetSize();
     if (!std::holds_alternative<Backend>(m_state)) {
       // emplace destroys the prior alternative, whose destructor defers its
@@ -420,7 +422,7 @@ public:
 
 private:
   // Hands the pogo halves' GPU resources to the frame freelist.
-  void ReleasePogoBuffer(RIBootstrap::FrameContext *cntx);
+  void ReleasePogoBuffer(cGraphics::FrameContext *cntx);
 
   cScene *mpScene;
 

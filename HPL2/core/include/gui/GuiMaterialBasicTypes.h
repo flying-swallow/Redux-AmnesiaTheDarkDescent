@@ -29,7 +29,7 @@ namespace hpl {
 	class cGuiMaterial_Diffuse : public iGuiMaterial
 	{
 	public:
-		cGuiMaterial_Diffuse(iLowLevelGraphics *apLowLevelGraphics):iGuiMaterial("Diffuse",apLowLevelGraphics){}
+		cGuiMaterial_Diffuse():iGuiMaterial("Diffuse"){}
 		~cGuiMaterial_Diffuse() {}
 
 		void BeforeRender() {} // STUB
@@ -41,7 +41,7 @@ namespace hpl {
 	class cGuiMaterial_Alpha : public iGuiMaterial
 	{
 	public:
-		cGuiMaterial_Alpha(iLowLevelGraphics *apLowLevelGraphics):iGuiMaterial("Alpha",apLowLevelGraphics){}
+		cGuiMaterial_Alpha():iGuiMaterial("Alpha"){}
 		~cGuiMaterial_Alpha() {}
 
 		void BeforeRender() {} // STUB
@@ -53,7 +53,7 @@ namespace hpl {
 	class cGuiMaterial_FontNormal : public iGuiMaterial
 	{
 	public:
-		cGuiMaterial_FontNormal(iLowLevelGraphics *apLowLevelGraphics):iGuiMaterial("FontNormal",apLowLevelGraphics){}
+		cGuiMaterial_FontNormal():iGuiMaterial("FontNormal"){}
 		~cGuiMaterial_FontNormal() {}
 
 		void BeforeRender() {} // STUB
@@ -65,7 +65,7 @@ namespace hpl {
 	class cGuiMaterial_Additive : public iGuiMaterial
 	{
 	public:
-		cGuiMaterial_Additive(iLowLevelGraphics *apLowLevelGraphics):iGuiMaterial("Additive",apLowLevelGraphics){}
+		cGuiMaterial_Additive():iGuiMaterial("Additive"){}
 		~cGuiMaterial_Additive() {}
 
 		void BeforeRender() {} // STUB
@@ -77,7 +77,7 @@ namespace hpl {
 	class cGuiMaterial_Modulative : public iGuiMaterial
 	{
 	public:
-		cGuiMaterial_Modulative(iLowLevelGraphics *apLowLevelGraphics):iGuiMaterial("Modulative",apLowLevelGraphics){}
+		cGuiMaterial_Modulative():iGuiMaterial("Modulative"){}
 		~cGuiMaterial_Modulative() {}
 
 		void BeforeRender() {} // STUB
@@ -89,7 +89,7 @@ namespace hpl {
 	class cGuiMaterial_PremulAlpha : public iGuiMaterial
 	{
 	public:
-		cGuiMaterial_PremulAlpha(iLowLevelGraphics *apLowLevelGraphics):iGuiMaterial("Alpha",apLowLevelGraphics){}
+		cGuiMaterial_PremulAlpha():iGuiMaterial("Alpha"){}
 		~cGuiMaterial_PremulAlpha() {}
 
 		void BeforeRender() {} // STUB

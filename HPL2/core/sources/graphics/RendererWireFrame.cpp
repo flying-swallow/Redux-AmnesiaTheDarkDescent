@@ -29,7 +29,7 @@
 #include "graphics/Renderable.h"
 
 #include "graphics/DebugDraw.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIPogoBuffer.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
@@ -65,7 +65,7 @@ namespace hpl {
 	cRendererWireFrame::cRendererWireFrame(cGraphics *apGraphics,cResources* apResources)
 		: iRenderer("WireFrame",apGraphics, apResources)
 	{
-		// Standalone program (no bindless set) — mirrors the RI.gui load in
+		// Standalone program (no bindless set) — mirrors the Interface<cGraphics>::Get()->gui load in
 		// cGraphics::Init; per-draw state arrives via a frame-scratch UBO
 		// ("pass", see Draw below).
 		auto vert_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "wireframe.vert.spv");
@@ -74,7 +74,7 @@ namespace hpl {
 			RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, vert_stage, "vsMain"},
 			RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, frag_stage, "psMain"}
 		};
-		m_wireframe.initialize(&RI.device, stages);
+		m_wireframe.initialize(&mpGraphics->device, stages);
 	}
 
 	//-----------------------------------------------------------------------
@@ -88,7 +88,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void cRendererWireFrame::Draw(RIBootstrap::FrameContext* cntx,
+	void cRendererWireFrame::Draw(cGraphics::FrameContext* cntx,
 								  cViewport* viewport,
 								  float afFrameTime,
 								  cFrustum* apFrustum,
@@ -139,7 +139,7 @@ namespace hpl {
 				{
 					// Particle emitters take the per-viewport scratch path in
 					// the draw loop (BuildViewportVertices straight into
-					// RI.translucentVtx/Idx segments) — panes must NOT write
+					// Interface<cGraphics>::Get()->translucentVtx/Idx segments) — panes must NOT write
 					// the persistent VB: its uploader copies coalesce in the
 					// fenced pre-pass, so the last pane would win for EVERY
 					// pane (and poison the hybrid view).
@@ -158,7 +158,7 @@ namespace hpl {
 				if(pVB == NULL) continue;
 
 				auto *vbri = static_cast<cVertexBuffer*>(pVB);
-				vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
+				vbri->SubmitToGPU(&mpGraphics->blasSubmit.cmds[0], &mpGraphics->device, cntx);
 			}
 		}
 
@@ -191,16 +191,16 @@ namespace hpl {
 		{
 			RITextureBarrier barriers[2] = {};
 			barriers[0] = RI_PogoAttachmentBarrier(
-				state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/true);
+				state.renderTarget[mpGraphics->swapchainIndex].Get(), /*initial=*/true);
 
-			barriers[1].texture = state.depthTextures[RI.swapchainIndex].Get();
+			barriers[1].texture = state.depthTextures[mpGraphics->swapchainIndex].Get();
 			barriers[1].before = RI_RESOURCE_STATE_UNDEFINED;
 			barriers[1].after = RI_RESOURCE_STATE_DEPTH_WRITE;
 			barriers[1].aspect = RI_BARRIER_ASPECT_DEPTH;
 			barriers[1].mipCount = 1;
 			barriers[1].layerCount = 1;
 
-			RI.primary.cmds[0].vk_d3d12_textureBarriers<2>(2, barriers);
+			mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<2>(2, barriers);
 		}
 
 		////////////////////////////////////////////
@@ -209,7 +209,7 @@ namespace hpl {
 		{
 
 			RIRenderingAttachment color = {};
-			color.view = *state.renderTargetView[RI.swapchainIndex];
+			color.view = *state.renderTargetView[mpGraphics->swapchainIndex];
 			color.loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
 			color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 			color.clearValue.color[0] = 0.0f;
@@ -218,7 +218,7 @@ namespace hpl {
 			color.clearValue.color[3] = 1.0f;
 
 			RIRenderingAttachment depth = {};
-			depth.view = *state.depthView[RI.swapchainIndex];
+			depth.view = *state.depthView[mpGraphics->swapchainIndex];
 			depth.loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
 			depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 			depth.clearValue.depth = 1.0f;
@@ -232,7 +232,7 @@ namespace hpl {
 			beginDesc.colorCount = 1;
 			beginDesc.colors = &color;
 			beginDesc.depthStencil = &depth;
-			RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
+			mpGraphics->primary.cmds[0].vk_d3d12_beginRendering(&mpGraphics->device, beginDesc);
 		}
 
 		// Y-flipped viewport — same convention as the forward passes, so the
@@ -241,8 +241,8 @@ namespace hpl {
 								   (float)renderWidth, -(float)renderHeight,
 								   0.0f, 1.0f };
 		VkRect2D scissor = { { 0, 0 }, { renderWidth, renderHeight } };
-		vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, 1, &viewport_vk);
-		vkCmdSetScissor(RI.primary.cmds[0].vk.cmd, 0, 1, &scissor);
+		vkCmdSetViewport(mpGraphics->primary.cmds[0].vk.cmd, 0, 1, &viewport_vk);
+		vkCmdSetScissor(mpGraphics->primary.cmds[0].vk.cmd, 0, 1, &scissor);
 
 		////////////////////////////////////////////
 		// Pipeline: position-only fetch, triangle list rasterised as lines.
@@ -274,10 +274,10 @@ namespace hpl {
 			dynamicState.pDynamicStates = dynamicStates;
 
 			VkPipelineRenderingCreateInfo pipelineRenderingCreateInfo = { VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO };
-			VkFormat colorFormats[1] = { RIFormatToVK(RIBootstrap::PogoColorFormat) };
+			VkFormat colorFormats[1] = { RIFormatToVK(cGraphics::PogoColorFormat) };
 			pipelineRenderingCreateInfo.colorAttachmentCount = 1;
 			pipelineRenderingCreateInfo.pColorAttachmentFormats = colorFormats;
-			pipelineRenderingCreateInfo.depthAttachmentFormat = RIFormatToVK(RIBootstrap::DepthFormat);
+			pipelineRenderingCreateInfo.depthAttachmentFormat = RIFormatToVK(cGraphics::DepthFormat);
 			pipelineRenderingCreateInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
 
 			VkPipelineViewportStateCreateInfo viewportState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
@@ -320,12 +320,12 @@ namespace hpl {
 			pipelineCreateInfo.pColorBlendState = &colorBlendState;
 
 			const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, 0u);
-			m_wireframe.bindPipeline(&RI.device, &RI.primary.cmds[0], kHash, "wireframe", &pipelineCreateInfo);
+			m_wireframe.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash, "wireframe", &pipelineCreateInfo);
 		}
 
 		////////////////////////////////////////////
 		// Draw every list with the same flat pipeline. Per-object MVP flows
-		// through a frame-scratch UBO slice (RI.UpdateFrameUBO), GUI-style.
+		// through a frame-scratch UBO slice (Interface<cGraphics>::Get()->UpdateFrameUBO), GUI-style.
 		const ml::float4x4 viewProjMtx = apFrustum->GetProjectionMat() * apFrustum->GetViewMat();
 		for(eRenderListType listType : lists)
 		{
@@ -336,7 +336,7 @@ namespace hpl {
 				////////////////////////////////////////////
 				// Particles: per-viewport scratch path. Build this pane's
 				// camera-facing quads straight into per-frame segments of
-				// RI.translucentVtx/IdxBuffer and bind them at byte offsets —
+				// Interface<cGraphics>::Get()->translucentVtx/IdxBuffer and bind them at byte offsets —
 				// each pane gets its own correctly-billboarded geometry (the
 				// persistent VB stays the hybrid renderer's).
 				if(listType == eRenderListType_Translucent &&
@@ -364,17 +364,17 @@ namespace hpl {
 					uniformBlock.color[3] = 1.0f;
 
 					RIProgram::DescriptorBinding binding = {};
-					RI.UpdateFrameUBO(&binding.descriptor, (void*)&uniformBlock, sizeof(uniformBlock));
+					mpGraphics->UpdateFrameUBO(&binding.descriptor, (void*)&uniformBlock, sizeof(uniformBlock));
 					binding.handle = DescriptorBindingID::Create("pass");
-					m_wireframe.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, &binding, 1);
+					m_wireframe.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex, &binding, 1);
 
-					RIBuffer *vertBufs[1] = { RI.translucentVtxBuffer.Get() };
+					RIBuffer *vertBufs[1] = { mpGraphics->translucentVtxBuffer.Get() };
 					const VkDeviceSize vertOffsets[1] = { (VkDeviceSize)geom.posByteOffset };
-					RI.primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
-					RI.primary.cmds[0].bindIndexBuffer(&RI.device, RI.translucentIdxBuffer.Get(),
+					mpGraphics->primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
+					mpGraphics->primary.cmds[0].bindIndexBuffer(&mpGraphics->device, mpGraphics->translucentIdxBuffer.Get(),
 													   (VkDeviceSize)geom.idxByteOffset,
 													   RI_INDEX_TYPE_32);
-					RI.primary.cmds[0].drawIndexed(&RI.device, geom.indexCount, 1, 0, 0, 0);
+					mpGraphics->primary.cmds[0].drawIndexed(&mpGraphics->device, geom.indexCount, 1, 0, 0, 0);
 					continue;
 				}
 
@@ -401,15 +401,15 @@ namespace hpl {
 				uniformBlock.color[3] = 1.0f;
 
 				RIProgram::DescriptorBinding binding = {};
-				RI.UpdateFrameUBO(&binding.descriptor, (void*)&uniformBlock, sizeof(uniformBlock));
+				mpGraphics->UpdateFrameUBO(&binding.descriptor, (void*)&uniformBlock, sizeof(uniformBlock));
 				binding.handle = DescriptorBindingID::Create("pass");
-				m_wireframe.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, &binding, 1);
+				m_wireframe.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex, &binding, 1);
 
 				RIBuffer *vertBufs[1] = { posElement->GetBuffer() };
 				const VkDeviceSize vertOffsets[1] = { 0 };
-				RI.primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
-				RI.primary.cmds[0].bindIndexBuffer(&RI.device, indexBuffer, 0, RI_INDEX_TYPE_32);
-				RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1, 0, 0, 0);
+				mpGraphics->primary.cmds[0].bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
+				mpGraphics->primary.cmds[0].bindIndexBuffer(&mpGraphics->device, indexBuffer, 0, RI_INDEX_TYPE_32);
+				mpGraphics->primary.cmds[0].drawIndexed(&mpGraphics->device, (uint32_t)indexCount, 1, 0, 0, 0);
 			}
 		}
 
@@ -421,19 +421,19 @@ namespace hpl {
 		DebugDraw *debugDraw = mpGraphics->GetDebugDraw();
 		if(debugDraw && debugDraw->HasRequests())
 		{
-			debugDraw->flush(cntx, &RI.primary.cmds[0], apFrustum, renderWidth,
-							 renderHeight, RIBootstrap::PogoColorFormat);
+			debugDraw->flush(cntx, &mpGraphics->primary.cmds[0], apFrustum, renderWidth,
+							 renderHeight, cGraphics::PogoColorFormat);
 		}
 
-		RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
+		mpGraphics->primary.cmds[0].vk_d3d12_endRendering(&mpGraphics->device);
 
 		////////////////////////////////////////////
 		// Hand off: render target COLOR -> SHADER_READ — the finished frame
 		// cScene feeds into the viewport pogo (post processing) and delivers
 		// to the Target.
 		{
-			RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
-				state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
+			mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
+				state.renderTarget[mpGraphics->swapchainIndex].Get(), /*initial=*/false));
 		}
 	}
 

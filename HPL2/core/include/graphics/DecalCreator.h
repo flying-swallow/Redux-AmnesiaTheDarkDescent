@@ -30,7 +30,6 @@ namespace hpl {
 
 	class cMesh2D;
 	class cVertexBuffer;
-	class iLowLevelGraphics;
 	class cResources;
 	class cMesh;
 	class cSubMeshEntity;
@@ -41,7 +40,7 @@ namespace hpl {
 	class cDecalCreator
 	{
 	public:
-		cDecalCreator(iLowLevelGraphics *apLowLevelGraphics, cResources *apResources);
+		cDecalCreator(cResources *apResources);
 		~cDecalCreator();
 
 		bool AddSubMesh(cSubMeshEntity* apSubMesh);
@@ -102,7 +101,6 @@ namespace hpl {
 									cVector3f* apNewVertices, cVector3f* apNewNormals);
 
 
-		iLowLevelGraphics *mpLowLevelGraphics;
 		cResources *mpResources;
 
 		std::vector<cSubMeshEntity*> mvMeshes;

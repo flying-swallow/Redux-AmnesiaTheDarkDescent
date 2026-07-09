@@ -29,8 +29,8 @@
 #include "system/LowLevelSystem.h"
 #include "system/String.h"
 
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/Graphics.h"
+#include "graphics/Window.h"
 #include "graphics/FontData.h"
 #include "graphics/RIRenderer.h"
 
@@ -308,7 +308,6 @@ namespace hpl {
 
 		mfContextMenuZ = 500;
 
-		mvVirtualSize = mpGraphics->GetLowLevel()->GetScreenSizeFloat();
 		mfVirtualMinZ = -1000;
 		mfVirtualMaxZ = 1000;
 		mvVirtualSizeOffset = cVector2f(0);
@@ -536,48 +535,48 @@ namespace hpl {
 			return;
 		}
 
-		RIBootstrap::FrameContext* cntx = RI.GetActiveSet();
+		cGraphics::FrameContext* cntx = mpGraphics->GetActiveSet();
 
 		const size_t numVerts = m_setRenderObjects.size() * 4;
 		const size_t numIndecies = m_setRenderObjects.size() * 6;
 		RISegmentReq vtxReq = {};
 		RISegmentReq idxReq = {};
-		if(RI.guiVertexBuffer.isEmpty() || !RI.guiVertexAlloc.request(RI.frameIndex, numVerts, &vtxReq)) {
+		if(mpGraphics->guiVertexBuffer.isEmpty() || !mpGraphics->guiVertexAlloc.request(mpGraphics->frameIndex, numVerts, &vtxReq)) {
 		  struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 		  segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 		  segmentAllocDesc.elementStride = sizeof(PositionTexColor);
-		  segmentAllocDesc.maxElements = static_cast<uint32_t>(std::max<size_t>(RI.guiVertexAlloc.maxElements, 1024));
+		  segmentAllocDesc.maxElements = static_cast<uint32_t>(std::max<size_t>(mpGraphics->guiVertexAlloc.maxElements, 1024));
 		  do {
 			  segmentAllocDesc.maxElements = ( segmentAllocDesc.maxElements + ( segmentAllocDesc.maxElements >> 1 ) );
 		  } while( segmentAllocDesc.maxElements < m_setRenderObjects.size() * 4);
-		  RI.guiVertexAlloc = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>( &segmentAllocDesc );
-		  bool res = RI.guiVertexAlloc.request( RI.frameIndex, numVerts, &vtxReq);
+		  mpGraphics->guiVertexAlloc = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>( &segmentAllocDesc );
+		  bool res = mpGraphics->guiVertexAlloc.request( mpGraphics->frameIndex, numVerts, &vtxReq);
 			assert(res);
 
-			if(!RI.guiVertexBuffer.isEmpty()) {
-				RI.graphicsDefer.push(RI.guiVertexBuffer);
+			if(!mpGraphics->guiVertexBuffer.isEmpty()) {
+				mpGraphics->graphicsDefer.push(mpGraphics->guiVertexBuffer);
 			}
-			RI.guiVertexBuffer = RISharedPointer<RIBuffer>(&RI.device, RIBuffer::create(
-				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
+			mpGraphics->guiVertexBuffer = RISharedPointer<RIBuffer>(&mpGraphics->device, RIBuffer::create(
+				&mpGraphics->device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
 				             RI_BUFFER_USAGE_VERTEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_SRC | RI_BUFFER_USAGE_TRANSFER_DST,
 				             RI_MEMORY_HOST_UPLOAD, 0}));
 		}
 
-		if(RI.guiIndexBuffer.isEmpty() || !RI.guiIndexAlloc.request(RI.frameIndex, numIndecies, &idxReq)) {
+		if(mpGraphics->guiIndexBuffer.isEmpty() || !mpGraphics->guiIndexAlloc.request(mpGraphics->frameIndex, numIndecies, &idxReq)) {
 			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 			segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
 			segmentAllocDesc.elementStride = sizeof(uint32_t);
-			segmentAllocDesc.maxElements = static_cast<uint32_t>(std::max<size_t>(RI.guiIndexAlloc.maxElements, 1024));
+			segmentAllocDesc.maxElements = static_cast<uint32_t>(std::max<size_t>(mpGraphics->guiIndexAlloc.maxElements, 1024));
 			do {
 				segmentAllocDesc.maxElements = ( segmentAllocDesc.maxElements + ( segmentAllocDesc.maxElements >> 1 ) );
 			} while( segmentAllocDesc.maxElements < m_setRenderObjects.size() * 6);
-			RI.guiIndexAlloc = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>( &segmentAllocDesc );
+			mpGraphics->guiIndexAlloc = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>( &segmentAllocDesc );
 			
-			if(!RI.guiIndexBuffer.isEmpty()) {
-				RI.graphicsDefer.push(RI.guiIndexBuffer);
+			if(!mpGraphics->guiIndexBuffer.isEmpty()) {
+				mpGraphics->graphicsDefer.push(mpGraphics->guiIndexBuffer);
 			}
-			RI.guiIndexBuffer = RISharedPointer<RIBuffer>(&RI.device, RIBuffer::create(
-				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
+			mpGraphics->guiIndexBuffer = RISharedPointer<RIBuffer>(&mpGraphics->device, RIBuffer::create(
+				&mpGraphics->device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
 				             RI_BUFFER_USAGE_INDEX_BUFFER | RI_BUFFER_USAGE_TRANSFER_SRC | RI_BUFFER_USAGE_TRANSFER_DST,
 				             RI_MEMORY_HOST_UPLOAD, 0}));
 		}
@@ -585,12 +584,13 @@ namespace hpl {
 		ml::float4x4 projectionMtx = ml::float4x4::Identity();
 	  ml::float4x4 viewMtx = ml::float4x4::Identity();
 	  ml::float4x4 modelMtx = ml::float4x4::Identity();
+	  const cVector2f vVirtualSize = GetVirtualSize();
 	  if(mbIs3D)
 	  {
 	  	//Invert the y coordinate: = -y, this also get the gui into the correct position.
 	  	//Also scale to size
-	  	cVector3f vPreScale = cVector3f(mv3DSize.x / mvVirtualSize.x,
-	  									-mv3DSize.y / mvVirtualSize.y,
+	  	cVector3f vPreScale = cVector3f(mv3DSize.x / vVirtualSize.x,
+	  									-mv3DSize.y / vVirtualSize.y,
 	  									mv3DSize.z / (mfVirtualMaxZ - mfVirtualMinZ));
 	  	cMatrixf mtxPreMul = cMath::MatrixScale(vPreScale);
 	  	//note: Offset needs to be converted to shape coords (done by multiplying with pre scale)
@@ -607,8 +607,8 @@ namespace hpl {
 	  	// MathLib's SetupByOrthoProjection asserts bottom < top, so pass the bounds
 	  	// in natural order. The y-flip and z remap below adapt the GL-style result
 	  	// to Vulkan + the negative-height viewport at ~line 651.
-	  	projectionMtx.SetupByOrthoProjection(-mvVirtualSizeOffset.x, mvVirtualSize.x - mvVirtualSizeOffset.x,
-	  	                                     -mvVirtualSizeOffset.y, mvVirtualSize.y - mvVirtualSizeOffset.y,
+	  	projectionMtx.SetupByOrthoProjection(-mvVirtualSizeOffset.x, vVirtualSize.x - mvVirtualSizeOffset.x,
+	  	                                     -mvVirtualSizeOffset.y, vVirtualSize.y - mvVirtualSizeOffset.y,
 	  	                                     mfVirtualMinZ, mfVirtualMaxZ);
 
 	  	// y-flip: MathLib emits NDC y up; the negative-height viewport then flips
@@ -626,8 +626,8 @@ namespace hpl {
 		const VkDeviceSize vkOffset = vtxReq.elementOffset * vtxReq.elementStride; 
 		const VkDeviceSize idxOffset = idxReq.elementOffset * idxReq.elementStride;
 
-  	void *vboMemory = ( (uint8_t *)RI.guiVertexBuffer->mappedAddress ) + vkOffset;
-  	void *eleMemory = ( (uint8_t *)RI.guiIndexBuffer->mappedAddress) + idxOffset ;
+  	void *vboMemory = ( (uint8_t *)mpGraphics->guiVertexBuffer->mappedAddress ) + vkOffset;
+  	void *eleMemory = ( (uint8_t *)mpGraphics->guiIndexBuffer->mappedAddress) + idxOffset ;
 
     auto it = m_setRenderObjects.begin();
 
@@ -641,13 +641,13 @@ namespace hpl {
 		cGuiClipRegion *pClipRegion = it->mpClipRegion;
 
 		VkViewport viewports[] = {
-			{0,(float)RI.swapchain.height, (float)RI.swapchain.width, -(float)RI.swapchain.height, 0.0f, 1.0f}
+			{0,(float)mpGraphics->swapchain->height, (float)mpGraphics->swapchain->width, -(float)mpGraphics->swapchain->height, 0.0f, 1.0f}
 		};
 		VkRect2D scissors[] = {
-			{ {0, 0}, {RI.swapchain.width, RI.swapchain.height} }
+			{ {0, 0}, {mpGraphics->swapchain->width, mpGraphics->swapchain->height} }
 		};
-		vkCmdSetViewport(RI.primary.cmds[0].vk.cmd, 0, ARRAY_COUNT(viewports), viewports);
-		vkCmdSetScissor( RI.primary.cmds[0].vk.cmd, 0, ARRAY_COUNT(scissors), scissors );
+		vkCmdSetViewport(mpGraphics->primary.cmds[0].vk.cmd, 0, ARRAY_COUNT(viewports), viewports);
+		vkCmdSetScissor( mpGraphics->primary.cmds[0].vk.cmd, 0, ARRAY_COUNT(scissors), scissors );
 
 		size_t vertexBufferOffset = 0;
 		size_t indexBufferOffset = 0;
@@ -703,19 +703,19 @@ namespace hpl {
 				diffuseTexture = pTexture->GetTexture();
 			}
 			if (diffuseTexture) {
-				RI.graphicsDefer.push(PinResource(pTexture));
+				mpGraphics->graphicsDefer.push(PinResource(pTexture));
 				uniformBlock.textureCfg |= (1 << 0); // Has texture
 				bindings[numBindings].descriptor = diffuseTexture->descriptor();
 			} else {
-				bindings[numBindings].descriptor = RI.whiteTexture2DDescriptor();
+				bindings[numBindings].descriptor = mpGraphics->whiteTexture2DDescriptor();
 			}
 			bindings[numBindings++].handle = DescriptorBindingID::Create("diffuseMap");
 
 			memcpy(uniformBlock.mvp, ((projectionMtx * viewMtx) * modelMtx).a, sizeof(float) * 16);
-			RI.UpdateFrameUBO(&bindings[numBindings].descriptor, (void*)&uniformBlock, sizeof(GuiPass));		
+			mpGraphics->UpdateFrameUBO(&bindings[numBindings].descriptor, (void*)&uniformBlock, sizeof(GuiPass));		
 			bindings[numBindings++].handle = DescriptorBindingID::Create("pass");
 
-			auto desc = 	RI.resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
+			auto desc = 	mpGraphics->resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 			assert(desc);
 			bindings[numBindings].descriptor = *desc;
 			bindings[numBindings++].handle = DescriptorBindingID::Create("diffuseSampler");
@@ -729,9 +729,9 @@ namespace hpl {
 				apViewport != nullptr && apViewport->GetDepthView() != nullptr;
 
 			hash_t hash = hash_u32(HASH_INITIAL_VALUE, materialType);
-			hash = hash_u32(hash, bRenderPassHasDepth ? RIBootstrap::DepthFormat
+			hash = hash_u32(hash, bRenderPassHasDepth ? cGraphics::DepthFormat
 			                                          : RI_FORMAT_UNKNOWN);
-			hash = hash_u32(hash, RI.swapchain.format);
+			hash = hash_u32(hash, mpGraphics->swapchain->format);
 			hash = hash_u32(hash, mbIs3D);
 			VkPipelineVertexInputStateCreateInfo vertexInputState = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
 			VkVertexInputAttributeDescription vertextbindingDesc[] = {
@@ -766,12 +766,12 @@ namespace hpl {
 			// Invariant: GUI sets are only ever rendered into the swapchain
 			// (Scene.cpp Render3DGui/RenderScreenGui, LuxHelpFuncs DrawSetToScreen).
 			// Both the pipeline cache hash above and the attachment format here key
-			// on RI.swapchain.format; if you ever render a GUI into a non-swapchain
+			// on Interface<cGraphics>::Get()->swapchain.format; if you ever render a GUI into a non-swapchain
 			// target, this needs to take the actual attachment's format instead.
-			VkFormat colorFormats[1] = { RIFormatToVK((RI_Format_e)RI.swapchain.format) };
+			VkFormat colorFormats[1] = { RIFormatToVK((RI_Format_e)mpGraphics->swapchain->format) };
 			pipelineRenderingCreateInfo.pColorAttachmentFormats = colorFormats;
 			pipelineRenderingCreateInfo.depthAttachmentFormat =
-				bRenderPassHasDepth ? RIFormatToVK( RIBootstrap::DepthFormat ) : VK_FORMAT_UNDEFINED;
+				bRenderPassHasDepth ? RIFormatToVK( cGraphics::DepthFormat ) : VK_FORMAT_UNDEFINED;
 			pipelineRenderingCreateInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
 
 			VkPipelineViewportStateCreateInfo viewportState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
@@ -817,7 +817,7 @@ namespace hpl {
 					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
 					colorBlendState.pAttachments = blendAttachmentState;
 				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_Alpha", &pipelineCreateInfo);
+					mpGraphics->gui.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], hash,"gui.eGuiMaterial_Alpha", &pipelineCreateInfo);
 					break;
 				}
 				case eGuiMaterial_Additive: {
@@ -835,7 +835,7 @@ namespace hpl {
 					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
 					colorBlendState.pAttachments = blendAttachmentState;
 				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_Additive", &pipelineCreateInfo);
+					mpGraphics->gui.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], hash,"gui.eGuiMaterial_Additive", &pipelineCreateInfo);
 					break;	
 				}
 				case eGuiMaterial_Modulative: {
@@ -853,7 +853,7 @@ namespace hpl {
 					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
 					colorBlendState.pAttachments = blendAttachmentState;
 				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_Modulative", &pipelineCreateInfo);
+					mpGraphics->gui.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], hash,"gui.eGuiMaterial_Modulative", &pipelineCreateInfo);
 					break;	
 				}
 				case eGuiMaterial_PremulAlpha: {
@@ -871,7 +871,7 @@ namespace hpl {
 					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
 					colorBlendState.pAttachments = blendAttachmentState;
 				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_PremulAlpha", &pipelineCreateInfo);
+					mpGraphics->gui.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], hash,"gui.eGuiMaterial_PremulAlpha", &pipelineCreateInfo);
 					break;	
 				}
 				case eGuiMaterial_Diffuse:{
@@ -890,11 +890,11 @@ namespace hpl {
 					colorBlendState.attachmentCount = ARRAY_COUNT(blendAttachmentState);
 					colorBlendState.pAttachments = blendAttachmentState;
 				 	pipelineCreateInfo.pColorBlendState = &colorBlendState;
-					RI.gui.bindPipeline(&RI.device, &RI.primary.cmds[0], hash,"gui.eGuiMaterial_Diffuse", &pipelineCreateInfo);
+					mpGraphics->gui.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], hash,"gui.eGuiMaterial_Diffuse", &pipelineCreateInfo);
 					break;
 				}
 			}
-			RI.gui.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex, bindings, numBindings);
+			mpGraphics->gui.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex, bindings, numBindings);
 			do
 			{
 				const cGuiRenderObject &object = *it;
@@ -977,9 +977,9 @@ namespace hpl {
 
 			uint64_t vbOffset = vkOffset + vertexBufferOffset * sizeof(PositionTexColor);
 			uint64_t ibOffset = idxOffset + indexBufferOffset * sizeof(uint32_t);
-			vkCmdBindVertexBuffers(RI.primary.cmds[0].vk.cmd, 0, 1, &RI.guiVertexBuffer->vk.buffer, &vbOffset);
-			vkCmdBindIndexBuffer(RI.primary.cmds[0].vk.cmd, RI.guiIndexBuffer->vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
-			RI.primary.cmds[0].drawIndexed(&RI.device, static_cast<uint32_t>(indexBufferIndex), 1, 0, 0, 0);
+			vkCmdBindVertexBuffers(mpGraphics->primary.cmds[0].vk.cmd, 0, 1, &mpGraphics->guiVertexBuffer->vk.buffer, &vbOffset);
+			vkCmdBindIndexBuffer(mpGraphics->primary.cmds[0].vk.cmd, mpGraphics->guiIndexBuffer->vk.buffer, ibOffset, VK_INDEX_TYPE_UINT32);
+			mpGraphics->primary.cmds[0].drawIndexed(&mpGraphics->device, static_cast<uint32_t>(indexBufferIndex), 1, 0, 0, 0);
 
 			vertexBufferOffset += vertexBufferIndex;
 			indexBufferOffset += indexBufferIndex;
@@ -996,7 +996,6 @@ namespace hpl {
 
 		//if(mbIs3D)
 		//{
-		//	if(mbCullBackface==false) pLowLevelGraphics->SetCullActive(true);
 		//}
 	}
 
@@ -1629,10 +1628,11 @@ namespace hpl {
 
 		cVector3f vPos = avPosition;
 
-		if(avPosition.x + apMenu->GetSize().x > mvVirtualSize.x)
-			vPos.x = mvVirtualSize.x - apMenu->GetSize().x;
-		if(avPosition.y + apMenu->GetSize().y > mvVirtualSize.y)
-			vPos.y = mvVirtualSize.y - apMenu->GetSize().y;
+		const cVector2f vVirtualSize = GetVirtualSize();
+		if(avPosition.x + apMenu->GetSize().x > vVirtualSize.x)
+			vPos.x = vVirtualSize.x - apMenu->GetSize().x;
+		if(avPosition.y + apMenu->GetSize().y > vVirtualSize.y)
+			vPos.y = vVirtualSize.y - apMenu->GetSize().y;
 	
 		apMenu->SetVisible(true);
 		apMenu->SetEnabled(true);
@@ -1712,7 +1712,7 @@ namespace hpl {
 	{
 		mpWidgetRoot->SetClipActive(abX);
 		if(abX)
-			mpWidgetRoot->SetSize(mvVirtualSize);
+			mpWidgetRoot->SetSize(GetVirtualSize());
 		else
 			mpWidgetRoot->SetSize(0);
 	}
@@ -1726,10 +1726,22 @@ namespace hpl {
 
 	void cGuiSet::SetVirtualSize(const cVector2f& avSize, float afMinZ, float afMaxZ, const cVector2f& avOffset)
 	{
-		mvVirtualSize = avSize;
+		m_explicitVirtualSize = avSize;
 		mfVirtualMinZ = afMinZ;
 		mfVirtualMaxZ = afMaxZ;
 		mvVirtualSizeOffset = avOffset;
+	}
+
+	//-----------------------------------------------------------------------
+
+	cVector2f cGuiSet::GetVirtualSize()
+	{
+		// Sets without an explicit design space follow the screen: pulled at
+		// use time so a swapchain resize needs no notification, and the mouse
+		// screen->virtual mapping (cGui) stays in lockstep automatically.
+		if(m_explicitVirtualSize) return *m_explicitVirtualSize;
+
+		return Interface<cWindow>::Get()->GetSizeF();
 	}
 
 	//-----------------------------------------------------------------------
@@ -1862,7 +1874,7 @@ namespace hpl {
 	{
 		cVector3f vPos = apWidget->GetGlobalPosition();
 		const cVector2f& vSize = apWidget->GetSize();
-		const cVector2f& vSetSize = GetVirtualSize();
+		const cVector2f vSetSize = GetVirtualSize();
 
 		for(int i=0; i<2; ++i)
 		{
@@ -2764,10 +2776,11 @@ namespace hpl {
 					mpLabelToolTip->SetText(sTipText);
 					mpLabelToolTip->SetSize(vToolTipSize);
 
-					if(vPos.x + vToolTipSize.x > mvVirtualSize.x)
-						vPos.x = mvVirtualSize.x-vToolTipSize.x;
-					if(vPos.y + vToolTipSize.y > mvVirtualSize.y)
-						vPos.y = mvVirtualSize.y-vToolTipSize.y;
+					const cVector2f vVirtualSize = GetVirtualSize();
+					if(vPos.x + vToolTipSize.x > vVirtualSize.x)
+						vPos.x = vVirtualSize.x-vToolTipSize.x;
+					if(vPos.y + vToolTipSize.y > vVirtualSize.y)
+						vPos.y = vVirtualSize.y-vToolTipSize.y;
 
 					mpFrameToolTip->SetGlobalPosition(vPos);
 					mpFrameToolTip->SetSize(vToolTipSize);

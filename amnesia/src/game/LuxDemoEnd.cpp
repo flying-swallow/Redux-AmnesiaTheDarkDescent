@@ -43,7 +43,6 @@ cLuxDemoEnd::cLuxDemoEnd() : iLuxUpdateable("LuxDemoEnd")
 
 	///////////////////////
 	// Load settings
-	mvScreenSize = gpBase->mpEngine->GetGraphics()->GetLowLevel()->GetScreenSizeFloat();
 
 	mvGuiSetCenterSize = cVector2f(800, 600);
 
@@ -51,6 +50,11 @@ cLuxDemoEnd::cLuxDemoEnd() : iLuxUpdateable("LuxDemoEnd")
 	mvGuiSetStartPos = cVector3f(-mvGuiSetOffset.x,-mvGuiSetOffset.y,0);
 
 	mpGuiSet->SetVirtualSize(mvGuiSetSize, -1000,1000, mvGuiSetOffset);
+
+	// Re-apply the pinned virtual size/offset on a swapchain resize.
+	mScreenSizeChangedHandler = EventHandler<const cVector2l&>(
+		[this](const cVector2l& avSize){ OnScreenSizeChange(avSize); });
+	mScreenSizeChangedHandler.Connect(Interface<cWindow>::Get()->OnScreenSizeChanged());
 
 	///////////////////////////////
 	//Create Viewport

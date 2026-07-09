@@ -25,13 +25,10 @@
 
 namespace hpl {
 
-	class iLowLevelGraphics;
-	
 	class iGuiMaterial
 	{
 	public:
-		iGuiMaterial(const tString &asName,iLowLevelGraphics *apLowLevelGraphics) :
-						msName(asName), mpLowLevelGraphics(apLowLevelGraphics) {}
+		iGuiMaterial(const tString &asName) : msName(asName) {}
 		virtual ~iGuiMaterial(){}
 
 		virtual void BeforeRender()=0;
@@ -41,7 +38,6 @@ namespace hpl {
 
 	protected:
 		tString msName;
-		iLowLevelGraphics *mpLowLevelGraphics;
 	};
 
 };

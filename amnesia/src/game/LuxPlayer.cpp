@@ -55,6 +55,14 @@
 
 //-----------------------------------------------------------------------
 
+float cLuxPlayer::GetScreenAspect() const
+{
+	cVector2f vScreenSize = Interface<cWindow>::Get()->GetSizeF();
+	return vScreenSize.x / vScreenSize.y;
+}
+
+//-----------------------------------------------------------------------
+
 cLuxPlayer::cLuxPlayer() : iLuxUpdateable("LuxPlayer"), iLuxCollideCallbackContainer()
 {
 	//////////////////////////////////
@@ -70,12 +78,10 @@ cLuxPlayer::cLuxPlayer() : iLuxUpdateable("LuxPlayer"), iLuxCollideCallbackConta
 	mfFreeCameraSpeed = 0.1f;
 
 	//TODO: More setup?
-	cVector2f vScreenSize = gpBase->mpEngine->GetGraphics()->GetLowLevel()->GetScreenSizeFloat();
-	mfAspect = vScreenSize.x / vScreenSize.y;
 	mfFOV = cMath::ToRad(gpBase->mpGameCfg->GetFloat("Player_General","FOV", 0));
-	
+
 	mpCamera->SetFOV(mfFOV);
-	mpCamera->SetAspect(mfAspect);
+	mpCamera->SetAspect(GetScreenAspect());
 	mpCamera->SetFarClipPlane(gpBase->mpGameCfg->GetFloat("Player_General","FarClipPlane",0));
 	mpCamera->SetNearClipPlane(gpBase->mpGameCfg->GetFloat("Player_General","NearClipPlane",0));
 	mpCamera->SetPitchLimits(-cMath::ToRad(70), cMath::ToRad(70) );
@@ -328,7 +334,7 @@ void cLuxPlayer::Reset()
 	mpCamera->SetPitch(0.0f);
 	mpCamera->SetYaw(0.0f);
 	mpCamera->SetFOV(mfFOV*mfFOVMul);
-	mpCamera->SetAspect(mfAspect*mfAspectMul);
+	mpCamera->SetAspect(GetScreenAspect()*mfAspectMul);
 
 	///////////////
 	// Free camera
@@ -512,7 +518,7 @@ void cLuxPlayer::OnMapLeave(cLuxMap *apMap)
 
 	mpCamera->SetRoll(0.0f);
 	mpCamera->SetFOV(mfFOV*mfFOVMul);
-	mpCamera->SetAspect(mfAspect*mfAspectMul);
+	mpCamera->SetAspect(GetScreenAspect()*mfAspectMul);
 }
 
 //-----------------------------------------------------------------------
@@ -1261,7 +1267,7 @@ void cLuxPlayer::UpdateCamera(float afTimeStep)
 		
 		if(cMath::Abs(mfAspectMulGoal - mfAspectMul) < 0.004f) mfAspectMul = mfAspectMulGoal;
 
-		mpCamera->SetAspect(mfAspect*mfAspectMul);
+		mpCamera->SetAspect(GetScreenAspect()*mfAspectMul);
 	}
 
 	bool bUpdatedRoll = false;

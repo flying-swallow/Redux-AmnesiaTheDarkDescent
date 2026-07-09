@@ -26,7 +26,7 @@
 
 #include "graphics/Texture.h"
 #include "graphics/Image.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
 
@@ -874,11 +874,12 @@ void iEditorViewport::SetRenderMode(eRenderer aMode)
 // previous texture mid-flight is safe.
 static std::optional<cTexture> CreatePaneTexture(uint32_t alWidth, uint32_t alHeight)
 {
+	cGraphics* pGraphics = Interface<cGraphics>::Get();
 	cTexture texture;
 
 	VkImageCreateInfo imageInfo = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
 	imageInfo.imageType = VK_IMAGE_TYPE_2D;
-	imageInfo.format = RIFormatToVK(RIBootstrap::PogoColorFormat);
+	imageInfo.format = RIFormatToVK(cGraphics::PogoColorFormat);
 	imageInfo.extent = {alWidth, alHeight, 1};
 	imageInfo.mipLevels = 1;
 	imageInfo.arrayLayers = 1;
@@ -891,12 +892,12 @@ static std::optional<cTexture> CreatePaneTexture(uint32_t alWidth, uint32_t alHe
 
 	uint32_t queueFamilies[RI_QUEUE_LEN] = {0};
 	imageInfo.pQueueFamilyIndices = queueFamilies;
-	VK_ConfigureImageQueueFamilies(&imageInfo, RI.device.queues, RI_QUEUE_LEN,
+	VK_ConfigureImageQueueFamilies(&imageInfo, pGraphics->device.queues, RI_QUEUE_LEN,
 								   queueFamilies, RI_QUEUE_LEN);
 
 	VmaAllocationCreateInfo allocInfo = {};
 	allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-	if(!VK_WrapResult(vmaCreateImage(RI.device.vk.vmaAllocator, &imageInfo,
+	if(!VK_WrapResult(vmaCreateImage(pGraphics->device.vk.vmaAllocator, &imageInfo,
 									 &allocInfo, &texture.handle.vk.image,
 									 &texture.handle.vk.allocation, NULL)))
 	{
@@ -909,11 +910,11 @@ static std::optional<cTexture> CreatePaneTexture(uint32_t alWidth, uint32_t alHe
 	viewDesc.format = VKToRIFormat(imageInfo.format);
 	viewDesc.mipNum = 1;
 	viewDesc.layerNum = 1;
-	texture.view = RITextureView::create(&RI.device, &texture.handle, viewDesc);
+	texture.view = RITextureView::create(&pGraphics->device, &texture.handle, viewDesc);
 	if(texture.view.isEmpty())
 	{
 		Error("EditorViewport: failed to create pane image view\n");
-		vmaDestroyImage(RI.device.vk.vmaAllocator, texture.handle.vk.image,
+		vmaDestroyImage(pGraphics->device.vk.vmaAllocator, texture.handle.vk.image,
 						texture.handle.vk.allocation);
 		texture.handle.vk.image = VK_NULL_HANDLE;
 		texture.handle.vk.allocation = NULL;
@@ -924,7 +925,7 @@ static std::optional<cTexture> CreatePaneTexture(uint32_t alWidth, uint32_t alHe
 	texture.height = (uint16_t)alHeight;
 	texture.depth = 1;
 	texture.mipNum = 1;
-	texture.format = RIBootstrap::PogoColorFormat;
+	texture.format = cGraphics::PogoColorFormat;
 
 	return texture;
 }

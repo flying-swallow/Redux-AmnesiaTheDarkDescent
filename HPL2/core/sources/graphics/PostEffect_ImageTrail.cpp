@@ -22,7 +22,7 @@
 
 #include "graphics/Graphics.h"
 #include "graphics/PostEffectHelpers.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIProgramHelpers.h"
 #include "system/Hasher.h"
 
@@ -39,10 +39,10 @@ struct ImageTrailPushConstants {
 cPostEffectType_ImageTrail::cPostEffectType_ImageTrail(cGraphics *apGraphics,
                                                        cResources *apResources)
     : iPostEffectType("ImageTrail", apGraphics, apResources) {
-    LoadSlangGraphics(&RI.device, m_updateProgram, apResources,
+    LoadSlangGraphics(&mpGraphics->device, m_updateProgram, apResources,
                       "posteffect_fullscreen.vert.spv",
                       "posteffect_image_trail.frag.spv");
-    LoadSlangGraphics(&RI.device, m_blitProgram, apResources,
+    LoadSlangGraphics(&mpGraphics->device, m_blitProgram, apResources,
                       "posteffect_fullscreen.vert.spv",
                       "posteffect_blit.frag.spv");
 }
@@ -86,16 +86,16 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         m_accum.height != ctx.height) {
         DestroyPostEffectColorTarget(m_accum);
         CreatePostEffectColorTarget(m_accum, ctx.width, ctx.height,
-                                    RIBootstrap::PogoColorFormat, RI_USAGE_NONE,
+                                    cGraphics::PogoColorFormat, RI_USAGE_NONE,
                                     "PostEffect_ImageTrail.accum");
         mbClearAccum = true;
     }
 
-    const RI_Format_e imageTrailFormat = RIBootstrap::PogoColorFormat;
+    const RI_Format_e imageTrailFormat = cGraphics::PogoColorFormat;
 
     VkViewport viewport = { 0.0f, 0.0f, static_cast<float>(ctx.width), static_cast<float>(ctx.height), 0.0f, 1.0f };
     VkRect2D scissor = { {0, 0}, {ctx.width, ctx.height} };
-    auto samplerDesc = RI.resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
+    auto samplerDesc = mpGraphics->resolve_filter_descriptor(eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 
     // ----- Pass 1: blend new frame into accum (with alpha) -----
     // Layout: SHADER_READ (or UNDEFINED first time) → COLOR_ATTACH
@@ -125,7 +125,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         beginDesc.renderArea.height = (int16_t)ctx.height;
         beginDesc.colorCount = 1;
         beginDesc.colors = &color;
-        ctx.cmd->vk_d3d12_beginRendering(&RI.device, beginDesc);
+        ctx.cmd->vk_d3d12_beginRendering(&mpGraphics->device, beginDesc);
 
         vkCmdSetViewport(cmd, 0, 1, &viewport);
         vkCmdSetScissor(cmd, 0, 1, &scissor);
@@ -136,7 +136,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
 
         const hash_t blendHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/1u);
         mpImageTrailType->m_updateProgram.bindPipeline(
-            &RI.device, ctx.cmd, blendHash, "PostEffect_ImageTrail.update",
+            &mpGraphics->device, ctx.cmd, blendHash, "PostEffect_ImageTrail.update",
             &blendState.createInfo);
 
 
@@ -148,7 +148,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
             bindings[1].descriptor = ctx.inputSrv;
             bindings[1].handle = DescriptorBindingID::Create("sourceInput");
             mpImageTrailType->m_updateProgram.bindDescriptors(
-                &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
+                &mpGraphics->device, ctx.cmd, ctx.frameIndex, bindings, 2);
         }
 
         ImageTrailPushConstants pc{};
@@ -169,7 +169,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
             VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
 
         vkCmdDraw(cmd, 3, 1, 0, 0);
-        ctx.cmd->vk_d3d12_endRendering(&RI.device);
+        ctx.cmd->vk_d3d12_endRendering(&mpGraphics->device);
 
         mbClearAccum = false;
 
@@ -195,7 +195,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
         outBeginDesc.renderArea.height = (int16_t)ctx.height;
         outBeginDesc.colorCount = 1;
         outBeginDesc.colors = &outColor;
-        ctx.cmd->vk_d3d12_beginRendering(&RI.device, outBeginDesc);
+        ctx.cmd->vk_d3d12_beginRendering(&mpGraphics->device, outBeginDesc);
 
         vkCmdSetViewport(cmd, 0, 1, &viewport);
         vkCmdSetScissor(cmd, 0, 1, &scissor);
@@ -206,7 +206,7 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
 
         const hash_t blitHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/2u);
         mpImageTrailType->m_blitProgram.bindPipeline(
-            &RI.device, ctx.cmd, blitHash, "PostEffect_ImageTrail.blit",
+            &mpGraphics->device, ctx.cmd, blitHash, "PostEffect_ImageTrail.blit",
             &blitState.createInfo);
 
         {
@@ -216,11 +216,11 @@ void cPostEffect_ImageTrail::RenderEffect(const PostEffectRenderCtx &ctx) {
             bindings[1].descriptor = m_accum.descriptor();
             bindings[1].handle = DescriptorBindingID::Create("sourceInput");
             mpImageTrailType->m_blitProgram.bindDescriptors(
-                &RI.device, ctx.cmd, ctx.frameIndex, bindings, 2);
+                &mpGraphics->device, ctx.cmd, ctx.frameIndex, bindings, 2);
         }
 
         vkCmdDraw(cmd, 3, 1, 0, 0);
-        ctx.cmd->vk_d3d12_endRendering(&RI.device);
+        ctx.cmd->vk_d3d12_endRendering(&mpGraphics->device);
     }
 }
 

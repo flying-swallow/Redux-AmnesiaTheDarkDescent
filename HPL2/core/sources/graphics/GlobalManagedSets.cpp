@@ -3,7 +3,7 @@
 #include "graphics/Image.h"
 #include "graphics/Material.h"
 #include "graphics/MaterialType.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIResourceUploader.h"
 #include "graphics/RIVK.h"
 #include "graphics/VertexBuffer.h"
@@ -29,6 +29,7 @@ GlobalManagedSets::~GlobalManagedSets() = default;
 
 void GlobalManagedSets::initialize(RIDevice *device,
                                         cResources *resources) {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   {
     std::vector<RIBindlessDescriptorSet::Binding> bindings = {};
     // Stage mask shared by every binding the SurfelGI RT pipeline touches —
@@ -278,7 +279,7 @@ void GlobalManagedSets::initialize(RIDevice *device,
   // Boot-seed the device-local surfel counter: init() zero-fills, then set
   // Free = kTotalSurfelLimit (the free-list stack pointer). markAllDirty()
   // stages the seed on the first frame's flushMirrors(), which lands ahead of
-  // the surfel passes via RI.uploader's fenced pre-pass. The host never touches
+  // the surfel passes via Interface<cGraphics>::Get()->uploader's fenced pre-pass. The host never touches
   // this mirror again — the GPU owns the counter thereafter.
   m_surfelCounterMirror.init(kSurfelCounterSlotCount, sizeof(uint32_t));
   m_surfelCounterMirror.write<uint32_t>(kSurfelCounterFree, kTotalSurfelLimit);
@@ -286,7 +287,7 @@ void GlobalManagedSets::initialize(RIDevice *device,
 
   // Light SSBOs (point/spot/box) + fog/decal/object-decal-index. Unlike the
   // bindless slot buffers above these are device-local — the per-frame fill in
-  // Draw() stages through RI.uploader rather than memcpy'ing into mapped memory
+  // Draw() stages through Interface<cGraphics>::Get()->uploader rather than memcpy'ing into mapped memory
   // the GPU may still be reading from a prior frame.
   // Point/spot/area light buffers and the fog buffer are no longer owned here —
   // cWorld owns them as persistent per-world buffers on the per-world set
@@ -302,10 +303,10 @@ void GlobalManagedSets::initialize(RIDevice *device,
       /*deviceLocalOnly*/ true);
 
   // Default linear/wrap sampler for all bindless texture fetches. The
-  // engine's filter cache (RIBootstrap::resolve_filter_descriptor) hands
+  // engine's filter cache (cGraphics::resolve_filter_descriptor) hands
   // back a finalized RIDescriptor with a non-zero cookie, which is
   // exactly what bindDescriptors needs.
-  m_materialSampler = RI.resolve_filter_descriptor(
+  m_materialSampler = pGraphics->resolve_filter_descriptor(
       eTextureWrap_Repeat, eTextureWrap_Repeat, eTextureWrap_Repeat,
       eTextureFilter_Trilinear);
 
@@ -376,7 +377,7 @@ void GlobalManagedSets::initialize(RIDevice *device,
     // once at init time. The image views it samples (kBindingSurfelDepthSampled
     // / kBindingSurfelDepth) live on set 1 and are pushed per-dispatch.
     {
-      auto surfelDepthDesc = RI.resolve_filter_descriptor(
+      auto surfelDepthDesc = pGraphics->resolve_filter_descriptor(
           eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
           eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
       writes[count].binding = kBindingSurfelDepthSampler;
@@ -403,8 +404,9 @@ void GlobalManagedSets::initialize(RIDevice *device,
 }
 
 GlobalManagedSets::MaterialSubmitResult
-GlobalManagedSets::submitMaterial(RIBootstrap::FrameContext *cntx,
+GlobalManagedSets::submitMaterial(cGraphics::FrameContext *cntx,
                                        cMaterial *mat, uint32_t frameIndex) {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   // cTextureManager stamps each Image with a lifetime-stable bindless slot at
   // load (binding 0 = textures_2d[], binding 1 = textures_cube[]); read it AND
   // pin the Image for this frame. The hybrid renderer references material
@@ -418,7 +420,7 @@ GlobalManagedSets::submitMaterial(RIBootstrap::FrameContext *cntx,
     Image *img = mat->GetImage(type);
     if (!img)
       return kInvalidTextureIndex;
-    RI.graphicsDefer.push(PinResource(img));
+    pGraphics->graphicsDefer.push(PinResource(img));
     return img->GetBindlessSlot();
   };
 
@@ -552,9 +554,9 @@ GlobalManagedSets::submitMaterial(RIBootstrap::FrameContext *cntx,
         trans.currentStages = RI_STAGE_ALL_SHADER;
         trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
         trans.postStages = RI_STAGE_ALL_SHADER;
-        RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+        RI_ResourceBeginCopyBuffer(&pGraphics->device, &pGraphics->uploader, &trans);
         std::memcpy(trans.mapped.data, &blob, sizeof(blob));
-        RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+        RI_ResourceEndCopyBuffer(&pGraphics->device, &pGraphics->uploader, &trans);
         return {req.id};
       },
       mat->Data());
@@ -565,6 +567,7 @@ uint32_t GlobalManagedSets::submitObject(uint64_t objectCookie,
                                               cVertexBuffer *vb,
                                               const ObjectSubmitDesc &desc,
                                               uint32_t flags) {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   // Stable slot per object: keyed on the renderable's unique cookie only, so a
   // moving object keeps its slot (its surfels follow via object-space anchoring +
   // the per-frame modelMat upload below). frameInFlight = 0, so a slot is only
@@ -652,7 +655,7 @@ uint32_t GlobalManagedSets::submitObject(uint64_t objectCookie,
       auto bdaOf = [&](eVertexBufferElement type) -> uint64_t {
         const auto *element = vb->GetElement(type);
         RIBuffer *buf = element ? element->GetBuffer() : nullptr;
-        return buf ? buf->GetDeviceHandle(&RI.device) : 0;
+        return buf ? buf->GetDeviceHandle(&pGraphics->device) : 0;
       };
       if (flags & kSubmitVertex) {
         payload.posHandle     = bdaOf(eVertexBufferElement_Position);
@@ -663,7 +666,7 @@ uint32_t GlobalManagedSets::submitObject(uint64_t objectCookie,
       }
       if (flags & kSubmitIndex)
         payload.indexHandle = vb->GetIndexRIBuffer()
-                                  ? vb->GetIndexRIBuffer()->GetDeviceHandle(&RI.device)
+                                  ? vb->GetIndexRIBuffer()->GetDeviceHandle(&pGraphics->device)
                                   : 0;
     } else if (req.found) {
       payload.posHandle     = req.state->lastPayload.posHandle;
@@ -689,9 +692,9 @@ uint32_t GlobalManagedSets::submitObject(uint64_t objectCookie,
       trans.currentStages = RI_STAGE_ALL_SHADER;
       trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
       trans.postStages = RI_STAGE_ALL_SHADER;
-      RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+      RI_ResourceBeginCopyBuffer(&pGraphics->device, &pGraphics->uploader, &trans);
       std::memcpy(trans.mapped.data, &payload, sizeof(payload));
-      RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+      RI_ResourceEndCopyBuffer(&pGraphics->device, &pGraphics->uploader, &trans);
       req.state->lastPayload = payload;
     }
   }
@@ -702,6 +705,7 @@ uint32_t GlobalManagedSets::submitObject(uint64_t objectCookie,
 }
 
 void GlobalManagedSets::flushMirrors(RIDevice *device) {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   struct Item {
     RIBuffer *buf;
     BindlessShadowMirror *mir;
@@ -729,42 +733,64 @@ void GlobalManagedSets::flushMirrors(RIDevice *device) {
     trans.currentStages = RI_STAGE_ALL_SHADER;
     trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
     trans.postStages = RI_STAGE_ALL_SHADER;
-    RI_ResourceBeginCopyBuffer(device, &RI.uploader, &trans);
+    RI_ResourceBeginCopyBuffer(device, &pGraphics->uploader, &trans);
     std::memcpy(trans.mapped.data, it.mir->shadow.data() + off, sz);
-    RI_ResourceEndCopyBuffer(device, &RI.uploader, &trans);
+    RI_ResourceEndCopyBuffer(device, &pGraphics->uploader, &trans);
     it.mir->clearDirty();
   }
 }
 
 void GlobalManagedSets::destroy(RIDevice *device) {
-  m_lightGridCountBuffer.dispose(device);
-  m_lightGridCountBuffer = {};
-  m_lightGridListBuffer.dispose(device);
-  m_lightGridListBuffer = {};
+  // Everything initialize() created — a missed entry here trips the VMA
+  // leak assert in vmaDestroyAllocator at device teardown.
+  RIBuffer *ownedBuffers[] = {
+      &m_objectBuffer,
+      &m_bindlessSlotGenerationBuffer,
+      &m_surfelCounterBuffer,
+      &m_surfelBuffer,
+      &m_surfelGeometryBuffer,
+      &m_surfelValidBuffer,
+      &m_surfelDirtyIndexBuffer,
+      &m_surfelFreeBuffer,
+      &m_surfelRecycleBuffer,
+      &m_surfelRayResultBuffer,
+      &m_cellInfoBuffer,
+      &m_cellToSurfelBuffer,
+      &m_surfelRefCounterBuffer,
+      &m_surfelReservationBuffer,
+      &m_surfelBoundsBuffer,
+      &m_lightGridCountBuffer,
+      &m_lightGridListBuffer,
+      &m_surfelSlotGenerationBuffer,
+      &m_materialBuffer,
+      &m_animTexBuffer,
+  };
   // Point/spot/area light buffers + the fog buffer are owned + disposed by cWorld.
-  m_animTexBuffer.dispose(device);
-  m_animTexBuffer = {};
-  m_materialBuffer.dispose(device);
-  m_materialBuffer = {};
+  for (RIBuffer *buf : ownedBuffers) {
+    buf->dispose(device);
+    *buf = {};
+  }
   m_bindlessSet.destroy(device);
 }
 
-// === Engine-lifetime set, owned by RIBootstrap (RI.globalset) ===
+// === Engine-lifetime set, owned by cGraphics (the globalset member) ===
 // One global set 0 for the whole engine. Heap-owned through the RI global so
-// there is a single entry point; a pointer (not a value member on RIBootstrap)
-// keeps GlobalManagedSets.h's include of RIBootstrap.h cycle-free.
+// there is a single entry point; a pointer (not a value member on cGraphics)
+// keeps GlobalManagedSets.h's include of Graphics.h cycle-free.
 void InitGlobalManagedSets(RIDevice *device, cResources *resources) {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   // Runs in cGraphics::Init before any managed texture is created, so textures
   // write their descriptors directly at load (no catch-up pass needed).
-  RI.globalset = new GlobalManagedSets();
-  RI.globalset->initialize(device, resources);
+  pGraphics->globalset = new GlobalManagedSets();
+  pGraphics->globalset->initialize(device, resources);
 }
 
 void ShutdownGlobalManagedSets(RIDevice *device) {
-  if (RI.globalset) {
-    RI.globalset->destroy(device);
-    delete RI.globalset;
-    RI.globalset = nullptr;
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
+  if (pGraphics->globalset) {
+    pGraphics->globalset->destroy(device);
+    delete pGraphics->globalset;
+    pGraphics->globalset = nullptr;
   }
 }
 

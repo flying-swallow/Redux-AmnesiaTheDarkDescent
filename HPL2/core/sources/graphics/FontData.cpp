@@ -58,9 +58,8 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 	
-	iFontData::iFontData(const tString &asName,iLowLevelGraphics* apLowLevelGraphics) : iResourceBase(asName,_W(""),0)
+	iFontData::iFontData(const tString &asName) : iResourceBase(asName,_W(""),0)
 	{
-		mpLowLevelGraphics = apLowLevelGraphics;
 		mpResources = NULL;
 	}
 	

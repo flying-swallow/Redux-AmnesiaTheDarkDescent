@@ -26,7 +26,6 @@
 #include "graphics/VertexBuffer.h"
 #include "graphics/Material.h"
 #include "graphics/Graphics.h"
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/Renderer.h"
 #include "graphics/VertexBuffer.h"
 
@@ -50,7 +49,6 @@ namespace hpl {
 	iRenderable(asName)
 	{
 		mpMaterialManager = apResources->GetMaterialManager();
-		mpLowLevelGraphics = apGraphics->GetLowLevel();
 		
 		mvSize = avSize;
 		mvAxis = cVector3f(0,1,0);
@@ -63,7 +61,7 @@ namespace hpl {
 
 		mlLastRenderCount = -1;
 
-		mpVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware,eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic,4,6);
+		mpVtxBuffer = new cVertexBuffer(eVertexBufferType_Hardware,eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic,4,6);
 		
 		mpVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);
 		mpVtxBuffer->CreateElementArray(eVertexBufferElement_Normal,eVertexBufferElementFormat_Float,3);

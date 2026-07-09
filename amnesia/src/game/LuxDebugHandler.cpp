@@ -20,7 +20,7 @@
 #include "LuxDebugHandler.h"
 
 #include "graphics/DebugDraw.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 
 #include "LuxMap.h"
 #include "LuxPlayer.h"
@@ -397,12 +397,12 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 		fY+=13.0f;
 
 		// Per-pass GPU timing from RIGpuProfiler (timestamp queries, resolved each
-		// frame in RIBootstrap::BeginActiveSet). Empty until a frame slot completes
+		// frame in cGraphics::BeginActiveSet). Empty until a frame slot completes
 		// (first couple of frames) or if the device lacks timestamp support.
-		const std::vector<hpl::GpuPassTiming>& vGpuTimings = hpl::RI.profiler.lastResults();
+		const std::vector<hpl::GpuPassTiming>& vGpuTimings = hpl::Interface<cGraphics>::Get()->profiler.lastResults();
 		if(!vGpuTimings.empty())
 		{
-			const float fGpuTotal = hpl::RI.profiler.lastTotalMs();
+			const float fGpuTotal = hpl::Interface<cGraphics>::Get()->profiler.lastTotalMs();
 			gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1,0,1),
 				_W("GPU total: %.2f ms"), fGpuTotal);
 			fY+=13.0f;
@@ -420,7 +420,7 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 	// Messages
 	if(mbShowDebugMessages || mbShowErrorMessages)
 	{
-		float fY= gpBase->mpEngine->GetGraphics()->GetLowLevel()->GetScreenSizeFloat().y - 40;
+		float fY= Interface<cWindow>::Get()->GetSizeF().y - 40;
 		for(tLuxDebugMessageListIt it = mlstMessages.begin(); it != mlstMessages.end();++it)
 		{
 			cLuxDebugMessage& debugMessage = *it;
@@ -1226,7 +1226,7 @@ void cLuxDebugHandler::CreateGuiWindow()
 
 		// Force shadows
 		pCheckBox = mpGuiSet->CreateWidgetCheckBox(cVector3f(vGroupPos.x, vGroupPos.y + 8, vGroupPos.z), vSize, _W("Force shadows"), pGroup);
-		pCheckBox->SetChecked(hpl::RI.forceShadows, false);
+		pCheckBox->SetChecked(hpl::Interface<cGraphics>::Get()->forceShadows, false);
 		pCheckBox->SetUserValue(19);
 		pCheckBox->AddCallback(eGuiMessage_CheckChange, this, kGuiCallback(ChangeDebugText));
 		vGroupPos.y += 22;
@@ -1637,7 +1637,7 @@ bool cLuxDebugHandler::ChangeDebugText(iWidget* apWidget, const cGuiMessageData&
 
 	else if(lNum == 17)  SetFastForward(bActive);
 
-	else if (lNum == 19) hpl::RI.forceShadows = bActive;
+	else if (lNum == 19) hpl::Interface<cGraphics>::Get()->forceShadows = bActive;
 
 	return true;
 }

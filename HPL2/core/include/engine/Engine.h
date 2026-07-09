@@ -22,6 +22,12 @@
 
 #include "system/SystemTypes.h"
 #include "engine/EngineTypes.h"
+#include "system/Event.h"
+
+// SDL's event union, forward-declared so the raw-event bus can be a cEngine
+// member without pulling SDL into this widely-included header (Engine.cpp
+// includes the full SDL). SDL_Event lives at global scope.
+union SDL_Event;
 
 namespace hpl {
 
@@ -158,6 +164,13 @@ namespace hpl {
 
 		static void SetDeviceWasPlugged() { mbDevicePlugged = true; }
 		static void SetDeviceWasRemoved() { mbDeviceRemoved = true; }
+
+		// Raw OS-event bus. cEngine::Run pumps SDL first thing each frame and
+		// Signals every event here; consumers subscribe (the low-level input
+		// classifies device events; each cWindow filters for its own window and
+		// re-broadcasts a typed resize). This is the single OS-event source, so
+		// it extends cleanly to multiple windows.
+		Event<const SDL_Event&>& OnSDLEvent() { return mOnSDLEvent; }
 		
 		///// SCRIPT VAR METHODS ////////////////////
 
@@ -186,53 +199,60 @@ namespace hpl {
 
 		void CheckAndBroadcastDeviceChange();
 
-		bool mbGameIsDone;
+		// Drains the SDL event queue and Signals mOnSDLEvent for each event.
+		// Called first thing every frame in Run() (and in the out-of-focus wait
+		// loop) so the OS queue is serviced once per rendered frame.
+		void PumpEvents();
 
-		bool mbRenderOnce;
+		Event<const SDL_Event&> mOnSDLEvent;
 
-		bool mbPaused;
+		bool mbGameIsDone = false;
 
-		float mfFrameTime;
+		bool mbRenderOnce = false;
 
-		double mfGameTime;
+		bool mbPaused = false;
 
-		iLowLevelEngineSetup *mpGameSetup;
-		cUpdater *mpUpdater;
-		cLogicTimer *mpLogicTimer;
+		float mfFrameTime = 0;
 
-		iMutex *mpMutex;
+		double mfGameTime = 0;
 
-		cFPSCounter* mpFPSCounter;
-		
-		iTimer *mpFrameTimer;
-		
-		bool mbLimitFPS;
+		iLowLevelEngineSetup *mpGameSetup = nullptr;
+		cUpdater *mpUpdater = nullptr;
+		cLogicTimer *mpLogicTimer = nullptr;
+
+		iMutex *mpMutex = nullptr;
+
+		cFPSCounter* mpFPSCounter = nullptr;
+
+		iTimer *mpFrameTimer = nullptr;
+
+		bool mbLimitFPS = true;
 
 		tScriptVarMap m_mapLocalVars;
 		tScriptVarMap m_mapGlobalVars;
 
-		bool mbApplicationHasInputFocus;
-		bool mbApplicationHasMouseFocus;
-		bool mbApplicationIsVisible;
+		bool mbApplicationHasInputFocus = false;
+		bool mbApplicationHasMouseFocus = false;
+		bool mbApplicationIsVisible = false;
 
-		bool mbWaitIfAppOutOfFocus;
+		bool mbWaitIfAppOutOfFocus = false;
 
 		static bool mbDevicePlugged;
 		static bool mbDeviceRemoved;
-        
+
 		tStringVec mvEngineTypeStrings;
 
 		//Modules that Game connnect to:
-		cResources *mpResources;
-		cSystem *mpSystem;
-		cInput *mpInput;
-		cGraphics *mpGraphics;
-		cScene *mpScene;
-		cSound *mpSound;
-		cPhysics *mpPhysics;
-		cAI *mpAI;
-		cHaptic *mpHaptic;
-		cGui *mpGui;
+		cResources *mpResources = nullptr;
+		cSystem *mpSystem = nullptr;
+		cInput *mpInput = nullptr;
+		cGraphics *mpGraphics = nullptr;
+		cScene *mpScene = nullptr;
+		cSound *mpSound = nullptr;
+		cPhysics *mpPhysics = nullptr;
+		cAI *mpAI = nullptr;
+		cHaptic *mpHaptic = nullptr;
+		cGui *mpGui = nullptr;
 	};
 
 };

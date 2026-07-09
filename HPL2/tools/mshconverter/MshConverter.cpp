@@ -29,7 +29,6 @@
 
 using namespace hpl;
 
-cEngine *gpEngine=NULL;
 
 cMeshLoaderMSH *gpMeshLoaderMSH=NULL;
 cMeshLoaderCollada *gpMeshLoaderCollada=NULL;
@@ -270,12 +269,12 @@ bool ConvertFile(const tWString &asFile)
 		//lFlags |= eWorldLoadFlag_NoGameEntities;
 		//lFlags |= eWorldLoadFlag_FastStaticLoad;
 
-		cWorld *pWorld = gpEngine->GetResources()->GetWorldLoaderHandler()->LoadWorld(asFile, lFlags);
+		cWorld *pWorld = Interface<cEngine>::Get()->GetResources()->GetWorldLoaderHandler()->LoadWorld(asFile, lFlags);
 		if(pWorld)
 		{
 			//if(gbGenerateAIPaths) GenerateAIPaths(pWorld);
 
-			gpEngine->GetScene()->DestroyWorld(pWorld);
+			Interface<cEngine>::Get()->GetScene()->DestroyWorld(pWorld);
 		}
 		else
 		{
@@ -402,21 +401,21 @@ void LoadPathNodeDataFile(const tWString &asFilePath)
 
 void Init()
 {
-	gpMeshLoaderMSH = static_cast<cMeshLoaderMSH*>(gpEngine->GetResources()->GetMeshLoaderHandler()->GetLoaderForFile(".msh"));
-	gpMeshLoaderCollada = static_cast<cMeshLoaderCollada*>(gpEngine->GetResources()->GetMeshLoaderHandler()->GetLoaderForFile(".dae"));
+	gpMeshLoaderMSH = static_cast<cMeshLoaderMSH*>(Interface<cEngine>::Get()->GetResources()->GetMeshLoaderHandler()->GetLoaderForFile(".msh"));
+	gpMeshLoaderCollada = static_cast<cMeshLoaderCollada*>(Interface<cEngine>::Get()->GetResources()->GetMeshLoaderHandler()->GetLoaderForFile(".dae"));
 
-	gpEngine->GetPhysics()->LoadSurfaceData("materials.cfg");
+	Interface<cEngine>::Get()->GetPhysics()->LoadSurfaceData("materials.cfg");
 
 	if(gbGenerateAIPaths)
 	{
-		gpEngine->GetResources()->AddEntityLoader(hplNew(cSimpleObjectLoader,("Object")),true);
-		gpEngine->GetResources()->AddAreaLoader(hplNew(cSimplePathNodeLoader,("PathNode")));
+		Interface<cEngine>::Get()->GetResources()->AddEntityLoader(hplNew(cSimpleObjectLoader,("Object")),true);
+		Interface<cEngine>::Get()->GetResources()->AddAreaLoader(hplNew(cSimplePathNodeLoader,("PathNode")));
 	}
 
 	if(glFileType == 2)
 	{
-		gpEngine->GetResources()->LoadResourceDirsFile("resources.cfg");
-		gpEngine->GetResources()->GetMaterialManager()->SetDisableRenderDataLoading(true);
+		Interface<cEngine>::Get()->GetResources()->LoadResourceDirsFile("resources.cfg");
+		Interface<cEngine>::Get()->GetResources()->GetMaterialManager()->SetDisableRenderDataLoading(true);
 	}
 
 	//Normal loading for maps!
@@ -457,8 +456,8 @@ void Exit()
 #endif
 
 	cEngineInitVars vars;
-	gpEngine = CreateHPLEngine(eHplAPI_OpenGL, 0, &vars);
-	
+	cEngine* gpEngine = CreateHPLEngine(eHplAPI_OpenGL, 0, &vars);
+
 	ParseCommandLine(asCommandLine);
 	Init();
 
@@ -467,8 +466,8 @@ void Exit()
 	if(gbDirs)	ConvertInDirs();
 	else		ConvertFile();
 
-	printf("\n-------- MSH CONVERSION DONE! -----------\n");		
-	
+	printf("\n-------- MSH CONVERSION DONE! -----------\n");
+
 	Exit();
 	DestroyHPLEngine(gpEngine);
 

@@ -47,11 +47,10 @@ int hplMain(const tString& asCommandLine)
 	#endif
 	cMaterialEditor* pEditor = hplNew(cMaterialEditor,(cString::ReplaceCharTo(asCommandLine,"\"","")));
 
-	cEngine* pEngine = pEditor->Init(NULL, "MaterialEditor", GetBuildID_MaterialEditor(), false);
-	pEngine->Run();
+	pEditor->Init(NULL, "MaterialEditor", GetBuildID_MaterialEditor());
+	pEditor->Run();
 
 	hplDelete(pEditor);
-	DestroyHPLEngine(pEngine);
 	cMemoryManager::LogResults();
 
 	return 0;

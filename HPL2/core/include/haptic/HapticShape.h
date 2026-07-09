@@ -27,7 +27,6 @@
 namespace hpl {
 
 	class iHapticSurface;
-	class iLowLevelGraphics;
 	class iPhysicsBody;
 	class cSubMeshEntity;
 
@@ -51,8 +50,6 @@ namespace hpl {
 		virtual cVector3f GetAppliedForce()=0;
 
 		virtual void SetSurface(iHapticSurface *apSurface)=0;
-		
-		virtual void RenderDebug(iLowLevelGraphics *apLowLevel, const cColor &aColor)=0;
 		
 		iHapticSurface* GetSurface()const{ return mpSurface; }
 

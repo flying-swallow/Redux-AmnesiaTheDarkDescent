@@ -23,7 +23,6 @@
 
 #include "graphics/Graphics.h"
 #include "graphics/Material.h"
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/VertexBuffer.h"
 
 #include "resources/Resources.h"
@@ -47,7 +46,6 @@ namespace hpl {
 								iPhysicsRope *apRope, int alMaxSegments) :	iRenderable(asName)
 	{
 		mpMaterialManager = apResources->GetMaterialManager();
-		mpLowLevelGraphics = apGraphics->GetLowLevel();
 		
 		mColor = cColor(1,1,1,1);
 
@@ -58,7 +56,7 @@ namespace hpl {
 		mfLengthTileAmount = 1;
 		mfLengthTileSize = 1;
 
-		mpVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(	eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic,
+		mpVtxBuffer = new cVertexBuffer(	eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic,
 																4 * mlMaxSegments, 6 * mlMaxSegments);
 		
 		mpVtxBuffer->CreateElementArray(eVertexBufferElement_Position,eVertexBufferElementFormat_Float,4);

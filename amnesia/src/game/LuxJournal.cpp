@@ -287,6 +287,11 @@ cLuxJournal::cLuxJournal() : iLuxUpdateable("LuxJournal")
 	mpGuiSet->SetVirtualSize(mvGuiSetSize, -1000,1000, mvGuiSetOffset);
 	mpGuiSet->SetActive(false);
 
+	// Re-apply the pinned virtual size/offset on a swapchain resize.
+	mScreenSizeChangedHandler = EventHandler<const cVector2l&>(
+		[this](const cVector2l& avSize){ OnScreenSizeChange(avSize); });
+	mScreenSizeChangedHandler.Connect(Interface<cWindow>::Get()->OnScreenSizeChanged());
+
 	///////////////////////////////
 	//Create Viewport
 	mpViewport = mpScene->CreateViewport();
@@ -298,7 +303,6 @@ cLuxJournal::cLuxJournal() : iLuxUpdateable("LuxJournal")
 
 	///////////////////////////////
 	//Load settings
-	mvScreenSize = gpBase->mpEngine->GetGraphics()->GetLowLevel()->GetScreenSizeFloat();
 
 	mfNoteTextWidth = gpBase->mpMenuCfg->GetFloat("Journal","NoteTextWidth",0);
 	mlNoteMaxPageRows = gpBase->mpMenuCfg->GetInt("Journal","NoteMaxPageRows",0);
@@ -328,7 +332,6 @@ cLuxJournal::cLuxJournal() : iLuxUpdateable("LuxJournal")
 	//Load Data
 	mpWhiteGfx = mpGui->CreateGfxFilledRect(cColor(1,1), eGuiMaterial_Alpha);
 
-	mScreenEffect.Init(mpGui);
 
 	mpFontDefault = NULL;
 	mpFontMenu = NULL;
@@ -448,6 +451,9 @@ void cLuxJournal::Update(float afTimeStep)
 		}
 	}
 
+	// Crossfade the live backdrop (sharp -> desaturated/darkened) with the menu fade.
+	gpBase->mpMapHandler->SetBackdropStrength(mfAlpha);
+
 	/////////////////////////
 	// Update Mouse over pulse
 	mfMouseOverPulse += afTimeStep;
@@ -502,8 +508,8 @@ void cLuxJournal::OnEnterContainer(const tString& asOldContainer)
 
 	gpBase->mpInputHandler->ChangeState(eLuxInputState_Journal);
 
-	mpViewport->SetActive(true);
-	mpViewport->SetVisible(true);
+	// Menu viewport stays hidden — our GUI set renders on the (still-visible)
+	// gameplay viewport so the live blurred/desaturated world shows through.
 	mpGuiSet->SetActive(true);
 
 #ifdef USE_GAMEPAD
@@ -586,21 +592,8 @@ void cLuxJournal::OnLeaveContainer(const tString& asNewContainer)
 
 void cLuxJournal::OnDraw(float afFrameTime)
 {
-	////////////////////////
-	//Draw background
-	//
-	// Suppress the snapshot quads until the deferred OnPostRender capture has
-	// run at least once — otherwise we'd sample texture memory that's still
-	// in its initial UNDEFINED layout.
-	if(mScreenEffect.IsCaptured())
-	{
-		if(mScreenEffect.GetScreenGfx() && mfAlpha<1)
-			mpGuiSet->DrawGfx(mScreenEffect.GetScreenGfx(),mvGuiSetStartPos,mvGuiSetSize);
-
-		if(mScreenEffect.GetScreenBgGfx())
-			mpGuiSet->DrawGfx(mScreenEffect.GetScreenBgGfx(),mvGuiSetStartPos+cVector3f(0,0,0.2f),mvGuiSetSize,cColor(1, mfAlpha));
-	}
-
+	// The backdrop is drawn live by the gameplay viewport's desaturate/darken
+	// post-effect (strength driven from mfAlpha in Update); no snapshot quad here.
 
 	for(size_t i=0; i<mvStateData.size(); ++i)
 	{
@@ -1843,22 +1836,19 @@ void cLuxJournal::CreateOpenNoteGui()
 
 void cLuxJournal::CreateBackground()
 {
-	mScreenEffect.CreateTextures();
-	mScreenEffect.RequestCapture();
+	// Backdrop is the live (paused) gameplay viewport, desaturate/darkened by a
+	// post-effect (see cLuxMapHandler), not a frozen snapshot. Render our UI on
+	// that viewport and switch the effect on.
+	gpBase->mpMapHandler->GetViewport()->AddGuiSet(mpGuiSet);
+	gpBase->mpMapHandler->EnableBackdrop(eLuxMenuBackdrop_Desaturate);
 }
 
 //-----------------------------------------------------------------------
 
 void cLuxJournal::DestroyBackground()
 {
-	mScreenEffect.Destroy();
-}
-
-//-----------------------------------------------------------------------
-
-void cLuxJournal::OnPostRender(float afFrameTime)
-{
-	mScreenEffect.OnPostRender();
+	gpBase->mpMapHandler->GetViewport()->RemoveGuiSet(mpGuiSet);
+	gpBase->mpMapHandler->DisableBackdrop();
 }
 
 //-----------------------------------------------------------------------

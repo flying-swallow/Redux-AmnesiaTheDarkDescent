@@ -2,7 +2,7 @@
 #define HPL_GLOBAL_MANAGED_SETS_H
 
 #include "graphics/BindlessPool.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIProgram.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RITypes.h"
@@ -85,7 +85,7 @@ namespace detail {
 
 // Allocate a bindless slot buffer: slotCount * elementStride bytes. When
 // deviceLocalOnly the allocation has no host-mapped pointer (out.mappedAddress
-// is null) and must be seeded through RI.uploader; otherwise it is persistently
+// is null) and must be seeded through Interface<cGraphics>::Get()->uploader; otherwise it is persistently
 // mapped for direct host writes. Shared by GlobalManagedSets (set-0
 // buffers) and cHybridRenderer (the indirect-draw buffer), so it lives in this
 // header rather than a single .cpp.
@@ -102,7 +102,7 @@ CreateBindlessSlotBuffer(RIDevice *device, uint32_t slotCount,
 
   VmaAllocationCreateInfo allocInfo = {};
   if (deviceLocalOnly) {
-    // Pure device-local heap. Caller must seed contents via RI.uploader
+    // Pure device-local heap. Caller must seed contents via Interface<cGraphics>::Get()->uploader
     // (RI_ResourceBeginCopyBuffer / EndCopyBuffer) — out.mappedAddress is null.
     allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
   } else {
@@ -194,7 +194,7 @@ public:
   // MaterialSystem model — one table, type tag in the blob header). Allocates a
   // slot on first sight, re-uploads when the material's generation differs from
   // the cached one. materialId is UINT32_MAX when the pool is exhausted.
-  MaterialSubmitResult submitMaterial(RIBootstrap::FrameContext *cntx,
+  MaterialSubmitResult submitMaterial(cGraphics::FrameContext *cntx,
                                       cMaterial *mat, uint32_t frameIndex);
 
   // Texture bindless slots are no longer resolved here. cTextureManager owns the
@@ -333,10 +333,10 @@ public:
   // texture heap.
 };
 
-// === Engine-lifetime set, owned by RIBootstrap as RI.globalset ===
+// === Engine-lifetime set, owned by cGraphics as globalset ===
 // Construct/cleanup happen once, in cGraphics::Init / teardown (after the
 // RIDevice + cResources exist, before the device is destroyed). Reach the set
-// through RI.globalset everywhere.
+// through Interface<cGraphics>::Get()->globalset everywhere.
 void InitGlobalManagedSets(RIDevice *device, cResources *resources);
 void ShutdownGlobalManagedSets(RIDevice *device);
 

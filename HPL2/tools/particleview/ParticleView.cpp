@@ -25,7 +25,6 @@
 
 using namespace hpl;
 
-cEngine *gpEngine=NULL;
 cSimpleCamera *gpSimpleCamera=NULL;
 
 tString gsParticleFile = "";
@@ -66,7 +65,7 @@ public:
 
 	void OnPreWorldDraw()
 	{
-		DebugDraw* pDebugDraw = gpEngine->GetGraphics()->GetDebugDraw();
+		DebugDraw* pDebugDraw = Interface<cEngine>::Get()->GetGraphics()->GetDebugDraw();
 		if(pDebugDraw==NULL) return;
 
 		/*for(size_t i=0; i<gvLights.size(); ++i)
@@ -135,22 +134,22 @@ class cSimpleUpdate : public iUpdateable
 public:
 	cSimpleUpdate() : iUpdateable("Simple3D")
 	{
-		mpLowLevelGraphics = gpEngine->GetGraphics()->GetLowLevel();
+		mpWindow = Interface<cEngine>::Get()->GetGraphics()->GetWindow();
 		
 		////////////////////////////////
 		// Rendering setup
-		gpEngine->GetResources()->GetMaterialManager()->SetTextureFilter(eTextureFilter_Trilinear);
-		gpEngine->GetResources()->GetMaterialManager()->SetTextureSizeDownScaleLevel(0);
+		Interface<cEngine>::Get()->GetResources()->GetMaterialManager()->SetTextureFilter(eTextureFilter_Trilinear);
+		Interface<cEngine>::Get()->GetResources()->GetMaterialManager()->SetTextureSizeDownScaleLevel(0);
 
 		////////////////////////////////
 		// Create world
-		mpWorld = gpEngine->GetScene()->CreateWorld("Test");
+		mpWorld = Interface<cEngine>::Get()->GetScene()->CreateWorld("Test");
 		
 		////////////////////////////////
 		// Create physics world
-		gpEngine->GetPhysics()->LoadSurfaceData("materials.cfg");
+		Interface<cEngine>::Get()->GetPhysics()->LoadSurfaceData("materials.cfg");
 
-		mpPhysicsWorld = gpEngine->GetPhysics()->CreateWorld(true);
+		mpPhysicsWorld = Interface<cEngine>::Get()->GetPhysics()->CreateWorld(true);
 		mpPhysicsWorld->SetAccuracyLevel(ePhysicsAccuracy_Medium);
 		mpPhysicsWorld->SetWorldSize(-300,300);
 		mpPhysicsWorld->SetMaxTimeStep(1.0f / 60.0f);
@@ -177,7 +176,7 @@ public:
 		//Floor
 		gvFloors.resize(4);
 		
-		pMesh = gpEngine->GetResources()->GetMeshManager()->CreateMesh("modelview_rect.dae");
+		pMesh = Interface<cEngine>::Get()->GetResources()->GetMeshManager()->CreateMesh("modelview_rect.dae");
 		gvFloors[0] = mpWorld->CreateMeshEntity("Floor",pMesh,true);
 		gvFloors[0]->SetMatrix(cMath::MatrixScale(6));
 		gvFloors[0]->SetPosition(cVector3f(0,-0.2f,0));
@@ -185,7 +184,7 @@ public:
 
 		for(int i=0; i<3; ++i)
 		{
-			pMesh = gpEngine->GetResources()->GetMeshManager()->CreateMesh("modelview_rect.dae");
+			pMesh = Interface<cEngine>::Get()->GetResources()->GetMeshManager()->CreateMesh("modelview_rect.dae");
 			cMeshEntity *pFloor = mpWorld->CreateMeshEntity("Floor",pMesh,true);;
 			
 			cVector3f vPos(0,6.0f-0.2f,0);
@@ -226,7 +225,7 @@ public:
 		if(gsParticleFile != "") 
 			LoadParticle(gsParticleFile);
 		else
-			mpLowLevelGraphics->SetWindowCaption("ParticleView - No model loaded!");
+			mpWindow->SetCaption("ParticleView - No model loaded!");
 
 		/////////////////////////////////
 		// Create Lights
@@ -291,7 +290,7 @@ public:
 
 	void SetupView()
 	{
-		gpEngine->GetInput()->GetLowLevel()->LockInput(false);
+		Interface<cEngine>::Get()->GetInput()->GetLowLevel()->LockInput(false);
 
 		cRenderSettings *pSettings = gpSimpleCamera->GetViewport()->GetRenderSettings();
 		mPreWorldDrawHandler = EventHandler<const WorldDrawCtx&>([this](const WorldDrawCtx&){ renderCallback.OnPreWorldDraw(); });
@@ -301,7 +300,7 @@ public:
 
 		//////////////////////////
 		//Set up post effects
-		cGraphics *pGraphics = gpEngine->GetGraphics();
+		cGraphics *pGraphics = Interface<cEngine>::Get()->GetGraphics();
 		gpPostEffectComp = pGraphics->CreatePostEffectComposite();
 		gpSimpleCamera->GetViewport()->SetPostEffectComposite(gpPostEffectComp);
 
@@ -325,7 +324,7 @@ public:
 		if(gpParticleSystem != NULL)
 		{
 			mpWorld->DestroyParticleSystem(gpParticleSystem);
-			gpEngine->GetResources()->GetParticleManager()->DestroyUnused(0);
+			Interface<cEngine>::Get()->GetResources()->GetParticleManager()->DestroyUnused(0);
 		}
 		gpParticleSystem = mpWorld->CreateParticleSystem("temp",asFileName,1);
 		gpParticleSystem->SetPosition(cVector3f(0,3,0));
@@ -521,7 +520,7 @@ public:
 		tWString& sFilePath = mvPickedFiles[0];
 
 		msCurrentFilePath = cString::GetFilePathW(sFilePath);
-		gpEngine->GetResources()->AddResourceDir(msCurrentFilePath,false);
+		Interface<cEngine>::Get()->GetResources()->AddResourceDir(msCurrentFilePath,false);
 		
 		gsParticleFile = cString::To8Char(sFilePath);
 		LoadParticle(gsParticleFile);  
@@ -625,7 +624,7 @@ public:
 			iFontData *pFont = gpSimpleCamera->GetFont();
 
 
-			int lTexMem = gpEngine->GetResources()->GetTextureManager()->GetMemoryUsage()/1024;
+			int lTexMem = Interface<cEngine>::Get()->GetResources()->GetTextureManager()->GetMemoryUsage()/1024;
 			pSet->DrawFont(pFont,cVector3f(5,fY,0),14,cColor(1,1),	_W("Texture memory usage: %d kb / %.1f Mb"),
 							lTexMem, ((float)lTexMem) / 1024.0);
 			fY += 16;
@@ -657,7 +656,7 @@ public:
 	}
 
 public:
-	iLowLevelGraphics* mpLowLevelGraphics;
+	cWindow* mpWindow;
 	cWorld* mpWorld;
 	iPhysicsWorld *mpPhysicsWorld;
 	
@@ -694,14 +693,12 @@ int hplMain(const tString &asCommandline)
 	
 	//Init the game engine
 	cEngineInitVars vars;
-	vars.mGraphics.mvScreenSize.x = 1024;
-	vars.mGraphics.mvScreenSize.y = 768;
-	vars.mGraphics.mbFullscreen = false;
-	vars.mGraphics.msWindowCaption = "ParticleView - Initalizing...";
-	gpEngine = CreateHPLEngine(eHplAPI_OpenGL, eHplSetup_All, &vars);
-	gpEngine->SetLimitFPS(false);
-	gpEngine->GetGraphics()->GetLowLevel()->SetVsyncActive(false);
-	gpEngine->SetWaitIfAppOutOfFocus(true);
+	vars.mGraphics.mvScreenSize = {1024, 768};
+	vars.mGraphics.msWindowCaption = "ParticleView - Initializing...";
+	cEngine* gpEngine = CreateHPLEngine(eHplAPI_OpenGL, eHplSetup_All, &vars);
+	Interface<cEngine>::Get()->SetLimitFPS(false);
+	Interface<cEngine>::Get()->GetGraphics()->SetVsync(false);
+	Interface<cEngine>::Get()->SetWaitIfAppOutOfFocus(true);
 	
 
 
@@ -714,26 +711,26 @@ int hplMain(const tString &asCommandline)
 		tString sModelDir = cString::GetFilePath(gsParticleFile);
 		tWString sDir = cString::To16Char(sModelDir);
 		if(sDir != _W(""))
-			gpEngine->GetResources()->AddResourceDir(sDir,false);
+			Interface<cEngine>::Get()->GetResources()->AddResourceDir(sDir,false);
 	}
 	
 	//Add resources
-	gpEngine->GetResources()->LoadResourceDirsFile("resources.cfg");
+	Interface<cEngine>::Get()->GetResources()->LoadResourceDirsFile("resources.cfg");
 	
 	//Add updates
 	cSimpleUpdate Update;
-	gpEngine->GetUpdater()->AddUpdate("Default", &Update);
+	Interface<cEngine>::Get()->GetUpdater()->AddUpdate("Default", &Update);
 	
-	gpSimpleCamera = hplNew(cSimpleCamera, (Update.GetName(),gpEngine, Update.mpWorld, 10, cVector3f(0,0,9), true) );
+	gpSimpleCamera = hplNew(cSimpleCamera, (Update.GetName(),Interface<cEngine>::Get(), Update.mpWorld, 10, cVector3f(0,0,9), true) );
 	
-	gpEngine->GetUpdater()->AddUpdate("Default", gpSimpleCamera);
+	Interface<cEngine>::Get()->GetUpdater()->AddUpdate("Default", gpSimpleCamera);
 
 	Update.SetupView();
 
 	//Run the engine
 	gpEngine->Run();
 
-	
+
 	hplDelete (gpSimpleCamera);
 
 	//Delete the engine

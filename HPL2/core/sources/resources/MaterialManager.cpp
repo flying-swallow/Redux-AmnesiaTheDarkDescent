@@ -28,7 +28,6 @@
 #include "graphics/Graphics.h"
 #include "graphics/Material.h"
 #include "graphics/MaterialType.h"
-#include "graphics/LowLevelGraphics.h"
 
 #include "resources/TextureManager.h"
 #include "resources/Resources.h"

@@ -37,9 +37,8 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cLowLevelResourcesSDL::cLowLevelResourcesSDL(iLowLevelGraphics *apLowLevelGraphics)
+	cLowLevelResourcesSDL::cLowLevelResourcesSDL()
 	{
-		mpLowLevelGraphics = apLowLevelGraphics;
 	}
 
 	//-----------------------------------------------------------------------
@@ -67,10 +66,10 @@ namespace hpl {
 
 	void cLowLevelResourcesSDL::AddMeshLoaders(cMeshLoaderHandler* apHandler)
 	{
-		cMeshLoaderMSH *pLoaderMSH = hplNew( cMeshLoaderMSH,(mpLowLevelGraphics));
+		cMeshLoaderMSH *pLoaderMSH = hplNew( cMeshLoaderMSH,());
 		apHandler->AddLoader(pLoaderMSH);
-		apHandler->AddLoader(hplNew( cMeshLoaderCollada,(mpLowLevelGraphics, pLoaderMSH, true)));
-		//apHandler->AddLoader(hplNew( cMeshLoaderFBX,(mpLowLevelGraphics, pLoaderMSH, true)));
+		apHandler->AddLoader(hplNew( cMeshLoaderCollada,(pLoaderMSH, true)));
+		//apHandler->AddLoader(hplNew( cMeshLoaderFBX,(pLoaderMSH, true)));
 	}
 
 	//-----------------------------------------------------------------------

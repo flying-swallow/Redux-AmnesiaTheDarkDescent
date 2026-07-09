@@ -933,4 +933,33 @@ void RIProgram::initialize(RIDevice* device, std::span<ModuleStage> moduleInit,
   }
 }
 
+void RIProgram::dispose(RIDevice *device) {
+  assert(device);
+  for (auto &[hash, slot] : pipeline) {
+    if (slot.vk.handle != VK_NULL_HANDLE)
+      vkDestroyPipeline(device->vk.device, slot.vk.handle, NULL);
+  }
+  pipeline.clear();
+  for (auto &[hash, slot] : rtPipeline) {
+    if (slot.vk.handle != VK_NULL_HANDLE)
+      vkDestroyPipeline(device->vk.device, slot.vk.handle, NULL);
+    if (slot.vk.sbtBuffer != VK_NULL_HANDLE)
+      vmaDestroyBuffer(device->vk.vmaAllocator, slot.vk.sbtBuffer,
+                       slot.vk.sbtAlloc);
+  }
+  rtPipeline.clear();
+  for (auto &slot : programDescriptors) {
+    freeDescriptorSetAlloc(device, &slot.alloc);
+    if (!slot.isExternal && slot.vk.setLayout != VK_NULL_HANDLE)
+      vkDestroyDescriptorSetLayout(device->vk.device, slot.vk.setLayout, NULL);
+    slot.vk.setLayout = VK_NULL_HANDLE;
+    slot.isExternal = false;
+  }
+  if (impl.vk.pipelineLayout != VK_NULL_HANDLE) {
+    vkDestroyPipelineLayout(device->vk.device, impl.vk.pipelineLayout, NULL);
+    impl.vk.pipelineLayout = VK_NULL_HANDLE;
+  }
+  this->device = NULL;
+}
+
 } // namespace hpl

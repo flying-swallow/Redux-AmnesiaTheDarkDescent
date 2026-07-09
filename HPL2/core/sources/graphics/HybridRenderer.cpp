@@ -11,7 +11,7 @@
 #include "graphics/MaterialType.h"
 #include "graphics/ParticlePipelineDesc.h"
 #include "graphics/PostEffectComposite.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIPogoBuffer.h"
 #include "graphics/RIResourceUploader.h"
 #include "graphics/RIVK.h"
@@ -39,6 +39,7 @@
 #include <cmath>
 #include <cstring>
 
+
 namespace hpl {
 
 namespace detail {
@@ -46,6 +47,7 @@ namespace detail {
 static inline bool BindVertexStreams(struct RICmd *cmd, cVertexBuffer *pVB,
                                      const char *passLabel,
                                      uint32_t *outPresentMask) {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   auto *vbri = static_cast<cVertexBuffer *>(pVB);
   auto bufOf = [&](eVertexBufferElement type) -> RIBuffer * {
     const auto *element = vbri->GetElement(type);
@@ -81,13 +83,13 @@ static inline bool BindVertexStreams(struct RICmd *cmd, cVertexBuffer *pVB,
     *outPresentMask = mask;
   RIBuffer *vertBufs[5] = {
       pos,
-      nrm ? nrm : &RI.fallbackNormalVertex,
-      tan ? tan : &RI.fallbackTangentVertex,
-      col ? col : &RI.fallbackColorVertex,
-      uv ? uv : &RI.fallbackUv0Vertex,
+      nrm ? nrm : &pGraphics->fallbackNormalVertex,
+      tan ? tan : &pGraphics->fallbackTangentVertex,
+      col ? col : &pGraphics->fallbackColorVertex,
+      uv ? uv : &pGraphics->fallbackUv0Vertex,
   };
   cmd->bindVertexBuffers<5>(0, 5, vertBufs);
-  cmd->bindIndexBuffer(&RI.device, idx, 0, RI_INDEX_TYPE_32);
+  cmd->bindIndexBuffer(&pGraphics->device, idx, 0, RI_INDEX_TYPE_32);
   return true;
 }
 
@@ -101,7 +103,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     // InitGlobalManagedSets() before any renderer exists. We just borrow its
     // layout here.
     const VkDescriptorSetLayout externalLayouts[] = {
-        RI.globalset->m_bindlessSet.vk.m_bindlessSetLayout};
+        mpGraphics->globalset->m_bindlessSet.vk.m_bindlessSetLayout};
     {
       // Gbuffer pass: one .spv, two entry points (vsMain / psMain).
       auto gbuffer_bin = RIProgram::loadShaderStage(
@@ -111,7 +113,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                  "vsMain"},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, gbuffer_bin,
                                  "psMain"}};
-      m_gbuffer.initialize(&RI.device, stages, externalLayouts);
+      m_gbuffer.initialize(&mpGraphics->device, stages, externalLayouts);
     }
 
     auto loadComputeProgram = [&](RIProgram &prog, const char *name) {
@@ -119,7 +121,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::loadShaderStage(apResources->GetFileSearcher(), name);
       std::array<RIProgram::ModuleStage, 1> stages = {
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_COMPUTE, bin}};
-      prog.initialize(&RI.device, stages, externalLayouts);
+      prog.initialize(&mpGraphics->device, stages, externalLayouts);
     };
     // Compute load that passes the Slang entry-point name through to
     // ModuleStage.
@@ -129,7 +131,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::loadShaderStage(apResources->GetFileSearcher(), name);
       std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
           RIProgram::PROGRAM_STAGE_COMPUTE, bin, entryPoint}};
-      prog.initialize(&RI.device, stages, externalLayouts);
+      prog.initialize(&mpGraphics->device, stages, externalLayouts);
     };
     // SurfelPomBary — compute pass that copies the raster V-buffer into
     // packedHitInfoTexture and applies parallax-occlusion barycentric
@@ -146,7 +148,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       auto initFromBlob = [&](RIProgram &prog, const char *entryPoint) {
         std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
             RIProgram::PROGRAM_STAGE_COMPUTE, upd_bin, entryPoint}};
-        prog.initialize(&RI.device, stages, externalLayouts);
+        prog.initialize(&mpGraphics->device, stages, externalLayouts);
       };
       initFromBlob(m_surfelUpdateCollect, "collectCellInfo");
       initFromBlob(m_surfelUpdateAccumulate, "accumulateCellInfo");
@@ -167,7 +169,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                  "scatterCloseHit"},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_ANY_HIT, rt_bin,
                                  "scatterAnyHit"}};
-      m_surfelRT.initialize(&RI.device, stages, externalLayouts);
+      m_surfelRT.initialize(&mpGraphics->device, stages, externalLayouts);
     }
     // LightGridBuildPass — single compute entry (binLights) that bins
     // point/spot lights into the coarse world-space light grid each frame.
@@ -194,7 +196,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                  "vsMain"},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, p_frag,
                                  "psMain"}};
-      m_particle.initialize(&RI.device, stages, externalLayouts);
+      m_particle.initialize(&mpGraphics->device, stages, externalLayouts);
     }
     {
       // Translucent mesh pass (amnesia/slang/TranslucentPass). Shares
@@ -209,7 +211,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                  "vsMain"},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, t_frag,
                                  "psMain"}};
-      m_translucentMesh.initialize(&RI.device, stages, externalLayouts);
+      m_translucentMesh.initialize(&mpGraphics->device, stages, externalLayouts);
     }
     {
       // Decal pass (amnesia/slang/DecalPass). Reuses the translucent 5-stream
@@ -223,7 +225,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                  "vsMain"},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, d_frag,
                                  "psMain"}};
-      m_decal.initialize(&RI.device, stages, externalLayouts);
+      m_decal.initialize(&mpGraphics->device, stages, externalLayouts);
     }
     {
       auto w_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
@@ -235,7 +237,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                  "vsMain"},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, w_frag,
                                  "psMain"}};
-      m_water.initialize(&RI.device, stages, externalLayouts);
+      m_water.initialize(&mpGraphics->device, stages, externalLayouts);
     }
 
     RISegmentAllocDesc indirectDesc = {};
@@ -244,7 +246,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     indirectDesc.maxElements = kObjectSlotCapacity;
     m_indirectSegment = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>(&indirectDesc);
     m_indirectDrawBuffer = detail::CreateBindlessSlotBuffer(
-        &RI.device, indirectDesc.maxElements, sizeof(VkDrawIndirectCommand),
+        &mpGraphics->device, indirectDesc.maxElements, sizeof(VkDrawIndirectCommand),
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
     // VkTraceRaysIndirectCommandKHR — 3 × uint32: {width, height=1, depth=1}.
@@ -252,11 +254,11 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     // gSurfelCounter[kSurfelCounterRequestedRay]. SHADER_DEVICE_ADDRESS_BIT is
     // required by vkCmdTraceRaysIndirectKHR.
     m_surfelRTIndirectBuf = detail::CreateBindlessSlotBuffer(
-        &RI.device, 3u, sizeof(uint32_t),
+        &mpGraphics->device, 3u, sizeof(uint32_t),
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
 
-    for (uint32_t i = 0; i < RI.swapchain.imageCount; ++i) {
+    for (uint32_t i = 0; i < mpGraphics->swapchain->imageCount; ++i) {
       RITextureDesc desc = {};
       desc.type = RI_TEXTURE_2D;
       desc.format = RI_FORMAT_RGBA16_SFLOAT;
@@ -265,7 +267,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       // TRANSFER_DST: this atlas is seeded once via vkCmdClearColorImage.
       desc.usage = RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
                    RI_USAGE_TRANSFER_DST;
-      m_surfelDepthTexture[i] = RITexture::create(&RI.device, desc);
+      m_surfelDepthTexture[i] = RITexture::create(&mpGraphics->device, desc);
 
       RITextureViewDesc viewDesc = {};
       viewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
@@ -273,13 +275,14 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       viewDesc.mipNum = 1;
       viewDesc.layerNum = 1;
       m_surfelDepthView[i] =
-          RITextureView::create(&RI.device, &m_surfelDepthTexture[i], viewDesc);
+          RITextureView::create(&mpGraphics->device, &m_surfelDepthTexture[i], viewDesc);
     }
   }
 }
 
-void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
+void cViewport::HybridViewportState::Update(cGraphics::FrameContext *cntx,
                                             cVector2l size) {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   if (size.x <= 0 || size.y <= 0) {
     return;
   }
@@ -297,12 +300,12 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
   targetWidth = (uint32_t)size.x; // the BackBuffer crop window
   targetHeight = (uint32_t)size.y;
 
-  for (uint32_t i = 0; i < RI.swapchain.imageCount; i++) {
+  for (uint32_t i = 0; i < pGraphics->swapchain->imageCount; i++) {
     // Overscan HDR color target: the compute composite writes it as a
     // storage image, the forward raster passes attach it, cScene's pogo
     // feed blits its centered authored window out (TRANSFER_SRC).
     CreateViewportColorTexture(
-        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
         RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE |
             RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_TRANSFER_SRC |
             RI_USAGE_TRANSFER_DST,
@@ -319,7 +322,7 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
     // we add a separate depth-only SRV below — a combined view can't be
     // sampled.
     CreateViewportAttachmentTexture(
-        &RI.device, renderW, renderH, RIBootstrap::DepthFormat,
+        &pGraphics->device, renderW, renderH, cGraphics::DepthFormat,
         RI_USAGE_DEPTH_STENCIL_ATTACHMENT | RI_USAGE_SHADER_RESOURCE,
         RI_VIEWTYPE_DEPTH_STENCIL_ATTACHMENT, &depthTextures[i], &depthView[i],
         "HybridViewportState.depth");
@@ -331,16 +334,16 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
     {
       RITextureViewDesc dsv = {};
       dsv.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
-      dsv.format = RIBootstrap::DepthFormat;
+      dsv.format = cGraphics::DepthFormat;
       dsv.mipNum = 1;
       dsv.layerNum = 1;
       RITextureView v =
-          RITextureView::create(&RI.device, depthTextures[i].Get(), dsv);
-      depthSampleView[i] = RISharedPointer<RITextureView>(&RI.device, v);
+          RITextureView::create(&pGraphics->device, depthTextures[i].Get(), dsv);
+      depthSampleView[i] = RISharedPointer<RITextureView>(&pGraphics->device, v);
     }
 
     CreateViewportAttachmentTexture(
-        &RI.device, renderW, renderH, RIBootstrap::VisibilityFormat,
+        &pGraphics->device, renderW, renderH, cGraphics::VisibilityFormat,
         RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &visibilityTexture[i],
         &visibilityView[i], "HybridViewportState.visibility");
@@ -348,7 +351,7 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
     // Surfel-generation output — storage write (surfel_generate), sampled
     // by the composite, cleared per frame (TRANSFER_DST).
     CreateViewportAttachmentTexture(
-        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
         RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
             RI_USAGE_TRANSFER_DST,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &surfelResultTexture[i],
@@ -357,14 +360,14 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
     // Stage B packed visibility — RT pipeline storage write, sampled by the
     // surfel update / generation / direct passes.
     CreateViewportAttachmentTexture(
-        &RI.device, renderW, renderH, RIBootstrap::VisibilityFormat,
+        &pGraphics->device, renderW, renderH, cGraphics::VisibilityFormat,
         RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &packedHitInfoTexture[i],
         &packedHitInfoView[i], "HybridViewportState.packedHitInfo");
 
     // Screen-space velocity — gbuffer MRT #2, sampled by temporal passes.
     CreateViewportAttachmentTexture(
-        &RI.device, renderW, renderH, RIBootstrap::VelocityFormat,
+        &pGraphics->device, renderW, renderH, cGraphics::VelocityFormat,
         RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &velocityTexture[i], &velocityView[i],
         "HybridViewportState.velocity");
@@ -374,12 +377,12 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
     // RGBA16F (PogoColorFormat) so the linear factors don't band;
     // COLOR_ATTACHMENT for the raster, SHADER_RESOURCE for the composite read.
     CreateViewportAttachmentTexture(
-        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
         RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &decalMulTexture[i], &decalMulView[i],
         "HybridViewportState.decalMul");
     CreateViewportAttachmentTexture(
-        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
         RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &decalAddTexture[i], &decalAddView[i],
         "HybridViewportState.decalAdd");
@@ -390,26 +393,26 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
   // TRANSFER_DST (first-use clear). Kept in GENERAL; toggled per frame.
   for (uint32_t i = 0; i < 2; i++) {
     CreateViewportAttachmentTexture(
-        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
         RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
             RI_USAGE_TRANSFER_DST,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &directLightingTexture[i],
         &directLightingView[i], "HybridViewportState.directLighting");
     CreateViewportAttachmentTexture(
-        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
         RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
             RI_USAGE_TRANSFER_DST,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &directKeyTexture[i], &directKeyView[i],
         "HybridViewportState.directKey");
     CreateViewportAttachmentTexture(
-        &RI.device, renderW, renderH, RIBootstrap::PogoColorFormat,
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
         RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
             RI_USAGE_TRANSFER_DST,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &directAtrousTexture[i],
         &directAtrousView[i], "HybridViewportState.directAtrous");
     // ReSTIR reservoir history ping-pong (RGBA32F: asfloat(lightIndex), W, M).
     CreateViewportAttachmentTexture(
-        &RI.device, renderW, renderH, RI_FORMAT_RGBA32_SFLOAT,
+        &pGraphics->device, renderW, renderH, RI_FORMAT_RGBA32_SFLOAT,
         RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
             RI_USAGE_TRANSFER_DST,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &reservoirTexture[i], &reservoirView[i],
@@ -417,7 +420,7 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
   }
   // Intra-frame reservoir hand-off (temporal pass → spatial pass), RGBA32F.
   CreateViewportAttachmentTexture(
-      &RI.device, renderW, renderH, RI_FORMAT_RGBA32_SFLOAT,
+      &pGraphics->device, renderW, renderH, RI_FORMAT_RGBA32_SFLOAT,
       RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
           RI_USAGE_TRANSFER_DST,
       RI_VIEWTYPE_SHADER_RESOURCE_2D, &reservoirTemporalTexture,
@@ -431,39 +434,40 @@ void cViewport::HybridViewportState::Update(RIBootstrap::FrameContext *cntx,
 }
 
 cViewport::HybridViewportState::~HybridViewportState() {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   for (uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; i++) {
-    RI.graphicsDefer.push(renderTarget[i]);
-    RI.graphicsDefer.push(depthTextures[i]);
-    RI.graphicsDefer.push(visibilityTexture[i]);
-    RI.graphicsDefer.push(surfelResultTexture[i]);
-    RI.graphicsDefer.push(packedHitInfoTexture[i]);
-    RI.graphicsDefer.push(velocityTexture[i]);
-    RI.graphicsDefer.push(decalMulTexture[i]);
-    RI.graphicsDefer.push(decalAddTexture[i]);
+    pGraphics->graphicsDefer.push(renderTarget[i]);
+    pGraphics->graphicsDefer.push(depthTextures[i]);
+    pGraphics->graphicsDefer.push(visibilityTexture[i]);
+    pGraphics->graphicsDefer.push(surfelResultTexture[i]);
+    pGraphics->graphicsDefer.push(packedHitInfoTexture[i]);
+    pGraphics->graphicsDefer.push(velocityTexture[i]);
+    pGraphics->graphicsDefer.push(decalMulTexture[i]);
+    pGraphics->graphicsDefer.push(decalAddTexture[i]);
 
-    RI.graphicsDefer.push(renderTargetView[i]);
-    RI.graphicsDefer.push(depthView[i]);
-    RI.graphicsDefer.push(depthSampleView[i]);
-    RI.graphicsDefer.push(visibilityView[i]);
-    RI.graphicsDefer.push(surfelResultView[i]);
-    RI.graphicsDefer.push(packedHitInfoView[i]);
-    RI.graphicsDefer.push(velocityView[i]);
-    RI.graphicsDefer.push(decalMulView[i]);
-    RI.graphicsDefer.push(decalAddView[i]);
+    pGraphics->graphicsDefer.push(renderTargetView[i]);
+    pGraphics->graphicsDefer.push(depthView[i]);
+    pGraphics->graphicsDefer.push(depthSampleView[i]);
+    pGraphics->graphicsDefer.push(visibilityView[i]);
+    pGraphics->graphicsDefer.push(surfelResultView[i]);
+    pGraphics->graphicsDefer.push(packedHitInfoView[i]);
+    pGraphics->graphicsDefer.push(velocityView[i]);
+    pGraphics->graphicsDefer.push(decalMulView[i]);
+    pGraphics->graphicsDefer.push(decalAddView[i]);
   }
   for (uint32_t i = 0; i < 2; i++) {
-    RI.graphicsDefer.push(directLightingTexture[i]);
-    RI.graphicsDefer.push(directKeyTexture[i]);
-    RI.graphicsDefer.push(directAtrousTexture[i]);
-    RI.graphicsDefer.push(reservoirTexture[i]);
+    pGraphics->graphicsDefer.push(directLightingTexture[i]);
+    pGraphics->graphicsDefer.push(directKeyTexture[i]);
+    pGraphics->graphicsDefer.push(directAtrousTexture[i]);
+    pGraphics->graphicsDefer.push(reservoirTexture[i]);
 
-    RI.graphicsDefer.push(directLightingView[i]);
-    RI.graphicsDefer.push(directKeyView[i]);
-    RI.graphicsDefer.push(directAtrousView[i]);
-    RI.graphicsDefer.push(reservoirView[i]);
+    pGraphics->graphicsDefer.push(directLightingView[i]);
+    pGraphics->graphicsDefer.push(directKeyView[i]);
+    pGraphics->graphicsDefer.push(directAtrousView[i]);
+    pGraphics->graphicsDefer.push(reservoirView[i]);
   }
-  RI.graphicsDefer.push(reservoirTemporalTexture);
-  RI.graphicsDefer.push(reservoirTemporalView);
+  pGraphics->graphicsDefer.push(reservoirTemporalTexture);
+  pGraphics->graphicsDefer.push(reservoirTemporalView);
 }
 
 // Defer our current resources (~HybridViewportState defers each shared handle
@@ -497,7 +501,7 @@ static void appendWorldLightFog(std::vector<RIProgram::DescriptorBinding> &bnd,
       return;
     bnd.emplace_back(
         name, RIDescriptor::storageBuffer(
-                  &RI.device, buf, 0, std::max<uint32_t>(cnt, 1u) * stride));
+                  &Interface<cGraphics>::Get()->device, buf, 0, std::max<uint32_t>(cnt, 1u) * stride));
   };
   add("gPointLights", apWorld->GetPointLightBuffer(),
       apWorld->GetPointLightCount(), sizeof(PointLight));
@@ -509,7 +513,7 @@ static void appendWorldLightFog(std::vector<RIProgram::DescriptorBinding> &bnd,
       sizeof(FogAreaParams));
 }
 
-void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
+void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                            float afFrameTime, cFrustum *apFrustum,
                            cWorld *apWorld, cRenderSettings *apSettings,
                            bool abSendFrameBufferToPostEffects) {
@@ -572,7 +576,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // The TLAS (now owned by cWorld) can keep referencing the BLAS device
     // addresses of geometry freed on a map transition until it's rebuilt. No
     // per-frame pinning is needed for that: a cVertexBuffer owns its BLAS by
-    // value and defers it (RISharedPointer on RI.graphicsDefer) on rebuild and
+    // value and defers it (RISharedPointer on Interface<cGraphics>::Get()->graphicsDefer) on rebuild and
     // in its destructor, so any BLAS the TLAS can still reference outlives the
     // in-flight window even after its owning renderable is destroyed.
   }
@@ -597,7 +601,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     cVertexBuffer *pVB = pObj->GetVertexBuffer();
     if (pVB) {
       auto *vbri = static_cast<cVertexBuffer *>(pVB);
-      vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
+      vbri->SubmitToGPU(&mpGraphics->blasSubmit.cmds[0], &mpGraphics->device, cntx);
     }
   }
 
@@ -615,7 +619,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     if (pVB) {
       auto *vbri = static_cast<cVertexBuffer *>(pVB);
       // Decals are never TLAS instances — upload streams, no BLAS.
-      vbri->SubmitToGPU(&RI.blasSubmit.cmds[0], &RI.device, cntx);
+      vbri->SubmitToGPU(&mpGraphics->blasSubmit.cmds[0], &mpGraphics->device, cntx);
     }
   }
 
@@ -657,12 +661,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // jittered them with frametime variance (stutter-in-place). Matches the
   // reference's afT = GetTimeCount().
   perFrame.afT = GetTimeCount();
-  perFrame.totalFrames = RI.frameIndex;
+  perFrame.totalFrames = mpGraphics->frameIndex;
   perFrame.cameraFov = apFrustum->GetFOV();
   perFrame.fireflyClampThreshold = 10.0f;
   perFrame.zNear = apFrustum->GetNearPlane();
   perFrame.zFar = apFrustum->GetFarPlane();
-  perFrame.forceShadows = RI.forceShadows ? 1u : 0u;
+  perFrame.forceShadows = mpGraphics->forceShadows ? 1u : 0u;
   // invViewRotationMat = rotation part of the inverse view matrix (camera
   // world-space basis, translation zeroed). Translucent.frag rotates the
   // view-space cube-map reflection vector into world space with it (matching
@@ -730,7 +734,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // cWorld::PrepareFrame, driven from cScene before the viewport loop).
   RISegmentReq indirectReq = {};
   const bool indirectOk =
-      m_indirectSegment.request(RI.frameIndex, solids.size(), &indirectReq);
+      m_indirectSegment.request(mpGraphics->frameIndex, solids.size(), &indirectReq);
   assert(indirectOk);
   auto *indirectDst = reinterpret_cast<VkDrawIndirectCommand *>(
       static_cast<uint8_t *>(m_indirectDrawBuffer.mappedAddress) +
@@ -787,7 +791,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   {
     RIProgram::DescriptorBinding b;
     b.handle = DescriptorBindingID::Create("gPerFrame");
-    RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+    mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
     bindings.push_back(b);
   }
 
@@ -802,16 +806,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // wouldn't otherwise match).
   {
     RITextureBarrier attachmentBarriers[3] = {
-        {state.visibilityTexture[RI.swapchainIndex].Get(),
+        {state.visibilityTexture[mpGraphics->swapchainIndex].Get(),
          RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_RENDER_TARGET},
-        {state.depthTextures[RI.swapchainIndex].Get(),
+        {state.depthTextures[mpGraphics->swapchainIndex].Get(),
          RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_DEPTH_WRITE,
          RI_STAGE_NONE, RI_STAGE_NONE, RI_BARRIER_ASPECT_DEPTH},
         // Velocity MRT — same UNDEFINED→COLOR transition as the visibility
         // target (loadOp=CLEAR, so prior contents don't matter).
-        {state.velocityTexture[RI.swapchainIndex].Get(),
+        {state.velocityTexture[mpGraphics->swapchainIndex].Get(),
          RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_RENDER_TARGET}};
-    RI.primary.cmds[0].vk_d3d12_textureBarriers<3>(3, attachmentBarriers);
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<3>(3, attachmentBarriers);
   }
 
   // MRT color targets, both cleared to all-zero. Visibility: psMain writes .w=1
@@ -819,16 +823,16 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // static/uncovered pixels read zero motion. (uint vs float clear is
   // bit-identical at zero.)
   RIRenderingAttachment gbufferColorAttachments[2] = {};
-  gbufferColorAttachments[0].view = *state.visibilityView[RI.swapchainIndex];
+  gbufferColorAttachments[0].view = *state.visibilityView[mpGraphics->swapchainIndex];
   gbufferColorAttachments[0].loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
   gbufferColorAttachments[0].storeOp = RI_ATTACHMENT_STORE_OP_STORE;
-  gbufferColorAttachments[1].view = *state.velocityView[RI.swapchainIndex];
+  gbufferColorAttachments[1].view = *state.velocityView[mpGraphics->swapchainIndex];
   gbufferColorAttachments[1].loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
   gbufferColorAttachments[1].storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
   // MRT owns the per-frame depth clear.
   RIRenderingAttachment depthAttachment = {};
-  depthAttachment.view = *state.depthView[RI.swapchainIndex];
+  depthAttachment.view = *state.depthView[mpGraphics->swapchainIndex];
   depthAttachment.loadOp = RI_ATTACHMENT_LOAD_OP_CLEAR;
   depthAttachment.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
   depthAttachment.clearValue.depth = 1.0f;
@@ -843,14 +847,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelPrepare(&RI.profiler, &RI.primary.cmds[0],
+    RIGpuScope _gsSurfelPrepare(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                                 "SurfelPrepare");
-    m_surfelPrepare.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
+    m_surfelPrepare.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
                                         "SurfelPreparePass.cs", &computeCreate);
-    m_surfelPrepare.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                              &RI.globalset->m_bindlessSet, 0,
+    m_surfelPrepare.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
+                                              &mpGraphics->globalset->m_bindlessSet, 0,
                                               VK_PIPELINE_BIND_POINT_COMPUTE);
-    RI.primary.cmds[0].dispatch(&RI.device, 1u, 1u, 1u);
+    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, 1u, 1u, 1u);
   }
 
   // Ping-pong the surfel-index buffers: copy this frame's previously-valid
@@ -862,13 +866,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // (with the prepare-pass writes above) covers the copy's TRANSFER_WRITE and
   // prepare's SHADER_WRITE against update_collect's SHADER_READ.
   {
-    RI.primary.cmds[0].copyBuffer(
-        &RI.device, &RI.globalset->m_surfelValidBuffer, 0,
-        &RI.globalset->m_surfelDirtyIndexBuffer, 0,
+    mpGraphics->primary.cmds[0].copyBuffer(
+        &mpGraphics->device, &mpGraphics->globalset->m_surfelValidBuffer, 0,
+        &mpGraphics->globalset->m_surfelDirtyIndexBuffer, 0,
         (RIDeviceSize)kTotalSurfelLimit * sizeof(uint32_t));
   }
   {
-    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE | RI_RESOURCE_STATE_COPY_DST,
          RI_RESOURCE_STATE_UNORDERED_ACCESS, RI_STAGE_COMPUTE | RI_STAGE_COPY,
          RI_STAGE_COMPUTE});
@@ -876,7 +880,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Cell + ref-counter clears are now done by SurfelPreparePass +
   // SurfelUpdatePass on the Slang side. No standalone clear dispatch.
   {
-    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_UNORDERED_ACCESS,
          RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
   }
@@ -910,13 +914,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelCollect(&RI.profiler, &RI.primary.cmds[0],
+    RIGpuScope _gsSurfelCollect(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                                 "SurfelUpdateCollect");
     m_surfelUpdateCollect.bindComputePipeline(
-        &RI.device, &RI.primary.cmds[0], kHash,
+        &mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
         "SurfelUpdatePass.cs:collectCellInfo", &computeCreate);
     m_surfelUpdateCollect.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
+        &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
         VK_PIPELINE_BIND_POINT_COMPUTE);
 
     std::vector<RIProgram::DescriptorBinding> bnd;
@@ -924,14 +928,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
-      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
       bnd.push_back(b);
     }
-    m_surfelUpdateCollect.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                          RI.frameIndex, bnd.data(), bnd.size(),
+    m_surfelUpdateCollect.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                          mpGraphics->frameIndex, bnd.data(), bnd.size(),
                                           VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    RI.primary.cmds[0].dispatch(&RI.device, (kTotalSurfelLimit + 63u) / 64u, 1u,
+    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (kTotalSurfelLimit + 63u) / 64u, 1u,
                                 1u);
   }
   // RAW: accumulate reads cellInfo.surfelCount (collect-written) and reads
@@ -939,7 +943,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // the next barrier — dstAccess=READ is sufficient and avoids an L2 flush of
   // every other SSBO collect touched (valid/free/recycle/rayResult/refCounter).
   {
-    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
          RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
   }
@@ -947,23 +951,23 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelAccum(&RI.profiler, &RI.primary.cmds[0],
+    RIGpuScope _gsSurfelAccum(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                               "SurfelUpdateAccumulate");
     m_surfelUpdateAccumulate.bindComputePipeline(
-        &RI.device, &RI.primary.cmds[0], kHash,
+        &mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
         "SurfelUpdatePass.cs:accumulateCellInfo", &computeCreate);
     m_surfelUpdateAccumulate.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
+        &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
         VK_PIPELINE_BIND_POINT_COMPUTE);
     const uint32_t groups = (kCellDimension + 3u) / 4u;
-    RI.primary.cmds[0].dispatch(&RI.device, groups, groups, groups);
+    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, groups, groups, groups);
   }
   // RAW: scatter reads cellInfo.cellToSurfelBufferOffset (accumulate-written)
   // and RMWs cellInfo.surfelCount (accumulate zeroed it). Scatter's writes are
   // synced by the next barrier. Atomic RMWs only need the prior write visible
   // for the read half — dstAccess=READ suffices.
   {
-    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
          RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
   }
@@ -971,13 +975,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelScatter(&RI.profiler, &RI.primary.cmds[0],
+    RIGpuScope _gsSurfelScatter(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                                 "SurfelUpdateScatter");
     m_surfelUpdateScatter.bindComputePipeline(
-        &RI.device, &RI.primary.cmds[0], kHash,
+        &mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
         "SurfelUpdatePass.cs:updateCellToSurfelBuffer", &computeCreate);
     m_surfelUpdateScatter.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
+        &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
         VK_PIPELINE_BIND_POINT_COMPUTE);
 
     std::vector<RIProgram::DescriptorBinding> bnd;
@@ -985,18 +989,18 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
-      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
       bnd.push_back(b);
     }
-    m_surfelUpdateScatter.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                          RI.frameIndex, bnd.data(), bnd.size(),
+    m_surfelUpdateScatter.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                          mpGraphics->frameIndex, bnd.data(), bnd.size(),
                                           VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    RI.primary.cmds[0].dispatch(&RI.device, (kTotalSurfelLimit + 63u) / 64u, 1u,
+    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (kTotalSurfelLimit + 63u) / 64u, 1u,
                                 1u);
   }
   {
-    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
          RI_STAGE_COMPUTE,
          RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING | RI_STAGE_FRAGMENT});
@@ -1016,29 +1020,29 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsLightGridBin(&RI.profiler, &RI.primary.cmds[0],
+    RIGpuScope _gsLightGridBin(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                                "LightGridBin");
-    m_lightGridBin.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
+    m_lightGridBin.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
                                        "LightGridBuildPass.cs:binLights",
                                        &computeCreate);
-    m_lightGridBin.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                             &RI.globalset->m_bindlessSet, 0,
+    m_lightGridBin.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
+                                             &mpGraphics->globalset->m_bindlessSet, 0,
                                              VK_PIPELINE_BIND_POINT_COMPUTE);
     std::vector<RIProgram::DescriptorBinding> bnd;
     bnd.reserve(1);
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
-      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
       bnd.push_back(b);
     }
     appendWorldLightFog(bnd, apWorld);
-    m_lightGridBin.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                   RI.frameIndex, bnd.data(), bnd.size(),
+    m_lightGridBin.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                   mpGraphics->frameIndex, bnd.data(), bnd.size(),
                                    VK_PIPELINE_BIND_POINT_COMPUTE);
     // One thread per grid cell (the shader early-outs past
     // kLightGridCellCount).
-    RI.primary.cmds[0].dispatch(&RI.device, (kLightGridCellCount + 63u) / 64u,
+    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (kLightGridCellCount + 63u) / 64u,
                                 1u, 1u);
   }
 
@@ -1048,7 +1052,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // cull (fragment — SurfelShade.evalAnalyticLight walks the per-cell light
     // list). Both stages must be in dst or the fragment reads see an empty grid
     // and drop every point/spot light. Compute kept in dst for safety.
-    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
          RI_STAGE_COMPUTE,
          RI_STAGE_RAY_TRACING | RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT});
@@ -1061,14 +1065,14 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   if (!m_surfelRTIndirectInit) {
     // Seed the fixed height=1 and depth=1 words once. Width (offset 0) is
     // overwritten each frame from the surfel counter via vkCmdCopyBuffer.
-    vkCmdFillBuffer(RI.primary.cmds[0].vk.cmd, m_surfelRTIndirectBuf.vk.buffer,
+    vkCmdFillBuffer(mpGraphics->primary.cmds[0].vk.cmd, m_surfelRTIndirectBuf.vk.buffer,
                     4u, 4u, 1u); // height = 1 at offset 4
-    vkCmdFillBuffer(RI.primary.cmds[0].vk.cmd, m_surfelRTIndirectBuf.vk.buffer,
+    vkCmdFillBuffer(mpGraphics->primary.cmds[0].vk.cmd, m_surfelRTIndirectBuf.vk.buffer,
                     8u, 4u, 1u); // depth  = 1 at offset 8
     m_surfelRTIndirectInit = true;
   }
 
-  if (!m_surfelAtlasesInitialized[RI.swapchainIndex]) {
+  if (!m_surfelAtlasesInitialized[mpGraphics->swapchainIndex]) {
     // First touch of this swapchain image's atlas: UNDEFINED -> GENERAL and
     // *seed its contents*. SurfelIntegratePass accumulates into it via an EMA
     // read-modify-write (gSurfelDepthMap), so the starting value must be
@@ -1081,25 +1085,25 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // first-bounce depths converge. Clearing to 0 instead would make variance=0
     // => weight 0 => every surfel contribution zeroed until the atlas fills in
     // (~hundreds of frames), i.e. a multi-second indirect black-out on enable.
-    RITextureBarrier toClear[1] = {{&m_surfelDepthTexture[RI.swapchainIndex],
+    RITextureBarrier toClear[1] = {{&m_surfelDepthTexture[mpGraphics->swapchainIndex],
                                     RI_RESOURCE_STATE_UNDEFINED,
                                     RI_RESOURCE_STATE_CLEAR_STORAGE}};
-    RI.primary.cmds[0].vk_d3d12_textureBarriers<1>(1, toClear);
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<1>(1, toClear);
 
     // (E[z], E[z^2] seeded high (half-float safe), 0, 0)
     const float depthClear[4] = {0.0f, 60000.0f, 0.0f, 0.0f};
-    RI.primary.cmds[0].clearStorageImage(
-        &RI.device, &m_surfelDepthTexture[RI.swapchainIndex], depthClear);
+    mpGraphics->primary.cmds[0].clearStorageImage(
+        &mpGraphics->device, &m_surfelDepthTexture[mpGraphics->swapchainIndex], depthClear);
 
     // Clear (transfer) -> integrate's storage RW + ray-trace / generation reads
     // (sampled). Same GENERAL layout, availability/visibility only.
     RITextureBarrier toShader[1] = {
-        {&m_surfelDepthTexture[RI.swapchainIndex],
+        {&m_surfelDepthTexture[mpGraphics->swapchainIndex],
          RI_RESOURCE_STATE_CLEAR_STORAGE,
          RI_RESOURCE_STATE_UNORDERED_ACCESS | RI_RESOURCE_STATE_SHADER_RESOURCE,
          RI_STAGE_NONE, RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING}};
-    RI.primary.cmds[0].vk_d3d12_textureBarriers<1>(1, toShader);
-    m_surfelAtlasesInitialized[RI.swapchainIndex] = true;
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<1>(1, toShader);
+    m_surfelAtlasesInitialized[mpGraphics->swapchainIndex] = true;
   }
 
   // ----------------------------------------------------------------------
@@ -1127,13 +1131,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                          sizeof(uint32_t);
       region.dstOffset = 0u;
       region.size = sizeof(uint32_t);
-      vkCmdCopyBuffer(RI.primary.cmds[0].vk.cmd,
-                      RI.globalset->m_surfelCounterBuffer.vk.buffer,
+      vkCmdCopyBuffer(mpGraphics->primary.cmds[0].vk.cmd,
+                      mpGraphics->globalset->m_surfelCounterBuffer.vk.buffer,
                       m_surfelRTIndirectBuf.vk.buffer, 1u, &region);
     }
     // TRANSFER_WRITE → INDIRECT_COMMAND_READ before the RT dispatch reads the
     // args.
-    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_COPY_DST, RI_RESOURCE_STATE_INDIRECT_ARGUMENT,
          RI_STAGE_COPY, RI_STAGE_DRAW_INDIRECT | RI_STAGE_RAY_TRACING});
 
@@ -1141,11 +1145,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR};
     rtCreate.maxPipelineRayRecursionDepth = 1;
     const hash_t kRtHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelRT(&RI.profiler, &RI.primary.cmds[0], "SurfelRT");
-    m_surfelRT.bindRayTracingPipeline(&RI.device, &RI.primary.cmds[0], kRtHash,
+    RIGpuScope _gsSurfelRT(&mpGraphics->profiler, &mpGraphics->primary.cmds[0], "SurfelRT");
+    m_surfelRT.bindRayTracingPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kRtHash,
                                       "SurfelRayTrace.rt", &rtCreate);
     m_surfelRT.bindBindlessDescriptorSet(
-        &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
+        &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
 
     std::vector<RIProgram::DescriptorBinding> rtBnd;
@@ -1153,21 +1157,21 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
-      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
       rtBnd.push_back(b);
     }
     rtBnd.emplace_back("gRtAccel", RIDescriptor::accelerationStructure(
-                                       &RI.device, apWorld->GetTlas()));
+                                       &mpGraphics->device, apWorld->GetTlas()));
     appendWorldLightFog(rtBnd, apWorld);
-    m_surfelRT.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
+    m_surfelRT.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex,
                                rtBnd.data(), rtBnd.size(),
                                VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
 
     const VkDeviceAddress indirectAddr =
-        m_surfelRTIndirectBuf.GetDeviceHandle(&RI.device);
-    m_surfelRT.traceRaysIndirect(&RI.primary.cmds[0], kRtHash, indirectAddr);
+        m_surfelRTIndirectBuf.GetDeviceHandle(&mpGraphics->device);
+    m_surfelRT.traceRaysIndirect(&mpGraphics->primary.cmds[0], kRtHash, indirectAddr);
   }
-  RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+  mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
       {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
        RI_STAGE_RAY_TRACING, RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT});
 
@@ -1178,8 +1182,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   gbufferBeginDesc.colors = gbufferColorAttachments;
   gbufferBeginDesc.depthStencil = &depthAttachment;
   {
-    RIGpuScope _gsGBuffer(&RI.profiler, &RI.primary.cmds[0], "GBuffer");
-    RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, gbufferBeginDesc);
+    RIGpuScope _gsGBuffer(&mpGraphics->profiler, &mpGraphics->primary.cmds[0], "GBuffer");
+    mpGraphics->primary.cmds[0].vk_d3d12_beginRendering(&mpGraphics->device, gbufferBeginDesc);
 
     RIViewport vkViewport = {};
     vkViewport.x = 0.0f;
@@ -1191,27 +1195,27 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     RIRect scissor = {};
     scissor.width = (int16_t)renderWidth;
     scissor.height = (int16_t)renderHeight;
-    RI.primary.cmds[0].setViewport(&RI.device, vkViewport);
-    RI.primary.cmds[0].setScissor(&RI.device, scissor);
+    mpGraphics->primary.cmds[0].setViewport(&mpGraphics->device, vkViewport);
+    mpGraphics->primary.cmds[0].setScissor(&mpGraphics->device, scissor);
 
     if (writtenDraws > 0) {
-      GBufferMRTPipelineDesc pipelineDesc(RIBootstrap::VisibilityFormat,
-                                          RIBootstrap::VelocityFormat,
-                                          RIBootstrap::DepthFormat);
-      m_gbuffer.bindPipeline(&RI.device, &RI.primary.cmds[0], pipelineDesc.hash,
+      GBufferMRTPipelineDesc pipelineDesc(cGraphics::VisibilityFormat,
+                                          cGraphics::VelocityFormat,
+                                          cGraphics::DepthFormat);
+      m_gbuffer.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], pipelineDesc.hash,
                              "SurfelGBuffer.3d", &pipelineDesc.createInfo);
-      m_gbuffer.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                          &RI.globalset->m_bindlessSet, 0);
-      m_gbuffer.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
+      m_gbuffer.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
+                                          &mpGraphics->globalset->m_bindlessSet, 0);
+      m_gbuffer.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex,
                                 bindings.data(), bindings.size());
-      RI.primary.cmds[0].drawIndirect(&RI.device, &m_indirectDrawBuffer,
+      mpGraphics->primary.cmds[0].drawIndirect(&mpGraphics->device, &m_indirectDrawBuffer,
                                       (VkDeviceSize)indirectReq.elementOffset *
                                           sizeof(VkDrawIndirectCommand),
                                       writtenDraws,
                                       (uint32_t)sizeof(VkDrawIndirectCommand));
     }
 
-    RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
+    mpGraphics->primary.cmds[0].vk_d3d12_endRendering(&mpGraphics->device);
   }
 
   // Gbuffer output -> SHADER_READ_ONLY for the surfel-generation compute
@@ -1223,24 +1227,24 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   {
     RITextureBarrier toRead[5] = {};
     // Visibility -> SHADER_READ for the fragment + compute consumers.
-    toRead[0] = {state.visibilityTexture[RI.swapchainIndex].Get(),
+    toRead[0] = {state.visibilityTexture[mpGraphics->swapchainIndex].Get(),
                  RI_RESOURCE_STATE_RENDER_TARGET,
                  RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_NONE,
                  RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE};
 
     // Depth -> SHADER_READ_ONLY for the compute pass.
-    toRead[1] = {state.depthTextures[RI.swapchainIndex].Get(),
+    toRead[1] = {state.depthTextures[mpGraphics->swapchainIndex].Get(),
                  RI_RESOURCE_STATE_DEPTH_WRITE,
                  RI_RESOURCE_STATE_SHADER_RESOURCE,
                  RI_STAGE_NONE,
                  RI_STAGE_COMPUTE,
                  RI_BARRIER_ASPECT_DEPTH};
 
-    toRead[2] = {state.surfelResultTexture[RI.swapchainIndex].Get(),
+    toRead[2] = {state.surfelResultTexture[mpGraphics->swapchainIndex].Get(),
                  RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE};
 
     // Velocity (gbuffer MRT) -> SHADER_READ for the direct-lighting pass.
-    toRead[3] = {state.velocityTexture[RI.swapchainIndex].Get(),
+    toRead[3] = {state.velocityTexture[mpGraphics->swapchainIndex].Get(),
                  RI_RESOURCE_STATE_RENDER_TARGET,
                  RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_NONE,
                  RI_STAGE_COMPUTE};
@@ -1248,11 +1252,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // packedHitInfo: UNDEFINED -> STORAGE_WRITE for the POM compute pass.
     // Previously written by the Stage B RT V-buffer; now produced by
     // SurfelPomBary.cs immediately after this barrier.
-    toRead[4] = {state.packedHitInfoTexture[RI.swapchainIndex].Get(),
+    toRead[4] = {state.packedHitInfoTexture[mpGraphics->swapchainIndex].Get(),
                  RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_STORAGE_WRITE,
                  RI_STAGE_NONE, RI_STAGE_COMPUTE};
 
-    RI.primary.cmds[0].vk_d3d12_textureBarriers<5>(5, toRead);
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<5>(5, toRead);
   }
 
   // Clear the surfel-result image to zero indirect (see toRead[2] above), then
@@ -1260,12 +1264,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   {
     // (0,0,0,1): zero radiance, opaque alpha
     const float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-    RI.primary.cmds[0].clearStorageImage(
-        &RI.device, state.surfelResultTexture[RI.swapchainIndex].Get(),
+    mpGraphics->primary.cmds[0].clearStorageImage(
+        &mpGraphics->device, state.surfelResultTexture[mpGraphics->swapchainIndex].Get(),
         clearColor);
 
-    RI.primary.cmds[0].vk_d3d12_textureBarrier(
-        {state.surfelResultTexture[RI.swapchainIndex].Get(),
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
+        {state.surfelResultTexture[mpGraphics->swapchainIndex].Get(),
          RI_RESOURCE_STATE_CLEAR_STORAGE, RI_RESOURCE_STATE_UNORDERED_ACCESS,
          RI_STAGE_NONE, RI_STAGE_COMPUTE});
   }
@@ -1280,15 +1284,15 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // hit in gPackedHitInfo until a future sparse refraction RT pass lands.
   // ----------------------------------------------------------------------
   {
-    RIGpuScope _gsSurfelPomBary(&RI.profiler, &RI.primary.cmds[0],
+    RIGpuScope _gsSurfelPomBary(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                                 "SurfelPomBary");
     VkComputePipelineCreateInfo ci = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kPomHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    m_surfelPomBary.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+    m_surfelPomBary.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                         kPomHash, "SurfelPomBary.cs", &ci);
-    m_surfelPomBary.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                              &RI.globalset->m_bindlessSet, 0,
+    m_surfelPomBary.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
+                                              &mpGraphics->globalset->m_bindlessSet, 0,
                                               VK_PIPELINE_BIND_POINT_COMPUTE);
 
     std::vector<RIProgram::DescriptorBinding> pomBnd;
@@ -1296,29 +1300,29 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
-      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
       pomBnd.push_back(b);
     }
     pomBnd.emplace_back("gPackedHitInfoRaster",
                         RIDescriptor::sampledImage(
-                            &RI.device,
-                            state.visibilityView[RI.swapchainIndex].Get(),
+                            &mpGraphics->device,
+                            state.visibilityView[mpGraphics->swapchainIndex].Get(),
                             RI_RESOURCE_STATE_SHADER_RESOURCE));
     pomBnd.emplace_back(
         "gPackedHitInfo",
         RIDescriptor::storageImage(
-            &RI.device, state.packedHitInfoView[RI.swapchainIndex].Get()));
+            &mpGraphics->device, state.packedHitInfoView[mpGraphics->swapchainIndex].Get()));
 
-    m_surfelPomBary.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                    RI.frameIndex, pomBnd.data(), pomBnd.size(),
+    m_surfelPomBary.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                    mpGraphics->frameIndex, pomBnd.data(), pomBnd.size(),
                                     VK_PIPELINE_BIND_POINT_COMPUTE);
-    RI.primary.cmds[0].dispatch(&RI.device, (renderWidth + 15u) / 16u,
+    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (renderWidth + 15u) / 16u,
                                 (renderHeight + 15u) / 16u, 1u);
   }
   {
     // packedHitInfo storage write -> shader read for integrate/generate/
     // direct-lighting/composite passes. Layout stays GENERAL.
-    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
          RI_STAGE_COMPUTE,
          RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT | RI_STAGE_RAY_TRACING});
@@ -1336,13 +1340,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelIntegrate(&RI.profiler, &RI.primary.cmds[0],
+    RIGpuScope _gsSurfelIntegrate(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                                   "SurfelIntegrate");
-    m_surfelIntegrate.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+    m_surfelIntegrate.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                           kHash, "SurfelIntegratePass.cs",
                                           &computeCreate);
-    m_surfelIntegrate.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                                &RI.globalset->m_bindlessSet, 0,
+    m_surfelIntegrate.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
+                                                &mpGraphics->globalset->m_bindlessSet, 0,
                                                 VK_PIPELINE_BIND_POINT_COMPUTE);
 
     // gSurfelDepthSampler is bindless (set 0). The image views and the
@@ -1353,20 +1357,20 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
-      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
       bnd.push_back(b);
     }
     bnd.emplace_back("gSurfelDepthMap",
                      RIDescriptor::storageImage(
-                         &RI.device, &m_surfelDepthView[RI.swapchainIndex]));
+                         &mpGraphics->device, &m_surfelDepthView[mpGraphics->swapchainIndex]));
     bnd.emplace_back("gSurfelDepth",
                      RIDescriptor::sampledImage(
-                         &RI.device, &m_surfelDepthView[RI.swapchainIndex],
+                         &mpGraphics->device, &m_surfelDepthView[mpGraphics->swapchainIndex],
                          RI_RESOURCE_STATE_GENERAL));
-    m_surfelIntegrate.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                      RI.frameIndex, bnd.data(), bnd.size(),
+    m_surfelIntegrate.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                      mpGraphics->frameIndex, bnd.data(), bnd.size(),
                                       VK_PIPELINE_BIND_POINT_COMPUTE);
-    RI.primary.cmds[0].dispatch(&RI.device, (kTotalSurfelLimit + 31u) / 32u, 1u,
+    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (kTotalSurfelLimit + 31u) / 32u, 1u,
                                 1u);
   }
   {
@@ -1374,7 +1378,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // depth atlas (gSurfelDepth) that integrate just wrote via a storage image;
     // the sampled read needs the write made visible to it, not just storage
     // reads.
-    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE,
          RI_RESOURCE_STATE_UNORDERED_ACCESS | RI_RESOURCE_STATE_SHADER_RESOURCE,
          RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
@@ -1383,13 +1387,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo computeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelGenerate(&RI.profiler, &RI.primary.cmds[0],
+    RIGpuScope _gsSurfelGenerate(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                                  "SurfelGenerate");
-    m_surfelGenerate.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
+    m_surfelGenerate.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
                                          "SurfelGenerationPass.cs",
                                          &computeCreate);
-    m_surfelGenerate.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                               &RI.globalset->m_bindlessSet, 0,
+    m_surfelGenerate.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
+                                               &mpGraphics->globalset->m_bindlessSet, 0,
                                                VK_PIPELINE_BIND_POINT_COMPUTE);
 
     // gPerFrame + the set-1 surfel images (gPackedHitInfo, gSurfelDepth
@@ -1400,36 +1404,36 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
-      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
       bnd.push_back(b);
     }
     bnd.emplace_back(
         "gPackedHitInfo",
         RIDescriptor::storageImage(
-            &RI.device, state.packedHitInfoView[RI.swapchainIndex].Get()));
+            &mpGraphics->device, state.packedHitInfoView[mpGraphics->swapchainIndex].Get()));
     bnd.emplace_back("gSurfelDepth",
                      RIDescriptor::sampledImage(
-                         &RI.device, &m_surfelDepthView[RI.swapchainIndex],
+                         &mpGraphics->device, &m_surfelDepthView[mpGraphics->swapchainIndex],
                          RI_RESOURCE_STATE_GENERAL));
     {
       bnd.emplace_back(
           "gOutput",
           RIDescriptor::storageImage(
-              &RI.device, state.surfelResultView[RI.swapchainIndex].Get()));
+              &mpGraphics->device, state.surfelResultView[mpGraphics->swapchainIndex].Get()));
     }
-    m_surfelGenerate.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                     RI.frameIndex, bnd.data(), bnd.size(),
+    m_surfelGenerate.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                     mpGraphics->frameIndex, bnd.data(), bnd.size(),
                                      VK_PIPELINE_BIND_POINT_COMPUTE);
 
     static_assert(sizeof(OverlayPushConstants) == 4);
     const OverlayPushConstants push{m_overlayMode};
-    vkCmdPushConstants(RI.primary.cmds[0].vk.cmd,
+    vkCmdPushConstants(mpGraphics->primary.cmds[0].vk.cmd,
                        m_surfelGenerate.getPipelineLayout(),
                        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
 
     const uint32_t fullW = renderWidth;
     const uint32_t fullH = renderHeight;
-    RI.primary.cmds[0].dispatch(&RI.device, (fullW + 15u) / 16u,
+    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (fullW + 15u) / 16u,
                                 (fullH + 15u) / 16u, 1u);
   }
 
@@ -1469,13 +1473,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
            RI_RESOURCE_STATE_CLEAR_STORAGE},
           {state.reservoirTemporalTexture.Get(), RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE}};
-      RI.primary.cmds[0].vk_d3d12_textureBarriers<9>(9, toGen);
+      mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<9>(9, toGen);
 
       const float clr[4] = {0.0f, 0.0f, 0.0f, 0.0f};
       for (uint32_t i = 0; i < 9; ++i)
-        RI.primary.cmds[0].clearStorageImage(&RI.device, toGen[i].texture, clr);
+        mpGraphics->primary.cmds[0].clearStorageImage(&mpGraphics->device, toGen[i].texture, clr);
 
-      RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+      mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
           {RI_RESOURCE_STATE_CLEAR_STORAGE,
            RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_WRITE,
            RI_STAGE_NONE, RI_STAGE_COMPUTE});
@@ -1483,7 +1487,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     } else {
       // Make last frame's writes to the ping-pong textures visible (history
       // sampled-read + current write-after-read/write). Both stay GENERAL.
-      RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+      mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
           {RI_RESOURCE_STATE_STORAGE_WRITE | RI_RESOURCE_STATE_SHADER_RESOURCE,
            RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_WRITE,
            RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
@@ -1493,12 +1497,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
     {
-      RIGpuScope _gsDirectLighting(&RI.profiler, &RI.primary.cmds[0],
+      RIGpuScope _gsDirectLighting(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                                    "DirectLighting");
-      m_directLighting.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+      m_directLighting.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                            kHash, "DirectLightingPass.cs", &ci);
       m_directLighting.bindBindlessDescriptorSet(
-          &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
+          &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
           VK_PIPELINE_BIND_POINT_COMPUTE);
 
       std::vector<RIProgram::DescriptorBinding> bnd;
@@ -1506,49 +1510,49 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       {
         RIProgram::DescriptorBinding b;
         b.handle = DescriptorBindingID::Create("gPerFrame");
-        RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+        mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
         bnd.push_back(b);
       }
       // Temporal pass traces no rays — only builds + reprojects reservoirs.
       bnd.emplace_back(
           "gPackedHitInfo",
           RIDescriptor::storageImage(
-              &RI.device, state.packedHitInfoView[RI.swapchainIndex].Get()));
+              &mpGraphics->device, state.packedHitInfoView[mpGraphics->swapchainIndex].Get()));
       bnd.emplace_back("gPackedHitInfoRaster",
                        RIDescriptor::sampledImage(
-                           &RI.device,
-                           state.visibilityView[RI.swapchainIndex].Get(),
+                           &mpGraphics->device,
+                           state.visibilityView[mpGraphics->swapchainIndex].Get(),
                            RI_RESOURCE_STATE_SHADER_RESOURCE));
       bnd.emplace_back("gVelocity",
                        RIDescriptor::sampledImage(
-                           &RI.device,
-                           state.velocityView[RI.swapchainIndex].Get(),
+                           &mpGraphics->device,
+                           state.velocityView[mpGraphics->swapchainIndex].Get(),
                            RI_RESOURCE_STATE_SHADER_RESOURCE));
       bnd.emplace_back("gReservoirHistory",
                        RIDescriptor::sampledImage(
-                           &RI.device, state.reservoirView[dlPrev].Get(),
+                           &mpGraphics->device, state.reservoirView[dlPrev].Get(),
                            RI_RESOURCE_STATE_GENERAL));
       bnd.emplace_back("gDirectKeyHistory",
                        RIDescriptor::sampledImage(
-                           &RI.device, state.directKeyView[dlPrev].Get(),
+                           &mpGraphics->device, state.directKeyView[dlPrev].Get(),
                            RI_RESOURCE_STATE_GENERAL));
       bnd.emplace_back("gReservoirOut",
                        RIDescriptor::storageImage(
-                           &RI.device, state.reservoirTemporalView.Get()));
+                           &mpGraphics->device, state.reservoirTemporalView.Get()));
       bnd.emplace_back("gDirectKeyOut",
                        RIDescriptor::storageImage(
-                           &RI.device, state.directKeyView[dlCur].Get()));
+                           &mpGraphics->device, state.directKeyView[dlCur].Get()));
 
       appendWorldLightFog(bnd, apWorld);
-      m_directLighting.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                       RI.frameIndex, bnd.data(), bnd.size(),
+      m_directLighting.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                       mpGraphics->frameIndex, bnd.data(), bnd.size(),
                                        VK_PIPELINE_BIND_POINT_COMPUTE);
-      RI.primary.cmds[0].dispatch(&RI.device, (renderWidth + 15u) / 16u,
+      mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (renderWidth + 15u) / 16u,
                                   (renderHeight + 15u) / 16u, 1u);
     }
 
     // Temporal reservoir + current key writes -> spatial pass sampled reads.
-    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
          RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
 
@@ -1559,13 +1563,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // frame's temporal history) and directLighting[dlCur] (the à-trous input).
     // ----------------------------------------------------------------
     {
-      RIGpuScope _gsDirectSpatialReuse(&RI.profiler, &RI.primary.cmds[0],
+      RIGpuScope _gsDirectSpatialReuse(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                                        "DirectSpatialReuse");
       m_directSpatialReuse.bindComputePipeline(
-          &RI.device, &RI.primary.cmds[0], kHash, "DirectSpatialReusePass.cs",
+          &mpGraphics->device, &mpGraphics->primary.cmds[0], kHash, "DirectSpatialReusePass.cs",
           &ci);
       m_directSpatialReuse.bindBindlessDescriptorSet(
-          &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
+          &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
           VK_PIPELINE_BIND_POINT_COMPUTE);
 
       std::vector<RIProgram::DescriptorBinding> sb;
@@ -1573,61 +1577,61 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       {
         RIProgram::DescriptorBinding b;
         b.handle = DescriptorBindingID::Create("gPerFrame");
-        RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+        mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
         sb.push_back(b);
       }
       sb.emplace_back(
           "gPackedHitInfo",
           RIDescriptor::storageImage(
-              &RI.device, state.packedHitInfoView[RI.swapchainIndex].Get()));
+              &mpGraphics->device, state.packedHitInfoView[mpGraphics->swapchainIndex].Get()));
       sb.emplace_back(
           "gRtAccel",
           RIDescriptor::accelerationStructure(
-              &RI.device, apWorld->GetTlas())); // resolve shadow ray
+              &mpGraphics->device, apWorld->GetTlas())); // resolve shadow ray
       sb.emplace_back("gPackedHitInfoRaster",
                       RIDescriptor::sampledImage(
-                          &RI.device,
-                          state.visibilityView[RI.swapchainIndex].Get(),
+                          &mpGraphics->device,
+                          state.visibilityView[mpGraphics->swapchainIndex].Get(),
                           RI_RESOURCE_STATE_SHADER_RESOURCE));
       sb.emplace_back("gReservoirIn",
                       RIDescriptor::sampledImage(
-                          &RI.device, state.reservoirTemporalView.Get(),
+                          &mpGraphics->device, state.reservoirTemporalView.Get(),
                           RI_RESOURCE_STATE_GENERAL));
       sb.emplace_back("gDirectKey",
                       RIDescriptor::sampledImage(
-                          &RI.device, state.directKeyView[dlCur].Get(),
+                          &mpGraphics->device, state.directKeyView[dlCur].Get(),
                           RI_RESOURCE_STATE_GENERAL));
       sb.emplace_back("gVelocity",
                       RIDescriptor::sampledImage(
-                          &RI.device,
-                          state.velocityView[RI.swapchainIndex].Get(),
+                          &mpGraphics->device,
+                          state.velocityView[mpGraphics->swapchainIndex].Get(),
                           RI_RESOURCE_STATE_SHADER_RESOURCE));
       sb.emplace_back("gDirectHistory",
                       RIDescriptor::sampledImage(
-                          &RI.device, state.directLightingView[dlPrev].Get(),
+                          &mpGraphics->device, state.directLightingView[dlPrev].Get(),
                           RI_RESOURCE_STATE_GENERAL));
       sb.emplace_back("gDirectKeyHistory",
                       RIDescriptor::sampledImage(
-                          &RI.device, state.directKeyView[dlPrev].Get(),
+                          &mpGraphics->device, state.directKeyView[dlPrev].Get(),
                           RI_RESOURCE_STATE_GENERAL));
       sb.emplace_back("gReservoirOut",
                       RIDescriptor::storageImage(
-                          &RI.device, state.reservoirView[dlCur].Get()));
+                          &mpGraphics->device, state.reservoirView[dlCur].Get()));
       sb.emplace_back("gDirectLighting",
                       RIDescriptor::storageImage(
-                          &RI.device, state.directLightingView[dlCur].Get()));
+                          &mpGraphics->device, state.directLightingView[dlCur].Get()));
 
       appendWorldLightFog(sb, apWorld);
-      m_directSpatialReuse.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                           RI.frameIndex, sb.data(), sb.size(),
+      m_directSpatialReuse.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                           mpGraphics->frameIndex, sb.data(), sb.size(),
                                            VK_PIPELINE_BIND_POINT_COMPUTE);
-      RI.primary.cmds[0].dispatch(&RI.device, (renderWidth + 15u) / 16u,
+      mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (renderWidth + 15u) / 16u,
                                   (renderHeight + 15u) / 16u, 1u);
     }
 
     // Resolved direct + final reservoir writes -> à-trous / composite reads
     // (stays GENERAL).
-    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
          RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
 
@@ -1640,7 +1644,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     // ----------------------------------------------------------------
     directResultView = state.directLightingView[dlCur].Get();
     {
-      RIGpuScope _gsDirectAtrous(&RI.profiler, &RI.primary.cmds[0],
+      RIGpuScope _gsDirectAtrous(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                                  "DirectAtrous");
       for (int it = 0; it < kAtrousIterations; ++it) {
         RITextureView *inView =
@@ -1649,10 +1653,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         const uint32_t outIdx = static_cast<uint32_t>(it) & 1u;
         RITextureView *outView = state.directAtrousView[outIdx].Get();
 
-        m_directAtrous.bindComputePipeline(&RI.device, &RI.primary.cmds[0],
+        m_directAtrous.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                            kHash, "DirectAtrousPass.cs", &ci);
         m_directAtrous.bindBindlessDescriptorSet(
-            &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0,
+            &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
             VK_PIPELINE_BIND_POINT_COMPUTE);
 
         // Per-iteration tap spacing (1, 2, 4 …). Padded to 16 bytes (std140
@@ -1668,28 +1672,28 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         {
           RIProgram::DescriptorBinding b;
           b.handle = DescriptorBindingID::Create("gAtrous");
-          RI.UpdateFrameUBO(&b.descriptor, &ap, sizeof(ap));
+          mpGraphics->UpdateFrameUBO(&b.descriptor, &ap, sizeof(ap));
           ab.push_back(b);
         }
         ab.emplace_back("gAtrousIn",
-                        RIDescriptor::sampledImage(&RI.device, inView,
+                        RIDescriptor::sampledImage(&mpGraphics->device, inView,
                                                    RI_RESOURCE_STATE_GENERAL));
         ab.emplace_back("gDirectKey",
                         RIDescriptor::sampledImage(
-                            &RI.device, state.directKeyView[dlCur].Get(),
+                            &mpGraphics->device, state.directKeyView[dlCur].Get(),
                             RI_RESOURCE_STATE_GENERAL));
         ab.emplace_back("gAtrousOut",
-                        RIDescriptor::storageImage(&RI.device, outView));
+                        RIDescriptor::storageImage(&mpGraphics->device, outView));
 
-        m_directAtrous.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                       RI.frameIndex, ab.data(), ab.size(),
+        m_directAtrous.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                       mpGraphics->frameIndex, ab.data(), ab.size(),
                                        VK_PIPELINE_BIND_POINT_COMPUTE);
-        RI.primary.cmds[0].dispatch(&RI.device, (renderWidth + 15u) / 16u,
+        mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (renderWidth + 15u) / 16u,
                                     (renderHeight + 15u) / 16u, 1u);
 
         // This iteration's write -> next iteration's / composite's sampled
         // read.
-        RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+        mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
             {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
              RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
         directResultView = outView;
@@ -1727,18 +1731,18 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     RITextureBarrier imageBarriers[2] = {
         // gIndirectLighting GENERAL -> SHADER_READ_ONLY, now consumed by
         // compute.
-        {state.surfelResultTexture[RI.swapchainIndex].Get(),
+        {state.surfelResultTexture[mpGraphics->swapchainIndex].Get(),
          RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
          RI_STAGE_COMPUTE, RI_STAGE_COMPUTE},
         // Pogo attach -> GENERAL for the compute storage write. Discard prior
         // contents (UNDEFINED): the dispatch writes every pixel, matching the
         // old fragment pass's LOAD_OP_DONT_CARE. This also covers the
         // first-frame init for the attach half.
-        {state.renderTarget[RI.swapchainIndex].Get(),
+        {state.renderTarget[mpGraphics->swapchainIndex].Get(),
          RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_STORAGE_WRITE,
          RI_STAGE_NONE, RI_STAGE_COMPUTE}};
 
-    RI.primary.cmds[0].vk_d3d12_resourceBarrier<1, 0, 2>(1, &mem, 0, NULL, 2,
+    mpGraphics->primary.cmds[0].vk_d3d12_resourceBarrier<1, 0, 2>(1, &mem, 0, NULL, 2,
                                                          imageBarriers);
   }
 
@@ -1750,8 +1754,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   auto flipDepthToReadOnly = [&]() {
     if (depthFlippedForReadOnly)
       return;
-    RI.primary.cmds[0].vk_d3d12_textureBarrier(
-        {state.depthTextures[RI.swapchainIndex].Get(),
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
+        {state.depthTextures[mpGraphics->swapchainIndex].Get(),
          RI_RESOURCE_STATE_SHADER_RESOURCE, RI_RESOURCE_STATE_DEPTH_READ,
          RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE, RI_STAGE_NONE,
          RI_BARRIER_ASPECT_DEPTH});
@@ -1775,7 +1779,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Add is a close linear approximation.)
   // --------------------------------------------------------------------
   {
-    RIGpuScope _gsDecal(&RI.profiler, &RI.primary.cmds[0], "Decal");
+    RIGpuScope _gsDecal(&mpGraphics->profiler, &mpGraphics->primary.cmds[0], "Decal");
     std::vector<iRenderable *> mulDecals; // Mul / MulX2 -> decalMul
     std::vector<iRenderable *> addDecals; // Add        -> decalAdd
     for (iRenderable *pObj :
@@ -1821,7 +1825,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     auto renderDecalAccumulator = [&](RITexture *tex, const RITextureView &view,
                                       const float clearRGBA[4],
                                       const std::vector<iRenderable *> &list) {
-      RI.primary.cmds[0].vk_d3d12_textureBarrier(
+      mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
           {tex, RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_RENDER_TARGET,
            RI_STAGE_NONE, RI_STAGE_FRAGMENT});
 
@@ -1835,7 +1839,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       color.clearValue.color[3] = clearRGBA[3];
 
       RIRenderingAttachment depth = {};
-      depth.view = *state.depthView[RI.swapchainIndex];
+      depth.view = *state.depthView[mpGraphics->swapchainIndex];
       depth.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
       depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
       depth.readOnly = true;
@@ -1846,7 +1850,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       beginDesc.colorCount = 1;
       beginDesc.colors = &color;
       beginDesc.depthStencil = &depth;
-      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
+      mpGraphics->primary.cmds[0].vk_d3d12_beginRendering(&mpGraphics->device, beginDesc);
 
       RIViewport vp = {};
       vp.x = 0.0f;
@@ -1858,20 +1862,20 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RIRect sc = {};
       sc.width = (int16_t)renderWidth;
       sc.height = (int16_t)renderHeight;
-      RI.primary.cmds[0].setViewport(&RI.device, vp);
-      RI.primary.cmds[0].setScissor(&RI.device, sc);
+      mpGraphics->primary.cmds[0].setViewport(&mpGraphics->device, vp);
+      mpGraphics->primary.cmds[0].setScissor(&mpGraphics->device, sc);
 
       if (!list.empty()) {
-        m_decal.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                          &RI.globalset->m_bindlessSet, 0);
+        m_decal.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
+                                          &mpGraphics->globalset->m_bindlessSet, 0);
         {
           // VS reads gPerFrame (view/proj) + gSceneObjects; FS emits the linear
           // decal colour. No fog/light buffers — the composite lights and fogs.
           RIProgram::DescriptorBinding b;
           b.handle = DescriptorBindingID::Create("gPerFrame");
-          RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-          m_decal.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                  RI.frameIndex, &b, 1);
+          mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+          m_decal.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                  mpGraphics->frameIndex, &b, 1);
         }
 
         for (iRenderable *pObj : list) {
@@ -1880,7 +1884,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           const int indexCount = pVB->GetIndexNum();
 
           uint32_t materialId =
-              RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
+              mpGraphics->globalset->submitMaterial(cntx, pMat, (uint32_t)mpGraphics->frameIndex)
                   .materialId;
           if (materialId == UINT32_MAX) {
             Warning("Material Slot exhausted (decal)");
@@ -1894,8 +1898,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           d.dissolveAmount = pObj->GetCoverageAmount();
           d.renderFlags = pObj->GetRenderFlags();
 
-          const uint32_t slot = RI.globalset->submitObject(
-              pObj->GetUniqueCookie(), (uint32_t)RI.frameIndex,
+          const uint32_t slot = mpGraphics->globalset->submitObject(
+              pObj->GetUniqueCookie(), (uint32_t)mpGraphics->frameIndex,
               static_cast<cVertexBuffer *>(pVB), d);
           if (slot == UINT32_MAX) {
             Warning("bindless pool exhausted (decal)");
@@ -1903,26 +1907,26 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
           }
 
           uint32_t vtxMask = 0;
-          if (!detail::BindVertexStreams(&RI.primary.cmds[0], pVB, "decal",
+          if (!detail::BindVertexStreams(&mpGraphics->primary.cmds[0], pVB, "decal",
                                          &vtxMask))
             continue;
 
           DecalPipelineDesc pipelineDesc(
-              RIBootstrap::PogoColorFormat, RIBootstrap::DepthFormat,
+              cGraphics::PogoColorFormat, cGraphics::DepthFormat,
               decalBlend(pMat->GetBlendMode()), vtxMask);
-          m_decal.bindPipeline(&RI.device, &RI.primary.cmds[0],
+          m_decal.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                pipelineDesc.hash, "Decal",
                                &pipelineDesc.createInfo);
 
-          RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1u,
+          mpGraphics->primary.cmds[0].drawIndexed(&mpGraphics->device, (uint32_t)indexCount, 1u,
                                          0u, 0, slot);
         }
       }
 
-      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
+      mpGraphics->primary.cmds[0].vk_d3d12_endRendering(&mpGraphics->device);
 
       // COLOR_ATTACHMENT -> SHADER_RESOURCE for the composite read.
-      RI.primary.cmds[0].vk_d3d12_textureBarrier(
+      mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
           {tex, RI_RESOURCE_STATE_RENDER_TARGET,
            RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT,
            RI_STAGE_COMPUTE});
@@ -1930,11 +1934,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
 
     const float kIdentityMul[4] = {1.0f, 1.0f, 1.0f, 1.0f}; // ×1
     const float kIdentityAdd[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // +0
-    renderDecalAccumulator(state.decalMulTexture[RI.swapchainIndex].Get(),
-                           *state.decalMulView[RI.swapchainIndex], kIdentityMul,
+    renderDecalAccumulator(state.decalMulTexture[mpGraphics->swapchainIndex].Get(),
+                           *state.decalMulView[mpGraphics->swapchainIndex], kIdentityMul,
                            mulDecals);
-    renderDecalAccumulator(state.decalAddTexture[RI.swapchainIndex].Get(),
-                           *state.decalAddView[RI.swapchainIndex], kIdentityAdd,
+    renderDecalAccumulator(state.decalAddTexture[mpGraphics->swapchainIndex].Get(),
+                           *state.decalAddView[mpGraphics->swapchainIndex], kIdentityAdd,
                            addDecals);
   }
 
@@ -1944,12 +1948,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     VkComputePipelineCreateInfo surfelCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsMainComposite(&RI.profiler, &RI.primary.cmds[0],
+    RIGpuScope _gsMainComposite(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                                 "MainComposite");
-    m_mainComposite.bindComputePipeline(&RI.device, &RI.primary.cmds[0], kHash,
+    m_mainComposite.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
                                         "MainCompositePass.cs", &surfelCreate);
-    m_mainComposite.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                              &RI.globalset->m_bindlessSet, 0,
+    m_mainComposite.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
+                                              &mpGraphics->globalset->m_bindlessSet, 0,
                                               VK_PIPELINE_BIND_POINT_COMPUTE);
 
     std::vector<RIProgram::DescriptorBinding> bnd;
@@ -1957,42 +1961,42 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
-      RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+      mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
       bnd.push_back(b);
     }
     bnd.emplace_back(
         "gPackedHitInfo",
         RIDescriptor::storageImage(
-            &RI.device, state.packedHitInfoView[RI.swapchainIndex].Get()));
+            &mpGraphics->device, state.packedHitInfoView[mpGraphics->swapchainIndex].Get()));
     bnd.emplace_back("gRtAccel", RIDescriptor::accelerationStructure(
-                                     &RI.device, apWorld->GetTlas()));
+                                     &mpGraphics->device, apWorld->GetTlas()));
     {
       bnd.emplace_back(
           "gIndirectLighting",
           RIDescriptor::sampledImage(
-              &RI.device, state.surfelResultView[RI.swapchainIndex].Get()));
+              &mpGraphics->device, state.surfelResultView[mpGraphics->swapchainIndex].Get()));
     }
     {
       // Rasterized V-buffer fallback — SurfelGBuffer writes
-      // RI.visibilityTexture earlier this frame and the toRead[] barriers
+      // Interface<cGraphics>::Get()->visibilityTexture earlier this frame and the toRead[] barriers
       // upstream already transitioned it to SHADER_READ_ONLY_OPTIMAL (visible
       // to COMPUTE).
       bnd.emplace_back(
           "gPackedHitInfoRaster",
           RIDescriptor::sampledImage(
-              &RI.device, state.visibilityView[RI.swapchainIndex].Get()));
+              &mpGraphics->device, state.visibilityView[mpGraphics->swapchainIndex].Get()));
     }
     // gDirectLighting — this frame's direct irradiance the composite multiplies
     // albedo into: the SVGF-lite à-trous output (or the raw accumulation if the
     // filter is disabled), sampled, GENERAL.
     bnd.emplace_back("gDirectLighting",
-                     RIDescriptor::sampledImage(&RI.device, directResultView,
+                     RIDescriptor::sampledImage(&mpGraphics->device, directResultView,
                                                 RI_RESOURCE_STATE_GENERAL));
     // gOutput — the viewport render target bound as a storage image (GENERAL).
     bnd.emplace_back(
         "gOutput",
         RIDescriptor::storageImage(
-            &RI.device, state.renderTargetView[RI.swapchainIndex].Get()));
+            &mpGraphics->device, state.renderTargetView[mpGraphics->swapchainIndex].Get()));
 
     // Decal accumulators from the pre-pass above (already in SHADER_RESOURCE):
     // the composite applies albedo = albedo*gDecalMul + gDecalAdd before
@@ -2000,11 +2004,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     bnd.emplace_back(
         "gDecalMul",
         RIDescriptor::sampledImage(
-            &RI.device, state.decalMulView[RI.swapchainIndex].Get()));
+            &mpGraphics->device, state.decalMulView[mpGraphics->swapchainIndex].Get()));
     bnd.emplace_back(
         "gDecalAdd",
         RIDescriptor::sampledImage(
-            &RI.device, state.decalAddView[RI.swapchainIndex].Get()));
+            &mpGraphics->device, state.decalAddView[mpGraphics->swapchainIndex].Get()));
 
     // Per-world static decal buffers (set kWorldDecalSet), baked once by
     // cWorld::Compile. RIProgram reflects them as set 2 and binds a rotated
@@ -2014,7 +2018,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gDecals");
       b.descriptor = RIDescriptor::storageBuffer(
-          &RI.device, decalBuf, 0,
+          &mpGraphics->device, decalBuf, 0,
           std::max<size_t>(apWorld->GetDecalCount(), 1) * sizeof(GpuDecal));
       bnd.push_back(b);
     }
@@ -2022,24 +2026,24 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gObjectDecalIndices");
       b.descriptor = RIDescriptor::storageBuffer(
-          &RI.device, idxBuf, 0,
+          &mpGraphics->device, idxBuf, 0,
           std::max<size_t>(apWorld->GetDecalObjectIndices().size(), 1) *
               sizeof(uint32_t));
       bnd.push_back(b);
     }
 
     appendWorldLightFog(bnd, apWorld);
-    m_mainComposite.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                    RI.frameIndex, bnd.data(), bnd.size(),
+    m_mainComposite.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                    mpGraphics->frameIndex, bnd.data(), bnd.size(),
                                     VK_PIPELINE_BIND_POINT_COMPUTE);
 
     static_assert(sizeof(OverlayPushConstants) == 4);
     const OverlayPushConstants push{m_overlayMode};
-    vkCmdPushConstants(RI.primary.cmds[0].vk.cmd,
+    vkCmdPushConstants(mpGraphics->primary.cmds[0].vk.cmd,
                        m_mainComposite.getPipelineLayout(),
                        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
 
-    RI.primary.cmds[0].dispatch(&RI.device, (renderWidth + 15u) / 16u,
+    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (renderWidth + 15u) / 16u,
                                 (renderHeight + 15u) / 16u, 1u);
   }
 
@@ -2050,8 +2054,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Render target: GENERAL (compute write) -> COLOR_ATTACHMENT_OPTIMAL so the
   // downstream raster passes find the layout they expect.
   {
-    RI.primary.cmds[0].vk_d3d12_textureBarrier(
-        {state.renderTarget[RI.swapchainIndex].Get(),
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
+        {state.renderTarget[mpGraphics->swapchainIndex].Get(),
          RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_RENDER_TARGET,
          RI_STAGE_COMPUTE});
   }
@@ -2062,8 +2066,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // it into the viewport backbuffer, where the post-effect chain + tail blit
   // in cScene::Render consume it.
   {
-    RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
-        state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
+        state.renderTarget[mpGraphics->swapchainIndex].Get(), /*initial=*/false));
   }
 
   // (depthFlippedForReadOnly + flipDepthToReadOnly are defined above, before
@@ -2085,7 +2089,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // Pogo-read-half barriers as the other translucent sub-passes.
   // --------------------------------------------------------------------
   {
-    RIGpuScope _gsWater(&RI.profiler, &RI.primary.cmds[0], "Water");
+    RIGpuScope _gsWater(&mpGraphics->profiler, &mpGraphics->primary.cmds[0], "Water");
     std::vector<iRenderable *> waters;
     for (iRenderable *pObj :
          m_rendererList.GetRenderableItems(eRenderListType_Translucent)) {
@@ -2103,12 +2107,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
     if (!waters.empty()) {
       flipDepthToReadOnly();
 
-      VkImage pogoReadImage = state.renderTarget[RI.swapchainIndex]->vk.image;
+      VkImage pogoReadImage = state.renderTarget[mpGraphics->swapchainIndex]->vk.image;
       VkImageView pogoReadView =
-          state.renderTargetView[RI.swapchainIndex]->vk.image;
+          state.renderTargetView[mpGraphics->swapchainIndex]->vk.image;
 
-      RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoAttachmentBarrier(
-          state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
+      mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoAttachmentBarrier(
+          state.renderTarget[mpGraphics->swapchainIndex].Get(), /*initial=*/false));
 
       RITextureView colorView = {};
       colorView.vk.image = pogoReadView;
@@ -2118,7 +2122,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
       RIRenderingAttachment depth = {};
-      depth.view = *state.depthView[RI.swapchainIndex];
+      depth.view = *state.depthView[mpGraphics->swapchainIndex];
       depth.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
       depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
       depth.readOnly = true;
@@ -2129,7 +2133,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       beginDesc.colorCount = 1;
       beginDesc.colors = &color;
       beginDesc.depthStencil = &depth;
-      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
+      mpGraphics->primary.cmds[0].vk_d3d12_beginRendering(&mpGraphics->device, beginDesc);
 
       RIViewport vp = {};
       vp.x = 0.0f;
@@ -2141,11 +2145,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RIRect sc = {};
       sc.width = (int16_t)renderWidth;
       sc.height = (int16_t)renderHeight;
-      RI.primary.cmds[0].setViewport(&RI.device, vp);
-      RI.primary.cmds[0].setScissor(&RI.device, sc);
+      mpGraphics->primary.cmds[0].setViewport(&mpGraphics->device, vp);
+      mpGraphics->primary.cmds[0].setScissor(&mpGraphics->device, sc);
 
-      m_water.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                        &RI.globalset->m_bindlessSet, 0);
+      m_water.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
+                                        &mpGraphics->globalset->m_bindlessSet, 0);
       {
         // set 1: gPerFrame + gRtAccel (binding 36). The water frag does inline
         // RayQuery reflection (traceReflectionHit), so the TLAS must be bound —
@@ -2155,11 +2159,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         {
           RIProgram::DescriptorBinding b;
           b.handle = DescriptorBindingID::Create("gPerFrame");
-          RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+          mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
           wbnd.push_back(b);
         }
         wbnd.emplace_back("gRtAccel", RIDescriptor::accelerationStructure(
-                                          &RI.device, apWorld->GetTlas()));
+                                          &mpGraphics->device, apWorld->GetTlas()));
         appendWorldLightFog(wbnd, apWorld);
         // The water frag's lit reflection shades the RT hit via
         // gatherSurfelIndirect (shadeReflectionHit), which samples the set-1
@@ -2169,9 +2173,9 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // statically-used-but-never-updated (VUID-vkCmdDrawIndexed-None-08114).
         wbnd.emplace_back("gSurfelDepth",
                           RIDescriptor::sampledImage(
-                              &RI.device, &m_surfelDepthView[RI.swapchainIndex],
+                              &mpGraphics->device, &m_surfelDepthView[mpGraphics->swapchainIndex],
                               RI_RESOURCE_STATE_GENERAL));
-        m_water.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
+        m_water.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex,
                                 wbnd.data(), (uint32_t)wbnd.size());
       }
 
@@ -2186,7 +2190,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         const int indexCount = pVB->GetIndexNum();
 
         auto mat =
-            RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex);
+            mpGraphics->globalset->submitMaterial(cntx, pMat, (uint32_t)mpGraphics->frameIndex);
         if (mat.materialId == UINT32_MAX) {
           Warning("Material Slot exhausted (water)");
           continue;
@@ -2200,8 +2204,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         d.dissolveAmount = pObj->GetCoverageAmount();
         d.renderFlags = pObj->GetRenderFlags();
 
-        const uint32_t slot = RI.globalset->submitObject(
-            pObj->GetUniqueCookie(), (uint32_t)RI.frameIndex,
+        const uint32_t slot = mpGraphics->globalset->submitObject(
+            pObj->GetUniqueCookie(), (uint32_t)mpGraphics->frameIndex,
             static_cast<cVertexBuffer *>(pVB), d);
         if (slot == UINT32_MAX) {
           Warning("bindless pool exhausted (water)");
@@ -2209,7 +2213,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         }
 
         uint32_t vtxMask = 0;
-        if (!detail::BindVertexStreams(&RI.primary.cmds[0], pVB, "water",
+        if (!detail::BindVertexStreams(&mpGraphics->primary.cmds[0], pVB, "water",
                                        &vtxMask))
           continue;
 
@@ -2221,25 +2225,25 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
             TranslucentMeshPipelineDesc::BLEND_MUL,
             TranslucentMeshPipelineDesc::BLEND_ADD};
         for (uint32_t pass = 0; pass < 2u; ++pass) {
-          TranslucentMeshPipelineDesc pd(RIBootstrap::PogoColorFormat,
-                                         RIBootstrap::DepthFormat, modes[pass],
+          TranslucentMeshPipelineDesc pd(cGraphics::PogoColorFormat,
+                                         cGraphics::DepthFormat, modes[pass],
                                          vtxMask);
           const hash_t waterHash = hash_u32(pd.hash, 0x57415445u /*'WATE'*/);
-          m_water.bindPipeline(&RI.device, &RI.primary.cmds[0], waterHash,
+          m_water.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], waterHash,
                                "Water", &pd.createInfo);
           WaterPush push = {pass, 0u, 0u, 0u};
-          RI.primary.cmds[0].vk_d3d12_setPushConstants(&RI.device, m_water, 0,
+          mpGraphics->primary.cmds[0].vk_d3d12_setPushConstants(&mpGraphics->device, m_water, 0,
                                                        sizeof(push), &push);
-          RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1u,
+          mpGraphics->primary.cmds[0].drawIndexed(&mpGraphics->device, (uint32_t)indexCount, 1u,
                                          0u, 0, slot);
         }
       }
 
-      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
+      mpGraphics->primary.cmds[0].vk_d3d12_endRendering(&mpGraphics->device);
 
       {
-        RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
-            state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
+        mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
+            state.renderTarget[mpGraphics->swapchainIndex].Get(), /*initial=*/false));
       }
     }
   }
@@ -2252,11 +2256,11 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // skippable when empty.
   //
   // Resources reused from the opaque path:
-  //   - RI.globalset->m_objectSlots / m_objectBuffer (per-renderable OBJECT
+  //   - Interface<cGraphics>::Get()->globalset->m_objectSlots / m_objectBuffer (per-renderable OBJECT
   //   slot)
   //   - m_opaque*Handles (BDA fan-out: particles/meshes overload
   //                       position/uv0/color/index with their own VB addresses)
-  //   - RI.globalset->m_materialBindless / m_materialBuffer (material slot)
+  //   - Interface<cGraphics>::Get()->globalset->m_materialBindless / m_materialBuffer (material slot)
   //
   // Sync: (a) swapchain stays COLOR_ATTACHMENT_OPTIMAL from the composite
   //           (load to preserve it); (b) flipDepthToReadOnly() moves depth back
@@ -2265,7 +2269,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   {
     // Collect particle emitters from the translucent list once so we can
     // skip the whole pass (and its barriers/begin-rendering) when empty.
-    RIGpuScope _gsParticle(&RI.profiler, &RI.primary.cmds[0], "Particle");
+    RIGpuScope _gsParticle(&mpGraphics->profiler, &mpGraphics->primary.cmds[0], "Particle");
     std::vector<iParticleEmitter *> emitters;
     for (iRenderable *pObj :
          m_rendererList.GetRenderableItems(eRenderListType_Translucent)) {
@@ -2293,13 +2297,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // anything that samples it, e.g. the menu/inventory screen capture)
       // carries particles too. Flip that half COLOR_ATTACHMENT for the draw,
       // then back to SHADER_READ after, so the tail blit below can sample it.
-      VkImage pogoReadImage = state.renderTarget[RI.swapchainIndex]->vk.image;
+      VkImage pogoReadImage = state.renderTarget[mpGraphics->swapchainIndex]->vk.image;
       VkImageView pogoReadView =
-          state.renderTargetView[RI.swapchainIndex]->vk.image;
-      const RI_Format_e particleTargetFormat = RIBootstrap::PogoColorFormat;
+          state.renderTargetView[mpGraphics->swapchainIndex]->vk.image;
+      const RI_Format_e particleTargetFormat = cGraphics::PogoColorFormat;
       {
-        RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoAttachmentBarrier(
-            state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
+        mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoAttachmentBarrier(
+            state.renderTarget[mpGraphics->swapchainIndex].Get(), /*initial=*/false));
       }
 
       RITextureView colorView = {};
@@ -2310,7 +2314,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
       RIRenderingAttachment depth = {};
-      depth.view = *state.depthView[RI.swapchainIndex];
+      depth.view = *state.depthView[mpGraphics->swapchainIndex];
       depth.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
       depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
       depth.readOnly = true;
@@ -2321,7 +2325,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       beginDesc.colorCount = 1;
       beginDesc.colors = &color;
       beginDesc.depthStencil = &depth;
-      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
+      mpGraphics->primary.cmds[0].vk_d3d12_beginRendering(&mpGraphics->device, beginDesc);
 
       RIViewport vp = {};
       vp.x = 0.0f;
@@ -2333,18 +2337,18 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RIRect sc = {};
       sc.width = (int16_t)renderWidth;
       sc.height = (int16_t)renderHeight;
-      RI.primary.cmds[0].setViewport(&RI.device, vp);
-      RI.primary.cmds[0].setScissor(&RI.device, sc);
+      mpGraphics->primary.cmds[0].setViewport(&mpGraphics->device, vp);
+      mpGraphics->primary.cmds[0].setScissor(&mpGraphics->device, sc);
 
-      m_particle.bindBindlessDescriptorSet(&RI.primary.cmds[0],
-                                           &RI.globalset->m_bindlessSet, 0);
+      m_particle.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
+                                           &mpGraphics->globalset->m_bindlessSet, 0);
 
       std::vector<RIProgram::DescriptorBinding> particleBindings;
       particleBindings.reserve(2);
       {
         RIProgram::DescriptorBinding b;
         b.handle = DescriptorBindingID::Create("gPerFrame");
-        RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+        mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
         particleBindings.push_back(b);
       }
       // Soft particles: scene depth (opaque geometry) for the per-pixel fade.
@@ -2355,10 +2359,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       particleBindings.emplace_back(
           "gSceneDepth",
           RIDescriptor::sampledImage(
-              &RI.device, state.depthSampleView[RI.swapchainIndex].Get(),
+              &mpGraphics->device, state.depthSampleView[mpGraphics->swapchainIndex].Get(),
               RI_RESOURCE_STATE_DEPTH_READ));
       appendWorldLightFog(particleBindings, apWorld);
-      m_particle.bindDescriptors(&RI.device, &RI.primary.cmds[0], RI.frameIndex,
+      m_particle.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex,
                                  particleBindings.data(),
                                  particleBindings.size());
 
@@ -2391,7 +2395,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         if (!pMat)
           continue;
         // Per-frame scratch geometry (no persistent emitter VB): build this
-        // frame's camera-facing quads into the shared RI.translucentVtx/Idx
+        // frame's camera-facing quads into the shared Interface<cGraphics>::Get()->translucentVtx/Idx
         // segments — same single producer as the wireframe/simple panes.
         auto geom = pEmitter->BuildScratchGeometry(apFrustum, afFrameTime,
                                                    /*withUv=*/true);
@@ -2400,7 +2404,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         const int indexCount = (int)geom.indexCount;
 
         uint32_t materialId =
-            RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
+            mpGraphics->globalset->submitMaterial(cntx, pMat, (uint32_t)mpGraphics->frameIndex)
                 .materialId;
         if (materialId == UINT32_MAX) {
           Warning("Material Slot exhausted (particle)");
@@ -2418,12 +2422,12 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // the payload — refreshed every frame since the scratch offsets change.
         {
           const uint64_t vtxBase =
-              RI.translucentVtxBuffer->GetDeviceHandle(&RI.device);
+              mpGraphics->translucentVtxBuffer->GetDeviceHandle(&mpGraphics->device);
           d.streamHandles.pos = vtxBase + geom.posByteOffset;
           d.streamHandles.color = vtxBase + geom.colByteOffset;
           d.streamHandles.uv0 = vtxBase + geom.uvByteOffset;
           d.streamHandles.index =
-              RI.translucentIdxBuffer->GetDeviceHandle(&RI.device) +
+              mpGraphics->translucentIdxBuffer->GetDeviceHandle(&mpGraphics->device) +
               geom.idxByteOffset;
           d.streamHandles.set = true;
         }
@@ -2432,8 +2436,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // submit also bumps the slot generation when the slot is (re)assigned —
         // so a surfel still anchored to the slot's previous opaque occupant
         // self-invalidates before it dereferences this slot's smaller streams.
-        const uint32_t slot = RI.globalset->submitObject(
-            pEmitter->GetUniqueCookie(), (uint32_t)RI.frameIndex, nullptr, d,
+        const uint32_t slot = mpGraphics->globalset->submitObject(
+            pEmitter->GetUniqueCookie(), (uint32_t)mpGraphics->frameIndex, nullptr, d,
             kSubmitData);
         if (slot == UINT32_MAX) {
           Warning("bindless pool exhausted (particle)");
@@ -2443,8 +2447,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         const ParticlePipelineDesc::BlendMode mode =
             remapBlend(pMat->GetBlendMode());
         ParticlePipelineDesc pipelineDesc(particleTargetFormat,
-                                          RIBootstrap::DepthFormat, mode);
-        m_particle.bindPipeline(&RI.device, &RI.primary.cmds[0],
+                                          cGraphics::DepthFormat, mode);
+        m_particle.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                 pipelineDesc.hash, "Particle",
                                 &pipelineDesc.createInfo);
 
@@ -2454,19 +2458,19 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // mesh path and any future per-object alpha gates.
         const float sceneAlpha = 1.0f;
         PushBlock push = {(uint32_t)mode, sceneAlpha};
-        RI.primary.cmds[0].vk_d3d12_setPushConstants(&RI.device, m_particle, 0,
+        mpGraphics->primary.cmds[0].vk_d3d12_setPushConstants(&mpGraphics->device, m_particle, 0,
                                                      sizeof(push), &push);
 
-        RI.primary.cmds[0].draw(&RI.device, (uint32_t)indexCount, 1u, 0u, slot);
+        mpGraphics->primary.cmds[0].draw(&mpGraphics->device, (uint32_t)indexCount, 1u, 0u, slot);
       }
 
-      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
+      mpGraphics->primary.cmds[0].vk_d3d12_endRendering(&mpGraphics->device);
 
       // pogo "read" half back to SHADER_READ_ONLY so the tail blit can sample
       // it.
       {
-        RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
-            state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
+        mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
+            state.renderTarget[mpGraphics->swapchainIndex].Get(), /*initial=*/false));
       }
     }
   }
@@ -2486,7 +2490,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   // raster pass (m_water) over that refracted background.
   // --------------------------------------------------------------------
   {
-    RIGpuScope _gsTranslucent(&RI.profiler, &RI.primary.cmds[0],
+    RIGpuScope _gsTranslucent(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                               "TranslucentMesh");
     std::vector<iRenderable *> meshes;
     for (iRenderable *pObj :
@@ -2526,10 +2530,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // the particle pass ran above.
       flipDepthToReadOnly();
 
-      VkImage pogoReadImage = state.renderTarget[RI.swapchainIndex]->vk.image;
+      VkImage pogoReadImage = state.renderTarget[mpGraphics->swapchainIndex]->vk.image;
       VkImageView pogoReadView =
-          state.renderTargetView[RI.swapchainIndex]->vk.image;
-      const RI_Format_e meshTargetFormat = RIBootstrap::PogoColorFormat;
+          state.renderTargetView[mpGraphics->swapchainIndex]->vk.image;
+      const RI_Format_e meshTargetFormat = cGraphics::PogoColorFormat;
 
       // SHADER_READ_ONLY → COLOR_ATTACHMENT_OPTIMAL. If the particle pass
       // ran above, that block left the pogo half in SHADER_READ_ONLY (for
@@ -2537,8 +2541,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // composite + post-effect chain also left it in SHADER_READ_ONLY. The
       // barrier helper handles either source state.
       {
-        RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoAttachmentBarrier(
-            state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
+        mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoAttachmentBarrier(
+            state.renderTarget[mpGraphics->swapchainIndex].Get(), /*initial=*/false));
       }
 
       RITextureView colorView = {};
@@ -2549,7 +2553,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       color.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
       RIRenderingAttachment depth = {};
-      depth.view = *state.depthView[RI.swapchainIndex];
+      depth.view = *state.depthView[mpGraphics->swapchainIndex];
       depth.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
       depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
       depth.readOnly = true;
@@ -2560,7 +2564,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       beginDesc.colorCount = 1;
       beginDesc.colors = &color;
       beginDesc.depthStencil = &depth;
-      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
+      mpGraphics->primary.cmds[0].vk_d3d12_beginRendering(&mpGraphics->device, beginDesc);
 
       RIViewport vp = {};
       vp.x = 0.0f;
@@ -2572,23 +2576,23 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       RIRect sc = {};
       sc.width = (int16_t)renderWidth;
       sc.height = (int16_t)renderHeight;
-      RI.primary.cmds[0].setViewport(&RI.device, vp);
-      RI.primary.cmds[0].setScissor(&RI.device, sc);
+      mpGraphics->primary.cmds[0].setViewport(&mpGraphics->device, vp);
+      mpGraphics->primary.cmds[0].setScissor(&mpGraphics->device, sc);
 
       m_translucentMesh.bindBindlessDescriptorSet(
-          &RI.primary.cmds[0], &RI.globalset->m_bindlessSet, 0);
+          &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0);
 
       std::vector<RIProgram::DescriptorBinding> meshBindings;
       meshBindings.reserve(1);
       {
         RIProgram::DescriptorBinding b;
         b.handle = DescriptorBindingID::Create("gPerFrame");
-        RI.UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+        mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
         meshBindings.push_back(b);
       }
       appendWorldLightFog(meshBindings, apWorld);
-      m_translucentMesh.bindDescriptors(&RI.device, &RI.primary.cmds[0],
-                                        RI.frameIndex, meshBindings.data(),
+      m_translucentMesh.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                        mpGraphics->frameIndex, meshBindings.data(),
                                         meshBindings.size());
 
       // Map eMaterialBlendMode -> TranslucentMeshPipelineDesc::BlendMode +
@@ -2629,7 +2633,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         const int indexCount = pVB->GetIndexNum();
 
         uint32_t materialId =
-            RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
+            mpGraphics->globalset->submitMaterial(cntx, pMat, (uint32_t)mpGraphics->frameIndex)
                 .materialId;
         if (materialId == UINT32_MAX) {
           Warning("Material Slot exhausted (translucent mesh)");
@@ -2654,8 +2658,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // bumps the slot generation on (re)assignment so a surfel anchored to a
         // previous opaque occupant self-invalidates before dereferencing the
         // wrong VB/IB.
-        const uint32_t slot = RI.globalset->submitObject(
-            pObj->GetUniqueCookie(), (uint32_t)RI.frameIndex,
+        const uint32_t slot = mpGraphics->globalset->submitObject(
+            pObj->GetUniqueCookie(), (uint32_t)mpGraphics->frameIndex,
             static_cast<cVertexBuffer *>(pVB), d);
         if (slot == UINT32_MAX) {
           Warning("bindless pool exhausted (translucent mesh)");
@@ -2669,15 +2673,15 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // detail::BindVertexStreams binds pos/normal/tangent/color/uv0 + index
         // (with fallbacks for absent optional streams) for both draws below.
         uint32_t vtxMask = 0;
-        if (!detail::BindVertexStreams(&RI.primary.cmds[0], pVB, "translucent",
+        if (!detail::BindVertexStreams(&mpGraphics->primary.cmds[0], pVB, "translucent",
                                        &vtxMask))
           continue;
 
         const TranslucentMeshPipelineDesc::BlendMode mode =
             remapBlend(pMat->GetBlendMode());
         TranslucentMeshPipelineDesc pipelineDesc(
-            meshTargetFormat, RIBootstrap::DepthFormat, mode, vtxMask);
-        m_translucentMesh.bindPipeline(&RI.device, &RI.primary.cmds[0],
+            meshTargetFormat, cGraphics::DepthFormat, mode, vtxMask);
+        m_translucentMesh.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                        pipelineDesc.hash, "TranslucentMesh",
                                        &pipelineDesc.createInfo);
 
@@ -2686,10 +2690,10 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // common path.
         const float sceneAlpha = 1.0f;
         PushBlock push = {(uint32_t)mode, sceneAlpha, 0u, 0u};
-        RI.primary.cmds[0].vk_d3d12_setPushConstants(
-            &RI.device, m_translucentMesh, 0, sizeof(push), &push);
+        mpGraphics->primary.cmds[0].vk_d3d12_setPushConstants(
+            &mpGraphics->device, m_translucentMesh, 0, sizeof(push), &push);
 
-        RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1u, 0u,
+        mpGraphics->primary.cmds[0].drawIndexed(&mpGraphics->device, (uint32_t)indexCount, 1u, 0u,
                                        0, slot);
 
         // Second draw for the cube-map Fresnel + rim contribution.
@@ -2700,26 +2704,26 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
         // only on whether the material carries a cube map.
         if (pMat->GetImage(eMaterialTexture_CubeMap)) {
           TranslucentMeshPipelineDesc addDesc(
-              meshTargetFormat, RIBootstrap::DepthFormat,
+              meshTargetFormat, cGraphics::DepthFormat,
               TranslucentMeshPipelineDesc::BLEND_ADD, vtxMask);
-          m_translucentMesh.bindPipeline(&RI.device, &RI.primary.cmds[0],
+          m_translucentMesh.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                          addDesc.hash, "TranslucentMeshIllum",
                                          &addDesc.createInfo);
           PushBlock pushIllum = {
               (uint32_t)TranslucentMeshPipelineDesc::BLEND_ADD, sceneAlpha,
               kTransOptUseIllumination, 0u};
-          RI.primary.cmds[0].vk_d3d12_setPushConstants(
-              &RI.device, m_translucentMesh, 0, sizeof(pushIllum), &pushIllum);
+          mpGraphics->primary.cmds[0].vk_d3d12_setPushConstants(
+              &mpGraphics->device, m_translucentMesh, 0, sizeof(pushIllum), &pushIllum);
           // Vertex / index buffers stay bound from the main draw above —
           // same renderable, just a second pipeline + push-constant set.
-          RI.primary.cmds[0].drawIndexed(&RI.device, (uint32_t)indexCount, 1u,
+          mpGraphics->primary.cmds[0].drawIndexed(&mpGraphics->device, (uint32_t)indexCount, 1u,
                                          0u, 0, slot);
         }
       }
 
-      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
-      RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
-          state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
+      mpGraphics->primary.cmds[0].vk_d3d12_endRendering(&mpGraphics->device);
+      mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
+          state.renderTarget[mpGraphics->swapchainIndex].Get(), /*initial=*/false));
     }
   }
 
@@ -2735,8 +2739,8 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
                                       ? RI_STAGE_NONE
                                       : (RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE);
 
-    RI.primary.cmds[0].vk_d3d12_textureBarrier(
-        {state.depthTextures[RI.swapchainIndex].Get(), beforeState,
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
+        {state.depthTextures[mpGraphics->swapchainIndex].Get(), beforeState,
          RI_RESOURCE_STATE_DEPTH_WRITE, beforeStages, RI_STAGE_NONE,
          RI_BARRIER_ASPECT_DEPTH});
   }
@@ -2751,13 +2755,13 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
   DebugDraw *debugDraw = mpGraphics->GetDebugDraw();
   const bool debugOverlayDrawn = debugDraw && debugDraw->HasRequests();
   if (debugOverlayDrawn) {
-    RI.primary.cmds[0].vk_d3d12_textureBarrier(
-        {state.renderTarget[RI.swapchainIndex].Get(),
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
+        {state.renderTarget[mpGraphics->swapchainIndex].Get(),
          RI_RESOURCE_STATE_SHADER_RESOURCE,
          RI_RESOURCE_STATE_RENDER_TARGET_READ, RI_STAGE_FRAGMENT});
 
     {
-      RITextureView colorView = *state.renderTargetView[RI.swapchainIndex];
+      RITextureView colorView = *state.renderTargetView[mpGraphics->swapchainIndex];
       RIRenderingAttachment color = {};
       color.view = colorView;
       color.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
@@ -2766,7 +2770,7 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       // Scene depth, restored to DEPTH_ATTACHMENT_OPTIMAL just above; the
       // overlay pipelines test against it but never write. LOAD, no clear.
       RIRenderingAttachment depth = {};
-      depth.view = *state.depthView[RI.swapchainIndex];
+      depth.view = *state.depthView[mpGraphics->swapchainIndex];
       depth.loadOp = RI_ATTACHMENT_LOAD_OP_LOAD;
       depth.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
 
@@ -2776,23 +2780,23 @@ void cHybridRenderer::Draw(RIBootstrap::FrameContext *cntx, cViewport *viewport,
       beginDesc.colorCount = 1;
       beginDesc.colors = &color;
       beginDesc.depthStencil = &depth;
-      RI.primary.cmds[0].vk_d3d12_beginRendering(&RI.device, beginDesc);
+      mpGraphics->primary.cmds[0].vk_d3d12_beginRendering(&mpGraphics->device, beginDesc);
 
-      debugDraw->flush(cntx, &RI.primary.cmds[0], apFrustum, renderWidth,
-                       renderHeight, RIBootstrap::PogoColorFormat);
+      debugDraw->flush(cntx, &mpGraphics->primary.cmds[0], apFrustum, renderWidth,
+                       renderHeight, cGraphics::PogoColorFormat);
 
-      RI.primary.cmds[0].vk_d3d12_endRendering(&RI.device);
+      mpGraphics->primary.cmds[0].vk_d3d12_endRendering(&mpGraphics->device);
     }
-    RI.primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
-        state.renderTarget[RI.swapchainIndex].Get(), /*initial=*/false));
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(RI_PogoShaderBarrier(
+        state.renderTarget[mpGraphics->swapchainIndex].Get(), /*initial=*/false));
   }
 
   // Commit every bindless handle / slot-generation write made this frame. The
   // uploader records into its own transfer cmd buffer, flushed as a fenced
-  // pre-pass the primary submit waits on (RIBootstrap), so this single tail
+  // pre-pass the primary submit waits on (cGraphics), so this single tail
   // call lands all copies ahead of every primary read regardless of recording
   // order.
-  RI.globalset->flushMirrors(&RI.device);
+  mpGraphics->globalset->flushMirrors(&mpGraphics->device);
 }
 
 cHybridRenderer::~cHybridRenderer() {
@@ -2800,15 +2804,34 @@ cHybridRenderer::~cHybridRenderer() {
   // are disposed with the world.
   // The global managed set is engine-lifetime; ShutdownGlobalManagedSets()
   // (cGraphics teardown) destroys it after the device is idle.
-  // Fallback vertex streams are RIBootstrap globals (process-lifetime, like
-  // RI.nulVertexBuffer); not freed here.
+  // Fallback vertex streams are cGraphics members (process-lifetime, like
+  // Interface<cGraphics>::Get()->nulVertexBuffer); not freed here.
   for (uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; ++i) {
-    m_surfelDepthView[i].dispose(&RI.device);
-    m_surfelDepthTexture[i].dispose(&RI.device);
+    m_surfelDepthView[i].dispose(&mpGraphics->device);
+    m_surfelDepthTexture[i].dispose(&mpGraphics->device);
     m_surfelDepthTexture[i] = {};
   }
-  m_surfelRTIndirectBuf.dispose(&RI.device);
+  m_surfelRTIndirectBuf.dispose(&mpGraphics->device);
   m_surfelRTIndirectBuf = {};
+
+  // Every pipeline program owned by the renderer. dispose() frees the pipelines,
+  // pipeline layout, descriptor-set layouts, and (for m_surfelRT) the ray-tracing
+  // SBT buffer — the last of which is a VMA allocation that otherwise trips the
+  // vmaDestroyAllocator leak assert at device teardown. Safe on an unused program.
+  RIProgram *programs[] = {
+      &m_gbuffer,        &m_surfelPomBary,        &m_surfelPrepare,
+      &m_surfelUpdateCollect, &m_surfelUpdateAccumulate, &m_surfelUpdateScatter,
+      &m_lightGridBin,   &m_surfelRT,             &m_surfelIntegrate,
+      &m_surfelGenerate, &m_mainComposite,        &m_directLighting,
+      &m_directSpatialReuse, &m_directAtrous,     &m_particle,
+      &m_translucentMesh, &m_decal,               &m_water,
+  };
+  for (RIProgram *p : programs)
+    p->dispose(&mpGraphics->device);
+
+  // Per-frame indirect-draw args buffer (INDIRECT | TRANSFER_DST).
+  m_indirectDrawBuffer.dispose(&mpGraphics->device);
+  m_indirectDrawBuffer = {};
 }
 
 } // namespace hpl

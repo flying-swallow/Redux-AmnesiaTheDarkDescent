@@ -32,7 +32,6 @@ namespace hpl {
 	class cMaterialManager;
 	class cGraphics;
 	class cResources;
-	class iLowLevelGraphics;
 	class cMaterial;
 	class cVertexBuffer;
 	class iPhysicsRope;
@@ -99,7 +98,6 @@ namespace hpl {
 		eRenderableType GetRenderType(){ return eRenderableType_Rope;}
 	private:
 		cMaterialManager* mpMaterialManager;
-		iLowLevelGraphics* mpLowLevelGraphics;
 
 		iPhysicsRope *mpRope;
 		

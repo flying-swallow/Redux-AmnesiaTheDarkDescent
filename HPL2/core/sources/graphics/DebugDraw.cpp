@@ -67,7 +67,7 @@ namespace hpl {
 			VkCompareOp depthOp = VK_COMPARE_OP_LESS_OR_EQUAL;
 			bool alphaBlend = false;   // false => additive ONE/ONE (TDD overlay look)
 			bool uvLayout = false;     // declare the uv attribute (debug_uv.vert)
-			VkFormat colorFormat = RIFormatToVK(RIBootstrap::PogoColorFormat);
+			VkFormat colorFormat = RIFormatToVK(cGraphics::PogoColorFormat);
 		};
 
 		// One cached pipeline per (topology, depth, blend, format) combination —
@@ -111,7 +111,7 @@ namespace hpl {
 			VkFormat colorFormats[1] = { aCfg.colorFormat };
 			pipelineRenderingCreateInfo.colorAttachmentCount = 1;
 			pipelineRenderingCreateInfo.pColorAttachmentFormats = colorFormats;
-			pipelineRenderingCreateInfo.depthAttachmentFormat = RIFormatToVK(RIBootstrap::DepthFormat);
+			pipelineRenderingCreateInfo.depthAttachmentFormat = RIFormatToVK(cGraphics::DepthFormat);
 			pipelineRenderingCreateInfo.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
 
 			VkPipelineViewportStateCreateInfo viewportState = { VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO };
@@ -167,7 +167,7 @@ namespace hpl {
 			hash = hash_u32(hash, (uint32_t)aCfg.depthOp);
 			hash = hash_u32(hash, (uint32_t)aCfg.alphaBlend);
 			hash = hash_u32(hash, (uint32_t)aCfg.colorFormat);
-			aProgram.bindPipeline(&RI.device, cmd, hash, asDebugName, &pipelineCreateInfo);
+			aProgram.bindPipeline(&Interface<cGraphics>::Get()->device, cmd, hash, asDebugName, &pipelineCreateInfo);
 		}
 
 	} // namespace
@@ -183,7 +183,7 @@ namespace hpl {
 				RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, vert_stage, "vsMain"},
 				RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, frag_stage, "psMain"}
 			};
-			aProgram.initialize(&RI.device, stages);
+			aProgram.initialize(&Interface<cGraphics>::Get()->device, stages);
 		};
 		loadProgram(m_colorProgram, "debug.vert.spv", "debug.frag.spv");
 		loadProgram(m_color2DProgram, "debug_2d.vert.spv", "debug.frag.spv");
@@ -454,11 +454,12 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	bool DebugDraw::RequestStream(RIBootstrap::FrameContext* cntx, size_t alNumVertices, size_t alNumIndices,
+	bool DebugDraw::RequestStream(cGraphics::FrameContext* cntx, size_t alNumVertices, size_t alNumIndices,
 								  struct RISegmentReq* apVtxReq, struct RISegmentReq* apIdxReq)
 	{
+		cGraphics* pGraphics = Interface<cGraphics>::Get();
 		if(m_vertexBuffer.isEmpty() ||
-		   !m_vertexAlloc.request(RI.frameIndex, alNumVertices, apVtxReq))
+		   !m_vertexAlloc.request(pGraphics->frameIndex, alNumVertices, apVtxReq))
 		{
 			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 			segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
@@ -468,19 +469,19 @@ namespace hpl {
 				segmentAllocDesc.maxElements = (segmentAllocDesc.maxElements + (segmentAllocDesc.maxElements >> 1));
 			} while(segmentAllocDesc.maxElements < alNumVertices);
 			m_vertexAlloc = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>(&segmentAllocDesc);
-			bool res = m_vertexAlloc.request(RI.frameIndex, alNumVertices, apVtxReq);
+			bool res = m_vertexAlloc.request(pGraphics->frameIndex, alNumVertices, apVtxReq);
 			assert(res);
 
 			if(!m_vertexBuffer.isEmpty()) {
-				RI.graphicsDefer.push(m_vertexBuffer);
+				pGraphics->graphicsDefer.push(m_vertexBuffer);
 			}
-			m_vertexBuffer = RISharedPointer<RIBuffer>(&RI.device, RIBuffer::create(
-				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
+			m_vertexBuffer = RISharedPointer<RIBuffer>(&pGraphics->device, RIBuffer::create(
+				&pGraphics->device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
 				             RI_BUFFER_USAGE_VERTEX_BUFFER, RI_MEMORY_HOST_UPLOAD, 0}));
 		}
 
 		if(m_indexBuffer.isEmpty() ||
-		   !m_indexAlloc.request(RI.frameIndex, alNumIndices, apIdxReq))
+		   !m_indexAlloc.request(pGraphics->frameIndex, alNumIndices, apIdxReq))
 		{
 			struct RISegmentAllocDesc segmentAllocDesc = { 0 };
 			segmentAllocDesc.numSegments = RI_NUMBER_FRAMES_FLIGHT;
@@ -490,14 +491,14 @@ namespace hpl {
 				segmentAllocDesc.maxElements = (segmentAllocDesc.maxElements + (segmentAllocDesc.maxElements >> 1));
 			} while(segmentAllocDesc.maxElements < alNumIndices);
 			m_indexAlloc = RISegmentAlloc<RI_NUMBER_FRAME_SEGMENTS>(&segmentAllocDesc);
-			bool res = m_indexAlloc.request(RI.frameIndex, alNumIndices, apIdxReq);
+			bool res = m_indexAlloc.request(pGraphics->frameIndex, alNumIndices, apIdxReq);
 			assert(res);
 
 			if(!m_indexBuffer.isEmpty()) {
-				RI.graphicsDefer.push(m_indexBuffer);
+				pGraphics->graphicsDefer.push(m_indexBuffer);
 			}
-			m_indexBuffer = RISharedPointer<RIBuffer>(&RI.device, RIBuffer::create(
-				&RI.device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
+			m_indexBuffer = RISharedPointer<RIBuffer>(&pGraphics->device, RIBuffer::create(
+				&pGraphics->device, {(uint64_t)segmentAllocDesc.maxElements * segmentAllocDesc.elementStride,
 				             RI_BUFFER_USAGE_INDEX_BUFFER, RI_MEMORY_HOST_UPLOAD, 0}));
 		}
 		return true;
@@ -505,9 +506,10 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void DebugDraw::flush(RIBootstrap::FrameContext* cntx, struct RICmd* cmd, const cFrustum* apFrustum,
+	void DebugDraw::flush(cGraphics::FrameContext* cntx, struct RICmd* cmd, const cFrustum* apFrustum,
 						  uint32_t alTargetWidth, uint32_t alTargetHeight, enum RI_Format_e aColorFormat)
 	{
+		cGraphics* pGraphics = Interface<cGraphics>::Get();
 		if(!HasRequests()) {
 			return;
 		}
@@ -532,7 +534,7 @@ namespace hpl {
 			std::memcpy(uniformBlock.viewProj2DMat, orthoMtx.a, sizeof(uniformBlock.viewProj2DMat));
 		}
 		RIDescriptor passDescriptor = {};
-		RI.UpdateFrameUBO(&passDescriptor, (void*)&uniformBlock, sizeof(uniformBlock));
+		pGraphics->UpdateFrameUBO(&passDescriptor, (void*)&uniformBlock, sizeof(uniformBlock));
 
 		////////////////////////////////////////////
 		// Y-flipped viewport to the target extent — same convention as the
@@ -572,14 +574,14 @@ namespace hpl {
 		// indices written 0-based within the run (GuiSet convention).
 		auto drawRun = [&](RIProgram& aProgram, size_t alRunVertexStart, size_t alRunIndexStart,
 						   size_t alRunIndexCount, RIProgram::DescriptorBinding* apBindings, size_t alNumBindings) {
-			aProgram.bindDescriptors(&RI.device, cmd, RI.frameIndex, apBindings, alNumBindings);
+			aProgram.bindDescriptors(&pGraphics->device, cmd, pGraphics->frameIndex, apBindings, alNumBindings);
 			const RIDeviceSize vbOffset = vtxBase + alRunVertexStart * sizeof(DebugVertex);
 			const RIDeviceSize ibOffset = idxBase + alRunIndexStart * sizeof(uint32_t);
 			RIBuffer *vertBufs[1] = {m_vertexBuffer.Get()};
 			const RIDeviceSize vertOffsets[1] = {vbOffset};
 			cmd->bindVertexBuffers<1>(0, 1, vertBufs, vertOffsets);
-			cmd->bindIndexBuffer(&RI.device, m_indexBuffer.Get(), ibOffset, RI_INDEX_TYPE_32);
-			cmd->drawIndexed(&RI.device, (uint32_t)alRunIndexCount, 1, 0, 0, 0);
+			cmd->bindIndexBuffer(&pGraphics->device, m_indexBuffer.Get(), ibOffset, RI_INDEX_TYPE_32);
+			cmd->drawIndexed(&pGraphics->device, (uint32_t)alRunIndexCount, 1, 0, 0, 0);
 		};
 
 		////////////////////////////////////////////
@@ -743,9 +745,9 @@ namespace hpl {
 
 				// Pin the Image so a mid-frame destroy can't free the VkImage
 				// before this submit retires.
-				RI.graphicsDefer.push(PinResource(image.Get()));
+				pGraphics->graphicsDefer.push(PinResource(image.Get()));
 
-				auto samplerDesc = RI.resolve_filter_descriptor(
+				auto samplerDesc = pGraphics->resolve_filter_descriptor(
 					eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 					eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
 				assert(samplerDesc);

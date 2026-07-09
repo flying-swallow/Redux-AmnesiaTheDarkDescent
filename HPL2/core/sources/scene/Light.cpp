@@ -46,7 +46,6 @@
 #include "graphics/Material.h"
 #include "graphics/MaterialType.h"
 #include "graphics/SubMesh.h"
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/Renderer.h"
 
 
@@ -598,15 +597,6 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	void iLight::RenderShadow(iRenderable *apObject,cRenderSettings *apRenderSettings,
-				iLowLevelGraphics *apLowLevelGraphics)
-	{
-		
-	}
-
-
-	//-----------------------------------------------------------------------
-	
 	void iLight::OnFlickerOff()
 	{
 		//Particle system

@@ -20,8 +20,8 @@
 #include "gui/Gui.h"
 
 #include "graphics/Graphics.h"
+#include "graphics/Window.h"
 #include "graphics/Image.h"
-#include "graphics/LowLevelGraphics.h"
 
 #include "sound/Sound.h"
 
@@ -84,11 +84,11 @@ namespace hpl {
 		STLDeleteAll(mlstToBeDestroyedGfxElements);
 
 		Log(" Deleting all materials\n");
-		for(int i=0; i< eGuiMaterial_LastEnum; ++i) 
+		for(int i=0; i< eGuiMaterial_LastEnum; ++i)
 		{
 			if(mvMaterials[i]) hplDelete(mvMaterials[i]);
 		}
-		
+
 		Log("--------------------------------------------------------\n\n");
 	}
 
@@ -113,12 +113,12 @@ namespace hpl {
 		// Create materials
 		for(int i=0; i< eGuiMaterial_LastEnum; ++i) mvMaterials[i] = NULL;
 
-		mvMaterials[eGuiMaterial_Diffuse] = hplNew( cGuiMaterial_Diffuse,(mpGraphics->GetLowLevel()) );
-		mvMaterials[eGuiMaterial_Alpha] = hplNew( cGuiMaterial_Alpha,(mpGraphics->GetLowLevel()) );
-		mvMaterials[eGuiMaterial_FontNormal] = hplNew( cGuiMaterial_FontNormal,(mpGraphics->GetLowLevel()) );
-		mvMaterials[eGuiMaterial_Additive] = hplNew( cGuiMaterial_Additive,(mpGraphics->GetLowLevel()) );
-		mvMaterials[eGuiMaterial_Modulative] = hplNew( cGuiMaterial_Modulative,(mpGraphics->GetLowLevel()) );
-		mvMaterials[eGuiMaterial_PremulAlpha] = hplNew( cGuiMaterial_PremulAlpha,(mpGraphics->GetLowLevel()) );
+		mvMaterials[eGuiMaterial_Diffuse] = hplNew( cGuiMaterial_Diffuse,() );
+		mvMaterials[eGuiMaterial_Alpha] = hplNew( cGuiMaterial_Alpha,() );
+		mvMaterials[eGuiMaterial_FontNormal] = hplNew( cGuiMaterial_FontNormal,() );
+		mvMaterials[eGuiMaterial_Additive] = hplNew( cGuiMaterial_Additive,() );
+		mvMaterials[eGuiMaterial_Modulative] = hplNew( cGuiMaterial_Modulative,() );
+		mvMaterials[eGuiMaterial_PremulAlpha] = hplNew( cGuiMaterial_PremulAlpha,() );
 
 
 		//////////////////////////////
@@ -531,8 +531,8 @@ namespace hpl {
 	{
 		if(mpSetInFocus==NULL) return false;
 
-		cVector2f vVirtualPos = cVector2f( (float)avPos.x, (float)avPos.y) / mpGraphics->GetLowLevel()->GetScreenSizeFloat();
-		cVector2f vVirtualRel = cVector2f( (float)avRel.x, (float)avRel.y) / mpGraphics->GetLowLevel()->GetScreenSizeFloat();
+		cVector2f vVirtualPos = cVector2f( (float)avPos.x, (float)avPos.y) / Interface<cWindow>::Get()->GetSizeF();
+		cVector2f vVirtualRel = cVector2f( (float)avRel.x, (float)avRel.y) / Interface<cWindow>::Get()->GetSizeF();
 		
         vVirtualPos *= mpSetInFocus->GetVirtualSize();
 		vVirtualPos -= mpSetInFocus->GetVirtualSizeOffset();

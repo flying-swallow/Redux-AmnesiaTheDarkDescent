@@ -57,7 +57,6 @@ cSimpleCamera::cSimpleCamera(const tString& asAppName,cEngine *apGame, cWorld *a
 	mpEngine->GetInput()->GetLowLevel()->LockInput(true);
 	mpEngine->GetInput()->GetLowLevel()->RelativeMouse(true);
 
-	//mpEngine->GetGraphics()->GetLowLevel()->ShowCursor(true);
 	
 	///////////////////////////////////////////
 	// Create Camera
@@ -222,28 +221,6 @@ void cSimpleCamera::Update(float afFrameTime)
 		SetMouseMode(!mbMouseActive);
 	}*/
 
-	if(mpEngine->GetInput()->BecameTriggerd("ScreenShot"))
-	{
-		tWString sFileName = _W("");
-		int lCount = 0;
-		
-		do{
-			sFileName = _W("Screen_")+cString::To16Char(msAppName)+_W("_");
-			if(lCount >= 100)		sFileName += _W("")+cString::ToStringW(lCount);
-			else if(lCount >= 10)	sFileName += _W("0")+cString::ToStringW(lCount);
-			else					sFileName += _W("00")+cString::ToStringW(lCount);
-
-			sFileName += _W(".jpg");
-			++lCount;
-
-		}
-		while(cPlatform::FileExists(sFileName));
-		
-		cBitmap *pBmp = mpEngine->GetGraphics()->GetLowLevel()->CopyFrameBufferToBitmap();
-		mpEngine->GetResources()->GetBitmapLoaderHandler()->SaveBitmap(pBmp,sFileName,0);
-		hplDelete(pBmp);
-	}
-
 	if(mpEngine->GetInput()->BecameTriggerd("PrintInfo"))
 	{
 		//Log("Pos: %s Pitch: %f Yaw: %f\n", pCam->GetPosition().ToString().c_str(), pCam->GetPitch(),pCam->GetYaw());
@@ -273,7 +250,7 @@ void cSimpleCamera::Update(float afFrameTime)
 		bool bAltDown = mpEngine->GetInput()->IsTriggerd("Alt");
 
 		cVector2l vAbsRel = mpEngine->GetInput()->GetMouse()->GetRelPosition();
-		cVector2f vRel = cVector2f((float)vAbsRel.x,(float)vAbsRel.y) / mpEngine->GetGraphics()->GetLowLevel()->GetScreenSizeFloat();
+		cVector2f vRel = cVector2f((float)vAbsRel.x,(float)vAbsRel.y) / Interface<cWindow>::Get()->GetSizeF();
 		
 		if(mbCameraInMouseMode)
 		{
@@ -400,7 +377,7 @@ void cSimpleCamera::Update(float afFrameTime)
 			if(mpEngine->GetInput()->IsTriggerd(8)) vRot.z += -1.2f * fMul;
 			
 			cVector2l vAbsRel = mpEngine->GetInput()->GetMouse()->GetRelPosition();
-			cVector2f vRel = cVector2f((float)vAbsRel.x,(float)vAbsRel.y) / mpEngine->GetGraphics()->GetLowLevel()->GetScreenSizeFloat();
+			cVector2f vRel = cVector2f((float)vAbsRel.x,(float)vAbsRel.y) / Interface<cWindow>::Get()->GetSizeF();
 			vRot.y += vRel.x * 1.7f;
 			vRot.x += vRel.y * 1.7f;
 
@@ -429,7 +406,7 @@ void cSimpleCamera::Update(float afFrameTime)
 			if(mpEngine->GetInput()->IsTriggerd(8)) mpCamera->AddRoll(-1.2f * fMul);
 
 			cVector2l vAbsRel = mpEngine->GetInput()->GetMouse()->GetRelPosition();
-			cVector2f vRel = cVector2f((float)vAbsRel.x,(float)vAbsRel.y) / mpEngine->GetGraphics()->GetLowLevel()->GetScreenSizeFloat();
+			cVector2f vRel = cVector2f((float)vAbsRel.x,(float)vAbsRel.y) / Interface<cWindow>::Get()->GetSizeF();
 			mpCamera->AddYaw(-vRel.x * 1.7f);
 			mpCamera->AddPitch(-vRel.y * 1.7f);
 		}

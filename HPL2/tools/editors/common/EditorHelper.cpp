@@ -726,7 +726,7 @@ template SharedResourceHandle<Image>            cEditorHelper::LoadResourceFile<
 
 cVertexBuffer* cEditorHelper::CreatePyramidVtxBuffer(cGraphics* apGfx, const cVector3f& avBaseCenter, const cVector3f& avTip, float afHalfWidth, const cColor& aColor)
 {
-	cVertexBuffer* pVB = apGfx->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic);
+	cVertexBuffer* pVB = new cVertexBuffer(eVertexBufferType_Hardware, eVertexBufferDrawType_Tri, eVertexBufferUsageType_Dynamic);
 
 	cVector3f vNormal = avTip-avBaseCenter;
 	cVector3f vPoint = avBaseCenter+1;

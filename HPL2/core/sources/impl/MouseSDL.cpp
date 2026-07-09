@@ -25,7 +25,6 @@
 #include "SDL/SDL.h"
 #endif
 
-#include "graphics/LowLevelGraphics.h"
 #include "impl/LowLevelInputSDL.h"
 #include "math/Math.h"
 
@@ -80,7 +79,6 @@ namespace hpl {
 			mbFirstTime = false;
 		}
 		
-		iLowLevelGraphics *pLowLevelGfx = mpLowLevelInputSDL->GetLowLevelGraphics();
 		//mvMouseRelPos = cVector2f(0,0);
 		mbWheelUpMoved = false;
 		mbWheelDownMoved = false;
@@ -102,18 +100,9 @@ namespace hpl {
 
 			if(pEvent->type == SDL_MOUSEMOTION)
 			{
-#if SDL_VERSION_ATLEAST(2, 0, 0) && _WIN32
-				/*if(pLowLevelGfx->GetFullscreenModeActive() == false)
-				{
-					/////////////
-					// Only use abs position if not in fullscreen mode
-					mvMouseAbsPos = cVector2l(pEvent->motion.x,pEvent->motion.y);
-				}*/
 				mvMouseAbsPos = cVector2l(pEvent->motion.x,pEvent->motion.y);
-#else
-				mvMouseAbsPos = cVector2l(pEvent->motion.x,pEvent->motion.y);
-#endif
-				
+
+
 				Uint8 buttonState = pEvent->motion.state;
 
 				//Set button here as well just to be sure

@@ -1115,7 +1115,7 @@ void cLuxInputHandler::UpdateGamePlayerInput()
 	cVector2l vMouseRelPos = mpInput->GetMouse()->GetRelPosition();
 	cVector2f vMouseRelPosFloat = cVector2f((float)vMouseRelPos.x, (float)vMouseRelPos.y)*mfMouseSensitivity;
 	cVector2l vAbsRel = cMath::RoundToInt(vMouseRelPosFloat);
-	cVector2f vRelPos = cVector2f((float)vAbsRel.x,(float)vAbsRel.y) / (1.7f * mpGraphics->GetLowLevel()->GetScreenSizeFloat().y);
+	cVector2f vRelPos = cVector2f((float)vAbsRel.x,(float)vAbsRel.y) / (1.7f * Interface<cWindow>::Get()->GetSizeF().y);
 	cVector2f vFinalPos;
 
 	//Check if position should be smoothed.
@@ -1660,7 +1660,7 @@ bool cLuxInputHandler::ShowMouseOnMouseInput()
 			gpBase->mpPreMenu->GetSet()->SetMouseMovementEnabled(false);
 			gpBase->mpPreMenu->GetSet()->SetDrawMouse(false);
 
-			mvLastAbsMousePos = mpGraphics->GetLowLevel()->GetScreenSizeInt() / 2;
+			mvLastAbsMousePos = Interface<cWindow>::Get()->GetSize() / 2;
 			mfMouseActiveAt = -1;
 		}
 	}

@@ -25,7 +25,6 @@
 #include "math/Frustum.h"
 #include "resources/TextureManager.h"
 #include "resources/Resources.h"
-#include "graphics/LowLevelGraphics.h"
 #include "scene/Camera.h"
 
 #include "scene/World.h"

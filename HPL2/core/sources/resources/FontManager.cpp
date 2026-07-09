@@ -22,7 +22,7 @@
 #include "system/LowLevelSystem.h"
 #include "resources/Resources.h"
 #include "graphics/Graphics.h"
-#include "graphics/LowLevelGraphics.h"
+#include "impl/SDLFontData.h"
 #include "resources/ImageManager.h"
 
 #include "graphics/FontData.h"
@@ -74,7 +74,7 @@ namespace hpl {
 
 		if(pFont==NULL && sPath!=_W(""))
 		{
-			pFont = mpGraphics->GetLowLevel()->CreateFontData(asNewName);
+			pFont = hplNew(cSDLFontData, (asNewName));
 			pFont->SetUp(mpResources,mpGui);
 			
 			tString sExt = cString::ToLowerCase(cString::GetFileExt(asName));

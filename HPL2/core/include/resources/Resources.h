@@ -33,7 +33,6 @@ namespace hpl {
 	class cImageEntity;
 
 	class iLowLevelResources;
-	class iLowLevelGraphics;
 	class iLowLevelSystem;
 	class cSystem;
 	class iResourceManager;
@@ -171,7 +170,7 @@ namespace hpl {
 	class cResources : public iUpdateable
 	{
 	public:
-		cResources(iLowLevelResources *apLowLevelResources,iLowLevelGraphics *apLowLevelGraphics);
+		cResources(iLowLevelResources *apLowLevelResources);
 		~cResources();
 
 		void Init(cGraphics* apGraphics,cSystem *apSystem, cSound* apSound, cScene *apScene, cGui *apGui, cPhysics *apPhysics);
@@ -231,7 +230,6 @@ namespace hpl {
 		
 	private:
 		iLowLevelResources *mpLowLevelResources;
-		iLowLevelGraphics *mpLowLevelGraphics;
 		iLowLevelSystem *mpLowLevelSystem;
 		cFileSearcher *mpFileSearcher;
 

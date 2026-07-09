@@ -31,7 +31,6 @@ namespace hpl {
 
 	//------------------------------------------
 
-	class iLowLevelGraphics;
 	class cRenderSettings;
 	class cCamera;
 	class cFrustum;
@@ -126,8 +125,6 @@ namespace hpl {
 		int GetMatrixUpdateCount(){ return GetTransformUpdateCount();}
 
 		cMatrixf* GetModelMatrix(cFrustum* apFrustum);
-
-		inline void RenderShadow(iRenderable *apObject,cRenderSettings *apRenderSettings,iLowLevelGraphics *apLowLevelGraphics);
 
 		void LoadXMLProperties(const tString asFile);
 

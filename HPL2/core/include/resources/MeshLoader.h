@@ -36,7 +36,6 @@ namespace hpl {
 	class cMeshManager;
 	class cAnimationManager;
 	class cMeshLoaderHandler;
-	class iLowLevelGraphics;
 	class cWorld;
 	class cScene;
 	class cAnimation;
@@ -48,7 +47,7 @@ namespace hpl {
 	{
 	friend class cMeshLoaderHandler;
 	public:
-		iMeshLoader(iLowLevelGraphics *apLowLevelGraphics): mpLowLevelGraphics(apLowLevelGraphics){}
+		iMeshLoader(){}
 
 		virtual cMesh* LoadMesh(const tWString& asFile, tMeshLoadFlag aFlags)=0;
 		virtual bool SaveMesh(cMesh* apMesh,const tWString& asFile)=0;
@@ -60,7 +59,6 @@ namespace hpl {
         cMaterialManager *mpMaterialManager;
 		cMeshManager *mpMeshManager;
 		cAnimationManager *mpAnimationManager;
-		iLowLevelGraphics *mpLowLevelGraphics;
 	};
 
 };

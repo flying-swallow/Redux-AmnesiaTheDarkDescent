@@ -1,7 +1,13 @@
 #ifndef RI_COMMAND_RING_BUFFER_H
 #define RI_COMMAND_RING_BUFFER_H
 
-#include "graphics/RITypes.h"
+// Depends on the command types (RICmd/RIPool/RIQueue) and the device (RIDevice +
+// RIIsTargetSelected / VK_WrapResult) directly, not the umbrella — RITypes.h
+// includes THIS header, so pulling the umbrella back in would be a cycle.
+#include "graphics/RICommand.h"
+#include "graphics/RIDevice.h"
+#include <cassert>
+#include <cstring>
 
 // Compile-time maximums; runtime poolCount/cmdPerPool are passed to
 // RICommandRingBuffer::init.

@@ -25,7 +25,6 @@
 
 using namespace hpl;
 
-cEngine *gpEngine=NULL;
 int glNumOfProblems = 0;
 int glNumOfFiles = 0;
 int glNumOfSkippedFiles = 0;
@@ -146,14 +145,14 @@ int main(int argc, const char* argv[])
 	SetLogFile(_W("CacheFileDateFix.log"));
 
 	cEngineInitVars vars;
-	gpEngine = CreateHPLEngine(eHplAPI_OpenGL, 0, &vars);
-	
+	cEngine* gpEngine = CreateHPLEngine(eHplAPI_OpenGL, 0, &vars);
+
 	IterateFiles(_W("./"));
 
 	Log("Number of files fixed: %d\n", glNumOfFiles);
 	Log("Number of files skipped: %d\n", glNumOfSkippedFiles);
 	Log("Number of problems: %d\n", glNumOfProblems);
-	
+
 	DestroyHPLEngine(gpEngine);
 	
 	return 0;

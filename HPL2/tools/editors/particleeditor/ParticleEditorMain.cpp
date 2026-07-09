@@ -34,12 +34,11 @@
 int hplMain(const tString& asCommandLine)
 {
 	cParticleEditor* pEditor = hplNew(cParticleEditor, ());
-	cEngine* pEngine = pEditor->Init(NULL, "ParticleEditor", GetBuildID_ParticleEditor(), false);
+	pEditor->Init(NULL, "ParticleEditor", GetBuildID_ParticleEditor());
 
-	pEngine->Run();
+	pEditor->Run();
 
 	hplDelete(pEditor);
-	hplDelete(pEngine);
 
 	cMemoryManager::LogResults();
 

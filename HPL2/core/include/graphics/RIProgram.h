@@ -184,6 +184,11 @@ public:
   // bindBindlessDescriptorSet).
   void initialize(RIDevice *device, std::span<ModuleStage> init,
                   std::span<const VkDescriptorSetLayout> externalLayouts = {});
+  // Destroy everything initialize()/bind*Pipeline() created: cached pipelines
+  // (+ RT SBT buffers), owned set layouts + descriptor pools, and the pipeline
+  // layout. External set layouts are caller-owned and skipped. Idempotent;
+  // the GPU must be idle.
+  void dispose(RIDevice *device);
   static std::vector<char> loadShaderStage(cFileSearcher *searcher,
                                            const tString &asName);
   void bindPipeline(struct RIDevice *device, struct RICmd *cmd,

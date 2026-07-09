@@ -30,12 +30,11 @@
 
 #include "graphics/Graphics.h"
 #include "graphics/Color.h"
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/FontData.h"
 #include "graphics/Bitmap.h"
 #include "graphics/Texture.h"
 #include "graphics/Image.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 
 #include "gui/Gui.h"
 #include "gui/GuiSkin.h"

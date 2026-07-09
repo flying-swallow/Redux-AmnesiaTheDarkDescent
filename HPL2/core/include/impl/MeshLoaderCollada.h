@@ -461,7 +461,7 @@ namespace hpl {
 	class cMeshLoaderCollada : public iMeshLoader
 	{
 	public:
-		cMeshLoaderCollada(iLowLevelGraphics *apLowLevelGraphics, cMeshLoaderMSH *apMeshLoaderMSH, bool abLoadAndSaveMSHFormat);
+		cMeshLoaderCollada(cMeshLoaderMSH *apMeshLoaderMSH, bool abLoadAndSaveMSHFormat);
 		~cMeshLoaderCollada();
 
 		void SetLoadAndSaveMSHFormat(bool abX){ mbLoadAndSaveMSHFormat = abX;} //Needed for tools!

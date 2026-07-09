@@ -32,7 +32,7 @@ project "HPL2"
         "scriptstring.cpp", "scriptstring_utils.cpp",
         "BitmapLoader*", "*Newton.cpp", "LegacyVertexBuffer.cpp",
         "GamepadSDL.cpp", "GamepadSDL2.cpp", "KeyboardSDL.cpp", "MouseSDL.cpp",
-        "TimerSDL.cpp", "LowLevelGraphicsSDL.cpp", "LowLevelInputSDL.cpp",
+        "TimerSDL.cpp", "LowLevelInputSDL.cpp",
         "LowLevelResourcesSDL.cpp", "LowLevelSystemSDL.cpp", "SDLEngineSetup.cpp",
         "SDLFontData.cpp", "LowLevelSoundOpenAL.cpp", "OpenAL*",
         "MeshLoaderCollada.cpp", "MeshLoaderColladaHelpers.cpp",

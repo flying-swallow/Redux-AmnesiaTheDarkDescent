@@ -26,7 +26,6 @@
 
 namespace hpl {
 	
-	class iLowLevelGraphics;
 	class cLowLevelInputSDL;
 
 	class cMouseSDL : public iMouse

@@ -33,7 +33,6 @@
 #include "graphics/SubMesh.h"
 #include "graphics/Material.h"
 #include "graphics/MaterialType.h"
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/VertexBuffer.h"
 
 #include "resources/MaterialManager.h"
@@ -68,8 +67,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cMeshLoaderCollada::cMeshLoaderCollada(iLowLevelGraphics *apLowLevelGraphics, cMeshLoaderMSH *apMeshLoaderMSH, bool abLoadAndSaveMSHFormat) 
-		: iMeshLoader(apLowLevelGraphics)
+	cMeshLoaderCollada::cMeshLoaderCollada(cMeshLoaderMSH *apMeshLoaderMSH, bool abLoadAndSaveMSHFormat)
 	{
 		mpMeshLoaderMSH = apMeshLoaderMSH;
 		mbLoadAndSaveMSHFormat = abLoadAndSaveMSHFormat;

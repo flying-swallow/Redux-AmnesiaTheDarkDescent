@@ -29,8 +29,18 @@
 class cLuxMap;
 class cLuxSavedGameMapCollection;
 class cLuxModelCache;
+class cLuxPostEffect_MenuBackdrop;
 
 namespace hpl { struct WorldDrawCtx; }
+
+//----------------------------------------------
+
+// Which look the live menu backdrop applies to the (paused) gameplay viewport.
+enum eLuxMenuBackdrop
+{
+	eLuxMenuBackdrop_Blur,        // escape / in-game menu
+	eLuxMenuBackdrop_Desaturate,  // inventory / journal
+};
 
 typedef std::list<cLuxMap*> tLuxMapList;
 typedef tLuxMapList::iterator tLuxMapListIt;
@@ -116,6 +126,13 @@ public:
 	iPostEffect *GetPostEffect_Sepia(){ return mpPostEffect_Sepia;}
 	iPostEffect *GetPostEffect_RadialBlur(){ return mpPostEffect_RadialBlur;}
 
+	// Live menu backdrop control (replaces the old cLuxScreenCapture snapshot):
+	// a menu enabling the backdrop makes the paused gameplay viewport render
+	// blurred/desaturated behind its UI. Strength drives the fade-in crossfade.
+	void EnableBackdrop(eLuxMenuBackdrop aType);
+	void DisableBackdrop();
+	void SetBackdropStrength(float afX);
+
 	void ClearSaveMapCollection();
 	cLuxSavedGameMapCollection *GetSavedMapCollection(){ return mpSavedGame;}
 	void SetSavedMapCollection(cLuxSavedGameMapCollection *apMaps);
@@ -165,6 +182,7 @@ private:
 	iPostEffect *mpPostEffect_ImageTrail;
 	iPostEffect *mpPostEffect_Sepia;
 	iPostEffect *mpPostEffect_RadialBlur;
+	cLuxPostEffect_MenuBackdrop *mpPostEffect_MenuBackdrop; // game-owned; live menu backdrop
 
 	cLuxMapHandler_ChangeMap mMapChangeData;
 

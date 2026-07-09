@@ -128,7 +128,7 @@ namespace hpl {
 	class cMeshLoaderFBX : public iMeshLoader
 	{
 	public:
-		cMeshLoaderFBX(iLowLevelGraphics *apLowLevelGraphics, cMeshLoaderMSH *apMeshLoaderMSH, bool abLoadAndSaveMSHFormat);
+		cMeshLoaderFBX(cMeshLoaderMSH *apMeshLoaderMSH, bool abLoadAndSaveMSHFormat);
 		~cMeshLoaderFBX();
 
 		virtual cMesh* LoadMesh(const tWString& asFile, tMeshLoadFlag aFlags);

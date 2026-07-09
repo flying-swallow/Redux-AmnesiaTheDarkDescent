@@ -21,9 +21,10 @@
 #define HPL_SOUND_H
 
 #include "engine/Updateable.h"
+#include "engine/EngineInitVars.h"
 
 namespace hpl {
-	
+
 	class iLowLevelSound;
 	class cResources;
 	class cSoundHandler;
@@ -35,10 +36,7 @@ namespace hpl {
 		cSound(iLowLevelSound *apLowLevelSound);
 		~cSound();
 
-		void Init(	cResources *apResources, int alSoundDeviceID, bool abUseEnvAudio, bool abUseHRTF, int alMaxChannels,
-						int alStreamUpdateFreq, bool abUseThreading, bool abUseVoiceManagement,
-						int alMaxMonoSourceHint, int alMaxStereoSourceHint,
-						int alStreamingBufferSize, int alStreamingBufferCount, bool abEnableLowLevelLog);
+		void Init(cResources *apResources, const cEngineInitVars::cSoundVars& aVars);
 
 		void Update(float afTimeStep);
 

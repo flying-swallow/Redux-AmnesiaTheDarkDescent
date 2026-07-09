@@ -21,6 +21,7 @@
 #define HPL_GUI_SET_H
 
 #include <list>
+#include <optional>
 #include "gui/GuiTypes.h"
 #include "graphics/GraphicsTypes.h"
 
@@ -422,7 +423,10 @@ namespace hpl {
 		bool GetRootWidgetClips();
 
 		void SetVirtualSize(const cVector2f& avSize, float afMinZ, float afMaxZ, const cVector2f& avOffset=0);
-		const cVector2f& GetVirtualSize(){return mvVirtualSize;}
+		// Explicit design space when SetVirtualSize was called; otherwise the
+		// current screen size, pulled at use time (the same way viewports track
+		// the swapchain via GetTargetSize) — no resize event needed.
+		cVector2f GetVirtualSize();
 		const cVector2f& GetVirtualSizeOffset(){return mvVirtualSizeOffset;}
 
 		void SetFocusedWidget(iWidget* apWidget, bool abCheckForValidity=false);
@@ -567,7 +571,9 @@ namespace hpl {
 
 		float mfContextMenuZ;
 
-		cVector2f mvVirtualSize;
+		// Fixed design space set by SetVirtualSize(); empty means the set
+		// follows the current screen size (see GetVirtualSize).
+		std::optional<cVector2f> m_explicitVirtualSize;
 		cVector2f mvVirtualSizeOffset;
 		float mfVirtualMinZ;
 		float mfVirtualMaxZ;

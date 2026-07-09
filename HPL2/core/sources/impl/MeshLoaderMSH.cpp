@@ -20,7 +20,6 @@
 #include "impl/MeshLoaderMSH.h"
 
 #include "system/LowLevelSystem.h"
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/VertexBuffer.h"
 #include "system/String.h"
 #include "resources/BinaryBuffer.h"
@@ -57,7 +56,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cMeshLoaderMSH::cMeshLoaderMSH(iLowLevelGraphics *apLowLevelGraphics) : iMeshLoader(apLowLevelGraphics)
+	cMeshLoaderMSH::cMeshLoaderMSH()
 	{
 			AddSupportedExtension("msh");
 			AddSupportedExtension("anm");
@@ -236,7 +235,7 @@ namespace hpl {
 						
 			////////////////////
 			// Vertex data
-			cVertexBuffer* pVtxBuff = mpLowLevelGraphics->CreateVertexBuffer(	eVertexBufferType_Hardware, eVertexBufferDrawType_Tri,
+			cVertexBuffer* pVtxBuff = new cVertexBuffer(	eVertexBufferType_Hardware, eVertexBufferDrawType_Tri,
 																				eVertexBufferUsageType_Static, 0, 0);
 			{
 				int lVtxNum = binBuff.GetInt32();

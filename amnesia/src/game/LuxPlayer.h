@@ -296,6 +296,10 @@ private:
 	bool CanDrawCrossHair();
 	void DrawHud(float afFrameTime);
 
+	// Current screen aspect, pulled live from cGraphics (no cached copy — the
+	// swapchain is the source of truth, so a resize is picked up immediately).
+	float GetScreenAspect() const;
+
 	void UpdateHeadPosAdd(float afTimeStep);
 	void UpdateCamera(float afTimeStep);
 	void UpdateTerror(float afTimeStep);
@@ -417,7 +421,6 @@ private:
 
 	float mfDefaultMass;
 
-	float mfAspect;
 	float mfFOV;
 
 	float mfTerrorIncSpeed;

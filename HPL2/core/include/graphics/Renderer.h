@@ -24,7 +24,7 @@
 #include "math/MathTypes.h"
 #include "scene/SceneTypes.h"
 
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 
 namespace hpl {
 
@@ -117,7 +117,7 @@ namespace hpl {
 
 		void Update(float afTimeStep);
 
-		virtual void Draw(RIBootstrap::FrameContext* cntx, cViewport* viewport, float afFrameTime, cFrustum* apFrustum, cWorld* apWorld, cRenderSettings* apSettings, bool abSendFrameBufferToPostEffects) {}
+		virtual void Draw(cGraphics::FrameContext* cntx, cViewport* viewport, float afFrameTime, cFrustum* apFrustum, cWorld* apWorld, cRenderSettings* apSettings, bool abSendFrameBufferToPostEffects) {}
 
 		inline static int GetRenderFrameCount()  { return mlRenderFrameCount; }
 		inline static void IncRenderFrameCount() { ++mlRenderFrameCount; }

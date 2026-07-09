@@ -31,7 +31,6 @@ namespace hpl {
 	class iPhysicsWorld;
 	class iCollideShape;
 	class iPhysicsMaterial;
-	class iLowLevelGraphics;
 	class cNode3D;
 	class cSoundEntity;
 	class iPhysicsJoint;
@@ -134,8 +133,7 @@ namespace hpl {
 		virtual void SetGravity(bool abEnabled)=0;
 		virtual bool GetGravity() const=0;
 
-		virtual void RenderDebugGeometry(iLowLevelGraphics *apLowLevel,const cColor &aColor)=0;
-		// RI path: same wireframe walk, enqueued into the DebugDraw batcher.
+		// Wireframe walk, enqueued into the DebugDraw batcher.
 		virtual void RenderDebugGeometry(DebugDraw *apDebugDraw,const cColor &aColor)=0;
 
 		bool UpdateBeforeSimulate(float afTimeStep);

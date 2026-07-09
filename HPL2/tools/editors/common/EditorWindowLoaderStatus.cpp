@@ -63,7 +63,6 @@ void cEditorWindowLoaderStatus::Draw()
 	SetVisible(true);
 
 	cGuiClipRegion clipRegion;
-	iLowLevelGraphics* pGfx = mpEditor->GetEngine()->GetGraphics()->GetLowLevel();
 
 	iFrameBuffer* pFB = pGfx->GetCurrentFrameBuffer();
 	pGfx->SetCurrentFrameBuffer(NULL);

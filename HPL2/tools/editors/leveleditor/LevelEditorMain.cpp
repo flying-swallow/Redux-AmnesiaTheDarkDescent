@@ -44,12 +44,11 @@ int hplMain(const tString& asCommandLine)
 	cLevelEditor* pEditor = hplNew(cLevelEditor, ());
 
 
-	cEngine* pEngine = pEditor->Init(NULL, "LevelEditor", GetBuildID_LevelEditor(), false);
+	pEditor->Init(NULL, "LevelEditor", GetBuildID_LevelEditor());
 
-	pEngine->Run();
+	pEditor->Run();
 
 	hplDelete(pEditor);
-	DestroyHPLEngine(pEngine);
 	cMemoryManager::LogResults();
 
 	return 0;

@@ -26,7 +26,7 @@
 #include "math/BoundingVolume.h"
 
 #include "graphics/RITypes.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "system/Event.h"
 
 #include <cassert>
@@ -39,7 +39,6 @@
 namespace hpl {
 
 class cBoundingVolume;
-class iLowLevelGraphics;
 
 // The single concrete vertex buffer. CPU-side geometry building + shadow data
 // plus the RI (Vulkan) GPU stream / BLAS management. Formerly split across the
@@ -52,7 +51,7 @@ public:
   struct VertexElement {
   public:
     // GPU buffer, shared-owned; the owning cVertexBuffer defers its disposal to
-    // RI.graphicsDefer on regrow / teardown. Borrow the raw handle via GetBuffer().
+    // Interface<cGraphics>::Get()->graphicsDefer on regrow / teardown. Borrow the raw handle via GetBuffer().
     RISharedPointer<RIBuffer> buffer;
     RIBuffer *GetBuffer() const;
     eVertexBufferElementFormat format =
@@ -93,10 +92,9 @@ public:
     friend class cVertexBuffer;
   };
 
-  cVertexBuffer(iLowLevelGraphics* apLowLevelGraphics,
-			eVertexBufferType aType,
+  cVertexBuffer(eVertexBufferType aType,
 			eVertexBufferDrawType aDrawType,eVertexBufferUsageType aUsageType,
-			int alReserveVtxSize,int alReserveIdxSize);
+			int alReserveVtxSize = 0,int alReserveIdxSize = 0);
   ~cVertexBuffer();
 
   inline eVertexBufferType GetType() const { return mType; }
@@ -140,13 +138,13 @@ public:
     VertexIndexEntry m_indexBuffer;
   };
 
-  // Hand every owned GPU buffer/AS to RI.graphicsDefer (deferred dispose past
+  // Hand every owned GPU buffer/AS to Interface<cGraphics>::Get()->graphicsDefer (deferred dispose past
   // the next submit). Called from the destructor.
   void DeferOwnedResources();
   // Uploads dirty vertex/index streams (allocates GPU buffers on first submit /
   // shadow-data growth). No-op when nothing changed since the last submit.
   void SubmitToGPU(RICmd *cmd, RIDevice *device,
-                   RIBootstrap::FrameContext *cntx);
+                   cGraphics::FrameContext *cntx);
   // Ensures streams are uploaded (calls SubmitToGPU), then (re)builds the BLAS
   // if it is missing or was built from an older geometry generation. Only call
   // for renderables that are TLAS instances; particles/billboards/beams/ropes/
@@ -154,7 +152,7 @@ public:
   // must ensure it completes before the BLAS is read (e.g. via the accel-build
   // barrier before the TLAS build).
   void BuildBlas(RICmd *cmd, RIDevice *device,
-                 RIBootstrap::FrameContext *cntx);
+                 cGraphics::FrameContext *cntx);
 
   cVertexBuffer *CreateCopy(eVertexBufferType aType,
                             eVertexBufferUsageType aUsageType,
@@ -214,8 +212,6 @@ protected:
                      eVertexBufferElement elementType,
                      std::span<cVertexBuffer::VertexElement> elements);
 
-  iLowLevelGraphics* mpLowLevelGraphics;
-
   eVertexBufferType mType;
   tVertexElementFlag mVertexFlags;
   eVertexBufferDrawType mDrawType;
@@ -242,7 +238,7 @@ protected:
   bool m_updateIndices = false;
 
   // Cached BLAS built on first BuildBlas call. Shared-owned; the old value is
-  // deferred to RI.graphicsDefer on rebuild / teardown so it outlives any
+  // deferred to Interface<cGraphics>::Get()->graphicsDefer on rebuild / teardown so it outlives any
   // in-flight build.
   RISharedPointer<RIBuffer> m_blasStorage;
   RISharedPointer<RIAccelStructure> m_blas;

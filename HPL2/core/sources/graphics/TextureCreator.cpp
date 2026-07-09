@@ -21,7 +21,6 @@
 
 #include "system/LowLevelSystem.h"
 
-#include "graphics/LowLevelGraphics.h"
 
 #include "resources/Resources.h"
 
@@ -37,9 +36,8 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cTextureCreator::cTextureCreator(iLowLevelGraphics *apLowLevelGraphics, cResources *apResources)
+	cTextureCreator::cTextureCreator(cResources *apResources)
 	{
-		mpLowLevelGraphics = apLowLevelGraphics;
 		mpResources = apResources;
 	}
 

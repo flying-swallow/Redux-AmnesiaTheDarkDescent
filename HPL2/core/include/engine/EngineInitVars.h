@@ -54,14 +54,16 @@ namespace hpl {
 				mlDisplay(0),
 				mlScreenBpp(32),
 				mbFullscreen(false),
+				mbVsync(false),
 				msWindowCaption(""),
 				mvWindowPosition(-1)
 			{}
-		
+
 			cVector2l mvScreenSize;
 			int mlDisplay;
 			int mlScreenBpp;
 			bool mbFullscreen;
+			bool mbVsync;
 			tString msWindowCaption;
 			cVector2l mvWindowPosition;
 		};
@@ -75,6 +77,7 @@ namespace hpl {
 			cSoundVars() :
 				mlSoundDeviceID(-1),
 				mbUseEnvironmentalAudio(false),
+				mbUseHRTF(false),
 				mbUseThreading(true),
 				mbUseVoiceManagement(true),
 				mbLowLevelLogging(false),

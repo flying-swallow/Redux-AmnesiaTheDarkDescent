@@ -45,7 +45,6 @@
 #include "scene/FogArea.h"
 
 #include "graphics/Graphics.h"
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/VertexBuffer.h"
 #include "graphics/Mesh.h"
 #include "graphics/SubMesh.h"
@@ -433,7 +432,7 @@ namespace hpl {
 	
 		//////////////////////////////////
 		// Create vertex buffer
-		cVertexBuffer *pVtxBuffer = apGraphics->GetLowLevel()->CreateVertexBuffer(eVertexBufferType_Software, eVertexBufferDrawType_Tri, 
+		cVertexBuffer *pVtxBuffer = new cVertexBuffer(eVertexBufferType_Software, eVertexBufferDrawType_Tri, 
 																					eVertexBufferUsageType_Static,lNumOfVtx, lNumOfIdx);
 
 		//Create arrays	

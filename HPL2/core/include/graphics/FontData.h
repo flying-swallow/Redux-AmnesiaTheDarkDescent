@@ -31,7 +31,6 @@
 namespace hpl {
 
 	class cResources;
-	class iLowLevelGraphics;
 	class cBitmap;
 	class cGuiGfxElement;
 	class cGui;
@@ -58,7 +57,7 @@ namespace hpl {
 	class iFontData : public iResourceBase
 	{
 	public:
-		iFontData(const tString &asName, iLowLevelGraphics* apLowLevelGraphics);
+		iFontData(const tString &asName);
 		~iFontData();
 
 		virtual bool CreateFromFontFile(const tWString &asFileName, int alSize,unsigned short alFirstChar, 
@@ -144,7 +143,6 @@ namespace hpl {
 		float GetLength(const cVector2f& avSize,const wchar_t* sText);
 
 	protected:
-		iLowLevelGraphics* mpLowLevelGraphics;
 		cResources* mpResources;
 		cGui *mpGui;
 		

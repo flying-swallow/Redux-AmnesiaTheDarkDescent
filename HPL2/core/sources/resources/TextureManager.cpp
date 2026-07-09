@@ -25,7 +25,6 @@
 
 #include "graphics/Bitmap.h"
 #include "graphics/Graphics.h"
-#include "graphics/LowLevelGraphics.h"
 #include "resources/BitmapLoaderHandler.h"
 #include "resources/FileSearcher.h"
 #include "resources/LowLevelResources.h"
@@ -35,7 +34,7 @@
 
 #include "graphics/GlobalManagedSets.h"
 #include "graphics/Image.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIProgram.h"
 #include "graphics/RIResourceUploader.h" // RI_ResourceBeginCopyBuffer (gAnimTex write)
 #include "graphics/Texture.h"
@@ -122,7 +121,7 @@ SharedResourceHandle<Image> cTextureManager::_wrapperImageResource(
     if (resource)
       m_imageResources.push_back(resource);
     if (resource)
-      RI.graphicsDefer.push(PinResource(resource));
+      mpGraphics->graphicsDefer.push(PinResource(resource));
   }
 
   if (resource) {
@@ -363,7 +362,7 @@ SharedResourceHandle<Image> cTextureManager::CreateCubeMapImage(
     AddResource(image);
     m_imageResources.push_back(image);
     // Pin the just-uploaded Image for a frame (see _wrapperImageResource).
-    RI.graphicsDefer.push(PinResource(image));
+    mpGraphics->graphicsDefer.push(PinResource(image));
   }
 
   if (image)
@@ -514,7 +513,7 @@ cTextureManager::CreateAnimImage(const tString &asName, bool abUseMipMaps,
     AddResource(image);
     m_imageResources.push_back(image);
     // Pin the just-uploaded Image for a frame (see _wrapperImageResource).
-    RI.graphicsDefer.push(PinResource(image));
+    mpGraphics->graphicsDefer.push(PinResource(image));
   }
 
   if (image)
@@ -581,9 +580,9 @@ void cTextureManager::WriteImageDescriptor(Image *apImage) {
   // The global managed set is initialized in cGraphics::Init before any
   // managed texture is created, so it is always present here (null-guard is
   // defensive only — e.g. teardown).
-  if (RI.globalset == nullptr)
+  if (mpGraphics->globalset == nullptr)
     return;
-  GlobalManagedSets &g = *RI.globalset;
+  GlobalManagedSets &g = *mpGraphics->globalset;
 
   cTexture *tex = apImage->GetTexture();
   if (tex == nullptr)
@@ -600,7 +599,7 @@ void cTextureManager::WriteImageDescriptor(Image *apImage) {
                                                      : kBindingTextures2D);
   binding.arrayElement = slot;
   binding.descriptor = tex->descriptor();
-  g.m_bindlessSet.writeDescriptors(&RI.device, {&binding, 1});
+  g.m_bindlessSet.writeDescriptors(&mpGraphics->device, {&binding, 1});
   apImage->SetBindlessViewCookie(tex->view.cookie);
 
   // Animated: write the per-slot animation record so the shader can pick the
@@ -617,9 +616,9 @@ void cTextureManager::WriteAnimRecord(Image *apImage) {
   const uint32_t slot = apImage->GetRawBindlessSlot();
   if (slot == kInvalidTextureIndex)
     return;
-  if (RI.globalset == nullptr)
+  if (mpGraphics->globalset == nullptr)
     return;
-  GlobalManagedSets &g = *RI.globalset;
+  GlobalManagedSets &g = *mpGraphics->globalset;
 
   AnimTexRec rec = {};
   rec.frameCount = apImage->GetAnimFrameCount();
@@ -635,9 +634,9 @@ void cTextureManager::WriteAnimRecord(Image *apImage) {
   trans.currentStages = RI_STAGE_ALL_SHADER;
   trans.postState = RI_RESOURCE_STATE_SHADER_RESOURCE;
   trans.postStages = RI_STAGE_ALL_SHADER;
-  RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+  RI_ResourceBeginCopyBuffer(&mpGraphics->device, &mpGraphics->uploader, &trans);
   std::memcpy(trans.mapped.data, &rec, sizeof(rec));
-  RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+  RI_ResourceEndCopyBuffer(&mpGraphics->device, &mpGraphics->uploader, &trans);
 }
 
 // Editor live-reload: update an animated Image's playback params and re-upload
@@ -677,7 +676,7 @@ void ReleaseImageBindlessSlot(Image *apImage) {
   const bool cube = apImage->IsBindlessCube();
   const bool arr = apImage->IsBindlessArray();
   apImage->SetBindlessSlot(kInvalidTextureIndex, cube, arr);
-  RI.graphicsDefer.push(std::function<void()>([slot, cube, arr]() {
+  Interface<cGraphics>::Get()->graphicsDefer.push(std::function<void()>([slot, cube, arr]() {
     // Look up the manager at drain time; null at engine shutdown, in which
     // case leaking the index is harmless (the pool is being destroyed).
     if (cTextureManager *mgr = g_textureManager)

@@ -29,8 +29,6 @@
 
 namespace hpl {
 
-	class iLowLevelGraphics;
-
 	class iPhysicsWorld;
 	class iPhysicsBody;
 	class iCollideShape;
@@ -137,10 +135,6 @@ namespace hpl {
 
 		void SetCollideAttachments(bool abX){ mbCollideAttachments  = abX;}
 		bool GetCollideAttachments(){ return mbCollideAttachments;}
-
-		/////////////////////////////
-		// Debug
-		void RenderDebug(iLowLevelGraphics* apLowLevel) {} // STUB
 
 	protected:
 		bool CheckParticleBodyCollision(iPhysicsBody *apBody);

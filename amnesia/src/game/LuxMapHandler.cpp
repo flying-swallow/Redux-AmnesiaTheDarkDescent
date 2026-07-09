@@ -33,6 +33,7 @@
 #include "LuxConfigHandler.h"
 #include "LuxLoadScreenHandler.h"
 #include "LuxMainMenu.h"
+#include "LuxPostEffects.h"
 
 #include "LuxEnemy.h"
 #include "LuxAchievementHandler.h"
@@ -165,7 +166,15 @@ cLuxMapHandler::cLuxMapHandler() : iLuxUpdateable("LuxMapHandler")
 	mpPostEffect_Sepia = pGraphics->CreatePostEffect(&sepiaParams);
 	pPostEffectComp->AddPostEffect(mpPostEffect_Sepia, 4);
 	mpPostEffect_Sepia->SetActive(false);
-	
+
+	//Menu backdrop — live blur/desaturate behind the inventory/journal/escape
+	//menu. Negative priority so it runs AFTER tonemap, in display-encoded [0,1]
+	//space (matching what the old snapshot captured: the final composited image).
+	//Game-owned (not a registered cGraphics type), so we hplDelete it ourselves.
+	mpPostEffect_MenuBackdrop = hplNew(cLuxPostEffect_MenuBackdrop, (pGraphics, gpBase->mpEngine->GetResources()));
+	pPostEffectComp->AddPostEffect(mpPostEffect_MenuBackdrop, -5);
+	mpPostEffect_MenuBackdrop->SetActive(false);
+
 	//////////////////////////
 	//Saving
 	mpSavedGame = hplNew( cLuxSavedGameMapCollection, () );
@@ -195,6 +204,7 @@ cLuxMapHandler::~cLuxMapHandler()
 	hplDelete(mpSavedGame);
 	hplDelete(mpSavedGameMutex);
 	hplDelete(mpSoundCallback);
+	hplDelete(mpPostEffect_MenuBackdrop);
 	STLDeleteAll(mlstMaps);
 }
 
@@ -386,6 +396,11 @@ void cLuxMapHandler::OnEnterContainer(const tString& asOldContainer)
 	mpViewport->SetActive(true);
 	mpViewport->SetVisible(true);
 
+	// Back in gameplay: restore the HUD and resume world simulation. The live
+	// menu backdrop is disabled by the closing menu state itself.
+	if(gpBase->mpGameHudSet)   gpBase->mpGameHudSet->SetActive(true);
+	if(gpBase->mpGameDebugSet) gpBase->mpGameDebugSet->SetActive(true);
+
 	if(mpCurrentMap) mpCurrentMap->GetWorld()->SetActive(true);
 
 	ResumeSoundsAndMusic();
@@ -393,10 +408,56 @@ void cLuxMapHandler::OnEnterContainer(const tString& asOldContainer)
 
 void cLuxMapHandler::OnLeaveContainer(const tString& asNewContainer)
 {
-	mpViewport->SetActive(false);
-	mpViewport->SetVisible(false);
+	mpViewport->SetActive(false); // input/listener semantics; no-op for rendering
 
+	// Pause the world simulation whenever we leave gameplay (as the original did).
 	if(mpCurrentMap) mpCurrentMap->GetWorld()->SetActive(false);
+
+	// Keep the gameplay viewport VISIBLE (re-rendering the paused world) only
+	// behind the in-game overlay menus — inventory / journal / escape menu — which
+	// now show a live blurred/desaturated backdrop via the menu-backdrop post-effect
+	// instead of a frozen snapshot. Suppress the gameplay HUD there so it doesn't
+	// draw over the menu. For any other destination (load screen, credits, demo end)
+	// or when no map is loaded (the initial "Default" the engine sets before the
+	// pre-menu), hide the viewport exactly as before so the destination's own
+	// viewport is the sole swapchain-compositing one.
+	const bool bOverlayMenu = mpCurrentMap!=NULL &&
+		(asNewContainer=="Inventory" || asNewContainer=="Journal" || asNewContainer=="MainMenu");
+
+	if(bOverlayMenu)
+	{
+		if(gpBase->mpGameHudSet)   gpBase->mpGameHudSet->SetActive(false);
+		if(gpBase->mpGameDebugSet) gpBase->mpGameDebugSet->SetActive(false);
+	}
+	else
+	{
+		mpViewport->SetVisible(false);
+	}
+}
+
+//-----------------------------------------------------------------------
+
+void cLuxMapHandler::EnableBackdrop(eLuxMenuBackdrop aType)
+{
+	if(mpPostEffect_MenuBackdrop==NULL) return;
+
+	mpPostEffect_MenuBackdrop->SetMode(aType==eLuxMenuBackdrop_Blur
+		? cLuxPostEffect_MenuBackdrop::Mode::Blur
+		: cLuxPostEffect_MenuBackdrop::Mode::DesaturateDarken);
+	mpPostEffect_MenuBackdrop->SetStrength(0.0f);
+	mpPostEffect_MenuBackdrop->SetActive(true);
+}
+
+void cLuxMapHandler::DisableBackdrop()
+{
+	if(mpPostEffect_MenuBackdrop==NULL) return;
+	mpPostEffect_MenuBackdrop->SetActive(false);
+}
+
+void cLuxMapHandler::SetBackdropStrength(float afX)
+{
+	if(mpPostEffect_MenuBackdrop==NULL) return;
+	mpPostEffect_MenuBackdrop->SetStrength(afX);
 }
 
 

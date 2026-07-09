@@ -26,11 +26,9 @@
 #include <FL/Fl.H>
 #include <FL/Fl_Choice.H>
 
-#define kTranslate(sCategory, sEntry) gpEngine->GetResources()->Translate(sCategory, sEntry).c_str()
+#define kTranslate(sCategory, sEntry) Interface<cEngine>::Get()->GetResources()->Translate(sCategory, sEntry).c_str()
 
 using namespace hpl;
-
-extern cEngine* gpEngine;
 
 class cUserInterface;
 class cQualityChooser;

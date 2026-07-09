@@ -1515,7 +1515,7 @@ void cEditorWindowMaterialEditor::UpdateUVAnimInputs()
 void cEditorWindowMaterialEditor::SetWindowCaption(const tWString& asCaption)
 {
 	if(mbStandAlone)
-		mpEditor->GetEngine()->GetGraphics()->GetLowLevel()->SetWindowCaption(cString::To8Char(asCaption));
+		mpEditor->GetEngine()->GetGraphics()->GetWindow()->SetCaption(cString::To8Char(asCaption));
 	else
 		mpWindow->SetText(asCaption);
 }

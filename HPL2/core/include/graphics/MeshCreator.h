@@ -28,14 +28,13 @@ namespace hpl {
 
 	class cMesh2D;
 	class cVertexBuffer;
-	class iLowLevelGraphics;
 	class cResources;
 	class cMesh;
 
 	class cMeshCreator
 	{
 	public:
-		cMeshCreator(iLowLevelGraphics *apLowLevelGraphics, cResources *apResources);
+		cMeshCreator(cResources *apResources);
 		~cMeshCreator();
 
 		cVertexBuffer* CreateWireframeVertexBuffer(cVertexBuffer *apSrc);
@@ -66,7 +65,6 @@ namespace hpl {
 		void WrapUpperCap(cVertexBuffer* apVtxBuffer, int alCenterVertexIdx, int alStartVertexIdx, int alSections);
 		void WrapLowerCap(cVertexBuffer* apVtxBuffer, int alCenterVertexIdx, int alStartVertexIdx, int alSections);
 
-		iLowLevelGraphics *mpLowLevelGraphics;
 		cResources *mpResources;
 	};
 

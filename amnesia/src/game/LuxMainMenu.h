@@ -23,7 +23,6 @@
 //----------------------------------------------
 
 #include "LuxBase.h"
-#include "LuxScreenEffect.h"
 
 
 enum eLuxMainMenuWindow
@@ -80,8 +79,6 @@ protected:
 	cGuiSet *mpGuiSet;
 
 	cWidgetWindow *mpWindow;
-
-	cVector2f mvScreenSize;
 };
 
 
@@ -109,7 +106,6 @@ public:
 	void OnLeaveContainer(const tString& asNewContainer);
 
 	void OnDraw(float afFrameTime);
-	void OnPostRender(float afFrameTime);
 
 	void RefreshToneMapGamma();
 
@@ -142,7 +138,18 @@ private:
 
 	void UpdateTopMenu(float afTimeStep);
 	void SetTopMenuVisible(bool abVisible);
-	
+
+	// Re-derive the screen-size-relative layout (top menu + logo) from the live
+	// screen size; called from the ctor and on a swapchain resize.
+	void RecalcLayout();
+
+	// Current screen size in pixels, pulled live from cGraphics (no cached copy).
+	cVector2f ScreenSizeF() const;
+
+	// OnScreenSizeChanged() handler: recalc layout and flag a deferred GUI
+	// rebuild (the size is read live from cGraphics).
+	void OnScreenSizeChange(const cVector2l& avSize);
+
 	void CreateGui();
 
 	void CreateTopMenuGui();
@@ -269,9 +276,6 @@ private:
 	cViewport *mpViewport;
 	iPostEffect *mpPostEffect_ToneMap;
 
-	// In-game (escape) menu backdrop: blurred snapshot of the game screen.
-	cLuxScreenEffect mScreenEffect;
-
 	cGuiGfxElement *mpLogoGfx;
 	
 	std::vector<iLuxMainMenuWindow*> mvWindows;
@@ -283,7 +287,10 @@ private:
 	cCamera *mpBgCamera;
 
 	bool mbGuiCreated;
-	cVector2f mvScreenSize;
+
+	// Triggers a layout recalc + deferred GUI rebuild when the swapchain
+	// changes size (the size itself is pulled live from cGraphics).
+	EventHandler<const cVector2l&> mScreenSizeChangedHandler;
 
 	std::vector<cWidgetLabel*> mvTopMenuLabels;
 	bool mbTopMenuVisible;

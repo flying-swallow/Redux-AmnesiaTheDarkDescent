@@ -34,13 +34,11 @@ int hplMain(const tString& asCommandLine)
 
 	cModelEditor* pEditor = hplNew(cModelEditor, ());
 
-	cEngine* pEngine = pEditor->Init(NULL, "ModelEditor", GetBuildID_ModelEditor(), false);
-	
-    pEngine->Run();	
+	pEditor->Init(NULL, "ModelEditor", GetBuildID_ModelEditor());
+
+    pEditor->Run();
 
 	hplDelete(pEditor);
-
-	DestroyHPLEngine(pEngine);
 
 	cMemoryManager::LogResults();
 

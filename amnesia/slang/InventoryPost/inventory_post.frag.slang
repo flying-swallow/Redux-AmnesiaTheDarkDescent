@@ -12,12 +12,27 @@
 // Bindings match the GLSL twin:
 //   set 0 binding 0 : SamplerState        inputSampler
 //   set 0 binding 1 : Texture2D<float4>   sourceInput
+//
+// Push constant: `strength` crossfades the effect in (0 = untouched scene,
+// 1 = full desaturate/darken). The menu drives it from its fade alpha so the
+// backdrop dims in over the fade instead of popping. This replaces the old
+// two-quad (sharp-under, darkened-over) GUI crossfade now that the effect runs
+// live in the viewport post-effect chain.
 
 [vk::binding(0, 0)]
 SamplerState inputSampler;
 
 [vk::binding(1, 0)]
 Texture2D<float4> sourceInput;
+
+struct InvPostPC
+{
+    float strength;
+    float3 _pad;
+};
+
+[vk::push_constant]
+InvPostPC pc;
 
 struct PSIn
 {
@@ -42,8 +57,9 @@ PSOut psMain(PSIn pin)
     float3 mixed = float3(dot(color, colorToR),
                           dot(color, colorToG),
                           dot(color, colorToB)) * intensity;
+    float3 desat = pow(mixed, float3(1.5f));
 
     PSOut o;
-    o.out_color = float4(pow(mixed, float3(1.5f)), 1.0f);
+    o.out_color = float4(lerp(color, desat, saturate(pc.strength)), 1.0f);
     return o;
 }

@@ -211,8 +211,11 @@ namespace hpl {
 					mlstImages.push_back(pBitmapImage);
 					
 					mlAdditionsSinceReorganization++;
-					AddReference();
-					mpFrameTexture->AddReference();
+					if(apSubImageCreated == NULL)
+					{
+						AddReference();
+						mpFrameTexture->AddReference();
+					}
 					break;
 				}
 			}

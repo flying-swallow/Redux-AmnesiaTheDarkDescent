@@ -20,6 +20,7 @@
 #ifndef HPL_HPL_H
 #define HPL_HPL_H
 
+#include "engine/Interface.h"
 #include "system/System.h"
 #include "system/SystemTypes.h"
 #include "system/String.h"
@@ -51,7 +52,7 @@
 #include "engine/EngineInitVars.h"
 
 #include "graphics/Graphics.h"
-#include "graphics/LowLevelGraphics.h"
+#include "graphics/Window.h"
 #include "graphics/RendererSimple.h"
 #include "graphics/MeshCreator.h"
 #include "graphics/TextureCreator.h"

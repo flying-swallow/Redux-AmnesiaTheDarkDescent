@@ -82,11 +82,14 @@ public:
 
 
 	cGuiSet* GetSet(){ return mpSet;}
+
+	// Re-apply the (recomputed by cLuxBase) HUD virtual size/offset to the
+	// direct-to-screen set after a swapchain resize.
+	void RefreshHudVirtualSize();
 private:
 	tWString ParseStringCommand(const tWString& asCommand);
 
 	cGuiSet *mpSet;
-	iLowLevelGraphics *mpLowLevelGfx;
 
 	iFontData *mpFontDefault;
 

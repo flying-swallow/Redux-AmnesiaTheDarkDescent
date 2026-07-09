@@ -21,13 +21,11 @@
 #include "graphics/DebugDraw.h"
 #include "system/String.h"
 #include "system/LowLevelSystem.h"
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/VertexBuffer.h"
 #include "resources/Resources.h"
 #include "graphics/Mesh.h"
 #include "graphics/SubMesh.h"
 #include "graphics/Renderer.h"
-#include "graphics/LowLevelGraphics.h"
 #include "resources/MaterialManager.h"
 #include "resources/MeshManager.h"
 #include "resources/AnimationManager.h"
@@ -42,9 +40,8 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cDecalCreator::cDecalCreator(iLowLevelGraphics *apLowLevelGraphics, cResources *apResources) : mvDecalSize(0)
+	cDecalCreator::cDecalCreator(cResources *apResources) : mvDecalSize(0)
 	{
-		mpLowLevelGraphics = apLowLevelGraphics;
 		mpResources = apResources;
 
 		mvDecalRight = 0;
@@ -308,7 +305,7 @@ namespace hpl {
 				mpDecalVB = NULL;
 			}
 			
-			mpDecalVB = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware,
+			mpDecalVB = new cVertexBuffer(eVertexBufferType_Hardware,
 																eVertexBufferDrawType_Tri,
 																eVertexBufferUsageType_Static);
 			mpDecalVB->CreateElementArray(eVertexBufferElement_Position, eVertexBufferElementFormat_Float, 4);

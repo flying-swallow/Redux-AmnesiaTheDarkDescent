@@ -24,7 +24,6 @@ using namespace hpl;
 extern bool RunProgram(const tWString& sPath, const tWString &sArg);
 
 
-cEngine *gpEngine=NULL;
 
 //------------------------------------------
 
@@ -102,7 +101,7 @@ bool ConvertFile(const tWString &asFile)
 	unsigned long lStartTime = cPlatform::GetApplicationTime();
 
 	//Check so file is proper
-	cBitmap* pBitMap = gpEngine->GetResources()->GetBitmapLoaderHandler()->LoadBitmap(asFile, 0);
+	cBitmap* pBitMap = Interface<cEngine>::Get()->GetResources()->GetBitmapLoaderHandler()->LoadBitmap(asFile, 0);
 	if(	pBitMap==NULL)
 	{
 		printf(" Could not load bitmap!\n");
@@ -228,8 +227,8 @@ void Exit()
 int main(int argc, const char* argv[] )
 {
 	cEngineInitVars vars;
-	gpEngine = CreateHPLEngine(eHplAPI_OpenGL, 0, &vars);
-	
+	cEngine* gpEngine = CreateHPLEngine(eHplAPI_OpenGL, 0, &vars);
+
 	ParseCommandLine(argc, argv);
 	Init();
 
@@ -238,11 +237,11 @@ int main(int argc, const char* argv[] )
 	if(gbDirs)	ConvertInDirs();
 	else		ConvertFile();
 
-	printf("\n-------- TEX CONVERSION DONE! -----------\n");		
-	
+	printf("\n-------- TEX CONVERSION DONE! -----------\n");
+
 	Exit();
 	DestroyHPLEngine(gpEngine);
-	
+
 	return 0;
 }
 int hplMain(const tString &asCommandline){ return -1;}

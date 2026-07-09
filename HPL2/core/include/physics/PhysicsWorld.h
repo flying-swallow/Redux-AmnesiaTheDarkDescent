@@ -37,7 +37,6 @@ namespace hpl {
 	class iCollideShape;
 	class cVertexBuffer;
 	class iPhysicsBody;
-	class iLowLevelGraphics;
 	class iPhysicsMaterial;
 	class iCharacterBody;
 	class iPhysicsJoint;
@@ -232,17 +231,10 @@ namespace hpl {
 		tCollidePointVec* GetContactPoints(){ return &mvContactPoints;}
 		void SetSaveContactPoints(bool abX){ mbSaveContactPoints = abX;}
 		bool GetSaveContactPoints(){ return mbSaveContactPoints;}
-		void RenderContactPoints(iLowLevelGraphics* apLowLevel, const cColor& aPointColor, const cColor& aLineColor) {} // STUB
-
 		virtual void CastRay(iPhysicsRayCallback *apCallback, 
 							const cVector3f &avOrigin, const cVector3f& avEnd, 
 							bool abCalcDist, bool abCalcNormal, bool abCalcPoint,
 							bool abUsePrefilter=false)=0;
-
-		virtual void RenderShapeDebugGeometry(	iCollideShape *apShape, const cMatrixf& a_mtxTransform, 
-												iLowLevelGraphics *apLowLevel, const cColor& aColor)=0;
-		
-		virtual void RenderDebugGeometry(iLowLevelGraphics *apLowLevel, const cColor& aColor)=0;
 
 		// RI path: same wireframe walk, enqueued into the DebugDraw batcher.
 		virtual void RenderShapeDebugGeometry(iCollideShape *apShape, const cMatrixf& a_mtxTransform,

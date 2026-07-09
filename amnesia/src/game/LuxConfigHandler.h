@@ -35,7 +35,7 @@ public:
 	void LoadMainConfig();
 	void SaveMainConfig();
 
-	// Display gamma (1.0 = no-op). Stored here (was cLowLevelGraphicsSDL);
+	// Display gamma (1.0 = no-op). Stored here (was the SDL window class);
 	// consumed by the tonemap post-effect. SetGamma live-applies to the active
 	// map's tonemap via cLuxMapHandler.
 	float GetGamma() { return mfGamma; }

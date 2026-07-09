@@ -48,8 +48,6 @@ namespace hpl {
 
 		void SetSurface(iHapticSurface *apSurface);
 
-		void RenderDebug(iLowLevelGraphics *apLowLevel, const cColor &aColor);
-
 		void CreateFromVertices(const unsigned int* apIndexArray, int alIndexNum,
 								const float *apPosArray, int alPosStride,
 								const float *apTexArray, int alTexStride,

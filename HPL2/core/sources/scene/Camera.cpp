@@ -21,7 +21,6 @@
 
 #include "system/LowLevelSystem.h"
 
-#include "graphics/LowLevelGraphics.h"
 
 #include "math/Math.h"
 
@@ -410,20 +409,6 @@ namespace hpl {
 		return mvPosition;
 	}
 
-	//-----------------------------------------------------------------------
-
-	void cCamera::SetModelViewMatrix(iLowLevelGraphics* apLowLevel)
-	{
-
-	}
-
-	//-----------------------------------------------------------------------
-
-	void cCamera::SetProjectionMatrix(iLowLevelGraphics* apLowLevel)
-	{
-
-	}
-	
 	//-----------------------------------------------------------------------
 
 	void cCamera::UnProject(cVector3f *apPosition, cVector3f *apDirection, const cVector2f& avScreenPos, const cVector2f& avVirtualScreenSize)

@@ -25,10 +25,9 @@
 #include "resources/MaterialManager.h"
 
 #include "graphics/Graphics.h"
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/VertexBuffer.h"
 #include "graphics/Renderer.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RISegmentAlloc.h"
 
 #include "scene/Camera.h"
@@ -109,7 +108,7 @@ namespace hpl {
 		// No persistent vertex buffer: every renderer builds this emitter's
 		// camera-facing quads per frame/viewport into its own scratch segment
 		// via BuildViewportVertices (hybrid + wireframe/simple all share
-		// RI.translucentVtx/Idx). A shared persistent VB couldn't serve
+		// Interface<cGraphics>::Get()->translucentVtx/Idx). A shared persistent VB couldn't serve
 		// multiple viewports — the uploader pre-pass coalesces per-pane copies
 		// (last-write-wins). See [[per-viewport-translucent-scratch]].
 
@@ -287,15 +286,15 @@ namespace hpl {
 		const uint32_t lNumVerts = (uint32_t)lNumParticles * 4;
 		const uint32_t lFloatsPerVert = abWithUv ? 11u : 8u;
 
-		RIBootstrap::FrameContext *cntx = RI.GetActiveSet();
+		cGraphics::FrameContext *cntx = mpGraphics->GetActiveSet();
 		RISegmentReq vtxReq = {};
 		RISegmentReq idxReq = {};
-		if(!RI.RequestTranslucentVtx(cntx, (size_t)lNumVerts * lFloatsPerVert, &vtxReq))
+		if(!mpGraphics->RequestTranslucentVtx(cntx, (size_t)lNumVerts * lFloatsPerVert, &vtxReq))
 			return geom;
-		if(!RI.RequestTranslucentIdx(cntx, (size_t)lNumParticles * 6, &idxReq))
+		if(!mpGraphics->RequestTranslucentIdx(cntx, (size_t)lNumParticles * 6, &idxReq))
 			return geom;
 
-		float *pDst = (float*)RI.translucentVtxBuffer->mappedAddress + vtxReq.elementOffset;
+		float *pDst = (float*)mpGraphics->translucentVtxBuffer->mappedAddress + vtxReq.elementOffset;
 		float *pDstPos = pDst;
 		float *pDstCol = pDst + (size_t)lNumVerts * 4;
 		float *pDstUv  = abWithUv ? pDst + (size_t)lNumVerts * 8 : NULL;
@@ -303,7 +302,7 @@ namespace hpl {
 			return geom; // distance-faded out
 
 		// Quad index pattern (two tris per particle: 0,1,2, 2,3,0 + q·4).
-		uint32_t *pDstIdx = (uint32_t*)RI.translucentIdxBuffer->mappedAddress + idxReq.elementOffset;
+		uint32_t *pDstIdx = (uint32_t*)mpGraphics->translucentIdxBuffer->mappedAddress + idxReq.elementOffset;
 		for(int q = 0; q < lNumParticles; ++q)
 		{
 			const uint32_t s = (uint32_t)q * 4;

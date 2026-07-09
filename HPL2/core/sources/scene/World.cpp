@@ -37,11 +37,10 @@
 #include "graphics/Graphics.h"
 #include "graphics/HybridRenderer.h"
 #include "graphics/Image.h"
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/Material.h"
 #include "graphics/Mesh.h"
 #include "graphics/MeshCreator.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIResourceUploader.h"
 #include "graphics/Renderer.h"
 #include "graphics/SubMesh.h"
@@ -542,7 +541,7 @@ static FogAreaParams BuildFogParams(cFogArea *apFogArea) {
 static uint32_t PinnedBindlessSlot(Image *img) {
   if (!img)
     return kInvalidTextureIndex;
-  RI.graphicsDefer.push(PinResource(img));
+  Interface<cGraphics>::Get()->graphicsDefer.push(PinResource(img));
   return img->GetBindlessSlot();
 }
 
@@ -565,7 +564,7 @@ static PointLight BuildPointLight(iLight *pLight) {
   pl.radius = pLight->GetRadius();
   pl.sourceRadius = pLight->GetSourceRadius();
   pl.goboTextureIndex = PinnedBindlessSlot(pLight->GetGoboImage());
-  pl.shadowEnabled = (RI.forceShadows || pLight->GetCastShadows()) ? 1u : 0u;
+  pl.shadowEnabled = (Interface<cGraphics>::Get()->forceShadows || pLight->GetCastShadows()) ? 1u : 0u;
   const cMatrixf &world = pLight->GetWorldMatrix();
   pl.worldToLightX[0] = world.m[0][0];
   pl.worldToLightX[1] = world.m[0][1];
@@ -611,7 +610,7 @@ static SpotLight BuildSpotLight(iLight *pLight) {
   sl.radius = pSpot->GetRadius();
   sl.sourceRadius = pSpot->GetSourceRadius();
   sl.goboTextureIndex = PinnedBindlessSlot(pSpot->GetGoboImage());
-  sl.shadowEnabled = (RI.forceShadows || pSpot->GetCastShadows()) ? 1u : 0u;
+  sl.shadowEnabled = (Interface<cGraphics>::Get()->forceShadows || pSpot->GetCastShadows()) ? 1u : 0u;
   const ml::float4x4 vpF4 =
       cMath::ToFloatTranspose4x4(pSpot->GetViewProjMatrix());
   std::memcpy(sl.viewProjection, vpF4.a, sizeof(sl.viewProjection));
@@ -638,7 +637,7 @@ static RectLight BuildRectLight(iLight *pLight) {
   al.barnDoorAngle = pArea->GetBarnDoorAngle();
   al.barnDoorLength = pArea->GetBarnDoorLength();
   al.sourceTextureIndex = PinnedBindlessSlot(pArea->GetGoboImage());
-  al.shadowEnabled = (RI.forceShadows || pArea->GetCastShadows()) ? 1u : 0u;
+  al.shadowEnabled = (Interface<cGraphics>::Get()->forceShadows || pArea->GetCastShadows()) ? 1u : 0u;
   // UE Rect Light basis: width = local +Y (world col 1), height = local +Z
   // (col 2), emission normal = local +X (col 0).
   const cMatrixf &world = pArea->GetWorldMatrix();
@@ -666,11 +665,12 @@ static RectLight BuildRectLight(iLight *pLight) {
 template <typename T>
 static void SyncStorageBuffer(const std::vector<T> &items,
                               RISharedPointer<RIBuffer> &buf, size_t &reserved) {
+  cGraphics* pGraphics = Interface<cGraphics>::Get();
   const size_t bytes = sizeof(T) * std::max<size_t>(items.size(), 1);
   if (detail::IsReallocBuffer(bytes, reserved)) {
     buf = RISharedPointer<RIBuffer>(
-        &RI.device,
-        RIBuffer::create(&RI.device, {(uint64_t)reserved,
+        &pGraphics->device,
+        RIBuffer::create(&pGraphics->device, {(uint64_t)reserved,
                                       RI_BUFFER_USAGE_SHADER_RESOURCE_STORAGE |
                                           RI_BUFFER_USAGE_TRANSFER_DST,
                                       RI_MEMORY_DEVICE, 0}));
@@ -685,9 +685,9 @@ static void SyncStorageBuffer(const std::vector<T> &items,
   trans.currentStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
   trans.postState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
   trans.postStages = RI_STAGE_FRAGMENT | RI_STAGE_COMPUTE;
-  RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+  RI_ResourceBeginCopyBuffer(&pGraphics->device, &pGraphics->uploader, &trans);
   std::memcpy(trans.mapped.data, items.data(), trans.size);
-  RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+  RI_ResourceEndCopyBuffer(&pGraphics->device, &pGraphics->uploader, &trans);
 }
 
 // Take the lowest free GPU slot (bottom-up keeps the per-type buffer + grid loop
@@ -717,7 +717,7 @@ IndexPool *cWorld::GpuLightPoolFor(iLight *apLight) {
   }
 }
 
-void cWorld::PrepareFrame(RIBootstrap::FrameContext *cntx) {
+void cWorld::PrepareFrame(cGraphics::FrameContext *cntx) {
   // Debounced decal association rebuild: the editor marks this on each edit
   // rather than recompiling synchronously, so a continuous drag coalesces into
   // one CompileDecals() per frame here (which also marks the GPU buffers dirty
@@ -736,14 +736,14 @@ void cWorld::PrepareFrame(RIBootstrap::FrameContext *cntx) {
   // overwrite below never frees a buffer the GPU is still reading. The decal
   // diffuse Images get the same per-frame keep-alive PinnedBindlessSlot gives light
   // gobo textures — their baked bindless slots reference the Images by index only.
-  RI.graphicsDefer.push(mpPointLightBuffer);
-  RI.graphicsDefer.push(mpSpotLightBuffer);
-  RI.graphicsDefer.push(mpAreaLightBuffer);
-  RI.graphicsDefer.push(mpFogAreaBuffer);
-  RI.graphicsDefer.push(mpDecalBuffer);
-  RI.graphicsDefer.push(mpDecalObjectIndexBuffer);
+  mpGraphics->graphicsDefer.push(mpPointLightBuffer);
+  mpGraphics->graphicsDefer.push(mpSpotLightBuffer);
+  mpGraphics->graphicsDefer.push(mpAreaLightBuffer);
+  mpGraphics->graphicsDefer.push(mpFogAreaBuffer);
+  mpGraphics->graphicsDefer.push(mpDecalBuffer);
+  mpGraphics->graphicsDefer.push(mpDecalObjectIndexBuffer);
   for (const SharedResourcePin &pin : mvDecalImagePins)
-    RI.graphicsDefer.push(pin); // copy: keep the baked diffuse Images alive
+    mpGraphics->graphicsDefer.push(pin); // copy: keep the baked diffuse Images alive
 
   // Scatter each light into its STABLE per-type slot (assigned from the matching
   // IndexPool at creation) every frame, then grow-or-keep + upload each device
@@ -838,9 +838,9 @@ void cWorld::PrepareFrame(RIBootstrap::FrameContext *cntx) {
       trans.currentStages = RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT;
       trans.postState = RI_RESOURCE_STATE_SHADER_RESOURCE;
       trans.postStages = RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT;
-      RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+      RI_ResourceBeginCopyBuffer(&mpGraphics->device, &mpGraphics->uploader, &trans);
       std::memcpy(trans.mapped.data, src, bytes);
-      RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+      RI_ResourceEndCopyBuffer(&mpGraphics->device, &mpGraphics->uploader, &trans);
     };
 
     // gDecals[] — one GpuDecal per world decal. Allocate at least one element so
@@ -849,7 +849,7 @@ void cWorld::PrepareFrame(RIBootstrap::FrameContext *cntx) {
     {
       const size_t count = decals.empty() ? (size_t)1 : decals.size();
       mpDecalBuffer = RISharedPointer<RIBuffer>(
-          &RI.device, RIBuffer::create(&RI.device,
+          &mpGraphics->device, RIBuffer::create(&mpGraphics->device,
                                        {(uint64_t)(count * sizeof(GpuDecal)),
                                         kSsboUsage, RI_MEMORY_DEVICE, 0}));
       if (decals.empty() == false)
@@ -863,7 +863,7 @@ void cWorld::PrepareFrame(RIBootstrap::FrameContext *cntx) {
       const size_t count =
           mvDecalObjectIndices.empty() ? (size_t)1 : mvDecalObjectIndices.size();
       mpDecalObjectIndexBuffer = RISharedPointer<RIBuffer>(
-          &RI.device, RIBuffer::create(&RI.device,
+          &mpGraphics->device, RIBuffer::create(&mpGraphics->device,
                                        {(uint64_t)(count * sizeof(uint32_t)),
                                         kSsboUsage, RI_MEMORY_DEVICE, 0}));
       if (mvDecalObjectIndices.empty() == false)
@@ -888,7 +888,7 @@ void cWorld::PrepareFrame(RIBootstrap::FrameContext *cntx) {
 //-----------------------------------------------------------------------
 
 uint32_t cWorld::SubmitRenderableObject(iRenderable *pObject,
-                                        RIBootstrap::FrameContext *cntx,
+                                        cGraphics::FrameContext *cntx,
                                         cFrustum *apFrustum,
                                         uint32_t cookieSalt) {
   cVertexBuffer *pVB = pObject->GetVertexBuffer();
@@ -897,7 +897,7 @@ uint32_t cWorld::SubmitRenderableObject(iRenderable *pObject,
     return UINT32_MAX;
 
   const uint32_t materialId =
-      RI.globalset->submitMaterial(cntx, pMat, (uint32_t)RI.frameIndex)
+      mpGraphics->globalset->submitMaterial(cntx, pMat, (uint32_t)mpGraphics->frameIndex)
           .materialId;
   if (materialId == UINT32_MAX)
     return UINT32_MAX; // material-slot pool exhausted — skip this object
@@ -928,7 +928,7 @@ uint32_t cWorld::SubmitRenderableObject(iRenderable *pObject,
                                      pObject->GetUniqueCookie()),
                             cookieSalt)
                  : (hash_t)pObject->GetUniqueCookie();
-  return RI.globalset->submitObject(cookie, (uint32_t)RI.frameIndex,
+  return mpGraphics->globalset->submitObject(cookie, (uint32_t)mpGraphics->frameIndex,
                                     static_cast<cVertexBuffer *>(pVB), d,
                                     kSubmitData | kSubmitVertex | kSubmitIndex);
 }
@@ -943,13 +943,13 @@ uint32_t cWorld::SubmitRenderableObject(iRenderable *pObject,
 // renderer's culled raster loop re-fetches the same slot for its indirect draws),
 // and BuildBlas ensures each mesh's BLAS is current before its device address is
 // read. Then grow/upload the instance buffer and record the TLAS build.
-void cWorld::BuildTlas(RIBootstrap::FrameContext *cntx, cFrustum *apFrustum) {
+void cWorld::BuildTlas(cGraphics::FrameContext *cntx, cFrustum *apFrustum) {
   // Keep last frame's TLAS resources alive for any in-flight frame (and across
   // world teardown), exactly like the light/fog/decal buffers above — a re-init
   // or grow below then just overwrites the members.
-  RI.graphicsDefer.push(mpTlas);
-  RI.graphicsDefer.push(mpTlasStorage);
-  RI.graphicsDefer.push(mpTlasInstanceBuffer);
+  mpGraphics->graphicsDefer.push(mpTlas);
+  mpGraphics->graphicsDefer.push(mpTlasStorage);
+  mpGraphics->graphicsDefer.push(mpTlasInstanceBuffer);
 
   std::vector<VkAccelerationStructureInstanceKHR> tlasInstances;
 
@@ -984,7 +984,7 @@ void cWorld::BuildTlas(RIBootstrap::FrameContext *cntx, cFrustum *apFrustum) {
 
     // BuildBlas submits the VB geometry first (internal SubmitToGPU), so the BLAS
     // + the submitObject payload (below) see the post-realloc index count.
-    vb->BuildBlas(&RI.blasSubmit.cmds[0], &RI.device, cntx);
+    vb->BuildBlas(&mpGraphics->blasSubmit.cmds[0], &mpGraphics->device, cntx);
 
     // Submit the renderable into the bindless object pool, stamping its slot into
     // instanceCustomIndex. The opaque path keys on the raw unique cookie — the
@@ -1016,7 +1016,7 @@ void cWorld::BuildTlas(RIBootstrap::FrameContext *cntx, cFrustum *apFrustum) {
     // kRayMaskOpaque, so they stay visible / lit / reflected but stop blocking
     // light. Translucents never cast shadows (unchanged).
     if (!translucent &&
-        (RI.forceShadows ||
+        (mpGraphics->forceShadows ||
          pObject->GetRenderFlagBit(eRenderableFlag_ShadowCaster)))
       inst.mask |= kRayMaskShadow;
     inst.instanceShaderBindingTableRecordOffset = 0;
@@ -1064,9 +1064,9 @@ void cWorld::BuildTlas(RIBootstrap::FrameContext *cntx, cFrustum *apFrustum) {
     // frame via the resource uploader. A persistent host mapping would race the
     // GPU's TLAS read for the previous frame still in flight.
     mpTlasInstanceBuffer = RISharedPointer<RIBuffer>(
-        &RI.device,
+        &mpGraphics->device,
         RIBuffer::create(
-            &RI.device,
+            &mpGraphics->device,
             {(uint64_t)newCap * sizeof(VkAccelerationStructureInstanceKHR),
              RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPT |
                  RI_BUFFER_USAGE_DEVICE_ADDRESS | RI_BUFFER_USAGE_TRANSFER_DST,
@@ -1086,12 +1086,12 @@ void cWorld::BuildTlas(RIBootstrap::FrameContext *cntx, cFrustum *apFrustum) {
     trans.currentStages = RI_STAGE_ACCEL_BUILD;
     trans.postState = RI_RESOURCE_STATE_ACCEL_READ;
     trans.postStages = RI_STAGE_ACCEL_BUILD;
-    RI_ResourceBeginCopyBuffer(&RI.device, &RI.uploader, &trans);
+    RI_ResourceBeginCopyBuffer(&mpGraphics->device, &mpGraphics->uploader, &trans);
     std::memcpy(trans.mapped.data, tlasInstances.data(), trans.size);
-    RI_ResourceEndCopyBuffer(&RI.device, &RI.uploader, &trans);
+    RI_ResourceEndCopyBuffer(&mpGraphics->device, &mpGraphics->uploader, &trans);
   }
 
-  // BLAS builds are recorded into RI.blasSubmit (submitted + semaphore-synced
+  // BLAS builds are recorded into Interface<cGraphics>::Get()->blasSubmit (submitted + semaphore-synced
   // ahead of the primary in CloseAndSubmitActiveSet), so they complete before
   // this primary buffer's TLAS build runs — no inline accel→accel barrier needed.
 
@@ -1104,14 +1104,14 @@ void cWorld::BuildTlas(RIBootstrap::FrameContext *cntx, cFrustum *apFrustum) {
 
   uint64_t tlasStorageSize = 0;
   uint64_t tlasBuildScratch = 0;
-  tlasDesc.getMemoryReqs(&RI.device, &tlasStorageSize, &tlasBuildScratch,
+  tlasDesc.getMemoryReqs(&mpGraphics->device, &tlasStorageSize, &tlasBuildScratch,
                          nullptr);
 
   if (mpTlas.isEmpty() ||
       (mpTlasStorage.isEmpty() || tlasStorageSize > mTlasStorageCapacity)) {
     mpTlasStorage = RISharedPointer<RIBuffer>(
-        &RI.device,
-        RIBuffer::create(&RI.device,
+        &mpGraphics->device,
+        RIBuffer::create(&mpGraphics->device,
                          {(uint64_t)tlasStorageSize,
                           RI_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE |
                               RI_BUFFER_USAGE_DEVICE_ADDRESS,
@@ -1122,8 +1122,8 @@ void cWorld::BuildTlas(RIBootstrap::FrameContext *cntx, cFrustum *apFrustum) {
     // Build into a local handle, then adopt on success so the TLAS has a single
     // refcount domain (mpTlas stays empty if init fails → skip build).
     RIAccelStructure tlas{};
-    if (tlas.init(&RI.device, &tlasDesc) == RI_SUCCESS)
-      mpTlas = RISharedPointer<RIAccelStructure>(&RI.device, tlas);
+    if (tlas.init(&mpGraphics->device, &tlasDesc) == RI_SUCCESS)
+      mpTlas = RISharedPointer<RIAccelStructure>(&mpGraphics->device, tlas);
     mTlasStorageCapacity = static_cast<uint32_t>(tlasStorageSize);
   }
 
@@ -1132,7 +1132,7 @@ void cWorld::BuildTlas(RIBootstrap::FrameContext *cntx, cFrustum *apFrustum) {
     // frames; oversized one-shot path for builds exceeding blockSize). RIBlockMem
     // embeds an RIBuffer, so hand its address straight to the build desc.
     RIBufferScratchAllocReq scratchReq = RIAllocBufferFromScratchAlloc(
-        &RI.device, &cntx->accelScratchAlloc, tlasBuildScratch);
+        &mpGraphics->device, &cntx->accelScratchAlloc, tlasBuildScratch);
 
     RIBuildTlasDesc build = {};
     build.dst = mpTlas.Get();
@@ -1143,11 +1143,11 @@ void cWorld::BuildTlas(RIBootstrap::FrameContext *cntx, cFrustum *apFrustum) {
     build.instanceOffset = 0;
     build.scratchBuffer = &scratchReq.block.buffer;
     build.scratchOffset = scratchReq.bufferOffset;
-    RI.primary.cmds[0].buildTlas(&RI.device, &build, 1);
+    mpGraphics->primary.cmds[0].buildTlas(&mpGraphics->device, &build, 1);
 
     // Consumed by both the RT pipelines and fragment-stage ray queries — one
     // barrier covers both.
-    RI.primary.cmds[0].vk_d3d12_memoryBarrier(
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_ACCEL_WRITE, RI_RESOURCE_STATE_ACCEL_READ,
          RI_STAGE_ACCEL_BUILD, RI_STAGE_FRAGMENT | RI_STAGE_RAY_TRACING});
   }

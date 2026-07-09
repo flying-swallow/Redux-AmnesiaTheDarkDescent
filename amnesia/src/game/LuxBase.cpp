@@ -42,7 +42,6 @@
 #include "LuxInsanityHandler.h"
 #include "LuxProgressLogHandler.h"
 #include "LuxLoadScreenHandler.h"
-#include "LuxScreenCapture.h"
 
 #include "LuxInventory.h"
 
@@ -156,7 +155,7 @@ void LuxCalcGuiSetOffset(const cVector2f &avVirtualSizeIn, const cVector2f& avSc
 
 void LuxCalcGuiSetScreenOffset(const cVector2f &avVirtualSizeIn, cVector2f& avOutSize, cVector2f & avOutOffset)
 {
-	LuxCalcGuiSetOffset(avVirtualSizeIn, gpBase->mpEngine->GetGraphics()->GetLowLevel()->GetScreenSizeFloat(), avOutSize, avOutOffset);
+	LuxCalcGuiSetOffset(avVirtualSizeIn, Interface<cWindow>::Get()->GetSizeF(), avOutSize, avOutOffset);
 }
 
 //-----------------------------------------------------------------------
@@ -519,6 +518,23 @@ void cLuxBase::RunModuleMessage(eLuxUpdateableMessage aMessage, void * apData)
 
 		pModule->LuxRunMessage(aMessage, apData);
 	}
+}
+
+//-----------------------------------------------------------------------
+
+void cLuxBase::OnScreenSizeChange(const cVector2l& avSize)
+{
+	// LuxCalcGuiSetScreenOffset reads the (already updated) live screen size, so
+	// recompute the letterbox size/offset and re-apply it to the HUD sets. The
+	// per-module menu/overlay states re-sync themselves via their own handlers.
+	LuxCalcGuiSetScreenOffset(mvHudVirtualCenterSize, mvHudVirtualSize, mvHudVirtualOffset);
+	mvHudVirtualStartPos = cVector3f(-mvHudVirtualOffset.x, -mvHudVirtualOffset.y, 0);
+
+	if(mpGameHudSet)
+		mpGameHudSet->SetVirtualSize(mvHudVirtualSize, -1000, 1000, mvHudVirtualOffset);
+
+	if(mpHelpFuncs)
+		mpHelpFuncs->RefreshHudVirtualSize();
 }
 
 bool cLuxBase::StartGame(const tString& asFile, const tString& asFolder, const tString& asStartPos)
@@ -1082,16 +1098,17 @@ bool cLuxBase::InitEngine()
 	//RaiseCrashFlag();
 
 	cEngineInitVars vars;
-	vars.mGraphics.mvScreenSize =  mpConfigHandler->mvScreenSize;
+	vars.mGraphics.mvScreenSize = mpConfigHandler->mvScreenSize;
 	vars.mGraphics.mlDisplay = mpConfigHandler->mlDisplay;
-	vars.mGraphics.mbFullscreen =  mpConfigHandler->mbFullscreen;
+	vars.mGraphics.mbFullscreen = mpConfigHandler->mbFullscreen;
+	vars.mGraphics.mbVsync = mpConfigHandler->mbVSync;
 	vars.mGraphics.msWindowCaption = msGameName + " Loading...";
-
 	vars.mSound.mlSoundDeviceID = mpConfigHandler->mlSoundDevID;
 	vars.mSound.mlMaxChannels = mpConfigHandler->mlMaxSoundChannels;
 	vars.mSound.mlStreamBufferCount = mpConfigHandler->mlSoundStreamBuffers;
 	vars.mSound.mlStreamBufferSize = mpConfigHandler->mlSoundStreamBufferSize;
 	vars.mSound.mbUseHRTF = mpConfigHandler->mbHRTFActive;
+
 
 	// Sound device filter set here (if needed)
 #if defined(_WIN32)
@@ -1107,8 +1124,6 @@ bool cLuxBase::InitEngine()
 
 	iRenderer::SetRefractionEnabled(mpConfigHandler->mbRefraction);
 
-	iLowLevelGraphics::SetForceShaderModel3And4Off(mpConfigHandler->mbForceShaderModel3And4Off);
-
 	//Other vars
 	cResources::SetForceCacheLoadingAndSkipSaving(mpConfigHandler->mbForceCacheLoadingAndSkipSaving);
 	cResources::SetCreateAndLoadCompressedMaps(false);
@@ -1120,7 +1135,6 @@ bool cLuxBase::InitEngine()
 	
 	/////////////////////////
 	// Set up more properties
-	// mpEngine->GetGraphics()->GetLowLevel()->SetVsyncActive(mpConfigHandler->mbVSync, mpConfigHandler->mbAdaptiveVSync);
 
 	// Gamma now lives in cLuxConfigHandler (loaded in LoadMainConfig) and is
 	// consumed by the tonemap post-effect; nothing to push here at startup
@@ -1209,7 +1223,15 @@ bool cLuxBase::InitGame()
 	mpGameDebugSet = mpEngine->GetGui()->CreateSet("GameDebug",NULL);
 	mpGameDebugSet->SetDrawPriority(1);
 	mpGameHudSet->SetDrawPriority(0);
-	
+
+	//////////////////////////////
+	// Re-derive the HUD virtual space (and re-apply it to the HUD + help-funcs
+	// sets) when the swapchain changes size — it is snapshotted here from the
+	// startup resolution and would otherwise stay pinned on a resize.
+	mScreenSizeChangedHandler = EventHandler<const cVector2l&>(
+		[this](const cVector2l& avSize){ OnScreenSizeChange(avSize); });
+	mScreenSizeChangedHandler.Connect(Interface<cWindow>::Get()->OnScreenSizeChanged());
+
 	/////////////////////////////
 	// Load another font if game is in chinese, 
 	// might want to fix this later since some debug text is tiny now
@@ -1242,8 +1264,7 @@ bool cLuxBase::InitGame()
 	mpSaveHandler = CreateGlobalModule( cLuxSaveHandler);
 	mpScriptHandler = CreateGlobalModule( cLuxScriptHandler);
 	mpProgressLogHandler = CreateGlobalModule( cLuxProgressLogHandler);
-	mpScreenCapture = CreateGlobalModule( cLuxScreenCapture);
-	
+
 	//Default
 	mpMapHandler = CreateModule( cLuxMapHandler, "Default");
 	mpMapHelper = CreateModule( cLuxMapHelper, "Default");
@@ -1372,7 +1393,7 @@ void cLuxBase::ExitGame()
 void cLuxBase::InitOver()
 {
 	//Set proper caption when loading is done.
-    gpBase->mpEngine->GetGraphics()->GetLowLevel()->SetWindowCaption(msGameName);
+    gpBase->mpEngine->GetGraphics()->GetWindow()->SetCaption(msGameName);
 
 }
 

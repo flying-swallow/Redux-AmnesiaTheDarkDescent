@@ -43,7 +43,7 @@ namespace hpl {
 	class cMeshLoaderMSH : public iMeshLoader
 	{
 	public:
-		cMeshLoaderMSH(iLowLevelGraphics *apLowLevelGraphics);
+		cMeshLoaderMSH();
 		~cMeshLoaderMSH();
 
 		cMesh* LoadMesh(const tWString& asFile, tMeshLoadFlag aFlags);

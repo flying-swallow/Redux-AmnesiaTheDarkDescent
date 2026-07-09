@@ -23,7 +23,6 @@
 #include "impl/PhysicsWorldNewton.h"
 #include "impl/PhysicsMaterialNewton.h"
 #include "system/LowLevelSystem.h"
-#include "graphics/LowLevelGraphics.h"
 #include "math/Math.h"
 #include "scene/Node3D.h"
 
@@ -420,11 +419,6 @@ namespace hpl {
 
 
 	////////////////////////////////////////////
-
-	void cPhysicsBodyNewton::RenderDebugGeometry(iLowLevelGraphics *apLowLevel,const cColor &aColor)
-	{
-		mpWorld->RenderShapeDebugGeometry(mpShape,GetLocalMatrix(),apLowLevel, aColor);
-	}
 
 	void cPhysicsBodyNewton::RenderDebugGeometry(DebugDraw *apDebugDraw,const cColor &aColor)
 	{

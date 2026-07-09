@@ -21,7 +21,7 @@
 #include "graphics/PostEffectComposite.h"
 
 #include "graphics/PostEffect.h"
-#include "graphics/RIBootstrap.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIPogoBuffer.h"
 #include "system/LowLevelSystem.h"
 
@@ -74,7 +74,7 @@ void cPostEffectComposite::Render(float afFrameTime, struct RICmd *cmd,
 
         effect->RenderEffect(ctx);
 
-        RI_PogoBufferToggle(&RI.device, pogo, cmd);
+        RI_PogoBufferToggle(&Interface<cGraphics>::Get()->device, pogo, cmd);
     }
 }
 

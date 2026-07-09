@@ -30,7 +30,6 @@
 #include "resources/Resources.h"
 #include "resources/FileSearcher.h"
 
-#include "graphics/LowLevelGraphics.h"
 #include "graphics/VertexBuffer.h"
 #include "graphics/Mesh.h"
 #include "graphics/SubMesh.h"
@@ -83,7 +82,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 	
-	cMeshLoaderFBX::cMeshLoaderFBX(iLowLevelGraphics *apLowLevelGraphics, cMeshLoaderMSH *apMeshLoaderMSH, bool abLoadAndSaveMSHFormat) : iMeshLoader(apLowLevelGraphics)
+	cMeshLoaderFBX::cMeshLoaderFBX(cMeshLoaderMSH *apMeshLoaderMSH, bool abLoadAndSaveMSHFormat)
 	{
 		mpMeshLoaderMSH = apMeshLoaderMSH;
 		mbLoadAndSaveMSHFormat = abLoadAndSaveMSHFormat;
@@ -1308,7 +1307,7 @@ namespace hpl {
 			eVertexBufferUsageType usageType = eVertexBufferUsageType_Static;
 			//Do some test to see if the mesh should be dynamic
 
-			subMeshData.mpVtxBuffer = mpLowLevelGraphics->CreateVertexBuffer(eVertexBufferType_Hardware,eVertexBufferDrawType_Tri,
+			subMeshData.mpVtxBuffer = new cVertexBuffer(eVertexBufferType_Hardware,eVertexBufferDrawType_Tri,
 				usageType,
 				(int)mvVertexes.size(), (int)mvIndexes.size());
 
