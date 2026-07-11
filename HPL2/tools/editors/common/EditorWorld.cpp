@@ -471,10 +471,27 @@ void iEditorWorld::ImportObjects(const tString& asX, tIntList& alstImportedIDs)
 	if(pDoc==NULL)
 		return;
 
-	tinyxml2::XMLElement* pWorldData = pDoc->FirstChildElement("MapData");
+	ImportObjects(pDoc, alstImportedIDs);
+	mpEditor->GetEngine()->GetResources()->DestroyXmlDocument(pDoc);
+}
+
+bool iEditorWorld::ImportObjects(tinyxml2::XMLElement* apRootElem, tIntList& alstImportedIDs)
+{
+	if(apRootElem==NULL)
+		return false;
+
+	// Accept either a <Level> root (as .map / .expobj files have) or the
+	// <MapData> element directly.
+	tinyxml2::XMLElement* pWorldData = apRootElem->FirstChildElement("MapData");
+	if(pWorldData==NULL && tString(apRootElem->Value())=="MapData")
+		pWorldData = apRootElem;
+	if(pWorldData==NULL)
+		return false;
 
 	tinyxml2::XMLElement* pXmlObjectsData = pWorldData->FirstChildElement("MapContents");
-	
+	if(pXmlObjectsData==NULL)
+		return false;
+
 	tStringVec vIndexStrings;
 	vIndexStrings.push_back("StaticObjects");
 	vIndexStrings.push_back("Entities");
@@ -546,6 +563,8 @@ void iEditorWorld::ImportObjects(const tString& asX, tIntList& alstImportedIDs)
 		//pEnt->PostCreateAllLoadedObjects();
 		//pEnt->PostCreationCleanUp();
 	}
+
+	return true;
 }
 
 //----------------------------------------------------------------------------

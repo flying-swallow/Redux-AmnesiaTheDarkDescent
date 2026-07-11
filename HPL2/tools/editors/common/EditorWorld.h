@@ -100,6 +100,10 @@ public:
 
 
 	virtual void ImportObjects(const tString& asX, tIntList& alstImportedIDs);
+	// Same import, from an already-parsed XML root (<Level> or <MapData>).
+	// Returns false when the expected MapData/MapContents shape is missing.
+	// Used by the MCP import_map tool.
+	bool ImportObjects(tinyxml2::XMLElement* apRootElem, tIntList& alstImportedIDs);
 	virtual void ExportObjects(const tString& asX, tEntityWrapperList& alstEntsToExport);
 
 

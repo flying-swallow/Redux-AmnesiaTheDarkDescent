@@ -21,6 +21,10 @@
 using namespace hpl;
 
 #include "LevelEditor.h"
+#include "LevelEditorMCPServer.h"
+#include "LevelEditorCameraCapture.h"
+
+#include <cstdlib> // getenv
 
 #include <tinyxml2.h>
 #include "resources/XmlHelper.h"
@@ -131,10 +135,31 @@ void cLevelEditorGroup::SetVisibility(bool abX)
 
 cLevelEditor::cLevelEditor() : iEditorBase(_W("Maps"), _W("*.map"))
 {
+	mpMCPServer     = NULL;
+	mpCameraCapture = NULL;
+	mbMCPEnabled    = true;
+	mlMCPPort       = 8787;
 }
 
 cLevelEditor::~cLevelEditor()
 {
+	// Stop the MCP server first so no queued tool call runs against a
+	// half-destroyed editor (its dtor joins the listener + worker threads, and
+	// error-fulfils any parked deferred capture promises).
+	if(mpMCPServer)
+	{
+		hplDelete(mpMCPServer);
+		mpMCPServer = NULL;
+	}
+
+	// Then the camera capture (frees its headless viewport/camera/GPU resources;
+	// the scene is still alive here — it is torn down later in ~iEditorBase).
+	if(mpCameraCapture)
+	{
+		hplDelete(mpCameraCapture);
+		mpCameraCapture = NULL;
+	}
+
 	OnSaveConfig();
 }
 
@@ -204,6 +229,91 @@ void cLevelEditor::Command_Export()
 																	_W("*.expobj"), msLastSavePath, 
 																	false, this, kGuiCallback(ExportFileCallback));
 	pPicker->AddOnDestroyCallback(this, kGuiCallback(PopUpCloseCallback));
+}
+
+//--------------------------------------------------------------------
+
+bool cLevelEditor::SaveToFile(const tWString& asPath)
+{
+	if(asPath.empty()) return false;
+	msSaveFilename = asPath;
+	Save();
+	return true;
+}
+
+//--------------------------------------------------------------------
+
+bool cLevelEditor::LoadFromFile(const tWString& asPath)
+{
+	if(cPlatform::FileExists(asPath)==false) return false;
+	mvLoadFilenames.clear();
+	mvLoadFilenames.push_back(asPath);
+	Load();
+	return true;
+}
+
+//--------------------------------------------------------------------
+
+void cLevelEditor::RestartMCPServer()
+{
+	if(mpMCPServer)
+	{
+		hplDelete(mpMCPServer);
+		mpMCPServer = NULL;
+	}
+	if(mbMCPEnabled)
+	{
+		mpMCPServer = hplNew(cLevelEditorMCPServer, (this, "127.0.0.1", mlMCPPort, msMCPToken));
+		if(mpMCPServer->Start()==false)
+		{
+			hplDelete(mpMCPServer);
+			mpMCPServer = NULL;
+		}
+	}
+	mpEngine->SetWaitIfAppOutOfFocus(mpMCPServer == NULL);
+}
+
+//--------------------------------------------------------------------
+
+void cLevelEditor::GetMCPState(bool& abEnabled, int& alPort, tString& asToken, tString& asStatus)
+{
+	abEnabled = mbMCPEnabled;
+	alPort    = mlMCPPort;
+	asToken   = msMCPToken;
+
+	if(mpMCPServer && mpMCPServer->IsRunning())
+		asStatus = "listening on http://127.0.0.1:" + cString::ToString(mlMCPPort) + "/mcp";
+	else if(mbMCPEnabled)
+		asStatus = "enabled but not running (port in use?)";
+	else
+		asStatus = "disabled";
+}
+
+//--------------------------------------------------------------------
+
+void cLevelEditor::ApplyMCPConfig(bool abEnabled, int alPort, const tString& asToken)
+{
+	mbMCPEnabled = abEnabled;
+	if(alPort > 0 && alPort <= 65535) mlMCPPort = alPort;
+	msMCPToken = asToken;
+	RestartMCPServer();
+}
+
+//--------------------------------------------------------------------
+
+int cLevelEditor::GetMCPClientCount()
+{
+	return cLevelEditorMCPServer::GetClientCount();
+}
+
+tString cLevelEditor::GetMCPClientLabel(int alIdx)
+{
+	return cLevelEditorMCPServer::GetClientLabel(alIdx);
+}
+
+tString cLevelEditor::GetMCPClientSnippet(int alIdx)
+{
+	return cLevelEditorMCPServer::BuildClientSnippet(alIdx, "127.0.0.1", mlMCPPort, msMCPToken);
 }
 
 //--------------------------------------------------------------------
@@ -544,6 +654,17 @@ void cLevelEditor::OnInit()
 	AddEditMode(hplNew(cEditorEditModeDecals,(this, mpEditorWorld)));
 	AddEditMode(hplNew(cEditorEditModeFogAreas,(this, mpEditorWorld)));
 	AddEditMode(hplNew(cEditorEditModeCombine, (this)));
+
+	//////////////////////////////////////////////////
+	// MCP server (localhost). Config was read in OnLoadConfig; start it here.
+	// Also (re)started when the Options "MCP" tab applies changes.
+	RestartMCPServer();
+
+	//////////////////////////////////////////////////
+	// Off-screen virtual-camera capture backing the MCP 'capture_view' tool.
+	// Independent of whether the server is currently running (it is only used
+	// when a capture is requested).
+	mpCameraCapture = hplNew(cLevelEditorCameraCapture, (this));
 }
 
 //--------------------------------------------------------------------
@@ -600,11 +721,35 @@ void cLevelEditor::OnSetUpDirectories()
 
 void cLevelEditor::OnUpdate(float afTimeStep)
 {
-	/*iWidget* pWidget = mpSet->GetAttentionWidget();
-	iWidget* pWidgetParent = pWidget?pWidget->GetParent():NULL;
-	Log("Current attention widget: 0x%x - %s, parent: 0x%x - %s\n", pWidget, pWidget?pWidget->GetTypeString().c_str():"NULL", 
-																	pWidgetParent, pWidgetParent?pWidgetParent->GetTypeString().c_str():"NULL");
-																	*/
+	// Drain any MCP tool calls queued by the server's worker threads and run
+	// them here, on the main/engine thread (see LevelEditorMCPServer.h).
+	if(mpMCPServer)
+		mpMCPServer->DrainQueue();
+}
+
+//--------------------------------------------------------------------
+
+void cLevelEditor::OnPostRender(float afTimeStep)
+{
+	// Pump the async camera-capture jobs from the base OnDraw (after the scene
+	// render), so the editor world's per-frame GPU data (TLAS / lights / decals,
+	// published by PrepareFrame for the visible viewport) is ready for our
+	// headless eRenderer_Main Evaluate. Then hand any finished captures to the
+	// MCP server (which parked the caller's promise). Always drain — even if the
+	// server was disabled/restarted since the job was queued — so completions
+	// don't pile up; FulfillDeferred is a no-op for an id the current server
+	// doesn't hold.
+	if(mpCameraCapture==NULL) return;
+
+	mpCameraCapture->Pump(afTimeStep);
+
+	int lJobId;
+	cMCPToolResult result;
+	while(mpCameraCapture->PopCompleted(lJobId, result))
+	{
+		if(mpMCPServer)
+			mpMCPServer->FulfillDeferred(lJobId, result);
+	}
 }
 
 //--------------------------------------------------------------------
@@ -681,6 +826,16 @@ void cLevelEditor::OnLoadConfig()
 
 	mpActionHandler->SetMaxUndoSize(mpLocalConfig->GetInt("Options","UndoStackSize", 50));
 	iEngineEntityMesh::SetDisabledCoverage(mpLocalConfig->GetFloat("Options", "DisabledCoverage", 0.5f));
+
+	/////////////////////////////////
+	// MCP server config (edited via the Options "MCP" tab)
+	mbMCPEnabled = mpLocalConfig->GetBool("MCP", "Enabled", true);
+	mlMCPPort    = mpLocalConfig->GetInt("MCP", "Port", 8787);
+	msMCPToken   = mpLocalConfig->GetString("MCP", "Token", "");
+	{
+		const char* pEnvPort = getenv("HPL_EDITOR_MCP_PORT");
+		if(pEnvPort) mlMCPPort = atoi(pEnvPort);
+	}
 
 	/////////////////////////////////
 	// Recent files setup
@@ -771,6 +926,12 @@ void cLevelEditor::OnSaveConfig()
 
 	mpLocalConfig->SetInt("Options","UndoStackSize",(int)mpActionHandler->GetMaxUndoSize());
 	mpLocalConfig->SetFloat("Options", "DisabledCoverage", iEngineEntityMesh::GetDisabledCoverage());
+
+	////////////////////////////////
+	// MCP server config
+	mpLocalConfig->SetBool("MCP", "Enabled", mbMCPEnabled);
+	mpLocalConfig->SetInt("MCP", "Port", mlMCPPort);
+	mpLocalConfig->SetString("MCP", "Token", msMCPToken);
 
 	// Save recent file names
 	int i=0;

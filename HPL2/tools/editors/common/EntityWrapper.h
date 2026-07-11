@@ -594,7 +594,10 @@ public:
 	iProp* GetPropByTypeAndID(eVariableType, int);
 	iProp* GetPropByName(const tString&);
 
-	
+	// All registered properties, grouped by copy step (for enumeration).
+	const std::vector<tPropList>& GetPropLists() { return mvProperties; }
+
+
 	/**
 	 * Gets a vector of integer IDs that represent the types that can be attached to 
 	 * entities of this type, if any.
@@ -943,6 +946,10 @@ public:
 
 	virtual bool CreateEngineEntity();
 	virtual iEngineEntity* CreateSpecificEngineEntity() { return NULL; }
+
+	// Tear down the engine entity only (drops its mesh/material/texture refs).
+	// Used by the MCP set_entity path, which rebuilds it from the new data.
+	void DestroyEngineEntity();
 
 	/////////////////////////////////////////////////////////////
 	// Property interface

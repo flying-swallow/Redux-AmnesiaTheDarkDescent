@@ -1354,6 +1354,9 @@ void iEditorBase::OnDraw(float afFrameTime)
 	// viewport here (see EditorThumbnailBuilder.h).
 	if(mpThumbnailBuilder)
 		mpThumbnailBuilder->Pump(afFrameTime);
+
+	// App hook, same post-render window (drives the LevelEditor MCP camera capture).
+	OnPostRender(afFrameTime);
 }
 
 //----------------------------------------------------------------------------

@@ -27,14 +27,18 @@ local function editor_includes()
         ROOT .. "/amnesia/glsl",
         DEPS_SOURCES .. "/AngelScript/include",
         DEPS_EXTERN .. "/tinyxml2",
+        DEPS_EXTERN .. "/rapidjson/include", -- RapidJSON submodule (header-only, MCP server)
+        DEPS_EXTERN .. "/httplib",    -- cpp-httplib (header-only, MCP server)
     }
     deps_public_includes()
     vulkan_includes()
     mathlib_use()
-    defines { "USERDIR_RESOURCES" }
+    defines { "USERDIR_RESOURCES", "RAPIDJSON_HAS_STDSTRING=1" }
     link_engine()
     filter "system:linux"
         linkoptions { "-Wl,-rpath,'$$ORIGIN/libs'", "-Wl,-rpath,'$$ORIGIN'" }
+    filter "system:windows"
+        links { "ws2_32" }            -- cpp-httplib (LevelEditor MCP server) needs Winsock
     filter {}
 end
 
@@ -101,6 +105,8 @@ local leveleditor = {
     "EntityWrapperStaticObject.cpp", "SphereCreator.cpp", "StdAfx.cpp",
     "SurfacePicker.cpp",
     "LevelEditor.cpp", "LevelEditorActions.cpp", "LevelEditorMain.cpp",
+    "LevelEditorMCPServer.cpp", "LevelEditorMCPCommands.cpp",
+    "LevelEditorCameraCapture.cpp",
     "LevelEditorStaticObjectCombo.cpp", "LevelEditorWindow.cpp",
     "LevelEditorWindowGroup.cpp", "LevelEditorWindowLevelSettings.cpp",
     "LevelEditorWorld.cpp",

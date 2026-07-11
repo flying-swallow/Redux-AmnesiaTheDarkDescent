@@ -1750,8 +1750,14 @@ bool iEntityWrapper::CreateEngineEntity()
 
 //------------------------------------------------------------------
 
-
-//------------------------------------------------------------------
+void iEntityWrapper::DestroyEngineEntity()
+{
+	if(mpEngineEntity)
+	{
+		hplDelete(mpEngineEntity);
+		mpEngineEntity = NULL;
+	}
+}
 
 //------------------------------------------------------------------
 

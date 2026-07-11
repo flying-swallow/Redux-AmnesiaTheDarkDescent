@@ -24,9 +24,15 @@
 #include "EditorSelection.h"
 #include "EngineEntity.h"
 
+#include "system/Platform.h"        // cPlatform::CopyTextToClipboard
+#include "gui/WidgetTabFrame.h"
+#include "gui/WidgetLabel.h"
+#include "gui/WidgetButton.h"
+#include "gui/WidgetTextBox.h"
+
 //-----------------------------------------------------------------
 
-cEditorWindowOptions::cEditorWindowOptions(iEditorBase* apEditor) : iEditorWindowPopUp(apEditor, "Options Window", true, false, false, cVector2f(640,240))
+cEditorWindowOptions::cEditorWindowOptions(iEditorBase* apEditor) : iEditorWindowPopUp(apEditor, "Options Window", true, false, false, cVector2f(640,360))
 {
 }
 
@@ -142,6 +148,58 @@ void cEditorWindowOptions::OnInitLayout()
 	mpInpScaleSnap = CreateInputNumber(vPos, _W("Scale snap"), "", pTab, 50, 0.25f);
 	mpInpScaleSnap->SetLowerBound(true,0);
 	mpInpRotateSnap->SetDecimals(3);
+
+	/////////////////////////////////////////////////////////
+	// MCP server options (only where supported — the LevelEditor)
+	mpInpMCPEnabled    = NULL;
+	mpInpMCPPort       = NULL;
+	mpInpMCPToken      = NULL;
+	mpMCPStatusLabel   = NULL;
+	mpMCPRestartButton = NULL;
+	mpMCPPreview       = NULL;
+	if(mpEditor->SupportsMCP())
+	{
+		pTab = pFrame->AddTab(_W("MCP"));
+
+		mpInpMCPEnabled = CreateInputBool(cVector3f(15,15,0.1f), _W("Server enabled"), "", pTab);
+
+		mpInpMCPPort = CreateInputNumber(cVector3f(230,12,0.1f), _W("Port"), "", pTab, 60, 1);
+		mpInpMCPPort->SetLayoutStyle(eEditorInputLayoutStyle_RowLabelOnLeft);
+		mpInpMCPPort->UpdateLayout();
+		mpInpMCPPort->SetLowerBound(true, 1);
+		mpInpMCPPort->SetUpperBound(true, 65535);
+		mpInpMCPPort->SetDecimals(0);
+
+		mpInpMCPToken = CreateInputString(cVector3f(15,45,0.1f), _W("Token (optional)"), "", pTab, 200);
+		mpInpMCPToken->SetLayoutStyle(eEditorInputLayoutStyle_RowLabelOnLeft);
+		mpInpMCPToken->UpdateLayout();
+
+		mpMCPStatusLabel = mpSet->CreateWidgetLabel(cVector3f(15,82,0.1f), 0, _W(""), pTab);
+
+		mpMCPRestartButton = mpSet->CreateWidgetButton(cVector3f(430,78,0.1f), cVector2f(150,25), _W("Apply / Restart"), pTab);
+		mpMCPRestartButton->AddCallback(eGuiMessage_ButtonPressed, this, kGuiCallback(MCPButtonCallback));
+
+		mpSet->CreateWidgetLabel(cVector3f(15,112,0.1f), 0, _W("Copy connection config for:"), pTab);
+
+		mvMCPCopyButtons.clear();
+		int lClientCount = mpEditor->GetMCPClientCount();
+		for(int i=0; i<lClientCount; ++i)
+		{
+			int lCol = i % 2;
+			int lRow = i / 2;
+			float fX = 15.0f + (float)lCol*300.0f;
+			float fY = 134.0f + (float)lRow*28.0f;
+
+			mpSet->CreateWidgetLabel(cVector3f(fX, fY+4, 0.1f), 0, cString::To16Char(mpEditor->GetMCPClientLabel(i)), pTab);
+			cWidgetButton* pCopy = mpSet->CreateWidgetButton(cVector3f(fX+110, fY, 0.1f), cVector2f(60,24), _W("Copy"), pTab);
+			pCopy->AddCallback(eGuiMessage_ButtonPressed, this, kGuiCallback(MCPButtonCallback));
+			mvMCPCopyButtons.push_back(pCopy);
+		}
+
+		int lNumRows = (lClientCount + 1) / 2;
+		float fPreviewY = 134.0f + (float)lNumRows*28.0f + 8.0f;
+		mpMCPPreview = mpSet->CreateWidgetTextBox(cVector3f(15, fPreviewY, 0.1f), cVector2f(590,25), _W(""), pTab);
+	}
 }
 
 //-----------------------------------------------------------------
@@ -182,6 +240,16 @@ void cEditorWindowOptions::OnUpdate(float afTimeStep)
 	mpInpMouseWheelZoom->SetValue(cString::ToFloat(mpEditor->GetSetting("MouseWheelZoom").c_str(), 0.1f), false);
 	mpInpRotateSnap->SetValue(cMath::ToDeg(cEditorSelection::GetRotateSnap()), false);
 	mpInpScaleSnap->SetValue(cEditorSelection::GetScaleSnap(), false);
+
+	if(mpEditor->SupportsMCP() && mpInpMCPEnabled)
+	{
+		bool bEnabled=false; int lPort=0; tString sToken, sStatus;
+		mpEditor->GetMCPState(bEnabled, lPort, sToken, sStatus);
+		mpInpMCPEnabled->SetValue(bEnabled, false);
+		mpInpMCPPort->SetValue((float)lPort, false);
+		mpInpMCPToken->SetValue(cString::To16Char(sToken), false);
+		if(mpMCPStatusLabel) mpMCPStatusLabel->SetText(_W("Status: ") + cString::To16Char(sStatus));
+	}
 }
 
 //-----------------------------------------------------------------
@@ -247,7 +315,15 @@ bool cEditorWindowOptions::WindowSpecificInputCallback(iEditorInput* apInput)
 
 	else if(apInput==mpInpScaleSnap)
 		cEditorSelection::SetScaleSnap(mpInpScaleSnap->GetValue());
-	
+
+	else if(apInput==mpInpMCPEnabled || apInput==mpInpMCPPort || apInput==mpInpMCPToken)
+	{
+		bool bEnabled  = mpInpMCPEnabled->GetValue();
+		int  lPort     = (int)mpInpMCPPort->GetValue();
+		tString sToken = cString::To8Char(mpInpMCPToken->GetValue());
+		mpEditor->ApplyMCPConfig(bEnabled, lPort, sToken);
+	}
+
 
 	tEditorViewportVec& vViewports = mpEditor->GetViewports();
 	for(int i=0;i<(int)vViewports.size();++i)
@@ -258,7 +334,39 @@ bool cEditorWindowOptions::WindowSpecificInputCallback(iEditorInput* apInput)
 
 	mpEditor->SetLayoutNeedsUpdate(true);
 
-	return true;		
+	return true;
 }
+
+//-----------------------------------------------------------------
+
+bool cEditorWindowOptions::MCPButtonCallback(iWidget* apWidget, const cGuiMessageData& aData)
+{
+	if(mpEditor->SupportsMCP()==false) return true;
+
+	// Apply / Restart: push the current field values to the editor (restarts server).
+	if(apWidget==mpMCPRestartButton)
+	{
+		bool bEnabled  = mpInpMCPEnabled->GetValue();
+		int  lPort     = (int)mpInpMCPPort->GetValue();
+		tString sToken = cString::To8Char(mpInpMCPToken->GetValue());
+		mpEditor->ApplyMCPConfig(bEnabled, lPort, sToken);
+		OnUpdate(0);
+		return true;
+	}
+
+	// Copy[i]: put that client's connection snippet on the clipboard + preview it.
+	for(size_t i=0; i<mvMCPCopyButtons.size(); ++i)
+	{
+		if(apWidget==mvMCPCopyButtons[i])
+		{
+			tString sSnippet = mpEditor->GetMCPClientSnippet((int)i);
+			cPlatform::CopyTextToClipboard(cString::To16Char(sSnippet));
+			if(mpMCPPreview) mpMCPPreview->SetText(cString::To16Char(sSnippet));
+			break;
+		}
+	}
+	return true;
+}
+kGuiCallbackDeclaredFuncEnd(cEditorWindowOptions, MCPButtonCallback);
 
 //-----------------------------------------------------------------

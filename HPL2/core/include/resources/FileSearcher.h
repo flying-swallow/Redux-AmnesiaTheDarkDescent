@@ -66,11 +66,16 @@ namespace hpl {
 
         /**
          * Gets a file pointer and searches through all added resources.
-         * \param asName Name of the file. 
+         * \param asName Name of the file.
 		 * \return Path to the file. "" if file is not found.
          */
         const tWString& GetFilePath(const tString& asFileNameAndPath, int *apEqualCount=NULL);
-	
+
+		/**
+		 * The full index: lowercase filename -> entry (built at AddDirectory time).
+		 */
+		const tFilePathMap& GetAllFiles() const { return m_mapFiles; }
+
 	private:
 		tFilePathMap m_mapFiles;
 		tWStringSet m_setLoadedDirs;

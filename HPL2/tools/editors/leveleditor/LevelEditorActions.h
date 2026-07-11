@@ -71,6 +71,25 @@ protected:
 
 //--------------------------------------------------------------------------------------
 
+// Like GroupAddSelected, but for an explicit entity id list (MCP set_group).
+class cLevelEditorActionGroupSetEntities : public iEditorAction
+{
+public:
+	cLevelEditorActionGroupSetEntities(iEditorBase* apEditor, unsigned int alID, const tIntList& alstEntityIDs);
+
+	void Do();
+	void Undo();
+
+protected:
+	iEditorBase* mpEditor;
+	unsigned int mlID;
+
+	tIntVec mvEntityIDs;
+	tUIntVec mvEntityGroups;
+};
+
+//--------------------------------------------------------------------------------------
+
 class cLevelEditorActionGroupDelete : public iEditorAction
 {
 public:

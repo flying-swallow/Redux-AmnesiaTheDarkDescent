@@ -40,6 +40,10 @@ struct RIBuffer RIBuffer::create(struct RIDevice *device,
     aci.usage = VMA_MEMORY_USAGE_AUTO;
     aci.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
                 VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+  } else if (desc.location == RI_MEMORY_HOST_READBACK) {
+    aci.usage = VMA_MEMORY_USAGE_AUTO;
+    aci.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
+                VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
   } else {
     aci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
   }
@@ -55,7 +59,8 @@ struct RIBuffer RIBuffer::create(struct RIDevice *device,
                                   &buf.vk.buffer, &buf.vk.allocation,
                                   &allocationInfo));
   }
-  buf.mappedAddress = (desc.location == RI_MEMORY_HOST_UPLOAD)
+  buf.mappedAddress = (desc.location == RI_MEMORY_HOST_UPLOAD ||
+                       desc.location == RI_MEMORY_HOST_READBACK)
                           ? allocationInfo.pMappedData
                           : nullptr;
   buf.cookie = hash.value_or(hash_random());

@@ -86,6 +86,72 @@ void cEditorActionObjectCreate::UndoModify()
 //---------------------------------------------------------------------------------------
 //---------------------------------------------------------------------------------------
 /////////////////////////////////////////////////////////////////////////////////////////
+// ENTITY SET DATA ACTION
+/////////////////////////////////////////////////////////////////////////////////////////
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------
+
+cEditorActionEntitySetData::cEditorActionEntitySetData(iEditorWorld* apEditorWorld, int alID, iEntityWrapperData* apNewData) : iEditorActionWorldModifier("Set Entity Data",apEditorWorld)
+{
+	mlID      = alID;
+	mpNewData = apNewData;
+
+	// Snapshot the entity's current data for undo (same as the delete action).
+	iEntityWrapper* pEnt = mpEditorWorld->GetEntity(mlID);
+	mpOldData = pEnt ? pEnt->CreateCopyData() : NULL;
+}
+
+cEditorActionEntitySetData::~cEditorActionEntitySetData()
+{
+	if(mpNewData) hplDelete(mpNewData);
+	if(mpOldData) hplDelete(mpOldData);
+}
+
+//---------------------------------------------------------------------------------------
+
+// Rebuild the placed entity's engine entity from apData, in place: tear down the
+// engine entity, re-apply the data across the Pre/Post copy steps, then recreate.
+void cEditorActionEntitySetData::ApplyData(iEntityWrapperData* apData)
+{
+	if(apData==NULL)
+		return;
+
+	iEntityWrapper* pEnt = mpEditorWorld->GetEntity(mlID);
+	if(pEnt==NULL)
+		return;
+
+	pEnt->DestroyEngineEntity();
+	apData->CopyToEntity(pEnt, ePropCopyStep_PreEnt);
+	pEnt->CreateEngineEntity();
+	apData->CopyToEntity(pEnt, ePropCopyStep_PostEnt);
+	pEnt->UpdateEntity();
+
+	// Re-push the selection highlight onto the rebuilt engine entity.
+	if(pEnt->IsSelected())
+		pEnt->SetSelected(true);
+}
+
+//---------------------------------------------------------------------------------------
+
+void cEditorActionEntitySetData::DoModify()
+{
+	ApplyData(mpNewData);
+}
+
+//---------------------------------------------------------------------------------------
+
+void cEditorActionEntitySetData::UndoModify()
+{
+	ApplyData(mpOldData);
+}
+
+//---------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------
+//---------------------------------------------------------------------------------------
+/////////////////////////////////////////////////////////////////////////////////////////
 // ENTITY DELETE ACTION
 /////////////////////////////////////////////////////////////////////////////////////////
 //---------------------------------------------------------------------------------------

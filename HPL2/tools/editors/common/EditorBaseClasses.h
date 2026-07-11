@@ -362,6 +362,18 @@ public:
 	void SetSettingValue(const tString& asSetting, const tString& asValue) { mmapEditorSettings[asSetting] = asValue; }
 	const tString& GetSetting(const tString& asSetting) { return mmapEditorSettings[asSetting]; }
 
+	///////////////////////////////////
+	// MCP server hooks
+	// Default no-ops so the shared Options window can offer an MCP tab without
+	// knowing about MCP types. The LevelEditor overrides these (it owns the
+	// embedded MCP server); other editors leave SupportsMCP()==false.
+	virtual bool SupportsMCP() { return false; }
+	virtual void GetMCPState(bool& abEnabled, int& alPort, tString& asToken, tString& asStatus) {}
+	virtual void ApplyMCPConfig(bool abEnabled, int alPort, const tString& asToken) {}
+	virtual int GetMCPClientCount() { return 0; }
+	virtual tString GetMCPClientLabel(int alIdx) { return ""; }
+	virtual tString GetMCPClientSnippet(int alIdx) { return ""; }
+
 
 	///////////////////////////////////
 	// Execution Control
@@ -427,6 +439,10 @@ protected:
 	virtual void SetUpViewports();
 
 	virtual void OnUpdate(float afTimeStep){}
+	// App-specific hook run from OnDraw (inside the frame's command-recording
+	// window, after the scene render), alongside the thumbnail-builder pump.
+	// The LevelEditor drives its MCP off-screen camera capture here.
+	virtual void OnPostRender(float afTimeStep){}
 	virtual void AppGotInputFocus();
 
 	virtual void OnLoadConfig()=0;

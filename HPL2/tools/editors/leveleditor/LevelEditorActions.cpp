@@ -136,6 +136,56 @@ void cLevelEditorActionGroupAddSelected::Undo()
 }
 
 //--------------------------------------------------------------------------------------
+
+cLevelEditorActionGroupSetEntities::cLevelEditorActionGroupSetEntities(iEditorBase* apEditor, unsigned int alID, const tIntList& alstEntityIDs) : iEditorAction("Set entities' group")
+{
+	mpEditor = apEditor;
+	mlID = alID;
+
+	tIntList::const_iterator it = alstEntityIDs.begin();
+	for(;it!=alstEntityIDs.end();++it)
+	{
+		iEntityWrapper* pEnt = mpEditor->GetEditorWorld()->GetEntity(*it);
+		if(pEnt==NULL) continue;
+		cLevelEditorEntityExtData* pData = (cLevelEditorEntityExtData*)pEnt->GetEntityExtData();
+		if(pData==NULL) continue;
+
+		mvEntityIDs.push_back(pEnt->GetID());
+		mvEntityGroups.push_back(pData->mlGroupID);
+	}
+}
+
+//--------------------------------------------------------------------------------------
+
+void cLevelEditorActionGroupSetEntities::Do()
+{
+	for(int i=0;i<(int)mvEntityIDs.size();++i)
+	{
+		iEntityWrapper* pEnt = mpEditor->GetEditorWorld()->GetEntity(mvEntityIDs[i]);
+		cLevelEditorEntityExtData* pData = (cLevelEditorEntityExtData*)pEnt->GetEntityExtData();
+
+		pData->mlGroupID = mlID;
+	}
+
+	mpEditor->GetEditorWorld()->IncModifications();
+}
+
+//--------------------------------------------------------------------------------------
+
+void cLevelEditorActionGroupSetEntities::Undo()
+{
+	for(int i=0;i<(int)mvEntityIDs.size();++i)
+	{
+		iEntityWrapper* pEnt = mpEditor->GetEditorWorld()->GetEntity(mvEntityIDs[i]);
+		cLevelEditorEntityExtData* pData = (cLevelEditorEntityExtData*)pEnt->GetEntityExtData();
+
+		pData->mlGroupID = mvEntityGroups[i];
+	}
+
+	mpEditor->GetEditorWorld()->DecModifications();
+}
+
+//--------------------------------------------------------------------------------------
 //--------------------------------------------------------------------------------------
 //--------------------------------------------------------------------------------------
 

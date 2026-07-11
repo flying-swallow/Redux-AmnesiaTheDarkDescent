@@ -51,6 +51,9 @@ class iEditorWindowEditModeSidebar;
 class cEditorWindowTextureBrowser;
 class cEditorWindowOptions;
 
+class cLevelEditorMCPServer;
+class cLevelEditorCameraCapture;
+
 //--------------------------------------------------------------------
 
 enum eDirExt
@@ -122,6 +125,29 @@ public:
 	// Open up a file picker for exporting all currently selected entities into a map file.
 	void Command_Export();
 
+	// Programmatic save/load to an explicit path, bypassing the GUI file picker
+	// (used by the MCP server). These reach the protected msSaveFilename /
+	// mvLoadFilenames that the base Save()/Load() consume. Return false on
+	// obvious failure (empty path / missing file).
+	bool SaveToFile(const tWString& asPath);
+	bool LoadFromFile(const tWString& asPath);
+
+	// Current .map path (empty if unsaved). Public accessor for the MCP server.
+	const tWString& GetCurrentMapFilename() { return msSaveFilename; }
+
+	// Off-screen virtual-camera capture backing the MCP 'capture_view' tool.
+	// NULL until OnInit, or if the headless render setup failed.
+	cLevelEditorCameraCapture* GetCameraCapture() { return mpCameraCapture; }
+
+	///////////////////////////////
+	// MCP server hooks (override iEditorBase; drive the Options "MCP" tab)
+	bool SupportsMCP() { return true; }
+	void GetMCPState(bool& abEnabled, int& alPort, tString& asToken, tString& asStatus);
+	void ApplyMCPConfig(bool abEnabled, int alPort, const tString& asToken);
+	int GetMCPClientCount();
+	tString GetMCPClientLabel(int alIdx);
+	tString GetMCPClientSnippet(int alIdx);
+
 	///////////////////////////////
 	// Group Tool stuff
 	void AddGroup(unsigned int alID, const tString& asName);
@@ -166,6 +192,11 @@ protected:
 	void OnSetUpDirectories();
 
 	void OnUpdate(float afTimeStep);
+	// Pumps the async camera-capture jobs (render + GPU readback happen across
+	// frames) and hands finished captures to the MCP server. Runs from the base
+	// OnDraw (after the scene render), so the editor world's per-frame GPU data
+	// is published.
+	void OnPostRender(float afTimeStep);
 	void OnSetSelectedViewport(){}
 
 	void OnPostUpdateLayout();
@@ -228,6 +259,23 @@ protected:
 	///////////////////////
 	// Config stuff
 	cConfigFile* mpLocalConfig;
+
+	///////////////////////
+	// MCP server (optional, localhost). Lets an external AI agent drive the
+	// editor over HTTP/JSON-RPC. NULL when disabled in config.
+	cLevelEditorMCPServer* mpMCPServer;
+
+	// Off-screen camera capture for the MCP 'capture_view' tool. Created in
+	// OnInit, pumped from OnPostRender, deleted in the dtor. NULL if disabled /
+	// setup failed.
+	cLevelEditorCameraCapture* mpCameraCapture;
+
+	// Config-backed settings (loaded in OnLoadConfig, edited via the Options
+	// "MCP" tab, persisted in OnSaveConfig). Tears down + rebuilds the server.
+	bool    mbMCPEnabled;
+	int     mlMCPPort;
+	tString msMCPToken;
+	void RestartMCPServer();
 };
 
 //----------------------------------------------------------
