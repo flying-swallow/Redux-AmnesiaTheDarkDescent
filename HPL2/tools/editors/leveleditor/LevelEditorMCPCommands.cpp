@@ -22,7 +22,6 @@
 #endif
 #include "rapidjson/document.h"
 #include "rapidjson/writer.h"
-#include "rapidjson/prettywriter.h"
 #include "rapidjson/stringbuffer.h"
 
 #include "hpl.h"
@@ -80,9 +79,55 @@ static const JValue* JFind(const JValue& aObj, const char* asKey)
 static bool JHas(const JValue& aObj, const char* asKey) { return JFind(aObj, asKey)!=NULL; }
 
 static std::string JStrOf (const JValue* v, const std::string& asDef="") { return (v && v->IsString()) ? std::string(v->GetString(), v->GetStringLength()) : asDef; }
-static int         JIntOf (const JValue* v, int alDef=0)                 { return (v && v->IsInt())    ? v->GetInt()    : alDef; }
-static double      JNumOf (const JValue* v, double afDef=0.0)            { return (v && v->IsNumber()) ? v->GetDouble() : afDef; }
-static bool        JBoolOf(const JValue* v, bool abDef=false)            { return (v && v->IsBool())   ? v->GetBool()   : abDef; }
+
+// MCP clients routinely stringify schema-untyped params (e.g. set_property's
+// 'value'), so the scalar readers also coerce from string form.
+static bool JParseNumber(const JValue* v, double& afOut)
+{
+	if(v==NULL) return false;
+	if(v->IsNumber()) { afOut = v->GetDouble(); return true; }
+	if(v->IsString())
+	{
+		const char* s = v->GetString();
+		char* pEnd = NULL;
+		double f = strtod(s, &pEnd);
+		if(pEnd!=s) { afOut = f; return true; }
+	}
+	return false;
+}
+static int    JIntOf (const JValue* v, int alDef=0)      { double f; return JParseNumber(v, f) ? (int)f : alDef; }
+static double JNumOf (const JValue* v, double afDef=0.0) { double f; return JParseNumber(v, f) ? f : afDef; }
+static bool   JBoolOf(const JValue* v, bool abDef=false)
+{
+	if(v==NULL) return abDef;
+	if(v->IsBool())   return v->GetBool();
+	if(v->IsNumber()) return v->GetDouble()!=0.0;
+	if(v->IsString())
+	{
+		tString s = cString::ToLowerCase(JStrOf(v));
+		if(s=="true"  || s=="1") return true;
+		if(s=="false" || s=="0") return false;
+	}
+	return abDef;
+}
+
+// Pull up to alMax numbers out of a stringified list ("[1, 2, 3]", "1 2 3", ...).
+// Returns how many were found.
+static int JParseFloatList(const JValue* v, float* apOut, int alMax)
+{
+	if(v==NULL || v->IsString()==false) return 0;
+	const char* s = v->GetString();
+	int lCount = 0;
+	while(*s && lCount<alMax)
+	{
+		char* pEnd = NULL;
+		double f = strtod(s, &pEnd);
+		if(pEnd==s) { ++s; continue; }
+		apOut[lCount++] = (float)f;
+		s = pEnd;
+	}
+	return lCount;
+}
 
 static std::string JStrArg (const JValue& a, const char* k, const std::string& asDef="") { return JStrOf(JFind(a,k), asDef); }
 static int         JIntArg (const JValue& a, const char* k, int alDef=0)                 { return JIntOf(JFind(a,k), alDef); }
@@ -95,12 +140,18 @@ static cVector3f JVec3Of(const JValue* v, const cVector3f& aDef)
 		return cVector3f((float)(*v)[0].GetDouble(), (float)(*v)[1].GetDouble(), (float)(*v)[2].GetDouble());
 	if(v && v->IsObject())
 		return cVector3f((float)JNumOf(JFind(*v,"x"), aDef.x), (float)JNumOf(JFind(*v,"y"), aDef.y), (float)JNumOf(JFind(*v,"z"), aDef.z));
+	float vVals[3];
+	if(JParseFloatList(v, vVals, 3)==3)
+		return cVector3f(vVals[0], vVals[1], vVals[2]);
 	return aDef;
 }
 static cVector2f JVec2Of(const JValue* v, const cVector2f& aDef)
 {
 	if(v && v->IsArray() && v->Size()>=2 && (*v)[0].IsNumber() && (*v)[1].IsNumber())
 		return cVector2f((float)(*v)[0].GetDouble(), (float)(*v)[1].GetDouble());
+	float vVals[2];
+	if(JParseFloatList(v, vVals, 2)==2)
+		return cVector2f(vVals[0], vVals[1]);
 	return aDef;
 }
 static cColor JColorOf(const JValue* v, const cColor& aDef)
@@ -110,6 +161,10 @@ static cColor JColorOf(const JValue* v, const cColor& aDef)
 		float a = (v->Size()>=4 && (*v)[3].IsNumber()) ? (float)(*v)[3].GetDouble() : 1.0f;
 		return cColor((float)(*v)[0].GetDouble(), (float)(*v)[1].GetDouble(), (float)(*v)[2].GetDouble(), a);
 	}
+	float vVals[4];
+	int lCount = JParseFloatList(v, vVals, 4);
+	if(lCount>=3)
+		return cColor(vVals[0], vVals[1], vVals[2], lCount>=4 ? vVals[3] : 1.0f);
 	return aDef;
 }
 
@@ -225,6 +280,25 @@ static bool AddPropValue(JValue& aObj, const char* asKey, iEntityWrapper* e, iPr
 		case eVariableType_Vec2:   { cVector2f v;  e->GetProperty(pid,v); aObj.AddMember(key, JVec2(v, a), a); return true; }
 		case eVariableType_Vec3:   { cVector3f v;  e->GetProperty(pid,v); aObj.AddMember(key, JVec3(v, a), a); return true; }
 		case eVariableType_Color:  { cColor v;     e->GetProperty(pid,v); aObj.AddMember(key, JColor(v, a), a); return true; }
+		default: return false;
+	}
+}
+
+// True if the property already holds the requested value (a no-op). Lets the
+// handler skip a set the undo system would reject as an "invalid action" (and
+// the ERROR it logs), so re-setting a property to its current value succeeds.
+static bool PropEqualsCurrent(iEntityWrapper* e, iProp* p, const JValue* val)
+{
+	int pid = p->GetID();
+	switch(p->GetType())
+	{
+		case eVariableType_Int:    { int v=0;        e->GetProperty(pid,v); return v==JIntOf(val); }
+		case eVariableType_Float:  { float v=0;      e->GetProperty(pid,v); return v==(float)JNumOf(val); }
+		case eVariableType_Bool:   { bool v=false;   e->GetProperty(pid,v); return v==JBoolOf(val); }
+		case eVariableType_String: { tString v;      e->GetProperty(pid,v); return v==JStrOf(val); }
+		case eVariableType_Vec2:   { cVector2f v(0); e->GetProperty(pid,v); return v==JVec2Of(val, cVector2f(0)); }
+		case eVariableType_Vec3:   { cVector3f v(0); e->GetProperty(pid,v); return v==JVec3Of(val, cVector3f(0)); }
+		case eVariableType_Color:  { cColor v;       e->GetProperty(pid,v); return v==JColorOf(val, cColor(1)); }
 		default: return false;
 	}
 }
@@ -388,6 +462,32 @@ static void AddEntityXml(JValue& j, iEntityWrapper* e, JAlloc& a)
 		j.AddMember("xml", JValue(rapidjson::kNullType), a);
 }
 
+// Minimal overview row: id, name, type only. Used by query_entities detail:'summary'.
+static JValue EntitySummary(iEntityWrapper* e, JAlloc& a)
+{
+	JValue j(rapidjson::kObjectType);
+	j.AddMember("id",   e->GetID(), a);
+	j.AddMember("name", JValue(e->GetName(), a), a);
+	j.AddMember("type", JValue(cString::To8Char(e->GetTypeName()), a), a);
+	return j;
+}
+
+enum eRegionMode { eRegionMode_Intersect, eRegionMode_Inside, eRegionMode_Center };
+
+// True if entity e falls within the world-AABB [avMin,avMax] under the given mode.
+// Falls back to an origin-in-box test whenever the entity has no render BV (lights/sound/particles).
+static bool EntityInRegion(iEntityWrapper* e, const cVector3f& avMin, const cVector3f& avMax, int aMode)
+{
+	cBoundingVolume* pBV = (aMode==eRegionMode_Center) ? NULL : e->GetRenderBV();
+	if(pBV)
+	{
+		if(aMode==eRegionMode_Inside)
+			return cMath::CheckAABBInside(pBV->GetMin(), pBV->GetMax(), avMin, avMax);
+		return cMath::CheckAABBIntersection(avMin, avMax, pBV->GetMin(), pBV->GetMax());
+	}
+	return cMath::CheckPointInAABBIntersection(e->GetPosition(), avMin, avMax);
+}
+
 // Compact list-friendly row.
 static JValue EntityCompact(cLevelEditor* pEditor, iEntityWrapper* e, bool abBounds, JAlloc& a)
 {
@@ -447,12 +547,12 @@ static cMCPToolResult MakeText(const std::string& s, bool abError=false)
 	return r;
 }
 
-// Pretty-print a reply document into a single text content block.
+// Serialize a reply document into a single compact text content block. MCP replies are
+// machine-parsed, so we skip pretty-printing to avoid the per-line token overhead.
 static cMCPToolResult MakeDoc(const JDoc& d, bool abError=false)
 {
 	rapidjson::StringBuffer buf;
-	rapidjson::PrettyWriter<rapidjson::StringBuffer> w(buf);
-	w.SetIndent(' ', 2);
+	rapidjson::Writer<rapidjson::StringBuffer> w(buf);
 	d.Accept(w);
 	return MakeText(std::string(buf.GetString(), buf.GetSize()), abError);
 }
@@ -831,25 +931,52 @@ static const cMCPToolDef gvTools[] =
 
 // ----- reads -----
 
-{ "list_entities",
-  "List objects in the current map as compact rows {id, name, type, position, rotation, scale, selected?, group?, file?}. "
-  "Filters: 'type' (exact type name, e.g. 'Light'), 'name' (substring). "
-  "'bounds': true adds each object's world AABB. detail:'xml' returns full entity XML instead (verbose).",
+{ "query_entities",
+  "Query objects in the current map as compact rows {id, name, type, position, rotation, scale, selected?, group?, file?}. "
+  "Filters (AND-combined): 'type' (exact type name, e.g. 'Light'), 'name' (substring), 'region' (world-AABB). "
+  "Page with 'limit' (default 200) + 'offset'; reply carries 'count', 'totalMatches', and (when more remain) 'truncated'/'nextOffset'. "
+  "'bounds': true adds each object's world AABB. detail:'summary' returns only {id,name,type}; detail:'xml' returns full entity XML instead (verbose).",
   R"json({"type":"object","properties":{
 	"type":{"type":"string","description":"exact type-name filter, e.g. 'Light'"},
 	"name":{"type":"string","description":"case-sensitive name substring filter"},
+	"region":{"type":"object","description":"world-AABB filter {min:[x,y,z], max:[x,y,z]}","properties":{"min":{"type":"array","items":{"type":"number"}},"max":{"type":"array","items":{"type":"number"}}}},
+	"regionMode":{"type":"string","description":"'intersect' (default, bounds overlap), 'inside' (bounds fully contained), or 'center' (origin in box)"},
 	"bounds":{"type":"boolean","description":"include world AABB per row"},
-	"detail":{"type":"string","description":"'compact' (default) or 'xml'"}}})json",
+	"detail":{"type":"string","description":"'summary' (id/name/type only), 'compact' (default), or 'xml'"},
+	"limit":{"type":"integer","description":"max rows returned (default 200)"},
+	"offset":{"type":"integer","description":"skip this many matches before returning (for paging; default 0)"}}})json",
   [](cMCPToolCtx& c) {
-	bool bXml    = JStrArg(c.margs, "detail")=="xml";
-	bool bBounds = JBoolArg(c.margs, "bounds", false);
+	std::string sDetail = JStrArg(c.margs, "detail");
+	bool bXml     = sDetail=="xml";
+	bool bSummary = sDetail=="summary";
+	bool bBounds  = JBoolArg(c.margs, "bounds", false);
 	const JValue* pTypeFilter = JFind(c.margs, "type");
 	std::string sTypeFilter = JStrOf(pTypeFilter);
 	std::string sNameFilter = JStrArg(c.margs, "name");
+	int lLimit = JIntArg(c.margs, "limit", 200);
+	if(lLimit<=0) lLimit = 200;
+	int lOffset = JIntArg(c.margs, "offset", 0);
+	if(lOffset<0) lOffset = 0;
+
+	// Optional world-AABB region filter (min/max normalized so either draw order works).
+	const JValue* pRegion = JFind(c.margs, "region");
+	bool bRegion = pRegion && pRegion->IsObject();
+	cVector3f vRMin(0), vRMax(0); int lRegionMode = eRegionMode_Intersect;
+	if(bRegion)
+	{
+		cVector3f v0 = JVec3Of(JFind(*pRegion,"min"), cVector3f(-1.0e9f));
+		cVector3f v1 = JVec3Of(JFind(*pRegion,"max"), cVector3f( 1.0e9f));
+		vRMin = cMath::Vector3Min(v0, v1);
+		vRMax = cMath::Vector3Max(v0, v1);
+		std::string sMode = JStrArg(c.margs, "regionMode");
+		if(sMode=="inside")      lRegionMode = eRegionMode_Inside;
+		else if(sMode=="center") lRegionMode = eRegionMode_Center;
+	}
 
 	JDoc d; d.SetObject();
 	JAlloc& a = d.GetAllocator();
 	JValue arr(rapidjson::kArrayType);
+	int lTotalMatches = 0;
 	tEntityWrapperMap& ents = c.mpWorld->GetEntities();
 	for(tEntityWrapperMapIt it=ents.begin(); it!=ents.end(); ++it)
 	{
@@ -857,6 +984,10 @@ static const cMCPToolDef gvTools[] =
 		if(e==NULL) continue;
 		if(pTypeFilter && cString::To8Char(e->GetTypeName())!=sTypeFilter) continue;
 		if(sNameFilter.empty()==false && tString(e->GetName()).find(sNameFilter)==tString::npos) continue;
+		if(bRegion && EntityInRegion(e, vRMin, vRMax, lRegionMode)==false) continue;
+		int lIdx = lTotalMatches++;             // index among all matches
+		if(lIdx < lOffset) continue;            // before the page window
+		if((int)arr.Size() >= lLimit) continue; // page full (still counted in totalMatches)
 		if(bXml)
 		{
 			JValue j(rapidjson::kObjectType);
@@ -864,10 +995,19 @@ static const cMCPToolDef gvTools[] =
 			AddEntityXml(j, e, a);
 			arr.PushBack(j, a);
 		}
+		else if(bSummary)
+			arr.PushBack(EntitySummary(e, a), a);
 		else
 			arr.PushBack(EntityCompact(c.mpEditor, e, bBounds, a), a);
 	}
 	d.AddMember("count", (int)arr.Size(), a);
+	d.AddMember("totalMatches", lTotalMatches, a);
+	d.AddMember("offset", lOffset, a);
+	if(lTotalMatches > lOffset + (int)arr.Size())
+	{
+		d.AddMember("truncated", true, a);
+		d.AddMember("nextOffset", lOffset + (int)arr.Size(), a);
+	}
 	d.AddMember("entities", arr, a);
 	return MakeDoc(d);
   } },
@@ -1587,6 +1727,7 @@ static const cMCPToolDef gvTools[] =
 
 	// Validate all (target, prop) pairs before creating any action.
 	std::vector<iEditorAction*> vActions;
+	int nUnchanged = 0;
 	for(size_t i=0;i<vEnts.size();++i)
 	{
 		for(size_t k=0;k<vProps.size();++k)
@@ -1597,9 +1738,15 @@ static const cMCPToolDef gvTools[] =
 				for(size_t x=0;x<vActions.size();++x) hplDelete(vActions[x]);
 				return MakeErr("no such property '" + vProps[k].first + "' on entity " + std::to_string(vEnts[i]->GetID()) + " (see list_properties)");
 			}
+			// Idempotent: skip a set that would not change anything. The undo system
+			// rejects a no-op as an "invalid action" (nothing to undo) and logs an
+			// ERROR; skipping it here avoids both and treats it as success.
+			if(PropEqualsCurrent(vEnts[i], pProp, vProps[k].second)) { ++nUnchanged; continue; }
 			iEditorAction* pAction = MakePropSetAction(vEnts[i], pProp, vProps[k].second, sErr);
 			if(pAction==NULL)
 			{
+				if(sErr.empty())
+					sErr = "could not set property '" + vProps[k].first + "' on entity " + std::to_string(vEnts[i]->GetID());
 				for(size_t x=0;x<vActions.size();++x) hplDelete(vActions[x]);
 				return MakeErr(sErr);
 			}
@@ -1608,7 +1755,7 @@ static const cMCPToolDef gvTools[] =
 	}
 	if(vActions.size()==1)
 		c.mpEditor->AddAction(vActions[0]);
-	else
+	else if(vActions.size()>1)
 	{
 		cEditorActionCompoundAction* pCompound = hplNew(cEditorActionCompoundAction, ("MCP set_property"));
 		for(size_t i=0;i<vActions.size();++i) pCompound->AddAction(vActions[i]);
@@ -1617,7 +1764,8 @@ static const cMCPToolDef gvTools[] =
 	JDoc d; InitOk(d);
 	JAlloc& a = d.GetAllocator();
 	d.AddMember("targets", (int)vEnts.size(), a);
-	d.AddMember("propertiesSet", (int)vProps.size(), a);
+	d.AddMember("propertiesSet", (int)vActions.size(), a);
+	d.AddMember("unchanged", nUnchanged, a);
 	return MakeDoc(d);
   } },
 
@@ -2014,6 +2162,7 @@ static const cMCPToolDef gvTools[] =
   "(look-at) as [x,y,z] world coordinates, or 'focus' (an entity id or name) to auto-frame that object "
   "(optional 'distance' overrides how far back the camera sits). Optional 'fov' (vertical, degrees), "
   "'width'/'height' (pixels), 'near'/'far' clip planes default to the focused editor viewport's camera. "
+  "Set 'include_visible' to also get back a {\"visible\":[ids]} text block listing the entities in frame. "
   "The render + GPU readback take a few frames.",
   R"json({"type":"object","properties":{
 	"position":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3,"description":"eye / camera world position [x,y,z]"},
@@ -2024,7 +2173,8 @@ static const cMCPToolDef gvTools[] =
 	"width":{"type":"integer","description":"image width in pixels (default 1024, clamped to 16..2048)"},
 	"height":{"type":"integer","description":"image height in pixels (default 576, clamped to 16..2048)"},
 	"near":{"type":"number","description":"near clip plane distance (default: focused viewport)"},
-	"far":{"type":"number","description":"far clip plane distance (default: focused viewport)"}}})json",
+	"far":{"type":"number","description":"far clip plane distance (default: focused viewport)"},
+	"include_visible":{"type":"boolean","description":"also return the ids of entities within the captured view (default false)"}}})json",
   [](cMCPToolCtx& c) {
 	cLevelEditorCameraCapture* pCap = c.mpEditor->GetCameraCapture();
 	if(pCap==NULL || pCap->IsAvailable()==false)
@@ -2073,8 +2223,9 @@ static const cMCPToolDef gvTools[] =
 
 	int lWidth  = JIntArg(c.margs, "width",  1024);
 	int lHeight = JIntArg(c.margs, "height", 576);
+	bool bIncludeVisible = JBoolArg(c.margs, "include_visible", false);
 
-	int lJobId = pCap->Enqueue(vPos, vTarget, fFov, fNear, fFar, lWidth, lHeight);
+	int lJobId = pCap->Enqueue(vPos, vTarget, fFov, fNear, fFar, lWidth, lHeight, bIncludeVisible);
 	if(lJobId < 0)
 		return MakeErr("camera capture unavailable");
 

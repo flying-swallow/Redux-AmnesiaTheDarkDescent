@@ -415,6 +415,15 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 			preCtx.frameTime  = afFrameTime;
 			m_onPreWorldDraw.Signal(preCtx);
 			if (worldRendered) {
+				// Publish the world's per-frame GPU state (TLAS, bindless object
+				// slots, light/fog/decal buffers) before drawing — self-guarded
+				// once per frame, so this no-ops for cScene-driven viewports (the
+				// scene prepared already) and covers headless evaluates that run
+				// before cScene::Render (editor camera capture, thumbnails), whose
+				// RT passes would otherwise trace last frame's TLAS against this
+				// frame's rewritten object slots.
+				mpWorld->PrepareFrame(cntx);
+
 				mpRenderer->Draw(
 						cntx,
 						this,

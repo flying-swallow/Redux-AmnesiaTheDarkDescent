@@ -718,6 +718,16 @@ IndexPool *cWorld::GpuLightPoolFor(iLight *apLight) {
 }
 
 void cWorld::PrepareFrame(cGraphics::FrameContext *cntx) {
+  // Once per frame, whoever evaluates first. cScene::Render drives this for
+  // visible viewports, but headless evaluators (editor camera capture,
+  // thumbnails) run from OnDraw BEFORE cScene::Render — without publishing
+  // here first, their RT passes would trace last frame's TLAS against this
+  // frame's rewritten bindless object slots (stale instanceCustomIndex →
+  // garbage vertex BDA → GPU VM fault).
+  if (mlPreparedFrameIndex == mpGraphics->frameIndex)
+    return;
+  mlPreparedFrameIndex = mpGraphics->frameIndex;
+
   // Debounced decal association rebuild: the editor marks this on each edit
   // rather than recompiling synchronously, so a continuous drag coalesces into
   // one CompileDecals() per frame here (which also marks the GPU buffers dirty

@@ -340,6 +340,7 @@ bool iEntityWrapperLight::GetProperty(int alPropID, bool& abX)
 		break;
 	case eLightBool_ShadowsAffectStatic:
 		abX = GetShadowsAffectStatic();
+		break;
 	case eLightBool_ShadowsAffectDynamic:
 		abX = GetShadowsAffectDynamic();
 		break;

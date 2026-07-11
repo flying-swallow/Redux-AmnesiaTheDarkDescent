@@ -281,9 +281,12 @@ namespace hpl {
 		RIBuffer* GetDecalObjectIndexBuffer() const { return mpDecalObjectIndexBuffer.Get(); }
 		uint32_t GetDecalCount() const { return (uint32_t)mvDecals.size(); }
 
-		// Single per-world per-frame GPU publish, driven ONCE per frame by cScene
-		// (before the viewport loop), independent of how many viewports show this
-		// world: rebuilds + uploads the light/fog/decal buffers and builds this
+		// Single per-world per-frame GPU publish — self-guarded to run at most once
+		// per cGraphics frame, so any evaluator may drive it: cScene::Render calls it
+		// before its viewport loop, and cViewport::Evaluate calls it so headless
+		// evaluates (editor camera capture, thumbnails) that render BEFORE
+		// cScene::Render still get this frame's TLAS + bindless slots coherently.
+		// Rebuilds + uploads the light/fog/decal buffers and builds this
 		// world's ray-tracing TLAS (see BuildTlas). Binds no descriptor set — the
 		// light/fog buffers ride the per-world set kWorldSet, bound by each consuming
 		// pass; the set-2 decal buffers are bound at the composite pass. The renderer
@@ -536,6 +539,9 @@ namespace hpl {
 		// queue every frame like the light/fog/decal buffers, so a re-init/grow — or
 		// world teardown while frames are in flight — drops the old copies safely.
 		RISharedPointer<RIAccelStructure> mpTlas;
+		// cGraphics::frameIndex of the last PrepareFrame publish (once-per-frame
+		// guard; UINT32_MAX = never).
+		uint32_t mlPreparedFrameIndex = UINT32_MAX;
 		uint32_t mTlasCapacity = 0;
 		uint32_t mTlasStorageCapacity = 0;
 		RISharedPointer<RIBuffer>         mpTlasStorage;

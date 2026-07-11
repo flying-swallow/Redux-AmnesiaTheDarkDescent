@@ -38,6 +38,7 @@
 #include <list>
 #include <string>
 #include <utility>
+#include <vector>
 
 using namespace hpl;
 
@@ -65,7 +66,7 @@ public:
 	// unavailable (headless setup failed). Runs on the MAIN thread.
 	int Enqueue(const cVector3f& avPos, const cVector3f& avTarget,
 				float afFovRadians, float afNearClip, float afFarClip,
-				int alWidth, int alHeight);
+				int alWidth, int alHeight, bool abIncludeVisible);
 
 	// Per-frame pump, driven by cLevelEditor::OnPostRender (see class comment).
 	void Pump(float afFrameTime);
@@ -77,7 +78,15 @@ public:
 	bool IsAvailable() const { return mpViewport != NULL; }
 
 private:
-	enum eCaptureState { eCaptureState_New, eCaptureState_Submitted };
+	// Idle:      queued, not yet rendered — Pump promotes it to Warming.
+	// Warming:   rendering the SAME static pose for kCaptureAccumFrames consecutive
+	//            frames so the per-viewport temporal histories (direct-lighting
+	//            denoiser, ReSTIR DI reservoirs) + newly-spawned surfels converge.
+	//            The readback copy is recorded only on the final warm frame.
+	// Staged:    final frame's readback copy recorded; waiting for the GPU to reach
+	//            the submit's timeline value (mStageValue).
+	// Completed: GPU done, PNG result built; ready to hand to the MCP server.
+	enum eCaptureState { eCaptureState_Idle, eCaptureState_Warming, eCaptureState_Staged, eCaptureState_Completed };
 
 	struct cCaptureJob
 	{
@@ -89,20 +98,37 @@ private:
 		float          mfFar       = 0;
 		int            mlWidth     = 0;
 		int            mlHeight    = 0;
-		eCaptureState  mState      = eCaptureState_New;
-		uint32_t       mlFrameStamp = 0;
+		// When set, ComputeVisibleEntities() fills mvVisibleIds at pose time and the
+		// result appends a {"visible":[...]} text block next to the PNG.
+		bool           mbIncludeVisible = false;
+		std::vector<int> mvVisibleIds;
+		eCaptureState  mState      = eCaptureState_Idle;
+		// Warm (accumulation) frames left to render before staging the readback.
+		int            mWarmRemaining = 0;
+		// Graphics-timeline value this job's submit signals; its readback copy is
+		// complete once cGraphics::graphicsTimeline.completed() reaches it.
+		uint64_t       mStageValue = 0;
 
 		// Per-job GPU resources: an RGBA8_SRGB color target the viewport delivers
 		// into (TRANSFER_SRC backs the readback copy) + a host-readable buffer the
-		// copy lands in.
+		// copy lands in. All destroyed through cGraphics::graphicsDefer, so none is
+		// freed while an in-flight frame still references it.
 		RISharedPointer<RITexture>     mTargetTexture;
 		RISharedPointer<RITextureView> mTargetView;
-		RIBuffer                       mReadback = {};
+		RISharedPointer<RIBuffer>      mReadback;
+
+		// Filled on Staged -> Completed; handed to the server on the next Pump.
+		cMCPToolResult                 mResult;
 	};
 
 	// OnPostDelivery handler body: barrier the delivered target to COPY_SRC and
 	// record the vkCmdCopyImageToBuffer into the active job's readback buffer.
 	void RecordReadbackCopy(const WorldDrawCtx& ctx);
+
+	// Frustum-test every editor entity against the job's (already-posed) camera and
+	// record the visible ones' ids in aJob.mvVisibleIds. Called at pose time because
+	// the camera is shared across jobs.
+	void ComputeVisibleEntities(cCaptureJob& aJob);
 
 	// SUBMITTED -> done: map the readback buffer, encode a PNG, base64 it and
 	// build the MCP image content block. Frees the job's GPU resources.
@@ -125,6 +151,12 @@ private:
 	std::list<std::pair<int,cMCPToolResult>> mlstCompleted;
 
 	int mlNextJobId;
+
+	// frameIndex of our last warm Evaluate. Pump warms at most once per frame:
+	// OnPostRender can fire more than once per frameIndex (skipped / not-yet-
+	// submitted frames), and cViewport::Evaluate asserts on a second call in the
+	// same frame. ~0u = never evaluated.
+	uint32_t mLastEvalFrame;
 
 	// The job Evaluated this frame — RecordReadbackCopy copies into its readback
 	// buffer. Armed by Pump around Evaluate (cleared by the handler).

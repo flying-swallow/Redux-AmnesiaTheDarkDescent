@@ -14,6 +14,10 @@ using namespace hpl;
 
 #include "../common/EditorBaseClasses.h"
 #include "../common/EditorWorld.h"
+#include "../common/EntityWrapper.h"
+
+#include "math/BoundingVolume.h"
+#include "math/Frustum.h"
 
 #include "graphics/Graphics.h"
 #include "graphics/PostEffect_ToneMap.h"
@@ -39,12 +43,13 @@ static constexpr int kCaptureDefaultH = 576;
 static constexpr int kCaptureMaxDim   = 2048;
 static constexpr int kCaptureMinDim   = 16;
 
-// Frames to wait after recording the readback copy before mapping the buffer.
-// The copy recorded in OnPostRender is submitted at the next frame boundary and
-// its fence has certainly signalled once the command ring has cycled — a small
-// margin over RI_NUMBER_FRAMES_FLIGHT is comfortably safe (and the latency is
-// invisible: the HTTP worker is parked on a 15s future).
-static constexpr uint32_t kReadbackWaitFrames = RI_NUMBER_FRAMES_FLIGHT + 2;
+// Consecutive frames to render the same static pose before reading back, so the
+// hybrid renderer's per-viewport temporal histories (direct-lighting denoiser +
+// ReSTIR DI reservoirs) and any newly-spawned surfels converge. A static camera
+// reprojects as identity, so history accumulates cleanly (count ramps 1 ->
+// kDirectMaxAccum=64). ~48 gets closer to the kDirectTemporalAlpha=0.02 steady
+// state; 32 is a good latency/quality balance (well under the 15s call timeout).
+static constexpr int kCaptureAccumFrames = 32;
 
 static int ClampInt(int alX, int alMin, int alMax)
 {
@@ -142,6 +147,7 @@ cLevelEditorCameraCapture::cLevelEditorCameraCapture(iEditorBase* apEditor)
 	mpPostEffectComposite = NULL;
 	mpPostEffectToneMap   = NULL;
 	mlNextJobId           = 0;
+	mLastEvalFrame        = 0xFFFFFFFFu;
 	mpActiveJob           = NULL;
 
 	cEngine*   pEngine = mpEditor->GetEngine();
@@ -209,7 +215,7 @@ cLevelEditorCameraCapture::~cLevelEditorCameraCapture()
 
 int cLevelEditorCameraCapture::Enqueue(const cVector3f& avPos, const cVector3f& avTarget,
 									   float afFovRadians, float afNearClip, float afFarClip,
-									   int alWidth, int alHeight)
+									   int alWidth, int alHeight, bool abIncludeVisible)
 {
 	if(mpViewport == NULL) return -1; // headless setup failed
 
@@ -222,7 +228,8 @@ int cLevelEditorCameraCapture::Enqueue(const cVector3f& avPos, const cVector3f& 
 	job.mfFar    = afFarClip;
 	job.mlWidth  = ClampInt(alWidth,  kCaptureMinDim, kCaptureMaxDim);
 	job.mlHeight = ClampInt(alHeight, kCaptureMinDim, kCaptureMaxDim);
-	job.mState   = eCaptureState_New;
+	job.mbIncludeVisible = abIncludeVisible;
+	job.mState   = eCaptureState_Idle;
 
 	mlstJobs.push_back(std::move(job));
 	return mlstJobs.back().mlId;
@@ -235,19 +242,30 @@ void cLevelEditorCameraCapture::Pump(float afFrameTime)
 	if(mpViewport == NULL || mlstJobs.empty()) return;
 
 	cGraphics* pGfx = Interface<cGraphics>::Get();
-	const uint32_t lFrame = pGfx->frameIndex;
 
 	//////////////////////////////////////////
-	// 1) Complete any SUBMITTED jobs whose readback fence has signalled. These
-	//    record no commands, so any number can finish in one frame.
+	// 1) Staged -> Completed. The readback copy rode this job's submit, so it is
+	//    done precisely once the GPU has reached that submit's timeline value —
+	//    no frame counting. Poll the graphics timeline the frame deferral uses.
+	const uint64_t lCompleted = pGfx->graphicsTimeline.completed(&pGfx->device);
+	for(cCaptureJob& job : mlstJobs)
+	{
+		if(job.mState == eCaptureState_Staged && lCompleted >= job.mStageValue)
+		{
+			job.mResult = BuildResultFromReadback(job);
+			job.mState  = eCaptureState_Completed;
+		}
+	}
+
+	//////////////////////////////////////////
+	// 2) Completed -> hand the result to the MCP server + free (deferred). Any
+	//    number may finish in one frame; these record no GPU work.
 	for(std::list<cCaptureJob>::iterator it = mlstJobs.begin(); it != mlstJobs.end(); )
 	{
-		if(it->mState == eCaptureState_Submitted &&
-		   (lFrame - it->mlFrameStamp) >= kReadbackWaitFrames)
+		if(it->mState == eCaptureState_Completed)
 		{
-			cMCPToolResult result = BuildResultFromReadback(*it);
+			mlstCompleted.push_back(std::make_pair(it->mlId, it->mResult));
 			FreeJobResources(*it);
-			mlstCompleted.push_back(std::make_pair(it->mlId, result));
 			it = mlstJobs.erase(it);
 		}
 		else
@@ -255,92 +273,151 @@ void cLevelEditorCameraCapture::Pump(float afFrameTime)
 	}
 
 	//////////////////////////////////////////
-	// 2) Start ONE new job (at most one Evaluate per frame — the viewport's
-	//    once-per-frame guard). Point at the CURRENT editor world so a map
-	//    reload never leaves us on a stale world.
-	cCaptureJob* pNew = NULL;
+	// 3) Serialize: keep at most ONE capture in flight (Warming or Staged). The
+	//    shared headless viewport accumulates one job's temporal history at a
+	//    time and is re-sized per job, so overlapping jobs would churn its render
+	//    targets while the GPU reads them.
+	cCaptureJob* pJob = NULL;
 	for(cCaptureJob& job : mlstJobs)
-		if(job.mState == eCaptureState_New) { pNew = &job; break; }
-	if(pNew == NULL) return;
+		if(job.mState == eCaptureState_Warming || job.mState == eCaptureState_Staged)
+		{
+			pJob = &job;
+			break;
+		}
+
+	//////////////////////////////////////////
+	// 4) Nothing in flight: promote one Idle job to Warming. Allocate its GPU
+	//    resources and set the STATIC camera pose ONCE — kept fixed across the warm
+	//    frames so temporal reprojection stays identity and history accumulates.
+	if(pJob == NULL)
+	{
+		for(cCaptureJob& job : mlstJobs)
+			if(job.mState == eCaptureState_Idle) { pJob = &job; break; }
+		if(pJob == NULL) return;
+
+		iEditorWorld* pEdWorld = mpEditor->GetEditorWorld();
+		cWorld* pWorld = pEdWorld ? pEdWorld->GetWorld() : NULL;
+		if(pWorld == NULL) return; // no world yet; retry next frame (still Idle)
+
+		//////////////////////////////////////////
+		// Per-job GPU resources: an RGBA8_SRGB color target (sRGB attachment write =
+		// free linear->display encode; TRANSFER_SRC backs the readback copy) + a
+		// host-readable buffer the copy lands in. Same size for every warm frame,
+		// so HybridViewportState::Update never recreates (which would reset the
+		// temporal history we are accumulating).
+		if(!CreateViewportColorTexture(&pGfx->device, (uint32_t)pJob->mlWidth, (uint32_t)pJob->mlHeight,
+									   RI_FORMAT_RGBA8_SRGB,
+									   RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE | RI_USAGE_TRANSFER_SRC,
+									   &pJob->mTargetTexture, &pJob->mTargetView,
+									   "MCPCameraCapture"))
+		{
+			// Give up on this job — report an error rather than retry forever.
+			cMCPToolResult err;
+			err.mbIsError = true;
+			err.msContentJson = "[{\"type\":\"text\",\"text\":\"capture failed: could not allocate render target\"}]";
+			mlstCompleted.push_back(std::make_pair(pJob->mlId, err));
+			FreeJobResources(*pJob);
+			for(std::list<cCaptureJob>::iterator it = mlstJobs.begin(); it != mlstJobs.end(); ++it)
+				if(&(*it) == pJob) { mlstJobs.erase(it); break; }
+			return;
+		}
+
+		RIBufferDesc bd = {};
+		bd.size     = (uint64_t)pJob->mlWidth * (uint64_t)pJob->mlHeight * 4ull;
+		bd.usage    = RI_BUFFER_USAGE_TRANSFER_DST;
+		bd.location = RI_MEMORY_HOST_READBACK;
+		RIBuffer rb = RIBuffer::create(&pGfx->device, bd);
+		if(rb.isEmpty())
+		{
+			// Without a readback buffer the OnPostDelivery copy would target null —
+			// fail the job cleanly instead of evaluating.
+			cMCPToolResult err;
+			err.mbIsError = true;
+			err.msContentJson = "[{\"type\":\"text\",\"text\":\"capture failed: could not allocate readback buffer\"}]";
+			mlstCompleted.push_back(std::make_pair(pJob->mlId, err));
+			FreeJobResources(*pJob);
+			for(std::list<cCaptureJob>::iterator it = mlstJobs.begin(); it != mlstJobs.end(); ++it)
+				if(&(*it) == pJob) { mlstJobs.erase(it); break; }
+			return;
+		}
+		pJob->mReadback = RISharedPointer<RIBuffer>(&pGfx->device, rb);
+
+		//////////////////////////////////////////
+		// Static camera pose (set ONCE): eye at position, look at target (yaw/pitch
+		// from the two points, matching the thumbnail builder's look-at math),
+		// aspect from the requested image size.
+		mpCamera->SetPosition(pJob->mvPos);
+		cVector3f vAngles = cMath::GetAngleFromPoints3D(pJob->mvPos, pJob->mvTarget);
+		mpCamera->SetYaw(vAngles.y);
+		if(vAngles.x > kPif) vAngles.x = vAngles.x - k2Pif;
+		mpCamera->SetPitch(vAngles.x);
+		mpCamera->SetFOV(pJob->mfFov);
+		mpCamera->SetAspect((float)pJob->mlWidth / (float)pJob->mlHeight);
+		mpCamera->SetNearClipPlane(pJob->mfNear);
+		mpCamera->SetFarClipPlane(pJob->mfFar);
+
+		// Snapshot which entities fall in this pose's frustum NOW — mpCamera is shared,
+		// so a later job would re-pose it before this one's readback completes.
+		if(pJob->mbIncludeVisible)
+			ComputeVisibleEntities(*pJob);
+
+		pJob->mWarmRemaining = kCaptureAccumFrames;
+		pJob->mState         = eCaptureState_Warming;
+	}
+
+	//////////////////////////////////////////
+	// 5) Staged jobs just wait for the timeline; step 1 completes them.
+	if(pJob->mState == eCaptureState_Staged)
+		return;
+
+	//////////////////////////////////////////
+	// 6) Warm ONE frame (one Evaluate — the viewport's once-per-frame guard).
+	//    Point at the CURRENT editor world each frame so a map reload never leaves
+	//    us on a stale world. Record the readback copy + stage the timeline value
+	//    ONLY on the final warm frame; earlier frames exist solely to advance the
+	//    per-viewport temporal histories (+ the global surfel pool).
+	//
+	// At most ONE warm Evaluate per frameIndex: OnPostRender can fire more than
+	// once per frame (skipped / not-yet-submitted frames), and cViewport::Evaluate
+	// asserts on a second call in the same frame. Skip until frameIndex advances.
+	if(pGfx->frameIndex == mLastEvalFrame)
+		return;
 
 	iEditorWorld* pEdWorld = mpEditor->GetEditorWorld();
 	cWorld* pWorld = pEdWorld ? pEdWorld->GetWorld() : NULL;
-	if(pWorld == NULL) return; // no world yet; retry next frame
+	if(pWorld == NULL) return; // world gone mid-warm; retry next frame
 
-	//////////////////////////////////////////
-	// Per-job GPU resources: an RGBA8_SRGB color target (sRGB attachment write =
-	// free linear->display encode; TRANSFER_SRC backs the readback copy) + a
-	// host-readable buffer the copy lands in.
-	if(!CreateViewportColorTexture(&pGfx->device, (uint32_t)pNew->mlWidth, (uint32_t)pNew->mlHeight,
-								   RI_FORMAT_RGBA8_SRGB,
-								   RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE | RI_USAGE_TRANSFER_SRC,
-								   &pNew->mTargetTexture, &pNew->mTargetView,
-								   "MCPCameraCapture"))
-	{
-		// Give up on this job — report an error rather than retry forever.
-		cMCPToolResult err;
-		err.mbIsError = true;
-		err.msContentJson = "[{\"type\":\"text\",\"text\":\"capture failed: could not allocate render target\"}]";
-		mlstCompleted.push_back(std::make_pair(pNew->mlId, err));
-		FreeJobResources(*pNew);
-		for(std::list<cCaptureJob>::iterator it = mlstJobs.begin(); it != mlstJobs.end(); ++it)
-			if(&(*it) == pNew) { mlstJobs.erase(it); break; }
-		return;
-	}
-
-	RIBufferDesc bd = {};
-	bd.size     = (uint64_t)pNew->mlWidth * (uint64_t)pNew->mlHeight * 4ull;
-	bd.usage    = RI_BUFFER_USAGE_TRANSFER_DST;
-	bd.location = RI_MEMORY_HOST_READBACK;
-	pNew->mReadback = RIBuffer::create(&pGfx->device, bd);
-	if(pNew->mReadback.isEmpty())
-	{
-		// Without a readback buffer the OnPostDelivery copy would target null —
-		// fail the job cleanly instead of evaluating.
-		cMCPToolResult err;
-		err.mbIsError = true;
-		err.msContentJson = "[{\"type\":\"text\",\"text\":\"capture failed: could not allocate readback buffer\"}]";
-		mlstCompleted.push_back(std::make_pair(pNew->mlId, err));
-		FreeJobResources(*pNew);
-		for(std::list<cCaptureJob>::iterator it = mlstJobs.begin(); it != mlstJobs.end(); ++it)
-			if(&(*it) == pNew) { mlstJobs.erase(it); break; }
-		return;
-	}
-
-	//////////////////////////////////////////
-	// Camera pose: eye at position, look at target (yaw/pitch from the two
-	// points, matching the thumbnail builder's look-at math), aspect from the
-	// requested image size.
-	mpCamera->SetPosition(pNew->mvPos);
-	cVector3f vAngles = cMath::GetAngleFromPoints3D(pNew->mvPos, pNew->mvTarget);
-	mpCamera->SetYaw(vAngles.y);
-	if(vAngles.x > kPif) vAngles.x = vAngles.x - k2Pif;
-	mpCamera->SetPitch(vAngles.x);
-	mpCamera->SetFOV(pNew->mfFov);
-	mpCamera->SetAspect((float)pNew->mlWidth / (float)pNew->mlHeight);
-	mpCamera->SetNearClipPlane(pNew->mfNear);
-	mpCamera->SetFarClipPlane(pNew->mfFar);
-
-	//////////////////////////////////////////
-	// Point the viewport at the current world + this job's target, clear to the
-	// editor's background colour, and Evaluate (lit world + post = tonemap).
 	mpViewport->SetWorld(pWorld);
 	if(pEdWorld) mpViewport->GetRenderSettings()->mClearColor = pEdWorld->GetBGDefaultColor();
 
 	cViewport::TargetView target = {};
-	target.width  = (uint32_t)pNew->mlWidth;
-	target.height = (uint32_t)pNew->mlHeight;
-	target.texture      = *pNew->mTargetTexture;
-	target.view.vk.image = pNew->mTargetView->vk.image;
+	target.width  = (uint32_t)pJob->mlWidth;
+	target.height = (uint32_t)pJob->mlHeight;
+	target.texture      = *pJob->mTargetTexture;
+	target.view.vk.image = pJob->mTargetView->vk.image;
 	target.format = RI_FORMAT_RGBA8_SRGB;
 	mpViewport->SetTarget(target);
 
-	pNew->mlFrameStamp = lFrame;
-	pNew->mState       = eCaptureState_Submitted;
-	mpActiveJob        = pNew;
+	const bool bFinalWarm = (pJob->mWarmRemaining <= 1);
+
+	// mpActiveJob arms RecordReadbackCopy — record the copy only on the final
+	// frame. That frame's commands ride the primary submit (the only
+	// graphicsTimeline.next() per frame, in CloseAndSubmitActiveSet after OnDraw),
+	// which signals pending()+1 — the value marking the readback copy complete.
+	mpActiveJob = bFinalWarm ? pJob : NULL;
 	mpViewport->Evaluate(pGfx->GetActiveSet(), afFrameTime,
 						 tSceneRenderFlag_World | tSceneRenderFlag_PostEffects);
-	mpActiveJob = NULL;
+	mpActiveJob    = NULL;
+	mLastEvalFrame = pGfx->frameIndex;
+
+	if(pJob->mWarmRemaining > 0)
+		--pJob->mWarmRemaining;
+
+	if(bFinalWarm)
+	{
+		pJob->mStageValue = pGfx->graphicsTimeline.pending() + 1;
+		pJob->mState      = eCaptureState_Staged;
+	}
 }
 
 //--------------------------------------------------------------------
@@ -369,9 +446,37 @@ void cLevelEditorCameraCapture::RecordReadbackCopy(const WorldDrawCtx& ctx)
 	region.imageExtent       = { (uint32_t)pJob->mlWidth, (uint32_t)pJob->mlHeight, 1 };
 	vkCmdCopyImageToBuffer(pCmd->vk.cmd,
 						   pJob->mTargetTexture->vk.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-						   pJob->mReadback.vk.buffer, 1, &region);
+						   pJob->mReadback->vk.buffer, 1, &region);
 	// No restore barrier: the target is a per-job image freed once the copy's
 	// fence signals; layout is irrelevant to its destruction.
+}
+
+//--------------------------------------------------------------------
+
+void cLevelEditorCameraCapture::ComputeVisibleEntities(cCaptureJob& aJob)
+{
+	aJob.mvVisibleIds.clear();
+
+	iEditorWorld* pEdWorld = mpEditor->GetEditorWorld();
+	if(pEdWorld == NULL) return;
+
+	cFrustum* pFrustum = mpCamera->GetFrustum();
+	tEntityWrapperMap& mapEntities = pEdWorld->GetEntities();
+	for(tEntityWrapperMapIt it = mapEntities.begin(); it != mapEntities.end(); ++it)
+	{
+		iEntityWrapper* pEnt = it->second;
+		if(pEnt == NULL || pEnt->IsVisible() == false) continue; // match the rendered image
+
+		// Mesh entities carry a render AABB; point-like entities (lights, areas) have
+		// none, so fall back to the icon volume, then to a point test. (Mirrors
+		// iEngineEntity::IsCulledByFrustum; a plain IsCulledByFrustum would call every
+		// engine-entity-less wrapper "visible".)
+		cBoundingVolume* pBV = pEnt->GetRenderBV();
+		if(pBV == NULL) pBV = pEnt->GetPickBV(NULL);
+		bool bVisible = pBV ? (pFrustum->CollideBoundingVolume(pBV) != eCollision_Outside)
+							: pFrustum->CollidePoint(pEnt->GetPosition());
+		if(bVisible) aJob.mvVisibleIds.push_back(pEnt->GetID());
+	}
 }
 
 //--------------------------------------------------------------------
@@ -382,18 +487,19 @@ cMCPToolResult cLevelEditorCameraCapture::BuildResultFromReadback(cCaptureJob& a
 
 	cGraphics* pGfx = Interface<cGraphics>::Get();
 
-	if(aJob.mReadback.mappedAddress == NULL)
+	if(aJob.mReadback.isEmpty() || aJob.mReadback->mappedAddress == NULL)
 	{
 		r.mbIsError = true;
 		r.msContentJson = "[{\"type\":\"text\",\"text\":\"capture failed: readback buffer not mapped\"}]";
 		return r;
 	}
 
-	// The copy's fence has signalled (waited kReadbackWaitFrames); invalidate in
-	// case the readback landed in non-coherent HOST_CACHED memory, then read.
-	vmaInvalidateAllocation(pGfx->device.vk.vmaAllocator, aJob.mReadback.vk.allocation, 0, VK_WHOLE_SIZE);
+	// The copy's submit has completed (the caller gated on the graphics timeline);
+	// invalidate in case the readback landed in non-coherent HOST_CACHED memory,
+	// then read.
+	vmaInvalidateAllocation(pGfx->device.vk.vmaAllocator, aJob.mReadback->vk.allocation, 0, VK_WHOLE_SIZE);
 
-	const unsigned char* pPixels = (const unsigned char*)aJob.mReadback.mappedAddress;
+	const unsigned char* pPixels = (const unsigned char*)aJob.mReadback->mappedAddress;
 
 	std::string sPng;
 	if(EncodePngRGBA(pPixels, aJob.mlWidth, aJob.mlHeight, sPng) == false)
@@ -407,7 +513,22 @@ cMCPToolResult cLevelEditorCameraCapture::BuildResultFromReadback(cCaptureJob& a
 	// assembled without a JSON library.
 	std::string sB64 = Base64Encode((const unsigned char*)sPng.data(), sPng.size());
 	r.mbIsError = false;
-	r.msContentJson = "[{\"type\":\"image\",\"data\":\"" + sB64 + "\",\"mimeType\":\"image/png\"}]";
+
+	std::string sContent = "[{\"type\":\"image\",\"data\":\"" + sB64 + "\",\"mimeType\":\"image/png\"}";
+	if(aJob.mbIncludeVisible)
+	{
+		// Second content block: a text block whose text is itself JSON the agent can
+		// parse. Ids are integers, so no escaping/injection concerns.
+		std::string sIds;
+		for(size_t i=0;i<aJob.mvVisibleIds.size();++i)
+		{
+			if(i) sIds += ",";
+			sIds += std::to_string(aJob.mvVisibleIds[i]);
+		}
+		sContent += ",{\"type\":\"text\",\"text\":\"{\\\"visible\\\":[" + sIds + "]}\"}";
+	}
+	sContent += "]";
+	r.msContentJson = sContent;
 	return r;
 }
 
@@ -415,15 +536,18 @@ cMCPToolResult cLevelEditorCameraCapture::BuildResultFromReadback(cCaptureJob& a
 
 void cLevelEditorCameraCapture::FreeJobResources(cCaptureJob& aJob)
 {
-	// Texture handles go to the graphics deferral queue (freed once the pipeline
-	// is done with them). The readback buffer's fence has signalled by the time
-	// we free it, so an immediate dispose is safe.
-	ReleaseViewportAttachmentTexture(&aJob.mTargetTexture, &aJob.mTargetView);
-	if(aJob.mReadback.isEmpty() == false)
-	{
-		aJob.mReadback.dispose(&Interface<cGraphics>::Get()->device);
-		aJob.mReadback = {};
-	}
+	// Every per-job GPU resource is destroyed through the main graphics deferral
+	// queue, so none is freed while an in-flight frame still references it — the
+	// color target is left SHADER_RESOURCE and sampled by the composite/tonemap,
+	// so freeing it early is a GPU use-after-free (RADV TCP read VM fault).
+	// graphicsDefer.push() no-ops on an empty handle.
+	cGraphics* pGfx = Interface<cGraphics>::Get();
+	pGfx->graphicsDefer.push(aJob.mTargetView);
+	pGfx->graphicsDefer.push(aJob.mTargetTexture);
+	pGfx->graphicsDefer.push(aJob.mReadback);
+	aJob.mTargetView    = {};
+	aJob.mTargetTexture = {};
+	aJob.mReadback      = {};
 }
 
 //--------------------------------------------------------------------

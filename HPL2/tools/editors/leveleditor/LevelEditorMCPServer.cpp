@@ -69,6 +69,22 @@ static std::string TextContentBlock(const std::string& asText)
 	return std::string(buf.GetString(), buf.GetSize());
 }
 
+// Best-effort inverse of TextContentBlock: pull the first text block's string
+// out of a serialized content array so it can be logged in one readable line.
+// Falls back to the raw JSON if it isn't the shape we expect.
+static std::string FirstTextBlock(const std::string& asContentJson)
+{
+	rapidjson::Document doc;
+	doc.Parse(asContentJson.c_str(), asContentJson.size());
+	if(doc.HasParseError()==false && doc.IsArray() && doc.Size()>0)
+	{
+		const rapidjson::Value& first = doc[0];
+		if(first.IsObject() && first.HasMember("text") && first["text"].IsString())
+			return std::string(first["text"].GetString(), first["text"].GetStringLength());
+	}
+	return asContentJson;
+}
+
 // {"jsonrpc":"2.0","id":<id>,"result":<body>} -- afWriteBody writes the result value.
 template<class WriteBody>
 static std::string MakeResult(const rapidjson::Value* apId, WriteBody afWriteBody)
@@ -221,6 +237,8 @@ void cLevelEditorMCPServer::Stop()
 
 	delete mpServer;
 	mpServer = NULL;
+
+	Log("LevelEditor MCP: server stopped\n");
 }
 
 //--------------------------------------------------------------------
@@ -238,6 +256,10 @@ void cLevelEditorMCPServer::DrainQueue()
 
 	for(cQueuedCall& call : lPending)
 	{
+		// Log the tool name up front so a handler that crashes mid-call still
+		// leaves a breadcrumb in the editor log.
+		Log("LevelEditor MCP: tool '%s'\n", call.msTool.c_str());
+
 		cMCPToolResult result;
 		try
 		{
@@ -256,6 +278,7 @@ void cLevelEditorMCPServer::DrainQueue()
 
 		if(result.mbDeferred)
 		{
+			Log("LevelEditor MCP: tool '%s' deferred (job %d)\n", call.msTool.c_str(), result.mlDeferJobId);
 			// The tool started an async job (e.g. a camera capture render). Park
 			// the caller's promise keyed by job id; FulfillDeferred() completes it
 			// when the job finishes a few frames later. The worker thread stays
@@ -264,6 +287,9 @@ void cLevelEditorMCPServer::DrainQueue()
 		}
 		else
 		{
+			if(result.mbIsError)
+				Warning("LevelEditor MCP: tool '%s' failed: %s\n", call.msTool.c_str(),
+					FirstTextBlock(result.msContentJson).c_str());
 			try { call.mResult.set_value(result); } catch(...) {}
 		}
 	}
@@ -277,6 +303,7 @@ void cLevelEditorMCPServer::FulfillDeferred(int alJobId, const cMCPToolResult& a
 	if(it == mDeferred.end()) return; // unknown / already fulfilled (e.g. by Stop)
 	try { it->second.set_value(aResult); } catch(...) {}
 	mDeferred.erase(it);
+	Log("LevelEditor MCP: deferred job %d done\n", alJobId);
 }
 
 //--------------------------------------------------------------------
