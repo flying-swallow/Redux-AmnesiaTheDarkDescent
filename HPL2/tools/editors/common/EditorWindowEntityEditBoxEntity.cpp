@@ -34,6 +34,7 @@
 cEditorWindowEntityEditBoxEntity::cEditorWindowEntityEditBoxEntity(cEditorEditModeSelect* apEditMode, cEntityWrapperEntity* apObject) : cEditorWindowEntityEditBoxUserDefinedEntity(apEditMode, apObject)
 {
 	mpEntity = apObject;
+	mpBOpenModelEditor = NULL;
 }
 
 //----------------------------------------------------------------------------
@@ -77,6 +78,17 @@ void cEditorWindowEntityEditBoxEntity::Create()
 
 	mpInpFile = CreateInputFile(vPos, _W("Entity File"), "", mpTabGeneral, 100);
 	mpInpFile->SetBrowserType(eEditorResourceType_EntityFile);
+	vPos.y += mpInpFile->GetSize().y+10;
+
+	////////////////////////////////////////
+	// "Edit in Model Editor" button (only where launching is supported, i.e.
+	// the LevelEditor). Opens this entity's .ent in the standalone ModelEditor;
+	// the file watcher / MCP reload then updates the placed instances live.
+	if(mpEditor->SupportsModelEditorLaunch())
+	{
+		mpBOpenModelEditor = mpSet->CreateWidgetButton(vPos, cVector2f(160,25), _W("Edit in Model Editor"), mpTabGeneral);
+		mpBOpenModelEditor->AddCallback(eGuiMessage_ButtonPressed, this, kGuiCallback(OpenModelEditorCallback));
+	}
 
     ////////////////////////////////////////
 	// Properties in Tab 'Specific'
@@ -102,6 +114,24 @@ bool cEditorWindowEntityEditBoxEntity::WindowSpecificInputCallback(iEditorInput*
 
 	return true;
 }
+
+//----------------------------------------------------------------------------
+
+bool cEditorWindowEntityEditBoxEntity::OpenModelEditorCallback(iWidget* apWidget, const cGuiMessageData& aData)
+{
+	tString sFile = mpEntity->GetFilename();
+	if(sFile.empty())
+	{
+		Warning("[ModelEditor] selected entity has no .ent file to edit\n");
+		return true;
+	}
+
+	Log("[ModelEditor] launch requested for '%s'\n", sFile.c_str());
+	mpEditor->OpenInModelEditor(sFile);
+
+	return true;
+}
+kGuiCallbackDeclaredFuncEnd(cEditorWindowEntityEditBoxEntity, OpenModelEditorCallback);
 
 //----------------------------------------------------------------------------
 

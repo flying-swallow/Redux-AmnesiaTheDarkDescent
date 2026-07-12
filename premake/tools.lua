@@ -110,6 +110,19 @@ local leveleditor = {
     "LevelEditorStaticObjectCombo.cpp", "LevelEditorWindow.cpp",
     "LevelEditorWindowGroup.cpp", "LevelEditorWindowLevelSettings.cpp",
     "LevelEditorWorld.cpp",
+    "EditorFileWatcher.cpp", "PrefabManager.cpp",
+    -- Headless .ent authoring for the MCP create_entity_file tool: the
+    -- ModelEditor's document class + the wrapper/editbox TUs it links against.
+    "ModelEditorWorld.cpp",
+    "EntityWrapperSubMesh.cpp", "EntityWrapperBone.cpp",
+    "EntityWrapperBody.cpp", "EntityWrapperBodyShape.cpp",
+    "EntityWrapperJoint.cpp", "EntityWrapperJointBall.cpp",
+    "EntityWrapperJointHinge.cpp", "EntityWrapperJointScrew.cpp",
+    "EntityWrapperJointSlider.cpp",
+    "EditorActionsBodies.cpp", "EditorActionsSubMesh.cpp",
+    "EditorWindowEntityEditBoxSubMesh.cpp", "EditorWindowEntityEditBoxBone.cpp",
+    "EditorWindowEntityEditBoxBody.cpp", "EditorWindowEntityEditBoxBodyShape.cpp",
+    "EditorWindowEntityEditBoxGroupShapes.cpp", "EditorWindowEntityEditBoxJoint.cpp",
 }
 
 local modeleditor = {
@@ -159,6 +172,7 @@ local modeleditor = {
     "ModelEditorMain.cpp", "ModelEditorWindowAnimations.cpp",
     "ModelEditorWindowOutline.cpp", "ModelEditorWindowPhysicsTest.cpp",
     "ModelEditorWindowUserSettings.cpp", "ModelEditorWorld.cpp",
+    "EditorFileWatcher.cpp", "PrefabManager.cpp", "ModelEditorReloadNotify.cpp",
 }
 
 local particleeditor = {
@@ -185,6 +199,7 @@ local particleeditor = {
     "ParticleEditorActions.cpp", "ParticleEditorMain.cpp",
     "ParticleEditorWindowEmitterParams.cpp", "ParticleEditorWindowEmitters.cpp",
     "ParticleEditorWorld.cpp",
+    "EditorFileWatcher.cpp", "PrefabManager.cpp",
 }
 
 local materialeditor = {
@@ -208,6 +223,7 @@ local materialeditor = {
     "EngineEntity.cpp", "EntityIcon.cpp", "EntityPicker.cpp", "EntityWrapper.cpp",
     "EntityWrapperCompoundObject.cpp", "StdAfx.cpp", "SurfacePicker.cpp",
     "MaterialEditor.cpp", "MaterialEditorMain.cpp",
+    "EditorFileWatcher.cpp", "PrefabManager.cpp",
 }
 
 editor_target("LevelEditor",    "leveleditor",    leveleditor)

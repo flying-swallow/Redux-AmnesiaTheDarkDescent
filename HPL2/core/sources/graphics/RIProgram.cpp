@@ -891,7 +891,13 @@ void RIProgram::initialize(RIDevice* device, std::span<ModuleStage> moduleInit,
         }
       }
     }
-	  uint32_t numLayoutCount = 0;
+
+    // Everything needed has been folded into bindingReflection / vertex input
+    // masks / the accumulated layout bindings; free the reflection tree.
+    spvReflectDestroyShaderModule(&module);
+  }
+
+  uint32_t numLayoutCount = 0;
 	  for( size_t bindingIdx = 0; bindingIdx < DESCRIPTOR_SET_MAX; bindingIdx++ ) {
 		  if( descriptorSetLayoutBindings[bindingIdx].size() > 0 ||
 		      externalLayoutFor(bindingIdx) != VK_NULL_HANDLE ) {
@@ -930,7 +936,6 @@ void RIProgram::initialize(RIDevice* device, std::span<ModuleStage> moduleInit,
 			pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
 		}
 		VK_WrapResult( vkCreatePipelineLayout( device->vk.device, &pipelineLayoutCreateInfo, NULL, &impl.vk.pipelineLayout ) );
-  }
 }
 
 void RIProgram::dispose(RIDevice *device) {

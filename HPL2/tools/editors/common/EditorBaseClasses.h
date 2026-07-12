@@ -51,6 +51,8 @@ class cEditorUserClassDefinitionManager;
 
 class cEditorInputFile;
 
+class cPrefabManager;
+
 typedef std::vector<cEditorWindowViewport*> tEditorViewportVec;
 
 //-----------------------------------------------------------
@@ -374,6 +376,34 @@ public:
 	virtual tString GetMCPClientLabel(int alIdx) { return ""; }
 	virtual tString GetMCPClientSnippet(int alIdx) { return ""; }
 
+	///////////////////////////////////
+	// External editor launch hooks
+	// Default no-ops so the shared entity edit-box can offer an "Edit in Model
+	// Editor" button without knowing about the concrete editor. The LevelEditor
+	// overrides these to launch the standalone ModelEditor on the given .ent.
+	virtual bool SupportsModelEditorLaunch() { return false; }
+	virtual void OpenInModelEditor(const tString& asEntFile) {}
+
+	// Called at the end of a successful Save(). Default no-op; the ModelEditor
+	// overrides it to notify the LevelEditor (over MCP) that the .ent changed.
+	virtual void OnPostSave() {}
+
+	// Pending in-memory entity files: the LevelEditor's MCP define_entity_file
+	// tool holds JSON-authored .ent documents in memory until the map is saved
+	// (they are then written to disk as XML). Common-layer entity loading
+	// (cEditorEntityLoader::LoadEntFile, GetTypeFromEntFile) consults this
+	// before hitting the resource index so pending entities load through the
+	// SAME path as on-disk ones. Default: no pending files.
+	virtual tinyxml2::XMLElement* GetPendingEntFileRoot(const tString& asFile) { return NULL; }
+
+	// Editor-wide prefab resource manager: the .ent "prefabs" referenced in the
+	// current map as refcounted resources (each placed cEntityWrapperEntity holds
+	// a SharedResourceHandle), their in-memory (MCP-editable) definitions, and
+	// the broadcast Event the editor world subscribes to. Created in Init just
+	// before the world and destroyed in ~iEditorBase just after it, so wrapper
+	// handles never outlive the manager.
+	cPrefabManager* GetPrefabManager() { return mpPrefabManager; }
+
 
 	///////////////////////////////////
 	// Execution Control
@@ -511,6 +541,7 @@ protected:
 	cEditorSelection* mpSelection;
 	cEditorActionHandler* mpActionHandler;
 	cEditorUserClassDefinitionManager* mpClassDefManager;
+	cPrefabManager* mpPrefabManager;
 
 	tEditorWindowList mlstWindows;
 	tEditorWindowList mlstWindowsToDestroy;

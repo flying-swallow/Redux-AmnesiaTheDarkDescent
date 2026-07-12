@@ -30,7 +30,7 @@ using namespace hpl;
 
 //--------------------------------------------------------------------
 
-namespace tinyxml2 { class XMLElement; }
+namespace tinyxml2 { class XMLElement; class XMLDocument; }
 
 class iEditorWindow;
 
@@ -135,6 +135,34 @@ public:
 	// Current .map path (empty if unsaved). Public accessor for the MCP server.
 	const tWString& GetCurrentMapFilename() { return msSaveFilename; }
 
+	// Re-scan resource directories so files created after startup become
+	// resolvable (the FileSearcher index is otherwise built once at init).
+	// asSingleDir non-empty: index just that directory (recursive). Otherwise
+	// replays the startup setup: resources.cfg + every registered lookup dir
+	// (which covers the ExtraStaticObjectDir*/ExtraEntityDir* config dirs).
+	// Returns the number of newly indexed files, or -1 if asSingleDir does
+	// not exist. Used by the MCP 'refresh_assets' tool.
+	int RefreshResourceIndex(const tWString& asSingleDir = _W(""));
+
+	///////////////////////////////
+	// Pending in-memory entity files (MCP 'define_entity_file'): JSON-authored
+	// .ent documents held in memory (loaded through the SAME entity load path
+	// via iEditorBase::GetPendingEntFileRoot) and written to disk as XML when
+	// the map is saved (OnPostSave -> FlushPendingEntFiles). Cleared on map
+	// reset/new/load — pending files not saved with the map are discarded.
+	// These delegate to the iEditorBase-owned cPrefabManager (see PrefabManager.h),
+	// the single home for the in-memory .ent definitions.
+	tinyxml2::XMLElement* GetPendingEntFileRoot(const tString& asFile); // override iEditorBase
+	// Takes ownership of apDoc (root must be <Entity>); replaces + re-dirties
+	// an existing entry with the same path. abBroadcast=true fires the prefab
+	// manager's change broadcast (the world then live-reloads matching instances).
+	void SetPendingEntFile(const tString& asPath, tinyxml2::XMLDocument* apDoc, bool abBroadcast = true);
+	// Write every dirty pending file to its path (creating folders), re-index
+	// each directory, and clear the dirty set. Returns files written.
+	int FlushPendingEntFiles();
+	int GetPendingEntFileDirtyCount();
+	void ClearPendingEntFiles();
+
 	// Off-screen virtual-camera capture backing the MCP 'capture_view' tool.
 	// NULL until OnInit, or if the headless render setup failed.
 	cLevelEditorCameraCapture* GetCameraCapture() { return mpCameraCapture; }
@@ -147,6 +175,14 @@ public:
 	int GetMCPClientCount();
 	tString GetMCPClientLabel(int alIdx);
 	tString GetMCPClientSnippet(int alIdx);
+
+	///////////////////////////////
+	// External editor launch (override iEditorBase; drives the entity edit-box
+	// "Edit in Model Editor" button). Launches the co-located ModelEditor on the
+	// given .ent, handing it this editor's MCP endpoint so it can push live
+	// reload notifications back on save.
+	bool SupportsModelEditorLaunch() { return true; }
+	void OpenInModelEditor(const tString& asEntFile);
 
 	///////////////////////////////
 	// Group Tool stuff
@@ -207,6 +243,10 @@ protected:
 
 	void OnLoadConfig();
 	void OnSaveConfig();
+
+	// Writes pending MCP-defined entity files to disk after a successful map
+	// save, so the saved map's .ent references resolve on the filesystem.
+	void OnPostSave();
 
 	///////////////////////////
 	// Data

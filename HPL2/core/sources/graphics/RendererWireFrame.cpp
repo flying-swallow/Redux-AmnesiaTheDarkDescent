@@ -79,6 +79,15 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
+	void cRendererWireFrame::DestroyData()
+	{
+		// Runs from DestroyRenderObjects, before cGraphics::Dispose — the
+		// device is still alive (same pattern as ~cHybridRenderer).
+		m_wireframe.dispose(&mpGraphics->device);
+	}
+
+	//-----------------------------------------------------------------------
+
 	// cViewport::SimpleViewportState (shared with this renderer) is
 	// implemented in RendererSimple.cpp.
 

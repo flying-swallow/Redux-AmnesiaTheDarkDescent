@@ -432,6 +432,7 @@ cEditorWindowEntityEditBoxUserDefinedEntity::cEditorWindowEntityEditBoxUserDefin
 	mpEntity = apVarEntity;
 
 	mpInputPanel = NULL;
+	mpBuiltFromClass = NULL;
 	mbRefreshInputs = false;
 }
 
@@ -451,6 +452,7 @@ void cEditorWindowEntityEditBoxUserDefinedEntity::AddInputs(cWidgetTab* apParent
 
 	mpInputPanel = mpEntity->GetClass()->CreateInputPanel(this, mpFVars, false);
 	mpInputPanel->SetCallback(this, VarInputCallbackStaticHelper);
+	mpBuiltFromClass = mpEntity->GetClass();
 }
 
 //----------------------------------------------------------------------------
@@ -475,13 +477,18 @@ void cEditorWindowEntityEditBoxUserDefinedEntity::OnUpdate(float afTimeStep)
 {
 	cEditorWindowEntityEditBox::OnUpdate(afTimeStep);
 
-	if(mbRefreshInputs)
+	// Rebuild the var panel on an explicit refresh (type change) OR when the
+	// entity's class instance was swapped out from under us by a live reload —
+	// otherwise mpInputPanel's inputs still point at the freed old mpClass and
+	// the Update() below dereferences dangling vars (use-after-free crash).
+	if(mbRefreshInputs || mpEntity->GetClass()!=mpBuiltFromClass)
 	{
 		mbRefreshInputs=false;
 		hplDelete(mpInputPanel);
 
 		mpInputPanel = mpEntity->GetClass()->CreateInputPanel(this, mpFVars, false);
 		mpInputPanel->SetCallback(this, VarInputCallbackStaticHelper);
+		mpBuiltFromClass = mpEntity->GetClass();
 	}
 
 	mpInputPanel->Update();

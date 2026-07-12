@@ -213,22 +213,22 @@ cLevelEditorCameraCapture::~cLevelEditorCameraCapture()
 
 //--------------------------------------------------------------------
 
-int cLevelEditorCameraCapture::Enqueue(const cVector3f& avPos, const cVector3f& avTarget,
-									   float afFovRadians, float afNearClip, float afFarClip,
-									   int alWidth, int alHeight, bool abIncludeVisible)
+int cLevelEditorCameraCapture::Enqueue(const cCaptureRequest& aRequest)
 {
 	if(mpViewport == NULL) return -1; // headless setup failed
 
 	cCaptureJob job;
 	job.mlId     = mlNextJobId++;
-	job.mvPos    = avPos;
-	job.mvTarget = avTarget;
-	job.mfFov    = afFovRadians;
-	job.mfNear   = afNearClip;
-	job.mfFar    = afFarClip;
-	job.mlWidth  = ClampInt(alWidth,  kCaptureMinDim, kCaptureMaxDim);
-	job.mlHeight = ClampInt(alHeight, kCaptureMinDim, kCaptureMaxDim);
-	job.mbIncludeVisible = abIncludeVisible;
+	job.mvPos    = aRequest.mvPos;
+	job.mvTarget = aRequest.mvTarget;
+	job.mfFov    = aRequest.mfFov;
+	job.mfNear   = aRequest.mfNear;
+	job.mfFar    = aRequest.mfFar;
+	job.mlWidth  = ClampInt(aRequest.mlWidth,  kCaptureMinDim, kCaptureMaxDim);
+	job.mlHeight = ClampInt(aRequest.mlHeight, kCaptureMinDim, kCaptureMaxDim);
+	job.mbIncludeVisible = aRequest.mbIncludeVisible;
+	job.mfExposure = aRequest.mfExposure;
+	job.mfGamma    = aRequest.mfGamma;
 	job.mState   = eCaptureState_Idle;
 
 	mlstJobs.push_back(std::move(job));
@@ -300,13 +300,16 @@ void cLevelEditorCameraCapture::Pump(float afFrameTime)
 		if(pWorld == NULL) return; // no world yet; retry next frame (still Idle)
 
 		//////////////////////////////////////////
-		// Per-job GPU resources: an RGBA8_SRGB color target (sRGB attachment write =
-		// free linear->display encode; TRANSFER_SRC backs the readback copy) + a
-		// host-readable buffer the copy lands in. Same size for every warm frame,
-		// so HybridViewportState::Update never recreates (which would reset the
-		// temporal history we are accumulating).
+		// Per-job GPU resources: an RGBA8_UNORM color target (TRANSFER_SRC backs the
+		// readback copy) + a host-readable buffer the copy lands in. UNORM is
+		// deliberate: the tonemap post effect already writes DISPLAY-ENCODED sRGB
+		// values (posteffect_tonemap.frag.slang does the linearToSRGB), and the
+		// editor pane stores them raw too — an SRGB attachment here would encode a
+		// second time and wash the capture out relative to the viewport. Same size
+		// for every warm frame, so HybridViewportState::Update never recreates
+		// (which would reset the temporal history we are accumulating).
 		if(!CreateViewportColorTexture(&pGfx->device, (uint32_t)pJob->mlWidth, (uint32_t)pJob->mlHeight,
-									   RI_FORMAT_RGBA8_SRGB,
+									   RI_FORMAT_RGBA8_UNORM,
 									   RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE | RI_USAGE_TRANSFER_SRC,
 									   &pJob->mTargetTexture, &pJob->mTargetView,
 									   "MCPCameraCapture"))
@@ -361,6 +364,15 @@ void cLevelEditorCameraCapture::Pump(float afFrameTime)
 		if(pJob->mbIncludeVisible)
 			ComputeVisibleEntities(*pJob);
 
+		// Apply this job's tonemap overrides. Set unconditionally (defaults are the
+		// editor-viewport values) so a previous job's override never leaks forward.
+		// Safe: at most one job is Warming/Staged at a time.
+		cPostEffectParams_ToneMap tonemapParams;
+		tonemapParams.mfExposure   = pJob->mfExposure;
+		tonemapParams.mfShadowLift = 1.0f;
+		tonemapParams.mfGamma      = pJob->mfGamma;
+		mpPostEffectToneMap->SetParams(&tonemapParams);
+
 		pJob->mWarmRemaining = kCaptureAccumFrames;
 		pJob->mState         = eCaptureState_Warming;
 	}
@@ -395,7 +407,7 @@ void cLevelEditorCameraCapture::Pump(float afFrameTime)
 	target.height = (uint32_t)pJob->mlHeight;
 	target.texture      = *pJob->mTargetTexture;
 	target.view.vk.image = pJob->mTargetView->vk.image;
-	target.format = RI_FORMAT_RGBA8_SRGB;
+	target.format = RI_FORMAT_RGBA8_UNORM;
 	mpViewport->SetTarget(target);
 
 	const bool bFinalWarm = (pJob->mWarmRemaining <= 1);

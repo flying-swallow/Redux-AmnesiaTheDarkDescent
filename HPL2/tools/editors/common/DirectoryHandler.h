@@ -65,6 +65,9 @@ public:
 						bool abAddSubDirsToResources = false, bool abUpdateResources = false);
 
 	void RefreshLookupDirs();
+	// Re-adds every registered lookup dir to the resource index regardless of the
+	// mbIsUpdated flag (RefreshLookupDirs only adds dirs registered since the last call).
+	void ForceRefreshLookupDirs();
 
 	const tWString& GetWorkingDir() { return msWorkingDir; }
 	const tWString& GetHomeDir() { return msHomeDir; }

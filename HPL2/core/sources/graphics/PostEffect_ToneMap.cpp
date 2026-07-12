@@ -45,7 +45,10 @@ cPostEffectType_ToneMap::cPostEffectType_ToneMap(cGraphics *apGraphics,
                       "posteffect_tonemap.frag.spv");
 }
 
-cPostEffectType_ToneMap::~cPostEffectType_ToneMap() {}
+cPostEffectType_ToneMap::~cPostEffectType_ToneMap() {
+  // Runs in DestroyRenderObjects, before cGraphics::Dispose — device is alive.
+  m_program.dispose(&mpGraphics->device);
+}
 
 iPostEffect *
 cPostEffectType_ToneMap::CreatePostEffect(iPostEffectParams *apParams) {

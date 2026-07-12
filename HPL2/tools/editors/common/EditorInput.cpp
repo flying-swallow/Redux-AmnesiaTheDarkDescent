@@ -589,6 +589,8 @@ bool cEditorInputFile::BrowseButton_OnPressed(iWidget* apWidget, const cGuiMessa
 		case eEditorResourceType_Model:
 			sCatName = _W("Models");
 			lstCatString.push_back(_W("*.dae"));
+			lstCatString.push_back(_W("*.gltf"));
+			lstCatString.push_back(_W("*.glb"));
 			//lstCatString.push_back(_W("*.fbx"));
 			pEditor->ShowLoadFilePicker(mvTempLoadedFiles, cString::GetFilePathW(msTempLoadedFile), this, kGuiCallback(Browser_OnOkay), sCatName, lstCatString);
 			break;
@@ -670,7 +672,7 @@ void cEditorInputVec2::SetValue(const cVector2f& avX, bool abGenerateCallback, b
 {
 	tWString sValue;
 
-	for(int i=0;i<4;++i)
+	for(int i=0;i<2;++i)
 	{
 		sValue += cString::ToStringW(avX.v[i],mlDecimals,true) + _W(" ");
 	}

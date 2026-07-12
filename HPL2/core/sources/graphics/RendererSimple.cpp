@@ -109,6 +109,15 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
+	void cRendererSimple::DestroyData()
+	{
+		// Runs from DestroyRenderObjects, before cGraphics::Dispose — the
+		// device is still alive (same pattern as ~cHybridRenderer).
+		m_simple.dispose(&mpGraphics->device);
+	}
+
+	//-----------------------------------------------------------------------
+
 	//////////////////////////////////////////////////////////////////////////
 	// PUBLIC METHODS
 	//////////////////////////////////////////////////////////////////////////

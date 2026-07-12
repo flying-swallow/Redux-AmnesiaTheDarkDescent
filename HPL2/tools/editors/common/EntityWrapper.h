@@ -28,6 +28,10 @@ using namespace hpl;
 
 #include "EditorUserClassDefinitionManager.h"
 
+#include "system/Event.h"
+
+#include <set>
+
 //-----------------------------------------------------------------------
 
 namespace tinyxml2 { class XMLElement; }
@@ -146,6 +150,10 @@ class iProp
 public:
 	iProp(int alID, eVariableType aType, const tString& asName, bool abSave) : mlID(alID), mType(aType), msName(asName), mbSave(abSave)
 	{}
+	// Virtual: props are typed subclasses deleted through this base — a
+	// non-virtual dtor makes those deletes wrong-sized (heap corruption
+	// under sized deallocation).
+	virtual ~iProp() {}
 
 	void SetSaved(bool abX) { mbSave = abX; }
 
@@ -177,6 +185,11 @@ class iPropVal
 {
 public:
 	iPropVal(iProp*);
+	// Virtual: values are typed subclasses (cPropValInt/Float/...) deleted
+	// through this base (STLDeleteAll in ~iEntityWrapperData) — a non-virtual
+	// dtor here made every entity-data teardown a wrong-sized delete that
+	// corrupts the glibc heap under sized deallocation.
+	virtual ~iPropVal() {}
 	iProp* GetProperty() { return mpProp; }
 
 	/**
@@ -952,6 +965,15 @@ public:
 	void DestroyEngineEntity();
 
 	/////////////////////////////////////////////////////////////
+	// Live file watching
+	// Collect the resolved absolute paths this entity depends on. The default
+	// pushes the top-level source file (msFilename); with dependency watching
+	// enabled it also walks the live mesh -> materials -> textures.
+	virtual void GetWatchedFiles(std::vector<tWString>& avOut);
+	// (Re)register this entity's dependency files with the world's file watcher.
+	void RegisterFileWatches();
+
+	/////////////////////////////////////////////////////////////
 	// Property interface
 	virtual bool GetProperty(int, int&);
 	virtual bool GetProperty(int, float&);
@@ -1035,7 +1057,7 @@ protected:
 	tString msName;
 
 	tString msFilename;
-	
+
 	cEntityIcon*	mpIcon;
 	iEngineEntity*	mpEngineEntity;
 

@@ -44,6 +44,10 @@ public:
 protected:
 	bool WindowSpecificInputCallback(iEditorInput* apInput);
 
+	// Launches the standalone ModelEditor on this entity's .ent file.
+	bool OpenModelEditorCallback(iWidget* apWidget, const cGuiMessageData& aData);
+	kGuiCallbackDeclarationEnd(OpenModelEditorCallback);
+
 	void OnUpdate(float afTimeStep);
 
 	cWidgetTab* mpTabGeneral;
@@ -51,6 +55,7 @@ protected:
 
 	cEntityWrapperEntity* mpEntity;
 	cEditorInputFile* mpInpFile;
+	cWidgetButton* mpBOpenModelEditor;
 };
 
 //----------------------------------------------------------------------

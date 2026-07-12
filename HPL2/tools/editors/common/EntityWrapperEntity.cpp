@@ -466,6 +466,7 @@ void cEntityWrapperEntity::SetFilename(const tString& asX)
 		return;
 
 	msFilename = asX;
+	UpdatePrefabRef();
 
 	if(mpEngineEntity==NULL)
 		return;
@@ -478,6 +479,26 @@ void cEntityWrapperEntity::SetFilename(const tString& asX)
 	SetFileIndex(lFileIndex);
 
     CreateEngineEntity();
+
+	// Re-point the live-reload watches at the new file (+ its dependency chain).
+	// (No prefab re-subscription needed: prefab edits reach instances via the
+	// cache's broadcast + the world's filename scan.)
+	RegisterFileWatches();
+}
+
+//---------------------------------------------------------------------------
+
+void cEntityWrapperEntity::UpdatePrefabRef()
+{
+	cPrefabManager* pMgr = GetEditorWorld()->GetEditor()->GetPrefabManager();
+	if(pMgr==NULL || msFilename.empty())
+	{
+		mPrefabRef = SharedResourceHandle<cPrefabResource>();
+		return;
+	}
+	// Re-pointing at the same resource is a refcount no-op (handle self-assign
+	// guard), so calling this redundantly is safe.
+	mPrefabRef = pMgr->CreatePrefab(msFilename);
 }
 
 //---------------------------------------------------------------------------
@@ -506,7 +527,12 @@ iEngineEntity* cEntityWrapperEntity::CreateSpecificEngineEntity()
 		else
 			Log("Error creating Entity named %s, ID %d\n", msName.c_str(), mlID);
 	}
-	
+
+	// Map-load path: msFilename can be resolved from the file index right here,
+	// bypassing SetFilename — take the instance's prefab reference now that the
+	// filename is final.
+	UpdatePrefabRef();
+
 	return hplNew(cEngineEntityLoadedMeshAggregate,(this, msFilename));
 }
 

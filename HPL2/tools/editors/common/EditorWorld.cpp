@@ -24,6 +24,8 @@
 #include "SurfacePicker.h"
 #include "EditorClipPlane.h"
 #include "EditorHelper.h"
+#include "EditorFileWatcher.h"
+#include "PrefabManager.h"
 
 #include "resources/XmlHelper.h"
 #include <tinyxml2.h>
@@ -50,6 +52,15 @@ iEditorWorld::iEditorWorld(iEditorBase* apEditor, const tString& asElementName)
 	mpPicker = hplNew(cEntityPicker,(this));
 	mpSurfacePicker = hplNew(cSurfacePicker,(this));
 
+	mpFileWatcher = hplNew(cEditorFileWatcher,());
+	mFileReloadHandler.Connect(mpFileWatcher->OnReloadEntities());
+
+	// Prefab-manager broadcast: reload this world's instances of an added/
+	// modified/removed prefab definition. The manager is created in
+	// iEditorBase::Init before any world, so it is always available here.
+	if(cPrefabManager* pPrefabManager = mpEditor->GetPrefabManager())
+		mPrefabChangedHandler.Connect(pPrefabManager->OnPrefabChanged());
+
 	mbClipPlaneNumUpdated = true;
 
 	mlDefaultCategory = -1;
@@ -75,6 +86,9 @@ iEditorWorld::~iEditorWorld()
 {
 	ClearEntities();
 
+	hplDelete(mpFileWatcher);
+	mpFileWatcher = NULL;
+
 	STLDeleteAll(mlstEntityTypes);
 
 	hplDelete(mpPicker);
@@ -91,8 +105,11 @@ iEditorWorld::~iEditorWorld()
 
 //----------------------------------------------------------------------------
 
-void iEditorWorld::OnEditorUpdate()
+void iEditorWorld::OnEditorUpdate(float afTimeStep)
 {
+	if(mpFileWatcher)
+		mpFileWatcher->Poll(afTimeStep);
+
 	if(mbClipPlanesUpdated)
 	{
 		mbClipPlanesUpdated = false;
@@ -176,7 +193,14 @@ bool iEditorWorld::AddObject(iEntityWrapper* apObject)
 void iEditorWorld::RemoveObject(iEntityWrapper* apObject)
 {
 	if(apObject)
+	{
+		// Drop the file watches for this entity. Skipped during a full clear -
+		// ClearEntities() tears the whole watcher down in one shot instead.
+		if(mbIsClearingEntities==false && mpFileWatcher)
+			mpFileWatcher->UnregisterEntity(apObject->GetID());
+
 		mmapEntities.erase(apObject->GetID());
+	}
 }
 
 //----------------------------------------------------------------------------
@@ -254,7 +278,111 @@ void iEditorWorld::ClearEntities()
 
 	mmapEntities.clear();
 
+	// One-shot teardown of every watch (RemoveObject skips per-entity
+	// unregisters while mbIsClearingEntities is set).
+	if(mpFileWatcher)
+		mpFileWatcher->Clear();
+
 	mbIsClearingEntities=false;
+}
+
+//--------------------------------------------------------------------
+
+void iEditorWorld::OnWatcherReload(const std::set<int>& asetIDs)
+{
+	// The watcher fires only for ON-DISK changes. A pending prefab doc that is
+	// not dirty was persisted by us (content == old disk), so dropping it makes
+	// the rebuild below read the NEW disk content. Dirty docs are unsaved MCP
+	// edits — kept (OnExternalFileChange warns about the conflict).
+	if(cPrefabManager* pMgr = mpEditor->GetPrefabManager())
+	{
+		for(std::set<int>::const_iterator it=asetIDs.begin(); it!=asetIDs.end(); ++it)
+		{
+			iEntityWrapper* pEnt = GetEntity(*it);
+			if(pEnt && cString::ToLowerCase(cString::GetFileExt(pEnt->GetFilename()))=="ent")
+				pMgr->OnExternalFileChange(pEnt->GetFilename(), false);
+		}
+	}
+
+	ReloadEntities(asetIDs);
+}
+
+//--------------------------------------------------------------------
+
+std::set<int> iEditorWorld::FindEntityIDsByFilename(const tString& asFile)
+{
+	std::set<int> setIDs;
+	tString sBase = cString::ToLowerCase(cString::GetFileName(asFile));
+	if(sBase.empty())
+		return setIDs;
+
+	for(tEntityWrapperMapIt it=mmapEntities.begin(); it!=mmapEntities.end(); ++it)
+	{
+		iEntityWrapper* pEnt = it->second;
+		if(cString::ToLowerCase(cString::GetFileName(pEnt->GetFilename()))==sBase)
+			setIDs.insert(pEnt->GetID());
+	}
+	return setIDs;
+}
+
+//--------------------------------------------------------------------
+
+void iEditorWorld::ReloadEntities(const std::set<int>& asetIDs)
+{
+	if(asetIDs.empty())
+		return;
+
+	////////////////////////////////////////////////////////////////////
+	// Phase 1: snapshot each affected entity's state, then tear down ALL
+	// their engine entities before rebuilding any. Resource managers cache
+	// by path hash, so a shared mesh/material/texture only re-reads disk once
+	// its refcount hits zero - which needs every holder torn down first.
+	std::vector<iEntityWrapper*>		vEnts;
+	std::vector<iEntityWrapperData*>	vData;
+	vEnts.reserve(asetIDs.size());
+	vData.reserve(asetIDs.size());
+
+	for(std::set<int>::const_iterator it=asetIDs.begin(); it!=asetIDs.end(); ++it)
+	{
+		iEntityWrapper* pEnt = GetEntity(*it);
+		if(pEnt==NULL)
+			continue;
+
+		vEnts.push_back(pEnt);
+		vData.push_back(pEnt->CreateCopyData());
+		pEnt->DestroyEngineEntity();
+	}
+
+	////////////////////////////////////////////////////////////////////
+	// Phase 2: rebuild each entity from its snapshot. The first rebuild of a
+	// given resource re-reads disk; the rest reuse the freshly loaded cache.
+	for(size_t i=0; i<vEnts.size(); ++i)
+	{
+		iEntityWrapper* pEnt = vEnts[i];
+		iEntityWrapperData* pData = vData[i];
+
+		pData->CopyToEntity(pEnt, ePropCopyStep_PreEnt);
+		pEnt->CreateEngineEntity();
+		pData->CopyToEntity(pEnt, ePropCopyStep_PostEnt);
+		pEnt->UpdateEntity();
+
+		// Re-push the selection highlight onto the rebuilt engine entity.
+		if(pEnt->IsSelected())
+			pEnt->SetSelected(true);
+
+		// Re-sync watches in case the reload changed the dependency set
+		// (e.g. an edited .ent now points at a different mesh/material).
+		// RegisterFileWatches() unregisters first, so this is a clean re-sync.
+		pEnt->RegisterFileWatches();
+
+		hplDelete(pData);
+	}
+
+	Log("[FileWatch] reloaded %d entit%s from disk\n",
+		(int)vEnts.size(), vEnts.size()==1 ? "y" : "ies");
+
+	// A live external reload must NOT dirty the map or push an undo action,
+	// so no IncModifications()/action creation here.
 }
 
 //--------------------------------------------------------------------

@@ -87,6 +87,9 @@ namespace hpl {
 	{
 	public:
 		iParserSymbol(int alRow) : mlRow(alRow){}
+		// Virtual: symbols are typed subclasses deleted through this base —
+		// non-virtual dtor = wrong-sized delete.
+		virtual ~iParserSymbol() {}
 
 		virtual eParserSymbol GetType()=0;
 

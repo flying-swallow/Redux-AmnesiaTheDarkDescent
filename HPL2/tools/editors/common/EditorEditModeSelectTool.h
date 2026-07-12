@@ -60,6 +60,9 @@ class cEditorEditModeSelectTool
 	friend class cEditorEditModeSelect;
 public:
 	cEditorEditModeSelectTool(eSelectToolMode aToolMode, cEditorEditModeSelect* apEditMode, cEditorSelection* apSelection);
+	// Virtual: concrete tools (translate/rotate/scale) are deleted through
+	// this base — non-virtual dtor = wrong-sized delete.
+	virtual ~cEditorEditModeSelectTool() {}
 
 	virtual bool IsActive()=0;
 

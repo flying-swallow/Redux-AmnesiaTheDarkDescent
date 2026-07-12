@@ -30,6 +30,8 @@ using namespace hpl;
 #include "resources/XmlHelper.h"
 
 #include "../common/DirectoryHandler.h"
+#include "../common/EditorFileWatcher.h"
+#include "../common/PrefabManager.h"
 
 #include "../common/EditorActionHandler.h"
 
@@ -160,6 +162,10 @@ cLevelEditor::~cLevelEditor()
 		mpCameraCapture = NULL;
 	}
 
+	// (The prefab manager is owned by iEditorBase and destroyed there, AFTER the
+	// world — entity wrappers hold resource handles into it. The MCP server is
+	// already down at that point, so no queued tool call can touch it.)
+
 	OnSaveConfig();
 }
 
@@ -188,11 +194,16 @@ void cLevelEditor::AppSpecificReset()
 
 	///////////////////////////////////////
 	// Groups
-	// Remove all previously created groups and create a "None" group. 
+	// Remove all previously created groups and create a "None" group.
     mmapGroups.clear();
 	cLevelEditorGroup group(this,0,"None");
 	group.SetVisibility(true);
 	mmapGroups.insert(pair<unsigned int, cLevelEditorGroup>(0,group));
+
+	///////////////////////////////////////
+	// Pending MCP-defined entity files belong to the map that defined them —
+	// a reset (new/load) without a save discards them.
+	ClearPendingEntFiles();
 }
 
 //--------------------------------------------------------------------
@@ -254,6 +265,86 @@ bool cLevelEditor::LoadFromFile(const tWString& asPath)
 
 //--------------------------------------------------------------------
 
+int cLevelEditor::RefreshResourceIndex(const tWString& asSingleDir)
+{
+	cResources* pResources = mpEngine->GetResources();
+	size_t lBefore = pResources->GetFileSearcher()->GetAllFiles().size();
+
+	if(asSingleDir.empty()==false)
+	{
+		if(cPlatform::FolderExists(asSingleDir)==false) return -1;
+		pResources->AddResourceDir(asSingleDir, true);
+	}
+	else
+	{
+		// Replay the startup resource setup (iEditorBase::Init + lookup dirs).
+		// AddDirectory is idempotent per (name, path), so re-adding existing
+		// dirs only appends genuinely new files.
+#ifdef USERDIR_RESOURCES
+		pResources->LoadResourceDirsFile("resources.cfg", mpDirHandler->GetUserResourceDir());
+#else
+		tString sCustomResources = mpMainConfig->GetString("Directories", "ResourcesOverride", "");
+		if(sCustomResources != "") pResources->LoadResourceDirsFile(sCustomResources);
+		else pResources->LoadResourceDirsFile("resources.cfg");
+#endif
+		mpDirHandler->ForceRefreshLookupDirs();
+	}
+
+	size_t lAfter = pResources->GetFileSearcher()->GetAllFiles().size();
+	return (int)(lAfter - lBefore);
+}
+
+//--------------------------------------------------------------------
+
+// The pending in-memory .ent documents live in the iEditorBase-owned
+// cPrefabManager; these keep their public names (used by the MCP tools + the
+// entity load path) and just delegate. The manager also owns the prefab change
+// broadcast the world subscribes to, so definition edits fan out live.
+
+tinyxml2::XMLElement* cLevelEditor::GetPendingEntFileRoot(const tString& asFile)
+{
+	return GetPrefabManager()->GetPendingRoot(asFile);
+}
+
+//--------------------------------------------------------------------
+
+void cLevelEditor::SetPendingEntFile(const tString& asPath, tinyxml2::XMLDocument* apDoc, bool abBroadcast)
+{
+	GetPrefabManager()->SetPendingDoc(asPath, apDoc, abBroadcast);
+}
+
+//--------------------------------------------------------------------
+
+int cLevelEditor::FlushPendingEntFiles()
+{
+	return GetPrefabManager()->Flush();
+}
+
+//--------------------------------------------------------------------
+
+int cLevelEditor::GetPendingEntFileDirtyCount()
+{
+	return GetPrefabManager()->DirtyCount();
+}
+
+//--------------------------------------------------------------------
+
+void cLevelEditor::ClearPendingEntFiles()
+{
+	GetPrefabManager()->DiscardAllPending();
+}
+
+//--------------------------------------------------------------------
+
+void cLevelEditor::OnPostSave()
+{
+	int lWritten = FlushPendingEntFiles();
+	if(lWritten>0)
+		Log("[MCP] flushed %d pending entity file(s) to disk on map save\n", lWritten);
+}
+
+//--------------------------------------------------------------------
+
 void cLevelEditor::RestartMCPServer()
 {
 	if(mpMCPServer)
@@ -271,6 +362,36 @@ void cLevelEditor::RestartMCPServer()
 		}
 	}
 	mpEngine->SetWaitIfAppOutOfFocus(mpMCPServer == NULL);
+}
+
+//--------------------------------------------------------------------
+
+void cLevelEditor::OpenInModelEditor(const tString& asEntFile)
+{
+	////////////////////////////////////////////////////////////////////
+	// The ModelEditor binary is packaged next to this one, so resolve it
+	// relative to the editor working dir (which already ends in a separator).
+	tWString sExe = GetWorkingDir() + _W("ModelEditor");
+#if defined(_WIN32)
+	sExe += _W(".exe");
+#endif
+
+	////////////////////////////////////////////////////////////////////
+	// Hand the ModelEditor the file to open plus this editor's MCP endpoint,
+	// so it can push a live-reload notification back here on save. Only pass
+	// the endpoint when the MCP server is actually enabled.
+	tString sParams = asEntFile;
+	if(mbMCPEnabled)
+	{
+		sParams += " --mcp-port " + cString::ToString(mlMCPPort);
+		if(msMCPToken.empty()==false)
+			sParams += " --mcp-token " + msMCPToken;
+	}
+
+	Log("[ModelEditor] launching '%ls' with params '%s'\n", sExe.c_str(), sParams.c_str());
+
+	if(cPlatform::RunProgram(sExe, cString::To16Char(sParams))==false)
+		Error("[ModelEditor] failed to launch '%ls'\n", sExe.c_str());
 }
 
 //--------------------------------------------------------------------
@@ -344,7 +465,11 @@ void cLevelEditor::RemoveGroup(unsigned int alID)
 
 void cLevelEditor::SetUpClassDefinitions(cEditorUserClassDefinitionManager* apManager)
 {
-	apManager->RegisterDefFilename(eUserClassDefinition_Entity, "EntityTypes.cfg", eEditorVarCategory_Instance|eEditorVarCategory_EditorSetup);
+	// eEditorVarCategory_Type is included so the MCP create_entity_file tool can
+	// author .ent files through a headless cModelEditorWorld (its class instance
+	// is created with the Type category, like the ModelEditor). One registration
+	// carries all flags; registering the file twice would double-load it.
+	apManager->RegisterDefFilename(eUserClassDefinition_Entity, "EntityTypes.cfg", eEditorVarCategory_Instance|eEditorVarCategory_EditorSetup|eEditorVarCategory_Type);
 	apManager->RegisterDefFilename(eUserClassDefinition_Area, "AreaTypes.cfg", eEditorVarCategory_Instance|eEditorVarCategory_EditorSetup);
 }
 
@@ -654,6 +779,19 @@ void cLevelEditor::OnInit()
 	AddEditMode(hplNew(cEditorEditModeDecals,(this, mpEditorWorld)));
 	AddEditMode(hplNew(cEditorEditModeFogAreas,(this, mpEditorWorld)));
 	AddEditMode(hplNew(cEditorEditModeCombine, (this)));
+
+	//////////////////////////////////////////////////
+	// Live file-watch tuning. The watcher itself is created with the world; here
+	// we just push the [FileWatch] config onto it. Verbose logs every watched
+	// dir / drained event / debounce step so it is visible what triggers a
+	// reload. DebounceMs is the stability window a change must hold before it
+	// applies (coalesces mid-write / burst saves).
+	if(cEditorFileWatcher* pWatcher = mpEditorWorld->GetFileWatcher())
+	{
+		pWatcher->SetEnabled(mpMainConfig->GetBool("FileWatch", "Enabled", true));
+		pWatcher->SetVerbose(mpMainConfig->GetBool("FileWatch", "Verbose", false));
+		pWatcher->SetDebounce(mpMainConfig->GetFloat("FileWatch", "DebounceMs", 150.0f) / 1000.0f);
+	}
 
 	//////////////////////////////////////////////////
 	// MCP server (localhost). Config was read in OnLoadConfig; start it here.

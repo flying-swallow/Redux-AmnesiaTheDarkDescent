@@ -38,6 +38,7 @@
 
 #include "EntityIcon.h"
 #include "EngineEntity.h"
+#include "EditorFileWatcher.h"
 
 #include "resources/XmlHelper.h"
 #include <tinyxml2.h>
@@ -1124,6 +1125,11 @@ bool iEntityWrapper::Create()
 
 	UpdateEntity();
 
+	// Start watching the files this entity depends on for live reload.
+	// (Prefab edits need no per-entity registration: the prefab cache
+	// broadcasts and the WORLD reloads matching instances by filename scan.)
+	RegisterFileWatches();
+
 	return true;
 }
 
@@ -1757,6 +1763,76 @@ void iEntityWrapper::DestroyEngineEntity()
 		hplDelete(mpEngineEntity);
 		mpEngineEntity = NULL;
 	}
+}
+
+//------------------------------------------------------------------
+
+void iEntityWrapper::GetWatchedFiles(std::vector<tWString>& avOut)
+{
+	iEditorWorld* pWorld = GetEditorWorld();
+
+	//////////////////////////////////////////////////////////
+	// Top-level source file (.ent for entities, mesh for static objects).
+	if(msFilename.empty()==false)
+	{
+		cFileSearcher* pFS = pWorld->GetEditor()->GetEngine()->GetResources()->GetFileSearcher();
+		tWString sFull = pFS->GetFilePath(msFilename);
+		if(sFull.empty()==false)
+			avOut.push_back(sFull);
+	}
+
+	//////////////////////////////////////////////////////////
+	// Full dependency chain: mesh -> materials -> textures. The resolved
+	// resources already carry their absolute paths, so no lookup is needed.
+	cEditorFileWatcher* pWatcher = pWorld->GetFileWatcher();
+	if(pWatcher==NULL || pWatcher->GetWatchDependencies()==false)
+		return;
+
+	cMeshEntity* pMeshEnt = GetMeshEntity();
+	cMesh* pMesh = pMeshEnt ? pMeshEnt->GetMesh() : NULL;
+	if(pMesh==NULL)
+		return;
+
+	if(pMesh->GetFullPath().empty()==false)
+		avOut.push_back(pMesh->GetFullPath());
+
+	for(int i=0; i<pMesh->GetSubMeshNum(); ++i)
+	{
+		cSubMesh* pSub = pMesh->GetSubMesh(i);
+		cMaterial* pMat = pSub ? pSub->GetMaterial() : NULL;
+		if(pMat==NULL)
+			continue;
+
+		if(pMat->GetFullPath().empty()==false)
+			avOut.push_back(pMat->GetFullPath());
+
+		for(int t=0; t<eMaterialTexture_LastEnum; ++t)
+		{
+			Image* pImg = pMat->GetImage((eMaterialTexture)t);
+			if(pImg && pImg->GetFullPath().empty()==false)
+				avOut.push_back(pImg->GetFullPath());
+		}
+	}
+}
+
+//------------------------------------------------------------------
+
+void iEntityWrapper::RegisterFileWatches()
+{
+	cEditorFileWatcher* pWatcher = GetEditorWorld()->GetFileWatcher();
+	if(pWatcher==NULL)
+		return;
+
+	// Clean re-sync: drop any previous watches for this entity first, so this
+	// is safe to call again after a filename change or a reload that altered
+	// the dependency set.
+	pWatcher->UnregisterEntity(mlID);
+
+	std::vector<tWString> vFiles;
+	GetWatchedFiles(vFiles);
+
+	for(size_t i=0; i<vFiles.size(); ++i)
+		pWatcher->RegisterEntity(mlID, vFiles[i]);
 }
 
 //------------------------------------------------------------------

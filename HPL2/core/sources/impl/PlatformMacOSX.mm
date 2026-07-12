@@ -29,6 +29,13 @@
 
 #include "system/SystemTypes.h"
 #include "system/Platform.h"
+#include "system/String.h"
+#include "system/LowLevelSystem.h"
+#include "system/FileWatcher.h"
+
+#include <CoreServices/CoreServices.h>
+#include <set>
+#include <vector>
 
 namespace hpl {
 	static NSString* getBundlePathForBundleID(NSString *bundleID)
@@ -159,5 +166,131 @@ namespace hpl {
         [pool drain];
         return ret;
     }
+
+	//////////////////////////////////////////////////////////////////////////
+	// cFileWatcherFSEvents - macOS FSEvents backend for iFileWatcher.
+	//	An FSEventStream over the watched dirs (with kFSEventStreamCreateFlagFile-
+	//	Events) gives file-level typed changes. To honour the no-thread model the
+	//	stream is scheduled on the current run loop and pumped SYNCHRONOUSLY inside
+	//	PollEvents (CFRunLoopRunInMode with a 0 timeout), so the callback runs on
+	//	the calling thread and no locking is needed. NOTE: unbuilt/unverified in
+	//	this setup (PlatformMacOSX.mm is not in the current premake build).
+	//////////////////////////////////////////////////////////////////////////
+
+	class cFileWatcherFSEvents : public iFileWatcher
+	{
+	public:
+		cFileWatcherFSEvents() : mStream(NULL) {}
+		~cFileWatcherFSEvents() { Clear(); }
+
+		bool AddDirectory(const tWString& asDir)
+		{
+			if(msetDirs.insert(asDir).second)
+				RebuildStream();	// stream watch paths are fixed at create time
+			return true;
+		}
+
+		void RemoveDirectory(const tWString& asDir)
+		{
+			if(msetDirs.erase(asDir) > 0)
+				RebuildStream();
+		}
+
+		void PollEvents(std::vector<cFileWatchEvent>& avOut)
+		{
+			if(mStream == NULL)
+				return;
+
+			// Fire any pending FSEvents callbacks on this thread without blocking.
+			CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, true);
+
+			avOut.insert(avOut.end(), mvPending.begin(), mvPending.end());
+			mvPending.clear();
+		}
+
+		void Clear()
+		{
+			DestroyStream();
+			msetDirs.clear();
+			mvPending.clear();
+		}
+
+	private:
+		static void Callback(ConstFSEventStreamRef /*stream*/, void* apInfo, size_t alNumEvents,
+			void* apEventPaths, const FSEventStreamEventFlags aFlags[], const FSEventStreamEventId[])
+		{
+			cFileWatcherFSEvents* pSelf = (cFileWatcherFSEvents*)apInfo;
+			const char** pPaths = (const char**)apEventPaths;
+
+			for(size_t i=0; i<alNumEvents; ++i)
+			{
+				tWString sPath = cString::To16Char(tString(pPaths[i]));
+				FSEventStreamEventFlags f = aFlags[i];
+
+				// A single coalesced event may carry several flags.
+				if(f & (kFSEventStreamEventFlagItemCreated | kFSEventStreamEventFlagItemRenamed))
+					pSelf->Push(sPath, eFileWatchAction_Added);
+				if(f & kFSEventStreamEventFlagItemModified)
+					pSelf->Push(sPath, eFileWatchAction_Modified);
+				if(f & kFSEventStreamEventFlagItemRemoved)
+					pSelf->Push(sPath, eFileWatchAction_Removed);
+			}
+		}
+
+		void Push(const tWString& asPath, eFileWatchAction aAction)
+		{
+			cFileWatchEvent ev;
+			ev.msPath = asPath;
+			ev.mAction = aAction;
+			mvPending.push_back(ev);
+		}
+
+		void RebuildStream()
+		{
+			DestroyStream();
+			if(msetDirs.empty())
+				return;
+
+			CFMutableArrayRef paths = CFArrayCreateMutable(NULL, (CFIndex)msetDirs.size(), &kCFTypeArrayCallBacks);
+			for(std::set<tWString>::iterator it=msetDirs.begin(); it!=msetDirs.end(); ++it)
+			{
+				CFStringRef s = CFStringCreateWithCString(NULL, cString::To8Char(*it).c_str(), kCFStringEncodingUTF8);
+				CFArrayAppendValue(paths, s);
+				CFRelease(s);
+			}
+
+			FSEventStreamContext ctx = { 0, this, NULL, NULL, NULL };
+			mStream = FSEventStreamCreate(NULL, &Callback, &ctx, paths,
+				kFSEventStreamEventIdSinceNow, 0.05,
+				kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagNoDefer);
+			CFRelease(paths);
+
+			if(mStream)
+			{
+				FSEventStreamScheduleWithRunLoop(mStream, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+				FSEventStreamStart(mStream);
+			}
+		}
+
+		void DestroyStream()
+		{
+			if(mStream)
+			{
+				FSEventStreamStop(mStream);
+				FSEventStreamInvalidate(mStream);
+				FSEventStreamRelease(mStream);
+				mStream = NULL;
+			}
+		}
+
+		FSEventStreamRef				mStream;
+		std::set<tWString>				msetDirs;
+		std::vector<cFileWatchEvent>	mvPending;
+	};
+
+	iFileWatcher* cPlatform::CreateFileWatcher()
+	{
+		return hplNew(cFileWatcherFSEvents, ());
+	}
 
 }

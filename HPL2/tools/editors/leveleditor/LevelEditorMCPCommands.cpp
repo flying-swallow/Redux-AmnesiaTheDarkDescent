@@ -37,10 +37,24 @@ using namespace hpl;
 #include "../common/EditorWindowViewport.h" // cEditorWindowViewport::GetCamera (defaults)
 
 #include "../common/EditorWorld.h"
+#include "../common/EditorFileWatcher.h"          // cEditorFileWatcher / cWatchedFile (reload_entity_file)
+#include "../common/PrefabManager.h"               // cPrefabManager (list_prefabs / get_prefab / update_prefab)
 #include "../common/EditorVar.h"                   // cEditorClassInstance / cEditorVarInstance / iEditorVar (user variables)
 #include "../common/EntityWrapper.h"
 #include "../common/EntityWrapperEntity.h"        // eEntityStr_Filename / eEntityInt_FileIndex
 #include "../common/EntityWrapperStaticObject.h"  // eStaticObjectStr_Filename / eStaticObjectInt_FileIndex
+#include "../common/EntityWrapperPrimitive.h"      // ePrimitiveStr_Material (plane validation)
+#include "../common/EntityWrapperPrimitivePlane.h" // ePrimitivePlaneVec3f_Start/EndCorner
+
+// create_entity_file: authors .ent files through a transient headless
+// cModelEditorWorld so the XML comes from the ModelEditor's own machinery.
+#include "../modeleditor/ModelEditorWorld.h"
+#include "../common/EntityWrapperSubMesh.h"        // cEntityWrapperTypeSubMesh::SetMesh
+#include "../common/EntityWrapperBody.h"           // cEntityWrapperTypeBody / SetMass...
+#include "../common/EntityWrapperBodyShape.h"      // cEntityWrapperTypeBodyShape / eShapeStr_ShapeType
+#include "../common/EditorUserClassDefinitionManager.h" // EntityTypes.cfg classes
+#include "resources/XmlHelper.h"                   // hpl::SaveXmlFile
+
 #include "../common/EditorSelection.h"
 #include "../common/EditorActionHandler.h"
 #include "../common/EditorAction.h"
@@ -619,6 +633,68 @@ static tString MakeUniqueName(iEditorWorld* pWorld, const tString& asBase, std::
 	return sName;
 }
 
+// Plane specs need corners spanning exactly two axes and a resolvable material,
+// or the engine mesh factory (cMeshCreator::CreatePlane) returns NULL and the
+// create silently produces nothing. Mirrors the interactive path's guarantees
+// (cEditorEditModePrimitives::CreateObjectData + cPrimitiveMeshCreatorPlane).
+// Defaults unset corners to a unit ground quad so 'scale' alone sizes the plane
+// (the engine normalizes the quad to unit extents and keeps size in Scale).
+static bool ValidatePlaneSpec(cLevelEditor* pEditor, iEntityWrapperData* pData,
+                              bool abScaleGiven, std::string& asErr)
+{
+	cVector3f vStart = pData->GetVec3f(ePrimitivePlaneVec3f_StartCorner);
+	cVector3f vEnd   = pData->GetVec3f(ePrimitivePlaneVec3f_EndCorner);
+
+	if(vStart==vEnd && vStart==cVector3f(0))
+	{
+		vEnd = cVector3f(1,0,1);
+		pData->SetVec3f(ePrimitivePlaneVec3f_EndCorner, vEnd);
+	}
+
+	// Sort corners so the span is non-negative per axis (the engine infers the
+	// plane's normal axis with a signed epsilon test; a negative span breaks it).
+	for(int i=0;i<3;++i)
+		if(vEnd.v[i] < vStart.v[i]) { float f = vStart.v[i]; vStart.v[i] = vEnd.v[i]; vEnd.v[i] = f; }
+	pData->SetVec3f(ePrimitivePlaneVec3f_StartCorner, vStart);
+	pData->SetVec3f(ePrimitivePlaneVec3f_EndCorner,   vEnd);
+
+	cVector3f vSpan = vEnd - vStart;
+	int lZeroAxes = 0;
+	for(int i=0;i<3;++i) if(vSpan.v[i] < kEpsilonf) ++lZeroAxes;
+	if(lZeroAxes != 1)
+	{
+		asErr = "Plane corners must span exactly two axes (exactly one component of EndCorner-StartCorner "
+		        "may be 0); got span [" + cString::ToString(vSpan.x) + ", " + cString::ToString(vSpan.y) +
+		        ", " + cString::ToString(vSpan.z) + "]. Examples: floor EndCorner [1,0,1] + scale [w,1,d]; "
+		        "wall EndCorner [1,1,0] + scale [w,h,1]";
+		return false;
+	}
+
+	// Corners given without 'scale': the span IS the world size — seed Scale from
+	// it (zero axis -> 1), matching the interactive drag-create.
+	if(abScaleGiven==false)
+	{
+		cVector3f vScale = vSpan;
+		for(int i=0;i<3;++i) if(vScale.v[i] < kEpsilonf) vScale.v[i] = 1.0f;
+		pData->SetVec3f(eObjVec3f_Scale, vScale);
+	}
+
+	const tString& sMat = pData->GetString(ePrimitiveStr_Material);
+	if(sMat=="")
+	{
+		asErr = "Plane requires a non-empty 'Material' (pass properties: {\"Material\": \"<file>.mat\"}); "
+		        "find one with find_assets ext:'mat'";
+		return false;
+	}
+	if(pEditor->GetEngine()->GetResources()->GetFileSearcher()->GetFilePath(sMat)==_W(""))
+	{
+		asErr = "Material '" + sMat + "' not found in the resource index — check the name with "
+		        "find_assets, or run refresh_assets if the file was just created";
+		return false;
+	}
+	return true;
+}
+
 // Validate one create spec and build its (not yet executed) create action.
 // On success returns the action and fills id; on failure returns NULL with asErr.
 static iEditorAction* BuildCreateAction(cLevelEditor* pEditor, iEditorWorld* pWorld, const JValue& aSpec,
@@ -639,6 +715,18 @@ static iEditorAction* BuildCreateAction(cLevelEditor* pEditor, iEditorWorld* pWo
 	if((bIsEnt || bIsSObj) && sFile.empty())
 	{
 		asErr = "type '" + cString::To8Char(pType->GetName()) + "' requires a 'file' argument";
+		return NULL;
+	}
+	// Resolve the file up-front: an unresolvable file would otherwise fail deep in
+	// the engine create and (in a batch) surface as a silent missing entity.
+	// Pending in-memory entity files (define_entity_file) count as resolvable.
+	if((bIsEnt || bIsSObj) &&
+	   pEditor->GetEngine()->GetResources()->GetFileSearcher()->GetFilePath(sFile)==_W("") &&
+	   (bIsEnt==false || pEditor->GetPendingEntFileRoot(sFile)==NULL))
+	{
+		asErr = "file '" + sFile + "' not found in the resource index — check the path with "
+		        "find_assets/list_object_library, or run refresh_assets if it was created after "
+		        "editor startup";
 		return NULL;
 	}
 
@@ -694,7 +782,24 @@ static iEditorAction* BuildCreateAction(cLevelEditor* pEditor, iEditorWorld* pWo
 		}
 	}
 
-	pData->PostCreateSetUp();
+	// Primitive (Plane): the engine builds the mesh from StartCorner/EndCorner and
+	// silently produces nothing on bad corners or a missing material — validate
+	// the spec up-front instead.
+	if(lTypeID==eEditorEntityType_Primitive)
+	{
+		if(ValidatePlaneSpec(pEditor, pData, JHas(aSpec,"scale"), asErr)==false)
+		{
+			hplDelete(pData);
+			return NULL;
+		}
+	}
+
+	if(pData->PostCreateSetUp()==false)
+	{
+		hplDelete(pData);
+		asErr = "spec failed post-create validation for type '" + cString::To8Char(pType->GetName()) + "'";
+		return NULL;
+	}
 
 	std::string sBase = JStrArg(aSpec, "name", cString::To8Char(pType->GetName()));
 	int lNewID = pWorld->GetFreeID();
@@ -706,7 +811,7 @@ static iEditorAction* BuildCreateAction(cLevelEditor* pEditor, iEditorWorld* pWo
 }
 
 //--------------------------------------------------------------------
-// Tool registry
+// Tool handler context (defined ahead of the handler impls below)
 //--------------------------------------------------------------------
 
 struct cMCPToolCtx
@@ -717,6 +822,859 @@ struct cMCPToolCtx
 };
 
 typedef cMCPToolResult (*tMCPToolHandlerFn)(cMCPToolCtx&);
+
+//--------------------------------------------------------------------
+// .ent authoring (create_entity_file)
+//--------------------------------------------------------------------
+
+// mkdir -p for a file's parent folders.
+static void CreateParentFolders(const tWString& asFilePath)
+{
+	tWString sDir = cString::GetFilePathW(asFilePath);
+	tWString sSep = _W("/\\");
+	tWString sAccum = (sDir.empty()==false && sDir[0]==_W('/')) ? _W("/") : _W("");
+	tWStringVec vSteps;
+	cString::GetStringVecW(sDir, vSteps, &sSep);
+	for(size_t i=0;i<vSteps.size();++i)
+	{
+		sAccum += vSteps[i] + _W("/");
+		if(cPlatform::FolderExists(sAccum)==false)
+			cPlatform::CreateFolder(sAccum);
+	}
+}
+
+// RAII owner of the transient authoring world; guarantees teardown on every
+// error path. Registers the shape/body wrapper types the ModelEditor's Bodies
+// edit mode would normally register.
+struct cHeadlessEntWorld
+{
+	cModelEditorWorld* mpWorld;
+
+	explicit cHeadlessEntWorld(cLevelEditor* apEditor)
+	{
+		mpWorld = hplNew(cModelEditorWorld,(apEditor));
+		mpWorld->AddEntityType(hplNew(cEntityWrapperTypeBodyShape,()));
+		mpWorld->AddEntityType(hplNew(cEntityWrapperTypeBody,()));
+		mpWorld->Reset();
+	}
+	~cHeadlessEntWorld() { hplDelete(mpWorld); }
+};
+
+// Author a .ent from a mesh through a transient headless cModelEditorWorld —
+// the same wrapper/save machinery the ModelEditor uses, so the XML cannot
+// drift from what the shared engine loader consumes. Optional single collision
+// body (auto box from the mesh AABB by default). Joints, animations and
+// per-submesh bodies remain ModelEditor territory (see OpenInModelEditor).
+static cMCPToolResult CreateEntityFileImpl(cMCPToolCtx& c)
+{
+	//////////////////////////////////////////
+	// Preflight — everything validated BEFORE the authoring world exists, so
+	// no editor error popup (e.g. SetMesh's ShowMessageBox) can fire headless.
+	std::string sPath = JStrArg(c.margs, "path");
+	std::string sMesh = JStrArg(c.margs, "mesh");
+	if(sPath.empty() || sMesh.empty()) return MakeErr("both 'path' and 'mesh' are required");
+	if(cString::ToLowerCase(cString::GetFileExt(sPath))!="ent")
+		return MakeErr("'path' must end in .ent");
+
+	tWString wPath = cString::To16Char(sPath);
+	if(cPlatform::FileExists(wPath) && JBoolArg(c.margs, "overwrite", false)==false)
+		return MakeErr("file already exists: " + sPath + " (pass overwrite:true to replace)");
+
+	cResources* pResources = c.mpEditor->GetEngine()->GetResources();
+	tWString wMeshFull = pResources->GetFileSearcher()->GetFilePath(sMesh);
+	if(wMeshFull==_W(""))
+		return MakeErr("mesh '" + sMesh + "' not found in the resource index — run refresh_assets "
+		               "(with its directory as 'path' if needed) and retry");
+
+	const JValue* pBody = JFind(c.margs, "body");
+	std::string sShape  = cString::ToLowerCase(pBody ? JStrArg(*pBody, "shape", "box") : "box");
+	if(sShape!="box" && sShape!="cylinder" && sShape!="sphere" && sShape!="none")
+		return MakeErr("body.shape must be 'box', 'cylinder', 'sphere' or 'none'");
+	float fMass          = pBody ? (float)JNumArg(*pBody, "mass", 0.0) : 0.0f;
+	std::string sBodyMat = pBody ? JStrArg(*pBody, "material", "Wood") : "Wood";
+
+	// Entity class — resolved against EntityTypes.cfg up-front; unknown names
+	// are a hard error (a file with an unknown class makes the ModelEditor pop
+	// an "invalid type" dialog and the game fall back silently).
+	std::string sType    = JStrArg(c.margs, "type", "StaticProp");
+	std::string sSubType = JStrArg(c.margs, "subtype", "");
+	cEditorUserClassDefinition* pDef =
+		c.mpEditor->GetClassDefinitionManager()->GetDefinition(eUserClassDefinition_Entity);
+	cEditorUserClassType* pClassType = pDef ? pDef->GetType(sType) : NULL;
+	if(pClassType==NULL)
+	{
+		std::string sKnown;
+		for(int i=0; pDef && i<pDef->GetTypeNum(); ++i)
+		{ if(i) sKnown += ", "; sKnown += pDef->GetType(i)->GetName(); }
+		return MakeErr("unknown entity type '" + sType + "' (EntityTypes.cfg types: " + sKnown + ")");
+	}
+	cEditorUserClassSubType* pSubType = sSubType.empty()
+		? pClassType->GetSubType(0)
+		: pClassType->GetSubType(sSubType);
+	if(pSubType==NULL)
+	{
+		std::string sKnown;
+		for(int i=0;i<pClassType->GetSubTypeNum();++i)
+		{ if(i) sKnown += ", "; sKnown += pClassType->GetSubType(i)->GetName(); }
+		return MakeErr("unknown subtype '" + sSubType + "' for type '" + sType + "' (subtypes: " + sKnown + ")");
+	}
+
+	//////////////////////////////////////////
+	// Transient authoring world + entity class (defaults come from the class
+	// definition; overrides applied on top so both serialize together).
+	cHeadlessEntWorld author(c.mpEditor);
+	cModelEditorWorld* pW = author.mpWorld;
+	pW->SetType(pSubType, false);
+
+	std::vector<std::string> vUnknownVars;
+	const JValue* pVarArgs = JFind(c.margs, "variables");
+	if(pVarArgs && pVarArgs->IsObject())
+	{
+		for(JValue::ConstMemberIterator it=pVarArgs->MemberBegin(); it!=pVarArgs->MemberEnd(); ++it)
+		{
+			tWString wName = cString::To16Char(it->name.GetString());
+			if(pW->GetClass()->GetVarInstance(wName)==NULL)
+				vUnknownVars.push_back(it->name.GetString());
+			else
+				pW->GetClass()->SetVarValue(wName, cString::To16Char(JValueToVarString(&it->value)));
+		}
+	}
+
+	//////////////////////////////////////////
+	// Mesh import — live cMeshEntity + submesh/bone wrappers, exactly like the
+	// ModelEditor's File->Import Mesh (minus the undo action). Pass the FULL
+	// path: CustomCategorySaver relativizes it against the working dir on save.
+	tEntityDataVec vSubMeshData, vBoneData;
+	if(pW->GetSubMeshType()->SetMesh(cString::To8Char(wMeshFull), true,
+									 vSubMeshData, tIntList(), vBoneData, tIntList())==false)
+		return MakeErr("could not load mesh: " + sMesh);
+	cMeshEntity* pMeshEnt = pW->GetMesh();
+	if(pMeshEnt==NULL) return MakeErr("mesh produced no entity: " + sMesh);
+	cMesh* pMesh = pMeshEnt->GetMesh();
+	bool bHasSkeleton = pMesh->GetSkeleton()!=NULL;
+
+	cVector3f vMin(1e30f), vMax(-1e30f);
+	bool bAnyGeometry = false;
+	for(int i=0;i<pMesh->GetSubMeshNum();++i)
+	{
+		cSubMesh* pSub = pMesh->GetSubMesh(i);
+		cVertexBuffer* pVB = pSub ? pSub->GetVertexBuffer() : NULL;
+		if(pVB==NULL) continue;
+		cBoundingVolume bv = pVB->CreateBoundingVolume();
+		vMin = cMath::Vector3Min(vMin, bv.GetMin());
+		vMax = cMath::Vector3Max(vMax, bv.GetMax());
+		bAnyGeometry = true;
+	}
+	if(bAnyGeometry==false) return MakeErr("mesh has no vertex data: " + sMesh);
+
+	//////////////////////////////////////////
+	// Optional collision body — built from live wrappers so the relative
+	// transforms and <Child>/<Shape> ID links in the XML are produced by the
+	// editor itself (mirrors cEditorActionObjectCreate::DoModify +
+	// iEditorActionAggregateAddComponents::DoModify, minus selection actions).
+	if(sShape!="none")
+	{
+		std::string sShapeType = sShape=="box" ? "Box" : (sShape=="cylinder" ? "Cylinder" : "Sphere");
+		cVector3f vSize   = pBody ? JVec3Of(JFind(*pBody,"size"),   vMax-vMin)        : (vMax-vMin);
+		cVector3f vCenter = pBody ? JVec3Of(JFind(*pBody,"offset"), (vMin+vMax)*0.5f) : (vMin+vMax)*0.5f;
+		for(int i=0;i<3;++i) vSize.v[i] = cMath::Max(vSize.v[i], 0.01f);
+		cVector3f vShapeScale = vSize; // Box: full extents
+		if(sShape=="sphere")
+			vShapeScale = cVector3f(cMath::Max(cMath::Max(vSize.x,vSize.y),vSize.z)*0.5f);
+		else if(sShape=="cylinder")
+			vShapeScale = cVector3f(cMath::Max(vSize.x,vSize.z)*0.5f, vSize.y, 1.0f);
+
+		iEntityWrapperType* pShapeT = pW->GetEntityTypeByID(eEditorEntityType_BodyShape);
+		iEntityWrapperData* pSD = pShapeT->CreateData();
+		pSD->SetID(pW->GetFreeID());
+		pSD->SetName(pW->GenerateName("Shape"));
+		pSD->SetString(eShapeStr_ShapeType, sShapeType);
+		pSD->SetVec3f(eObjVec3f_Position, vCenter);
+		pSD->SetVec3f(eObjVec3f_Scale, vShapeScale);
+		iEntityWrapper* pShape = pW->CreateEntityWrapperFromData(pSD);
+		hplDelete(pSD);
+		if(pShape==NULL) return MakeErr("failed to create body shape");
+		pShape->OnPostDeployAll(false);
+
+		iEntityWrapperType* pBodyT = pW->GetEntityTypeByID(eEditorEntityType_Body);
+		iEntityWrapperData* pBD = pBodyT->CreateData();
+		pBD->SetID(pW->GetFreeID());
+		pBD->SetName(pW->GenerateName("Body"));
+		cEntityWrapperBody* pBodyW = (cEntityWrapperBody*)pW->CreateEntityWrapperFromData(pBD);
+		hplDelete(pBD);
+		if(pBodyW==NULL) return MakeErr("failed to create body");
+		pBodyW->OnPostDeployAll(false);
+		pBodyW->SetMass(fMass);
+		pBodyW->SetMaterial(sBodyMat);
+		pBodyW->SetHasGravity(fMass>0);
+		pBodyW->AddComponent(pShape);
+		tIntList lstSubMeshes = pW->GetSubMeshType()->GetSubMeshIDs();
+		for(tIntListIt it=lstSubMeshes.begin(); it!=lstSubMeshes.end(); ++it)
+			pBodyW->AttachChild(pW->GetEntity(*it));
+		pBodyW->UpdateEntity(); // -> UpdateRelativeTransforms (shape rel matrices)
+	}
+
+	//////////////////////////////////////////
+	// Save through the ModelEditor's own path (iEditorBase::Save minus the
+	// <EditorSession> block and editor save state; cf. iEditorWorld::ExportObjects).
+	CreateParentFolders(wPath);
+	tinyxml2::XMLDocument xmlDoc;
+	tinyxml2::XMLElement* pRoot = xmlDoc.NewElement("");
+	xmlDoc.InsertEndChild(pRoot);
+	pW->Save(pRoot);
+	if(hpl::SaveXmlFile(xmlDoc, wPath)==false)
+		return MakeErr("could not write " + sPath);
+
+	//////////////////////////////////////////
+	// Index the new file, then verify through the REAL load path: subtype
+	// resolution + cEditorEntityLoader (the engine's cEntityLoader_Object) into
+	// the editor's temp world. Note: the temp world has no physics world, so
+	// bodies/shapes are skipped by the loader — their XML correctness is by
+	// construction (the editor serialized them).
+	int lNewFiles = c.mpEditor->RefreshResourceIndex(cString::GetFilePathW(wPath));
+	std::string sBaseName = cString::GetFileName(sPath);
+
+	cEditorEditModeEntities* pEM = (cEditorEditModeEntities*)c.mpEditor->GetEditMode("Entities");
+	iEntityWrapperType* pResolvedType = pEM ? pEM->GetTypeFromEntFile(sBaseName) : NULL;
+
+	bool bLoadOk = false;
+	if(c.mpEditor->GetTempWorld() && c.mpEditor->GetEngineEntityLoader())
+	{
+		cMeshEntity* pCheck = c.mpEditor->GetEngineEntityLoader()->LoadEntFile(
+			-1, "McpValidate", sBaseName, c.mpEditor->GetTempWorld(),
+			false, false, false, false, false);
+		bLoadOk = pCheck!=NULL;
+		if(pCheck) c.mpEditor->GetTempWorld()->DestroyMeshEntity(pCheck);
+	}
+
+	//////////////////////////////////////////
+	// Response. (The authoring world is torn down by RAII on return.)
+	JDoc d; InitOk(d);
+	JAlloc& a = d.GetAllocator();
+	d.AddMember("path", JValue(sPath, a), a);
+	d.AddMember("mesh", JValue(sMesh, a), a);
+	d.AddMember("submeshCount", pMesh->GetSubMeshNum(), a);
+	d.AddMember("hasSkeleton", bHasSkeleton, a);
+	d.AddMember("bounds", JBounds(vMin, vMax, a), a);
+	if(sShape!="none")
+	{
+		JValue jb(rapidjson::kObjectType);
+		jb.AddMember("shape", JValue(sShape, a), a);
+		jb.AddMember("mass", fMass, a);
+		jb.AddMember("material", JValue(sBodyMat, a), a);
+		d.AddMember("body", jb, a);
+	}
+	d.AddMember("entityType", JValue(pClassType->GetName(), a), a);
+	d.AddMember("entitySubType", JValue(pSubType->GetName(), a), a);
+	d.AddMember("newFilesIndexed", lNewFiles, a);
+	JValue jCheck(rapidjson::kObjectType);
+	jCheck.AddMember("ok", bLoadOk, a);
+	jCheck.AddMember("resolvedType", pResolvedType!=NULL, a);
+	d.AddMember("loadCheck", jCheck, a);
+	if(vUnknownVars.empty()==false)
+	{
+		JValue arr(rapidjson::kArrayType);
+		for(size_t i=0;i<vUnknownVars.size();++i) arr.PushBack(JValue(vUnknownVars[i], a), a);
+		d.AddMember("unknownVariables", arr, a);
+	}
+	if(bLoadOk==false)
+		d.AddMember("warning", JValue("file was written but failed the engine load check — inspect it "
+		                              "or open it in the ModelEditor", a), a);
+	d.AddMember("hint", JValue("place with create_entity {type:'Entity', file:'" + sBaseName + "'}; "
+	                           "edit details (joints, per-submesh bodies) via the ModelEditor", a), a);
+	return MakeDoc(d);
+}
+
+//--------------------------------------------------------------------
+// JSON <-> attribute-only XML bijection (MCP-owned; the engine and disk stay
+// XML-only — this is the separate MCP JSON path):
+//   scalar member    = attribute (numbers %.9g, bools "true"/"false")
+//   array of scalars = space-joined attribute ("WorldPos": [0,1,0] -> "0 1 0")
+//   object member    = single child element
+//   array of objects = repeated child elements of that name
+//--------------------------------------------------------------------
+
+static void JsonScalarToString(const JValue& aVal, tString& asOut)
+{
+	if(aVal.IsString())      asOut = tString(aVal.GetString(), aVal.GetStringLength());
+	else if(aVal.IsBool())   asOut = aVal.GetBool() ? "true" : "false";
+	else if(aVal.IsInt())    { char b[32]; snprintf(b, sizeof(b), "%d", aVal.GetInt()); asOut = b; }
+	else if(aVal.IsUint())   { char b[32]; snprintf(b, sizeof(b), "%u", aVal.GetUint()); asOut = b; }
+	else if(aVal.IsInt64())  { char b[32]; snprintf(b, sizeof(b), "%lld", (long long)aVal.GetInt64()); asOut = b; }
+	else if(aVal.IsNumber()) { char b[48]; snprintf(b, sizeof(b), "%.9g", aVal.GetDouble()); asOut = b; }
+	else                     asOut = ""; // null -> empty attribute
+}
+
+static bool JsonIsScalarArray(const JValue& aVal)
+{
+	if(aVal.IsArray()==false) return false;
+	for(rapidjson::SizeType i=0;i<aVal.Size();++i)
+		if(aVal[i].IsObject() || aVal[i].IsArray()) return false;
+	return true;
+}
+
+static bool JsonObjectToXmlElement(tinyxml2::XMLDocument& aDoc, tinyxml2::XMLElement* apParent,
+								   const char* asName, const JValue& aObj)
+{
+	tinyxml2::XMLElement* pElem = aDoc.NewElement(asName);
+	if(apParent) apParent->InsertEndChild(pElem);
+	else         aDoc.InsertEndChild(pElem);
+
+	for(JValue::ConstMemberIterator it=aObj.MemberBegin(); it!=aObj.MemberEnd(); ++it)
+	{
+		const char* pName = it->name.GetString();
+		const JValue& val = it->value;
+
+		if(val.IsObject())
+		{
+			if(JsonObjectToXmlElement(aDoc, pElem, pName, val)==false) return false;
+		}
+		else if(val.IsArray() && JsonIsScalarArray(val)==false)
+		{
+			for(rapidjson::SizeType i=0;i<val.Size();++i)
+			{
+				if(val[i].IsObject()==false) return false; // mixed scalar/object array
+				if(JsonObjectToXmlElement(aDoc, pElem, pName, val[i])==false) return false;
+			}
+		}
+		else if(val.IsArray()) // scalar array -> space-joined attribute
+		{
+			tString sJoined, sPart;
+			for(rapidjson::SizeType i=0;i<val.Size();++i)
+			{
+				JsonScalarToString(val[i], sPart);
+				if(i) sJoined += " ";
+				sJoined += sPart;
+			}
+			pElem->SetAttribute(pName, sJoined.c_str());
+		}
+		else
+		{
+			tString sVal;
+			JsonScalarToString(val, sVal);
+			pElem->SetAttribute(pName, sVal.c_str());
+		}
+	}
+	return true;
+}
+
+// Reverse direction: attributes -> string members; children grouped by name ->
+// object (single) or array (repeated). Attribute values stay strings so the
+// exact on-disk formatting round-trips.
+static void XmlElementToJson(const tinyxml2::XMLElement* apElem, JValue& aOut, JAlloc& a)
+{
+	aOut.SetObject();
+	for(const tinyxml2::XMLAttribute* pAttr=apElem->FirstAttribute(); pAttr; pAttr=pAttr->Next())
+		aOut.AddMember(JValue(pAttr->Name(), a), JValue(pAttr->Value(), a), a);
+
+	for(const tinyxml2::XMLElement* pChild=apElem->FirstChildElement(); pChild; pChild=pChild->NextSiblingElement())
+	{
+		JValue jChild;
+		XmlElementToJson(pChild, jChild, a);
+		JValue::MemberIterator it = aOut.FindMember(pChild->Value());
+		if(it==aOut.MemberEnd())
+			aOut.AddMember(JValue(pChild->Value(), a), jChild, a);
+		else if(it->value.IsArray())
+			it->value.PushBack(jChild, a);
+		else
+		{
+			JValue jArr(rapidjson::kArrayType);
+			jArr.PushBack(it->value, a); // moves the existing single entry
+			jArr.PushBack(jChild, a);
+			it->value = jArr;
+		}
+	}
+}
+
+//--------------------------------------------------------------------
+// define_entity_file: full .ent content supplied as JSON. Converted to XML,
+// NORMALIZED through the ModelEditor's own document (headless load -> save, so
+// IDs/attributes/class-default vars come out canonical), validated through the
+// engine entity loader, then held in the LevelEditor's pending cache until the
+// map is saved (OnPostSave writes the XML to disk). The engine never sees JSON.
+//--------------------------------------------------------------------
+
+static cMCPToolResult DefineEntityFileImpl(cMCPToolCtx& c)
+{
+	std::string sPath = JStrArg(c.margs, "file");
+	const JValue* pJson = JFind(c.margs, "json");
+	if(sPath.empty() || pJson==NULL || pJson->IsObject()==false)
+		return MakeErr("'file' (.ent path) and 'json' (object) are required");
+	if(cString::ToLowerCase(cString::GetFileExt(sPath))!="ent")
+		return MakeErr("'file' must end in .ent");
+	if(pJson->MemberCount()!=1 || tString(pJson->MemberBegin()->name.GetString())!="Entity" ||
+	   pJson->MemberBegin()->value.IsObject()==false)
+		return MakeErr("'json' must be {\"Entity\": {...}} — call read_entity_file on a stock .ent to see the shape");
+
+	tWString wPath = cString::To16Char(sPath);
+	if(cPlatform::FileExists(wPath) && JBoolArg(c.margs, "overwrite", false)==false)
+		return MakeErr("file already exists on disk: " + sPath + " (pass overwrite:true to replace it when the map is saved)");
+
+	//////////////////////////////////////////
+	// 1) JSON -> raw XML DOM.
+	tinyxml2::XMLDocument rawDoc;
+	if(JsonObjectToXmlElement(rawDoc, NULL, "Entity", pJson->MemberBegin()->value)==false)
+		return MakeErr("json contains a mixed scalar/object array — arrays must be all scalars "
+		               "(one space-joined attribute) or all objects (repeated elements)");
+	tinyxml2::XMLElement* pRawRoot = rawDoc.RootElement();
+
+	//////////////////////////////////////////
+	// 2) Pre-validate everything whose failure path pops an editor dialog.
+	tinyxml2::XMLElement* pVars = pRawRoot->FirstChildElement("UserDefinedVariables");
+	std::string sType    = pVars ? GetAttributeString(pVars, "EntityType") : "";
+	std::string sSubType = pVars ? GetAttributeString(pVars, "EntitySubType") : "";
+	cEditorUserClassDefinition* pDef =
+		c.mpEditor->GetClassDefinitionManager()->GetDefinition(eUserClassDefinition_Entity);
+	cEditorUserClassType* pClassType = (pDef && sType!="") ? pDef->GetType(sType) : NULL;
+	if(pClassType==NULL)
+	{
+		std::string sKnown;
+		for(int i=0; pDef && i<pDef->GetTypeNum(); ++i)
+		{ if(i) sKnown += ", "; sKnown += pDef->GetType(i)->GetName(); }
+		return MakeErr("json.Entity.UserDefinedVariables.EntityType '" + sType +
+		               "' is missing or unknown (EntityTypes.cfg types: " + sKnown + ")");
+	}
+	cEditorUserClassSubType* pSubType = sSubType.empty()
+		? pClassType->GetSubType(0) : pClassType->GetSubType(sSubType);
+	if(pSubType==NULL)
+		return MakeErr("unknown EntitySubType '" + sSubType + "' for type '" + sType + "'");
+
+	tinyxml2::XMLElement* pModelData = pRawRoot->FirstChildElement("ModelData");
+	tinyxml2::XMLElement* pMeshElem  = pModelData ? pModelData->FirstChildElement("Mesh") : NULL;
+	std::string sMesh = pMeshElem ? GetAttributeString(pMeshElem, "Filename") : "";
+	if(sMesh.empty())
+		return MakeErr("json must carry Entity.ModelData.Mesh.Filename");
+	if(c.mpEditor->GetEngine()->GetResources()->GetFileSearcher()->GetFilePath(sMesh)==_W(""))
+		return MakeErr("mesh '" + sMesh + "' not found in the resource index — run refresh_assets and retry");
+
+	//////////////////////////////////////////
+	// 3) Normalize through the ModelEditor's own document: headless load of the
+	// raw XML, then re-serialize. The cached file is byte-consistent with a real
+	// ModelEditor save (canonical IDs, attribute set, full class-default vars).
+	tinyxml2::XMLDocument* pCanonDoc = new tinyxml2::XMLDocument();
+	{
+		cHeadlessEntWorld author(c.mpEditor);
+		if(author.mpWorld->Load(pRawRoot)==false)
+		{
+			delete pCanonDoc;
+			return MakeErr("entity content failed the ModelEditor load path — check the ModelData structure "
+			               "against read_entity_file of a stock entity");
+		}
+		tinyxml2::XMLElement* pCanonRoot = pCanonDoc->NewElement("");
+		pCanonDoc->InsertEndChild(pCanonRoot);
+		author.mpWorld->Save(pCanonRoot);
+	}
+
+	//////////////////////////////////////////
+	// 4) Engine-loader validation of the canonical doc (the same load path
+	// placement and the game use).
+	bool bLoadOk = false;
+	if(c.mpEditor->GetTempWorld() && c.mpEditor->GetEngineEntityLoader())
+	{
+		cMeshEntity* pCheck = c.mpEditor->GetEngineEntityLoader()->LoadEntityFromElement(
+			-1, "McpValidatePending", pCanonDoc->RootElement(), c.mpEditor->GetTempWorld(),
+			cString::GetFileName(sPath), _W(""), false, false, false, false, false);
+		bLoadOk = pCheck!=NULL;
+		if(pCheck) c.mpEditor->GetTempWorld()->DestroyMeshEntity(pCheck);
+	}
+	if(bLoadOk==false)
+	{
+		delete pCanonDoc;
+		return MakeErr("normalized entity failed the engine entity loader — content is structurally valid "
+		               "XML but not loadable (check submesh names against the mesh)");
+	}
+
+	//////////////////////////////////////////
+	// 5) Park in the pending cache; the map save writes it to disk.
+	c.mpEditor->SetPendingEntFile(sPath, pCanonDoc);
+
+	JDoc d; InitOk(d);
+	JAlloc& a = d.GetAllocator();
+	d.AddMember("file", JValue(sPath, a), a);
+	d.AddMember("pendingWrite", true, a);
+	d.AddMember("entityType", JValue(pClassType->GetName(), a), a);
+	d.AddMember("entitySubType", JValue(pSubType->GetName(), a), a);
+	JValue jCheck(rapidjson::kObjectType);
+	jCheck.AddMember("ok", true, a);
+	d.AddMember("loadCheck", jCheck, a);
+	d.AddMember("hint", JValue("place with create_entity {type:'Entity', file:'" +
+	                           cString::GetFileName(sPath) + "'}; the .ent XML is written to disk on "
+	                           "save_map (pending files are DISCARDED on new_map/load_map)", a), a);
+	return MakeDoc(d);
+}
+
+//--------------------------------------------------------------------
+
+static cMCPToolResult ReadEntityFileImpl(cMCPToolCtx& c)
+{
+	std::string sFile = JStrArg(c.margs, "file");
+	if(sFile.empty()) return MakeErr("missing 'file'");
+
+	JDoc d; InitOk(d);
+	JAlloc& a = d.GetAllocator();
+
+	tinyxml2::XMLElement* pRoot = c.mpEditor->GetPendingEntFileRoot(sFile);
+	bool bPending = pRoot!=NULL;
+	tinyxml2::XMLElement* pLoadedDoc = NULL;
+	if(pRoot==NULL)
+	{
+		pLoadedDoc = c.mpEditor->GetEngine()->GetResources()->LoadXmlDocument(sFile);
+		if(pLoadedDoc==NULL)
+			return MakeErr("could not load .ent: " + sFile +
+			               " — check the name with find_assets, or run refresh_assets if it is new");
+		pRoot = pLoadedDoc;
+	}
+
+	JValue jContent;
+	XmlElementToJson(pRoot, jContent, a);
+	JValue jDoc(rapidjson::kObjectType);
+	jDoc.AddMember(JValue(pRoot->Value(), a), jContent, a);
+
+	d.AddMember("file", JValue(sFile, a), a);
+	d.AddMember("pending", bPending, a);
+	d.AddMember("json", jDoc, a);
+	if(pLoadedDoc) c.mpEditor->GetEngine()->GetResources()->DestroyXmlDocument(pLoadedDoc);
+	return MakeDoc(d);
+}
+
+//--------------------------------------------------------------------
+// Prefab tools (list_prefabs / get_prefab / update_prefab) — see cPrefabManager.
+//--------------------------------------------------------------------
+
+// Placed instances currently following a .ent, resolved the same two ways
+// reload_entity_file uses: the file watcher's reverse index (dependency-aware
+// via the mesh->material->texture chain) first, then a direct filename match.
+// Factored here so reload_entity_file, get_prefab and update_prefab share it.
+static std::set<int> ResolveEntFileInstanceIDs(cMCPToolCtx& c, const std::string& sPath)
+{
+	std::set<int> setIDs;
+
+	cEditorFileWatcher* pWatcher = c.mpWorld->GetFileWatcher();
+	if(pWatcher)
+	{
+		tWString wFull = c.mpEditor->GetEngine()->GetResources()->GetFileSearcher()->GetFilePath(sPath);
+		if(wFull.empty()==false)
+		{
+			const std::map<tWString, cWatchedFile>& mapW = pWatcher->GetWatchedFiles();
+			std::map<tWString, cWatchedFile>::const_iterator it = mapW.find(wFull);
+			if(it!=mapW.end())
+				setIDs.insert(it->second.msetEntityIDs.begin(), it->second.msetEntityIDs.end());
+		}
+	}
+
+	if(setIDs.empty())
+		setIDs = c.mpWorld->FindEntityIDsByFilename(sPath);
+	return setIDs;
+}
+
+// Deep-merge a JSON patch into an existing XML element, in place (the inverse
+// concern of JsonObjectToXmlElement, which builds from scratch):
+//   scalar        -> SetAttribute (overwrite)
+//   scalar array  -> space-joined attribute
+//   object        -> recurse into (or create) the single child of that name
+//   object array  -> REPLACE the whole list of children of that name
+// Untouched attributes/children are preserved byte-for-byte, so editing one
+// field of a .ent that carries lights/particles/joints does not drop them (the
+// headless cModelEditorWorld round-trip would).
+static bool MergeJsonPatchIntoElement(tinyxml2::XMLDocument& aDoc, tinyxml2::XMLElement* apTarget,
+									  const JValue& aPatch)
+{
+	if(aPatch.IsObject()==false) return false;
+
+	for(JValue::ConstMemberIterator it=aPatch.MemberBegin(); it!=aPatch.MemberEnd(); ++it)
+	{
+		const char* pName = it->name.GetString();
+		const JValue& val = it->value;
+
+		if(val.IsObject())
+		{
+			tinyxml2::XMLElement* pChild = apTarget->FirstChildElement(pName);
+			if(pChild==NULL)
+			{
+				pChild = aDoc.NewElement(pName);
+				apTarget->InsertEndChild(pChild);
+			}
+			if(MergeJsonPatchIntoElement(aDoc, pChild, val)==false) return false;
+		}
+		else if(val.IsArray() && JsonIsScalarArray(val)==false)
+		{
+			// Object array: drop every existing child of this name, then re-emit.
+			tinyxml2::XMLElement* pOld = apTarget->FirstChildElement(pName);
+			while(pOld)
+			{
+				tinyxml2::XMLElement* pNext = pOld->NextSiblingElement(pName);
+				apTarget->DeleteChild(pOld);
+				pOld = pNext;
+			}
+			for(rapidjson::SizeType i=0;i<val.Size();++i)
+			{
+				if(val[i].IsObject()==false) return false; // mixed scalar/object array
+				if(JsonObjectToXmlElement(aDoc, apTarget, pName, val[i])==false) return false;
+			}
+		}
+		else if(val.IsArray()) // scalar array -> space-joined attribute
+		{
+			tString sJoined, sPart;
+			for(rapidjson::SizeType i=0;i<val.Size();++i)
+			{
+				JsonScalarToString(val[i], sPart);
+				if(i) sJoined += " ";
+				sJoined += sPart;
+			}
+			apTarget->SetAttribute(pName, sJoined.c_str());
+		}
+		else
+		{
+			tString sVal;
+			JsonScalarToString(val, sVal);
+			apTarget->SetAttribute(pName, sVal.c_str());
+		}
+	}
+	return true;
+}
+
+// Set/insert <Var Name=.. Value=..> defaults under <UserDefinedVariables> without
+// disturbing the rest of the Var list (a targeted convenience over 'patch').
+static void UpsertEntVars(tinyxml2::XMLDocument& aDoc, tinyxml2::XMLElement* apRoot, const JValue& aVars)
+{
+	tinyxml2::XMLElement* pVars = apRoot->FirstChildElement("UserDefinedVariables");
+	if(pVars==NULL)
+	{
+		pVars = aDoc.NewElement("UserDefinedVariables");
+		apRoot->InsertEndChild(pVars);
+	}
+
+	for(JValue::ConstMemberIterator it=aVars.MemberBegin(); it!=aVars.MemberEnd(); ++it)
+	{
+		const char* pName = it->name.GetString();
+		std::string sVal  = JValueToVarString(&it->value);
+
+		tinyxml2::XMLElement* pVar = NULL;
+		for(tinyxml2::XMLElement* p=pVars->FirstChildElement("Var"); p; p=p->NextSiblingElement("Var"))
+		{
+			const char* pn = p->Attribute("Name");
+			if(pn && tString(pn)==pName) { pVar = p; break; }
+		}
+		if(pVar==NULL)
+		{
+			pVar = aDoc.NewElement("Var");
+			pVar->SetAttribute("Name", pName);
+			pVars->InsertEndChild(pVar);
+		}
+		pVar->SetAttribute("Value", sVal.c_str());
+	}
+}
+
+static cMCPToolResult ListPrefabsImpl(cMCPToolCtx& c)
+{
+	JDoc d; InitOk(d);
+	JAlloc& a = d.GetAllocator();
+	JValue arr(rapidjson::kArrayType);
+
+	cPrefabManager* pMgr = c.mpEditor->GetPrefabManager();
+	if(pMgr)
+	{
+		std::vector<cPrefabInfo> vInfo;
+		pMgr->ListPrefabs(vInfo);
+		for(size_t i=0;i<vInfo.size();++i)
+		{
+			JValue row(rapidjson::kObjectType);
+			row.AddMember("file",      JValue(vInfo[i].msEntFile, a), a);
+			row.AddMember("instances", vInfo[i].mlInstances, a);
+			row.AddMember("pending",   vInfo[i].mbPending, a);
+			row.AddMember("dirty",     vInfo[i].mbDirty, a);
+			arr.PushBack(row, a);
+		}
+	}
+	d.AddMember("count",   (int)arr.Size(), a);
+	d.AddMember("prefabs", arr, a);
+	return MakeDoc(d);
+}
+
+static cMCPToolResult GetPrefabImpl(cMCPToolCtx& c)
+{
+	std::string sFile = JStrArg(c.margs, "file");
+	if(sFile.empty()) return MakeErr("missing 'file'");
+
+	JDoc d; InitOk(d);
+	JAlloc& a = d.GetAllocator();
+
+	// Definition JSON: the pending (possibly edited) doc wins over the on-disk one.
+	tinyxml2::XMLElement* pRoot = c.mpEditor->GetPendingEntFileRoot(sFile);
+	bool bPending = pRoot!=NULL;
+	tinyxml2::XMLElement* pLoaded = NULL;
+	if(pRoot==NULL)
+	{
+		pLoaded = c.mpEditor->GetEngine()->GetResources()->LoadXmlDocument(sFile);
+		if(pLoaded==NULL)
+			return MakeErr("could not load .ent: " + sFile + " (check with find_assets / refresh_assets)");
+		pRoot = pLoaded;
+	}
+	JValue jContent;
+	XmlElementToJson(pRoot, jContent, a);
+	JValue jDoc(rapidjson::kObjectType);
+	jDoc.AddMember(JValue(pRoot->Value(), a), jContent, a);
+	if(pLoaded) c.mpEditor->GetEngine()->GetResources()->DestroyXmlDocument(pLoaded);
+
+	// Instances following this prefab: world scan by bare filename (cannot go
+	// stale — there is no tracked membership to orphan).
+	std::set<int> setIDs = c.mpWorld->FindEntityIDsByFilename(sFile);
+
+	JValue arr(rapidjson::kArrayType);
+	for(std::set<int>::iterator it=setIDs.begin(); it!=setIDs.end(); ++it)
+		arr.PushBack(*it, a);
+
+	d.AddMember("file",      JValue(sFile, a), a);
+	d.AddMember("pending",   bPending, a);
+	d.AddMember("instances", arr, a);
+	d.AddMember("json",      jDoc, a);
+	return MakeDoc(d);
+}
+
+// Edit a prefab's shared .ent definition in place, sync every placed instance
+// live, and persist. The current definition (pending, else on-disk) is deep-
+// cloned into a fresh owned doc, patched losslessly (MergeJsonPatchIntoElement /
+// UpsertEntVars), validated through the real engine loader, then parked in the
+// prefab cache (dirty). With sync:true the cache broadcast fires and the WORLD
+// reloads matching instances (filename scan → iEditorWorld::ReloadEntities —
+// two-phase, refcount-correct); sync:false suppresses the broadcast. persist:true
+// writes the .ent now; otherwise it is written on the next save_map. Not
+// undoable, does not dirty the map.
+static cMCPToolResult UpdatePrefabImpl(cMCPToolCtx& c)
+{
+	std::string sFile = JStrArg(c.margs, "file");
+	if(sFile.empty()) return MakeErr("missing 'file'");
+	if(cString::ToLowerCase(cString::GetFileExt(sFile))!="ent")
+		return MakeErr("'file' must end in .ent");
+
+	const JValue* pPatch = JFind(c.margs, "patch");
+	const JValue* pVars  = JFind(c.margs, "variables");
+	bool bCreate = JBoolArg(c.margs, "create", false);
+	if(pPatch && pPatch->IsObject()==false) return MakeErr("'patch' must be an object");
+	if(pVars  && pVars->IsObject()==false)  return MakeErr("'variables' must be an object");
+
+	//////////////////////////////////////////
+	// 1) Resolve the current definition: pending first, then on-disk.
+	tinyxml2::XMLElement* pCur = c.mpEditor->GetPendingEntFileRoot(sFile);
+	tinyxml2::XMLElement* pDiskRoot = NULL;
+	if(pCur==NULL)
+	{
+		pDiskRoot = c.mpEditor->GetEngine()->GetResources()->LoadXmlDocument(sFile);
+		pCur = pDiskRoot; // may still be NULL (no such file)
+	}
+
+	//////////////////////////////////////////
+	// 2) Deep-clone into a fresh OWNED doc (never mutate/return the pending ptr —
+	// SetPendingEntFile deletes the doc for that path).
+	tinyxml2::XMLDocument* pNew = new tinyxml2::XMLDocument();
+	bool bCreated = false;
+	if(pCur)
+	{
+		tinyxml2::XMLNode* pClone = pCur->DeepClone(pNew);
+		pNew->InsertEndChild(pClone);
+	}
+	else
+	{
+		if(bCreate==false)
+		{
+			delete pNew;
+			return MakeErr("no such .ent '" + sFile + "' (pending or on disk); pass create:true with a full "
+			               "Entity 'patch', or author it via create_entity_file / define_entity_file");
+		}
+		tinyxml2::XMLElement* pFresh = pNew->NewElement("Entity");
+		pNew->InsertEndChild(pFresh);
+		bCreated = true;
+	}
+	if(pDiskRoot) c.mpEditor->GetEngine()->GetResources()->DestroyXmlDocument(pDiskRoot);
+
+	tinyxml2::XMLElement* pRoot = pNew->RootElement();
+
+	//////////////////////////////////////////
+	// 3) Apply the patch (accepts the read_entity_file shape {Entity:{...}} or the
+	// inner object directly) and/or variable upserts.
+	if(pPatch)
+	{
+		const JValue* pInner = pPatch;
+		JValue::ConstMemberIterator itE = pPatch->FindMember("Entity");
+		if(pPatch->MemberCount()==1 && itE!=pPatch->MemberEnd() && itE->value.IsObject())
+			pInner = &itE->value;
+		if(MergeJsonPatchIntoElement(*pNew, pRoot, *pInner)==false)
+		{
+			delete pNew;
+			return MakeErr("patch contains a mixed scalar/object array — arrays must be all scalars "
+			               "(one space-joined attribute) or all objects (replace the child list)");
+		}
+	}
+	else if(bCreated)
+	{
+		delete pNew;
+		return MakeErr("create:true requires a 'patch' carrying the full Entity definition");
+	}
+	if(pVars)
+		UpsertEntVars(*pNew, pRoot, *pVars);
+	if(pPatch==NULL && pVars==NULL)
+	{
+		delete pNew;
+		return MakeErr("nothing to change: pass 'patch' and/or 'variables'");
+	}
+
+	//////////////////////////////////////////
+	// 4) Validate the patched DOM through the real engine loader (into the temp
+	// world) — lossless, unlike the headless cModelEditorWorld normalize.
+	bool bLoadOk = false;
+	if(c.mpEditor->GetTempWorld() && c.mpEditor->GetEngineEntityLoader())
+	{
+		cMeshEntity* pCheck = c.mpEditor->GetEngineEntityLoader()->LoadEntityFromElement(
+			-1, "McpValidatePrefab", pNew->RootElement(), c.mpEditor->GetTempWorld(),
+			cString::GetFileName(sFile), _W(""), false, false, false, false, false);
+		bLoadOk = pCheck!=NULL;
+		if(pCheck) c.mpEditor->GetTempWorld()->DestroyMeshEntity(pCheck);
+	}
+	if(bLoadOk==false)
+	{
+		delete pNew;
+		return MakeErr("edited definition failed the engine entity loader — check the patch (e.g. the mesh / "
+		               "submesh names) against read_entity_file of a working .ent");
+	}
+
+	//////////////////////////////////////////
+	// 5+6) Park in the prefab cache (takes ownership, marks dirty). With
+	// sync:true the cache broadcast fires synchronously and the world reloads
+	// every instance matching the prefab's filename — no tracked membership,
+	// nothing to go stale. Count first so the reply can report it.
+	bool bSync = JBoolArg(c.margs, "sync", true);
+	int lReloaded = bSync ? (int)c.mpWorld->FindEntityIDsByFilename(sFile).size() : 0;
+	c.mpEditor->SetPendingEntFile(sFile, pNew, bSync);
+
+	//////////////////////////////////////////
+	// 7) Persist now (persist:true) or defer to save_map.
+	bool bPersisted = false;
+	if(JBoolArg(c.margs, "persist", false))
+		bPersisted = c.mpEditor->GetPrefabManager()->FlushOne(sFile);
+
+	Log("[MCP] update_prefab '%s' -> reloaded %d instance%s%s%s\n",
+		sFile.c_str(), lReloaded, lReloaded==1 ? "" : "s",
+		bCreated ? " (created)" : "", bPersisted ? " (persisted)" : "");
+
+	JDoc d; InitOk(d);
+	JAlloc& a = d.GetAllocator();
+	d.AddMember("file",      JValue(sFile, a), a);
+	d.AddMember("created",   bCreated, a);
+	d.AddMember("pending",   true, a);
+	d.AddMember("reloaded",  lReloaded, a);
+	d.AddMember("persisted", bPersisted, a);
+	JValue jCheck(rapidjson::kObjectType);
+	jCheck.AddMember("ok", true, a);
+	d.AddMember("loadCheck", jCheck, a);
+	if(bPersisted==false)
+		d.AddMember("hint", JValue("edit is in memory + live in the view; the .ent is written to disk on "
+		                           "save_map (or pass persist:true to write it now)", a), a);
+	return MakeDoc(d);
+}
+
+//--------------------------------------------------------------------
+// Tool registry
+//--------------------------------------------------------------------
 
 struct cMCPToolDef
 {
@@ -736,8 +1694,8 @@ struct cMCPToolDef
 	"\"name\":{\"type\":\"string\",\"description\":\"base name (auto-uniquified)\"}," \
 	"\"position\":{\"type\":\"array\",\"items\":{\"type\":\"number\"},\"minItems\":3,\"maxItems\":3,\"description\":\"world position [x,y,z]\"}," \
 	"\"rotation\":{\"type\":\"array\",\"items\":{\"type\":\"number\"},\"minItems\":3,\"maxItems\":3,\"description\":\"rotation [x,y,z] radians\"}," \
-	"\"scale\":{\"type\":\"array\",\"items\":{\"type\":\"number\"},\"minItems\":3,\"maxItems\":3,\"description\":\"scale [x,y,z]\"}," \
-	"\"properties\":{\"type\":\"object\",\"description\":\"typed properties to set at creation, e.g. {\\\"Radius\\\": 9, \\\"DiffuseColor\\\": [1,0.7,0.4,1], \\\"CastShadows\\\": true} — names per list_properties\"}" \
+	"\"scale\":{\"type\":\"array\",\"items\":{\"type\":\"number\"},\"minItems\":3,\"maxItems\":3,\"description\":\"scale [x,y,z]. For type 'Plane' the mesh is a unit quad, so scale IS the world size in meters over the two flat axes\"}," \
+	"\"properties\":{\"type\":\"object\",\"description\":\"typed properties to set at creation, e.g. {\\\"Radius\\\": 9, \\\"DiffuseColor\\\": [1,0.7,0.4,1], \\\"CastShadows\\\": true} — names per list_properties. Plane: {\\\"Material\\\": \\\"<file>.mat\\\"} is REQUIRED; corners default to a 1x1m floor quad (size via 'scale'), or pass StartCorner/EndCorner spanning exactly two axes; TileAmount = texture repeats across the SCALED plane. Lights: Intensity defaults to 1.0 which is nearly invisible under the PBR falloff — useful values run ~100 (candle) to ~5000 (large room), scaled with distance\"}" \
 	"}}"
 
 //--------------------------------------------------------------------
@@ -816,22 +1774,34 @@ static cMCPToolResult CreateEntitiesImpl(cMCPToolCtx& c, bool abBatch)
 		c.mpEditor->AddAction(pCompound);
 	}
 
+	// Engine-level verification: every create must have produced a live entity
+	// (pre-validation can't catch everything, e.g. a corrupt mesh file). On any
+	// miss, roll the whole (compound) action back and discard it, honoring the
+	// documented all-or-nothing contract — and keeping the failure un-redoable.
+	std::vector<size_t> vFailed;
+	for(size_t i=0;i<vIDs.size();++i)
+		if(c.mpWorld->GetEntity(vIDs[i])==NULL) vFailed.push_back(i);
+	if(vFailed.empty()==false)
+	{
+		c.mpEditor->GetActionHandler()->UndoAndDiscard();
+		if(abBatch==false)
+			return MakeErr("create action ran but no entity was produced (bad file/corners/material?); rolled back");
+		std::string sIdx;
+		for(size_t k=0;k<vFailed.size();++k){ if(k) sIdx += ","; sIdx += std::to_string(vFailed[k]); }
+		return MakeErr("create failed for entities[" + sIdx + "] (engine produced no object — bad "
+		               "file/corners/material?); the whole batch was rolled back, nothing was created");
+	}
+
 	JDoc d; InitOk(d);
 	JAlloc& a = d.GetAllocator();
 	if(abBatch==false)
 	{
-		iEntityWrapper* e = c.mpWorld->GetEntity(vIDs[0]);
-		if(e==NULL) return MakeErr("create action ran but no entity was produced (bad file/type?)");
-		d.AddMember("entity", EntityCompact(c.mpEditor, e, false, a), a);
+		d.AddMember("entity", EntityCompact(c.mpEditor, c.mpWorld->GetEntity(vIDs[0]), false, a), a);
 		return MakeDoc(d);
 	}
 	JValue arr(rapidjson::kArrayType);
 	for(size_t i=0;i<vIDs.size();++i)
-	{
-		iEntityWrapper* e = c.mpWorld->GetEntity(vIDs[i]);
-		if(e) arr.PushBack(EntityCompact(c.mpEditor, e, false, a), a);
-		else  arr.PushBack(JValue(rapidjson::kNullType), a);
-	}
+		arr.PushBack(EntityCompact(c.mpEditor, c.mpWorld->GetEntity(vIDs[i]), false, a), a);
 	d.AddMember("count", (int)arr.Size(), a);
 	d.AddMember("created", arr, a);
 	return MakeDoc(d);
@@ -1244,7 +2214,8 @@ static const cMCPToolDef gvTools[] =
   "Search the game's indexed resource files (models, .ent entities, particles, materials, sounds...). "
   "'query' is a case-insensitive path substring (e.g. 'castlebase/wall'); 'ext' filters by extension(s) "
   "(e.g. 'ent' or ['dae','msh']). Returns paths usable as create_entity 'file'. "
-  "Note: the index is built at editor startup; files created since then are not listed.",
+  "Note: the index is built at editor startup; files created since then are not listed until you "
+  "call refresh_assets.",
   R"json({"type":"object","properties":{
 	"query":{"type":"string","description":"case-insensitive substring of the path"},
 	"ext":{"description":"extension string or array of extensions, without dot"},
@@ -1284,6 +2255,67 @@ static const cMCPToolDef gvTools[] =
 	return MakeDoc(d);
   } },
 
+{ "refresh_assets",
+  "Re-scan the game's resource directories so files created after editor startup (e.g. a freshly "
+  "exported .dae/.ent/.mat/.dds) become resolvable by find_assets / get_asset_bounds / get_mesh_data / "
+  "create_entity — no editor restart needed. Default: re-adds every startup resource dir "
+  "(resources.cfg) plus all editor lookup dirs. Pass 'path' to index one extra directory (recursive) "
+  "instead. Returns the number of newly indexed files. Caveats: the index maps bare filenames, so a "
+  "new file whose filename collides with an already-indexed one stays shadowed (rename it); a big "
+  "directory tree scans synchronously and can briefly stall the editor.",
+  R"json({"type":"object","properties":{
+	"path":{"type":"string","description":"optional: one directory to index recursively (absolute or CWD-relative) instead of the full refresh"}}})json",
+  [](cMCPToolCtx& c) {
+	std::string sPath = JStrArg(c.margs, "path");
+	int lNew = c.mpEditor->RefreshResourceIndex(cString::To16Char(sPath));
+	if(lNew < 0) return MakeErr("directory not found: " + sPath);
+	JDoc d; InitOk(d);
+	JAlloc& a = d.GetAllocator();
+	d.AddMember("newFiles", lNew, a);
+	d.AddMember("totalFiles",
+		(int)c.mpEditor->GetEngine()->GetResources()->GetFileSearcher()->GetAllFiles().size(), a);
+	return MakeDoc(d);
+  } },
+
+{ "reload_entity_file",
+  "Re-read a .ent (or a mesh/material/texture it depends on) from disk and rebuild every placed "
+  "instance in the current map live, preserving each instance's placement and selection. Intended for "
+  "an external tool (e.g. the ModelEditor) to call after saving the file, so the level view updates "
+  "without a manual map reload. The passive file watcher does the same on any on-disk change; this tool "
+  "just makes it instant and explicit. Returns how many placed entities were reloaded (0 if none "
+  "reference the file).",
+  R"json({"type":"object","properties":{
+	"path":{"type":"string","description":"resource-relative path of the changed file (e.g. 'entities/props/foo.ent')"}},"required":["path"]})json",
+  [](cMCPToolCtx& c) {
+	std::string sPath = JStrArg(c.margs, "path");
+	if(sPath.empty()) return MakeErr("missing 'path'");
+
+	// The file changed ON DISK: drop any non-dirty pending prefab doc that
+	// would shadow it (no broadcast — the explicit reload below covers it).
+	if(cString::ToLowerCase(cString::GetFileExt(sPath))=="ent")
+	{
+		if(cPrefabManager* pMgr = c.mpEditor->GetPrefabManager())
+			pMgr->OnExternalFileChange(sPath, false);
+	}
+
+	// Watcher reverse index (dependency-aware) first, then a direct filename
+	// match.
+	std::set<int> setIDs = ResolveEntFileInstanceIDs(c, sPath);
+
+	int lCount = (int)setIDs.size();
+	if(lCount>0)
+		c.mpWorld->ReloadEntities(setIDs);
+
+	Log("[MCP] reload_entity_file '%s' -> reloaded %d entit%s\n",
+		sPath.c_str(), lCount, lCount==1 ? "y" : "ies");
+
+	JDoc d; InitOk(d);
+	JAlloc& a = d.GetAllocator();
+	d.AddMember("path", JValue(sPath, a), a);
+	d.AddMember("reloaded", lCount, a);
+	return MakeDoc(d);
+  } },
+
 { "get_asset_bounds",
   "Local-space AABB {min, max, size, center} of a model file (.dae/.msh) or of the mesh referenced by an "
   ".ent file — WITHOUT placing anything. Use it to size/align pieces before create_entity.",
@@ -1309,7 +2341,9 @@ static const cMCPToolDef gvTools[] =
 
 	cMeshManager* pMM = c.mpEditor->GetEngine()->GetResources()->GetMeshManager();
 	cMesh* pMesh = pMM->CreateMesh(sMeshFile);
-	if(pMesh==NULL) return MakeErr("could not load mesh: " + sMeshFile);
+	if(pMesh==NULL) return MakeErr("could not load mesh: " + sMeshFile +
+		" — not in the resource index (built at startup); if the file is new, run refresh_assets"
+		" (optionally with its directory as 'path') and retry");
 
 	cVector3f vMin(1e30f), vMax(-1e30f);
 	bool bAny = false;
@@ -1434,7 +2468,8 @@ static const cMCPToolDef gvTools[] =
 
 	cMeshManager* pMM = c.mpEditor->GetEngine()->GetResources()->GetMeshManager();
 	cMesh* pMesh = pMM->CreateMesh(sMeshFile);
-	if(pMesh==NULL) return MakeErr("could not load mesh: " + sMeshFile);
+	if(pMesh==NULL) return MakeErr("could not load mesh: " + sMeshFile +
+		" — if the file was created after editor startup, run refresh_assets and retry");
 
 	int lMaxTris = JIntArg(c.margs, "maxTriangles", 20000);
 	if(lMaxTris<0) lMaxTris = 0;
@@ -1580,18 +2615,110 @@ static const cMCPToolDef gvTools[] =
   "Create one object; ONE undo step even with 'properties'. Lights need only 'type' ('Light'=point; "
   "'SpotLight'/'AreaLight' via xmlName). 'Entity'/'Static Object' need 'file'; 'file' also routes to "
   "Particle System (.ps), Sound (.snt) and Billboard (.mat). 'properties' sets typed properties at creation "
-  "(names per list_properties). Undoable.",
+  "(names per list_properties). Type 'Plane' needs properties.Material and either corner props or 'scale' "
+  "(unit quad x scale); corners left at zero default to a 1x1m floor. Undoable.",
   MCP_CREATE_SPEC_SCHEMA,
   [](cMCPToolCtx& c) { return CreateEntitiesImpl(c, false); } },
 
 { "create_entities",
   "Bulk create: 'entities' is an array of create_entity specs. Everything is validated first (a bad spec "
-  "fails the whole call with no changes), then created as ONE undo step. Returns compact rows for the "
-  "created objects. Preferred over many create_entity calls for scene building.",
+  "fails the whole call with no changes), then created as ONE undo step. If the engine still fails on a "
+  "spec after validation, the whole batch is rolled back and the error names the failing indices. Returns "
+  "compact rows for the created objects. Preferred over many create_entity calls for scene building.",
   "{\"type\":\"object\",\"properties\":{"
   "\"entities\":{\"type\":\"array\",\"description\":\"array of create_entity specs\",\"items\":" MCP_CREATE_SPEC_SCHEMA "}"
   "},\"required\":[\"entities\"]}",
   [](cMCPToolCtx& c) { return CreateEntitiesImpl(c, true); } },
+
+{ "create_entity_file",
+  "Author a game entity (.ent XML file) from a mesh, so a custom model (e.g. a freshly exported .dae) can "
+  "be placed as an interactive Entity instead of a plain Static Object. The file is authored through the "
+  "ModelEditor's own document machinery (headless), so the XML is canonical and cannot drift from what the "
+  "engine loader expects; after writing it is verified through the real entity load path (see 'loadCheck' "
+  "in the reply). Contains ModelData (mesh + submeshes, bones for skeletal meshes), an optional physics "
+  "body (auto box from the mesh AABB by default; 'none' for visual-only), and UserDefinedVariables with "
+  "the full class-default set. 'type'/'subtype' must be classes from editor/EntityTypes.cfg (e.g. "
+  "'StaticProp'; 'Object'+'Grab'/'Static'/'Push'; 'SwingDoor'; 'Lamp'; 'Item'). The file's directory is "
+  "re-indexed automatically, so the result is immediately placeable via create_entity {type:'Entity', "
+  "file:...}; joints and per-submesh bodies are ModelEditor territory. Does not modify the open map; NOT "
+  "undoable (writes a file on disk).",
+  R"json({"type":"object","properties":{
+	"path":{"type":"string","description":"output .ent path (absolute or CWD-relative), e.g. entities/custom/crate01/crate01.ent; parent directories are created"},
+	"mesh":{"type":"string","description":"model file (.dae/.msh), resource-relative or indexed filename; run refresh_assets first if newly exported"},
+	"type":{"type":"string","description":"EntityType class (default 'StaticProp')"},
+	"subtype":{"type":"string","description":"EntitySubType, e.g. 'Grab' for type 'Object' (default '')"},
+	"body":{"type":"object","description":"physics body; omit for the default auto box from the mesh AABB. {shape:'box'|'cylinder'|'sphere'|'none', size:[x,y,z] override, offset:[x,y,z] center override, mass (default 0 = static), material (surface material from materials.cfg, default 'Wood')}"},
+	"variables":{"type":"object","description":"{name: value} written as <Var> rows (values stringified); names should match the class's variables (see list_properties on a placed instance)"},
+	"overwrite":{"type":"boolean","description":"allow replacing an existing file (default false)"}},
+	"required":["path","mesh"]})json",
+  [](cMCPToolCtx& c) { return CreateEntityFileImpl(c); } },
+
+{ "define_entity_file",
+  "Define a game entity (.ent) from FULL JSON content — the separate MCP JSON path. The JSON is converted "
+  "to XML, NORMALIZED through the ModelEditor's own document (headless load + re-save, so IDs, attributes "
+  "and class-default variables come out canonical), validated through the real engine entity loader, and "
+  "held IN MEMORY: placement via create_entity {type:'Entity', file:...} loads it through the same load "
+  "path as on-disk files, and the .ent XML is written to the filesystem when the map is saved (save_map). "
+  "Pending definitions are DISCARDED on new_map/load_map without a save. JSON shape mirrors the XML "
+  "(read_entity_file shows it): scalars = attributes, [0,1,0] = '0 1 0', nested objects = child elements, "
+  "arrays of objects = repeated elements. Compare: create_entity_file GENERATES a .ent from a mesh and "
+  "writes it immediately.",
+  R"json({"type":"object","properties":{
+	"file":{"type":"string","description":".ent path the file will be saved to on map save, e.g. entities/custom/crate01/crate01.ent"},
+	"json":{"type":"object","description":"full entity document: {\"Entity\": {\"ModelData\": {\"Mesh\": {\"Filename\": ..., \"SubMesh\": [...]}, ...}, \"UserDefinedVariables\": {\"EntityType\": ..., \"Var\": [...]}}}"},
+	"overwrite":{"type":"boolean","description":"allow shadowing/replacing an existing on-disk file (default false)"}},
+	"required":["file","json"]})json",
+  [](cMCPToolCtx& c) { return DefineEntityFileImpl(c); } },
+
+{ "read_entity_file",
+  "Read a .ent entity file as JSON (pending in-memory definitions first, then the resource index). Use it "
+  "to learn the entity JSON shape from stock content before define_entity_file, or to inspect a pending "
+  "definition. Attribute values are returned as strings exactly as stored.",
+  R"json({"type":"object","properties":{
+	"file":{"type":"string","description":".ent path or bare filename (resource-index resolved)"}},
+	"required":["file"]})json",
+  [](cMCPToolCtx& c) { return ReadEntityFileImpl(c); } },
+
+{ "list_prefabs",
+  "List the .ent \"prefabs\" referenced in the current map: one row per distinct .ent that has placed "
+  "instances and/or an in-memory (MCP-edited) definition, with 'instances' (how many placed copies "
+  "follow it), 'pending' (an edited definition is held in memory) and 'dirty' (edited, not yet written "
+  "to disk). Use it to discover what update_prefab can target. Instances are tracked live as entities "
+  "are created/deleted, so counts are current.",
+  R"json({"type":"object","properties":{}})json",
+  [](cMCPToolCtx& c) { return ListPrefabsImpl(c); } },
+
+{ "get_prefab",
+  "Inspect one .ent prefab: its full definition as JSON (the pending/edited version if any, else the "
+  "on-disk file) plus the ids of every placed instance following it. Same JSON shape as read_entity_file. "
+  "Use it before update_prefab to see the exact fields to patch.",
+  R"json({"type":"object","properties":{
+	"file":{"type":"string","description":".ent path or bare filename (resource-index resolved)"}},
+	"required":["file"]})json",
+  [](cMCPToolCtx& c) { return GetPrefabImpl(c); } },
+
+{ "update_prefab",
+  "Edit a prefab's SHARED .ent definition and (by default) update every placed instance in the map live. "
+  "This is the write path for the 'common' fields that come from the .ent (mesh, submeshes, attached "
+  "lights/particles, physics, UserDefinedVariable defaults) — as opposed to set_property, which edits ONE "
+  "instance's per-map overrides. The current definition (pending, else on-disk) is patched LOSSLESSLY (a "
+  "deep merge, so fields you don't touch — including lights/particles/joints — are preserved), validated "
+  "through the real engine loader, and held in memory; instances following it are rebuilt from it "
+  "immediately (each keeps its own placement/overrides). The .ent is written to disk on the next save_map, "
+  "or right away with persist:true. Not undoable and does not dirty the map (like reload_entity_file). "
+  "'patch' mirrors get_prefab's JSON shape (accepts either {\"Entity\":{...}} or the inner object): "
+  "scalars=attributes, [0,1,0]='0 1 0', nested objects merge, arrays of objects REPLACE that child list. "
+  "For a brand-new .ent, pass create:true with a full Entity 'patch' (or author from a mesh via "
+  "create_entity_file / define_entity_file first).",
+  R"json({"type":"object","properties":{
+	"file":{"type":"string","description":"target .ent path (resource-relative), e.g. 'entities/props/foo.ent'"},
+	"patch":{"type":"object","description":"partial definition deep-merged into the current .ent; scalar members overwrite attributes, nested objects merge recursively, arrays of objects replace that whole child list (e.g. {\"ModelData\":{\"Mesh\":{\"Filename\":\"other.msh\"}}})"},
+	"variables":{"type":"object","description":"convenience {name: value} to set/insert <Var> defaults under UserDefinedVariables without replacing the whole Var list"},
+	"sync":{"type":"boolean","description":"rebuild every placed instance from the edited definition now (default true)"},
+	"persist":{"type":"boolean","description":"write the .ent to disk immediately; default false = written on the next save_map"},
+	"create":{"type":"boolean","description":"if the .ent does not exist yet, create it from 'patch' (which must be a full Entity definition). Default false"}},
+	"required":["file"]})json",
+  [](cMCPToolCtx& c) { return UpdatePrefabImpl(c); } },
 
 { "delete_entity",
   "Delete objects by id/ids. Undoable.",
@@ -1988,15 +3115,20 @@ static const cMCPToolDef gvTools[] =
   [](cMCPToolCtx& c) { c.mpEditor->Reset(); return MakeOk(); } },
 
 { "save_map",
-  "Save the current map to 'path' (.map). Plain filesystem path (absolute or CWD-relative).",
+  "Save the current map to 'path' (.map). Plain filesystem path (absolute or CWD-relative). Also writes "
+  "any pending define_entity_file definitions to disk as .ent XML (reported as pendingEntFilesWritten).",
   R"json({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]})json",
   [](cMCPToolCtx& c) {
 	std::string sPath = JStrArg(c.margs, "path");
 	if(sPath.empty()) return MakeErr("missing 'path'");
+	int lPendingBefore = c.mpEditor->GetPendingEntFileDirtyCount();
 	if(c.mpEditor->SaveToFile(cString::To16Char(sPath))==false)
 		return MakeErr("save failed");
 	JDoc d; InitOk(d);
-	d.AddMember("path", JValue(sPath, d.GetAllocator()), d.GetAllocator());
+	JAlloc& a = d.GetAllocator();
+	d.AddMember("path", JValue(sPath, a), a);
+	if(lPendingBefore>0)
+		d.AddMember("pendingEntFilesWritten", lPendingBefore - c.mpEditor->GetPendingEntFileDirtyCount(), a);
 	return MakeDoc(d);
   } },
 
@@ -2163,6 +3295,8 @@ static const cMCPToolDef gvTools[] =
   "(optional 'distance' overrides how far back the camera sits). Optional 'fov' (vertical, degrees), "
   "'width'/'height' (pixels), 'near'/'far' clip planes default to the focused editor viewport's camera. "
   "Set 'include_visible' to also get back a {\"visible\":[ids]} text block listing the entities in frame. "
+  "The image uses the same tonemap/display encoding as the editor viewport; 'exposure'/'gamma' are "
+  "per-capture overrides for reviewing deliberately dark scenes (they do not change the map). "
   "The render + GPU readback take a few frames.",
   R"json({"type":"object","properties":{
 	"position":{"type":"array","items":{"type":"number"},"minItems":3,"maxItems":3,"description":"eye / camera world position [x,y,z]"},
@@ -2174,6 +3308,8 @@ static const cMCPToolDef gvTools[] =
 	"height":{"type":"integer","description":"image height in pixels (default 576, clamped to 16..2048)"},
 	"near":{"type":"number","description":"near clip plane distance (default: focused viewport)"},
 	"far":{"type":"number","description":"far clip plane distance (default: focused viewport)"},
+	"exposure":{"type":"number","description":"linear exposure multiplier applied before tonemapping (default 1.0 = what the editor viewport shows; try 4-16 to inspect a pitch-black scene)"},
+	"gamma":{"type":"number","description":"display gamma applied after encoding (default 1.0; >1 lifts shadows, like the game's gamma setting)"},
 	"include_visible":{"type":"boolean","description":"also return the ids of entities within the captured view (default false)"}}})json",
   [](cMCPToolCtx& c) {
 	cLevelEditorCameraCapture* pCap = c.mpEditor->GetCameraCapture();
@@ -2221,11 +3357,19 @@ static const cMCPToolDef gvTools[] =
 	if(JHas(c.margs,"near")) fNear = (float)JNumArg(c.margs,"near");
 	if(JHas(c.margs,"far"))  fFar  = (float)JNumArg(c.margs,"far");
 
-	int lWidth  = JIntArg(c.margs, "width",  1024);
-	int lHeight = JIntArg(c.margs, "height", 576);
-	bool bIncludeVisible = JBoolArg(c.margs, "include_visible", false);
+	cCaptureRequest req;
+	req.mvPos    = vPos;
+	req.mvTarget = vTarget;
+	req.mfFov    = fFov;
+	req.mfNear   = fNear;
+	req.mfFar    = fFar;
+	req.mlWidth  = JIntArg(c.margs, "width",  1024);
+	req.mlHeight = JIntArg(c.margs, "height", 576);
+	req.mbIncludeVisible = JBoolArg(c.margs, "include_visible", false);
+	req.mfExposure = cMath::Clamp((float)JNumArg(c.margs, "exposure", 1.0), 0.01f, 1000.0f);
+	req.mfGamma    = cMath::Clamp((float)JNumArg(c.margs, "gamma",    1.0), 0.1f,  5.0f);
 
-	int lJobId = pCap->Enqueue(vPos, vTarget, fFov, fNear, fFar, lWidth, lHeight, bIncludeVisible);
+	int lJobId = pCap->Enqueue(req);
 	if(lJobId < 0)
 		return MakeErr("camera capture unavailable");
 

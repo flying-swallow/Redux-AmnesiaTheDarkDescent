@@ -58,6 +58,7 @@
 #include "ModelEditorWindowOutline.h"
 #include "ModelEditorWindowPhysicsTest.h"
 #include "ModelEditorWindowAnimations.h"
+#include "ModelEditorReloadNotify.h"
 
 #include "ModelEditorWorld.h"
 #include "ModelEditorActions.h"
@@ -74,6 +75,7 @@
 
 cModelEditor::cModelEditor() : iEditorBase(_W("Models"), _W("*.ent"))
 {
+	mlNotifyPort = 0;
 }
 
 cModelEditor::~cModelEditor()
@@ -177,6 +179,8 @@ bool cModelEditor::MainMenu_ItemClick(iWidget* apWidget, const cGuiMessageData& 
 	else if(apWidget==mpMainMenuImport)
 	{
 		tWStringList vFilters = tWStringList(1,_W("*.dae"));
+		vFilters.push_back(_W("*.gltf"));
+		vFilters.push_back(_W("*.glb"));
 		//vFilters.push_back(_W("*.fbx"));
 		ShowLoadFilePicker(mvLoadFilenames, msLastMeshPath,this, kGuiCallback(MeshImport_Callback), _W("Meshes"), vFilters);
 	}
@@ -537,6 +541,43 @@ void cModelEditor::AppSpecificSave(tinyxml2::XMLElement* apDoc)
 		pVar->SaveValueToElement(pXmlVar);
 	}
 	*/
+}
+
+//--------------------------------------------------------------------
+
+void cModelEditor::OpenStartupFile()
+{
+	if(msStartupFile.empty())
+		return;
+
+	////////////////////////////////////////////////////////////////////
+	// The LevelEditor hands us a resource-relative path; resolve it to a full
+	// path for the loader, falling back to a literal path if it isn't indexed.
+	tWString sFull = GetEngine()->GetResources()->GetFileSearcher()->GetFilePath(msStartupFile);
+	if(sFull.empty())
+		sFull = cString::To16Char(msStartupFile);
+
+	Log("[ModelEditor] opening startup file '%s'\n", msStartupFile.c_str());
+
+	mvLoadFilenames.clear();
+	mvLoadFilenames.push_back(sFull);
+	Load();
+}
+
+//--------------------------------------------------------------------
+
+void cModelEditor::OnPostSave()
+{
+	if(mlNotifyPort<=0 || msStartupFile.empty())
+		return;
+
+	// Tell the LevelEditor that launched us to reload this .ent live. We notify
+	// with the resource-relative path it originally handed us (what its
+	// reload_entity_file tool matches placed instances against).
+	Log("[ModelEditor] notifying LevelEditor (127.0.0.1:%d) to reload '%s'\n",
+		mlNotifyPort, msStartupFile.c_str());
+
+	ModelEditorNotifyReload("127.0.0.1", mlNotifyPort, msNotifyToken, msStartupFile);
 }
 
 //--------------------------------------------------------------------

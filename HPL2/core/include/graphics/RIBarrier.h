@@ -242,6 +242,16 @@ ri_vk_RIStageBitsToVK(uint32_t stageBits, uint32_t stateFallback) {
   if (stageBits == RI_STAGE_NONE)
     return ri_vk_RIStageMaskFromState(stateFallback);
   VkPipelineStageFlags2 flags = VK_PIPELINE_STAGE_2_NONE;
+  // RIStageBits_e has no attachment-output / depth-test bits, so an explicit
+  // hint can never name the fixed-function stages that attachment accesses in
+  // the state REQUIRE (VUID-VkImageMemoryBarrier2-src/dstAccessMask-03911/
+  // 03893). OR them in from the state so hand-tuned shader-stage hints stay
+  // narrow but the mask remains legal.
+  if (stateFallback & (RI_RESOURCE_STATE_RENDER_TARGET | RI_RESOURCE_STATE_RENDER_TARGET_READ))
+    flags |= VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+  if (stateFallback & (RI_RESOURCE_STATE_DEPTH_WRITE | RI_RESOURCE_STATE_DEPTH_READ))
+    flags |= VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
+             VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
   if (stageBits & RI_STAGE_VERTEX)
     flags |= VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT;
   if (stageBits & RI_STAGE_FRAGMENT)

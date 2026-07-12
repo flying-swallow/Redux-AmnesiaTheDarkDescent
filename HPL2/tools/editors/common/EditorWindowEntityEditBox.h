@@ -126,6 +126,12 @@ protected:
 	cWidgetFrame* mpFVars;
 	cEditorVarInputPanel* mpInputPanel;
 
+	// The class instance mpInputPanel's var inputs point into. A live reload
+	// (ReloadEntities -> SetClass(CreateCopy)) frees the entity's old mpClass and
+	// installs a new one; if the pointer no longer matches we must rebuild the
+	// panel before Update() dereferences the freed vars (else use-after-free).
+	cEditorClassInstance* mpBuiltFromClass;
+
 	bool mbRefreshInputs;
 };
 

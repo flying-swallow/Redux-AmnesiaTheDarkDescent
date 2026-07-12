@@ -1825,9 +1825,13 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
     auto renderDecalAccumulator = [&](RITexture *tex, const RITextureView &view,
                                       const float clearRGBA[4],
                                       const std::vector<iRenderable *> &list) {
+      // Dst stage hint deliberately NONE: RENDER_TARGET must sync against
+      // COLOR_ATTACHMENT_OUTPUT (derived from the state), not FRAGMENT_SHADER —
+      // an explicit FRAGMENT hint here pairs COLOR_ATTACHMENT_WRITE access with
+      // a stage that doesn't support it (VUID-VkImageMemoryBarrier2-dstAccessMask-03911).
       mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
           {tex, RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_RENDER_TARGET,
-           RI_STAGE_NONE, RI_STAGE_FRAGMENT});
+           RI_STAGE_NONE, RI_STAGE_NONE});
 
       RIRenderingAttachment color = {};
       color.view = view;

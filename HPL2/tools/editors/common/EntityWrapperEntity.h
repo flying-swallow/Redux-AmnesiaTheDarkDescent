@@ -25,6 +25,7 @@
 using namespace hpl;
 
 #include "EntityWrapper.h"
+#include "PrefabManager.h"
 
 namespace tinyxml2 { class XMLElement; }
 
@@ -131,6 +132,12 @@ protected:
 	void OnSetVar(const tWString& asName, const tWString& asValue);
 
 	bool SetEntityType(iEntityWrapperType* apType);
+
+	// Re-point mPrefabRef at the prefab resource for the current msFilename
+	// (empty filename → empty handle). Idempotent; called wherever msFilename
+	// is (re)assigned so the reference count tracks placed instances exactly.
+	void UpdatePrefabRef();
+
 	///////////////////////////
 	// Data
 	std::vector<iLight*> mvLights;
@@ -140,6 +147,13 @@ protected:
 	bool mbAffectedByDecal;
 
 	bool mbTypeChanged;
+
+	// Instance reference to this entity's .ent prefab resource: pure
+	// lifetime/count (no callbacks) — prefab edits reach instances via the
+	// manager's broadcast + the world's filename scan. RAII-released in the
+	// destructor, so the prefab definition cannot vanish while placed
+	// instances exist.
+	SharedResourceHandle<cPrefabResource> mPrefabRef;
 };
 
 //---------------------------------------------------------------

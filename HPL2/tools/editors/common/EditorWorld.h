@@ -26,6 +26,11 @@ using namespace hpl;
 
 #include "EditorTypes.h"
 
+#include "system/Event.h"
+#include "PrefabManager.h"	// ePrefabEvent (broadcast handler below)
+
+#include <set>
+
 namespace tinyxml2 { class XMLElement; }
 
 //----------------------------------------------------------------------
@@ -38,6 +43,7 @@ class iEntityWrapper;
 
 class cEntityPicker;
 class cSurfacePicker;
+class cEditorFileWatcher;
 
 //----------------------------------------------------------------------
 
@@ -47,7 +53,7 @@ public:
 	iEditorWorld(iEditorBase* apEditor, const tString& asElementName);
 	virtual ~iEditorWorld();
 
-	virtual void OnEditorUpdate();
+	virtual void OnEditorUpdate(float afTimeStep);
 	virtual void Reset();
 
 	void SetName(const tString& asName);
@@ -78,6 +84,24 @@ public:
 
 	bool IsClearingEntities() { return mbIsClearingEntities; }
 	void ClearEntities();
+
+	////////////////////////////////////////////////////////
+	// Live file watching / reload
+	// Re-read the given entities from disk in place (re-builds their engine
+	// entities, preserving placement/selection). Does NOT dirty the map or
+	// push an undo action - it's a live external reload, not an edit.
+	void ReloadEntities(const std::set<int>& asetIDs);
+	cEditorFileWatcher* GetFileWatcher() { return mpFileWatcher; }
+
+	// IDs of entities whose source file matches asFile by BARE FILENAME
+	// (case-insensitive) — the prefab identity cPrefabManager uses. Scanning on
+	// demand (instead of tracked membership) cannot go stale or orphan.
+	std::set<int> FindEntityIDsByFilename(const tString& asFile);
+
+	// Watcher-driven reload: files changed ON DISK, so first drop any non-dirty
+	// pending prefab docs shadowing the affected .ent files (disk becomes truth;
+	// dirty = unsaved MCP edits are kept), then ReloadEntities.
+	void OnWatcherReload(const std::set<int>& asetIDs);
 
 	////////////////////////////////////////////////////////
 	// Loading / Saving
@@ -282,6 +306,21 @@ protected:
 
 	cEntityPicker* mpPicker;
 	cSurfacePicker* mpSurfacePicker;
+
+	cEditorFileWatcher* mpFileWatcher;
+
+	// Live-reload entities when the watcher reports their deps changed on disk.
+	// The watcher publishes OnReloadEntities(); we subscribe (decoupled: the
+	// watcher does not hold a back-pointer to the world). RAII-disconnects.
+	Event<const std::set<int>&>::Handler mFileReloadHandler {
+		[this](const std::set<int>& asetIDs){ OnWatcherReload(asetIDs); } };
+
+	// Prefab-manager broadcast (single subscriber = this world): any lifecycle
+	// event (Added/Modified/Removed) rebinds the prefab's instances to the
+	// current truth — the rebuild resolves pending-doc-first, else disk — so
+	// one handler body serves all three. RAII-disconnects.
+	Event<const tString&, ePrefabEvent>::Handler mPrefabChangedHandler {
+		[this](const tString& asFile, ePrefabEvent){ ReloadEntities(FindEntityIDsByFilename(asFile)); } };
 
 	////////////////////////////////
 	// Global Lights

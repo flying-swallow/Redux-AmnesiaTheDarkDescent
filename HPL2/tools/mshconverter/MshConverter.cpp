@@ -21,6 +21,7 @@
 
 #include "impl/MeshLoaderMSH.h"
 #include "impl/MeshLoaderCollada.h"
+#include "impl/MeshLoaderGLTF.h"
 #include "resources/WorldLoaderHplMap.h"
 #include "resources/XmlHelper.h"
 
@@ -32,6 +33,7 @@ using namespace hpl;
 
 cMeshLoaderMSH *gpMeshLoaderMSH=NULL;
 cMeshLoaderCollada *gpMeshLoaderCollada=NULL;
+cMeshLoaderGLTF *gpMeshLoaderGLTF=NULL;
 
 //------------------------------------------
 
@@ -294,7 +296,12 @@ bool ConvertFile(const tWString &asFile)
 	//Convert Mesh
 	else
 	{
-		cMesh *pMesh = gpMeshLoaderCollada->LoadMesh(asFile,eMeshLoadFlag_NoMaterial);
+		//Dispatch by extension so .gltf/.glb use the glTF loader and .dae the COLLADA loader.
+		iMeshLoader *pLoader = static_cast<iMeshLoader*>(
+			Interface<cEngine>::Get()->GetResources()->GetMeshLoaderHandler()->GetLoaderForFile(asFile));
+		if(pLoader == NULL) pLoader = gpMeshLoaderCollada;
+
+		cMesh *pMesh = pLoader->LoadMesh(asFile,eMeshLoadFlag_NoMaterial);
 		if(pMesh)	{
 			gpMeshLoaderMSH->SaveMesh(pMesh, sMSHPath);
 			hplDelete(pMesh);
@@ -403,6 +410,7 @@ void Init()
 {
 	gpMeshLoaderMSH = static_cast<cMeshLoaderMSH*>(Interface<cEngine>::Get()->GetResources()->GetMeshLoaderHandler()->GetLoaderForFile(".msh"));
 	gpMeshLoaderCollada = static_cast<cMeshLoaderCollada*>(Interface<cEngine>::Get()->GetResources()->GetMeshLoaderHandler()->GetLoaderForFile(".dae"));
+	gpMeshLoaderGLTF = static_cast<cMeshLoaderGLTF*>(Interface<cEngine>::Get()->GetResources()->GetMeshLoaderHandler()->GetLoaderForFile(".gltf"));
 
 	Interface<cEngine>::Get()->GetPhysics()->LoadSurfaceData("materials.cfg");
 
@@ -418,9 +426,13 @@ void Init()
 		Interface<cEngine>::Get()->GetResources()->GetMaterialManager()->SetDisableRenderDataLoading(true);
 	}
 
-	//Normal loading for maps!
+	//Normal loading for maps! (MshConverter writes the .msh itself, so the source
+	//loaders must not also write their own cache.)
 	if(glFileType != 2)
+	{
 		gpMeshLoaderCollada->SetLoadAndSaveMSHFormat(false);
+		if(gpMeshLoaderGLTF) gpMeshLoaderGLTF->SetLoadAndSaveMSHFormat(false);
+	}
 
 	if(gbGenerateAIPaths)
 		LoadPathNodeDataFile(gsPathNodeSetupFile);

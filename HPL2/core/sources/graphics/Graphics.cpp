@@ -201,7 +201,13 @@ void cGraphics::Init(const cEngineInitVars::cGraphicsVars &aVars,
     struct RIBackendInit backendInit = {};
     backendInit.api = RI_DEVICE_API_VK;
     backendInit.applicationName = "HPL2";
-    backendInit.vk.enableValidationLayer = false;
+    // Default ON; HPL_VK_VALIDATION=0 disables. Needed to run driver-debug
+    // modes (RADV_DEBUG=hang etc.) without the validation chassis stacked on
+    // top — the two both intercept submits and their combination is the
+    // least-tested path (and perturbs hang repros).
+    const char *pValidationEnv = getenv("HPL_VK_VALIDATION");
+    backendInit.vk.enableValidationLayer =
+        (pValidationEnv == NULL || atoi(pValidationEnv) != 0);
 
     if (InitRIRenderer(&backendInit) != RI_SUCCESS) {
       FatalError(

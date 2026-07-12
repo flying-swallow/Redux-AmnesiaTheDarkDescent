@@ -34,7 +34,42 @@ int hplMain(const tString& asCommandLine)
 
 	cModelEditor* pEditor = hplNew(cModelEditor, ());
 
+	////////////////////////////////////////////////////////////////////
+	// Optional launch args: "<ent-file> [--mcp-port N] [--mcp-token T]".
+	// The LevelEditor's "Edit in Model Editor" button passes these so we open
+	// the file on startup and can push live-reload notifications back on save.
+	{
+		tStringVec vArgs;
+		tString sSep = " ";
+		cString::GetStringVec(asCommandLine, vArgs, &sSep);
+
+		tString sFile;
+		int lPort = 0;
+		tString sToken;
+		for(size_t i=0; i<vArgs.size(); ++i)
+		{
+			const tString& sArg = vArgs[i];
+			if(sArg.empty())
+				continue;
+			if(sArg=="--mcp-port" && i+1<vArgs.size())
+				lPort = cString::ToInt(vArgs[++i].c_str(), 0);
+			else if(sArg=="--mcp-token" && i+1<vArgs.size())
+				sToken = vArgs[++i];
+			else if(sArg.size()>=2 && sArg[0]=='-' && sArg[1]=='-')
+				continue; // unknown flag, ignore
+			else if(sFile.empty())
+				sFile = sArg; // first bare token = file to open
+		}
+
+		if(sFile.empty()==false)
+			pEditor->SetStartupFile(sFile);
+		if(lPort>0)
+			pEditor->SetReloadNotifyEndpoint(lPort, sToken);
+	}
+
 	pEditor->Init(NULL, "ModelEditor", GetBuildID_ModelEditor());
+
+	pEditor->OpenStartupFile();
 
     pEditor->Run();
 

@@ -14,7 +14,7 @@
  *     already been published by PrepareFrame). It drives a small state machine:
  *       NEW       -> set the camera pose, point a persistent headless viewport
  *                    (eRenderer_Main + tonemap) at the editor world, allocate a
- *                    per-job RGBA8_SRGB target + a host-readback buffer, and
+ *                    per-job RGBA8_UNORM target + a host-readback buffer, and
  *                    Evaluate once. The viewport's OnPostDelivery records a
  *                    barrier + vkCmdCopyImageToBuffer into the readback buffer.
  *       SUBMITTED -> after RI_NUMBER_FRAMES_FLIGHT frames the copy's fence has
@@ -55,6 +55,23 @@ namespace hpl {
 
 //--------------------------------------------------------------------
 
+// One capture request (virtual camera + image + tonemap overrides). Exposure
+// and gamma default to the editor viewport's values so a plain capture matches
+// what the user sees; raise them to inspect deliberately dark scenes.
+struct cCaptureRequest
+{
+	cVector3f mvPos    = 0;
+	cVector3f mvTarget = 0;
+	float     mfFov    = 0;
+	float     mfNear   = 0.05f;
+	float     mfFar    = 1000.0f;
+	int       mlWidth  = 1024;
+	int       mlHeight = 576;
+	bool      mbIncludeVisible = false;
+	float     mfExposure = 1.0f; // linear multiplier applied before tonemapping
+	float     mfGamma    = 1.0f; // display gamma after encode (>1 lifts shadows)
+};
+
 class cLevelEditorCameraCapture
 {
 public:
@@ -64,9 +81,7 @@ public:
 	// Queue a capture from the given virtual camera. Returns a job id (>=0) to
 	// pair the eventual result with the parked MCP promise, or -1 if capture is
 	// unavailable (headless setup failed). Runs on the MAIN thread.
-	int Enqueue(const cVector3f& avPos, const cVector3f& avTarget,
-				float afFovRadians, float afNearClip, float afFarClip,
-				int alWidth, int alHeight, bool abIncludeVisible);
+	int Enqueue(const cCaptureRequest& aRequest);
 
 	// Per-frame pump, driven by cLevelEditor::OnPostRender (see class comment).
 	void Pump(float afFrameTime);
@@ -102,6 +117,10 @@ private:
 		// result appends a {"visible":[...]} text block next to the PNG.
 		bool           mbIncludeVisible = false;
 		std::vector<int> mvVisibleIds;
+		// Tonemap overrides applied to the capture's tonemap effect at pose time
+		// (re-applied per job so one job's override never leaks into the next).
+		float          mfExposure  = 1.0f;
+		float          mfGamma     = 1.0f;
 		eCaptureState  mState      = eCaptureState_Idle;
 		// Warm (accumulation) frames left to render before staging the readback.
 		int            mWarmRemaining = 0;
@@ -109,7 +128,7 @@ private:
 		// complete once cGraphics::graphicsTimeline.completed() reaches it.
 		uint64_t       mStageValue = 0;
 
-		// Per-job GPU resources: an RGBA8_SRGB color target the viewport delivers
+		// Per-job GPU resources: an RGBA8_UNORM color target the viewport delivers
 		// into (TRANSFER_SRC backs the readback copy) + a host-readable buffer the
 		// copy lands in. All destroyed through cGraphics::graphicsDefer, so none is
 		// freed while an in-flight frame still references it.

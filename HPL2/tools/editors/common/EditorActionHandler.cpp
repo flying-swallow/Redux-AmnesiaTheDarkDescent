@@ -97,6 +97,23 @@ void cEditorActionHandler::Undo()
 
 //---------------------------------------------------------------
 
+void cEditorActionHandler::UndoAndDiscard()
+{
+	if(IsDoneActionsListEmpty()) return;
+
+	iEditorAction* pAction = mlstDoneActions.back();
+
+	mlstDoneActions.pop_back();
+
+	pAction->Undo();
+
+	hplDelete(pAction);
+
+	mpEditor->SetLayoutNeedsUpdate(true);
+}
+
+//---------------------------------------------------------------
+
 void cEditorActionHandler::Redo()
 {
 	if(IsUndoneActionsListEmpty()) return;

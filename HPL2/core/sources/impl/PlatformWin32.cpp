@@ -48,7 +48,11 @@
 #include "impl/ThreadWin32.h"
 #include "impl/MutexWin32.h"
 
+#include "system/FileWatcher.h"
+
 #include <algorithm>
+#include <map>
+#include <string.h>
 
 namespace hpl {
 
@@ -707,6 +711,164 @@ namespace hpl {
 		return hplNew(cMutexWin32, ());
 	}
 
+
+	//-----------------------------------------------------------------------
+	//-----------------------------------------------------------------------
+	//-----------------------------------------------------------------------
+
+	//////////////////////////////////////////////////////////////////////////
+	// cFileWatcherWin32 - ReadDirectoryChangesW backend for iFileWatcher.
+	//	One overlapped read per watched directory, completion polled with a zero
+	//	timeout each tick (no blocking, no worker thread). Reports file-level typed
+	//	events; the path is rebuilt as watched-dir + the notification's file name.
+	//////////////////////////////////////////////////////////////////////////
+
+	class cFileWatcherWin32 : public iFileWatcher
+	{
+		struct cWatch
+		{
+			HANDLE		mHandle;
+			OVERLAPPED	mOverlapped;
+			char		mBuffer[8192];
+		};
+
+	public:
+		cFileWatcherWin32() {}
+		~cFileWatcherWin32() { Clear(); }
+
+		bool AddDirectory(const tWString& asDir)
+		{
+			if(mmapWatches.find(asDir) != mmapWatches.end())
+				return true;	// already watched
+
+			HANDLE hDir = CreateFileW(asDir.c_str(), FILE_LIST_DIRECTORY,
+				FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+				NULL, OPEN_EXISTING,
+				FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, NULL);
+			if(hDir == INVALID_HANDLE_VALUE)
+			{
+				Warning("CreateFileW watch failed for '%ls'\n", asDir.c_str());
+				return false;
+			}
+
+			cWatch* pWatch = hplNew(cWatch, ());
+			pWatch->mHandle = hDir;
+			memset(&pWatch->mOverlapped, 0, sizeof(OVERLAPPED));
+			pWatch->mOverlapped.hEvent = CreateEvent(NULL, TRUE, FALSE, NULL);	// manual-reset
+
+			if(IssueRead(pWatch) == false)
+			{
+				if(pWatch->mOverlapped.hEvent) CloseHandle(pWatch->mOverlapped.hEvent);
+				CloseHandle(hDir);
+				hplDelete(pWatch);
+				return false;
+			}
+
+			mmapWatches[asDir] = pWatch;
+			return true;
+		}
+
+		void RemoveDirectory(const tWString& asDir)
+		{
+			std::map<tWString,cWatch*>::iterator it = mmapWatches.find(asDir);
+			if(it == mmapWatches.end())
+				return;
+			DestroyWatch(it->second);
+			mmapWatches.erase(it);
+		}
+
+		void PollEvents(std::vector<cFileWatchEvent>& avOut)
+		{
+			for(std::map<tWString,cWatch*>::iterator it=mmapWatches.begin(); it!=mmapWatches.end(); ++it)
+			{
+				cWatch* pWatch = it->second;
+				if(WaitForSingleObject(pWatch->mOverlapped.hEvent, 0) != WAIT_OBJECT_0)
+					continue;
+
+				DWORD lBytes = 0;
+				if(GetOverlappedResult(pWatch->mHandle, &pWatch->mOverlapped, &lBytes, FALSE))
+				{
+					if(lBytes == 0)
+					{
+						// Buffer overflowed (too many changes to report) - emit a
+						// Modified for the dir path so the consumer re-checks.
+						cFileWatchEvent ev;
+						ev.msPath = it->first;
+						ev.mAction = eFileWatchAction_Modified;
+						avOut.push_back(ev);
+					}
+					else
+					{
+						DWORD offset = 0;
+						for(;;)
+						{
+							const FILE_NOTIFY_INFORMATION* pInfo =
+								(const FILE_NOTIFY_INFORMATION*)(pWatch->mBuffer + offset);
+
+							// FileName is not null-terminated; length is in bytes.
+							// The dir key keeps its trailing separator, so join
+							// WITHOUT adding one to match the caller's key.
+							tWString sName(pInfo->FileName, pInfo->FileNameLength / sizeof(WCHAR));
+
+							cFileWatchEvent ev;
+							ev.msPath = it->first + sName;
+							switch(pInfo->Action)
+							{
+							case FILE_ACTION_ADDED:
+							case FILE_ACTION_RENAMED_NEW_NAME:	ev.mAction = eFileWatchAction_Added;    break;
+							case FILE_ACTION_REMOVED:
+							case FILE_ACTION_RENAMED_OLD_NAME:	ev.mAction = eFileWatchAction_Removed;  break;
+							case FILE_ACTION_MODIFIED:
+							default:							ev.mAction = eFileWatchAction_Modified; break;
+							}
+							avOut.push_back(ev);
+
+							if(pInfo->NextEntryOffset == 0)
+								break;
+							offset += pInfo->NextEntryOffset;
+						}
+					}
+				}
+				ResetEvent(pWatch->mOverlapped.hEvent);
+				IssueRead(pWatch);	// re-arm the watch
+			}
+		}
+
+		void Clear()
+		{
+			for(std::map<tWString,cWatch*>::iterator it=mmapWatches.begin(); it!=mmapWatches.end(); ++it)
+				DestroyWatch(it->second);
+			mmapWatches.clear();
+		}
+
+	private:
+		bool IssueRead(cWatch* apWatch)
+		{
+			return ReadDirectoryChangesW(apWatch->mHandle, apWatch->mBuffer, sizeof(apWatch->mBuffer),
+				FALSE,	// non-recursive
+				FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_SIZE,
+				NULL, &apWatch->mOverlapped, NULL) != 0;
+		}
+
+		void DestroyWatch(cWatch* apWatch)
+		{
+			if(apWatch == NULL)
+				return;
+			CancelIo(apWatch->mHandle);
+			if(apWatch->mOverlapped.hEvent) CloseHandle(apWatch->mOverlapped.hEvent);
+			CloseHandle(apWatch->mHandle);
+			hplDelete(apWatch);
+		}
+
+		std::map<tWString,cWatch*> mmapWatches;
+	};
+
+	//-----------------------------------------------------------------------
+
+	iFileWatcher* cPlatform::CreateFileWatcher()
+	{
+		return hplNew(cFileWatcherWin32, ());
+	}
 
 	//-----------------------------------------------------------------------
 

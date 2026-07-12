@@ -47,7 +47,10 @@ cPostEffectType_ImageTrail::cPostEffectType_ImageTrail(cGraphics *apGraphics,
                       "posteffect_blit.frag.spv");
 }
 
-cPostEffectType_ImageTrail::~cPostEffectType_ImageTrail() {}
+cPostEffectType_ImageTrail::~cPostEffectType_ImageTrail() {
+  m_updateProgram.dispose(&mpGraphics->device);
+  m_blitProgram.dispose(&mpGraphics->device);
+}
 
 iPostEffect *
 cPostEffectType_ImageTrail::CreatePostEffect(iPostEffectParams *apParams) {

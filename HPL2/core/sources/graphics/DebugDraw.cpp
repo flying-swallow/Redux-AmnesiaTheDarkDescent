@@ -192,6 +192,16 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
+	DebugDraw::~DebugDraw()
+	{
+		RIDevice* pDevice = &Interface<cGraphics>::Get()->device;
+		m_colorProgram.dispose(pDevice);
+		m_color2DProgram.dispose(pDevice);
+		m_uvProgram.dispose(pDevice);
+	}
+
+	//-----------------------------------------------------------------------
+
 	void DebugDraw::Reset()
 	{
 		m_lineSegments.clear();
