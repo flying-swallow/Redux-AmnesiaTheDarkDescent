@@ -678,19 +678,19 @@ cVertexBuffer* cEntityWrapperDecal::BuildDecalVertexBuffer(cWorld* apWorld, cDec
 	apCreator->ClearMeshes();
 
 	/////////////////////////////
-	// Get Containers
-    iRenderableContainer *pContainers[2] ={
-		apWorld->GetRenderableContainer(eWorldContainerType_Dynamic),
-		apWorld->GetRenderableContainer(eWorldContainerType_Static),
+	// Get renderable sets
+    cRenderableSet *pSets[2] ={
+		apWorld->GetRenderableSet(eWorldContainerType_Dynamic),
+		apWorld->GetRenderableSet(eWorldContainerType_Static),
 	};
 
 	/////////////////////////////
-	// Iterate nodes to get geometry
+	// Scan the sets to get geometry
 	for(int i=0; i<2; ++i)
 	{
-		pContainers[i]->UpdateBeforeRendering();
-		IterateRenderableNode(pContainers[i]->GetRoot(), apCreator, 
-								abAffectStaticObject, abAffectPrimitive, abAffectEntity);
+		pSets[i]->UpdateBeforeRendering();
+		IterateRenderables(pSets[i], apCreator,
+							abAffectStaticObject, abAffectPrimitive, abAffectEntity);
 	}
 
 	apCreator->CanCreateDecal();
@@ -728,50 +728,30 @@ iEngineEntity* cEntityWrapperDecal::CreateSpecificEngineEntity()
 //-----------------------------------------------------------------------------------------
 //-----------------------------------------------------------------------------------------
 
-void cEntityWrapperDecal::IterateRenderableNode(iRenderableContainerNode *apNode, cDecalCreator* apCreator,
+void cEntityWrapperDecal::IterateRenderables(cRenderableSet *apSet, cDecalCreator* apCreator,
 										bool abAffectStaticObject, bool abAffectPrimitive, bool abAffectEntity)
 {
-	apNode->UpdateBeforeUse();
+	cBoundingVolume* pDecalBV = apCreator->GetDecalBoundingVolume();
 
-	if(apNode->GetParent()!=NULL)
+	for(iRenderable *pObject : apSet->GetObjects())
 	{
-		cBoundingVolume* pDecalBV = apCreator->GetDecalBoundingVolume();
-		if(cMath::CheckAABBIntersection(apNode->GetMin(), apNode->GetMax(), pDecalBV->GetMin(), pDecalBV->GetMax())==false) return;
-	}
+		//////////////////////////////////////////
+		// Check if mesh object
+		if(pObject->GetRenderType() != eRenderableType_SubMesh) continue;
 
-	/////////////////////////////
-	//Iterate objects
-	if(apNode->HasObjects())
-	{
-		tRenderableListIt it = apNode->GetObjectList()->begin();
-		for(; it != apNode->GetObjectList()->end(); ++it)
-		{
-			//////////////////////////////////////////
-			// Check if mesh object
-			iRenderable *pObject = *it;
-			if(pObject->GetRenderType() != eRenderableType_SubMesh) continue;
+		cSubMeshEntity* pSubMesh = (cSubMeshEntity*)pObject;
+		iEntityWrapper* pEnt = (iEntityWrapper*) pSubMesh->GetUserData();
+		if(pEnt==NULL ||
+			pEnt->IsAffectedByDecal(abAffectStaticObject, abAffectPrimitive, abAffectEntity)==false)
+			continue;
 
-			cSubMeshEntity* pSubMesh = (cSubMeshEntity*)pObject;
-			iEntityWrapper* pEnt = (iEntityWrapper*) pSubMesh->GetUserData();
-			if(pEnt==NULL ||
-				pEnt->IsAffectedByDecal(abAffectStaticObject, abAffectPrimitive, abAffectEntity)==false)
-				continue;
+		//////////////////////////////////////////
+		// Prune by decal AABB before handing to the creator
+		cBoundingVolume* pObjectBV = pObject->GetBoundingVolume();
+		if(cMath::CheckAABBIntersection(pObjectBV->GetMin(), pObjectBV->GetMax(), pDecalBV->GetMin(), pDecalBV->GetMax())==false)
+			continue;
 
-			apCreator->AddSubMesh(pSubMesh);
-		}
-	}
-
-	////////////////////////
-	//Iterate children
-	if(apNode->HasChildNodes())
-	{
-		tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-		for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
-		{
-			iRenderableContainerNode *pChildNode = *childIt;
-			IterateRenderableNode(pChildNode, apCreator, 
-									abAffectStaticObject, abAffectPrimitive, abAffectEntity);
-		}
+		apCreator->AddSubMesh(pSubMesh);
 	}
 }
 

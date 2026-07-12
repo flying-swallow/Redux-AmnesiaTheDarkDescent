@@ -26,6 +26,7 @@
 #include "math/MathTypes.h"
 #include "engine/EngineTypes.h"
 #include "scene/SceneTypes.h"
+#include "scene/RenderableSet.h" // by-value static/dynamic renderable sets
 #include "graphics/RITypes.h" // RISharedPointer<RIBuffer> decal buffer members
 #include "graphics/IndexPool.h" // stable per-type GPU light slots
 #include "graphics/Graphics.h" // cGraphics::FrameContext (PrepareFrame/TLAS build)
@@ -63,7 +64,6 @@ namespace hpl {
 	class cParticleSystem;
 	class iScript;
 	class cPortalContainer;
-	class iRenderableContainer;
 	class cMeshEntity;
 	class cMesh;
 	class cBillboard;
@@ -181,7 +181,7 @@ namespace hpl {
 		void SetIsSoundEmitter(bool abX){ mbIsSoundEmitter = abX;}
 		bool IsSoundEmitter(){ return mbIsSoundEmitter;}
 
-		iRenderableContainer* GetRenderableContainer(eWorldContainerType aType);
+		cRenderableSet* GetRenderableSet(eWorldContainerType aType);
 		
 		cPhysics* GetPhysics(){ return mpPhysics;}
 		cResources* GetResources(){ return mpResources;}
@@ -499,7 +499,7 @@ namespace hpl {
 		
 		cVector3f mvWorldSize;
 
-		iRenderableContainer* mpRenderableContainer[2];
+		cRenderableSet mvRenderableSets[2];
 
 		cVertexBuffer* mpSkyBoxVtxBuffer;
 		Image* mpSkyBoxImage = nullptr;

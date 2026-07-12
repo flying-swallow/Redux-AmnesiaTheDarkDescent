@@ -131,19 +131,19 @@ void cSurfacePicker::Iterate()
 	int lTriangleIndex;
 	
 	/////////////////////////////
-	// Get Containers
+	// Get renderable sets
     cWorld *pWorld = mpWorld->GetWorld();
-	iRenderableContainer *pContainers[2] ={
-		pWorld->GetRenderableContainer(eWorldContainerType_Dynamic),
-		pWorld->GetRenderableContainer(eWorldContainerType_Static),
+	cRenderableSet *pSets[2] ={
+		pWorld->GetRenderableSet(eWorldContainerType_Dynamic),
+		pWorld->GetRenderableSet(eWorldContainerType_Static),
 	};
 
 	/////////////////////////////
-	// Search nodes in containers
+	// Scan the sets
 	for(int i=0; i<2; ++i)
 	{
-		pContainers[i]->UpdateBeforeRendering();
-		IterateRenderableNode(pContainers[i]->GetRoot(), vStart, vEnd, &lineBV, &lTriangleIndex);       		
+		pSets[i]->UpdateBeforeRendering();
+		IterateRenderables(pSets[i], vStart, vEnd, &lineBV, &lTriangleIndex);
 	}
 
 	if(mpClosestMeshEntity==NULL)
@@ -219,69 +219,32 @@ void cSurfacePicker::Iterate()
 
 	mAvgVolume.SetPosition(GetPositionInSurface());
 	/////////////////////////////
-	// Search nodes in containers
+	// Scan the sets
 	mvSubMeshesToAverage.clear();
 	for(int i=0; i<2; ++i)
 	{
-		pContainers[i]->UpdateBeforeRendering();
-		IterateRenderableNode(pContainers[i]->GetRoot(), 0, 0, &mAvgVolume, NULL, true);
+		pSets[i]->UpdateBeforeRendering();
+		IterateRenderables(pSets[i], 0, 0, &mAvgVolume, NULL, true);
 	}
 
 	ComputeAverageNormal(mvTriangleNormal);
 }
 
-void cSurfacePicker::IterateRenderableNode(iRenderableContainerNode *apNode, const cVector3f& avStart, const cVector3f& avEnd, cBoundingVolume *apBV, int* apTriIndex, bool abAveragingNormal)
+void cSurfacePicker::IterateRenderables(cRenderableSet *apSet, const cVector3f& avStart, const cVector3f& avEnd, cBoundingVolume *apBV, int* apTriIndex, bool abAveragingNormal)
 {
-	apNode->UpdateBeforeUse();
-
-	if(	apNode->GetParent()!=NULL)
+	for(iRenderable *pObject : apSet->GetObjects())
 	{
-		if(cMath::CheckAABBIntersection(apNode->GetMin(), apNode->GetMax(), apBV->GetMin(), apBV->GetMax())==false) return;
-	
-		if(abAveragingNormal==false && cMath::CheckPointInAABBIntersection(avStart, apNode->GetMin(), apNode->GetMax())==false)
-		{
-			float fT=0;
-			if(cMath::CheckAABBLineIntersection(apNode->GetMin(), apNode->GetMax(), avStart, avEnd,NULL, &fT)==false) return;
-			if(fT > mfMinT) return;
-		}
+		if(pObject->GetRenderType() != eRenderableType_SubMesh) continue;
+
+		cSubMeshEntity* pSubMesh = (cSubMeshEntity*)pObject;
+		iEntityWrapper* pEnt = (iEntityWrapper*) pSubMesh->GetUserData();
+
+		if(pEnt==NULL || pEnt->IsVisible()==false || IsAffected(pEnt->GetTypeID())==false)
+			continue;
+
+		if(CheckObjectIntersection(pObject, avStart, avEnd, apBV, apTriIndex, abAveragingNormal) && abAveragingNormal==false)
+			mpClosestSurfaceEntity = pEnt;
 	}
-
-	/////////////////////////////
-	//Iterate objects
-	if(apNode->HasObjects())
-	{
-		tRenderableListIt it = apNode->GetObjectList()->begin();
-		for(; it != apNode->GetObjectList()->end(); ++it)
-		{
-			iRenderable *pObject = *it;
-			if(pObject->GetRenderType() != eRenderableType_SubMesh) continue;
-
-			cSubMeshEntity* pSubMesh = (cSubMeshEntity*)pObject;
-			iEntityWrapper* pEnt = (iEntityWrapper*) pSubMesh->GetUserData();
-
-			if(pEnt==NULL || pEnt->IsVisible()==false || IsAffected(pEnt->GetTypeID())==false)
-				continue;
-
-			//mvFilteredEntities.push_back(pEnt);
-			//mvFilteredSubMeshes.push_back(pSubMesh);
-
-			if(CheckObjectIntersection(pObject, avStart, avEnd, apBV, apTriIndex, abAveragingNormal) && abAveragingNormal==false)
-				mpClosestSurfaceEntity = pEnt;
-		}
-	}
-
-	////////////////////////
-	//Iterate children
-	if(apNode->HasChildNodes())
-	{
-		tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-		for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
-		{
-			iRenderableContainerNode *pChildNode = *childIt;
-			IterateRenderableNode(pChildNode, avStart, avEnd, apBV, apTriIndex, abAveragingNormal);
-		}
-	}
-
 }
 
 bool cSurfacePicker::CheckObjectIntersection(iRenderable *apObject, const cVector3f& avStart, const cVector3f& avEnd, cBoundingVolume *apBV, int* apTriIndex, bool abAveragingNormal)

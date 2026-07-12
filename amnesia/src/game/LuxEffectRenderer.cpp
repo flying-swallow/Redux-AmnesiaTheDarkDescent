@@ -408,6 +408,15 @@ cLuxEffectRenderer::cLuxEffectRenderer() : iLuxUpdateable("LuxEffectRenderer")
 
 cLuxEffectRenderer::~cLuxEffectRenderer()
 {
+	if(mbProgramsLoaded)
+	{
+		RIDevice *pDevice = &Interface<cGraphics>::Get()->device;
+		mGeomProgram.dispose(pDevice);
+		mAlphaProgram.dispose(pDevice);
+		mGlowProgram.dispose(pDevice);
+		mBlurProgram.dispose(pDevice);
+		mCompositeProgram.dispose(pDevice);
+	}
 	DestroyPostEffectColorTarget(m_outlineColor);
 	DestroyPostEffectColorTarget(m_blur[0]);
 	DestroyPostEffectColorTarget(m_blur[1]);

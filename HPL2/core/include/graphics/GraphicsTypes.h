@@ -758,18 +758,6 @@ namespace hpl {
 	//---------------------------------------
 
 
-	//---------------------------------------
-
-	class iRenderableCallback
-	{
-	public:
-		virtual void OnVisibleChange(iRenderable *apObject)=0;
-		virtual void OnRenderFlagsChange(iRenderable *apObject)=0;
-	};
-
-	//---------------------------------------
-
-
 	class cRenderTarget
 	{
 	public:

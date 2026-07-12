@@ -78,6 +78,7 @@ public:
 
 	iEntityWrapper* GetEntity(int alID);
 	iEntityWrapper* GetEntityByName(const tString& asName);
+	iEntityWrapper* GetEntityByGUID(unsigned long long alGUID);
 	tEntityWrapperMap& GetEntities() { return mmapEntities; }
 
 	bool HasEntity(iEntityWrapper* apObject);
@@ -286,6 +287,7 @@ protected:
 	unsigned int mlLastSavedModification;
 
 	tEntityWrapperMap mmapEntities;
+	std::set<unsigned long long> msetGUIDsInUse; // collision accelerator only; truth = wrappers
 
 	int mlIDCounter;
 	

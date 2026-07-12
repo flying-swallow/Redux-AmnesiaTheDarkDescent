@@ -41,9 +41,6 @@ namespace hpl {
 	class cRenderList;
 	class iLight;
 	class cBoundingVolume;
-	class iRenderableContainer;
-	class iRenderableContainerNode;
-	class cVisibleRCNodeTracker;
 	class cViewport;
 	class cFrustum;
 
@@ -65,7 +62,6 @@ namespace hpl {
 		////////////////////////////
 		// Data
 		cRenderList *mpRenderList;
-		cVisibleRCNodeTracker *mpVisibleNodeTracker;
 		cRenderSettings *mpReflectionSettings;
 
         ////////////////////////////

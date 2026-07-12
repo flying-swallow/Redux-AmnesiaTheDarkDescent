@@ -183,7 +183,7 @@ namespace hpl {
 				RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, vert_stage, "vsMain"},
 				RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, frag_stage, "psMain"}
 			};
-			aProgram.initialize(&Interface<cGraphics>::Get()->device, stages);
+			aProgram.initialize(&Interface<cGraphics>::Get()->device, stages, {}, asFrag);
 		};
 		loadProgram(m_colorProgram, "debug.vert.spv", "debug.frag.spv");
 		loadProgram(m_color2DProgram, "debug_2d.vert.spv", "debug.frag.spv");

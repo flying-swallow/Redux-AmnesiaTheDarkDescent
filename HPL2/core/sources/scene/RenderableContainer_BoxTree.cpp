@@ -20,7 +20,6 @@
 #include "scene/RenderableContainer_BoxTree.h"
 
 #include "graphics/Renderable.h"
-#include "graphics/Renderer.h"
 
 #include "system/LowLevelSystem.h"
 
@@ -37,8 +36,6 @@ namespace hpl {
 	cRCNode_BoxTree::cRCNode_BoxTree()
 	{
 		mpParent = NULL;
-
-		mbUsesFlagsAndVisibility = true;
 	}
 
 	//-----------------------------------------------------------------------
@@ -74,17 +71,11 @@ namespace hpl {
 		//Create the root
 		mpRoot = hplNew( cRCNode_BoxTree, ());
 		mpRoot->mpParent = NULL;
-		mpRoot->mfViewDistance =0;
-		mpRoot->mbInsideView = true;
-
-		mpObjectCalllback = hplNew( cRenderableContainerObjectCallback, () );
 	}
-	
+
 	cRenderableContainer_BoxTree::~cRenderableContainer_BoxTree()
 	{
 		if(mpRoot) hplDelete(mpRoot);
-
-		hplDelete( mpObjectCalllback );
 	}
 
 	//-----------------------------------------------------------------------
@@ -122,8 +113,6 @@ namespace hpl {
 		if(mpRoot) hplDelete(mpRoot);
 		mpRoot = hplNew( cRCNode_BoxTree, ());
 		mpRoot->mpParent = NULL;
-		mpRoot->mfViewDistance =0;
-		mpRoot->mbInsideView = true;
 
 		//Set up temp root node.
 		cBoxTreeTempNode tempRoot(NULL);
@@ -650,10 +639,6 @@ namespace hpl {
 				iRenderable *pObject = *it;
 
 				apNode->mlstObjects.push_back(pObject);
-
-				//Set object callback and node.
-				pObject->SetRenderCallback(mpObjectCalllback);
-				pObject->SetRenderContainerNode(apNode);
 			}
 		}
 		

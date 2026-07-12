@@ -539,9 +539,28 @@ float cLuxMapHelper::GetLightLevelAtPos(const cVector3f& avPos, std::vector<iLig
 	iLight *pPlayerAmbLight = gpBase->mpPlayer->GetHelperInDarkness()->GetAmbientLight();
 	
 	////////////////////////////
-	//Get lights from world
-	GetLightsAtNode(pWorld->GetRenderableContainer(eWorldContainerType_Static)->GetRoot(), lstIntersectingLights, avPos);
-	GetLightsAtNode(pWorld->GetRenderableContainer(eWorldContainerType_Dynamic)->GetRoot(), lstIntersectingLights, avPos);
+	//Get lights from world (the renderable tree this used to walk was only an
+	//acceleration structure - iterate the world light list directly instead)
+	cLightListIterator lightIt = pWorld->GetLightIterator();
+	while(lightIt.HasNext())
+	{
+		iLight *pLight = lightIt.Next();
+		if(pLight->IsVisible()==false) continue;
+
+		bool bAdd = false;
+		switch(pLight->GetLightType())
+		{
+		case eLightType_Point:
+			bAdd = cMath::CheckPointInSphereIntersection(avPos, pLight->GetWorldPosition(), pLight->GetIntensity());
+			break;
+		case eLightType_Spot:
+			cLightSpot *pSpotLight = static_cast<cLightSpot*>(pLight);
+			bAdd = pSpotLight->GetFrustum()->CollidePoint(avPos);
+			break;
+		}
+
+		if(bAdd) lstIntersectingLights.push_back(pLight);
+	}
 
 	////////////////////////////
 	//Iterate lights and get lightlevel from each
@@ -606,59 +625,6 @@ float cLuxMapHelper::GetLightLevelAtPos(const cVector3f& avPos, std::vector<iLig
 //////////////////////////////////////////////////////////////////////////
 
 //-----------------------------------------------------------------------
-
-void cLuxMapHelper::GetLightsAtNode(iRenderableContainerNode *apNode, tLightList &alstLights, const cVector3f& avPos)
-{
-	///////////////////////////////////////
-	//Make sure node is updated and check point in bv
-	apNode->UpdateBeforeUse();
-
-	////////////////////////
-	//Iterate children
-	if(apNode->HasChildNodes())
-	{
-		tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-		for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
-		{
-			iRenderableContainerNode *pChildNode = *childIt;
-			
-			//Make sure point is in node AABB.
-			if(cMath::CheckPointInAABBIntersection(avPos, apNode->GetMin(),apNode->GetMax()) )
-			{
-				GetLightsAtNode(pChildNode, alstLights, avPos);
-			}
-		}
-	}
-
-	/////////////////////////////
-	//Iterate objects
-	if(apNode->HasObjects())
-	{
-		tRenderableListIt it = apNode->GetObjectList()->begin();
-		for(; it != apNode->GetObjectList()->end(); ++it)
-		{
-			iRenderable *pObject = *it;
-			if(pObject->IsVisible()==false || pObject->GetRenderType() != eRenderableType_Light) continue;
-
-			bool bAdd = false;
-
-			iLight *pLight = static_cast<iLight*>(pObject);
-			switch(pLight->GetLightType())
-			{
-			case eLightType_Point:
-				bAdd = cMath::CheckPointInSphereIntersection(avPos, pLight->GetWorldPosition(), pLight->GetIntensity());
-				break;
-			case eLightType_Spot:
-				cLightSpot *pSpotLight = static_cast<cLightSpot*>(pLight);
-				bAdd = pSpotLight->GetFrustum()->CollidePoint(avPos);
-				break;
-			}
-
-			if(bAdd) alstLights.push_back(pLight);
-		}
-	}
-
-}
 
 //-----------------------------------------------------------------------
 

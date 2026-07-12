@@ -21,7 +21,6 @@
 
 #include "math/Math.h"
 #include "system/LowLevelSystem.h"
-#include "scene/RenderableContainer.h"
 
 
 namespace hpl {
@@ -142,28 +141,6 @@ namespace hpl {
 		if(ret == eCollision_Intersect)
 		{
 			return CollideAABB(apBV->GetMin(),apBV->GetMax());
-		}
-
-		return ret;
-	}
-
-	//-----------------------------------------------------------------------
-
-	eCollision cFrustum::CollideNode(iRenderableContainerNode* apNode)
-	{
-		//Check if the BV is in the Frustum sphere.
-		if(CollideFustrumSphere(apNode->GetCenter(),apNode->GetRadius()) == eCollision_Outside)
-		{
-			return eCollision_Outside;
-		}
-
-		//Do a simple sphere collide test
-		eCollision ret = CollideSphere(apNode->GetCenter(),apNode->GetRadius());
-
-		//If there was an intersection, collide with the AABB
-		if(ret == eCollision_Intersect)
-		{
-			return CollideAABB(apNode->GetMin(),apNode->GetMax());
 		}
 
 		return ret;

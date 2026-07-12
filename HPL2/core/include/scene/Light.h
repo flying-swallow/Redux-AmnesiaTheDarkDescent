@@ -42,7 +42,6 @@ namespace hpl {
 	class cBillboard;
 	class cSectorVisibilityContainer;
 	class cWorld;
-	class cVisibleRCNodeTracker;
 	
 	//------------------------------------------
 	
@@ -209,8 +208,6 @@ namespace hpl {
 		inline bool GetOcclusionCullShadowCasters() const{ return mbOcclusionCullShadowCasters;}
 		inline void SetOcclusionCullShadowCasters(bool abX){ mbOcclusionCullShadowCasters  = abX;}
 
-		inline cVisibleRCNodeTracker * GetVisibleNodeTracker(){ return mpVisibleNodeTracker;}
-
 		float GetShadowMapBiasMul(){ return mfShadowMapBiasMul;}
 		float GetShadowMapSlopeScaleBiasMul(){ return mfShadowMapSlopeScaleBiasMul;}
 		void SetShadowMapBiasMul(float afX){ mfShadowMapBiasMul = afX;}
@@ -252,8 +249,6 @@ namespace hpl {
 		eShadowMapResolution mShadowMapResolution;
 		float mfShadowMapBlurAmount;
 		bool mbOcclusionCullShadowCasters;
-
-		cVisibleRCNodeTracker *mpVisibleNodeTracker;
 
 		std::vector<cLightBillboardConnection> mvBillboards;
 

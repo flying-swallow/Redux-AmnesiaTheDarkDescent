@@ -77,7 +77,7 @@ public:
 
 private:
 	void CheckLineObjectIntersection(iRenderable *apObject, const cVector3f& avStart, const cVector3f& avEnd, cBoundingVolume *apBV);
-	void IterateRenderableNode(iRenderableContainerNode *apNode, const cVector3f& avStart, const cVector3f& avEnd, cBoundingVolume *apBV);
+	void IterateRenderables(cRenderableSet *apSet, const cVector3f& avStart, const cVector3f& avEnd, cBoundingVolume *apBV);
 	void UpdateInspectionMeshEntity(float afTimeStep);
 
 	void CreateGuiWindow();
@@ -94,8 +94,6 @@ private:
 	void LoadBatchLoadFile(const tWString& asFilePath);
 	
     void DrawDynamicContainerDebugInfo();
-	void OutputContainerContentsRec(iRenderableContainerNode *apNode, int alLevel);
-	void CheckDynamicContainerBugsRec(iRenderableContainerNode *apNode, int alLevel);
 
 	/////////////////////
 	// GUI Callbacks
@@ -104,9 +102,6 @@ private:
 
 	bool PressPrinfContDebugInfo(iWidget* apWidget,const cGuiMessageData& aData);
 	kGuiCallbackDeclarationEnd(PressPrinfContDebugInfo);
-
-	bool PressRebuildDynCont(iWidget* apWidget,const cGuiMessageData& aData);
-	kGuiCallbackDeclarationEnd(PressRebuildDynCont);
 
 	bool PressLevelReload(iWidget* apWidget, const cGuiMessageData& aData);
 	kGuiCallbackDeclarationEnd(PressLevelReload);

@@ -120,7 +120,7 @@
 #include "scene/Viewport.h"
 #include "scene/World.h"
 #include "scene/Camera.h"
-#include "scene/RenderableContainer.h"
+#include "scene/RenderableSet.h"
 #include "scene/MeshEntity.h"
 #include "scene/Light.h"
 #include "scene/LightPoint.h"

@@ -147,46 +147,14 @@ cSimpleCamera::~cSimpleCamera()
 
 //-----------------------------------------------------------------------
 
-static tString gsSpaceTemp;
-static const char* GetSpaces(int alLevel)
+void cSimpleCamera::ListContainerData(cRenderableSet *apSet)
 {
-	gsSpaceTemp = "";
-    for(int i=0; i<alLevel; ++i) gsSpaceTemp += "   ";
-	return gsSpaceTemp.c_str();
-}
-
-void cSimpleCamera::ListContainerNodeData(iRenderableContainerNode *apNode, int alLevel)
-{
-	cVector3f vSize = apNode->GetMax() - apNode->GetMin();
-	cVector3f vPos = (apNode->GetMax() + apNode->GetMin()) *0.5f;
-	Log("%s--- Node: %d Size: (%s) Pos: (%s)---\n", GetSpaces(alLevel), apNode, vSize.ToString().c_str(), vPos.ToString().c_str());
-
-	/////////////////////////////
-	//Iterate objects
-	if(apNode->HasObjects())
+	Log("Objects: %d\n", apSet->Size());
+	for(iRenderable *pObject : apSet->GetObjects())
 	{
-		tRenderableListIt it = apNode->GetObjectList()->begin();
-		for(; it != apNode->GetObjectList()->end(); ++it)
-		{
-			iRenderable *pObject = *it;
-			//if(pObject->GetRenderType() != eRenderableType_ParticleEmitter) continue;
-			Log("%s  '%s' Size: (%s) Pos: (%s)\n", GetSpaces(alLevel), pObject->GetName().c_str(), pObject->GetBoundingVolume()->GetSize().ToString().c_str(), 
-													pObject->GetBoundingVolume()->GetWorldCenter().ToString().c_str());
-		}
+		Log("  '%s' Size: (%s) Pos: (%s)\n", pObject->GetName().c_str(), pObject->GetBoundingVolume()->GetSize().ToString().c_str(),
+											pObject->GetBoundingVolume()->GetWorldCenter().ToString().c_str());
 	}
-
-	////////////////////////
-	//Iterate children
-	if(apNode->HasChildNodes())
-	{
-		tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-		for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
-		{
-			iRenderableContainerNode *pChildNode = *childIt;
-			ListContainerNodeData(pChildNode, alLevel+1);
-		}
-	}
-
 }
 
 void cSimpleCamera::Update(float afFrameTime)
@@ -236,9 +204,9 @@ void cSimpleCamera::Update(float afFrameTime)
 
 	if(mpEngine->GetInput()->BecameTriggerd("ListContainerInfo"))
 	{
-		Log("---------- DYNAMIC CONTAINER BEGIN --------------\n");
-		ListContainerNodeData(mpViewport->GetWorld()->GetRenderableContainer(eWorldContainerType_Dynamic)->GetRoot(), 0);
-		Log("---------- DYNAMIC CONTAINER END --------------\n");
+		Log("---------- DYNAMIC SET BEGIN --------------\n");
+		ListContainerData(mpViewport->GetWorld()->GetRenderableSet(eWorldContainerType_Dynamic));
+		Log("---------- DYNAMIC SET END --------------\n");
 	}
 
 	if(mbActive== false) return;

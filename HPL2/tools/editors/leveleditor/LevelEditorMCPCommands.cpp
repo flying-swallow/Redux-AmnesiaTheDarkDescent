@@ -200,6 +200,9 @@ static iEntityWrapper* ResolveEntity(iEditorWorld* apWorld, const JValue& a)
 	const JValue* pId = JFind(a, "id");
 	if(pId && pId->IsInt())
 		return apWorld->GetEntity(pId->GetInt());
+	const JValue* pGuid = JFind(a, "guid");
+	if(pGuid && pGuid->IsString())
+		return apWorld->GetEntityByGUID(GUIDFromHex(JStrOf(pGuid)));
 	const JValue* pName = JFind(a, "name");
 	if(pName && pName->IsString())
 		return apWorld->GetEntityByName(JStrOf(pName));
@@ -217,6 +220,13 @@ static std::vector<iEntityWrapper*> ResolveEntities(iEditorWorld* apWorld, const
 		if(e==NULL) { asErr = "entity id " + std::to_string(*it) + " not found"; return std::vector<iEntityWrapper*>(); }
 		vEnts.push_back(e);
 	}
+	const JValue* pGuid = JFind(a, "guid");
+	if(vEnts.empty() && pGuid && pGuid->IsString())
+	{
+		iEntityWrapper* e = apWorld->GetEntityByGUID(GUIDFromHex(JStrOf(pGuid)));
+		if(e==NULL) { asErr = "entity guid '" + JStrOf(pGuid) + "' not found"; return vEnts; }
+		vEnts.push_back(e);
+	}
 	const JValue* pName = JFind(a, "name");
 	if(vEnts.empty() && pName && pName->IsString())
 	{
@@ -224,7 +234,7 @@ static std::vector<iEntityWrapper*> ResolveEntities(iEditorWorld* apWorld, const
 		if(e==NULL) { asErr = "entity '" + JStrOf(pName) + "' not found"; return vEnts; }
 		vEnts.push_back(e);
 	}
-	if(vEnts.empty() && asErr.empty()) asErr = "no target entity (pass 'id', 'ids' or 'name')";
+	if(vEnts.empty() && asErr.empty()) asErr = "no target entity (pass 'id', 'ids', 'guid' or 'name')";
 	return vEnts;
 }
 
@@ -481,6 +491,7 @@ static JValue EntitySummary(iEntityWrapper* e, JAlloc& a)
 {
 	JValue j(rapidjson::kObjectType);
 	j.AddMember("id",   e->GetID(), a);
+	j.AddMember("guid", JValue(GUIDToHex(e->GetGUID()), a), a);
 	j.AddMember("name", JValue(e->GetName(), a), a);
 	j.AddMember("type", JValue(cString::To8Char(e->GetTypeName()), a), a);
 	return j;
@@ -507,6 +518,7 @@ static JValue EntityCompact(cLevelEditor* pEditor, iEntityWrapper* e, bool abBou
 {
 	JValue j(rapidjson::kObjectType);
 	j.AddMember("id",       e->GetID(), a);
+	j.AddMember("guid",     JValue(GUIDToHex(e->GetGUID()), a), a);
 	j.AddMember("name",     JValue(e->GetName(), a), a);
 	j.AddMember("type",     JValue(cString::To8Char(e->GetTypeName()), a), a);
 	j.AddMember("position", JVec3(e->GetPosition(), a), a);
@@ -1902,13 +1914,14 @@ static const cMCPToolDef gvTools[] =
 // ----- reads -----
 
 { "query_entities",
-  "Query objects in the current map as compact rows {id, name, type, position, rotation, scale, selected?, group?, file?}. "
-  "Filters (AND-combined): 'type' (exact type name, e.g. 'Light'), 'name' (substring), 'region' (world-AABB). "
+  "Query objects in the current map as compact rows {id, guid, name, type, position, rotation, scale, selected?, group?, file?}. "
+  "Filters (AND-combined): 'type' (exact type name, e.g. 'Light'), 'name' (substring), 'guid' (exact hex), 'region' (world-AABB). "
   "Page with 'limit' (default 200) + 'offset'; reply carries 'count', 'totalMatches', and (when more remain) 'truncated'/'nextOffset'. "
-  "'bounds': true adds each object's world AABB. detail:'summary' returns only {id,name,type}; detail:'xml' returns full entity XML instead (verbose).",
+  "'bounds': true adds each object's world AABB. detail:'summary' returns only {id,guid,name,type}; detail:'xml' returns full entity XML instead (verbose).",
   R"json({"type":"object","properties":{
 	"type":{"type":"string","description":"exact type-name filter, e.g. 'Light'"},
 	"name":{"type":"string","description":"case-sensitive name substring filter"},
+	"guid":{"type":"string","description":"exact GUID filter (16-char hex, as reported in rows)"},
 	"region":{"type":"object","description":"world-AABB filter {min:[x,y,z], max:[x,y,z]}","properties":{"min":{"type":"array","items":{"type":"number"}},"max":{"type":"array","items":{"type":"number"}}}},
 	"regionMode":{"type":"string","description":"'intersect' (default, bounds overlap), 'inside' (bounds fully contained), or 'center' (origin in box)"},
 	"bounds":{"type":"boolean","description":"include world AABB per row"},
@@ -1923,6 +1936,7 @@ static const cMCPToolDef gvTools[] =
 	const JValue* pTypeFilter = JFind(c.margs, "type");
 	std::string sTypeFilter = JStrOf(pTypeFilter);
 	std::string sNameFilter = JStrArg(c.margs, "name");
+	unsigned long long lGuidFilter = GUIDFromHex(JStrArg(c.margs, "guid"));
 	int lLimit = JIntArg(c.margs, "limit", 200);
 	if(lLimit<=0) lLimit = 200;
 	int lOffset = JIntArg(c.margs, "offset", 0);
@@ -1954,6 +1968,7 @@ static const cMCPToolDef gvTools[] =
 		if(e==NULL) continue;
 		if(pTypeFilter && cString::To8Char(e->GetTypeName())!=sTypeFilter) continue;
 		if(sNameFilter.empty()==false && tString(e->GetName()).find(sNameFilter)==tString::npos) continue;
+		if(lGuidFilter!=0 && e->GetGUID()!=lGuidFilter) continue;
 		if(bRegion && EntityInRegion(e, vRMin, vRMax, lRegionMode)==false) continue;
 		int lIdx = lTotalMatches++;             // index among all matches
 		if(lIdx < lOffset) continue;            // before the page window
@@ -1983,11 +1998,12 @@ static const cMCPToolDef gvTools[] =
   } },
 
 { "get_entity",
-  "Get one object by 'id' or 'name': compact fields + world AABB + full entity XML.",
-  R"json({"type":"object","properties":{"id":{"type":"integer"},"name":{"type":"string"}}})json",
+  "Get one object by 'id', 'guid' (16-char hex, stable across sessions/merges) or 'name': "
+  "compact fields + world AABB + full entity XML.",
+  R"json({"type":"object","properties":{"id":{"type":"integer"},"guid":{"type":"string"},"name":{"type":"string"}}})json",
   [](cMCPToolCtx& c) {
 	iEntityWrapper* e = ResolveEntity(c.mpWorld, c.margs);
-	if(e==NULL) return MakeErr("entity not found (pass id or name)");
+	if(e==NULL) return MakeErr("entity not found (pass id, guid or name)");
 	JDoc d; d.SetObject();
 	JAlloc& a = d.GetAllocator();
 	JValue j = EntityCompact(c.mpEditor, e, true, a);
@@ -1999,7 +2015,7 @@ static const cMCPToolDef gvTools[] =
   } },
 
 { "list_properties",
-  "List the typed, settable properties of an object ('id'/'name') or of a type ('type'/'typeId'), "
+  "List the typed, settable properties of an object ('id'/'guid'/'name') or of a type ('type'/'typeId'), "
   "as {name, type, value?} — value only when an instance is given. These are the names create_entity's "
   "'properties' and set_property accept. For a user-defined instance (scripted entity etc.) the reply also "
   "carries a 'variables' array [{name, type, value, default?, description?, enum?}] — the user/script "
@@ -2779,7 +2795,7 @@ static const cMCPToolDef gvTools[] =
   } },
 
 { "set_transform",
-  "Set absolute position/rotation/scale on one object ('id'/'name') or several ('ids'). "
+  "Set absolute position/rotation/scale on one object ('id'/'guid'/'name') or several ('ids'). "
   "All fields together are ONE undo step. Undoable.",
   R"json({"type":"object","properties":{
 	"id":{"type":"integer"},"ids":{"type":"array","items":{"type":"integer"}},"name":{"type":"string"},
@@ -2821,7 +2837,7 @@ static const cMCPToolDef gvTools[] =
   } },
 
 { "set_property",
-  "Set typed properties on one object ('id'/'name') or several ('ids'). Either a single 'property' + "
+  "Set typed properties on one object ('id'/'guid'/'name') or several ('ids'). Either a single 'property' + "
   "'value', or 'properties': {name: value, ...} for many at once. Everything is ONE undo step. "
   "Value shape must match the property type (number/bool/string/[x,y,z]/[r,g,b,a] — see list_properties). Undoable.",
   R"json({"type":"object","properties":{
@@ -2865,6 +2881,12 @@ static const cMCPToolDef gvTools[] =
 				for(size_t x=0;x<vActions.size();++x) hplDelete(vActions[x]);
 				return MakeErr("no such property '" + vProps[k].first + "' on entity " + std::to_string(vEnts[i]->GetID()) + " (see list_properties)");
 			}
+			// The GUID has no uniqueness check on this path.
+			if(pProp->GetType()==eVariableType_String && tString(pProp->GetName())=="GUID")
+			{
+				for(size_t x=0;x<vActions.size();++x) hplDelete(vActions[x]);
+				return MakeErr("'GUID' is system-managed and cannot be set");
+			}
 			// Idempotent: skip a set that would not change anything. The undo system
 			// rejects a no-op as an "invalid action" (nothing to undo) and logs an
 			// ERROR; skipping it here avoids both and treats it as success.
@@ -2898,7 +2920,7 @@ static const cMCPToolDef gvTools[] =
 
 { "set_variable",
   "Set per-instance user/script variables (the entity's <UserVariables> — script callbacks, custom vars, "
-  "e.g. AffectShadows) on one object ('id'/'name') or several ('ids'). Either a single 'variable' + 'value', "
+  "e.g. AffectShadows) on one object ('id'/'guid'/'name') or several ('ids'). Either a single 'variable' + 'value', "
   "or 'variables': {name: value, ...}. Values are stored as strings — pass a string/number/boolean; for "
   "vector/color variables pass the string exactly as it appears in get_entity's XML / list_properties. Only "
   "user-defined entities (e.g. type 'Entity') have variables. Everything is ONE undo step. Undoable.",
@@ -2938,7 +2960,7 @@ static const cMCPToolDef gvTools[] =
   } },
 
 { "edit_entity",
-  "Edit an existing object ('id'/'name', or several with 'ids') in ONE undo step: any of 'position'/"
+  "Edit an existing object ('id'/'guid'/'name', or several with 'ids') in ONE undo step: any of 'position'/"
   "'rotation'/'scale', typed 'properties':{name:value}, and user 'variables':{name:value}. Combines "
   "set_transform + set_property + set_variable atomically. Undoable.",
   R"json({"type":"object","properties":{
@@ -3009,17 +3031,18 @@ static const cMCPToolDef gvTools[] =
   } },
 
 { "set_entity",
-  "Apply an edited version of get_entity's 'xml' back onto an existing object ('id'/'name'). Pass the "
+  "Apply an edited version of get_entity's 'xml' back onto an existing object ('id'/'guid'/'name'). Pass the "
   "entity's XML element string (what get_entity returns in 'xml', with your edits) as 'xml'. The root "
   "element must be the entity's own type (e.g. '<PointLight ...>') — type/subtype cannot change, and any "
-  "'id' in the XML is ignored so the object keeps its identity, group and references. Rebuilds the object "
-  "from the XML in place (all typed properties + user variables). Undoable.",
+  "'id' in the XML is ignored so the object keeps its identity, group and references. Leave the 'GUID' "
+  "attribute untouched (or drop it) — it is system-managed and a hand-edited value applies unvalidated. "
+  "Rebuilds the object from the XML in place (all typed properties + user variables). Undoable.",
   R"json({"type":"object","properties":{
 	"id":{"type":"integer"},"name":{"type":"string","description":"entity name"},
 	"xml":{"type":"string","description":"edited entity XML element, from get_entity's 'xml' field"}},"required":["xml"]})json",
   [](cMCPToolCtx& c) {
 	iEntityWrapper* e = ResolveEntity(c.mpWorld, c.margs);
-	if(e==NULL) return MakeErr("entity not found (pass id or name)");
+	if(e==NULL) return MakeErr("entity not found (pass id, guid or name)");
 	std::string sXml = JStrArg(c.margs, "xml");
 	if(sXml.empty()) return MakeErr("missing 'xml' (pass get_entity's 'xml' string, edited)");
 

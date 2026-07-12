@@ -175,6 +175,11 @@ bool iEditorWorld::AddObject(iEntityWrapper* apObject)
 	if(apObject==NULL)
 		return false;
 
+	// Safety net for paths that skip CreateEntityWrapperFromData (particle editor
+	// emitters): every object leaves AddObject with a unique nonzero GUID.
+	if(apObject->GetGUID()==0)
+		apObject->SetGUID(hash_random());
+
 	mmapEntities.insert(std::pair<unsigned int, iEntityWrapper*>(apObject->GetID(), apObject));
 
 	// Call on add stuff.
@@ -199,6 +204,9 @@ void iEditorWorld::RemoveObject(iEntityWrapper* apObject)
 		if(mbIsClearingEntities==false && mpFileWatcher)
 			mpFileWatcher->UnregisterEntity(apObject->GetID());
 
+		// Free the GUID so delete-undo can restore the object with its original one.
+		msetGUIDsInUse.erase(apObject->GetGUID());
+
 		mmapEntities.erase(apObject->GetID());
 	}
 }
@@ -214,9 +222,6 @@ bool iEditorWorld::IsIDInUse(int alID)
 
 	return true;
 }
-
-//----------------------------------------------------------------------------
-
 //----------------------------------------------------------------------------
 
 iEntityWrapper* iEditorWorld::GetEntity(int alID)
@@ -252,6 +257,24 @@ iEntityWrapper* iEditorWorld::GetEntityByName(const tString& asName)
 
 //--------------------------------------------------------------------
 
+iEntityWrapper* iEditorWorld::GetEntityByGUID(unsigned long long alGUID)
+{
+	if(alGUID!=0)
+	{
+		tEntityWrapperMapIt it = mmapEntities.begin();
+		for(;it!=mmapEntities.end();++it)
+		{
+			iEntityWrapper* pEnt = it->second;
+			if(pEnt->GetGUID()==alGUID)
+				return it->second;
+		}
+	}
+
+	return NULL;
+}
+
+//--------------------------------------------------------------------
+
 bool iEditorWorld::HasEntity(iEntityWrapper* apObject)
 {
 	if(apObject==NULL)
@@ -277,6 +300,7 @@ void iEditorWorld::ClearEntities()
 		DestroyEntityWrapper(it->second,false);
 
 	mmapEntities.clear();
+	msetGUIDsInUse.clear();
 
 	// One-shot teardown of every watch (RemoveObject skips per-entity
 	// unregisters while mbIsClearingEntities is set).
@@ -1463,6 +1487,13 @@ iEntityWrapper* iEditorWorld::CreateEntityWrapperFromData(iEntityWrapperData* ap
 
 		apData->SetID(lNewID);
 	}
+
+	// GUID: backfill legacy/new data (0) and dedupe copies (clone, re-import of the
+	// same file). Mutates the data like the ID fix-up above, so undo/redo re-creates
+	// the object with the same GUID.
+	unsigned long long lGUID = apData->GetGUID();
+	if(lGUID==0)
+		apData->SetGUID(hash_random());
 
 	iEntityWrapper* pEnt = apData->CreateEntity();
 	if(AddObject(pEnt)==false)

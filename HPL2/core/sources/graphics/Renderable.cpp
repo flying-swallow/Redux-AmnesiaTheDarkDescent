@@ -63,10 +63,6 @@ namespace hpl {
 
 		mlLargePlaneSurfacePlacement = 0;
 
-		mpRenderCallback = NULL;
-
-		mpRenderContainerNode = NULL;
-
 		mpRenderableUserData = NULL;
 	}
 	
@@ -81,9 +77,7 @@ namespace hpl {
 	void iRenderable::SetRenderFlagBit(tRenderableFlag alFlagBit, bool abSet)
 	{
 		if(abSet)	mlRenderFlags |= alFlagBit;
-		else		mlRenderFlags &= (~alFlagBit); 
-
-		if(mpRenderCallback) mpRenderCallback->OnRenderFlagsChange(this);
+		else		mlRenderFlags &= (~alFlagBit);
 	}
 
 	//-----------------------------------------------------------------------
@@ -93,8 +87,6 @@ namespace hpl {
 		mbIsVisible = abVisible;
 
 		OnChangeVisible();
-
-		if(mpRenderCallback) mpRenderCallback->OnVisibleChange(this);
 	}
 
 	//-----------------------------------------------------------------------

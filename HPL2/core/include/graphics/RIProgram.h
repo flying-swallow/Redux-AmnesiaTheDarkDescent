@@ -13,7 +13,6 @@
 #include "system/SystemTypes.h"
 
 #include "RIDescriptorSetAllocator.h"
-#include "RITypes.h"
 
 namespace hpl {
 
@@ -183,7 +182,8 @@ public:
   // binds for it. The caller binds those sets directly (e.g. via
   // bindBindlessDescriptorSet).
   void initialize(RIDevice *device, std::span<ModuleStage> init,
-                  std::span<const VkDescriptorSetLayout> externalLayouts = {});
+                  std::span<const VkDescriptorSetLayout> externalLayouts = {},
+                  const char *debugName = nullptr);
   // Destroy everything initialize()/bind*Pipeline() created: cached pipelines
   // (+ RT SBT buffers), owned set layouts + descriptor pools, and the pipeline
   // layout. External set layouts are caller-owned and skipped. Idempotent;

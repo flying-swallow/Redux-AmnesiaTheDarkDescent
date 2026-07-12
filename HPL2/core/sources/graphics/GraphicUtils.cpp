@@ -25,7 +25,7 @@
 #include "math/BoundingVolume.h"
 #include "math/Frustum.h"
 #include "math/Math.h"
-#include "scene/RenderableContainer.h"
+#include "scene/RenderableSet.h"
 
 namespace hpl {
 	namespace rendering {
@@ -43,16 +43,6 @@ namespace hpl {
 					if (cMath::CheckPlaneBVCollision(plane, *pBV) == eCollision_Outside) {
 						return false;
 					}
-				}
-			}
-			return true;
-		}
-
-		bool IsRenderableNodeIsVisible(iRenderableContainerNode* apNode, std::span<cPlanef> clipPlanes) {
-			for (auto& plane : clipPlanes) {
-				if (cMath::CheckPlaneAABBCollision(plane, apNode->GetMin(), apNode->GetMax(),
-						apNode->GetCenter(), apNode->GetRadius()) == eCollision_Outside) {
-					return false;
 				}
 			}
 			return true;
@@ -79,114 +69,38 @@ namespace hpl {
 			return clipRect;
 		}
 
-		void WalkAndPrepareRenderList(iRenderableContainer* container, cFrustum* frustum,
+		void WalkAndPrepareRenderList(cRenderableSet* apSet, cFrustum* apFrustum,
 			std::function<void(iRenderable*)> handler, tRenderableFlag renderableFlag,
 			bool abIgnoreFrustumCull) {
 
-			std::function<void(iRenderableContainerNode * childNode)> walkRenderables;
-			walkRenderables = [&](iRenderableContainerNode* parentNode) {
-				parentNode->UpdateBeforeUse();
-				for (auto& childNode : parentNode->GetChildNodes()) {
-					childNode->UpdateBeforeUse();
-					// A null frustum means "whole-scene, no cull" (e.g. the viewport-less
-					// per-world TLAS build passes nullptr with abIgnoreFrustumCull=true).
-					// Skip all frustum-dependent culling and view-distance setup; still
-					// recurse into every child so the full renderable set is gathered.
-					if (frustum) {
-						eCollision frustumCollision = frustum->CollideNode(childNode);
-						if (frustumCollision == eCollision_Outside && abIgnoreFrustumCull==false) {
-							continue;
-						}
-						if (frustum->CheckAABBNearPlaneIntersection(childNode->GetMin(), childNode->GetMax())) {
-							cVector3f vViewSpacePos = cMath::MatrixMul(frustum->GetViewMatrix(), childNode->GetCenter());
-							childNode->SetViewDistance(vViewSpacePos.z);
-							childNode->SetInsideView(true);
-						} else {
-							// Frustum origin is outside of node. Do intersection test.
-							cVector3f vIntersection;
-							cMath::CheckAABBLineIntersection(
-								childNode->GetMin(), childNode->GetMax(), frustum->GetOrigin(), childNode->GetCenter(), &vIntersection, NULL);
-							cVector3f vViewSpacePos = cMath::MatrixMul(frustum->GetViewMatrix(), vIntersection);
-							childNode->SetViewDistance(vViewSpacePos.z);
-							childNode->SetInsideView(false);
-						}
+			////////////////////////////////////////////////
+			// Whole-scene path: a null frustum (the viewport-less per-world TLAS
+			// build) or an explicit ignore emits every object in the set.
+			if (apFrustum == nullptr || abIgnoreFrustumCull) {
+				for (iRenderable* pObject : apSet->GetObjects()) {
+					if (IsObjectIsVisible(pObject, renderableFlag, {})) {
+						handler(pObject);
 					}
-					walkRenderables(childNode);
 				}
-				for (auto& pObject : parentNode->GetObjects()) {
-					if (!IsObjectIsVisible(pObject, renderableFlag, {})) {
-						continue;
-					}
+				return;
+			}
+
+			////////////////////////////////////////////////
+			// Build the SIMD frustum once per call. STYLE_D3D: hpl::cFrustum
+			// derives its near plane from viewProj row2 alone (Vulkan z in [0,1]),
+			// which is exactly ml's D3D convention. Inf-far cameras are set up
+			// with a FINITE projection matrix plus a flag that skips the far-plane
+			// test; FAR is ml's last plane, so skip it by passing 5 planes.
+			ml::cFrustum mlFrustum;
+			mlFrustum.Setup(ml::STYLE_D3D, apFrustum->GetViewProjectionMat());
+			const uint32_t lPlanes = apFrustum->GetInfFarPlane() ? ml::PLANES_NO_FAR
+			                                                     : ml::PLANES_NUM;
+
+			apSet->QueryFrustum(mlFrustum, lPlanes, [&](iRenderable* pObject) {
+				if (IsObjectIsVisible(pObject, renderableFlag, {})) {
 					handler(pObject);
 				}
-			};
-			auto rootNode = container->GetRoot();
-			rootNode->UpdateBeforeUse();
-			rootNode->SetInsideView(true);
-			walkRenderables(rootNode);
-		}
-
-		void UpdateRenderListWalkAllNodesTestFrustumAndVisibility(
-			cRenderList* apRenderList,
-			cFrustum* frustum,
-			iRenderableContainerNode* apNode,
-			std::span<cPlanef> clipPlanes,
-			tRenderableFlag neededFlags) {
-			apNode->UpdateBeforeUse();
-
-			///////////////////////////////////////
-			// Get frustum collision, if previous was inside, then this is too!
-			eCollision frustumCollision = frustum->CollideNode(apNode);
-
-			////////////////////////////////
-			// Do a visible check but always iterate the root node!
-			if (apNode->GetParent()) {
-				if (frustumCollision == eCollision_Outside) {
-					return;
-				}
-				if (IsRenderableNodeIsVisible(apNode, clipPlanes) == false) {
-					return;
-				}
-			}
-
-			////////////////////////
-			// Iterate children
-			if (apNode->HasChildNodes()) {
-				for (auto& node : apNode->GetChildNodes()) {
-					UpdateRenderListWalkAllNodesTestFrustumAndVisibility(apRenderList, frustum, node, clipPlanes, neededFlags);
-				}
-			}
-
-			/////////////////////////////
-			// Iterate objects
-			if (apNode->HasObjects()) {
-				for (auto& object : apNode->GetObjects()) {
-					if (IsObjectIsVisible(object, neededFlags) == false) {
-						continue;
-					}
-
-					if (frustumCollision == eCollision_Inside || object->CollidesWithFrustum(frustum)) {
-						// IMPORTANT: CHECK IF THIS IS PROBLEMATIC
-						// apRenderList->AddObject(object);
-					}
-				}
-			}
-		}
-
-		void UpdateRenderListWalkAllNodesTestFrustumAndVisibility(
-			cRenderList* apRenderList,
-			cFrustum* frustum,
-			iRenderableContainer* apContainer,
-			std::span<cPlanef> clipPlanes,
-			tRenderableFlag neededFlags) {
-			apContainer->UpdateBeforeRendering();
-
-			UpdateRenderListWalkAllNodesTestFrustumAndVisibility(
-				apRenderList,
-				frustum,
-				apContainer->GetRoot(),
-				clipPlanes,
-				neededFlags);
+			});
 		}
 
 	} // namespace rendering

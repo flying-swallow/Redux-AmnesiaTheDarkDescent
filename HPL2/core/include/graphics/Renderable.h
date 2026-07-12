@@ -37,9 +37,7 @@ namespace hpl {
 	class cFrustum;
 	class iLight;
 	class cCamera;
-	class iRenderableCallback;
 	class cRenderList;
-	class iRenderableContainerNode;
 	class iPhysicsBody;
 	class iRenderer;
 
@@ -118,11 +116,6 @@ namespace hpl {
 		bool GetIsOneSided(){ return mbIsOneSided;}
 		const cVector3f& GetOneSidedNormal(){ return mvOneSidedNormal;}
 
-		void SetRenderCallback(iRenderableCallback *apCallback){ mpRenderCallback = apCallback; }
-
-		inline iRenderableContainerNode* GetRenderContainerNode(){ return mpRenderContainerNode; }
-		inline void SetRenderContainerNode(iRenderableContainerNode* apNode){ mpRenderContainerNode = apNode; }
-
 		void SetRenderableUserData(void* apData) { mpRenderableUserData = apData; }
 		void* GetRenderableUserData() { return mpRenderableUserData; }
 
@@ -140,8 +133,6 @@ namespace hpl {
 		cMatrixf m_mtxInvModel;
 		cMatrixf m_mtxPrevious;
 		cMatrixf *mpModelMatrix;
-
-		iRenderableCallback *mpRenderCallback;
 
 		bool mbIsOneSided;
 		cVector3f mvOneSidedNormal;
@@ -167,8 +158,6 @@ namespace hpl {
 
 		float mfIlluminationAmount;
 		float mfCoverageAmount;
-
-		iRenderableContainerNode *mpRenderContainerNode;
 
 		void* mpRenderableUserData;
 

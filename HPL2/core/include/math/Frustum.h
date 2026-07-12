@@ -28,8 +28,6 @@
 
 namespace hpl {
 
-	class iRenderableContainerNode;
-
 	//-----------------------------------------------
 
 	class cFrustum
@@ -52,7 +50,6 @@ namespace hpl {
 
 		bool CollidePoint(const cVector3f& avPoint);
 		eCollision CollideBoundingVolume(cBoundingVolume* apBV);
-		eCollision CollideNode(iRenderableContainerNode* apNode);
 		eCollision CollideFrustum(cFrustum *apFrustum);
 		
 		inline const cMatrixf& GetProjectionMatrix() const { return m_mtxProj;}

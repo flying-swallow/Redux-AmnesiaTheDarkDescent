@@ -29,9 +29,7 @@
 namespace hpl {
 
 	class iRenderable;
-	class iRenderableContainer;
-	class iRenderableContainerNode;
-	class cRenderList;
+	class cRenderableSet;
 	class cFrustum;
 
 	namespace rendering {
@@ -39,29 +37,15 @@ namespace hpl {
 		bool IsObjectIsVisible(iRenderable* apObject, tRenderableFlag neededFlags,
 			std::span<cPlanef> clipPlanes = {});
 
-		bool IsRenderableNodeIsVisible(iRenderableContainerNode* apNode,
-			std::span<cPlanef> clipPlanes);
-
 		cRect2l GetClipRectFromObject(iRenderable* apObject, float afPaddingPercent,
 			cFrustum* apFrustum, const cVector2l& avScreenSize, float afHalfFovTan);
 
-		// abIgnoreFrustumCull visits every node regardless of the frustum test
-		// (view-distance bookkeeping still runs) — the hybrid renderer uses it
-		// so the TLAS sees whole-map geometry, with the render list rebuilt
-		// fresh every frame.
-		void WalkAndPrepareRenderList(iRenderableContainer* container, cFrustum* frustum,
+		// Linear SIMD scan over the set's AABBs (ml::cFrustum::CheckAabb per
+		// element). A null frustum or abIgnoreFrustumCull emits every object —
+		// the hybrid renderer uses that so the TLAS sees whole-map geometry.
+		void WalkAndPrepareRenderList(cRenderableSet* apSet, cFrustum* apFrustum,
 			std::function<void(iRenderable*)> handler, tRenderableFlag renderableFlag,
 			bool abIgnoreFrustumCull = false);
-
-		void UpdateRenderListWalkAllNodesTestFrustumAndVisibility(
-			cRenderList* apRenderList, cFrustum* frustum,
-			iRenderableContainerNode* apNode,
-			std::span<cPlanef> clipPlanes, tRenderableFlag neededFlags);
-
-		void UpdateRenderListWalkAllNodesTestFrustumAndVisibility(
-			cRenderList* apRenderList, cFrustum* frustum,
-			iRenderableContainer* apContainer,
-			std::span<cPlanef> clipPlanes, tRenderableFlag neededFlags);
 
 	} // namespace rendering
 

@@ -478,7 +478,7 @@ void cGraphics::Init(const cEngineInitVars::cGraphicsVars &aVars,
                                "vsMain"},
         RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, frag_stage,
                                "psMain"}};
-    gui.initialize(&device, stages);
+    gui.initialize(&device, stages, {}, "gui");
   }
   {
     auto vert_stage = RIProgram::loadShaderStage(
@@ -490,7 +490,7 @@ void cGraphics::Init(const cEngineInitVars::cGraphicsVars &aVars,
                                "vsMain"},
         RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, frag_stage,
                                "psMain"}};
-    postEffectBlit.initialize(&device, stages);
+    postEffectBlit.initialize(&device, stages, {}, "postEffectBlit");
   }
 
   // Build the engine-lifetime global managed set (set 0) before any renderer

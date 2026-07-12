@@ -59,6 +59,12 @@ class cEditorClipPlane;
 
 //-----------------------------------------------------------------------
 
+// 16-char lowercase hex <-> u64 GUID. 0 = "unset": ToHex(0)=="", FromHex(""/garbage)==0.
+tString GUIDToHex(unsigned long long alGUID);
+unsigned long long GUIDFromHex(const tString& asHex);
+
+//-----------------------------------------------------------------------
+
 /////////////////////////////////////////////////////////////////
 // PROPERTY IDS
 /////////////////////////////////////////////////////////////////
@@ -88,6 +94,7 @@ enum eObjStr
 {
 	eObjStr_Name,
 	eObjStr_Tag,
+	eObjStr_GUID,
 
 	eObjStr_LastEnum,
 };
@@ -725,9 +732,11 @@ public:
 	//////////////////////////////////////////////////
 	// Specific property handlers
 	int GetID();
+	unsigned long long GetGUID();
 	const tString& GetName();
 
 	void SetID(int alX);
+	void SetGUID(unsigned long long alX);
 	void SetName(const tString& asX);
 
 	void SetCompoundID(int alX) { mlCompoundID = alX; }
@@ -912,6 +921,9 @@ public:
 	void SetID(int alX) { mlID = alX; }
 	int GetID() { return mlID; }
 
+	void SetGUID(unsigned long long alX) { mlGUID = alX; }
+	unsigned long long GetGUID() { return mlGUID; }
+
 	tString& GetName() { return msName; }
 	void SetName(const tString& asName);
 
@@ -1054,6 +1066,7 @@ protected:
 	iEntityWrapperData* mpData;
 
 	int mlID;
+	unsigned long long mlGUID;
 	tString msName;
 
 	tString msFilename;

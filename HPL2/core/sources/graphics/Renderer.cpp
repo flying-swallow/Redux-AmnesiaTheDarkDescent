@@ -21,7 +21,6 @@
 #include "system/LowLevelSystem.h"
 #include "graphics/Graphics.h"
 #include "resources/Resources.h"
-#include "scene/RenderableContainer.h"
 
 namespace hpl {
 
@@ -54,10 +53,6 @@ namespace hpl {
 
 	cRenderSettings::cRenderSettings(bool abIsReflection)
 	{
-		////////////////////////
-		// Create data
-		mpVisibleNodeTracker = hplNew( cVisibleRCNodeTracker, () );
-
 		////////////////////////
 		// Setup general variables
 		mbIsReflection = abIsReflection;
@@ -107,14 +102,12 @@ namespace hpl {
 
 	cRenderSettings::~cRenderSettings()
 	{
-		hplDelete(mpVisibleNodeTracker);
 		if(mpReflectionSettings) hplDelete(mpReflectionSettings);
 	}
 
 	void cRenderSettings::ResetVariables()
 	{
-		mpVisibleNodeTracker->Reset();
-        if(mpReflectionSettings) mpReflectionSettings->ResetVariables();		
+        if(mpReflectionSettings) mpReflectionSettings->ResetVariables();
 	}
 
 	//////////////////////////////////////////////////

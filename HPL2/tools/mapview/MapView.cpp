@@ -19,7 +19,6 @@
 
 #include "hpl.h"
 #include "graphics/DebugDraw.h"
-#include "scene/RenderableContainer_DynBoxTree.h"
 
 #include "../../tests/Common/SimpleCamera.h"
 
@@ -239,58 +238,12 @@ public:
 		return cColor(fVal, 1);
 	}
 
-	void RenderDynamicContainerDebug(DebugDraw *apDebugDraw, iRenderableContainerNode *apNode, int alLevel)
+	void RenderDynamicSetDebug(DebugDraw *apDebugDraw, cRenderableSet *apSet)
 	{
-		///////////////////////////////////////
-		//Make sure node is updated
-		//apNode->UpdateBeforeUse();
-
-		cVector3f vBoxMin = 9999999.f;
-		cVector3f vBoxMax = -9999999.f;
-
-		bool bObjectIsOutSide = false;
-
-		/////////////////////////////
-		//Iterate objects
-		if(apNode->HasObjects())
+		for(iRenderable *pObject : apSet->GetObjects())
 		{
-			tRenderableListIt it = apNode->GetObjectList()->begin();
-			for(; it != apNode->GetObjectList()->end(); ++it)
-			{
-				iRenderable *pObject = *it;
-				cBoundingVolume *pBV = pObject->GetBoundingVolume();
-
-				cMath::ExpandAABB(vBoxMin, vBoxMax, pBV->GetMin(), pBV->GetMax());
-
-				iRenderableContainerNode *pCheckNode = apNode;
-				while(pCheckNode && pCheckNode->GetParent())
-				{
-					if(CheckEntityInsideBox(pObject, pCheckNode->GetMin(), pCheckNode->GetMax())==false)
-					{
-						apDebugDraw->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),cColor(1,0,0,1));
-						bObjectIsOutSide = true;
-					}
-					pCheckNode = pCheckNode->GetParent();
-				}
-			}
-		}
-
-		if(bObjectIsOutSide)
-		{
-			apDebugDraw->DebugDrawBoxMinMax(apNode->GetMin(), apNode->GetMax(),cColor(0,1,0,1));
-			apDebugDraw->DebugDrawBoxMinMax(vBoxMin, vBoxMin,cColor(0,1,0,1));
-		}
-
-		////////////////////////
-		//Iterate children
-		if(apNode->HasChildNodes())
-		{
-			tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-			for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
-			{
-				iRenderableContainerNode *pChildNode = *childIt;
-				RenderDynamicContainerDebug(apDebugDraw,pChildNode, alLevel+1);
-			}
+			cBoundingVolume *pBV = pObject->GetBoundingVolume();
+			apDebugDraw->DebugDrawBoxMinMax(pBV->GetMin(), pBV->GetMax(),cColor(0,1,0,1));
 		}
 	}
 
@@ -378,18 +331,10 @@ public:
 		}
 
 		/////////////////////////////////////////
-		//Draws how the level have been grouped
-		if(gbDrawContainerDebug)
-		{
-			// Legacy path: iRenderableContainer::RenderDebug still takes the dead
-			// cRendererCallbackFunctions plumbing — port it to DebugDraw if this
-			// toggle is ever needed again.
-			//mpWorld->GetRenderableContainer(eWorldContainerType_Static)->RenderDebug(...);
-		}
-
+		//Draws every dynamic object's AABB
 		if(gbDrawDynContainerDebug)
 		{
-			RenderDynamicContainerDebug(pDebugDraw, mpWorld->GetRenderableContainer(eWorldContainerType_Dynamic)->GetRoot(),0);
+			RenderDynamicSetDebug(pDebugDraw, mpWorld->GetRenderableSet(eWorldContainerType_Dynamic));
 		}
 
 		/////////////////////////////////////////
@@ -791,203 +736,26 @@ public:
 		
 		
 		return;
-        iRenderableContainer *pContainer = mpWorld->GetRenderableContainer(eWorldContainerType_Static);
-		Log("\nCONTAINER DATA START:\n");
-		OutputContainerContentsRec(pContainer->GetRoot(),0);
-		Log("CONTAINER DATA END!\n");
-	}
-
-	tString GetTab(int alLevel)
-	{
-		tString sOutput = "";
-		for(int i=0; i<alLevel; ++i) sOutput += "\t";
-		return sOutput;
-	}
-
-	void OutputContainerContentsRec(iRenderableContainerNode *apNode, int alLevel)
-	{
-		///////////////////////////////////////
-		//Make sure node is updated
-		apNode->UpdateBeforeUse();
-		
-		Log("%s-- Node %d ------\n",GetTab(alLevel).c_str(), apNode);
-
-		/////////////////////////////
-		//Iterate objects
-		if(apNode->HasObjects())
-		{
-			Log("%sObjects:\n", GetTab(alLevel).c_str());
-			tRenderableListIt it = apNode->GetObjectList()->begin();
-			for(; it != apNode->GetObjectList()->end(); ++it)
-			{
-				iRenderable *pObject = *it;
-                Log("%s %s (%s)\n", GetTab(alLevel).c_str(), pObject->GetName().c_str(),pObject->GetEntityType().c_str());				
-			}
-		}
-
-		////////////////////////
-		//Iterate children
-		if(apNode->HasChildNodes())
-		{
-			tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-			for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
-			{
-				iRenderableContainerNode *pChildNode = *childIt;
-				OutputContainerContentsRec(pChildNode, alLevel+1);
-			}
-		}
-
-		Log("%s--------\n",GetTab(alLevel).c_str());
 	}
 
 	//--------------------------------------------------------------
 
-	void CheckDynamicContainerBugs()
+	void PrintDynamicSetContents()
 	{
-		Log("---------- BEGIN CHECK DYNAMIC BUGS ---------------\n");
-		iRenderableContainer* pContainer = mpWorld->GetRenderableContainer(eWorldContainerType_Dynamic);
+		Log("---------- BEGIN DYNAMIC SET OUTPUT ---------------\n");
+		cRenderableSet* pSet = mpWorld->GetRenderableSet(eWorldContainerType_Dynamic);
 
-		pContainer->UpdateBeforeRendering();
-		CheckDynamicContainerBugsRec(pContainer->GetRoot(), 0);
-		gpSimpleCamera->ListContainerNodeData(pContainer->GetRoot(), 0);
-		
-
-		Log("---------- STOP CHECK DYNAMIC BUGS ---------------\n");
-	}
-
-	cVector3f GetOutSideAmount(iEntity3D *apEntity, const cVector3f&avMin, const cVector3f &avMax)
-	{
-		cBoundingVolume *pBV = apEntity->GetBoundingVolume();
-		const cVector3f& vEntMin = pBV->GetMin();
-		const cVector3f& vEntMax = pBV->GetMin();
-
-		cVector3f vAmount(0);
-
-		if(vEntMin.x-0.001f < avMin.x) vAmount.x = vEntMin.x - avMin.x;
-		if(vEntMin.y-0.001f < avMin.y) vAmount.y = vEntMin.y - avMin.y;
-		if(vEntMin.z-0.001f < avMin.z) vAmount.z = vEntMin.z - avMin.z;
-
-		if(vEntMax.x+0.001f > avMax.x) vAmount.x = vEntMax.x - avMax.x;
-		if(vEntMax.y+0.001f > avMax.y) vAmount.y = vEntMax.y - avMax.y;
-		if(vEntMax.z+0.001f > avMax.z) vAmount.z = vEntMax.z - avMax.z;
-
-		return vAmount;
-	}
-
-	void CheckDynamicContainerBugsRec(iRenderableContainerNode *apNode, int alLevel)
-	{
-		///////////////////////////////////////
-		//Make sure node is updated
-		//apNode->UpdateBeforeUse();
-
-		//Log("%s-- Node %d ------\n",GetTab(alLevel).c_str(), apNode);
-
-		cVector3f vBoxMin = 9999999.f;
-		cVector3f vBoxMax = -9999999.f;
-
-		/////////////////////////////
-		//Iterate objects
-		if(apNode->HasObjects())
+		pSet->UpdateBeforeRendering();
+		for(iRenderable *pObject : pSet->GetObjects())
 		{
-			tRenderableListIt it = apNode->GetObjectList()->begin();
-			for(; it != apNode->GetObjectList()->end(); ++it)
-			{
-				iRenderable *pObject = *it;
-				cBoundingVolume *pBV = pObject->GetBoundingVolume();
-
-				cMath::ExpandAABB(vBoxMin, vBoxMax, pBV->GetMin(), pBV->GetMax());
-				
-                iRenderableContainerNode *pCheckNode = apNode;
-				int lLevel =0;
-				while(pCheckNode && pCheckNode->GetParent())
-				{
-					if(CheckEntityInsideBox(pObject, pCheckNode->GetMin(), pCheckNode->GetMax())==false)
-					{
-						Log(" Object: '%s' is outside node %d AABB Amount: %s!\n", pObject->GetName().c_str(),lLevel, GetOutSideAmount(pObject, pCheckNode->GetMin(), pCheckNode->GetMax()).ToString().c_str());
-						//break;
-					}
-					++lLevel;
-					pCheckNode = pCheckNode->GetParent();
-				}
-			}
+			cBoundingVolume *pBV = pObject->GetBoundingVolume();
+			Log(" %s (%s) AABB: (%s)-(%s)\n", pObject->GetName().c_str(), pObject->GetEntityType().c_str(),
+												pBV->GetMin().ToString().c_str(), pBV->GetMax().ToString().c_str());
 		}
 
-		/*if(apNode->HasChildNodes()==false && BoxInsideBox(vBoxMin,vBoxMax,apNode->GetMin(), apNode->GetMax())==false) //(vBoxMin != apNode->GetMin() || vBoxMax != apNode->GetMax()))
-		{
-			Log("Bounding volume is not correct!!\n (%s)-(%s) vs\n (%s)-(%s)\n",	vBoxMin.ToString().c_str(), vBoxMax.ToString().c_str(),
-																				apNode->GetMin().ToString().c_str(), apNode->GetMax().ToString().c_str());
-		}*/
-
-		////////////////////////
-		//Iterate children
-		if(apNode->HasChildNodes())
-		{
-			tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-			for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
-			{
-				iRenderableContainerNode *pChildNode = *childIt;
-				CheckDynamicContainerBugsRec(pChildNode, alLevel+1);
-			}
-		}
+		Log("---------- STOP DYNAMIC SET OUTPUT ---------------\n");
 	}
 
-	//--------------------------------------------------------------
-
-	void CheckStaticContainerBugs()
-	{
-		Log("---------- BEGIN CHECK STATIC BUGS ---------------\n");
-		iRenderableContainer* pContainer = mpWorld->GetRenderableContainer(eWorldContainerType_Static);
-
-		CheckStaticContainerBugsRec(pContainer->GetRoot(), 0);
-
-		Log("---------- STOP CHECK STATIC BUGS ---------------\n");
-	}
-
-	void CheckStaticContainerBugsRec(iRenderableContainerNode *apNode, int alLevel)
-	{
-		///////////////////////////////////////
-		//Make sure node is updated
-		apNode->UpdateBeforeUse();
-
-		//Log("%s-- Node %d ------\n",GetTab(alLevel).c_str(), apNode);
-
-		/////////////////////////////
-		//Iterate objects
-		if(apNode->HasObjects())
-		{
-			bool bPrintNodeInfo = false;
-			tRenderableListIt it = apNode->GetObjectList()->begin();
-			for(; it != apNode->GetObjectList()->end(); ++it)
-			{
-				iRenderable *pObject = *it;
-				if(pObject->GetName() == "CombinedObjects131_SubMesh") bPrintNodeInfo =true;
-			}
-
-			if(bPrintNodeInfo)
-			{
-				Log("Node contents. Objects: %d\n", apNode->GetObjectList()->size());
-				it = apNode->GetObjectList()->begin();
-				for(; it != apNode->GetObjectList()->end(); ++it)
-				{
-					iRenderable *pObject = *it;
-					Log(" '%s'\n", pObject->GetName().c_str());
-				}
-			}
-		}
-
-		////////////////////////
-		//Iterate children
-		if(apNode->HasChildNodes())
-		{
-			tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-			for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
-			{
-				iRenderableContainerNode *pChildNode = *childIt;
-				CheckStaticContainerBugsRec(pChildNode, alLevel+1);
-			}
-		}
-	}
-		
 	//--------------------------------------------------------------
 
 	void InitGuiAfterLoad()
@@ -1548,72 +1316,24 @@ public:
 	//--------------------------------------------------------------
 
 	
-	void CheckObjectsInFrustum(iRenderableContainer *apContainer, int *apLights, int *apObjects)
+	void CheckObjectsInFrustum(cRenderableSet *apSet, int *apLights, int *apObjects)
 	{
-		apContainer->UpdateBeforeRendering();
-
-		CheckObjectsInFrustumIterative(apContainer->GetRoot(), apLights,apObjects);
-	}
-
-	void CheckObjectsInFrustumIterative(iRenderableContainerNode *apNode, int *apLights, int *apObjects)
-	{
-		///////////////////////////////////////
-		//Make sure node is updated
-		apNode->UpdateBeforeUse();
+		apSet->UpdateBeforeRendering();
 
 		cFrustum *pCurrentFrustum = gpSimpleCamera->GetCamera()->GetFrustum();
 
-		///////////////////////////////////////
-		//Get frustum collision, if previous was inside, then this is too!
-		eCollision frustumCollision = pCurrentFrustum->CollideNode(apNode);
-
-		if(	frustumCollision == eCollision_Outside && apNode->GetParent()) //Always iterate the root node!	
+		for(iRenderable *pObject : apSet->GetObjects())
 		{
-			return;
-		}
+			if(pObject->IsVisible()==false) continue;
 
-		////////////////////////
-		//Iterate children
-		if(apNode->HasChildNodes())
-		{
-			tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-			for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
+			///////////////////////////////////
+			//Check if object is in frustum
+			if(pCurrentFrustum->CollideBoundingVolume(pObject->GetBoundingVolume()) != eCollision_Outside)
 			{
-				iRenderableContainerNode *pChildNode = *childIt;
-				CheckObjectsInFrustumIterative(pChildNode, apLights,apObjects);
-			}
-		}
-
-		/////////////////////////////
-		//Iterate objects
-		if(apNode->HasObjects())
-		{
-			tRenderableListIt it = apNode->GetObjectList()->begin();
-			for(; it != apNode->GetObjectList()->end(); ++it)
-			{
-				iRenderable *pObject = *it;
-				if(pObject->IsVisible()==false) continue;
-				
-				///////////////////////////////////
-				//Check if object is in frustum
-				if(	frustumCollision == eCollision_Inside ||
-					pCurrentFrustum->CollideBoundingVolume(pObject->GetBoundingVolume()) != eCollision_Outside)
-				{
-					eRenderableType renderType = pObject->GetRenderType();
-
-					//light
-					if(renderType == eRenderableType_Light)
-					{
-						(*apLights)++;
-					}
-					//Other object
-					else
-					{
-						(*apObjects)++;
-					}
-
-
-				}
+				if(pObject->GetRenderType() == eRenderableType_Light)
+					(*apLights)++;
+				else
+					(*apObjects)++;
 			}
 		}
 	}
@@ -1653,9 +1373,9 @@ public:
 			int lLightsInFrustum=0;
 			int lObjectsInFrustum=0;
 			
-            CheckObjectsInFrustum(mpWorld->GetRenderableContainer(eWorldContainerType_Dynamic),
+            CheckObjectsInFrustum(mpWorld->GetRenderableSet(eWorldContainerType_Dynamic),
 								&lLightsInFrustum,&lObjectsInFrustum);
-			CheckObjectsInFrustum(mpWorld->GetRenderableContainer(eWorldContainerType_Static),
+			CheckObjectsInFrustum(mpWorld->GetRenderableSet(eWorldContainerType_Static),
 								&lLightsInFrustum,&lObjectsInFrustum);
 
 			////////////////////////////////
@@ -1781,16 +1501,10 @@ public:
 		}
 
 		//////////////////////////////////////////
-		// Body picking
+		// Dynamic set dump
 		if(mpWorld && Interface<cEngine>::Get()->GetInput()->BecameTriggerd("ContainerBugCheck"))
 		{
-			CheckDynamicContainerBugs();
-		}
-		if(mpWorld && Interface<cEngine>::Get()->GetInput()->BecameTriggerd("RebuildDynamic"))
-		{
-			Log("---------------- REBUILDING DYNAMIC --------------------\n");
-			cRenderableContainer_DynBoxTree* pBoxTree = static_cast<cRenderableContainer_DynBoxTree*>(mpWorld->GetRenderableContainer(eWorldContainerType_Dynamic));
-			pBoxTree->RebuildNodes();
+			PrintDynamicSetContents();
 		}
 
 		//////////////////////////////////////////

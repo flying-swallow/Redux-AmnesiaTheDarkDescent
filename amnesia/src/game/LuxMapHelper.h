@@ -120,8 +120,6 @@ public:
 	float GetLightLevelAtPos(const cVector3f& avPos, std::vector<iLight*>* apSkipLightsVec=NULL, float afRadiusAdd=0);
 
 private:
-	void GetLightsAtNode(iRenderableContainerNode *apNode, tLightList &alstLights, const cVector3f& avPos);	
-
 	cLuxLineOfSightCallback mLineOfSightCallback;
 	cLuxClosestEntityCallback mClosestEntityCallback;
 	cLuxClosestCharColliderCallback mClosestharColliderCallback;
