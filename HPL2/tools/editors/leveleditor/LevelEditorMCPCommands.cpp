@@ -1027,14 +1027,18 @@ static cMCPToolResult CreateEntityFileImpl(cMCPToolCtx& c)
 	}
 
 	//////////////////////////////////////////
-	// Save through the ModelEditor's own path (iEditorBase::Save minus the
-	// <EditorSession> block and editor save state; cf. iEditorWorld::ExportObjects).
-	CreateParentFolders(wPath);
-	tinyxml2::XMLDocument xmlDoc;
-	tinyxml2::XMLElement* pRoot = xmlDoc.NewElement("");
-	xmlDoc.InsertEndChild(pRoot);
+	// Route the authored definition through cPrefabResource (the single source of
+	// truth): install it as the pending doc — dirties + pins + broadcasts, so any
+	// existing placed instances of this filename live-reload — then persist to disk
+	// now (create semantics: file exists + indexed on return). Doc built via the
+	// ModelEditor's own path (iEditorBase::Save minus <EditorSession>; pW->Save
+	// renames the root to "Entity"). SetPendingEntFile TAKES OWNERSHIP of pDoc.
+	tinyxml2::XMLDocument* pDoc = new tinyxml2::XMLDocument();
+	tinyxml2::XMLElement* pRoot = pDoc->NewElement("");
+	pDoc->InsertEndChild(pRoot);
 	pW->Save(pRoot);
-	if(hpl::SaveXmlFile(xmlDoc, wPath)==false)
+	c.mpEditor->SetPendingEntFile(sPath, pDoc);
+	if(c.mpEditor->GetPrefabManager()->FlushOne(sPath)==false)
 		return MakeErr("could not write " + sPath);
 
 	//////////////////////////////////////////
@@ -2324,6 +2328,33 @@ static const cMCPToolDef gvTools[] =
 
 	Log("[MCP] reload_entity_file '%s' -> reloaded %d entit%s\n",
 		sPath.c_str(), lCount, lCount==1 ? "y" : "ies");
+
+	JDoc d; InitOk(d);
+	JAlloc& a = d.GetAllocator();
+	d.AddMember("path", JValue(sPath, a), a);
+	d.AddMember("reloaded", lCount, a);
+	return MakeDoc(d);
+  } },
+
+{ "reload_particle_system",
+  "Re-read a .ps particle file from disk and rebuild every placed particle-system instance in the "
+  "current map live, preserving each instance's placement and selection. Intended for an external tool "
+  "(e.g. the ParticleEditor) to call after saving the file, so the level view updates without a manual "
+  "map reload. Returns how many placed instances were reloaded (0 if none reference the file).",
+  R"json({"type":"object","properties":{
+	"path":{"type":"string","description":"resource-relative path of the changed .ps (e.g. 'particles/fire.ps')"}},"required":["path"]})json",
+  [](cMCPToolCtx& c) {
+	std::string sPath = JStrArg(c.margs, "path");
+	if(sPath.empty()) return MakeErr("missing 'path'");
+
+	std::set<int> setIDs = c.mpWorld->FindParticleSystemIDsByFile(sPath);
+
+	int lCount = (int)setIDs.size();
+	if(lCount>0)
+		c.mpWorld->ReloadParticleSystems(setIDs);
+
+	Log("[MCP] reload_particle_system '%s' -> reloaded %d instance%s\n",
+		sPath.c_str(), lCount, lCount==1 ? "" : "s");
 
 	JDoc d; InitOk(d);
 	JAlloc& a = d.GetAllocator();

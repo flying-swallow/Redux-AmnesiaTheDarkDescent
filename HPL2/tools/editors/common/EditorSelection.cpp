@@ -20,6 +20,7 @@
 #include "EditorSelection.h"
 
 #include "EditorWorld.h"
+#include "EditorEditMode.h"
 #include "EntityWrapper.h"
 
 #include <algorithm>
@@ -42,6 +43,14 @@ cEditorSelection::cEditorSelection(iEditorBase* apEditor)
 	mpEditor = apEditor;
 
 	ClearEntities();
+}
+
+//----------------------------------------------------------------------
+
+iEditorWorld* cEditorSelection::GetActiveWorld()
+{
+	iEditorEditMode* pMode = mpEditor->GetCurrentEditMode();
+	return pMode ? pMode->GetEditModeWorld() : mpEditor->GetActiveEditorWorld();
 }
 
 //----------------------------------------------------------------------
@@ -115,7 +124,7 @@ void cEditorSelection::ClearEntities()
 	for(;it!=mlstEntities.end();++it)
 	{
 		iEntityWrapper* pEnt = *it;
-		if(mpEditor->GetEditorWorld()->HasEntity(pEnt))
+		if(GetActiveWorld()->HasEntity(pEnt))
 			pEnt->SetSelected(false);
 	}
 	mlstEntities.clear();
@@ -168,7 +177,7 @@ bool cEditorSelection::HasEntity(iEntityWrapper* apEntity, tEntityWrapperListIt*
 
 void cEditorSelection::AddEntitiesByID(const tIntList& alstIDs)
 {
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = GetActiveWorld();
 
 	ClearEntities();
 
@@ -182,7 +191,7 @@ void cEditorSelection::AddEntitiesByID(const tIntList& alstIDs)
 
 void cEditorSelection::RemoveEntitiesByID(const tIntList& alstIDs)
 {
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = GetActiveWorld();
 
 	tIntList::const_iterator it = alstIDs.begin();
 	for(;it!=alstIDs.end();++it)
@@ -194,7 +203,7 @@ void cEditorSelection::RemoveEntitiesByID(const tIntList& alstIDs)
 
 void cEditorSelection::ToggleEntitySelectionByID(const tIntList& alstIDs)
 {
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = GetActiveWorld();
 
 	tIntList::const_iterator it = alstIDs.begin();
 	for(;it!=alstIDs.end();++it)

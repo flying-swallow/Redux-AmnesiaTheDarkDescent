@@ -599,7 +599,7 @@ void cEditorWindowEntityEditBoxJoint::AddPropertySetScrewSlider(cWidgetTab* apPa
 bool cEditorWindowEntityEditBoxJoint::InputCallback(iWidget* apWidget, const cGuiMessageData& aData)
 {
 	int lID = mpEntity->GetID();
-	iEditorWorld* pLevel = mpEditor->GetEditorWorld();
+	iEditorWorld* pLevel = mpEditor->GetActiveEditorWorld();
 	cResources* pRes = mpEditor->GetEngine()->GetResources();
 
 	tString sFile = cString::To8Char(apWidget->GetText());
@@ -1077,7 +1077,7 @@ bool cEditorWindowEntityEditBoxJoint::WindowSpecificInputCallback(iEditorInput* 
 
 	iEditorAction* pAction = NULL;
 	int lID = mpEntity->GetID();
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditor->GetActiveEditorWorld();
 
 	if(apInput==mpInpMoveType)
 	{

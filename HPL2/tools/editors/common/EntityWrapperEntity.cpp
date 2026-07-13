@@ -63,6 +63,51 @@ tString cEntityWrapperTypeEntity::ToString()
 
 //------------------------------------------------------------------------------
 
+bool cEntityWrapperTypeEntity::ResolveEntFileTypes(const tString& asFilename,
+												   tString& asTypeOut, tString& asSubTypeOut)
+{
+	// Pending-first: an edited EntityType/EntitySubType in a pending .ent doc must be
+	// visible to type resolution. GetPendingRoot is a cheap lookup (no parse), so the
+	// pending path is always read fresh and never uses the disk cache.
+	cPrefabManager* pMgr = mpWorld->GetEditor()->GetPrefabManager();
+	tinyxml2::XMLElement* pPending = pMgr ? pMgr->GetPendingRoot(asFilename) : NULL;
+	if(pPending)
+	{
+		tinyxml2::XMLElement* pUserVars = pPending->FirstChildElement("UserDefinedVariables");
+		if(pUserVars==NULL)
+			return false;
+		asTypeOut    = GetAttributeString(pUserVars, "EntityType");
+		asSubTypeOut = GetAttributeString(pUserVars, "EntitySubType");
+		return true;
+	}
+
+	// No pending doc — cached fresh disk parse (keyed by filename, avoids re-parsing
+	// once per candidate type during map load).
+	if(msLastCheckedFile!=asFilename)
+	{
+		cResources* pRes = mpWorld->GetEditor()->GetEngine()->GetResources();
+		tinyxml2::XMLElement* pModelDoc = pRes->LoadXmlDocument(asFilename);
+		if(pModelDoc)
+		{
+			tinyxml2::XMLElement* pUserVars = pModelDoc->FirstChildElement("UserDefinedVariables");
+			if(pUserVars)
+			{
+				msLastCheckedFile    = asFilename;
+				msLastCheckedType    = GetAttributeString(pUserVars, "EntityType");
+				msLastCheckedSubType = GetAttributeString(pUserVars, "EntitySubType");
+			}
+
+			pRes->DestroyXmlDocument(pModelDoc);
+		}
+	}
+
+	asTypeOut    = msLastCheckedType;
+	asSubTypeOut = msLastCheckedSubType;
+	return true;
+}
+
+//------------------------------------------------------------------------------
+
 bool cEntityWrapperTypeEntity::IsAppropriateType(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperType::IsAppropriateType(apElement)==false)
@@ -80,38 +125,24 @@ bool cEntityWrapperTypeEntity::IsAppropriateType(tinyxml2::XMLElement* apElement
 	}
 
 	sFilename = mpWorld->GetFilenameFromIndex("Entities", lFileIndex);
-	if(msLastCheckedFile!=sFilename)
-	{
-		tinyxml2::XMLElement* pModelDoc = pRes->LoadXmlDocument(sFilename);
-		if(pModelDoc)
-		{
-			tinyxml2::XMLElement* pUserVars = pModelDoc->FirstChildElement("UserDefinedVariables");
-			if(pUserVars)
-			{
-				msLastCheckedFile = sFilename;
-				msLastCheckedType = GetAttributeString(pUserVars, "EntityType");
-				msLastCheckedSubType = GetAttributeString(pUserVars, "EntitySubType");
-			}
-
-			pRes->DestroyXmlDocument(pModelDoc);
-		}
-	}
+	tString sCheckedType, sCheckedSubType;
+	ResolveEntFileTypes(sFilename, sCheckedType, sCheckedSubType);
 
 	const tString& sType = GetUserTypeName();
 	const tString& sSubType = GetUserSubTypeName();
 
-	if(sType==msLastCheckedType)
+	if(sType==sCheckedType)
 	{
 		if(sSubType!="")
 		{
-			if(sSubType==msLastCheckedSubType)
+			if(sSubType==sCheckedSubType)
 				return true;
 		}
 		else
 		{
-			if(msLastCheckedSubType!="")
-				Log("Inconsistency found in file %s : no subtype %s in type %s\n", sFilename.c_str(), msLastCheckedSubType.c_str(), sType.c_str());
-				
+			if(sCheckedSubType!="")
+				Log("Inconsistency found in file %s : no subtype %s in type %s\n", sFilename.c_str(), sCheckedSubType.c_str(), sType.c_str());
+
 			return true;
 		}
 	}
@@ -138,33 +169,19 @@ bool cEntityWrapperTypeEntity::IsAppropriateDefaultType(tinyxml2::XMLElement* ap
 	}
 
 	sFilename = mpWorld->GetFilenameFromIndex("Entities", lFileIndex);
-	if(msLastCheckedFile!=sFilename)
+	tString sCheckedType, sCheckedSubType;
+	ResolveEntFileTypes(sFilename, sCheckedType, sCheckedSubType);
+
+	if(mpUserType->GetDefinition()->GetType(sCheckedType)==NULL)
 	{
-		tinyxml2::XMLElement* pModelDoc = pRes->LoadXmlDocument(sFilename);
-		if(pModelDoc)
-		{
-			tinyxml2::XMLElement* pUserVars = pModelDoc->FirstChildElement("UserDefinedVariables");
-			if(pUserVars)
-			{
-				msLastCheckedFile = sFilename;
-				msLastCheckedType = GetAttributeString(pUserVars, "EntityType");
-				msLastCheckedSubType = GetAttributeString(pUserVars, "EntitySubType");
-			}
-
-			pRes->DestroyXmlDocument(pModelDoc);
-		}
-	}
-
-	if(mpUserType->GetDefinition()->GetType(msLastCheckedType)==NULL)
-	{	
 		mpWorld->SetShowLoadErrorPopUp();
-		Log("Inconsistency found in file %s : no entity type %s is defined\n", sFilename.c_str(), msLastCheckedSubType.c_str());
+		Log("Inconsistency found in file %s : no entity type %s is defined\n", sFilename.c_str(), sCheckedSubType.c_str());
 		return true;
 	}
 
 	const tString& sType = GetUserTypeName();
 
-	return sType==msLastCheckedType && mpUserType->IsDefaultSubType();
+	return sType==sCheckedType && mpUserType->IsDefaultSubType();
 }
 
 //------------------------------------------------------------------------------

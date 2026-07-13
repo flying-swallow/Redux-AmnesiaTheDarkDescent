@@ -86,7 +86,7 @@ bool cEditorWindowEntityEditBoxGroupShapes::Button_OnPressed(iWidget* apWidget, 
 {
 	tIntList lstEntityIDs;
 	cEditorHelper::GetIDsFromEntityList(mlstEntities, lstEntityIDs);
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditor->GetActiveEditorWorld();
 
 	iEditorAction* pAction = NULL;
 

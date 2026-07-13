@@ -44,6 +44,7 @@ namespace hpl {
 		mpNodeTree = apNodeTree;
 
 		mbExtended = false;
+		mbHighlighted = false;
 
 		mfNodeHeight = 16;
 		mfNodeIndentation = 0;
@@ -332,7 +333,7 @@ namespace hpl {
 			mpSet->DrawGfx(mpGfxBackground, vPos,
 				vSize, cColor(0.6f, 0.6f, 0.6f, 0.5f));
 		}
-		if (mpSelectedNode && mpSelectedNode == apNode)
+		if ((mpSelectedNode && mpSelectedNode == apNode) || apNode->IsHighlighted())
 		{
 			mpSet->DrawGfx(mpGfxBackground, vPos + cVector3f(fIndentation + 12, 0, 0),
 				vSize - cVector2f(fIndentation + 12, 0), cColor(0.438f, 0.598f, 1, 1));

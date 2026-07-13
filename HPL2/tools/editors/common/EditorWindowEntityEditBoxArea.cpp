@@ -135,7 +135,7 @@ bool cEditorWindowEntityEditBoxArea::WindowSpecificInputCallback(iEditorInput* a
 		return true;
 
 	iEditorAction* pAction = NULL;
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditor->GetActiveEditorWorld();
 	int lID = mpEntity->GetID();
 	if(apInput==mpInpType)
 	{

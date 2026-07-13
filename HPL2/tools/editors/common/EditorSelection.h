@@ -118,6 +118,12 @@ public:
 	static float GetScaleSnap() { return mfScaleSnap; }
 
 protected:
+	// The world entity IDs resolve against: the current edit mode's world (which the
+	// Select/creator modes bind to their own world — e.g. the LevelEditor's scoped
+	// ent-file session world), falling back to the editor's map world. Lets ID-based
+	// selection work while scoped, where session IDs don't exist in the map world.
+	iEditorWorld* GetActiveWorld();
+
 	iEditorBase* mpEditor;
 	bool mbSelectionUpdated;
 	bool mbPropertiesUpdated;

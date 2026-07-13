@@ -48,6 +48,11 @@ protected:
 	bool OpenModelEditorCallback(iWidget* apWidget, const cGuiMessageData& aData);
 	kGuiCallbackDeclarationEnd(OpenModelEditorCallback);
 
+	// Scopes the editor into this entity to edit its embedded lights/particles/
+	// sounds/bodies in place (LevelEditor only).
+	bool EditContentsCallback(iWidget* apWidget, const cGuiMessageData& aData);
+	kGuiCallbackDeclarationEnd(EditContentsCallback);
+
 	void OnUpdate(float afTimeStep);
 
 	cWidgetTab* mpTabGeneral;
@@ -56,6 +61,7 @@ protected:
 	cEntityWrapperEntity* mpEntity;
 	cEditorInputFile* mpInpFile;
 	cWidgetButton* mpBOpenModelEditor;
+	cWidgetButton* mpBEditContents;
 };
 
 //----------------------------------------------------------------------

@@ -155,7 +155,7 @@ bool cEditorWindowEntityEditBoxBillboard::InputCallback(iWidget* apWidget, const
 {
 	iEditorAction* pAction = NULL;
 	int lID = mpEntity->GetID();
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditMode->GetEditorWorld();
 	
 	cResources* pRes = mpEditor->GetEngine()->GetResources();
 
@@ -185,7 +185,7 @@ bool cEditorWindowEntityEditBoxBillboard::WindowSpecificInputCallback(iEditorInp
 
 	iEditorAction* pAction = NULL;
 	int lID = mpEntity->GetID();
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditMode->GetEditorWorld();
 
 	if(apInput==mpInpMaterial)
 	{

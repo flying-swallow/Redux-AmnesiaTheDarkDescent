@@ -130,6 +130,40 @@ tinyxml2::XMLElement* cPrefabManager::GetPendingRoot(const tString& asEntFile)
 
 //----------------------------------------------------------------------------
 
+tinyxml2::XMLElement* cPrefabManager::EnsureDoc(const tString& asEntFile)
+{
+	// Caller pins the resource first (CreatePrefab); if it somehow does not exist,
+	// there is nothing to materialize into.
+	cPrefabResource* pRes = GetPrefab(asEntFile);
+	if(pRes==NULL)
+		return NULL;
+
+	// A pending in-memory definition (scope-session edit or MCP update_prefab) wins,
+	// dirty state untouched.
+	if(pRes->mpDoc)
+		return pRes->mpDoc->RootElement();
+
+	// Materialize the on-disk definition into a resource-owned standalone doc. The
+	// doc cResources hands back is tracked in its own list (freed via
+	// DestroyXmlDocument), so DeepCopy into a fresh doc the resource can own and
+	// delete directly, then release the loaded one. CLEAN (not dirty): bringing disk
+	// into memory is not an edit and must not flush back on map save.
+	cResources* pResources = mpEditor->GetEngine()->GetResources();
+	tinyxml2::XMLElement* pDiskRoot = pResources->LoadXmlDocument(asEntFile);
+	if(pDiskRoot==NULL)
+		return NULL;
+
+	tinyxml2::XMLDocument* pOwned = new tinyxml2::XMLDocument();
+	pDiskRoot->GetDocument()->DeepCopy(pOwned);
+	pResources->DestroyXmlDocument(pDiskRoot);
+
+	pRes->mpDoc   = pOwned;			// resource owns it; freed in its dtor / SetPendingDoc
+	pRes->mbDirty = false;
+	return pOwned->RootElement();
+}
+
+//----------------------------------------------------------------------------
+
 void cPrefabManager::SetPendingDoc(const tString& asEntFile, tinyxml2::XMLDocument* apDoc, bool abBroadcast)
 {
 	SharedResourceHandle<cPrefabResource> hRes = CreatePrefab(asEntFile);

@@ -758,7 +758,8 @@ void iEditorBase::Init(cEngine* apEngine, const char* asName, const char* asBuil
 		vars.mGraphics.mbFullscreen = cString::ToBool(GetSetting("FullScreen").c_str(), false);
 		vars.mGraphics.msWindowCaption = msCaption;
 
-		iRenderer::SetShadowMapQuality(eShadowMapQuality_Medium);
+		// (Legacy GL global shadow-quality hint; the static iRenderer setter was
+		// removed in the RHI refactor — quality now comes from engine init vars.)
 
 		mbOwnsEngine = true;
 		mpEngine = CreateHPLEngine(eHplAPI_OpenGL, eHplSetup_All, &vars);
@@ -1549,9 +1550,12 @@ void iEditorBase::InitLayout()
 
 	////////////////////////////////////////////////////////
 	// Set up EditMode Windows
-	//SetLayoutVec3f(eLayoutVec3_EditModeWindowPos, vViewportAreaPos+cVector3f(vViewportAreaSize.x,0,0));
-
 	cVector3f vEditWindowPos = vViewportAreaPos+cVector3f(vViewportAreaSize.x,-2,0);
+
+	// Publish the right-pane anchor so a windowless Select mode (the LevelEditor's
+	// scoped ent-file session) can position its property box there too.
+	SetLayoutVec3f(eLayoutVec3_EditModeWindowPos, vEditWindowPos);
+
 	for(int i=0;i<(int)mvEditModes.size();++i)
 	{
 		iEditorWindow* pWin = mvEditModes[i]->CreateWindow();

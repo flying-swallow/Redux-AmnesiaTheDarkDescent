@@ -269,7 +269,7 @@ bool cEditorWindowEntityEditBoxBody::InputCallback(iWidget* apWidget, const cGui
 	iEditorAction* pAction = NULL;
 
 	int lID = mpEntity->GetID();
-	iEditorWorld* pLevel = mpEditor->GetEditorWorld();
+	iEditorWorld* pLevel = mpEditMode->GetEditorWorld();
 
     ///////////////////////////////////////////
 	// Material
@@ -373,7 +373,7 @@ bool cEditorWindowEntityEditBoxBody::WindowSpecificInputCallback(iEditorInput* a
 
 	iEditorAction* pAction = NULL;
 	int lID = mpEntity->GetID();
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditMode->GetEditorWorld();
 
 	if(apInput==mpInpBuoyancyDensityMul)
 	{

@@ -172,6 +172,15 @@ public:
 	void SetWorldModified() { mbWorldModified = true; }
 	iEditorWorld* GetEditorWorld() { return mpEditorWorld; }
 
+	// The world the user is CURRENTLY editing. Identical to GetEditorWorld() for
+	// every editor EXCEPT cLevelEditor, which overrides it to return the transient
+	// ent-file scope session's world while "scoped into" a placed model (see
+	// iEditorHostActions::IsEntFileScoped) so the shared edit machinery (edit modes,
+	// edit boxes, selection, actions, viewport picking) operates on the scoped
+	// sub-entities instead of the map. Non-scoping editors are unaffected — the
+	// override lives only on cLevelEditor to keep the blast radius minimal.
+	virtual iEditorWorld* GetActiveEditorWorld() { return GetEditorWorld(); }
+
 	void SetSelectionChanged() { mbSelectionChanged = true; }
 	cEditorSelection* GetSelection() { return mpSelection; }
 
@@ -376,13 +385,12 @@ public:
 	virtual tString GetMCPClientLabel(int alIdx) { return ""; }
 	virtual tString GetMCPClientSnippet(int alIdx) { return ""; }
 
-	///////////////////////////////////
-	// External editor launch hooks
-	// Default no-ops so the shared entity edit-box can offer an "Edit in Model
-	// Editor" button without knowing about the concrete editor. The LevelEditor
-	// overrides these to launch the standalone ModelEditor on the given .ent.
-	virtual bool SupportsModelEditorLaunch() { return false; }
-	virtual void OpenInModelEditor(const tString& asEntFile) {}
+	// NOTE: the LevelEditor-only "external editor launch" (Open in Model/Particle
+	// Editor) and "ent-file scope" (Enter/Exit/IsScoped/ShowScopedEntityProperties)
+	// capabilities used to live here as no-op virtuals. They moved to the
+	// iEditorHostActions capability interface (common/EditorHostActions.h), which
+	// cLevelEditor implements — so the shared edit-box / sidebar widgets reach them
+	// via dynamic_cast and iEditorBase no longer carries editor-specific concepts.
 
 	// Called at the end of a successful Save(). Default no-op; the ModelEditor
 	// overrides it to notify the LevelEditor (over MCP) that the .ent changed.

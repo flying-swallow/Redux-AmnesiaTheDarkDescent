@@ -99,6 +99,18 @@ public:
 	// demand (instead of tracked membership) cannot go stale or orphan.
 	std::set<int> FindEntityIDsByFilename(const tString& asFile);
 
+	// IDs of placed particle-system entities whose .ps matches asFile by bare
+	// filename (case-insensitive). Particle wrappers store their path in msFile
+	// (GetFile()), NOT msFilename, so FindEntityIDsByFilename cannot see them.
+	std::set<int> FindParticleSystemIDsByFile(const tString& asFile);
+
+	// Live-reload placed particle systems after their .ps changed on disk. Tears
+	// down ALL matching instances first (dropping every cParticleSystemData
+	// reference so cParticleManager auto-evicts the cached data at refcount 0),
+	// THEN rebuilds each so the first recreate re-reads disk. Like ReloadEntities,
+	// this does NOT dirty the map or push an undo action.
+	void ReloadParticleSystems(const std::set<int>& asetIDs);
+
 	// Watcher-driven reload: files changed ON DISK, so first drop any non-dirty
 	// pending prefab docs shadowing the affected .ent files (disk becomes truth;
 	// dirty = unsaved MCP edits are kept), then ReloadEntities.

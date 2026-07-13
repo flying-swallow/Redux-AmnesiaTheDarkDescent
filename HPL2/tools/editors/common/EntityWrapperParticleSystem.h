@@ -141,7 +141,14 @@ public:
 	float GetMaxFadeDistanceStart() { return mfMaxFadeDistanceStart; }
 	float GetMaxFadeDistanceEnd() { return mfMaxFadeDistanceEnd; }
 
-	void UpdatePS();
+	// Force a full rebuild-from-disk on the next icon Update(), even when the
+	// file path is unchanged (used to live-reload a .ps that changed on disk).
+	// mbTypeUpdated -> cIconEntityPS::Update() runs ReCreatePS (re-reads the .ps);
+	// mbDataUpdated -> re-applies this wrapper's color/fade onto the rebuilt
+	// instance (a fresh cParticleSystem starts from constructor defaults, so
+	// omitting this would silently drop the configured color/fade). Inline so it
+	// needs no separate TU (EditorWorld.cpp references it in every editor).
+	void UpdatePS() { mbTypeUpdated = true; mbDataUpdated = true; }
 protected:
 	iEngineEntity* CreateSpecificEngineEntity();
 	//////////////////////

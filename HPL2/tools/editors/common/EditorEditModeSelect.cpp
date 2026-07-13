@@ -490,13 +490,15 @@ void cEditorEditModeSelect::ShowEditBox()
 	cEditorWindowSelect* pWin = (cEditorWindowSelect*)mpWindow;
 	///////////////////////////////////////////
 	// Destroy old EditBox (if any)
-	if(mpEditBox!=NULL) 
+	if(mpEditBox!=NULL)
 	{
 		mpEditBox->SetActive(false);
 		cEditorWindowFactory::DestroyEditorWindow((iEditorWindow*)mpEditBox);
 		mpEditBox = NULL;
 
-		((cEditorWindowSelect*)mpWindow)->SetSelectableTools(true,true,true);
+		// The LevelEditor's scoped ent-file session runs a windowless Select mode.
+		if(mpWindow)
+			((cEditorWindowSelect*)mpWindow)->SetSelectableTools(true,true,true);
 	}
 
 	//////////////////////////////////////////
@@ -546,7 +548,9 @@ cEditorWindowEntityEditBox* cEditorEditModeSelect::CreateEditBoxWindow()
 		bCanScale = false;
 	}
 
-	((cEditorWindowSelect*)mpWindow)->SetSelectableTools(bCanTranslate, bCanRotate, bCanScale);
+	// Windowless (scoped ent-file session) Select mode has no tool strip to update.
+	if(mpWindow)
+		((cEditorWindowSelect*)mpWindow)->SetSelectableTools(bCanTranslate, bCanRotate, bCanScale);
 	/////////////////////////////
 	// Check if pointer is valid
 	if(pWindow==NULL)
@@ -554,7 +558,12 @@ cEditorWindowEntityEditBox* cEditorEditModeSelect::CreateEditBoxWindow()
 
 	pWindow->Init();
 	mpEditor->AddWindow(pWindow);
-	pWindow->SetPosition(mpWindow->GetPosition() + cVector2f(0,mpWindow->GetSize().y));
+	// Anchor under the helper window, or — when scoped (no helper window) — in the
+	// editor's edit-mode window slot (the right-pane property area).
+	if(mpWindow)
+		pWindow->SetPosition(mpWindow->GetPosition() + cVector2f(0,mpWindow->GetSize().y));
+	else
+		pWindow->SetPosition(mpEditor->GetLayoutVec3f(eLayoutVec3_EditModeWindowPos) + cVector3f(0,30,0));
 
 	return pWindow;
 }
@@ -590,7 +599,10 @@ void cEditorEditModeSelect::OnSetCurrent(bool abX)
 	}
 	else
 	{
-		((cEditorWindowSelect*)mpWindow)->SetSelectableTools(false,false,false);
+		// The LevelEditor's scoped ent-file session runs a windowless Select mode
+		// (never AddEditMode'd, so CreateWindow never ran) — guard the helper window.
+		if(mpWindow)
+			((cEditorWindowSelect*)mpWindow)->SetSelectableTools(false,false,false);
 	}
 }
 

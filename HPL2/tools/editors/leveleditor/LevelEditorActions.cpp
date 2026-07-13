@@ -759,12 +759,6 @@ void cLevelEditorActionSetGlobalMaxDecalTris::Apply(const int& aX)
 	cEntityWrapperTypeDecal::SetForcingUpdate(false);
 }
 
-//--------------------------------------------------------------------------------------
-//--------------------------------------------------------------------------------------
-//--------------------------------------------------------------------------------------
-//--------------------------------------------------------------------------------------
-//--------------------------------------------------------------------------------------
-
 cLevelEditorActionAddStaticObjectCombo::cLevelEditorActionAddStaticObjectCombo(iEditorWorld* apWorld) : iEditorActionWorldModifier("Add static object combo", apWorld)
 {
 	cLevelEditorWorld* pWorld = (cLevelEditorWorld*)apWorld;

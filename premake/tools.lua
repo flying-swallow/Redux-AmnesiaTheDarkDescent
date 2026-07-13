@@ -108,7 +108,9 @@ local leveleditor = {
     "LevelEditorMCPServer.cpp", "LevelEditorMCPCommands.cpp",
     "LevelEditorCameraCapture.cpp",
     "LevelEditorStaticObjectCombo.cpp", "LevelEditorWindow.cpp",
-    "LevelEditorWindowGroup.cpp", "LevelEditorWindowLevelSettings.cpp",
+    "LevelEditorWindowGroup.cpp", "LevelEditorWindowHierarchy.cpp",
+    "LevelEditorWindowLevelSettings.cpp",
+    "LevelEditorEntFileSession.cpp",
     "LevelEditorWorld.cpp",
     "EditorFileWatcher.cpp", "PrefabManager.cpp",
     -- Headless .ent authoring for the MCP create_entity_file tool: the
@@ -199,7 +201,7 @@ local particleeditor = {
     "ParticleEditorActions.cpp", "ParticleEditorMain.cpp",
     "ParticleEditorWindowEmitterParams.cpp", "ParticleEditorWindowEmitters.cpp",
     "ParticleEditorWorld.cpp",
-    "EditorFileWatcher.cpp", "PrefabManager.cpp",
+    "EditorFileWatcher.cpp", "PrefabManager.cpp", "ParticleEditorReloadNotify.cpp",
 }
 
 local materialeditor = {

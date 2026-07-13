@@ -81,7 +81,7 @@ void cViewportCallback::OnPreWorldDraw()
 
 	///////////////////////////////////////////
 	// Surface picker debug (placement marker)
-	mpEditor->GetEditorWorld()->GetSurfacePicker()->DrawDebug(pDebugDraw);
+	mpEditor->GetActiveEditorWorld()->GetSurfacePicker()->DrawDebug(pDebugDraw);
 
 	///////////////////////////////////////////
 	// Grid + world axes

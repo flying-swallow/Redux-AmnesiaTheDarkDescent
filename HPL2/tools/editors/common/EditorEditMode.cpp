@@ -89,7 +89,7 @@ void iEditorEditMode::DrawPreGrid(cEditorWindowViewport* apViewport, DebugDraw* 
 
 void iEditorEditMode::DrawPostGrid(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, const cVector3f& avPos)
 {
-	iEditorWorld* pEditorWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pEditorWorld = GetEditModeWorld();
 
 	//pEditorWorld->GetPicker()->DrawDebug(apFunctions);
 
@@ -106,6 +106,13 @@ void iEditorEditMode::DrawPostGrid(cEditorWindowViewport* apViewport, DebugDraw*
 			pEnt->Draw(apViewport,apFunctions,this, false);
 		}
 	}
+}
+
+//---------------------------------------------------------------------
+
+iEditorWorld* iEditorEditMode::GetEditModeWorld()
+{
+	return mpEditor->GetActiveEditorWorld();
 }
 
 //---------------------------------------------------------------------
@@ -156,15 +163,22 @@ void iEditorEditModeObjectCreator::OnAdd()
 
 //---------------------------------------------------------------------
 
+iEditorWorld* iEditorEditModeObjectCreator::GetEditModeWorld()
+{
+	return mpEditorWorld;
+}
+
+//---------------------------------------------------------------------
+
 void iEditorEditModeObjectCreator::SetAffectSurfaceType(int alType, bool abX)
 {
-	cSurfacePicker* pPicker = mpEditor->GetEditorWorld()->GetSurfacePicker();
+	cSurfacePicker* pPicker = mpEditor->GetActiveEditorWorld()->GetSurfacePicker();
 	pPicker->SetAffectType(alType, abX, false);
 }
 
 bool iEditorEditModeObjectCreator::GetAffectSurfaceType(int alType)
 {
-	cSurfacePicker* pPicker = mpEditor->GetEditorWorld()->GetSurfacePicker();
+	cSurfacePicker* pPicker = mpEditor->GetActiveEditorWorld()->GetSurfacePicker();
 	return pPicker->IsAffected(alType, false);
 }
 
@@ -178,7 +192,7 @@ void iEditorEditModeObjectCreator::OnEditorUpdate(float afTimeStep)
 		if(mpEditor->GetFlags(eEditorFlag_MouseMoved)==false)
 			return;
 
-		cSurfacePicker* pPicker = mpEditor->GetEditorWorld()->GetSurfacePicker();
+		cSurfacePicker* pPicker = mpEditor->GetActiveEditorWorld()->GetSurfacePicker();
 		pPicker->Update();
 	}
 }
@@ -278,7 +292,7 @@ int iEditorEditModeObjectCreator::GetTypeNum()
 
 void iEditorEditModeObjectCreator::OnSetCurrent(bool abX)
 {
-	cSurfacePicker* pPicker = mpEditor->GetEditorWorld()->GetSurfacePicker();
+	cSurfacePicker* pPicker = mpEditor->GetActiveEditorWorld()->GetSurfacePicker();
 	if(abX)
 	{
 		for(int i=0;i<(int)mvAffectedSurfaceTypes.size();++i)
@@ -326,7 +340,7 @@ void iEditorEditModeObjectCreator::UpdateCreatorRotation()
 
 const cVector3f& iEditorEditModeObjectCreator::GetCreatorPosition()
 {
-	cSurfacePicker* pPicker = mpEditor->GetEditorWorld()->GetSurfacePicker();
+	cSurfacePicker* pPicker = mpEditor->GetActiveEditorWorld()->GetSurfacePicker();
 	if(mbCreateOnSurface)
 	{
 		if(pPicker->HasPickedSurface()) mvCreatorPosition = pPicker->GetPositionInSurface();

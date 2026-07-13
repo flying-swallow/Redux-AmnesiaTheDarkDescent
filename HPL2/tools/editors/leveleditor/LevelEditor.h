@@ -25,6 +25,7 @@
 using namespace hpl;
 
 #include "../common/EditorBaseClasses.h"
+#include "../common/EditorHostActions.h"
 #include "../common/EditorTypes.h"
 #include "LevelEditorTypes.h"
 
@@ -44,6 +45,9 @@ class iEditorWorld;
 
 class cEditorWindowEntitySearch;
 class cLevelEditorWindowGroup;
+class cLevelEditorWindowHierarchy;
+class cLevelEditorEntFileSession;
+class cEditorWindowEntityEditBox;
 
 class iEditorWindowLowerToolbar;
 class iEditorWindowEditModeSidebar;
@@ -110,7 +114,7 @@ protected:
 //  Base class for the level editor. Contains global functions specific to the level editor. 
 //  It is also responsible for (by using functionality from iEditorBase) created all needed GUI
 //  and structures needed when Engine calls the Run command.
-class cLevelEditor : public iEditorBase
+class cLevelEditor : public iEditorBase, public iEditorHostActions
 {
 public:
 	cLevelEditor();
@@ -177,12 +181,50 @@ public:
 	tString GetMCPClientSnippet(int alIdx);
 
 	///////////////////////////////
-	// External editor launch (override iEditorBase; drives the entity edit-box
-	// "Edit in Model Editor" button). Launches the co-located ModelEditor on the
-	// given .ent, handing it this editor's MCP endpoint so it can push live
-	// reload notifications back on save.
-	bool SupportsModelEditorLaunch() { return true; }
-	void OpenInModelEditor(const tString& asEntFile);
+	// iEditorHostActions — the capability interface the shared entity/particle
+	// edit-boxes and the edit-mode sidebar reach via dynamic_cast (so iEditorBase
+	// stays free of these LevelEditor-only concepts, see common/EditorHostActions.h).
+
+	// External editor launch (drives the entity edit-box "Edit in Model Editor" and
+	// the particle edit-box "Edit in Particle Editor" buttons). Launches the
+	// co-located standalone editor on the given file, handing it this editor's MCP
+	// endpoint so it can push live reload notifications back on save.
+	void OpenInModelEditor(const tString& asEntFile) override;
+	void OpenInParticleEditor(const tString& asPsFile) override;
+
+	// Entity-file scope (drives the entity edit-box "Edit Contents" button).
+	// "Scoping into" a placed model re-roots the hierarchy to that model's embedded
+	// lights/particles/sounds/bodies and lets them be edited in place — the .ent
+	// definition, so every placed instance updates live — WITHOUT launching the
+	// standalone ModelEditor. Backed by a cLevelEditorEntFileSession.
+	//
+	// Enter/Exit are invoked from GUI button callbacks (the edit-box "Edit Contents"
+	// and the sidebar "Return to World"), so they only RECORD the request; the actual
+	// enter/exit — which destroys + rebuilds toolbar buttons and property panels —
+	// runs on the next OnUpdate, outside widget callback processing (destroying a
+	// widget inside its own ProcessCallbacks is a use-after-free).
+	void EnterEntFileScope(int alEntityID) override;
+	void ExitEntFileScope() override;
+	bool IsEntFileScoped() override { return mpScopedSession!=NULL; }
+
+	cLevelEditorEntFileSession* GetScopedSession() { return mpScopedSession; }
+	int GetScopedEntityID() { return mlScopedEntityID; }
+
+	// The world the shared edit machinery is currently acting on: the scope
+	// session's world while scoped into a placed .ent, else the map world.
+	// (Override of iEditorBase; out-of-line so the session type is complete.)
+	iEditorWorld* GetActiveEditorWorld() override;
+
+	// Toggle the scoped-into entity's OWN property box (name/transform/user-vars) in the
+	// right-pane slot — wired to the edit-mode sidebar's "Entity" button. On-demand: no-op
+	// unless scoped; shows it if hidden, hides it if shown. See mpScopedEntityBox.
+	void ShowScopedEntityProperties() override;
+
+	// Exit scope (if any) WITHOUT saving and drop the session. Called on new/load
+	// map and in the dtor (while the engine scene is still alive) — the map is being
+	// abandoned, so edits are not flushed here (they already live in the pending-ent
+	// cache from the per-edit debounce, and go/stay with the map).
+	void ClearEntFileSessions();
 
 	///////////////////////////////
 	// Group Tool stuff
@@ -219,6 +261,13 @@ protected:
 	kGuiCallbackDeclarationEnd(ExportFileCallback);
 
 	iEditorWorld* CreateSpecificWorld();
+
+	// LevelEditor lays the edit-mode buttons out horizontally (toolbar under the
+	// menu) so the left edge is free for the hierarchy panel.
+	iEditorWindowEditModeSidebar* CreateSpecificEditModeSidebar();
+	// Reserves the left column for the hierarchy panel and the row under the menu
+	// for the horizontal edit-mode toolbar; the viewport/right-pane math follows.
+	void SetUpWindowAreas();
 
 	cWidgetMainMenu* CreateMainMenu();
 	void UpdateEditMenu();
@@ -281,7 +330,6 @@ protected:
 	cWidgetMenuItem* mpMainMenuOptions;
 	cWidgetMenuItem* mpMainMenuCompound;
 
-
 	
 	////////////////////////////////
 	// Some windows
@@ -290,6 +338,39 @@ protected:
 	cEditorWindowTextureBrowser* mpWindowTextureBrowser;
 
 	cLevelEditorWindowGroup* mpWindowGroup;
+
+	// Scene hierarchy / outliner panel that replaces the old left-edge edit-mode
+	// strip. Created in OnInitLayout; kept in sync via the OnWorldModify /
+	// OnSelectionChange window fan-outs.
+	cLevelEditorWindowHierarchy* mpWindowHierarchy;
+
+	// The single transient session currently "scoped into" (NULL = normal map view),
+	// plus the id of the placed entity it was entered from (for the breadcrumb /
+	// re-select on exit). Created on EnterEntFileScope, destroyed on exit/reset.
+	cLevelEditorEntFileSession* mpScopedSession;
+	int mlScopedEntityID;
+
+	// The scoped-into entity's own property box while shown on demand (the sidebar
+	// "Entity" button). NULL = hidden. Hosted directly by the editor (not by a Select
+	// mode): built in ShowScopedEntityProperties, auto-hidden in OnUpdate when a sub-
+	// object is selected (both use the same right-pane slot), destroyed in TeardownScope.
+	cEditorWindowEntityEditBox* mpScopedEntityBox;
+
+	// Deferred scope request set by the callback-facing Enter/ExitEntFileScope and
+	// consumed once in OnUpdate (mlPendingScopeEnter = entity id, or -1 for none).
+	int  mlPendingScopeEnter;
+	bool mbPendingScopeExit;
+	// Run the recorded request; called from OnUpdate (outside widget callbacks).
+	void ProcessPendingScope();
+
+	// The real enter/exit work (widget surgery). DoEnter builds+mounts the session,
+	// makes its Select mode current and swaps the toolbar; DoExit is TeardownScope.
+	void DoEnterEntFileScope(int alEntityID);
+
+	// Shared teardown for a user exit (abSave=true, "Return to World") and map
+	// reset/dtor (abSave=false): restores the map toolbar + Select mode, clears
+	// selection + undo history, deletes the session.
+	void TeardownScope(bool abSave, bool abRestoreUI);
 
 
 	////////////////////////////////

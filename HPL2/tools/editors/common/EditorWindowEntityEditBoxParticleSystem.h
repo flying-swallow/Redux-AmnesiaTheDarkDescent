@@ -52,6 +52,9 @@ protected:
 	bool BrowseButton_OnPressed(iWidget* apWidget, const cGuiMessageData& aData);
 	kGuiCallbackDeclarationEnd(BrowseButton_OnPressed);
 
+	bool OpenParticleEditorCallback(iWidget* apWidget, const cGuiMessageData& aData);
+	kGuiCallbackDeclarationEnd(OpenParticleEditorCallback);
+
 	bool FilePSCallback(iWidget* apWidget, const cGuiMessageData& aData);
 	kGuiCallbackDeclarationEnd(FilePSCallback);
 
@@ -68,6 +71,7 @@ protected:
 	cWidgetLabel* mpLabelFile;
 	cWidgetTextBox* mpInputFile;
 	cWidgetButton* mpButtonPSBrowse;
+	cWidgetButton* mpBOpenParticleEditor;
 
 	cEditorInputBool* mpInpFadeAtDistance;
 	cEditorInputColorFrame* mpInpColor;

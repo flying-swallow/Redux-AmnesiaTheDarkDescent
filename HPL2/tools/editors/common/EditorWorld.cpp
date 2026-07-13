@@ -20,6 +20,7 @@
 #include "EditorWorld.h"
 #include "EditorBaseClasses.h"
 #include "EntityWrapper.h"
+#include "EntityWrapperParticleSystem.h"
 #include "EntityPicker.h"
 #include "SurfacePicker.h"
 #include "EditorClipPlane.h"
@@ -407,6 +408,83 @@ void iEditorWorld::ReloadEntities(const std::set<int>& asetIDs)
 
 	// A live external reload must NOT dirty the map or push an undo action,
 	// so no IncModifications()/action creation here.
+}
+
+//--------------------------------------------------------------------
+
+std::set<int> iEditorWorld::FindParticleSystemIDsByFile(const tString& asFile)
+{
+	std::set<int> setIDs;
+	// Normalize the extension on both sides: CreatePS() itself does
+	// SetFileExt("ps") internally, and the editor stores the bare filename WITH
+	// extension - normalizing guards against any legacy no-extension value.
+	tString sBase = cString::ToLowerCase(cString::GetFileName(cString::SetFileExt(asFile,"ps")));
+	if(sBase.empty())
+		return setIDs;
+
+	for(tEntityWrapperMapIt it=mmapEntities.begin(); it!=mmapEntities.end(); ++it)
+	{
+		iEntityWrapper* pEnt = it->second;
+		if(pEnt->GetTypeID()!=eEditorEntityType_ParticleSystem)
+			continue;
+		cEntityWrapperParticleSystem* pPS = static_cast<cEntityWrapperParticleSystem*>(pEnt);
+		if(cString::ToLowerCase(cString::GetFileName(cString::SetFileExt(pPS->GetFile(),"ps")))==sBase)
+			setIDs.insert(pEnt->GetID());
+	}
+	return setIDs;
+}
+
+//--------------------------------------------------------------------
+
+void iEditorWorld::ReloadParticleSystems(const std::set<int>& asetIDs)
+{
+	if(asetIDs.empty())
+		return;
+
+	std::vector<cEntityWrapperParticleSystem*> vPS;
+	vPS.reserve(asetIDs.size());
+
+	////////////////////////////////////////////////////////////////////
+	// Phase 1: destroy EVERY matching live instance first. Each teardown drops
+	// one cParticleSystemData reference; when the last matching instance goes,
+	// cParticleManager auto-frees the cached data (refcount 0 -> FreeResource).
+	// Two phases are MANDATORY: interleaving would let a recreate reuse the
+	// stale cached data before it is evicted.
+	//
+	// NOTE: this only evicts when the LAST reference drops. If the same .ps is
+	// also referenced elsewhere (e.g. a particle embedded in a loaded model),
+	// its reference keeps the cached data alive and the recreate reuses it;
+	// those embedded copies refresh when their model reloads instead.
+	for(std::set<int>::const_iterator it=asetIDs.begin(); it!=asetIDs.end(); ++it)
+	{
+		iEntityWrapper* pEnt = GetEntity(*it);
+		if(pEnt==NULL || pEnt->GetTypeID()!=eEditorEntityType_ParticleSystem)
+			continue;
+		cEntityWrapperParticleSystem* pPS = static_cast<cEntityWrapperParticleSystem*>(pEnt);
+		vPS.push_back(pPS);
+		pPS->DestroyEngineEntity();
+	}
+
+	////////////////////////////////////////////////////////////////////
+	// Phase 2: rebuild. The cache is now empty for this path, so the first
+	// ReCreatePS re-reads disk and the rest reuse the freshly loaded data.
+	for(size_t i=0; i<vPS.size(); ++i)
+	{
+		cEntityWrapperParticleSystem* pPS = vPS[i];
+		pPS->CreateEngineEntity();
+		pPS->UpdatePS();        // mark mbTypeUpdated + mbDataUpdated
+		pPS->UpdateEntity();    // synchronous icon Update() -> ReCreatePS (reads disk) + reapply color/fade + placement
+
+		if(pPS->IsSelected())
+			pPS->SetSelected(true);
+
+		pPS->RegisterFileWatches();
+	}
+
+	Log("[FileWatch] reloaded %d particle system%s from disk\n",
+		(int)vPS.size(), vPS.size()==1 ? "" : "s");
+
+	// A live external reload must NOT dirty the map or push an undo action.
 }
 
 //--------------------------------------------------------------------

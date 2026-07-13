@@ -23,6 +23,7 @@
 
 #include "EditorWorld.h"
 #include "EditorInput.h"
+#include "EditorHostActions.h"
 
 //----------------------------------------------------------------------------
 
@@ -35,6 +36,7 @@
 cEditorWindowEntityEditBoxParticleSystem::cEditorWindowEntityEditBoxParticleSystem(cEditorEditModeSelect* apEditMode, cEntityWrapperParticleSystem* apPS) : cEditorWindowEntityEditBox(apEditMode,apPS)
 {
 	mpEntity = apPS;
+	mpBOpenParticleEditor = NULL;
 }
 
 //----------------------------------------------------------------------------
@@ -105,6 +107,18 @@ void cEditorWindowEntityEditBoxParticleSystem::AddPropertySetPS(cWidgetTab* apPa
 
 	vPos.y += fAddFar;
 
+	////////////////////////////////////////
+	// "Edit in Particle Editor" button (only where launching is supported, i.e.
+	// the LevelEditor). Opens this system's .ps in the standalone ParticleEditor;
+	// its MCP reload-notify then updates the placed instances live on save.
+	// Capability = the editor implements iEditorHostActions (NULL elsewhere).
+	if(dynamic_cast<iEditorHostActions*>(mpEditor))
+	{
+		mpBOpenParticleEditor = mpSet->CreateWidgetButton(vPos, cVector2f(160,25), _W("Edit in Particle Editor"), apParentTab);
+		mpBOpenParticleEditor->AddCallback(eGuiMessage_ButtonPressed, this, kGuiCallback(OpenParticleEditorCallback));
+		vPos.y += fAddFar;
+	}
+
 	mpInpColor = CreateInputColorFrame(vPos, _W("Color"), "", apParentTab);
 	vPos.y += fAddFar;
 
@@ -142,7 +156,7 @@ bool cEditorWindowEntityEditBoxParticleSystem::InputCallback(iWidget* apWidget, 
 {
 	iEditorAction* pAction = NULL;
 	int lID = mpEntity->GetID();
-	iEditorWorld* pEditorWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pEditorWorld = mpEditMode->GetEditorWorld();
 	
 	if(apWidget==mpInputFile)
 	{
@@ -177,7 +191,7 @@ bool cEditorWindowEntityEditBoxParticleSystem::WindowSpecificInputCallback(iEdit
 
 	iEditorAction* pAction = NULL;
 	int lID = mpEntity->GetID();
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditMode->GetEditorWorld();
 
 	if(apInput==mpInpFadeAtDistance)
 	{
@@ -220,6 +234,25 @@ bool cEditorWindowEntityEditBoxParticleSystem::BrowseButton_OnPressed(iWidget* a
 	return true;
 }
 kGuiCallbackDeclaredFuncEnd(cEditorWindowEntityEditBoxParticleSystem, BrowseButton_OnPressed);
+
+//----------------------------------------------------------------------------
+
+bool cEditorWindowEntityEditBoxParticleSystem::OpenParticleEditorCallback(iWidget* apWidget, const cGuiMessageData& aData)
+{
+	tString sFile = mpEntity->GetFile();
+	if(sFile.empty())
+	{
+		Warning("[ParticleEditor] selected particle system has no .ps file to edit\n");
+		return true;
+	}
+
+	Log("[ParticleEditor] launch requested for '%s'\n", sFile.c_str());
+	if(iEditorHostActions* pHost = dynamic_cast<iEditorHostActions*>(mpEditor))
+		pHost->OpenInParticleEditor(sFile);
+
+	return true;
+}
+kGuiCallbackDeclaredFuncEnd(cEditorWindowEntityEditBoxParticleSystem, OpenParticleEditorCallback);
 
 //----------------------------------------------------------------------------
 

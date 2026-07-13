@@ -99,6 +99,13 @@ namespace hpl {
 
 		void SetSelected(bool abX, bool abGenCallback = false);
 
+		// Extra selection highlight independent of the tree's single mpSelectedNode,
+		// so a client (e.g. the level-editor hierarchy) can mirror a multi-entity
+		// selection. Purely visual; does not affect click routing. Default off, so
+		// existing single-select users (object browser) are unaffected.
+		void SetHighlighted(bool abX) { mbHighlighted = abX; }
+		bool IsHighlighted() { return mbHighlighted; }
+
 		void SetParentNode(cWidgetTreeNode* apNode) { mpParentNode = apNode; }
 		cWidgetTreeNode* GetParentNode() { return mpParentNode; }
 
@@ -123,6 +130,7 @@ namespace hpl {
 		tWidgetTreeNodeVec mvChildNodes;
 
 		bool mbExtended;
+		bool mbHighlighted;
 
 		float mfNodeHeight;
 		float mfNodeIndentation;

@@ -184,7 +184,7 @@ void cEditorWindowEntityEditBox::AddPropertySetAttachments(cWidgetTab* apParentT
 	const tIntVec& vFilters = mpEntity->GetAttachableTypes();
 	for(int i=0;i<(int)vFilters.size();++i)
 	{
-		iEntityWrapperType* pType = this->mpEditor->GetEditorWorld()->GetEntityTypeByID(vFilters[i]);
+		iEntityWrapperType* pType = this->mpEditMode->GetEditorWorld()->GetEntityTypeByID(vFilters[i]);
 		cWidgetButton* pButton = mpSet->CreateWidgetButton(vPos, 20, _W(""), apParentTab);
 		pButton->SetToggleable(true);
 		pButton->SetUserValue(pType->GetID());
@@ -220,7 +220,7 @@ bool cEditorWindowEntityEditBox::InputCallback(iWidget* apWidget, const cGuiMess
 {
 	int lID = mpEntity->GetID();
 	iEditorAction* pAction = NULL;
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditMode->GetEditorWorld();
 
 	if(apWidget == mpBEditAttachments)
 	{
@@ -379,7 +379,7 @@ bool cEditorWindowEntityEditBox::WindowSpecificInputCallback(iEditorInput* apInp
 	tIntList lstEntityIDs;
 	lstEntityIDs.push_back(mpEntity->GetID());
 	iEditorAction* pAction = NULL;
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditMode->GetEditorWorld();
 
 	if(apInput==mpInpName)
 	{

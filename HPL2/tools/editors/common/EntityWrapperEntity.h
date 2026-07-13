@@ -75,6 +75,10 @@ public:
 protected:
  	iEntityWrapperData* CreateSpecificData();
 
+	// Resolve a .ent's EntityType/EntitySubType PENDING-FIRST through cPrefabResource
+	// (single source of truth); the file-static cache below only accelerates the disk parse.
+	bool ResolveEntFileTypes(const tString& asFilename, tString& asTypeOut, tString& asSubTypeOut);
+
 	/////////////////////////
 	// Data for making checks for appropriate type faster and nicer
 	static tString msLastCheckedFile;
