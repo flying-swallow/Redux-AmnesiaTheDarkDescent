@@ -3,7 +3,8 @@
  *
  * This file is part of Amnesia: The Dark Descent.
  *
- * Amnesia: The Dark Descent is free software: you can redistribute it and/or modify
+ * Amnesia: The Dark Descent is free software: you can redistribute it and/or
+ modify
  * it under the terms of the GNU General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
@@ -14,7 +15,8 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with Amnesia: The Dark Descent.  If not, see <https://www.gnu.org/licenses/>.
+ * along with Amnesia: The Dark Descent.  If not, see
+ <https://www.gnu.org/licenses/>.
  */
 
 #ifndef HPL_RENDERER_H
@@ -28,149 +30,129 @@
 
 namespace hpl {
 
-	//---------------------------------------------
+//---------------------------------------------
 
-	class cGraphics;
-	class cResources;
-	class cEngine;
-	class iLowLevelResources;
-	class cMeshCreator;
-	class iRenderable;
-	class cWorld;
-	class cRenderSettings;
-	class cRenderList;
-	class iLight;
-	class cBoundingVolume;
-	class cViewport;
-	class cFrustum;
+class cGraphics;
+class cResources;
+class cEngine;
+class iLowLevelResources;
+class cMeshCreator;
+class iRenderable;
+class cWorld;
+class cRenderSettings;
+class cRenderList;
+class iLight;
+class cBoundingVolume;
+class cViewport;
+class cFrustum;
 
-	//---------------------------------------------
+//---------------------------------------------
 
-	class cRenderSettings
-	{
-	public:
-		cRenderSettings(bool abIsReflection = false);
-		~cRenderSettings();
+class cRenderSettings {
+public:
+  cRenderSettings(bool abIsReflection = false);
+  ~cRenderSettings();
 
-		////////////////////////////
-		// Helper methods
-		void ResetVariables();
-		void SetupReflectionSettings();
-		void AddOcclusionPlane(const cPlanef &aPlane);
-		void ResetOcclusionPlanes();
+  ////////////////////////////
+  // Helper methods
+  void ResetVariables();
+  void SetupReflectionSettings();
+  void AddOcclusionPlane(const cPlanef &aPlane);
+  void ResetOcclusionPlanes();
 
-		////////////////////////////
-		// Data
-		cRenderList *mpRenderList;
-		cRenderSettings *mpReflectionSettings;
+  ////////////////////////////
+  // Data
+  cRenderList *mpRenderList;
+  cRenderSettings *mpReflectionSettings;
 
-        ////////////////////////////
-		// General settings
-		bool mbLog;
-		cColor mClearColor;
+  ////////////////////////////
+  // General settings
+  bool mbLog;
+  cColor mClearColor;
 
-		////////////////////////////
-		// Render settings
-		int mlMinimumObjectsBeforeOcclusionTesting;
-		int mlSampleVisiblilityLimit;
-		bool mbIsReflection;
-		bool mbClipReflectionScreenRect;
-		bool mbUseOcclusionCulling;
-		bool mbUseEdgeSmooth;
-		tPlanefVec mvOcclusionPlanes;
-		bool mbUseCallbacks;
-		eShadowMapResolution mMaxShadowMapResolution;
-		bool mbUseScissorRect;
-		cVector2l mvScissorRectPos;
-		cVector2l mvScissorRectSize;
-		bool mbRenderWorldReflection;
+  ////////////////////////////
+  // Render settings
+  int mlMinimumObjectsBeforeOcclusionTesting;
+  int mlSampleVisiblilityLimit;
+  bool mbIsReflection;
+  bool mbClipReflectionScreenRect;
+  bool mbUseOcclusionCulling;
+  bool mbUseEdgeSmooth;
+  tPlanefVec mvOcclusionPlanes;
+  bool mbUseCallbacks;
+  eShadowMapResolution mMaxShadowMapResolution;
+  bool mbUseScissorRect;
+  cVector2l mvScissorRectPos;
+  cVector2l mvScissorRectSize;
+  bool mbRenderWorldReflection;
 
-		////////////////////////////
-		// Shadow settings
-		bool mbRenderShadows;
-		float mfShadowMapBias;
-		float mfShadowMapSlopeScaleBias;
+  ////////////////////////////
+  // Shadow settings
+  bool mbRenderShadows;
+  float mfShadowMapBias;
+  float mfShadowMapSlopeScaleBias;
 
-		////////////////////////////
-		// Light settings
-		bool mbSSAOActive;
+  ////////////////////////////
+  // Light settings
+  bool mbSSAOActive;
 
-		////////////////////////////
-		// Output
-		int mlNumberOfLightsRendered;
-		int mlNumberOfOcclusionQueries;
-	};
-
-	//---------------------------------------------
-
-	class iRenderer
-	{
-	friend class cRendererCallbackFunctions;
-	friend class cRenderSettings;
-	public:
-		iRenderer(const tString& asName, cGraphics *apGraphics,cResources* apResources);
-		virtual ~iRenderer();
-
-		void Update(float afTimeStep);
-
-		virtual void Draw(cGraphics::FrameContext* cntx, cViewport* viewport, float afFrameTime, cFrustum* apFrustum, cWorld* apWorld, cRenderSettings* apSettings, bool abSendFrameBufferToPostEffects) {}
-
-		inline static int GetRenderFrameCount()  { return mlRenderFrameCount; }
-		inline static void IncRenderFrameCount() { ++mlRenderFrameCount; }
-
-		float GetTimeCount(){ return mfTimeCount;}
-
-		virtual bool LoadData() = 0;
-		virtual void DestroyData() = 0;
-
-		// Legacy material-path accessors — still referenced by the
-		// MaterialType_* program setup code; never populated by the Vulkan
-		// Draw() path.
-		cWorld *GetCurrentWorld() { return mpCurrentWorld; }
-		cFrustum *GetCurrentFrustum() { return NULL; } // IMPORTANT: CHECK IF THIS IS PROBLEMATIC
-		cRenderList *GetCurrentRenderList() { return mpCurrentRenderList; }
-
-		// Temp variables used by material.
-		float GetTempAlpha() { return mfTempAlpha; }
-
-		// Static settings. Must be set before renderer data load.
-		static void SetShadowMapQuality(eShadowMapQuality aQuality) { mShadowMapQuality = aQuality; }
-		static eShadowMapQuality GetShadowMapQuality() { return mShadowMapQuality; }
-
-		static void SetShadowMapResolution(eShadowMapResolution aResolution) { mShadowMapResolution = aResolution; }
-		static eShadowMapResolution GetShadowMapResolution() { return mShadowMapResolution; }
-
-		static void SetParallaxQuality(eParallaxQuality aQuality) { mParallaxQuality = aQuality; }
-		static eParallaxQuality GetParallaxQuality() { return mParallaxQuality; }
-
-		static void SetParallaxEnabled(bool abX) { mbParallaxEnabled = abX; }
-		static bool GetParallaxEnabled() { return mbParallaxEnabled; }
-
-		static void SetReflectionSizeDiv(int alX) { mlReflectionSizeDiv = alX; }
-		static int GetReflectionSizeDiv() { return mlReflectionSizeDiv; }
-
-		static void SetRefractionEnabled(bool abX) { mbRefractionEnabled = abX; }
-		static bool GetRefractionEnabled() { return mbRefractionEnabled; }
-
-	protected:
-        cResources* mpResources;
-		cGraphics* mpGraphics;
-
-		tString msName;
-		cWorld *mpCurrentWorld;
-		cRenderSettings *mpCurrentSettings;
-		cRenderList *mpCurrentRenderList;
-		float mfTempAlpha;
-		static int mlRenderFrameCount;
-		float mfTimeCount;
-
-        // Static variables
-		static eShadowMapQuality mShadowMapQuality;
-		static eShadowMapResolution mShadowMapResolution;
-		static eParallaxQuality mParallaxQuality;
-		static bool mbParallaxEnabled;
-		static int mlReflectionSizeDiv;
-		static bool mbRefractionEnabled;
-	};
+  ////////////////////////////
+  // Output
+  int mlNumberOfLightsRendered;
+  int mlNumberOfOcclusionQueries;
 };
+
+//---------------------------------------------
+
+class iRenderer {
+  friend class cRendererCallbackFunctions;
+  friend class cRenderSettings;
+
+public:
+  iRenderer(const tString &asName, cGraphics *apGraphics,
+            cResources *apResources);
+  virtual ~iRenderer();
+
+  void Update(float afTimeStep);
+
+  virtual void Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
+                    float afFrameTime, cFrustum *apFrustum, cWorld *apWorld,
+                    cRenderSettings *apSettings,
+                    bool abSendFrameBufferToPostEffects) {}
+
+  inline static int GetRenderFrameCount() { return mlRenderFrameCount; }
+  inline static void IncRenderFrameCount() { ++mlRenderFrameCount; }
+
+  float GetTimeCount() { return mfTimeCount; }
+
+  virtual bool LoadData() = 0;
+  virtual void DestroyData() = 0;
+
+  // Legacy material-path accessors — still referenced by the
+  // MaterialType_* program setup code; never populated by the Vulkan
+  // Draw() path.
+  cWorld *GetCurrentWorld() { return mpCurrentWorld; }
+  cFrustum *GetCurrentFrustum() {
+    return NULL;
+  } // IMPORTANT: CHECK IF THIS IS PROBLEMATIC
+  cRenderList *GetCurrentRenderList() { return mpCurrentRenderList; }
+
+  // Temp variables used by material.
+  float GetTempAlpha() { return mfTempAlpha; }
+
+protected:
+  cResources *mpResources;
+  cGraphics *mpGraphics;
+
+  tString msName;
+  cWorld *mpCurrentWorld;
+  cRenderSettings *mpCurrentSettings;
+  cRenderList *mpCurrentRenderList;
+  float mfTempAlpha;
+  static int mlRenderFrameCount;
+  float mfTimeCount;
+
+  // Static variables
+};
+}; // namespace hpl
 #endif // HPL_RENDERER_H

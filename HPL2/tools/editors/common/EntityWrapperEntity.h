@@ -140,7 +140,14 @@ protected:
 	// Re-point mPrefabRef at the prefab resource for the current msFilename
 	// (empty filename → empty handle). Idempotent; called wherever msFilename
 	// is (re)assigned so the reference count tracks placed instances exactly.
+	// Also re-points mPrefabModifiedHandler at the new resource's OnModified().
 	void UpdatePrefabRef();
+
+	// This instance's prefab definition changed (session Save, MCP update_prefab,
+	// or a dropped external-edit shadow) — rebuild THIS engine entity from the
+	// current definition (pending-doc-first, else disk). Quiet live reload: no
+	// undo, no map-dirty.
+	void OnPrefabModified(ePrefabEvent aEvent);
 
 	///////////////////////////
 	// Data
@@ -152,12 +159,19 @@ protected:
 
 	bool mbTypeChanged;
 
-	// Instance reference to this entity's .ent prefab resource: pure
-	// lifetime/count (no callbacks) — prefab edits reach instances via the
-	// manager's broadcast + the world's filename scan. RAII-released in the
-	// destructor, so the prefab definition cannot vanish while placed
-	// instances exist.
+	// Instance reference to this entity's .ent prefab resource: a lifetime/count
+	// handle (RAII-released in the destructor, so the prefab definition cannot
+	// vanish while placed instances exist) PLUS a modification subscription — this
+	// instance rebuilds itself when its prefab changes (see OnPrefabModified).
 	SharedResourceHandle<cPrefabResource> mPrefabRef;
+
+	// The resource mPrefabModifiedHandler is currently connected to (NULL = none).
+	// Guards UpdatePrefabRef so it only re-points the handler when the resource
+	// actually changes — a rebuild re-enters UpdatePrefabRef with the SAME resource,
+	// and re-connecting mid-Signal would churn the handler being iterated.
+	cPrefabResource* mpSubscribedPrefab = NULL;
+	Event<ePrefabEvent>::Handler mPrefabModifiedHandler {
+		[this](ePrefabEvent aEvent){ OnPrefabModified(aEvent); } };
 };
 
 //---------------------------------------------------------------

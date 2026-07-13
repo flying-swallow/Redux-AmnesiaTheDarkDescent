@@ -56,11 +56,10 @@ iEditorWorld::iEditorWorld(iEditorBase* apEditor, const tString& asElementName)
 	mpFileWatcher = hplNew(cEditorFileWatcher,());
 	mFileReloadHandler.Connect(mpFileWatcher->OnReloadEntities());
 
-	// Prefab-manager broadcast: reload this world's instances of an added/
-	// modified/removed prefab definition. The manager is created in
-	// iEditorBase::Init before any world, so it is always available here.
-	if(cPrefabManager* pPrefabManager = mpEditor->GetPrefabManager())
-		mPrefabChangedHandler.Connect(pPrefabManager->OnPrefabChanged());
+	// Prefab-definition changes are delivered per-instance now: each placed
+	// cEntityWrapperEntity subscribes to its own cPrefabResource::OnModified() and
+	// rebuilds itself (see UpdatePrefabRef / OnPrefabModified). No world-level
+	// prefab broadcast subscription.
 
 	mbClipPlaneNumUpdated = true;
 

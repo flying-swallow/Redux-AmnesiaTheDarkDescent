@@ -183,8 +183,10 @@ void cPrefabManager::SetPendingDoc(const tString& asEntFile, tinyxml2::XMLDocume
 	tString sKey = PrefabKey(asEntFile);
 	mmapPendingPins[sKey] = hRes;
 
+	// Notify this prefab's subscribers (each placed instance) so they rebuild from
+	// the new definition. pRes is kept alive by hRes across the Signal.
 	if(abBroadcast)
-		mOnPrefabChanged.Signal(sKey, bHadDoc ? ePrefabEvent_Modified : ePrefabEvent_Added);
+		pRes->OnModified().Signal(bHadDoc ? ePrefabEvent_Modified : ePrefabEvent_Added);
 }
 
 //----------------------------------------------------------------------------
@@ -210,14 +212,17 @@ void cPrefabManager::OnExternalFileChange(const tString& asEntFile, bool abBroad
 	delete pRes->mpDoc;
 	pRes->mpDoc = NULL;
 
+	// Notify subscribers (each placed instance) BEFORE releasing the pin: with the
+	// shadow gone they re-read disk, and any instance holding a reference keeps pRes
+	// alive across the Signal. Firing after the pin erase would touch a freed pRes.
+	if(abBroadcast)
+		pRes->OnModified().Signal(ePrefabEvent_Removed);
+
 	// Releasing the pin may free the resource if no placed instance holds a
 	// reference — pRes must not be touched past this point.
 	tString sKey = PrefabKey(asEntFile);
 	mmapPendingPins.erase(sKey);
 	pRes = NULL;
-
-	if(abBroadcast)
-		mOnPrefabChanged.Signal(sKey, ePrefabEvent_Removed);
 }
 
 //----------------------------------------------------------------------------

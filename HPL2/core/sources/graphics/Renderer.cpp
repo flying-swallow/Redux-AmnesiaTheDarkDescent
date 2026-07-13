@@ -24,23 +24,6 @@
 
 namespace hpl {
 
-	//-----------------------------------------------------------------------
-
-	//////////////////////////////////////////////////////////////////////////
-	// STATIC VARAIBLES
-	//////////////////////////////////////////////////////////////////////////
-
-	//-----------------------------------------------------------------------
-
-	eShadowMapQuality iRenderer::mShadowMapQuality = eShadowMapQuality_Medium;
-	eShadowMapResolution iRenderer::mShadowMapResolution = eShadowMapResolution_High;
-	eParallaxQuality iRenderer::mParallaxQuality = eParallaxQuality_Low;
-	bool iRenderer::mbParallaxEnabled = true;
-	int iRenderer::mlReflectionSizeDiv = 2;
-	bool iRenderer::mbRefractionEnabled = true;
-
-	//-----------------------------------------------------------------------
-
 	int iRenderer::mlRenderFrameCount = 0;
 	
 	//-----------------------------------------------------------------------

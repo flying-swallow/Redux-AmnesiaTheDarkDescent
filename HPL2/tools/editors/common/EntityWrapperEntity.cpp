@@ -498,8 +498,8 @@ void cEntityWrapperEntity::SetFilename(const tString& asX)
     CreateEngineEntity();
 
 	// Re-point the live-reload watches at the new file (+ its dependency chain).
-	// (No prefab re-subscription needed: prefab edits reach instances via the
-	// cache's broadcast + the world's filename scan.)
+	// (UpdatePrefabRef above already re-pointed the prefab modification
+	// subscription at the new file's resource.)
 	RegisterFileWatches();
 }
 
@@ -508,14 +508,58 @@ void cEntityWrapperEntity::SetFilename(const tString& asX)
 void cEntityWrapperEntity::UpdatePrefabRef()
 {
 	cPrefabManager* pMgr = GetEditorWorld()->GetEditor()->GetPrefabManager();
-	if(pMgr==NULL || msFilename.empty())
-	{
-		mPrefabRef = SharedResourceHandle<cPrefabResource>();
-		return;
-	}
+
 	// Re-pointing at the same resource is a refcount no-op (handle self-assign
 	// guard), so calling this redundantly is safe.
-	mPrefabRef = pMgr->CreatePrefab(msFilename);
+	if(pMgr==NULL || msFilename.empty())
+		mPrefabRef = SharedResourceHandle<cPrefabResource>();
+	else
+		mPrefabRef = pMgr->CreatePrefab(msFilename);
+
+	// Re-point the modification subscription, but ONLY when the resource actually
+	// changed (mpSubscribedPrefab): Connect asserts a single bound event, and a
+	// rebuild re-enters this method with the SAME resource — re-connecting the
+	// handler mid-Signal (while OnModified() is iterating it) would churn it.
+	cPrefabResource* pRes = mPrefabRef.Get();
+	if(pRes != mpSubscribedPrefab)
+	{
+		mPrefabModifiedHandler.Disconnect();
+		if(pRes)
+			mPrefabModifiedHandler.Connect(pRes->OnModified());
+		mpSubscribedPrefab = pRes;
+	}
+}
+
+//---------------------------------------------------------------------------
+
+void cEntityWrapperEntity::OnPrefabModified(ePrefabEvent)
+{
+	// Nothing built yet (mid-construction / headless) — the eventual
+	// CreateEngineEntity will read the current definition anyway.
+	if(mpEngineEntity==NULL)
+		return;
+
+	// Snapshot -> tear down this engine entity -> rebuild from the current
+	// definition. LoadEntFile is pending-first, so the rebuild reflects the edit.
+	// Mirrors iEditorWorld::ReloadEntities' per-entity body; a live reload, so it
+	// pushes no undo action and does not dirty the map.
+	iEntityWrapperData* pData = CreateCopyData();
+	DestroyEngineEntity();
+
+	pData->CopyToEntity(this, ePropCopyStep_PreEnt);
+	CreateEngineEntity();
+	pData->CopyToEntity(this, ePropCopyStep_PostEnt);
+	UpdateEntity();
+
+	// Re-push the selection highlight onto the rebuilt engine entity.
+	if(IsSelected())
+		SetSelected(true);
+
+	// Re-sync watches in case the edit changed the dependency set (e.g. a
+	// different mesh/material). RegisterFileWatches unregisters first.
+	RegisterFileWatches();
+
+	hplDelete(pData);
 }
 
 //---------------------------------------------------------------------------

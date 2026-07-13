@@ -86,10 +86,10 @@ namespace hpl {
 		/////////////////////////////////////
 		// Pipeline-side settings derived from the global refraction toggle and the
 		// bound cubemap (textures are bound before LoadVariables, so GetImage works).
-		if(iRenderer::GetRefractionEnabled())
+		//if(iRenderer::GetRefractionEnabled())
 			apMaterial->SetBlendMode(eMaterialBlendMode_None);
-		else
-			apMaterial->SetBlendMode(eMaterialBlendMode_Mul);
+		//else
+		//	apMaterial->SetBlendMode(eMaterialBlendMode_Mul);
 
 		// HasRefraction() (water always refracts) and HasWorldReflection()
 		// (m_hasReflection above + no bound cubemap) are derived from the data blob.

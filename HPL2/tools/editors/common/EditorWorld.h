@@ -329,12 +329,10 @@ protected:
 	Event<const std::set<int>&>::Handler mFileReloadHandler {
 		[this](const std::set<int>& asetIDs){ OnWatcherReload(asetIDs); } };
 
-	// Prefab-manager broadcast (single subscriber = this world): any lifecycle
-	// event (Added/Modified/Removed) rebinds the prefab's instances to the
-	// current truth — the rebuild resolves pending-doc-first, else disk — so
-	// one handler body serves all three. RAII-disconnects.
-	Event<const tString&, ePrefabEvent>::Handler mPrefabChangedHandler {
-		[this](const tString& asFile, ePrefabEvent){ ReloadEntities(FindEntityIDsByFilename(asFile)); } };
+	// (Prefab-definition changes no longer route through this world: each placed
+	// cEntityWrapperEntity subscribes to its own cPrefabResource::OnModified() and
+	// rebuilds itself — see EntityWrapperEntity. The filename scan below stays for
+	// the on-disk filewatcher path and the MCP query tools.)
 
 	////////////////////////////////
 	// Global Lights

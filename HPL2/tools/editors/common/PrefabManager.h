@@ -44,8 +44,7 @@ class iEditorBase;
 
 //----------------------------------------------------------------------
 
-// Prefab lifecycle carried by cPrefabManager's broadcast (see
-// mOnPrefabChanged).
+// Prefab lifecycle carried by cPrefabResource::OnModified() (see that Event).
 enum ePrefabEvent {
   ePrefabEvent_Added,    // a pending in-memory definition appeared
   ePrefabEvent_Modified, // the pending definition was replaced/edited
@@ -82,10 +81,21 @@ public:
   void Unload() {}
   void Destroy() {}
 
+  // Per-resource modification signal. Each placed cEntityWrapperEntity subscribes
+  // to ITS prefab (via mPrefabRef->OnModified()) and rebuilds itself when this
+  // definition changes — Added/Modified/Removed all mean "re-read me". RAII: when
+  // the resource is freed, ~Event auto-disconnects every still-connected instance
+  // handler, so a subscriber can never dangle (the trap the old per-record design
+  // hit — now made safe by Event/Handler two-way auto-disconnect).
+  Event<ePrefabEvent> &OnModified() { return mOnModified; }
+
   tString msDiskPath; // best-known full path (for disk flushes)
   tinyxml2::XMLDocument
       *mpDoc;   // owned in-memory definition (NULL = on-disk only)
   bool mbDirty; // edited via MCP, awaiting a disk flush
+
+private:
+  Event<ePrefabEvent> mOnModified;
 };
 
 //----------------------------------------------------------------------
@@ -112,14 +122,13 @@ public:
 //	query surface the MCP 'list_prefabs'/'get_prefab'/'update_prefab' tools
 //	drive.
 //
-//	Propagation model: ONE manager-lifetime broadcast (mOnPrefabChanged)
-//	fired with the prefab's bare filename + what happened. The editor world
-//	is the sole subscriber: it scans its own entities by filename and
-//reloads 	the matches (rebuilding through the pending-first entity load path,
-//which 	resolves to the pending doc if present, else disk — so Added/Modified/
-//	Removed all "rebind" instances to the current truth with one handler).
-//	The per-instance resource handles carry NO callbacks: they are pure
-//	lifetime/count.
+//	Propagation model: PER-RESOURCE. Each cPrefabResource owns an OnModified()
+//	Event; the mutation methods (SetPendingDoc / OnExternalFileChange) Signal the
+//	specific resource. Every placed cEntityWrapperEntity subscribes to ITS prefab
+//	(it already holds the resource handle) and rebuilds itself — Added/Modified/
+//	Removed all "re-read me" through the pending-first entity load path (pending
+//	doc if present, else disk). Event/Handler auto-disconnect both ways, so an
+//	instance handler can never orphan or dangle across a resource free.
 //
 class cPrefabManager : public iResourceManager {
 public:
@@ -128,14 +137,6 @@ public:
 
   // iResourceManager contract; prefabs hold no unloadable payload.
   void Unload(iResourceBase *apResource) {}
-
-  ////////////////////////////////////////////////////////
-  // Broadcast (bare lowercase filename + lifecycle event). iEditorWorld
-  // connects its handler here; Signal happens synchronously on the main
-  // thread from the mutation methods below.
-  Event<const tString &, ePrefabEvent> &OnPrefabChanged() {
-    return mOnPrefabChanged;
-  }
 
   ////////////////////////////////////////////////////////
   // Instance references. Get-or-create by bare-filename key; the returned
@@ -208,8 +209,6 @@ private:
   // resources (lowercase bare filename). Held so a definition with zero
   // placed instances survives transient handles dropping.
   std::map<tString, SharedResourceHandle<cPrefabResource>> mmapPendingPins;
-
-  Event<const tString &, ePrefabEvent> mOnPrefabChanged;
 };
 
 //----------------------------------------------------------------------
