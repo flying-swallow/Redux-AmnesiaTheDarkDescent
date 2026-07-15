@@ -2805,12 +2805,37 @@ void iEntityWrapperAggregate::UpdateEntity()
 	tEntityWrapperListIt itEnts = mlstComponents.begin();
 	tMatrixfListIt itRelMtx = mlstRelMatrices.begin();
 
+	// Parent (aggregate) scale from the 3x3 column lengths. A non-uniform parent scale
+	// combined with a rotated component produces a SHEARED world matrix, and
+	// SetWorldMatrix recovers scale via column lengths (which can't represent shear) —
+	// so the component's absolute Scale would drift a little on every save. When the
+	// parent scale is non-uniform we pin the component scale to the stable component-wise
+	// product (parentScale (x) relScale), the same invariant the runtime loader uses.
+	// This is an exact no-op for axis-aligned components, so common data is unchanged.
+	cVector3f vParentScale(mmtxTransform.GetRight().Length(),
+						   mmtxTransform.GetUp().Length(),
+						   mmtxTransform.GetForward().Length());
+	bool bParentScaleNonUniform =
+		cMath::Abs(vParentScale.x-vParentScale.y)>1e-4f ||
+		cMath::Abs(vParentScale.y-vParentScale.z)>1e-4f ||
+		cMath::Abs(vParentScale.x-vParentScale.z)>1e-4f;
+
 	for(;itEnts!=mlstComponents.end();++itEnts, ++itRelMtx)
 	{
 		iEntityWrapper* pEnt = *itEnts;
 		cMatrixf mtxRelMatrix = *itRelMtx;
-		
+
 		pEnt->SetWorldMatrix(cMath::MatrixMul(mmtxTransform,mtxRelMatrix));
+
+		if(bParentScaleNonUniform)
+		{
+			cVector3f vRelScale(mtxRelMatrix.GetRight().Length(),
+								mtxRelMatrix.GetUp().Length(),
+								mtxRelMatrix.GetForward().Length());
+			pEnt->SetAbsScale(cVector3f(vParentScale.x*vRelScale.x,
+										vParentScale.y*vRelScale.y,
+										vParentScale.z*vRelScale.z));
+		}
 
 		pEnt->UpdateEntity();
 	}

@@ -147,6 +147,9 @@ tWString cLevelEditorWindowHierarchy::GetCategoryLabel(int alTypeID)
 	case eEditorEntityType_Decal:          return _W("Decals");
 	case eEditorEntityType_FogArea:        return _W("Fog Areas");
 	case eEditorEntityType_Compound:       return _W("Compounds");
+	case eEditorEntityType_Body:           return _W("Bodies");
+	case eEditorEntityType_BodyShape:      return _W("Body Shapes");
+	case eEditorEntityType_Joint:          return _W("Joints");
 	default:                               return _W("Other");
 	}
 }
@@ -412,6 +415,13 @@ void cLevelEditorWindowHierarchy::AddSubEntityNode(cWidgetTreeNode* apParent, iE
 	tWString sKey = _W("scope/sub:") + cString::ToStringW(apEnt->GetID());
 	cWidgetTreeNode* pNode = MakeNode(apParent, sText, sKey, false);
 	mmapNodeSubEntity[pNode] = apEnt->GetID();
+	if(iEntityWrapperAggregate* pAgg = dynamic_cast<iEntityWrapperAggregate*>(apEnt))
+	{
+		const tEntityWrapperList& lstComponents = pAgg->GetComponents();
+		tEntityWrapperList::const_iterator it = lstComponents.begin();
+		for(; it != lstComponents.end(); ++it)
+			AddSubEntityNode(pNode, *it);
+	}
 }
 
 //-------------------------------------------------------------------------------
@@ -559,9 +569,16 @@ bool cLevelEditorWindowHierarchy::Tree_OnDoubleClick(iWidget* apWidget, const cG
 	if(pNode == NULL)
 		return true;
 
-	// Only entity rows focus the camera; the preceding single click already
-	// selected the entity.
-	if(mmapNodeEntity.find(pNode) == mmapNodeEntity.end())
+	cLevelEditor* pLevelEditor = (cLevelEditor*)mpEditor;
+
+	// Map entity rows always focus; while scoped, sub-entity rows do too (the single
+	// click already selected the row, so the current selection is what we center on).
+	bool bFocusable =
+		mmapNodeEntity.find(pNode) != mmapNodeEntity.end() ||
+		(pLevelEditor->IsEntFileScoped() &&
+		 mmapNodeSubEntity.find(pNode) != mmapNodeSubEntity.end());
+
+	if(!bFocusable)
 		return true;
 
 	mpEditor->AddAction(mpEditor->CreateFocusOnSelectionAction());

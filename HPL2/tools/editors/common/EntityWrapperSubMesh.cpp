@@ -168,29 +168,31 @@ bool cEntityWrapperTypeSubMesh::SetMesh(const tString& asFilename, bool abDelete
 
 	// Set up submeshes from data passed as argument and/or data from the loaded mesh
 	tIntList::const_iterator itSubMeshIDs = alstSubMeshIDs.begin();
+	std::vector<bool> vDataUsed(avSubMeshData.size(), false);
 	for(int i=0;i<mpMesh->GetSubMeshEntityNum();i++)
 	{
+		const tString& sSubMeshName = mpMesh->GetSubMeshEntity(i)->GetSubMesh()->GetName();
 		iEntityWrapperData* pData = NULL;
 
-		if(bSubMeshDataEmpty || i>=(int)avSubMeshData.size())
+		// Pair stored <SubMesh> data to this engine submesh BY NAME, not array index: the
+		// .dae order can differ from the .ent's <SubMesh> order, and index pairing migrates
+		// entity IDs onto different geometry, silently rebinding Body <Child> refs.
+		if(bSubMeshDataEmpty==false)
+			for(size_t j=0;j<avSubMeshData.size();++j)
+				if(vDataUsed[j]==false && avSubMeshData[j]->GetName()==sSubMeshName)
+				{ pData = avSubMeshData[j]; vDataUsed[j]=true; break; }
+
+		if(pData==NULL)
 		{
 			pData = CreateData();
-			int lID;
-			if(bSubMeshIDsEmpty)
-				lID = mpWorld->GetFreeID();
-			else
-			{
-				lID = *itSubMeshIDs;
+			int lID = bSubMeshIDsEmpty ? mpWorld->GetFreeID() : *itSubMeshIDs;
+			if(bSubMeshIDsEmpty==false)
 				++itSubMeshIDs;
-			}
-
 			pData->SetID(lID);
-			pData->SetInt(eSubMeshInt_SubMeshID, i);
 		}
-		else
-			pData = (cEntityWrapperDataSubMesh*)avSubMeshData[i];
 
-		pData->SetName(mpMesh->GetSubMeshEntity(i)->GetSubMesh()->GetName());
+		pData->SetInt(eSubMeshInt_SubMeshID, i);   // canonical .dae index
+		pData->SetName(sSubMeshName);              // no-op when matched
 
 		lstMeshRelatedEnts.push_back(mpWorld->CreateEntityWrapperFromData(pData));
 	}

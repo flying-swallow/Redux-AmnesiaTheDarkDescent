@@ -217,12 +217,13 @@ void cLevelEditor::TeardownScope(bool abSave, bool abRestoreUI) {
   // live world.
   SetCurrentEditMode(GetEditMode("Select"));
 
-  // Destroy the scoped Select mode's helper window (its mpEditMode points into
-  // the session we're about to free). SetCurrent(false) above already
-  // deactivated it.
-  iEditorEditMode *pSelMode = mpScopedSession->GetSelectMode();
-  if (pSelMode && pSelMode->GetEditorWindow())
-    cEditorWindowFactory::DestroyEditorWindow(pSelMode->GetEditorWindow());
+  // Destroy every scoped mode's helper window (each window's mpEditMode points into
+  // the session we're about to free). SetCurrent(false) above already deactivated the
+  // one that was current.
+  const std::vector<iEditorEditMode *> &vScopeModes = mpScopedSession->GetEditModes();
+  for (size_t i = 0; i < vScopeModes.size(); ++i)
+    if (vScopeModes[i]->GetEditorWindow())
+      cEditorWindowFactory::DestroyEditorWindow(vScopeModes[i]->GetEditorWindow());
 
   // The session's edit modes are about to be freed — rebuild the toolbar back
   // to the map modes so no button's user-data points at a dangling mode.
@@ -293,9 +294,10 @@ void cLevelEditor::AppSpecificReset() {
 //--------------------------------------------------------------------
 
 iEditorWorld *cLevelEditor::GetActiveEditorWorld() {
-  // While scoped into a placed .ent, the shared edit machinery (edit modes,
-  // edit boxes, selection, actions, viewport picking) should act on the scope
-  // session's sub-entities, not the map world.
+  // THE canonical "which world does the shared edit machinery act on" accessor:
+  // edit modes, edit boxes, selection (via cEditorSelection::GetActiveWorld),
+  // actions and viewport picking all resolve through here. While scoped into a
+  // placed .ent it returns the scope session's sub-entity world, else the map.
   if (mpScopedSession)
     return mpScopedSession->GetWorld();
   return GetEditorWorld();
@@ -368,21 +370,32 @@ void cLevelEditor::DoEnterEntFileScope(int alEntityID) {
     return;
   }
 
+  // Clear the outgoing MAP selection BEFORE flipping the scope flag below.
+  // Ordering is load-bearing: the selection resolver
+  // (cEditorSelection::GetActiveWorld -> GetActiveEditorWorld) keys off
+  // mpScopedSession, so it must still resolve to the map here for the placed
+  // model to be de-highlighted (once mpScopedSession is set it would resolve to
+  // the session, which does not own the map model, and the highlight would linger).
+  GetSelection()->ClearEntities();
+
   mpScopedSession = pSession;
   mlScopedEntityID = alEntityID;
 
-  // Fresh undo history + no stale map selection carried into the scope.
+  // Fresh undo history for the scoped session.
   if (mpActionHandler)
     mpActionHandler->Reset();
-  GetSelection()->ClearEntities();
 
-  // Session modes are never added to the editor's mvEditModes, so
-  // OnInitLayout's CreateWindow() loop never built the Select mode's helper
-  // window. Build it here so the "Select Object Type" filter panel + transform
-  // tools are available while scoped.
-  iEditorWindow *pSelWin = pSession->GetSelectMode()->CreateWindow();
-  if (pSelWin)
-    pSelWin->SetPosition(GetLayoutVec3f(eLayoutVec3_EditModeWindowPos));
+  // Session modes are never added to the editor's mvEditModes, so OnInitLayout's
+  // CreateWindow() loop never built their helper windows. Build one per mode here so
+  // the Select "Object Type" filter panel + each creator's subtype panel (light type,
+  // shape type, joint type, …) are available while scoped. Each is created inactive;
+  // SetCurrentEditMode below activates only the mode that becomes current.
+  const std::vector<iEditorEditMode *> &vScopeModes = pSession->GetEditModes();
+  for (size_t i = 0; i < vScopeModes.size(); ++i) {
+    iEditorWindow *pWin = vScopeModes[i]->CreateWindow();
+    if (pWin)
+      pWin->SetPosition(GetLayoutVec3f(eLayoutVec3_EditModeWindowPos));
+  }
 
   // Viewport picking + icon drawing now follow the session world (its Select
   // mode becomes current); swap the toolbar to the session's modes + a Return
@@ -390,9 +403,6 @@ void cLevelEditor::DoEnterEntFileScope(int alEntityID) {
   SetCurrentEditMode(pSession->GetSelectMode());
   if (mpEditModeSidebar)
     mpEditModeSidebar->RebuildButtons(pSession->GetEditModes(), true);
-
-  // Frame the entity so its (now-mounted) sub-entity icons are on screen.
-  LookAtEntity(alEntityID);
 
   if (mpWindowHierarchy)
     mpWindowHierarchy->RefreshTree();
@@ -1242,7 +1252,14 @@ void cLevelEditor::OnPostUpdateLayout() {
   else
     sTitlebarFilename = cString::To8Char(cString::GetFileNameW(msSaveFilename));
 
-  tString sModified = mpEditorWorld->IsModified() ? "(modified)" : "";
+  // The document is "modified" if the map world has unsaved changes OR any prefab
+  // in the scene has unsaved edits: pending prefab docs not yet flushed to disk
+  // (scope-session Saves + MCP update_prefab), plus live scoped edits still inside
+  // the session's debounce window before they're harvested into the pending doc.
+  bool bModified = mpEditorWorld->IsModified() ||
+                   GetPendingEntFileDirtyCount() > 0 ||
+                   (mpScopedSession && mpScopedSession->IsDirty());
+  tString sModified = bModified ? "(modified)" : "";
 
   mpEngine->GetGraphics()->GetWindow()->SetCaption(
       sTitlebarFilename + sModified + " - " + msCaption);

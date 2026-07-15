@@ -49,8 +49,12 @@ cEditorSelection::cEditorSelection(iEditorBase* apEditor)
 
 iEditorWorld* cEditorSelection::GetActiveWorld()
 {
-	iEditorEditMode* pMode = mpEditor->GetCurrentEditMode();
-	return pMode ? pMode->GetEditModeWorld() : mpEditor->GetActiveEditorWorld();
+	// Selection follows the editor's active (scope-state) world: the map world, or
+	// the scoped ent-file session's world while scoped. During scope ENTER the map
+	// selection is cleared BEFORE the scope flag flips (see
+	// cLevelEditor::DoEnterEntFileScope), so this resolves to the map there; during
+	// scope EXIT the flag is still set, so it resolves to the session — both correct.
+	return mpEditor->GetActiveEditorWorld();
 }
 
 //----------------------------------------------------------------------

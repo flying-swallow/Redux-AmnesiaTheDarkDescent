@@ -111,8 +111,8 @@ public:
 	bool IsDirty();
 
 	// Top-level editable sub-entities (lights / particles / sounds / billboards /
-	// bodies) — SubMesh/Bone and body-owned shapes are filtered out. Rebuilt into
-	// avOut (cleared first).
+	// bodies / joints) — SubMesh/Bone and body-owned shapes are filtered out. Rebuilt
+	// into avOut (cleared first).
 	void GetSubEntities(tEntityWrapperList& avOut);
 
 	// The category buckets the hierarchy shows, in display order.
@@ -124,8 +124,8 @@ public:
 	// against this world, not the map).
 	cEditorEditModeSelect* GetSelectMode() { return mpSelectMode; }
 
-	// The session's edit modes (Select + the Add-Light/Particle/Sound/Billboard/Body
-	// creators), all bound to this world — the scoped edit-mode toolbar is built
+	// The session's edit modes (Select + the Add-Light/Particle/Sound/Billboard/Body/
+	// Joint creators), all bound to this world — the scoped edit-mode toolbar is built
 	// from these. Never added to the editor's mvEditModes.
 	const std::vector<iEditorEditMode*>& GetEditModes() { return mvEditModes; }
 

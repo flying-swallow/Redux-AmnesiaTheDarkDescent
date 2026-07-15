@@ -586,16 +586,19 @@ void iEditorWorld::LoadWorldObjects(tinyxml2::XMLElement* apWorldObjectsElement)
 		}
 	}
 
-	///////////////////////////////////////////////////////////////
-	// Redirections have all been used now, so must clear this
-	mmapIDRedirectors.clear();
-
 	tEntityWrapperMap::const_iterator it = mmapEntities.begin();
 	for(;it!=mmapEntities.end();++it)
 	{
 		iEntityWrapper* pEnt = it->second;
 		pEnt->OnPostDeployAll(true);
 	}
+
+	///////////////////////////////////////////////////////////////
+	// ID resolution (children, joint parent/child bodies) happens inside the
+	// OnPostDeployAll loop above via GetEntity, which consults the redirector map.
+	// Only now that all IDs are resolved is it safe to clear the redirectors —
+	// clearing earlier would strand joints whose connected body got a redirected ID.
+	mmapIDRedirectors.clear();
 
 	if(mbShowLoadErrorPopUp)
 	{

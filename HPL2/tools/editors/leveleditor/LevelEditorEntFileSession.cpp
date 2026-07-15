@@ -35,12 +35,12 @@
 #include "../common/EntityWrapper.h"
 #include "../common/PrefabManager.h"
 
-// Body / BodyShape TYPES are registered directly (their creator edit mode,
-// cEditorEditModeBodies, is ModelEditor-only and not linked into the LevelEditor).
-// Existing bodies still load and are editable; only "create a new body" is absent
-// from the scoped toolbar.
-#include "../common/EntityWrapperBody.h"
-#include "../common/EntityWrapperBodyShape.h"
+// Body (shape) + Joint creator edit modes. Now compiled into the LevelEditor build
+// (premake tools.lua), so the scoped session can CREATE and edit shapes/joints in place.
+// Their SetUpTypes()/CreateTypes() also register the BodyShape/Body/Joint types, so a
+// placed model that embeds them still loads as wrappers and round-trips through Save.
+#include "../common/EditorEditModeBodies.h"
+#include "../common/EditorEditModeJoints.h"
 
 //-------------------------------------------------------------------------------
 
@@ -54,6 +54,7 @@ static const int gvEntFileCategoryOrder[] =
 	eEditorEntityType_Sound,
 	eEditorEntityType_Billboard,
 	eEditorEntityType_Body,
+	eEditorEntityType_Joint,
 };
 static const int glEntFileCategoryOrderNum = (int)(sizeof(gvEntFileCategoryOrder)/sizeof(gvEntFileCategoryOrder[0]));
 
@@ -69,8 +70,8 @@ cLevelEditorEntFileSession::cLevelEditorEntFileSession(cLevelEditor* apEditor, c
 	// never render in the Level viewport. It already registers SubMesh/Bone and the
 	// <Mesh>/<Bones>/<Animations> save-load; the edit modes below register the
 	// remaining editable types (Select -> CompoundObject, the creators -> their
-	// light/particle/sound/billboard/body types) — the SAME registration path the
-	// Model Editor uses, so there is exactly one source of types (no double-add).
+	// light/particle/sound/billboard/body(shape)/joint types) — the SAME registration
+	// path the Model Editor uses, so there is exactly one source of types (no double-add).
 	mpWorld = hplNew(cModelEditorWorld,(apEditor));
 
 	// Select first (its ctor registers CompoundObject and clears the global
@@ -86,28 +87,30 @@ cLevelEditorEntFileSession::cLevelEditorEntFileSession(cLevelEditor* apEditor, c
 		hplNew(cEditorEditModeParticleSystems,(apEditor, mpWorld)),
 		hplNew(cEditorEditModeSounds,         (apEditor, mpWorld)),
 		hplNew(cEditorEditModeBillboards,     (apEditor, mpWorld)),
+		hplNew(cEditorEditModeBodies,         (apEditor, mpWorld)),
+		hplNew(cEditorEditModeJoints,         (apEditor, mpWorld)),
 	};
 	for(size_t i=0; i<sizeof(vCreators)/sizeof(vCreators[0]); ++i)
 	{
 		// OnAdd() runs SetUpTypes() (registers the mode's types against mpWorld);
 		// SetSubType(0) initialises the default sub-type creator (e.g. the Lights
-		// mode's point-light sphere creator) which the helper window would normally
-		// set — the session's creators have no window.
+		// mode's point-light sphere creator). Each creator's subtype panel is built
+		// per-mode in cLevelEditor::DoEnterEntFileScope, which lets the user pick a
+		// different subtype (box/sphere shape, ball/hinge joint, spot light, …).
 		vCreators[i]->OnAdd();
 		vCreators[i]->SetSubType(0);
 		mvEditModes.push_back(vCreators[i]);
 	}
 
-	// Body + BodyShape types have no creator mode here, so register them directly so
-	// a placed model's embedded bodies still load as editable wrappers.
-	mpWorld->AddEntityType(hplNew(cEntityWrapperTypeBodyShape,()));
-	mpWorld->AddEntityType(hplNew(cEntityWrapperTypeBody,()));
+	// BodyShape/Body and the four joint types are already registered above by the
+	// Bodies/Joints creator modes' SetUpTypes()/CreateTypes() — do NOT re-add them here
+	// (a second AddEntityType for the same type id would double-register).
 
 	mpWorld->Reset();
 
 	// Populate the Select mode's type-filter list from the session world's registered
-	// types (Light/Particle/Sound/Billboard/Body + Compound/SubMesh/Bone/BodyShape), the
-	// same step iEditorBase::Init runs for normal editors. Required so the scoped
+	// types (Light/Particle/Sound/Billboard/Body/Joint + Compound/SubMesh/Bone/BodyShape),
+	// the same step iEditorBase::Init runs for normal editors. Required so the scoped
 	// "Select Object Type" panel has its per-type filter buttons.
 	mpSelectMode->PostEditModesCreation();
 }
@@ -234,6 +237,19 @@ void cLevelEditorEntFileSession::Save(bool abBroadcast)
 	tinyxml2::XMLElement* pRoot = pDoc->NewElement("Entity");
 	pDoc->InsertEndChild(pRoot);
 	mpWorld->Save(pRoot);
+
+	// Preserve the standalone Model Editor's <EditorSession>/<ViewportConfig> block:
+	// the world writer only emits <ModelData>/<UserDefinedVariables>, so clone the block
+	// from the retained original doc (still alive until SetPendingDoc replaces it) into the
+	// new root. Self-sustaining: after the first save the pending doc carries the block,
+	// so subsequent saves re-clone it. As first child to match the original layout.
+	tinyxml2::XMLElement* pOldRoot = mpEditor->GetPrefabManager()->EnsureDoc(msFile);
+	if(pOldRoot)
+	{
+		tinyxml2::XMLElement* pOldSession = pOldRoot->FirstChildElement("EditorSession");
+		if(pOldSession)
+			pRoot->InsertFirstChild(pOldSession->DeepClone(pDoc));
+	}
 
 	mpEditor->GetPrefabManager()->SetPendingDoc(msFile, pDoc, abBroadcast);
 

@@ -125,6 +125,11 @@ local leveleditor = {
     "EditorWindowEntityEditBoxSubMesh.cpp", "EditorWindowEntityEditBoxBone.cpp",
     "EditorWindowEntityEditBoxBody.cpp", "EditorWindowEntityEditBoxBodyShape.cpp",
     "EditorWindowEntityEditBoxGroupShapes.cpp", "EditorWindowEntityEditBoxJoint.cpp",
+    -- Body (shape) + Joint creator edit modes and their subtype panels, so the
+    -- LevelEditor's scoped ent-file session can create/edit shapes and joints in
+    -- place (previously ModelEditor-only).
+    "EditorEditModeBodies.cpp", "EditorEditModeJoints.cpp",
+    "EditorWindowBodies.cpp", "EditorWindowJoints.cpp",
 }
 
 local modeleditor = {

@@ -139,7 +139,7 @@ public:
 
 		AddFloat(eLightFloat_Intensity, "Intensity", 1.0f);
 		AddFloat(eLightFloat_Radius, "Radius", 1.0f);
-		AddFloat(eLightFloat_SourceRadius, "SourceRadius", 1.0f);
+		AddFloat(eLightFloat_SourceRadius, "SourceRadius", 0.0f);
 		AddString(eLightStr_FalloffMap, "FalloffMap");
 		AddString(eLightStr_Gobo, "Gobo");
 		AddString(eLightStr_GoboAnimMode, "GoboAnimMode", "None");

@@ -513,11 +513,11 @@ void cEditorViewportCamera::FocusOnSelection(cEditorSelection* apSelection)
 			fMinBVSide = 1;
 
 		mvTargetPosition = bv.GetPosition();
-		mvCameraPosition = mvTargetPosition + vDir*fMinBVSide;
+		mvCameraPosition = mvTargetPosition - vDir*fMinBVSide;
 		int lCount = 0;
 		do
 		{
-			mvCameraPosition += vDir*fMinBVSide;
+			mvCameraPosition -= vDir*fMinBVSide;
 			mpEngineCamera->SetPosition(mvCameraPosition);
 			++lCount;
 		}while(BoundingVolumeFitsInView(bv)==false && lCount<10);
