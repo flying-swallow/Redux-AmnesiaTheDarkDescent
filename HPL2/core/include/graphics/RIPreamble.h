@@ -45,6 +45,18 @@
 // engine method names (e.g. iResourceManager::DestroyAll). Neutralize them here,
 // AFTER Vulkan is pulled in — the copies in the "macro anguish" prologue above run
 // before Vulkan and are therefore ineffective against X11.
+#ifdef LoadBitmap
+#undef LoadBitmap
+#endif
+#ifdef SendMessage
+#undef SendMessage
+#endif
+#ifdef CreateEvent
+#undef CreateEvent
+#endif
+#ifdef CreateWindow
+#undef CreateWindow
+#endif
 #ifdef DestroyAll
 #undef DestroyAll
 #endif
