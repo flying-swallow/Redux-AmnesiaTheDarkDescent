@@ -81,6 +81,7 @@ dofile "premake/deps/newton.lua"
 dofile "premake/deps/angelscript.lua"
 dofile "premake/deps/devil.lua"
 dofile "premake/deps/volk.lua"
+dofile "premake/deps/rhi.lua"   -- the extracted RI layer, now an external library
 dofile "premake/deps/oalwrapper.lua"
 -- MathLib is header-only (interface): no project, consumed via mathlib_use() in helpers.
 

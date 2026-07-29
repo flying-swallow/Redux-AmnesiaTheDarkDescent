@@ -133,8 +133,9 @@ function link_engine()
     links {
         "HPL2", "OALWrapper", "AngelScript", "Newton", "tinyxml2",
         "vorbisfile", "vorbis", "ogg", "freealut",
-        "zlib", "volk", "IL", "png", "jpeg",
+        "zlib", "volk", "rhi", "IL", "png", "jpeg",
     }
+    link_rhi()
     link_sdl2()
     link_openal()
     filter "system:linux"

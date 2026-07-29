@@ -43,3 +43,10 @@ newoption {
     value = "PATH",
     description = "Path to the cmake executable used to build SDL2 + openal-soft (default 'cmake' on PATH)."
 }
+
+newoption {
+    trigger = "rhi-dir",
+    value = "PATH",
+    description = "Path to the rhi-cpp checkout. Defaults to HPL2/extern/rhi if present, "
+        .. "otherwise a sibling ../rhi-cpp next to this repository."
+}

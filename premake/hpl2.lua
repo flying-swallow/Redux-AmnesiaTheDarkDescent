@@ -66,6 +66,7 @@ project "HPL2"
     }
     deps_public_includes()   -- ogg/vorbis/IL/Newton/OALWrapper public headers
     vulkan_includes()
+    link_rhi()      -- rhi headers + generated rhi/Config.h + links { "rhi" }
     link_sdl2()      -- SDL2 headers + link + dependson
     link_openal()    -- openal-soft headers + link + dependson
     mathlib_use()
@@ -75,7 +76,7 @@ project "HPL2"
     links {
         "OALWrapper", "AngelScript", "Newton", "tinyxml2",
         "vorbisfile", "vorbis", "ogg", "freealut",
-        "zlib", "volk", "IL", "png", "jpeg",
+        "zlib", "volk", "rhi", "IL", "png", "jpeg",
     }
 
     filter "system:linux"
