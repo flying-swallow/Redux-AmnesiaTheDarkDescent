@@ -1,0 +1,71 @@
+name: Windows Build
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        description: 'Build configuration: release or debug'
+        type: string
+        default: 'release'
+      premake_args:
+        description: 'Additional arguments forwarded to `premake5 vs2022`'
+        type: string
+        default: ''
+        required: false
+
+jobs:
+  windows:
+    name: "win-x86_64-${{ inputs.config }}"
+    runs-on: windows-2022
+    env:
+      CONFIG_NAME: "win-x86_64-${{ inputs.config }}"
+      BUILD_FOLDER: "${{ inputs.config == 'release' && 'Release' || 'Debug' }}"
+      # Keep in sync with the ARG in the repo-root Dockerfile.
+      PREMAKE_VERSION: "5.0.0-beta8"
+    steps:
+      # Must run before checkout: this tree has paths that exceed MAX_PATH.
+      - name: Enable long paths
+        run: git config --system core.longpaths true
+
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install premake5
+        run: |
+          curl.exe -fsSL -o "$env:RUNNER_TEMP\premake.zip" `
+            "https://github.com/premake/premake-core/releases/download/v$env:PREMAKE_VERSION/premake-$env:PREMAKE_VERSION-windows.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\premake.zip" -DestinationPath "$env:RUNNER_TEMP\premake" -Force
+          "$env:RUNNER_TEMP\premake" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Add msbuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      # premake5 downloads the pinned prebuilt slangc at configure time.
+      - name: Cache slangc
+        uses: actions/cache@v4
+        with:
+          path: build-premake/_deps/slang-prebuilt
+          key: slang-${{ runner.os }}-${{ hashFiles('premake/slang.lua') }}
+
+      # build-windows.ps1 uses vs2026 locally; hosted runners ship VS 2022 and
+      # premake5.lua pins no _ACTION, so vs2022 generates the same projects.
+      - name: Generate solution
+        run: premake5 vs2022 ${{ inputs.premake_args }}
+
+      - name: Build
+        run: msbuild build-premake\Amnesia.sln /p:Configuration=$env:BUILD_FOLDER /p:Platform=x64 /m /v:m
+
+      - name: Package
+        working-directory: build-premake\amnesia\${{ inputs.config == 'release' && 'Release' || 'Debug' }}
+        run: 7z a "$env:GITHUB_WORKSPACE\${env:CONFIG_NAME}.zip" * '-xr!*.lib' '-xr!*.exp'
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.CONFIG_NAME }}
+          path: ${{ env.CONFIG_NAME }}.zip
+          # Release keeps debug info, so this archive is large. Expire it
+          # quickly to stay inside the storage quota.
+          retention-days: 7

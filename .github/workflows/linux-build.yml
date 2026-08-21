@@ -1,0 +1,80 @@
+name: Linux Build
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        description: 'Build configuration: release or debug'
+        type: string
+        default: 'release'
+      premake_args:
+        description: 'Additional arguments forwarded to `premake5 gmake2`'
+        type: string
+        default: ''
+        required: false
+
+jobs:
+  linux:
+    name: "linux-x86_64-${{ inputs.config }}"
+    runs-on: ubuntu-24.04
+    env:
+      CONFIG_NAME: "linux-x86_64-${{ inputs.config }}"
+      # premake's cfg.buildcfg is capitalized; gmake2's `config=` is lowercase.
+      BUILD_FOLDER: "${{ inputs.config == 'release' && 'Release' || 'Debug' }}"
+      # Keep in sync with the ARG in the repo-root Dockerfile.
+      PREMAKE_VERSION: "5.0.0-beta8"
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # libwayland-dev/libdbus-1-dev are load-bearing: SDL2's CMake auto-enables
+      # those backends and hard-fails when the headers are missing. cmake is
+      # required even though this is not a CMake project -- SDL2 and openal-soft
+      # are built by driving their own CMake (premake/external.lua).
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build cmake zip \
+            libx11-dev libxext-dev libxi-dev libxcursor-dev libxrandr-dev libxss-dev \
+            libgl-dev libglu1-mesa-dev libegl1-mesa-dev \
+            libwayland-dev libxkbcommon-dev libdecor-0-dev \
+            libasound2-dev libpulse-dev libdbus-1-dev libsamplerate0-dev \
+            liblcms2-dev
+
+      - name: Install premake5
+        run: |
+          curl -fsSL -o /tmp/premake.tar.gz \
+            "https://github.com/premake/premake-core/releases/download/v${PREMAKE_VERSION}/premake-${PREMAKE_VERSION}-linux.tar.gz"
+          sudo tar -xzf /tmp/premake.tar.gz -C /usr/local/bin premake5
+          sudo chmod +x /usr/local/bin/premake5
+          premake5 --version
+
+      # premake5 downloads the pinned prebuilt slangc at configure time.
+      - name: Cache slangc
+        uses: actions/cache@v4
+        with:
+          path: build-premake/_deps/slang-prebuilt
+          key: slang-${{ runner.os }}-${{ hashFiles('premake/slang.lua') }}
+
+      - name: Generate makefiles
+        run: premake5 gmake2 ${{ inputs.premake_args }}
+
+      - name: Build
+        run: make -C build-premake config=${{ inputs.config }} -j"$(nproc)"
+
+      - name: Package
+        run: |
+          tar --exclude='*.a' -zcf "${CONFIG_NAME}.tar.gz" \
+            -C "build-premake/amnesia/${BUILD_FOLDER}" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.CONFIG_NAME }}
+          path: ${{ env.CONFIG_NAME }}.tar.gz
+          # Release keeps DWARF symbols (premake5.lua: symbols "On"), so this
+          # archive is ~570MB. Expire it quickly to stay inside the storage quota.
+          retention-days: 7

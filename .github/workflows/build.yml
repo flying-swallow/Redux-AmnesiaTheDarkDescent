@@ -1,58 +1,24 @@
-name: CI
+name: Build
 
-on: [push, pull_request]
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+# A full cold build of the engine + SDL2 + openal-soft is expensive; don't let
+# superseded pushes on the same ref pile up.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   linux:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            ninja-build cmake \
-            libx11-dev libxext-dev libxi-dev \
-            libgl-dev libglu1-mesa-dev \
-            libwayland-dev libxkbcommon-dev libegl1-mesa-dev \
-            libasound2-dev libpulse-dev
-      - name: Configure
-        run: |
-          cmake -S . -B build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DAMNESIA_GAME_DIRECTORY='' \
-            -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-      - name: Build
-        run: cmake --build build --parallel
-      - name: Upload Amnesia artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: amnesia-linux-x86_64-release
-          path: build
+    uses: ./.github/workflows/linux-build.yml
+    with:
+      config: release
 
   windows:
-    runs-on: windows-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
-      - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v2
-      - name: Configure
-        run: >
-          cmake -S . -B build
-          -G "Visual Studio 17 2022" -A x64 \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DAMNESIA_GAME_DIRECTORY='' \
-          -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-      - name: Build
-        run: msbuild build\ALL_BUILD.vcxproj /property:Configuration=Release /m
-      - name: Upload Amnesia artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: amnesia-win32-x86_64-release
-          path: build
+    uses: ./.github/workflows/windows-build.yml
+    with:
+      config: release
