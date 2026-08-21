@@ -51,6 +51,8 @@ class cEditorUserClassDefinitionManager;
 
 class cEditorInputFile;
 
+class cPrefabManager;
+
 typedef std::vector<cEditorWindowViewport*> tEditorViewportVec;
 
 //-----------------------------------------------------------
@@ -169,6 +171,15 @@ public:
 
 	void SetWorldModified() { mbWorldModified = true; }
 	iEditorWorld* GetEditorWorld() { return mpEditorWorld; }
+
+	// The world the user is CURRENTLY editing. Identical to GetEditorWorld() for
+	// every editor EXCEPT cLevelEditor, which overrides it to return the transient
+	// ent-file scope session's world while "scoped into" a placed model (see
+	// iEditorHostActions::IsEntFileScoped) so the shared edit machinery (edit modes,
+	// edit boxes, selection, actions, viewport picking) operates on the scoped
+	// sub-entities instead of the map. Non-scoping editors are unaffected — the
+	// override lives only on cLevelEditor to keep the blast radius minimal.
+	virtual iEditorWorld* GetActiveEditorWorld() { return GetEditorWorld(); }
 
 	void SetSelectionChanged() { mbSelectionChanged = true; }
 	cEditorSelection* GetSelection() { return mpSelection; }
@@ -362,6 +373,45 @@ public:
 	void SetSettingValue(const tString& asSetting, const tString& asValue) { mmapEditorSettings[asSetting] = asValue; }
 	const tString& GetSetting(const tString& asSetting) { return mmapEditorSettings[asSetting]; }
 
+	///////////////////////////////////
+	// MCP server hooks
+	// Default no-ops so the shared Options window can offer an MCP tab without
+	// knowing about MCP types. The LevelEditor overrides these (it owns the
+	// embedded MCP server); other editors leave SupportsMCP()==false.
+	virtual bool SupportsMCP() { return false; }
+	virtual void GetMCPState(bool& abEnabled, int& alPort, tString& asToken, tString& asStatus) {}
+	virtual void ApplyMCPConfig(bool abEnabled, int alPort, const tString& asToken) {}
+	virtual int GetMCPClientCount() { return 0; }
+	virtual tString GetMCPClientLabel(int alIdx) { return ""; }
+	virtual tString GetMCPClientSnippet(int alIdx) { return ""; }
+
+	// NOTE: the LevelEditor-only "external editor launch" (Open in Model/Particle
+	// Editor) and "ent-file scope" (Enter/Exit/IsScoped/ShowScopedEntityProperties)
+	// capabilities used to live here as no-op virtuals. They moved to the
+	// iEditorHostActions capability interface (common/EditorHostActions.h), which
+	// cLevelEditor implements — so the shared edit-box / sidebar widgets reach them
+	// via dynamic_cast and iEditorBase no longer carries editor-specific concepts.
+
+	// Called at the end of a successful Save(). Default no-op; the ModelEditor
+	// overrides it to notify the LevelEditor (over MCP) that the .ent changed.
+	virtual void OnPostSave() {}
+
+	// Pending in-memory entity files: the LevelEditor's MCP define_entity_file
+	// tool holds JSON-authored .ent documents in memory until the map is saved
+	// (they are then written to disk as XML). Common-layer entity loading
+	// (cEditorEntityLoader::LoadEntFile, GetTypeFromEntFile) consults this
+	// before hitting the resource index so pending entities load through the
+	// SAME path as on-disk ones. Default: no pending files.
+	virtual tinyxml2::XMLElement* GetPendingEntFileRoot(const tString& asFile) { return NULL; }
+
+	// Editor-wide prefab resource manager: the .ent "prefabs" referenced in the
+	// current map as refcounted resources (each placed cEntityWrapperEntity holds
+	// a SharedResourceHandle), their in-memory (MCP-editable) definitions, and
+	// the broadcast Event the editor world subscribes to. Created in Init just
+	// before the world and destroyed in ~iEditorBase just after it, so wrapper
+	// handles never outlive the manager.
+	cPrefabManager* GetPrefabManager() { return mpPrefabManager; }
+
 
 	///////////////////////////////////
 	// Execution Control
@@ -427,6 +477,10 @@ protected:
 	virtual void SetUpViewports();
 
 	virtual void OnUpdate(float afTimeStep){}
+	// App-specific hook run from OnDraw (inside the frame's command-recording
+	// window, after the scene render), alongside the thumbnail-builder pump.
+	// The LevelEditor drives its MCP off-screen camera capture here.
+	virtual void OnPostRender(float afTimeStep){}
 	virtual void AppGotInputFocus();
 
 	virtual void OnLoadConfig()=0;
@@ -495,6 +549,7 @@ protected:
 	cEditorSelection* mpSelection;
 	cEditorActionHandler* mpActionHandler;
 	cEditorUserClassDefinitionManager* mpClassDefManager;
+	cPrefabManager* mpPrefabManager;
 
 	tEditorWindowList mlstWindows;
 	tEditorWindowList mlstWindowsToDestroy;

@@ -99,7 +99,7 @@ bool cEditorWindowEntityEditFogArea::WindowSpecificInputCallback(iEditorInput* a
 
 	iEditorAction* pAction = NULL;
 	int lID = mpEntity->GetID();
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditor->GetActiveEditorWorld();
 
 	tString strFilename;
 

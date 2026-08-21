@@ -31,3 +31,6 @@
 [submodule "HPL2/dependencies/extern/vorbis"]
 	path = HPL2/extern/vorbis
 	url = https://github.com/xiph/vorbis.git
+[submodule "HPL2/dependencies/extern/rapidjson"]
+	path = HPL2/extern/rapidjson
+	url = https://github.com/Tencent/rapidjson.git

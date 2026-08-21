@@ -83,7 +83,7 @@ void cEditorEditModeDecals::OnViewportMouseUp(int alButtons)
 
 void cEditorEditModeDecals::OnEditorUpdate(float afTimeStep)
 {
-	cSurfacePicker* pPicker = mpEditor->GetEditorWorld()->GetSurfacePicker();
+	cSurfacePicker* pPicker = mpEditor->GetActiveEditorWorld()->GetSurfacePicker();
 	pPicker->Update();
 
 	cEditorWindowDecals* pWin = (cEditorWindowDecals*)mpWindow;
@@ -163,7 +163,7 @@ bool cEditorEditModeDecals::SetUpCreationData(iEntityWrapperData* apData)
 	tString sName = cString::Sub(sMatFilename, 0, lMatFileExtStartPos);
 	apData->SetName(sName);
 
-	cSurfacePicker* pPicker = mpEditor->GetEditorWorld()->GetSurfacePicker();
+	cSurfacePicker* pPicker = mpEditor->GetActiveEditorWorld()->GetSurfacePicker();
 
 	//////////////////////////////////////
 	// Set material

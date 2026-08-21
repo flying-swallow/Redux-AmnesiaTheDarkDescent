@@ -59,6 +59,9 @@ class cUIPickMethod : public iPickMethod
 {
 public:
 	cUIPickMethod();
+	// Virtual: ray/box pick methods are deleted through this base —
+	// non-virtual dtor = wrong-sized delete.
+	virtual ~cUIPickMethod() {}
 	void SetViewport(cEditorWindowViewport* apViewport) { mpViewport = apViewport; }
 	cPickData GetPickData();
 

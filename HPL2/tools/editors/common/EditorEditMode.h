@@ -75,6 +75,15 @@ public:
 	virtual void DrawPreGrid(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, const cVector3f& avPos);
 	virtual void DrawPostGrid(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, const cVector3f& avPos);
 
+	// The world this mode draws/edits. Defaults to the editor's active world
+	// (iEditorBase::GetActiveEditorWorld); the world-bound modes (object creators,
+	// Select) override it to their own bound world. DrawPostGrid iterates it, so a
+	// mode bound to a secondary world (e.g. the LevelEditor's scoped ent-file
+	// session) draws only that world's entities. This is MODE-INTERNAL plumbing:
+	// callers asking "which world is active?" should use GetActiveEditorWorld(),
+	// not this.
+	virtual iEditorWorld* GetEditModeWorld();
+
 protected:
 	///////////////////////////////
 	// Data
@@ -118,6 +127,9 @@ public:
 
 	virtual void DrawPostGrid(cEditorWindowViewport* apViewport, DebugDraw* apFunctions, const cVector3f& avPos);
 	virtual void DrawObjectPreview(cEditorWindowViewport* apViewport, DebugDraw *apFunctions, const cMatrixf& amtxTransform, bool abPreCreationActive){}
+
+	// Creator modes are bound to a specific world (mpEditorWorld); draw/pick against it.
+	virtual iEditorWorld* GetEditModeWorld();
 
 	void SetSubType(int alX) { mlSubType = alX; OnSetSubType(alX); }
 	int GetTypeNum();

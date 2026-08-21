@@ -159,7 +159,11 @@ cEntityWrapperBodyShape::cEntityWrapperBodyShape(iEntityWrapperData* apData) : i
 
 cEntityWrapperBodyShape::~cEntityWrapperBodyShape()
 {
-	if(mpParentBody)
+	// During a bulk world clear (ClearEntities) entities are destroyed in an
+	// unordered sweep, so mpParentBody may already be freed — skip the detach then,
+	// mirroring cEntityWrapperBody::~cEntityWrapperBody guarding ClearJoints() the
+	// same way. Normal (single-shape) deletion still detaches from the live body.
+	if(mpParentBody && GetEditorWorld()->IsClearingEntities()==false)
 		mpParentBody->RemoveComponent(this);
 }
 

@@ -62,6 +62,16 @@ public:
 	void ViewportMouseDown(cEditorWindowViewport* apViewport, int alButtons){}
 	void ViewportMouseUp(cEditorWindowViewport* apViewport, int alButtons){}
 
+	///////////////////////////
+	// LevelEditor launch integration (set by ParticleEditorMain from the command
+	// line when opened via the LevelEditor's "Edit in Particle Editor" button).
+	void SetStartupFile(const tString& asFile) { msStartupFile = asFile; }
+	void SetReloadNotifyEndpoint(int alPort, const tString& asToken) { mlNotifyPort = alPort; msNotifyToken = asToken; }
+
+	// Opens the startup .ps (if one was set) after Init(). Resolves the
+	// resource-relative path through the file searcher, then loads it.
+	void OpenStartupFile();
+
 protected:
 	///////////////////////////
 	// Own functions
@@ -73,6 +83,10 @@ protected:
 	void AppSpecificReset();
 	void AppSpecificLoad(tinyxml2::XMLElement* apDoc);
 	void AppSpecificSave(tinyxml2::XMLElement* apDoc);
+
+	// Fires after a successful Save(): push a live-reload notification to the
+	// LevelEditor that launched us (no-op when launched standalone).
+	void OnPostSave();
 
 	void UpdateMenu();
 	void UpdateEditMenu();
@@ -132,6 +146,13 @@ protected:
 	///////////////////////
 	// Config stuff
 	cConfigFile* mpLocalConfig;
+
+	///////////////////////
+	// LevelEditor sync (set from the command line when launched from the
+	// LevelEditor; all default/empty means we were opened standalone).
+	tString msStartupFile;   // resource-relative .ps to open + notify about
+	int     mlNotifyPort;    // LevelEditor MCP port (0 = no notify)
+	tString msNotifyToken;   // LevelEditor MCP bearer token (may be empty)
 };
 
 //----------------------------------------------------------

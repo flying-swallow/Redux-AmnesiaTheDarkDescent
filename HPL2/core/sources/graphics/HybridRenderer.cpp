@@ -30,7 +30,7 @@
 #include "scene/LightArea.h"
 #include "scene/LightSpot.h"
 #include "scene/ParticleEmitter.h"
-#include "scene/RenderableContainer.h"
+#include "scene/RenderableSet.h"
 #include "scene/World.h"
 #include "system/LowLevelSystem.h"
 
@@ -113,7 +113,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                  "vsMain"},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, gbuffer_bin,
                                  "psMain"}};
-      m_gbuffer.initialize(&mpGraphics->device, stages, externalLayouts);
+      m_gbuffer.initialize(&mpGraphics->device, stages, externalLayouts, "Hybrid.gbuffer");
     }
 
     auto loadComputeProgram = [&](RIProgram &prog, const char *name) {
@@ -121,7 +121,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::loadShaderStage(apResources->GetFileSearcher(), name);
       std::array<RIProgram::ModuleStage, 1> stages = {
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_COMPUTE, bin}};
-      prog.initialize(&mpGraphics->device, stages, externalLayouts);
+      prog.initialize(&mpGraphics->device, stages, externalLayouts, name);
     };
     // Compute load that passes the Slang entry-point name through to
     // ModuleStage.
@@ -131,7 +131,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
           RIProgram::loadShaderStage(apResources->GetFileSearcher(), name);
       std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
           RIProgram::PROGRAM_STAGE_COMPUTE, bin, entryPoint}};
-      prog.initialize(&mpGraphics->device, stages, externalLayouts);
+      prog.initialize(&mpGraphics->device, stages, externalLayouts, name);
     };
     // VBufferPomBary — compute pass that copies the raster V-buffer into
     // packedHitInfoTexture and applies parallax-occlusion barycentric
@@ -148,7 +148,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
       auto initFromBlob = [&](RIProgram &prog, const char *entryPoint) {
         std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
             RIProgram::PROGRAM_STAGE_COMPUTE, upd_bin, entryPoint}};
-        prog.initialize(&mpGraphics->device, stages, externalLayouts);
+        prog.initialize(&mpGraphics->device, stages, externalLayouts, entryPoint);
       };
       initFromBlob(m_surfelUpdateCollect, "collectCellInfo");
       initFromBlob(m_surfelUpdateAccumulate, "accumulateCellInfo");
@@ -169,7 +169,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                  "scatterCloseHit"},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_ANY_HIT, rt_bin,
                                  "scatterAnyHit"}};
-      m_surfelRT.initialize(&mpGraphics->device, stages, externalLayouts);
+      m_surfelRT.initialize(&mpGraphics->device, stages, externalLayouts, "Hybrid.surfelRT");
     }
     // LightGridBuildPass — single compute entry (binLights) that bins
     // point/spot lights into the coarse world-space light grid each frame.
@@ -196,7 +196,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                  "vsMain"},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, p_frag,
                                  "psMain"}};
-      m_particle.initialize(&mpGraphics->device, stages, externalLayouts);
+      m_particle.initialize(&mpGraphics->device, stages, externalLayouts, "Hybrid.particle");
     }
     {
       // Translucent mesh pass (amnesia/slang/Translucent). Shares
@@ -211,7 +211,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                  "vsMain"},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, t_frag,
                                  "psMain"}};
-      m_translucentMesh.initialize(&mpGraphics->device, stages, externalLayouts);
+      m_translucentMesh.initialize(&mpGraphics->device, stages, externalLayouts, "Hybrid.translucentMesh");
     }
     {
       // Decal pass (amnesia/slang/Decal). Reuses the translucent 5-stream
@@ -225,7 +225,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                  "vsMain"},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, d_frag,
                                  "psMain"}};
-      m_decal.initialize(&mpGraphics->device, stages, externalLayouts);
+      m_decal.initialize(&mpGraphics->device, stages, externalLayouts, "Hybrid.decal");
     }
     {
       auto w_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
@@ -237,7 +237,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
                                  "vsMain"},
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, w_frag,
                                  "psMain"}};
-      m_water.initialize(&mpGraphics->device, stages, externalLayouts);
+      m_water.initialize(&mpGraphics->device, stages, externalLayouts, "Hybrid.water");
     }
 
     RISegmentAllocDesc indirectDesc = {};
@@ -543,9 +543,9 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   {
     m_rendererList.BeginAndReset(afFrameTime, apFrustum);
     auto *dynamicContainer =
-        apWorld->GetRenderableContainer(eWorldContainerType_Dynamic);
+        apWorld->GetRenderableSet(eWorldContainerType_Dynamic);
     auto *staticContainer =
-        apWorld->GetRenderableContainer(eWorldContainerType_Static);
+        apWorld->GetRenderableSet(eWorldContainerType_Static);
     dynamicContainer->UpdateBeforeRendering();
     staticContainer->UpdateBeforeRendering();
 
@@ -1825,9 +1825,13 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
     auto renderDecalAccumulator = [&](RITexture *tex, const RITextureView &view,
                                       const float clearRGBA[4],
                                       const std::vector<iRenderable *> &list) {
+      // Dst stage hint deliberately NONE: RENDER_TARGET must sync against
+      // COLOR_ATTACHMENT_OUTPUT (derived from the state), not FRAGMENT_SHADER —
+      // an explicit FRAGMENT hint here pairs COLOR_ATTACHMENT_WRITE access with
+      // a stage that doesn't support it (VUID-VkImageMemoryBarrier2-dstAccessMask-03911).
       mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
           {tex, RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_RENDER_TARGET,
-           RI_STAGE_NONE, RI_STAGE_FRAGMENT});
+           RI_STAGE_NONE, RI_STAGE_NONE});
 
       RIRenderingAttachment color = {};
       color.view = view;

@@ -118,7 +118,7 @@ void cEditorWindowEntityEditBoxBodyShape::AddButtonBody(cWidgetTab* apParentTab)
 bool cEditorWindowEntityEditBoxBodyShape::Button_OnPressed(iWidget* apWidget, const cGuiMessageData& aData)
 {
 	cEntityWrapperBody* pParentBody = mpEntity->GetParentBody();
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditMode->GetEditorWorld();
 	tIntList& lstShapeIDs = mpEditor->GetSelection()->GetEntityIDs();
 
 	iEditorAction* pAction = NULL;

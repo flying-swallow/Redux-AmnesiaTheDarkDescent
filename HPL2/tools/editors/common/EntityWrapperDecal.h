@@ -218,8 +218,8 @@ protected:
 	/**
 	 * Helper func to cast out unwanted geometry (decal-creator placement preview)
 	 */
-	static void IterateRenderableNode(iRenderableContainerNode *apNode, cDecalCreator* apCreator,
-										bool abAffectStaticObject, bool abAffectPrimitive, bool abAffectEntity);
+	static void IterateRenderables(cRenderableSet *apSet, cDecalCreator* apCreator,
+									bool abAffectStaticObject, bool abAffectPrimitive, bool abAffectEntity);
 
 	tString msMaterial;
 	float mfOffset;

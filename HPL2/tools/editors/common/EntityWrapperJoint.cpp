@@ -455,15 +455,20 @@ void iEntityWrapperJoint::SetChildBody(cEntityWrapperBody* apBody, bool abRemove
 
 void iEntityWrapperJoint::SetParentBodyByID(int alX)
 {
+	// id<0 is an explicit "no connection" (clear the link). A real id that fails to
+	// resolve must NOT clobber the existing link — otherwise a transient lookup miss
+	// (e.g. a redirected body id) silently detaches the joint and gets saved as -1.
+	if(alX<0) { SetParentBody(NULL); return; }
 	iEntityWrapper* pBody = GetEditorWorld()->GetEntity(alX);
-	if(pBody==NULL || pBody->GetTypeID()==eEditorEntityType_Body)
+	if(pBody && pBody->GetTypeID()==eEditorEntityType_Body)
 		SetParentBody((cEntityWrapperBody*)pBody);
 }
 
 void iEntityWrapperJoint::SetChildBodyByID(int alX)
 {
+	if(alX<0) { SetChildBody(NULL); return; }
 	iEntityWrapper* pBody = GetEditorWorld()->GetEntity(alX);
-	if(pBody==NULL || pBody->GetTypeID()==eEditorEntityType_Body)
+	if(pBody && pBody->GetTypeID()==eEditorEntityType_Body)
 		SetChildBody((cEntityWrapperBody*)pBody);
 }
 

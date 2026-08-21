@@ -37,6 +37,7 @@ project "HPL2"
         "SDLFontData.cpp", "LowLevelSoundOpenAL.cpp", "OpenAL*",
         "MeshLoaderCollada.cpp", "MeshLoaderColladaHelpers.cpp",
         "MeshLoaderColladaLoader.cpp", "MeshLoaderMSH.cpp", "MeshLoaderFBX.cpp",
+        "MeshLoaderGLTF.cpp",
         "ThreadSDL.cpp", "MutexSDL.cpp", "VertexBuffer.cpp",
     }
     for _, p in ipairs(impl_patterns) do table.insert(patterns, IMPL .. p) end
@@ -48,6 +49,11 @@ project "HPL2"
         files (glob { IMPL .. "PlatformUnix.cpp", IMPL .. "PlatformSDL.cpp" })
     filter "system:windows"
         files (glob { IMPL .. "PlatformWin32.cpp", IMPL .. "MutexWin32.cpp", IMPL .. "ThreadWin32.cpp" })
+    filter "system:macosx"
+        -- macOS is not currently built/verified in this setup; PlatformMacOSX.mm
+        -- (Cocoa + FSEvents file watcher) pairs with the SDL thread/mutex/timer impls.
+        files (glob { IMPL .. "PlatformMacOSX.mm", IMPL .. "PlatformSDL.cpp" })
+        links { "CoreServices.framework" }   -- FSEvents (cFileWatcherFSEvents)
     filter {}
 
     -- BuildID_HPL2_0.h is committed under core/include and only referenced from
@@ -63,6 +69,7 @@ project "HPL2"
         DEPS_SOURCES .. "/AngelScript/include",
         DEPS_EXTERN .. "/tinyxml2",
         DEPS_EXTERN .. "/zlib",             -- zlib.h/zconf.h for BinaryBuffer/SerializeClass
+        DEPS_EXTERN .. "/cgltf",            -- cgltf.h single-header glTF 2.0 parser (MeshLoaderGLTF)
     }
     deps_public_includes()   -- ogg/vorbis/IL/Newton/OALWrapper public headers
     vulkan_includes()

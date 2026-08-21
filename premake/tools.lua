@@ -27,14 +27,18 @@ local function editor_includes()
         ROOT .. "/amnesia/glsl",
         DEPS_SOURCES .. "/AngelScript/include",
         DEPS_EXTERN .. "/tinyxml2",
+        DEPS_EXTERN .. "/rapidjson/include", -- RapidJSON submodule (header-only, MCP server)
+        DEPS_EXTERN .. "/httplib",    -- cpp-httplib (header-only, MCP server)
     }
     deps_public_includes()
     vulkan_includes()
     mathlib_use()
-    defines { "USERDIR_RESOURCES" }
+    defines { "USERDIR_RESOURCES", "RAPIDJSON_HAS_STDSTRING=1" }
     link_engine()
     filter "system:linux"
         linkoptions { "-Wl,-rpath,'$$ORIGIN/libs'", "-Wl,-rpath,'$$ORIGIN'" }
+    filter "system:windows"
+        links { "ws2_32" }            -- cpp-httplib (LevelEditor MCP server) needs Winsock
     filter {}
 end
 
@@ -101,9 +105,31 @@ local leveleditor = {
     "EntityWrapperStaticObject.cpp", "SphereCreator.cpp", "StdAfx.cpp",
     "SurfacePicker.cpp",
     "LevelEditor.cpp", "LevelEditorActions.cpp", "LevelEditorMain.cpp",
+    "LevelEditorMCPServer.cpp", "LevelEditorMCPCommands.cpp",
+    "LevelEditorCameraCapture.cpp",
     "LevelEditorStaticObjectCombo.cpp", "LevelEditorWindow.cpp",
-    "LevelEditorWindowGroup.cpp", "LevelEditorWindowLevelSettings.cpp",
+    "LevelEditorWindowGroup.cpp", "LevelEditorWindowHierarchy.cpp",
+    "LevelEditorWindowLevelSettings.cpp",
+    "LevelEditorEntFileSession.cpp",
     "LevelEditorWorld.cpp",
+    "EditorFileWatcher.cpp", "PrefabManager.cpp",
+    -- Headless .ent authoring for the MCP create_entity_file tool: the
+    -- ModelEditor's document class + the wrapper/editbox TUs it links against.
+    "ModelEditorWorld.cpp",
+    "EntityWrapperSubMesh.cpp", "EntityWrapperBone.cpp",
+    "EntityWrapperBody.cpp", "EntityWrapperBodyShape.cpp",
+    "EntityWrapperJoint.cpp", "EntityWrapperJointBall.cpp",
+    "EntityWrapperJointHinge.cpp", "EntityWrapperJointScrew.cpp",
+    "EntityWrapperJointSlider.cpp",
+    "EditorActionsBodies.cpp", "EditorActionsSubMesh.cpp",
+    "EditorWindowEntityEditBoxSubMesh.cpp", "EditorWindowEntityEditBoxBone.cpp",
+    "EditorWindowEntityEditBoxBody.cpp", "EditorWindowEntityEditBoxBodyShape.cpp",
+    "EditorWindowEntityEditBoxGroupShapes.cpp", "EditorWindowEntityEditBoxJoint.cpp",
+    -- Body (shape) + Joint creator edit modes and their subtype panels, so the
+    -- LevelEditor's scoped ent-file session can create/edit shapes and joints in
+    -- place (previously ModelEditor-only).
+    "EditorEditModeBodies.cpp", "EditorEditModeJoints.cpp",
+    "EditorWindowBodies.cpp", "EditorWindowJoints.cpp",
 }
 
 local modeleditor = {
@@ -153,6 +179,7 @@ local modeleditor = {
     "ModelEditorMain.cpp", "ModelEditorWindowAnimations.cpp",
     "ModelEditorWindowOutline.cpp", "ModelEditorWindowPhysicsTest.cpp",
     "ModelEditorWindowUserSettings.cpp", "ModelEditorWorld.cpp",
+    "EditorFileWatcher.cpp", "PrefabManager.cpp", "ModelEditorReloadNotify.cpp",
 }
 
 local particleeditor = {
@@ -179,6 +206,7 @@ local particleeditor = {
     "ParticleEditorActions.cpp", "ParticleEditorMain.cpp",
     "ParticleEditorWindowEmitterParams.cpp", "ParticleEditorWindowEmitters.cpp",
     "ParticleEditorWorld.cpp",
+    "EditorFileWatcher.cpp", "PrefabManager.cpp", "ParticleEditorReloadNotify.cpp",
 }
 
 local materialeditor = {
@@ -202,6 +230,7 @@ local materialeditor = {
     "EngineEntity.cpp", "EntityIcon.cpp", "EntityPicker.cpp", "EntityWrapper.cpp",
     "EntityWrapperCompoundObject.cpp", "StdAfx.cpp", "SurfacePicker.cpp",
     "MaterialEditor.cpp", "MaterialEditorMain.cpp",
+    "EditorFileWatcher.cpp", "PrefabManager.cpp",
 }
 
 editor_target("LevelEditor",    "leveleditor",    leveleditor)

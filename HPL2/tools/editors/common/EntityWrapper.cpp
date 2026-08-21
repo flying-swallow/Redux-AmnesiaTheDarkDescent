@@ -38,15 +38,17 @@
 
 #include "EntityIcon.h"
 #include "EngineEntity.h"
+#include "EditorFileWatcher.h"
 
 #include "resources/XmlHelper.h"
+#include "system/Hasher.h"
 #include <tinyxml2.h>
 
 #include <algorithm>
 
 //------------------------------------------------------------------
 
-tVertexVec iEntityWrapper::mvArrowQuads[4] = 
+tVertexVec iEntityWrapper::mvArrowQuads[4] =
 {
 	tVertexVec(4),
 	tVertexVec(4),
@@ -56,11 +58,20 @@ tVertexVec iEntityWrapper::mvArrowQuads[4] =
 
 //------------------------------------------------------------------
 
-///////////////////////////////////////////////////////////////////
-// PROPERTY WRAPPERS
-///////////////////////////////////////////////////////////////////
+tString GUIDToHex(unsigned long long alGUID)
+{
+	if(alGUID==0) return "";
 
-//------------------------------------------------------------------
+	char buf[17];
+	snprintf(buf, sizeof(buf), "%016llx", alGUID);
+	return buf;
+}
+
+unsigned long long GUIDFromHex(const tString& asHex)
+{
+	return asHex.empty() ? 0 : strtoull(asHex.c_str(), NULL, 16);
+}
+
 
 iPropVal::iPropVal(iProp* apProp)
 {
@@ -384,6 +395,7 @@ iEntityWrapperType::iEntityWrapperType(int alID, const tWString& asName, const t
 
 	AddString(eObjStr_Name, "Name", cString::To8Char(msName), ePropCopyStep_PreEnt);
 	AddString(eObjStr_Tag, "Tag");
+	AddString(eObjStr_GUID, "GUID", "", ePropCopyStep_PreEnt);
 
 	AddBool(eObjBool_Active, "Active");
 
@@ -969,6 +981,11 @@ int iEntityWrapperData::GetID()
 	return GetInt(eObjInt_ID);
 }
 
+unsigned long long iEntityWrapperData::GetGUID()
+{
+	return GUIDFromHex(GetString(eObjStr_GUID));
+}
+
 const tString& iEntityWrapperData::GetName()
 {
 	return GetString(eObjStr_Name);
@@ -977,6 +994,11 @@ const tString& iEntityWrapperData::GetName()
 void iEntityWrapperData::SetID(int alX)
 {
 	SetInt(eObjInt_ID, alX);
+}
+
+void iEntityWrapperData::SetGUID(unsigned long long alX)
+{
+	SetString(eObjStr_GUID, GUIDToHex(alX));
 }
 
 void iEntityWrapperData::SetName(const tString& asX)
@@ -1047,6 +1069,8 @@ iEntityWrapper::iEntityWrapper(iEntityWrapperData* apData)
 {
 	mpData = apData;
 	mpType = mpData->GetType();
+
+	mlGUID = 0;
 
 	mpUserData = NULL;
 	mpExtData = NULL;
@@ -1124,6 +1148,11 @@ bool iEntityWrapper::Create()
 
 	UpdateEntity();
 
+	// Start watching the files this entity depends on for live reload.
+	// (Prefab edits need no per-entity registration: the prefab cache
+	// broadcasts and the WORLD reloads matching instances by filename scan.)
+	RegisterFileWatches();
+
 	return true;
 }
 
@@ -1179,6 +1208,7 @@ iEntityWrapper* iEntityWrapper::Clone(const tIntVec& avIDs, bool abDeleteData)
 	iEntityWrapperData* pCloneData = CreateCopyData();
 
 	pCloneData->SetID(avIDs.back());
+	pCloneData->SetGUID(0); // clones get a fresh GUID (assigned by CreateEntityWrapperFromData)
 	pCloneData->SetName(GetEditorWorld()->GenerateName(msName));
 
 	SetUpCloneData(pCloneData, avIDs);
@@ -1750,8 +1780,84 @@ bool iEntityWrapper::CreateEngineEntity()
 
 //------------------------------------------------------------------
 
+void iEntityWrapper::DestroyEngineEntity()
+{
+	if(mpEngineEntity)
+	{
+		hplDelete(mpEngineEntity);
+		mpEngineEntity = NULL;
+	}
+}
 
 //------------------------------------------------------------------
+
+void iEntityWrapper::GetWatchedFiles(std::vector<tWString>& avOut)
+{
+	iEditorWorld* pWorld = GetEditorWorld();
+
+	//////////////////////////////////////////////////////////
+	// Top-level source file (.ent for entities, mesh for static objects).
+	if(msFilename.empty()==false)
+	{
+		cFileSearcher* pFS = pWorld->GetEditor()->GetEngine()->GetResources()->GetFileSearcher();
+		tWString sFull = pFS->GetFilePath(msFilename);
+		if(sFull.empty()==false)
+			avOut.push_back(sFull);
+	}
+
+	//////////////////////////////////////////////////////////
+	// Full dependency chain: mesh -> materials -> textures. The resolved
+	// resources already carry their absolute paths, so no lookup is needed.
+	cEditorFileWatcher* pWatcher = pWorld->GetFileWatcher();
+	if(pWatcher==NULL || pWatcher->GetWatchDependencies()==false)
+		return;
+
+	cMeshEntity* pMeshEnt = GetMeshEntity();
+	cMesh* pMesh = pMeshEnt ? pMeshEnt->GetMesh() : NULL;
+	if(pMesh==NULL)
+		return;
+
+	if(pMesh->GetFullPath().empty()==false)
+		avOut.push_back(pMesh->GetFullPath());
+
+	for(int i=0; i<pMesh->GetSubMeshNum(); ++i)
+	{
+		cSubMesh* pSub = pMesh->GetSubMesh(i);
+		cMaterial* pMat = pSub ? pSub->GetMaterial() : NULL;
+		if(pMat==NULL)
+			continue;
+
+		if(pMat->GetFullPath().empty()==false)
+			avOut.push_back(pMat->GetFullPath());
+
+		for(int t=0; t<eMaterialTexture_LastEnum; ++t)
+		{
+			Image* pImg = pMat->GetImage((eMaterialTexture)t);
+			if(pImg && pImg->GetFullPath().empty()==false)
+				avOut.push_back(pImg->GetFullPath());
+		}
+	}
+}
+
+//------------------------------------------------------------------
+
+void iEntityWrapper::RegisterFileWatches()
+{
+	cEditorFileWatcher* pWatcher = GetEditorWorld()->GetFileWatcher();
+	if(pWatcher==NULL)
+		return;
+
+	// Clean re-sync: drop any previous watches for this entity first, so this
+	// is safe to call again after a filename change or a reload that altered
+	// the dependency set.
+	pWatcher->UnregisterEntity(mlID);
+
+	std::vector<tWString> vFiles;
+	GetWatchedFiles(vFiles);
+
+	for(size_t i=0; i<vFiles.size(); ++i)
+		pWatcher->RegisterEntity(mlID, vFiles[i]);
+}
 
 //------------------------------------------------------------------
 
@@ -1831,6 +1937,9 @@ bool iEntityWrapper::GetProperty(int alPropID, tString& asX)
 		break;
 	case eObjStr_Tag:
 		asX = GetTag();
+		break;
+	case eObjStr_GUID:
+		asX = GUIDToHex(mlGUID);
 		break;
 	default:
 		return false;
@@ -1916,6 +2025,15 @@ bool iEntityWrapper::SetProperty(int alPropID, const tString& asX)
 	case eObjStr_Tag:
 		SetTag(asX);
 		break;
+	case eObjStr_GUID:
+	{
+		// 0/absent = no opinion: keep the current GUID (protects XML edits
+		// that omit the attribute from wiping it)
+		unsigned long long lGUID = GUIDFromHex(asX);
+		if(lGUID!=0)
+			mlGUID = lGUID;
+		break;
+	}
 	default:
 		return false;
 	}
@@ -2687,12 +2805,37 @@ void iEntityWrapperAggregate::UpdateEntity()
 	tEntityWrapperListIt itEnts = mlstComponents.begin();
 	tMatrixfListIt itRelMtx = mlstRelMatrices.begin();
 
+	// Parent (aggregate) scale from the 3x3 column lengths. A non-uniform parent scale
+	// combined with a rotated component produces a SHEARED world matrix, and
+	// SetWorldMatrix recovers scale via column lengths (which can't represent shear) —
+	// so the component's absolute Scale would drift a little on every save. When the
+	// parent scale is non-uniform we pin the component scale to the stable component-wise
+	// product (parentScale (x) relScale), the same invariant the runtime loader uses.
+	// This is an exact no-op for axis-aligned components, so common data is unchanged.
+	cVector3f vParentScale(mmtxTransform.GetRight().Length(),
+						   mmtxTransform.GetUp().Length(),
+						   mmtxTransform.GetForward().Length());
+	bool bParentScaleNonUniform =
+		cMath::Abs(vParentScale.x-vParentScale.y)>1e-4f ||
+		cMath::Abs(vParentScale.y-vParentScale.z)>1e-4f ||
+		cMath::Abs(vParentScale.x-vParentScale.z)>1e-4f;
+
 	for(;itEnts!=mlstComponents.end();++itEnts, ++itRelMtx)
 	{
 		iEntityWrapper* pEnt = *itEnts;
 		cMatrixf mtxRelMatrix = *itRelMtx;
-		
+
 		pEnt->SetWorldMatrix(cMath::MatrixMul(mmtxTransform,mtxRelMatrix));
+
+		if(bParentScaleNonUniform)
+		{
+			cVector3f vRelScale(mtxRelMatrix.GetRight().Length(),
+								mtxRelMatrix.GetUp().Length(),
+								mtxRelMatrix.GetForward().Length());
+			pEnt->SetAbsScale(cVector3f(vParentScale.x*vRelScale.x,
+										vParentScale.y*vRelScale.y,
+										vParentScale.z*vRelScale.z));
+		}
 
 		pEnt->UpdateEntity();
 	}

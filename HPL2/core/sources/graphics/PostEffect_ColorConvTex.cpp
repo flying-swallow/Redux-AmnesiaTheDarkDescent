@@ -47,7 +47,9 @@ cPostEffectType_ColorConvTex::cPostEffectType_ColorConvTex(
                       "posteffect_color_conv.frag.spv");
 }
 
-cPostEffectType_ColorConvTex::~cPostEffectType_ColorConvTex() {}
+cPostEffectType_ColorConvTex::~cPostEffectType_ColorConvTex() {
+  m_program.dispose(&mpGraphics->device);
+}
 
 iPostEffect *
 cPostEffectType_ColorConvTex::CreatePostEffect(iPostEffectParams *apParams) {

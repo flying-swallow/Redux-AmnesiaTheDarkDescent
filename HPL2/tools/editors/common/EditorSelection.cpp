@@ -20,6 +20,7 @@
 #include "EditorSelection.h"
 
 #include "EditorWorld.h"
+#include "EditorEditMode.h"
 #include "EntityWrapper.h"
 
 #include <algorithm>
@@ -42,6 +43,18 @@ cEditorSelection::cEditorSelection(iEditorBase* apEditor)
 	mpEditor = apEditor;
 
 	ClearEntities();
+}
+
+//----------------------------------------------------------------------
+
+iEditorWorld* cEditorSelection::GetActiveWorld()
+{
+	// Selection follows the editor's active (scope-state) world: the map world, or
+	// the scoped ent-file session's world while scoped. During scope ENTER the map
+	// selection is cleared BEFORE the scope flag flips (see
+	// cLevelEditor::DoEnterEntFileScope), so this resolves to the map there; during
+	// scope EXIT the flag is still set, so it resolves to the session — both correct.
+	return mpEditor->GetActiveEditorWorld();
 }
 
 //----------------------------------------------------------------------
@@ -115,7 +128,7 @@ void cEditorSelection::ClearEntities()
 	for(;it!=mlstEntities.end();++it)
 	{
 		iEntityWrapper* pEnt = *it;
-		if(mpEditor->GetEditorWorld()->HasEntity(pEnt))
+		if(GetActiveWorld()->HasEntity(pEnt))
 			pEnt->SetSelected(false);
 	}
 	mlstEntities.clear();
@@ -168,7 +181,7 @@ bool cEditorSelection::HasEntity(iEntityWrapper* apEntity, tEntityWrapperListIt*
 
 void cEditorSelection::AddEntitiesByID(const tIntList& alstIDs)
 {
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = GetActiveWorld();
 
 	ClearEntities();
 
@@ -182,7 +195,7 @@ void cEditorSelection::AddEntitiesByID(const tIntList& alstIDs)
 
 void cEditorSelection::RemoveEntitiesByID(const tIntList& alstIDs)
 {
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = GetActiveWorld();
 
 	tIntList::const_iterator it = alstIDs.begin();
 	for(;it!=alstIDs.end();++it)
@@ -194,7 +207,7 @@ void cEditorSelection::RemoveEntitiesByID(const tIntList& alstIDs)
 
 void cEditorSelection::ToggleEntitySelectionByID(const tIntList& alstIDs)
 {
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = GetActiveWorld();
 
 	tIntList::const_iterator it = alstIDs.begin();
 	for(;it!=alstIDs.end();++it)

@@ -48,6 +48,9 @@ class iEditorVar
 {
 public:
 	iEditorVar(eVariableType aType);
+	// Virtual: vars are typed subclasses deleted through this base (class
+	// definition teardown) — non-virtual dtor = wrong-sized delete.
+	virtual ~iEditorVar() {}
 
 	virtual bool Create(tinyxml2::XMLElement* apElement);
 
@@ -435,7 +438,12 @@ class cEditorClassInstance
 {
 public:
 	cEditorClassInstance(iEditorClass* apClass);
-	~cEditorClassInstance();
+	// Virtual: instances are created as cEditorUserClassInstance (48 bytes) and
+	// deleted through this base pointer everywhere (wrapper data, ModelEditor
+	// world, edit boxes). A non-virtual dtor made every such delete UB — and
+	// with GCC's sized deallocation, a wrong-sized free that corrupts the glibc
+	// heap (caught by ASan as new-delete-type-mismatch).
+	virtual ~cEditorClassInstance();
 
 	iEditorClass* GetClass() { return mpClass; }
 

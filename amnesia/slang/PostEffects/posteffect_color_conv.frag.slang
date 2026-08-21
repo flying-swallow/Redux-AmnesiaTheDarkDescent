@@ -8,7 +8,14 @@
 // Bindings (set 0):
 //   binding 0 : SamplerState inputSampler
 //   binding 1 : Texture2D<float4> sourceInput
-//   binding 2 : Texture1D<float4> colorConv
+//   binding 2 : Texture2D<float4> colorConv
+//
+// The LUT is a 256x1 horizontal ramp. cTexture::LoadBitmap creates every
+// bitmap as a 2D image with a VK_IMAGE_VIEW_TYPE_2D view (so it stays
+// compatible with the bindless textures_2d[] array), so colorConv must be
+// sampled as a Texture2D — binding a 2D view into a Texture1D slot fails
+// VUID-vkCmdDraw-viewType-07752. The color value drives u; v is the row
+// center (0.5) of the single-row LUT.
 
 [vk::binding(0, 0)]
 SamplerState inputSampler;
@@ -17,7 +24,7 @@ SamplerState inputSampler;
 Texture2D<float4> sourceInput;
 
 [vk::binding(2, 0)]
-Texture1D<float4> colorConv;
+Texture2D<float4> colorConv;
 
 struct ColorConvPC
 {
@@ -37,9 +44,9 @@ float4 psMain(PSIn pin) : SV_Target
 {
     float3 diffuseColor = sourceInput.Sample(inputSampler, pin.v_uv).rgb;
     float3 outputColor  = float3(
-        colorConv.Sample(inputSampler, diffuseColor.x).x,
-        colorConv.Sample(inputSampler, diffuseColor.y).y,
-        colorConv.Sample(inputSampler, diffuseColor.z).z);
+        colorConv.Sample(inputSampler, float2(diffuseColor.x, 0.5f)).x,
+        colorConv.Sample(inputSampler, float2(diffuseColor.y, 0.5f)).y,
+        colorConv.Sample(inputSampler, float2(diffuseColor.z, 0.5f)).z);
     return float4(outputColor * pc.alphaFade
                   + diffuseColor * (1.0f - pc.alphaFade),
                   1.0f);

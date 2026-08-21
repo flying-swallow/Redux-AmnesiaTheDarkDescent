@@ -38,6 +38,10 @@ protected:
 
 	bool WindowSpecificInputCallback(iEditorInput* apInput);
 
+	// MCP tab: raw Copy/Restart buttons need their own click callback.
+	bool MCPButtonCallback(iWidget* apWidget, const cGuiMessageData& aData);
+	kGuiCallbackDeclarationEnd(MCPButtonCallback);
+
 
 	///////////////////////////////////
 	// Layout
@@ -69,6 +73,15 @@ protected:
 	cEditorInputEnum* mpInpTextureQuality;
 
 	cEditorInputVec2* mpInpCamPlanes;
+
+	// MCP (only created when mpEditor->SupportsMCP(); NULL otherwise)
+	cEditorInputBool*   mpInpMCPEnabled;
+	cEditorInputNumber* mpInpMCPPort;
+	cEditorInputText*   mpInpMCPToken;
+	cWidgetLabel*       mpMCPStatusLabel;
+	cWidgetButton*      mpMCPRestartButton;
+	cWidgetTextBox*     mpMCPPreview;
+	std::vector<cWidgetButton*> mvMCPCopyButtons;
 };
 
 //------------------------------------------------------------

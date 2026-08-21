@@ -201,7 +201,7 @@ bool cEditorWindowEntityEditBoxDecal::WindowSpecificInputCallback(iEditorInput* 
 		return true;
 
 	iEditorAction* pAction = NULL;
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditor->GetActiveEditorWorld();
 	int lID = mpEntity->GetID();
 
 	if(apInput==mpInpMaterial)

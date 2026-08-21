@@ -89,6 +89,40 @@ protected:
 //--------------------------------------------------------------------
 
 ////////////////////////////////////////////////////////////
+// ENTITY SET DATA ACTION
+////////////////////////////////////////////////////////////
+
+//--------------------------------------------------------------------
+
+// Applies a full iEntityWrapperData snapshot onto an EXISTING placed entity
+// IN PLACE — the wrapper object is kept (so ID, group membership, selection and
+// any other references survive), only its engine entity is torn down and rebuilt
+// from the new data (the same sequence iEditorWorld::ReloadEntities uses). Undo
+// restores the pre-edit snapshot. Used by the MCP set_entity tool to apply an
+// edited version of an entity's XML. The new data must be of the entity's own
+// type (the caller checks) and carry the entity's existing ID.
+class cEditorActionEntitySetData : public iEditorActionWorldModifier
+{
+public:
+	// Takes ownership of apNewData; snapshots the entity's current data for undo.
+	cEditorActionEntitySetData(iEditorWorld* apEditorWorld, int alID, iEntityWrapperData* apNewData);
+	~cEditorActionEntitySetData();
+
+	void DoModify();
+	void UndoModify();
+protected:
+	void ApplyData(iEntityWrapperData* apData);
+
+	//////////////////////////////////
+	// Data
+	int mlID;
+	iEntityWrapperData* mpNewData;
+	iEntityWrapperData* mpOldData;
+};
+
+//--------------------------------------------------------------------
+
+////////////////////////////////////////////////////////////
 // ENTITY DELETE ACTION
 ////////////////////////////////////////////////////////////
 

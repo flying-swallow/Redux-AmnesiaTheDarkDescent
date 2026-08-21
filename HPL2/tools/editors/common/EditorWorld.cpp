@@ -20,10 +20,13 @@
 #include "EditorWorld.h"
 #include "EditorBaseClasses.h"
 #include "EntityWrapper.h"
+#include "EntityWrapperParticleSystem.h"
 #include "EntityPicker.h"
 #include "SurfacePicker.h"
 #include "EditorClipPlane.h"
 #include "EditorHelper.h"
+#include "EditorFileWatcher.h"
+#include "PrefabManager.h"
 
 #include "resources/XmlHelper.h"
 #include <tinyxml2.h>
@@ -50,6 +53,14 @@ iEditorWorld::iEditorWorld(iEditorBase* apEditor, const tString& asElementName)
 	mpPicker = hplNew(cEntityPicker,(this));
 	mpSurfacePicker = hplNew(cSurfacePicker,(this));
 
+	mpFileWatcher = hplNew(cEditorFileWatcher,());
+	mFileReloadHandler.Connect(mpFileWatcher->OnReloadEntities());
+
+	// Prefab-definition changes are delivered per-instance now: each placed
+	// cEntityWrapperEntity subscribes to its own cPrefabResource::OnModified() and
+	// rebuilds itself (see UpdatePrefabRef / OnPrefabModified). No world-level
+	// prefab broadcast subscription.
+
 	mbClipPlaneNumUpdated = true;
 
 	mlDefaultCategory = -1;
@@ -75,6 +86,9 @@ iEditorWorld::~iEditorWorld()
 {
 	ClearEntities();
 
+	hplDelete(mpFileWatcher);
+	mpFileWatcher = NULL;
+
 	STLDeleteAll(mlstEntityTypes);
 
 	hplDelete(mpPicker);
@@ -91,8 +105,11 @@ iEditorWorld::~iEditorWorld()
 
 //----------------------------------------------------------------------------
 
-void iEditorWorld::OnEditorUpdate()
+void iEditorWorld::OnEditorUpdate(float afTimeStep)
 {
+	if(mpFileWatcher)
+		mpFileWatcher->Poll(afTimeStep);
+
 	if(mbClipPlanesUpdated)
 	{
 		mbClipPlanesUpdated = false;
@@ -158,6 +175,11 @@ bool iEditorWorld::AddObject(iEntityWrapper* apObject)
 	if(apObject==NULL)
 		return false;
 
+	// Safety net for paths that skip CreateEntityWrapperFromData (particle editor
+	// emitters): every object leaves AddObject with a unique nonzero GUID.
+	if(apObject->GetGUID()==0)
+		apObject->SetGUID(hash_random());
+
 	mmapEntities.insert(std::pair<unsigned int, iEntityWrapper*>(apObject->GetID(), apObject));
 
 	// Call on add stuff.
@@ -176,7 +198,17 @@ bool iEditorWorld::AddObject(iEntityWrapper* apObject)
 void iEditorWorld::RemoveObject(iEntityWrapper* apObject)
 {
 	if(apObject)
+	{
+		// Drop the file watches for this entity. Skipped during a full clear -
+		// ClearEntities() tears the whole watcher down in one shot instead.
+		if(mbIsClearingEntities==false && mpFileWatcher)
+			mpFileWatcher->UnregisterEntity(apObject->GetID());
+
+		// Free the GUID so delete-undo can restore the object with its original one.
+		msetGUIDsInUse.erase(apObject->GetGUID());
+
 		mmapEntities.erase(apObject->GetID());
+	}
 }
 
 //----------------------------------------------------------------------------
@@ -190,9 +222,6 @@ bool iEditorWorld::IsIDInUse(int alID)
 
 	return true;
 }
-
-//----------------------------------------------------------------------------
-
 //----------------------------------------------------------------------------
 
 iEntityWrapper* iEditorWorld::GetEntity(int alID)
@@ -228,6 +257,24 @@ iEntityWrapper* iEditorWorld::GetEntityByName(const tString& asName)
 
 //--------------------------------------------------------------------
 
+iEntityWrapper* iEditorWorld::GetEntityByGUID(unsigned long long alGUID)
+{
+	if(alGUID!=0)
+	{
+		tEntityWrapperMapIt it = mmapEntities.begin();
+		for(;it!=mmapEntities.end();++it)
+		{
+			iEntityWrapper* pEnt = it->second;
+			if(pEnt->GetGUID()==alGUID)
+				return it->second;
+		}
+	}
+
+	return NULL;
+}
+
+//--------------------------------------------------------------------
+
 bool iEditorWorld::HasEntity(iEntityWrapper* apObject)
 {
 	if(apObject==NULL)
@@ -253,8 +300,190 @@ void iEditorWorld::ClearEntities()
 		DestroyEntityWrapper(it->second,false);
 
 	mmapEntities.clear();
+	msetGUIDsInUse.clear();
+
+	// One-shot teardown of every watch (RemoveObject skips per-entity
+	// unregisters while mbIsClearingEntities is set).
+	if(mpFileWatcher)
+		mpFileWatcher->Clear();
 
 	mbIsClearingEntities=false;
+}
+
+//--------------------------------------------------------------------
+
+void iEditorWorld::OnWatcherReload(const std::set<int>& asetIDs)
+{
+	// The watcher fires only for ON-DISK changes. A pending prefab doc that is
+	// not dirty was persisted by us (content == old disk), so dropping it makes
+	// the rebuild below read the NEW disk content. Dirty docs are unsaved MCP
+	// edits — kept (OnExternalFileChange warns about the conflict).
+	if(cPrefabManager* pMgr = mpEditor->GetPrefabManager())
+	{
+		for(std::set<int>::const_iterator it=asetIDs.begin(); it!=asetIDs.end(); ++it)
+		{
+			iEntityWrapper* pEnt = GetEntity(*it);
+			if(pEnt && cString::ToLowerCase(cString::GetFileExt(pEnt->GetFilename()))=="ent")
+				pMgr->OnExternalFileChange(pEnt->GetFilename(), false);
+		}
+	}
+
+	ReloadEntities(asetIDs);
+}
+
+//--------------------------------------------------------------------
+
+std::set<int> iEditorWorld::FindEntityIDsByFilename(const tString& asFile)
+{
+	std::set<int> setIDs;
+	tString sBase = cString::ToLowerCase(cString::GetFileName(asFile));
+	if(sBase.empty())
+		return setIDs;
+
+	for(tEntityWrapperMapIt it=mmapEntities.begin(); it!=mmapEntities.end(); ++it)
+	{
+		iEntityWrapper* pEnt = it->second;
+		if(cString::ToLowerCase(cString::GetFileName(pEnt->GetFilename()))==sBase)
+			setIDs.insert(pEnt->GetID());
+	}
+	return setIDs;
+}
+
+//--------------------------------------------------------------------
+
+void iEditorWorld::ReloadEntities(const std::set<int>& asetIDs)
+{
+	if(asetIDs.empty())
+		return;
+
+	////////////////////////////////////////////////////////////////////
+	// Phase 1: snapshot each affected entity's state, then tear down ALL
+	// their engine entities before rebuilding any. Resource managers cache
+	// by path hash, so a shared mesh/material/texture only re-reads disk once
+	// its refcount hits zero - which needs every holder torn down first.
+	std::vector<iEntityWrapper*>		vEnts;
+	std::vector<iEntityWrapperData*>	vData;
+	vEnts.reserve(asetIDs.size());
+	vData.reserve(asetIDs.size());
+
+	for(std::set<int>::const_iterator it=asetIDs.begin(); it!=asetIDs.end(); ++it)
+	{
+		iEntityWrapper* pEnt = GetEntity(*it);
+		if(pEnt==NULL)
+			continue;
+
+		vEnts.push_back(pEnt);
+		vData.push_back(pEnt->CreateCopyData());
+		pEnt->DestroyEngineEntity();
+	}
+
+	////////////////////////////////////////////////////////////////////
+	// Phase 2: rebuild each entity from its snapshot. The first rebuild of a
+	// given resource re-reads disk; the rest reuse the freshly loaded cache.
+	for(size_t i=0; i<vEnts.size(); ++i)
+	{
+		iEntityWrapper* pEnt = vEnts[i];
+		iEntityWrapperData* pData = vData[i];
+
+		pData->CopyToEntity(pEnt, ePropCopyStep_PreEnt);
+		pEnt->CreateEngineEntity();
+		pData->CopyToEntity(pEnt, ePropCopyStep_PostEnt);
+		pEnt->UpdateEntity();
+
+		// Re-push the selection highlight onto the rebuilt engine entity.
+		if(pEnt->IsSelected())
+			pEnt->SetSelected(true);
+
+		// Re-sync watches in case the reload changed the dependency set
+		// (e.g. an edited .ent now points at a different mesh/material).
+		// RegisterFileWatches() unregisters first, so this is a clean re-sync.
+		pEnt->RegisterFileWatches();
+
+		hplDelete(pData);
+	}
+
+	Log("[FileWatch] reloaded %d entit%s from disk\n",
+		(int)vEnts.size(), vEnts.size()==1 ? "y" : "ies");
+
+	// A live external reload must NOT dirty the map or push an undo action,
+	// so no IncModifications()/action creation here.
+}
+
+//--------------------------------------------------------------------
+
+std::set<int> iEditorWorld::FindParticleSystemIDsByFile(const tString& asFile)
+{
+	std::set<int> setIDs;
+	// Normalize the extension on both sides: CreatePS() itself does
+	// SetFileExt("ps") internally, and the editor stores the bare filename WITH
+	// extension - normalizing guards against any legacy no-extension value.
+	tString sBase = cString::ToLowerCase(cString::GetFileName(cString::SetFileExt(asFile,"ps")));
+	if(sBase.empty())
+		return setIDs;
+
+	for(tEntityWrapperMapIt it=mmapEntities.begin(); it!=mmapEntities.end(); ++it)
+	{
+		iEntityWrapper* pEnt = it->second;
+		if(pEnt->GetTypeID()!=eEditorEntityType_ParticleSystem)
+			continue;
+		cEntityWrapperParticleSystem* pPS = static_cast<cEntityWrapperParticleSystem*>(pEnt);
+		if(cString::ToLowerCase(cString::GetFileName(cString::SetFileExt(pPS->GetFile(),"ps")))==sBase)
+			setIDs.insert(pEnt->GetID());
+	}
+	return setIDs;
+}
+
+//--------------------------------------------------------------------
+
+void iEditorWorld::ReloadParticleSystems(const std::set<int>& asetIDs)
+{
+	if(asetIDs.empty())
+		return;
+
+	std::vector<cEntityWrapperParticleSystem*> vPS;
+	vPS.reserve(asetIDs.size());
+
+	////////////////////////////////////////////////////////////////////
+	// Phase 1: destroy EVERY matching live instance first. Each teardown drops
+	// one cParticleSystemData reference; when the last matching instance goes,
+	// cParticleManager auto-frees the cached data (refcount 0 -> FreeResource).
+	// Two phases are MANDATORY: interleaving would let a recreate reuse the
+	// stale cached data before it is evicted.
+	//
+	// NOTE: this only evicts when the LAST reference drops. If the same .ps is
+	// also referenced elsewhere (e.g. a particle embedded in a loaded model),
+	// its reference keeps the cached data alive and the recreate reuses it;
+	// those embedded copies refresh when their model reloads instead.
+	for(std::set<int>::const_iterator it=asetIDs.begin(); it!=asetIDs.end(); ++it)
+	{
+		iEntityWrapper* pEnt = GetEntity(*it);
+		if(pEnt==NULL || pEnt->GetTypeID()!=eEditorEntityType_ParticleSystem)
+			continue;
+		cEntityWrapperParticleSystem* pPS = static_cast<cEntityWrapperParticleSystem*>(pEnt);
+		vPS.push_back(pPS);
+		pPS->DestroyEngineEntity();
+	}
+
+	////////////////////////////////////////////////////////////////////
+	// Phase 2: rebuild. The cache is now empty for this path, so the first
+	// ReCreatePS re-reads disk and the rest reuse the freshly loaded data.
+	for(size_t i=0; i<vPS.size(); ++i)
+	{
+		cEntityWrapperParticleSystem* pPS = vPS[i];
+		pPS->CreateEngineEntity();
+		pPS->UpdatePS();        // mark mbTypeUpdated + mbDataUpdated
+		pPS->UpdateEntity();    // synchronous icon Update() -> ReCreatePS (reads disk) + reapply color/fade + placement
+
+		if(pPS->IsSelected())
+			pPS->SetSelected(true);
+
+		pPS->RegisterFileWatches();
+	}
+
+	Log("[FileWatch] reloaded %d particle system%s from disk\n",
+		(int)vPS.size(), vPS.size()==1 ? "" : "s");
+
+	// A live external reload must NOT dirty the map or push an undo action.
 }
 
 //--------------------------------------------------------------------
@@ -357,16 +586,19 @@ void iEditorWorld::LoadWorldObjects(tinyxml2::XMLElement* apWorldObjectsElement)
 		}
 	}
 
-	///////////////////////////////////////////////////////////////
-	// Redirections have all been used now, so must clear this
-	mmapIDRedirectors.clear();
-
 	tEntityWrapperMap::const_iterator it = mmapEntities.begin();
 	for(;it!=mmapEntities.end();++it)
 	{
 		iEntityWrapper* pEnt = it->second;
 		pEnt->OnPostDeployAll(true);
 	}
+
+	///////////////////////////////////////////////////////////////
+	// ID resolution (children, joint parent/child bodies) happens inside the
+	// OnPostDeployAll loop above via GetEntity, which consults the redirector map.
+	// Only now that all IDs are resolved is it safe to clear the redirectors —
+	// clearing earlier would strand joints whose connected body got a redirected ID.
+	mmapIDRedirectors.clear();
 
 	if(mbShowLoadErrorPopUp)
 	{
@@ -471,10 +703,27 @@ void iEditorWorld::ImportObjects(const tString& asX, tIntList& alstImportedIDs)
 	if(pDoc==NULL)
 		return;
 
-	tinyxml2::XMLElement* pWorldData = pDoc->FirstChildElement("MapData");
+	ImportObjects(pDoc, alstImportedIDs);
+	mpEditor->GetEngine()->GetResources()->DestroyXmlDocument(pDoc);
+}
+
+bool iEditorWorld::ImportObjects(tinyxml2::XMLElement* apRootElem, tIntList& alstImportedIDs)
+{
+	if(apRootElem==NULL)
+		return false;
+
+	// Accept either a <Level> root (as .map / .expobj files have) or the
+	// <MapData> element directly.
+	tinyxml2::XMLElement* pWorldData = apRootElem->FirstChildElement("MapData");
+	if(pWorldData==NULL && tString(apRootElem->Value())=="MapData")
+		pWorldData = apRootElem;
+	if(pWorldData==NULL)
+		return false;
 
 	tinyxml2::XMLElement* pXmlObjectsData = pWorldData->FirstChildElement("MapContents");
-	
+	if(pXmlObjectsData==NULL)
+		return false;
+
 	tStringVec vIndexStrings;
 	vIndexStrings.push_back("StaticObjects");
 	vIndexStrings.push_back("Entities");
@@ -546,6 +795,8 @@ void iEditorWorld::ImportObjects(const tString& asX, tIntList& alstImportedIDs)
 		//pEnt->PostCreateAllLoadedObjects();
 		//pEnt->PostCreationCleanUp();
 	}
+
+	return true;
 }
 
 //----------------------------------------------------------------------------
@@ -1316,6 +1567,13 @@ iEntityWrapper* iEditorWorld::CreateEntityWrapperFromData(iEntityWrapperData* ap
 
 		apData->SetID(lNewID);
 	}
+
+	// GUID: backfill legacy/new data (0) and dedupe copies (clone, re-import of the
+	// same file). Mutates the data like the ID fix-up above, so undo/redo re-creates
+	// the object with the same GUID.
+	unsigned long long lGUID = apData->GetGUID();
+	if(lGUID==0)
+		apData->SetGUID(hash_random());
 
 	iEntityWrapper* pEnt = apData->CreateEntity();
 	if(AddObject(pEnt)==false)

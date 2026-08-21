@@ -28,6 +28,10 @@ using namespace hpl;
 
 #include "EditorUserClassDefinitionManager.h"
 
+#include "system/Event.h"
+
+#include <set>
+
 //-----------------------------------------------------------------------
 
 namespace tinyxml2 { class XMLElement; }
@@ -52,6 +56,12 @@ class cEditorWindowEntityEditBoxGroup;
 class cEntityWrapperCompoundObject;
 
 class cEditorClipPlane;
+
+//-----------------------------------------------------------------------
+
+// 16-char lowercase hex <-> u64 GUID. 0 = "unset": ToHex(0)=="", FromHex(""/garbage)==0.
+tString GUIDToHex(unsigned long long alGUID);
+unsigned long long GUIDFromHex(const tString& asHex);
 
 //-----------------------------------------------------------------------
 
@@ -84,6 +94,7 @@ enum eObjStr
 {
 	eObjStr_Name,
 	eObjStr_Tag,
+	eObjStr_GUID,
 
 	eObjStr_LastEnum,
 };
@@ -146,6 +157,10 @@ class iProp
 public:
 	iProp(int alID, eVariableType aType, const tString& asName, bool abSave) : mlID(alID), mType(aType), msName(asName), mbSave(abSave)
 	{}
+	// Virtual: props are typed subclasses deleted through this base — a
+	// non-virtual dtor makes those deletes wrong-sized (heap corruption
+	// under sized deallocation).
+	virtual ~iProp() {}
 
 	void SetSaved(bool abX) { mbSave = abX; }
 
@@ -177,6 +192,11 @@ class iPropVal
 {
 public:
 	iPropVal(iProp*);
+	// Virtual: values are typed subclasses (cPropValInt/Float/...) deleted
+	// through this base (STLDeleteAll in ~iEntityWrapperData) — a non-virtual
+	// dtor here made every entity-data teardown a wrong-sized delete that
+	// corrupts the glibc heap under sized deallocation.
+	virtual ~iPropVal() {}
 	iProp* GetProperty() { return mpProp; }
 
 	/**
@@ -594,7 +614,10 @@ public:
 	iProp* GetPropByTypeAndID(eVariableType, int);
 	iProp* GetPropByName(const tString&);
 
-	
+	// All registered properties, grouped by copy step (for enumeration).
+	const std::vector<tPropList>& GetPropLists() { return mvProperties; }
+
+
 	/**
 	 * Gets a vector of integer IDs that represent the types that can be attached to 
 	 * entities of this type, if any.
@@ -709,9 +732,11 @@ public:
 	//////////////////////////////////////////////////
 	// Specific property handlers
 	int GetID();
+	unsigned long long GetGUID();
 	const tString& GetName();
 
 	void SetID(int alX);
+	void SetGUID(unsigned long long alX);
 	void SetName(const tString& asX);
 
 	void SetCompoundID(int alX) { mlCompoundID = alX; }
@@ -896,6 +921,9 @@ public:
 	void SetID(int alX) { mlID = alX; }
 	int GetID() { return mlID; }
 
+	void SetGUID(unsigned long long alX) { mlGUID = alX; }
+	unsigned long long GetGUID() { return mlGUID; }
+
 	tString& GetName() { return msName; }
 	void SetName(const tString& asName);
 
@@ -943,6 +971,19 @@ public:
 
 	virtual bool CreateEngineEntity();
 	virtual iEngineEntity* CreateSpecificEngineEntity() { return NULL; }
+
+	// Tear down the engine entity only (drops its mesh/material/texture refs).
+	// Used by the MCP set_entity path, which rebuilds it from the new data.
+	void DestroyEngineEntity();
+
+	/////////////////////////////////////////////////////////////
+	// Live file watching
+	// Collect the resolved absolute paths this entity depends on. The default
+	// pushes the top-level source file (msFilename); with dependency watching
+	// enabled it also walks the live mesh -> materials -> textures.
+	virtual void GetWatchedFiles(std::vector<tWString>& avOut);
+	// (Re)register this entity's dependency files with the world's file watcher.
+	void RegisterFileWatches();
 
 	/////////////////////////////////////////////////////////////
 	// Property interface
@@ -1025,10 +1066,11 @@ protected:
 	iEntityWrapperData* mpData;
 
 	int mlID;
+	unsigned long long mlGUID;
 	tString msName;
 
 	tString msFilename;
-	
+
 	cEntityIcon*	mpIcon;
 	iEngineEntity*	mpEngineEntity;
 

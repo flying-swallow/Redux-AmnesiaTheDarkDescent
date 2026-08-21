@@ -67,7 +67,7 @@ cLuxPostEffect_Insanity::cLuxPostEffect_Insanity(cGraphics *apGraphics, cResourc
 
 cLuxPostEffect_Insanity::~cLuxPostEffect_Insanity()
 {
-
+	m_program.dispose(&mpGraphics->device);
 }
 
 //-----------------------------------------------------------------------
@@ -206,6 +206,8 @@ cLuxPostEffect_MenuBackdrop::cLuxPostEffect_MenuBackdrop(cGraphics *apGraphics, 
 
 cLuxPostEffect_MenuBackdrop::~cLuxPostEffect_MenuBackdrop()
 {
+	m_blurProgram.dispose(&mpGraphics->device);
+	m_desatProgram.dispose(&mpGraphics->device);
 	hpl::DestroyPostEffectColorTarget(m_scratchA);
 	hpl::DestroyPostEffectColorTarget(m_scratchB);
 }

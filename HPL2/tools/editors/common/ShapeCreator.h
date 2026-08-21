@@ -27,6 +27,9 @@ class iShapeCreator
 {
 public:
 	iShapeCreator(iEditorEditMode* apEditMode) : mpEditMode(apEditMode), mbDragging(true) {}
+	// Virtual: box/sphere creators are deleted through this base —
+	// non-virtual dtor = wrong-sized delete.
+	virtual ~iShapeCreator() {}
 
 	virtual void OnViewportMouseDown(int alButtons)=0;
 	virtual void OnViewportMouseUp(int alButtons)=0;

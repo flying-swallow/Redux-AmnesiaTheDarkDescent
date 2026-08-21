@@ -21,26 +21,8 @@
 #include "system/LowLevelSystem.h"
 #include "graphics/Graphics.h"
 #include "resources/Resources.h"
-#include "scene/RenderableContainer.h"
 
 namespace hpl {
-
-	//-----------------------------------------------------------------------
-
-	//////////////////////////////////////////////////////////////////////////
-	// STATIC VARAIBLES
-	//////////////////////////////////////////////////////////////////////////
-
-	//-----------------------------------------------------------------------
-
-	eShadowMapQuality iRenderer::mShadowMapQuality = eShadowMapQuality_Medium;
-	eShadowMapResolution iRenderer::mShadowMapResolution = eShadowMapResolution_High;
-	eParallaxQuality iRenderer::mParallaxQuality = eParallaxQuality_Low;
-	bool iRenderer::mbParallaxEnabled = true;
-	int iRenderer::mlReflectionSizeDiv = 2;
-	bool iRenderer::mbRefractionEnabled = true;
-
-	//-----------------------------------------------------------------------
 
 	int iRenderer::mlRenderFrameCount = 0;
 	
@@ -54,10 +36,6 @@ namespace hpl {
 
 	cRenderSettings::cRenderSettings(bool abIsReflection)
 	{
-		////////////////////////
-		// Create data
-		mpVisibleNodeTracker = hplNew( cVisibleRCNodeTracker, () );
-
 		////////////////////////
 		// Setup general variables
 		mbIsReflection = abIsReflection;
@@ -107,14 +85,12 @@ namespace hpl {
 
 	cRenderSettings::~cRenderSettings()
 	{
-		hplDelete(mpVisibleNodeTracker);
 		if(mpReflectionSettings) hplDelete(mpReflectionSettings);
 	}
 
 	void cRenderSettings::ResetVariables()
 	{
-		mpVisibleNodeTracker->Reset();
-        if(mpReflectionSettings) mpReflectionSettings->ResetVariables();		
+        if(mpReflectionSettings) mpReflectionSettings->ResetVariables();
 	}
 
 	//////////////////////////////////////////////////

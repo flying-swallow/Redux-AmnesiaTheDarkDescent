@@ -39,7 +39,7 @@ namespace hpl {
 		// cRendererSimple).
 
 		bool LoadData() override { return true; }
-		void DestroyData() override {}
+		void DestroyData() override;
 
 		virtual void Draw(
 				cGraphics::FrameContext* cntx,

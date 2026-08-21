@@ -60,7 +60,7 @@ protected:
 	void OnDraw(DebugDraw* apFunctions);
 
 	void Iterate();
-	void IterateRenderableNode(iRenderableContainerNode *apNode, const cVector3f& avStart, const cVector3f& avEnd, cBoundingVolume *apBV, int* apTriIndex, bool abAveragingNormal=false);
+	void IterateRenderables(cRenderableSet *apSet, const cVector3f& avStart, const cVector3f& avEnd, cBoundingVolume *apBV, int* apTriIndex, bool abAveragingNormal=false);
 	bool CheckObjectIntersection(iRenderable *apObject, const cVector3f& avStart, const cVector3f& avEnd, cBoundingVolume *apBV, int *apTriIndex, bool abAveragingNormal=false);
 
 	void ComputeAverageNormal(const cVector3f&);

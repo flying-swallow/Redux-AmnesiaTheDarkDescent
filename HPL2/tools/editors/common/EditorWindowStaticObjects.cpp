@@ -56,6 +56,8 @@ cEditorObjectIndexStaticObjects::cEditorObjectIndexStaticObjects(iEditorBase* ap
 																													true)
 {
 	AddFileFilter(_W("*.dae"));
+	AddFileFilter(_W("*.gltf"));
+	AddFileFilter(_W("*.glb"));
 }
 
 //-------------------------------------------------------------------

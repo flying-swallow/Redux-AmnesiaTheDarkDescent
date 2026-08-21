@@ -349,8 +349,10 @@ bool cParticleEditorWorld::CheckDataIsValid()
 
 //-------------------------------------------------------------------------
 
-void cParticleEditorWorld::OnEditorUpdate()
+void cParticleEditorWorld::OnEditorUpdate(float afTimeStep)
 {
+	iEditorWorld::OnEditorUpdate(afTimeStep);
+
 	if(mbPSDataUpdated || mpTestPS!=NULL && mpWorld->GetParticleSystem("TestPS")==NULL)
 	{
 		mbPSDataUpdated = false;

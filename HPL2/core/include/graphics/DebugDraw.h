@@ -80,6 +80,9 @@ public:
     };
 
     DebugDraw() = default;
+    // Disposes the three RIPrograms. Runs in DestroyRenderObjects, before
+    // cGraphics::Dispose tears the device down.
+    ~DebugDraw();
     DebugDraw(const DebugDraw&) = delete;
     DebugDraw& operator=(const DebugDraw&) = delete;
 

@@ -672,7 +672,8 @@ std::vector<char> RIProgram::loadShaderStage(cFileSearcher *searcher, const tStr
 }
 
 void RIProgram::initialize(RIDevice* device, std::span<ModuleStage> moduleInit,
-                           std::span<const VkDescriptorSetLayout> externalLayouts) {
+                           std::span<const VkDescriptorSetLayout> externalLayouts,
+                           const char *debugName) {
   assert(device);
   this->device = device;
 
@@ -891,7 +892,13 @@ void RIProgram::initialize(RIDevice* device, std::span<ModuleStage> moduleInit,
         }
       }
     }
-	  uint32_t numLayoutCount = 0;
+
+    // Everything needed has been folded into bindingReflection / vertex input
+    // masks / the accumulated layout bindings; free the reflection tree.
+    spvReflectDestroyShaderModule(&module);
+  }
+
+  uint32_t numLayoutCount = 0;
 	  for( size_t bindingIdx = 0; bindingIdx < DESCRIPTOR_SET_MAX; bindingIdx++ ) {
 		  if( descriptorSetLayoutBindings[bindingIdx].size() > 0 ||
 		      externalLayoutFor(bindingIdx) != VK_NULL_HANDLE ) {
@@ -930,7 +937,29 @@ void RIProgram::initialize(RIDevice* device, std::span<ModuleStage> moduleInit,
 			pipelineLayoutCreateInfo.pPushConstantRanges = &pushConstantRange;
 		}
 		VK_WrapResult( vkCreatePipelineLayout( device->vk.device, &pipelineLayoutCreateInfo, NULL, &impl.vk.pipelineLayout ) );
-  }
+
+		// Tag the pipeline layout + owned set layouts so the validation layer
+		// reports the owning program by name when it flags a leak at
+		// vkDestroyDevice (helps pin an un-disposed RIProgram to a call site).
+		if( debugName && vkSetDebugUtilsObjectNameEXT ) {
+			char nameBuf[128];
+			snprintf( nameBuf, sizeof(nameBuf), "%s.pipelineLayout", debugName );
+			VkDebugUtilsObjectNameInfoEXT nameInfo = {
+				VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, NULL,
+				VK_OBJECT_TYPE_PIPELINE_LAYOUT, (uint64_t)impl.vk.pipelineLayout, nameBuf };
+			vkSetDebugUtilsObjectNameEXT( device->vk.device, &nameInfo );
+			for( size_t bindingIdx = 0; bindingIdx < numLayoutCount; bindingIdx++ ) {
+				if( programDescriptors[bindingIdx].isExternal ||
+				    setLayouts[bindingIdx] == VK_NULL_HANDLE )
+					continue;
+				snprintf( nameBuf, sizeof(nameBuf), "%s.setLayout[%zu]", debugName, bindingIdx );
+				VkDebugUtilsObjectNameInfoEXT setInfo = {
+					VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT, NULL,
+					VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT,
+					(uint64_t)setLayouts[bindingIdx], nameBuf };
+				vkSetDebugUtilsObjectNameEXT( device->vk.device, &setInfo );
+			}
+		}
 }
 
 void RIProgram::dispose(RIDevice *device) {

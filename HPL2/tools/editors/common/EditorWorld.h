@@ -26,6 +26,11 @@ using namespace hpl;
 
 #include "EditorTypes.h"
 
+#include "system/Event.h"
+#include "PrefabManager.h"	// ePrefabEvent (broadcast handler below)
+
+#include <set>
+
 namespace tinyxml2 { class XMLElement; }
 
 //----------------------------------------------------------------------
@@ -38,6 +43,7 @@ class iEntityWrapper;
 
 class cEntityPicker;
 class cSurfacePicker;
+class cEditorFileWatcher;
 
 //----------------------------------------------------------------------
 
@@ -47,7 +53,7 @@ public:
 	iEditorWorld(iEditorBase* apEditor, const tString& asElementName);
 	virtual ~iEditorWorld();
 
-	virtual void OnEditorUpdate();
+	virtual void OnEditorUpdate(float afTimeStep);
 	virtual void Reset();
 
 	void SetName(const tString& asName);
@@ -72,12 +78,43 @@ public:
 
 	iEntityWrapper* GetEntity(int alID);
 	iEntityWrapper* GetEntityByName(const tString& asName);
+	iEntityWrapper* GetEntityByGUID(unsigned long long alGUID);
 	tEntityWrapperMap& GetEntities() { return mmapEntities; }
 
 	bool HasEntity(iEntityWrapper* apObject);
 
 	bool IsClearingEntities() { return mbIsClearingEntities; }
 	void ClearEntities();
+
+	////////////////////////////////////////////////////////
+	// Live file watching / reload
+	// Re-read the given entities from disk in place (re-builds their engine
+	// entities, preserving placement/selection). Does NOT dirty the map or
+	// push an undo action - it's a live external reload, not an edit.
+	void ReloadEntities(const std::set<int>& asetIDs);
+	cEditorFileWatcher* GetFileWatcher() { return mpFileWatcher; }
+
+	// IDs of entities whose source file matches asFile by BARE FILENAME
+	// (case-insensitive) — the prefab identity cPrefabManager uses. Scanning on
+	// demand (instead of tracked membership) cannot go stale or orphan.
+	std::set<int> FindEntityIDsByFilename(const tString& asFile);
+
+	// IDs of placed particle-system entities whose .ps matches asFile by bare
+	// filename (case-insensitive). Particle wrappers store their path in msFile
+	// (GetFile()), NOT msFilename, so FindEntityIDsByFilename cannot see them.
+	std::set<int> FindParticleSystemIDsByFile(const tString& asFile);
+
+	// Live-reload placed particle systems after their .ps changed on disk. Tears
+	// down ALL matching instances first (dropping every cParticleSystemData
+	// reference so cParticleManager auto-evicts the cached data at refcount 0),
+	// THEN rebuilds each so the first recreate re-reads disk. Like ReloadEntities,
+	// this does NOT dirty the map or push an undo action.
+	void ReloadParticleSystems(const std::set<int>& asetIDs);
+
+	// Watcher-driven reload: files changed ON DISK, so first drop any non-dirty
+	// pending prefab docs shadowing the affected .ent files (disk becomes truth;
+	// dirty = unsaved MCP edits are kept), then ReloadEntities.
+	void OnWatcherReload(const std::set<int>& asetIDs);
 
 	////////////////////////////////////////////////////////
 	// Loading / Saving
@@ -100,6 +137,10 @@ public:
 
 
 	virtual void ImportObjects(const tString& asX, tIntList& alstImportedIDs);
+	// Same import, from an already-parsed XML root (<Level> or <MapData>).
+	// Returns false when the expected MapData/MapContents shape is missing.
+	// Used by the MCP import_map tool.
+	bool ImportObjects(tinyxml2::XMLElement* apRootElem, tIntList& alstImportedIDs);
 	virtual void ExportObjects(const tString& asX, tEntityWrapperList& alstEntsToExport);
 
 
@@ -258,6 +299,7 @@ protected:
 	unsigned int mlLastSavedModification;
 
 	tEntityWrapperMap mmapEntities;
+	std::set<unsigned long long> msetGUIDsInUse; // collision accelerator only; truth = wrappers
 
 	int mlIDCounter;
 	
@@ -278,6 +320,19 @@ protected:
 
 	cEntityPicker* mpPicker;
 	cSurfacePicker* mpSurfacePicker;
+
+	cEditorFileWatcher* mpFileWatcher;
+
+	// Live-reload entities when the watcher reports their deps changed on disk.
+	// The watcher publishes OnReloadEntities(); we subscribe (decoupled: the
+	// watcher does not hold a back-pointer to the world). RAII-disconnects.
+	Event<const std::set<int>&>::Handler mFileReloadHandler {
+		[this](const std::set<int>& asetIDs){ OnWatcherReload(asetIDs); } };
+
+	// (Prefab-definition changes no longer route through this world: each placed
+	// cEntityWrapperEntity subscribes to its own cPrefabResource::OnModified() and
+	// rebuilds itself — see EntityWrapperEntity. The filename scan below stays for
+	// the on-disk filewatcher path and the MCP query tools.)
 
 	////////////////////////////////
 	// Global Lights

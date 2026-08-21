@@ -118,6 +118,21 @@ iEntityWrapperType* cEditorEditModeEntities::GetTypeFromEntFile(const tString& a
 	tString sType,sSubType;
 
 	cResources* pRes = mpEditor->GetEngine()->GetResources();
+
+	// Pending in-memory entity file (MCP define_entity_file, not yet on disk)?
+	// Read the class off the cached document instead of the resource index.
+	tinyxml2::XMLElement* pPendingRoot = mpEditor->GetPendingEntFileRoot(asFile);
+	if(pPendingRoot)
+	{
+		tinyxml2::XMLElement* pPendingVars = pPendingRoot->FirstChildElement("UserDefinedVariables");
+		if(pPendingVars)
+		{
+			sType = GetAttributeString(pPendingVars, "EntityType");
+			sSubType = GetAttributeString(pPendingVars, "EntitySubType");
+		}
+	}
+	else
+	{
 	tinyxml2::XMLElement* pModelDoc = pRes->LoadXmlDocument(asFile);
 	if(pModelDoc==NULL)
 		return NULL;
@@ -129,6 +144,7 @@ iEntityWrapperType* cEditorEditModeEntities::GetTypeFromEntFile(const tString& a
 		sSubType = GetAttributeString(pUserVars, "EntitySubType");
 	}
 	pRes->DestroyXmlDocument(pModelDoc);
+	}
 
 	if(sType=="")
 	{

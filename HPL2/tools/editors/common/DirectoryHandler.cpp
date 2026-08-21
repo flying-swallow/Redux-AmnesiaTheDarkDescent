@@ -192,6 +192,24 @@ void cDirectoryHandler::RefreshLookupDirs()
 
 //-------------------------------------------------------------------------
 
+void cDirectoryHandler::ForceRefreshLookupDirs()
+{
+	tLookupDirVecMap::iterator it = mmapDirs.begin();
+	for(;it!=mmapDirs.end();++it)
+	{
+		tLookupDirVec& vDirs = it->second;
+		for(int i=0;i<(int)vDirs.size();++i)
+		{
+			cLookupDirectory& lookupDir = vDirs[i];
+
+			mpEditor->GetEngine()->GetResources()->AddResourceDir(lookupDir.msDir, lookupDir.mbAddSubDirs);
+			lookupDir.mbIsUpdated = false;
+		}
+	}
+}
+
+//-------------------------------------------------------------------------
+
 const tWString& cDirectoryHandler::GetMainLookUpDir(int alCategory)
 {
 	tLookupDirVecMap::iterator it = mmapDirs.find(alCategory);

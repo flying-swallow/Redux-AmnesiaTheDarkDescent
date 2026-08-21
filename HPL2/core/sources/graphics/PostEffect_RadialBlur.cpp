@@ -46,7 +46,9 @@ cPostEffectType_RadialBlur::cPostEffectType_RadialBlur(cGraphics *apGraphics,
                       "posteffect_radial_blur.frag.spv");
 }
 
-cPostEffectType_RadialBlur::~cPostEffectType_RadialBlur() {}
+cPostEffectType_RadialBlur::~cPostEffectType_RadialBlur() {
+  m_program.dispose(&mpGraphics->device);
+}
 
 iPostEffect *
 cPostEffectType_RadialBlur::CreatePostEffect(iPostEffectParams *apParams) {

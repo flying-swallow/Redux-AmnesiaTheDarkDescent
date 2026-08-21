@@ -65,7 +65,11 @@ cPostEffectType_Bloom::cPostEffectType_Bloom(cGraphics *apGraphics,
                       "posteffect_bloom_composite.frag.spv");
 }
 
-cPostEffectType_Bloom::~cPostEffectType_Bloom() {}
+cPostEffectType_Bloom::~cPostEffectType_Bloom() {
+  m_downsampleProgram.dispose(&mpGraphics->device);
+  m_upsampleProgram.dispose(&mpGraphics->device);
+  m_compositeProgram.dispose(&mpGraphics->device);
+}
 
 iPostEffect *
 cPostEffectType_Bloom::CreatePostEffect(iPostEffectParams *apParams) {

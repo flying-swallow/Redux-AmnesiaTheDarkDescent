@@ -101,15 +101,6 @@ protected:
 	cEditorEditModeSelect* mpEditMode;
 };
 
-//---------------------------------------------------------------------------
-
-////////////////////////////////////////////////////////////////////////////
-// EDIT MODE SELECT
-////////////////////////////////////////////////////////////////////////////
-
-//---------------------------------------------------------------------------
-
-
 class cEditorEditModeSelect : public iEditorEditMode
 {
 	friend class cEditorEditModeSelectTool;
@@ -124,6 +115,10 @@ public:
 	void Reset();
 
 	iEditorWorld* GetEditorWorld() { return mpEditorWorld; }
+
+	// Select is bound to a specific world; DrawPostGrid (base) iterates it. This lets
+	// a session-bound Select mode draw only the scoped ent-file's sub-entity icons.
+	iEditorWorld* GetEditModeWorld() { return mpEditorWorld; }
 
     /////////////////////////////////////////////////////////////////
 	// Event Handling
@@ -178,7 +173,7 @@ public:
 
 protected:
 	iEditorWindow* CreateSpecificWindow();
-	
+
 	void OnSetCurrent(bool abX);
 
 	////////////////////////////////////////

@@ -45,7 +45,7 @@
 #include "scene/ParticleEmitter.h"
 #include "scene/Viewport.h"
 #include "scene/World.h"
-#include "scene/RenderableContainer.h"
+#include "scene/RenderableSet.h"
 
 #include <cstring>
 
@@ -104,7 +104,16 @@ namespace hpl {
 			RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, vert_stage, "vsMain"},
 			RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, frag_stage, "psMain"}
 		};
-		m_simple.initialize(&mpGraphics->device, stages);
+		m_simple.initialize(&mpGraphics->device, stages, {}, "RendererSimple");
+	}
+
+	//-----------------------------------------------------------------------
+
+	void cRendererSimple::DestroyData()
+	{
+		// Runs from DestroyRenderObjects, before cGraphics::Dispose — the
+		// device is still alive (same pattern as ~cHybridRenderer).
+		m_simple.dispose(&mpGraphics->device);
 	}
 
 	//-----------------------------------------------------------------------
@@ -203,8 +212,8 @@ namespace hpl {
 		// Build the render list (same walk as cHybridRenderer::Draw, minus the
 		// BLAS parking — nothing here is ray traced).
 		m_rendererList.BeginAndReset(afFrameTime, apFrustum);
-		auto *dynamicContainer = apWorld->GetRenderableContainer(eWorldContainerType_Dynamic);
-		auto *staticContainer = apWorld->GetRenderableContainer(eWorldContainerType_Static);
+		auto *dynamicContainer = apWorld->GetRenderableSet(eWorldContainerType_Dynamic);
+		auto *staticContainer = apWorld->GetRenderableSet(eWorldContainerType_Static);
 		dynamicContainer->UpdateBeforeRendering();
 		staticContainer->UpdateBeforeRendering();
 

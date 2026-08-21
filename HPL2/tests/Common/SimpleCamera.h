@@ -56,7 +56,7 @@ public:
 	void SetCameraInMouseMode(bool abX){ mbCameraInMouseMode=abX;}
 	void SetMatrixFlyCamera(bool abX);
 
-	void ListContainerNodeData(iRenderableContainerNode *apNode, int alLevel);
+	void ListContainerData(cRenderableSet *apSet);
 
 	cMatrixf m_mtxLastView;
 private:

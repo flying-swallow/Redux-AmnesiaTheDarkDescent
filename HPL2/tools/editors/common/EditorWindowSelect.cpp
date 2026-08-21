@@ -89,9 +89,7 @@ void cEditorWindowSelect::AddFilter(eEditorEntityType aType)
 		if(pButton->GetUserValue()==aType)
 			return;
 	}
-
-	// Then add the button if the given type exists in the editor
-	iEntityWrapperType* pType = mpEditor->GetEditorWorld()->GetEntityTypeByID(aType);
+	iEntityWrapperType* pType = mpEditor->GetActiveEditorWorld()->GetEntityTypeByID(aType);
 	if(pType==NULL)
 		return;
 

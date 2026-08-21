@@ -40,7 +40,6 @@
 #include "scene/BillBoard.h"
 #include "scene/SoundEntity.h"
 #include "scene/MeshEntity.h"
-#include "scene/RenderableContainer.h"
 #include "scene/Camera.h"
 
 #include "graphics/Material.h"
@@ -98,15 +97,12 @@ namespace hpl {
 		//Data init
 		// Forward+ uses a clamp-to-edge static sampler at the falloff binding.
 		SetFalloffMap(mpTextureManager->Create1DImage("core_falloff_linear", false).Release());
-
-        mpVisibleNodeTracker = hplNew( cVisibleRCNodeTracker, () );
 	}
 
 	//-----------------------------------------------------------------------
 
 	iLight::~iLight()
 	{
-		if(mpVisibleNodeTracker) hplDelete(mpVisibleNodeTracker);
 		// m_falloffMap / m_goboImage (SharedResourceHandle) free themselves.
 	}
 
@@ -147,9 +143,9 @@ namespace hpl {
 		bool bVisible = (mDiffuseColor.r >0 || mDiffuseColor.g >0 || mDiffuseColor.b >0 || mDiffuseColor.a >0);
 		
 		//Check if the light changed its visibility
-		if(mbIsVisible && bVisible != bWasVisble && mpRenderCallback)
+		if(mbIsVisible && bVisible != bWasVisble)
 		{
-			mpRenderCallback->OnVisibleChange(this); 
+			OnChangeVisible();
 		}
 
 		OnSetDiffuse();

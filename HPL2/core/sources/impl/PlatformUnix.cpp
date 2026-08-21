@@ -46,6 +46,13 @@
 
 #include <algorithm>
 
+#include "system/FileWatcher.h"
+#ifdef __linux__
+#include <sys/inotify.h>
+#endif
+#include <errno.h>
+#include <map>
+
 namespace hpl {
 
 	//////////////////////////////////////////////////////////////////////////
@@ -561,5 +568,189 @@ namespace hpl {
 #endif
         return ret;
 	}
+
+	//-----------------------------------------------------------------------
+	//-----------------------------------------------------------------------
+	//-----------------------------------------------------------------------
+
+#ifdef __linux__
+
+	//////////////////////////////////////////////////////////////////////////
+	// cFileWatcherInotify - Linux inotify backend for iFileWatcher.
+	//	Watches directories (not individual files) so that atomic save-and-rename
+	//	(write temp -> rename over target), which replaces the target's inode, is
+	//	still seen (as IN_MOVED_TO on the target name). Reports file-level typed
+	//	events; the path is rebuilt as watched-dir + event name.
+	//////////////////////////////////////////////////////////////////////////
+
+	class cFileWatcherInotify : public iFileWatcher
+	{
+	public:
+		cFileWatcherInotify()
+		{
+			mlFd = inotify_init1(IN_NONBLOCK);
+			if(mlFd < 0)
+				Error("inotify_init1 failed (errno %d) - editor file watching disabled\n", errno);
+		}
+
+		~cFileWatcherInotify()
+		{
+			Clear();
+			if(mlFd >= 0)
+				close(mlFd);
+		}
+
+		bool AddDirectory(const tWString& asDir)
+		{
+			if(mlFd < 0)
+				return false;
+			if(mmapDirToWd.find(asDir) != mmapDirToWd.end())
+				return true;	// already watched
+
+			int lWd = inotify_add_watch(mlFd, cString::To8Char(asDir).c_str(),
+				IN_CLOSE_WRITE | IN_MODIFY | IN_MOVED_TO | IN_MOVED_FROM | IN_CREATE | IN_DELETE |
+				IN_MOVE_SELF | IN_DELETE_SELF | IN_ONLYDIR);
+			if(lWd < 0)
+			{
+				Warning("inotify_add_watch failed for '%ls' (errno %d)\n", asDir.c_str(), errno);
+				return false;
+			}
+
+			mmapDirToWd[asDir] = lWd;
+			mmapWdToDir[lWd]   = asDir;
+			return true;
+		}
+
+		void RemoveDirectory(const tWString& asDir)
+		{
+			std::map<tWString,int>::iterator it = mmapDirToWd.find(asDir);
+			if(it == mmapDirToWd.end())
+				return;
+
+			if(mlFd >= 0)
+				inotify_rm_watch(mlFd, it->second);
+			mmapWdToDir.erase(it->second);
+			mmapDirToWd.erase(it);
+		}
+
+		void PollEvents(std::vector<cFileWatchEvent>& avOut)
+		{
+			if(mlFd < 0)
+				return;
+
+			bool bOverflow = false;
+
+			// Drain the inotify fd non-blocking. The buffer must be aligned for
+			// struct inotify_event and large enough for at least one event.
+			char buf[4096] __attribute__((aligned(__alignof__(struct inotify_event))));
+			for(;;)
+			{
+				ssize_t lLen = read(mlFd, buf, sizeof(buf));
+				if(lLen <= 0)	// EAGAIN once the queue is empty
+					break;
+
+				for(char* p = buf; p < buf + lLen; )
+				{
+					struct inotify_event* pEv = (struct inotify_event*)p;
+					p += sizeof(struct inotify_event) + pEv->len;	// advance before any continue
+
+					if(pEv->mask & IN_Q_OVERFLOW)
+					{
+						bOverflow = true;
+						continue;
+					}
+
+					std::map<int,tWString>::iterator it = mmapWdToDir.find(pEv->wd);
+					if(it == mmapWdToDir.end())
+						continue;
+
+					// The watched directory itself went away - drop the stale
+					// watch. It gets re-added on the next RegisterEntity.
+					if(pEv->mask & (IN_IGNORED | IN_MOVE_SELF | IN_DELETE_SELF))
+					{
+						mmapDirToWd.erase(it->second);
+						mmapWdToDir.erase(it);
+						continue;
+					}
+
+					// We watch non-recursively; ignore subdirectory changes and
+					// events on the dir itself (no name).
+					if((pEv->mask & IN_ISDIR) || pEv->len == 0)
+						continue;
+
+					// Rebuild the absolute path. The watched dir string keeps its
+					// trailing separator (from cString::GetFilePathW), so join
+					// WITHOUT adding one - this yields exactly the caller's key.
+					cFileWatchEvent ev;
+					ev.msPath = it->second + cString::To16Char(pEv->name);
+
+					if(pEv->mask & (IN_CREATE | IN_MOVED_TO))
+						ev.mAction = eFileWatchAction_Added;
+					else if(pEv->mask & (IN_DELETE | IN_MOVED_FROM))
+						ev.mAction = eFileWatchAction_Removed;
+					else	// IN_CLOSE_WRITE | IN_MODIFY
+						ev.mAction = eFileWatchAction_Modified;
+
+					avOut.push_back(ev);
+				}
+			}
+
+			// The kernel dropped events - emit a Modified for each watched dir path
+			// so the consumer re-checks. Unknown paths are ignored by the consumer.
+			if(bOverflow)
+			{
+				for(std::map<tWString,int>::iterator it=mmapDirToWd.begin(); it!=mmapDirToWd.end(); ++it)
+				{
+					cFileWatchEvent ev;
+					ev.msPath = it->first;
+					ev.mAction = eFileWatchAction_Modified;
+					avOut.push_back(ev);
+				}
+			}
+		}
+
+		void Clear()
+		{
+			if(mlFd >= 0)
+			{
+				for(std::map<tWString,int>::iterator it=mmapDirToWd.begin(); it!=mmapDirToWd.end(); ++it)
+					inotify_rm_watch(mlFd, it->second);
+			}
+			mmapDirToWd.clear();
+			mmapWdToDir.clear();
+		}
+
+	private:
+		int mlFd;
+		std::map<tWString,int> mmapDirToWd;
+		std::map<int,tWString> mmapWdToDir;
+	};
+
+	//-----------------------------------------------------------------------
+
+	iFileWatcher* cPlatform::CreateFileWatcher()
+	{
+		return hplNew(cFileWatcherInotify, ());
+	}
+
+#else
+
+	// Unix without inotify (e.g. BSD): no-op watcher - editor hot-reload is off.
+	class cFileWatcherNull : public iFileWatcher
+	{
+	public:
+		bool AddDirectory(const tWString&)					{ return false; }
+		void RemoveDirectory(const tWString&)				{}
+		void PollEvents(std::vector<cFileWatchEvent>&)		{}
+		void Clear()										{}
+	};
+
+	iFileWatcher* cPlatform::CreateFileWatcher()
+	{
+		return hplNew(cFileWatcherNull, ());
+	}
+
+#endif // __linux__
+
 }
 

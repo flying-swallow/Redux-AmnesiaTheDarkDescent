@@ -55,6 +55,12 @@ public:
 	 */
 	void Redo();
 
+	/** Undoes the last done action and DELETES it (it is not parked on the redo
+	 * list). Used by the MCP batch-create rollback so a failed batch cannot be
+	 * resurrected with Redo.
+	 */
+	void UndoAndDiscard();
+
 	bool IsDoneActionsListEmpty() { return mlstDoneActions.empty(); }
 	bool IsUndoneActionsListEmpty() { return mlstUndoneActions.empty(); }
 

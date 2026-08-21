@@ -489,7 +489,7 @@ bool cEditorWindowEntityEditBoxLight::InputCallback(iWidget* apWidget, const cGu
 {
 	iEditorAction* pAction=NULL;
 
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditMode->GetEditorWorld();
 	int lID = mpEntity->GetID();
 	tString strFilename = cString::To8Char(apWidget->GetText());
 	bool bEmptyString = (strFilename=="");
@@ -509,7 +509,7 @@ bool cEditorWindowEntityEditBoxLight::WindowSpecificInputCallback(iEditorInput* 
 
 	iEditorAction* pAction = NULL;
 	int lID = mpEntity->GetID();
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditMode->GetEditorWorld();
 
 	tString strFilename;
 

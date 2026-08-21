@@ -196,7 +196,7 @@ void cEditorWindowEntityEditBoxPrimitive::OnUpdate(float afTimeStep)
 bool cEditorWindowEntityEditBoxPrimitive::InputCallback(iWidget* apWidget, const cGuiMessageData& aData)
 {
 	iEditorAction* pAction = NULL;
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditor->GetActiveEditorWorld();
 	int lID = mpEntity->GetID();
 	tString sFilename = cString::To8Char(apWidget->GetText());
 	bool bEmptyString = sFilename=="";
@@ -261,7 +261,7 @@ bool cEditorWindowEntityEditBoxPrimitive::WindowSpecificInputCallback(iEditorInp
 		return true;
 
 	iEditorAction* pAction = NULL;
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditor->GetActiveEditorWorld();
 	int lID = mpEntity->GetID();
 
 	

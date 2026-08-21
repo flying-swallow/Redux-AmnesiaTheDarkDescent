@@ -70,9 +70,6 @@
 #include "scene/Node3D.h"
 #include "scene/ParticleEmitter.h"
 #include "scene/ParticleSystem.h"
-#include "scene/RenderableContainer_BoxTree.h"
-#include "scene/RenderableContainer_DynBoxTree.h"
-#include "scene/RenderableContainer_List.h"
 #include "scene/RopeEntity.h"
 #include "scene/Scene.h"
 #include "scene/SoundEntity.h"
@@ -171,12 +168,6 @@ cWorld::cWorld(tString asName, cGraphics *apGraphics, cResources *apResources,
 
   mlSoundCreationIDCount = 0;
 
-  // TODO: Have the container type as param and create.
-  mpRenderableContainer[eWorldContainerType_Static] =
-      hplNew(cRenderableContainer_BoxTree, ());
-  mpRenderableContainer[eWorldContainerType_Dynamic] =
-      hplNew(cRenderableContainer_DynBoxTree, ());
-
   mpPhysicsWorld = NULL;
   mbAutoDeletePhysicsWorld = false;
 
@@ -213,11 +204,6 @@ cWorld::~cWorld() {
   }
 
   DestroyAllEntities(0);
-
-  for (int i = 0; i < 2; ++i) {
-    if (mpRenderableContainer[i])
-      hplDelete(mpRenderableContainer[i]);
-  }
 
   hplDelete(mpRootNode);
 }
@@ -298,9 +284,8 @@ void cWorld::PreUpdate(float afTotalTime, float afTimeStep) {
 
 //-----------------------------------------------------------------------
 
-iRenderableContainer *
-cWorld::GetRenderableContainer(eWorldContainerType aType) {
-  return mpRenderableContainer[aType];
+cRenderableSet *cWorld::GetRenderableSet(eWorldContainerType aType) {
+  return &mvRenderableSets[aType];
 }
 
 //-----------------------------------------------------------------------
@@ -338,21 +323,18 @@ static void CheckMinMaxUpdate(cVector3f &avMin, cVector3f &avMax,
 //-----------------------------------------------------------------------
 
 void cWorld::Compile(bool abCalcPhysicsWorldSize) {
-  for (int i = 0; i < 2; ++i)
-    if (mpRenderableContainer[i])
-      mpRenderableContainer[i]->Compile();
+  // Only statics freeze; the dynamic set keeps refreshing AABBs every frame.
+  mvRenderableSets[eWorldContainerType_Static].Compile();
 
   CompileDecals();
 
   if (mpPhysicsWorld && abCalcPhysicsWorldSize) {
-    iRenderableContainerNode *pStaticRoot =
-        mpRenderableContainer[eWorldContainerType_Static]->GetRoot();
-
-    // Create a 10 m border around the world too
-    cVector3f vMin = pStaticRoot->GetMin() - cVector3f(10, 10, 10);
-    cVector3f vMax = pStaticRoot->GetMax() + cVector3f(10, 10, 10);
-
-    mpPhysicsWorld->SetWorldSize(vMin, vMax);
+    cVector3f vMin, vMax;
+    if (mvRenderableSets[eWorldContainerType_Static].GetBounds(vMin, vMax)) {
+      // Create a 10 m border around the world too
+      mpPhysicsWorld->SetWorldSize(vMin - cVector3f(10, 10, 10),
+                                   vMax + cVector3f(10, 10, 10));
+    }
   }
 }
 
@@ -414,54 +396,39 @@ void cWorld::CompileDecals() {
   // for static-placed set-dressing.
   mvDecalObjectIndices.clear();
   if (mvDecals.empty() == false) {
-    auto associateContainer = [&](iRenderableContainer *apContainer,
-                                  int alCategoryBits) {
-      if (apContainer == NULL)
-        return;
-      std::vector<iRenderableContainerNode *> lstStack;
-      lstStack.push_back(apContainer->GetRoot());
-      while (lstStack.empty() == false) {
-        iRenderableContainerNode *pNode = lstStack.back();
-        lstStack.pop_back();
-        if (pNode == NULL)
+    auto associateSet = [&](cRenderableSet &aSet, int alCategoryBits) {
+      for (iRenderable *pObj : aSet.GetObjects()) {
+        cBoundingVolume *pObjBV = pObj->GetBoundingVolume();
+        if (pObjBV == NULL)
           continue;
 
-        for (iRenderableContainerNode *pChild : pNode->GetChildNodes())
-          lstStack.push_back(pChild);
-
-        for (iRenderable *pObj : pNode->GetObjects()) {
-          cBoundingVolume *pObjBV = pObj->GetBoundingVolume();
-          if (pObjBV == NULL)
+        const int lOffset = (int)mvDecalObjectIndices.size();
+        int lCount = 0;
+        for (size_t i = 0; i < mvDecals.size(); ++i) {
+          if ((mvDecals[i]->GetReceiverMask() & alCategoryBits) == 0)
             continue;
-
-          const int lOffset = (int)mvDecalObjectIndices.size();
-          int lCount = 0;
-          for (size_t i = 0; i < mvDecals.size(); ++i) {
-            if ((mvDecals[i]->GetReceiverMask() & alCategoryBits) == 0)
-              continue;
-            cBoundingVolume *pDecalBV = mvDecals[i]->GetBoundingVolume();
-            if (pDecalBV == NULL)
-              continue;
-            if (cMath::CheckBVIntersection(*pObjBV, *pDecalBV) == false)
-              continue;
-            if (lCount >= 255) // 8-bit count in UniformObject.decalList
-            {
-              Warning("cWorld::Compile: object exceeded 255 overlapping "
-                      "decals; clipping\n");
-              break;
-            }
-            mvDecalObjectIndices.push_back((uint32_t)i);
-            ++lCount;
+          cBoundingVolume *pDecalBV = mvDecals[i]->GetBoundingVolume();
+          if (pDecalBV == NULL)
+            continue;
+          if (cMath::CheckBVIntersection(*pObjBV, *pDecalBV) == false)
+            continue;
+          if (lCount >= 255) // 8-bit count in UniformObject.decalList
+          {
+            Warning("cWorld::Compile: object exceeded 255 overlapping "
+                    "decals; clipping\n");
+            break;
           }
-          pObj->SetDecalList(lOffset, lCount);
+          mvDecalObjectIndices.push_back((uint32_t)i);
+          ++lCount;
         }
+        pObj->SetDecalList(lOffset, lCount);
       }
     };
 
-    associateContainer(mpRenderableContainer[eWorldContainerType_Static],
-                       eDecalReceiver_Static);
-    associateContainer(mpRenderableContainer[eWorldContainerType_Dynamic],
-                       eDecalReceiver_Entity | eDecalReceiver_Primitive);
+    associateSet(mvRenderableSets[eWorldContainerType_Static],
+                 eDecalReceiver_Static);
+    associateSet(mvRenderableSets[eWorldContainerType_Dynamic],
+                 eDecalReceiver_Entity | eDecalReceiver_Primitive);
   }
 
   // CompileDecals only builds the CPU-side decal association (Morton order above
@@ -718,6 +685,16 @@ IndexPool *cWorld::GpuLightPoolFor(iLight *apLight) {
 }
 
 void cWorld::PrepareFrame(cGraphics::FrameContext *cntx) {
+  // Once per frame, whoever evaluates first. cScene::Render drives this for
+  // visible viewports, but headless evaluators (editor camera capture,
+  // thumbnails) run from OnDraw BEFORE cScene::Render — without publishing
+  // here first, their RT passes would trace last frame's TLAS against this
+  // frame's rewritten bindless object slots (stale instanceCustomIndex →
+  // garbage vertex BDA → GPU VM fault).
+  if (mlPreparedFrameIndex == mpGraphics->frameIndex)
+    return;
+  mlPreparedFrameIndex = mpGraphics->frameIndex;
+
   // Debounced decal association rebuild: the editor marks this on each edit
   // rather than recompiling synchronously, so a continuous drag coalesces into
   // one CompileDecals() per frame here (which also marks the GPU buffers dirty
@@ -1034,12 +1011,9 @@ void cWorld::BuildTlas(cGraphics::FrameContext *cntx, cFrustum *apFrustum) {
     tlasInstances.push_back(inst);
   };
   for (int i = 0; i < eWorldContainerType_LastEnum; ++i) {
-    iRenderableContainer *container =
-        GetRenderableContainer((eWorldContainerType)i);
-    if (!container)
-      continue;
-    container->UpdateBeforeRendering();
-    rendering::WalkAndPrepareRenderList(container, apFrustum, handler,
+    cRenderableSet *pSet = &mvRenderableSets[i];
+    pSet->UpdateBeforeRendering();
+    rendering::WalkAndPrepareRenderList(pSet, apFrustum, handler,
                                         eRenderableFlag_VisibleInNonReflection,
                                         /*abIgnoreFrustumCull=*/true);
   }
@@ -2117,18 +2091,18 @@ cDummyRenderableIterator cWorld::GetDummyRenderableIterator() {
 
 void cWorld::AddRenderableToContainer(iRenderable *apObject) {
   if (apObject->IsStatic())
-    mpRenderableContainer[eWorldContainerType_Static]->Add(apObject);
+    mvRenderableSets[eWorldContainerType_Static].Add(apObject);
   else
-    mpRenderableContainer[eWorldContainerType_Dynamic]->Add(apObject);
+    mvRenderableSets[eWorldContainerType_Dynamic].Add(apObject);
 }
 
 //-----------------------------------------------------------------------
 
 void cWorld::RemoveRenderableFromContainer(iRenderable *apObject) {
   if (apObject->IsStatic())
-    mpRenderableContainer[eWorldContainerType_Static]->Remove(apObject);
+    mvRenderableSets[eWorldContainerType_Static].Remove(apObject);
   else
-    mpRenderableContainer[eWorldContainerType_Dynamic]->Remove(apObject);
+    mvRenderableSets[eWorldContainerType_Dynamic].Remove(apObject);
 }
 
 //-----------------------------------------------------------------------

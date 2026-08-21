@@ -63,6 +63,51 @@ tString cEntityWrapperTypeEntity::ToString()
 
 //------------------------------------------------------------------------------
 
+bool cEntityWrapperTypeEntity::ResolveEntFileTypes(const tString& asFilename,
+												   tString& asTypeOut, tString& asSubTypeOut)
+{
+	// Pending-first: an edited EntityType/EntitySubType in a pending .ent doc must be
+	// visible to type resolution. GetPendingRoot is a cheap lookup (no parse), so the
+	// pending path is always read fresh and never uses the disk cache.
+	cPrefabManager* pMgr = mpWorld->GetEditor()->GetPrefabManager();
+	tinyxml2::XMLElement* pPending = pMgr ? pMgr->GetPendingRoot(asFilename) : NULL;
+	if(pPending)
+	{
+		tinyxml2::XMLElement* pUserVars = pPending->FirstChildElement("UserDefinedVariables");
+		if(pUserVars==NULL)
+			return false;
+		asTypeOut    = GetAttributeString(pUserVars, "EntityType");
+		asSubTypeOut = GetAttributeString(pUserVars, "EntitySubType");
+		return true;
+	}
+
+	// No pending doc — cached fresh disk parse (keyed by filename, avoids re-parsing
+	// once per candidate type during map load).
+	if(msLastCheckedFile!=asFilename)
+	{
+		cResources* pRes = mpWorld->GetEditor()->GetEngine()->GetResources();
+		tinyxml2::XMLElement* pModelDoc = pRes->LoadXmlDocument(asFilename);
+		if(pModelDoc)
+		{
+			tinyxml2::XMLElement* pUserVars = pModelDoc->FirstChildElement("UserDefinedVariables");
+			if(pUserVars)
+			{
+				msLastCheckedFile    = asFilename;
+				msLastCheckedType    = GetAttributeString(pUserVars, "EntityType");
+				msLastCheckedSubType = GetAttributeString(pUserVars, "EntitySubType");
+			}
+
+			pRes->DestroyXmlDocument(pModelDoc);
+		}
+	}
+
+	asTypeOut    = msLastCheckedType;
+	asSubTypeOut = msLastCheckedSubType;
+	return true;
+}
+
+//------------------------------------------------------------------------------
+
 bool cEntityWrapperTypeEntity::IsAppropriateType(tinyxml2::XMLElement* apElement)
 {
 	if(iEntityWrapperType::IsAppropriateType(apElement)==false)
@@ -80,38 +125,24 @@ bool cEntityWrapperTypeEntity::IsAppropriateType(tinyxml2::XMLElement* apElement
 	}
 
 	sFilename = mpWorld->GetFilenameFromIndex("Entities", lFileIndex);
-	if(msLastCheckedFile!=sFilename)
-	{
-		tinyxml2::XMLElement* pModelDoc = pRes->LoadXmlDocument(sFilename);
-		if(pModelDoc)
-		{
-			tinyxml2::XMLElement* pUserVars = pModelDoc->FirstChildElement("UserDefinedVariables");
-			if(pUserVars)
-			{
-				msLastCheckedFile = sFilename;
-				msLastCheckedType = GetAttributeString(pUserVars, "EntityType");
-				msLastCheckedSubType = GetAttributeString(pUserVars, "EntitySubType");
-			}
-
-			pRes->DestroyXmlDocument(pModelDoc);
-		}
-	}
+	tString sCheckedType, sCheckedSubType;
+	ResolveEntFileTypes(sFilename, sCheckedType, sCheckedSubType);
 
 	const tString& sType = GetUserTypeName();
 	const tString& sSubType = GetUserSubTypeName();
 
-	if(sType==msLastCheckedType)
+	if(sType==sCheckedType)
 	{
 		if(sSubType!="")
 		{
-			if(sSubType==msLastCheckedSubType)
+			if(sSubType==sCheckedSubType)
 				return true;
 		}
 		else
 		{
-			if(msLastCheckedSubType!="")
-				Log("Inconsistency found in file %s : no subtype %s in type %s\n", sFilename.c_str(), msLastCheckedSubType.c_str(), sType.c_str());
-				
+			if(sCheckedSubType!="")
+				Log("Inconsistency found in file %s : no subtype %s in type %s\n", sFilename.c_str(), sCheckedSubType.c_str(), sType.c_str());
+
 			return true;
 		}
 	}
@@ -138,33 +169,19 @@ bool cEntityWrapperTypeEntity::IsAppropriateDefaultType(tinyxml2::XMLElement* ap
 	}
 
 	sFilename = mpWorld->GetFilenameFromIndex("Entities", lFileIndex);
-	if(msLastCheckedFile!=sFilename)
+	tString sCheckedType, sCheckedSubType;
+	ResolveEntFileTypes(sFilename, sCheckedType, sCheckedSubType);
+
+	if(mpUserType->GetDefinition()->GetType(sCheckedType)==NULL)
 	{
-		tinyxml2::XMLElement* pModelDoc = pRes->LoadXmlDocument(sFilename);
-		if(pModelDoc)
-		{
-			tinyxml2::XMLElement* pUserVars = pModelDoc->FirstChildElement("UserDefinedVariables");
-			if(pUserVars)
-			{
-				msLastCheckedFile = sFilename;
-				msLastCheckedType = GetAttributeString(pUserVars, "EntityType");
-				msLastCheckedSubType = GetAttributeString(pUserVars, "EntitySubType");
-			}
-
-			pRes->DestroyXmlDocument(pModelDoc);
-		}
-	}
-
-	if(mpUserType->GetDefinition()->GetType(msLastCheckedType)==NULL)
-	{	
 		mpWorld->SetShowLoadErrorPopUp();
-		Log("Inconsistency found in file %s : no entity type %s is defined\n", sFilename.c_str(), msLastCheckedSubType.c_str());
+		Log("Inconsistency found in file %s : no entity type %s is defined\n", sFilename.c_str(), sCheckedSubType.c_str());
 		return true;
 	}
 
 	const tString& sType = GetUserTypeName();
 
-	return sType==msLastCheckedType && mpUserType->IsDefaultSubType();
+	return sType==sCheckedType && mpUserType->IsDefaultSubType();
 }
 
 //------------------------------------------------------------------------------
@@ -466,6 +483,7 @@ void cEntityWrapperEntity::SetFilename(const tString& asX)
 		return;
 
 	msFilename = asX;
+	UpdatePrefabRef();
 
 	if(mpEngineEntity==NULL)
 		return;
@@ -478,6 +496,70 @@ void cEntityWrapperEntity::SetFilename(const tString& asX)
 	SetFileIndex(lFileIndex);
 
     CreateEngineEntity();
+
+	// Re-point the live-reload watches at the new file (+ its dependency chain).
+	// (UpdatePrefabRef above already re-pointed the prefab modification
+	// subscription at the new file's resource.)
+	RegisterFileWatches();
+}
+
+//---------------------------------------------------------------------------
+
+void cEntityWrapperEntity::UpdatePrefabRef()
+{
+	cPrefabManager* pMgr = GetEditorWorld()->GetEditor()->GetPrefabManager();
+
+	// Re-pointing at the same resource is a refcount no-op (handle self-assign
+	// guard), so calling this redundantly is safe.
+	if(pMgr==NULL || msFilename.empty())
+		mPrefabRef = SharedResourceHandle<cPrefabResource>();
+	else
+		mPrefabRef = pMgr->CreatePrefab(msFilename);
+
+	// Re-point the modification subscription, but ONLY when the resource actually
+	// changed (mpSubscribedPrefab): Connect asserts a single bound event, and a
+	// rebuild re-enters this method with the SAME resource — re-connecting the
+	// handler mid-Signal (while OnModified() is iterating it) would churn it.
+	cPrefabResource* pRes = mPrefabRef.Get();
+	if(pRes != mpSubscribedPrefab)
+	{
+		mPrefabModifiedHandler.Disconnect();
+		if(pRes)
+			mPrefabModifiedHandler.Connect(pRes->OnModified());
+		mpSubscribedPrefab = pRes;
+	}
+}
+
+//---------------------------------------------------------------------------
+
+void cEntityWrapperEntity::OnPrefabModified(ePrefabEvent)
+{
+	// Nothing built yet (mid-construction / headless) — the eventual
+	// CreateEngineEntity will read the current definition anyway.
+	if(mpEngineEntity==NULL)
+		return;
+
+	// Snapshot -> tear down this engine entity -> rebuild from the current
+	// definition. LoadEntFile is pending-first, so the rebuild reflects the edit.
+	// Mirrors iEditorWorld::ReloadEntities' per-entity body; a live reload, so it
+	// pushes no undo action and does not dirty the map.
+	iEntityWrapperData* pData = CreateCopyData();
+	DestroyEngineEntity();
+
+	pData->CopyToEntity(this, ePropCopyStep_PreEnt);
+	CreateEngineEntity();
+	pData->CopyToEntity(this, ePropCopyStep_PostEnt);
+	UpdateEntity();
+
+	// Re-push the selection highlight onto the rebuilt engine entity.
+	if(IsSelected())
+		SetSelected(true);
+
+	// Re-sync watches in case the edit changed the dependency set (e.g. a
+	// different mesh/material). RegisterFileWatches unregisters first.
+	RegisterFileWatches();
+
+	hplDelete(pData);
 }
 
 //---------------------------------------------------------------------------
@@ -506,7 +588,12 @@ iEngineEntity* cEntityWrapperEntity::CreateSpecificEngineEntity()
 		else
 			Log("Error creating Entity named %s, ID %d\n", msName.c_str(), mlID);
 	}
-	
+
+	// Map-load path: msFilename can be resolved from the file index right here,
+	// bypassing SetFilename — take the instance's prefab reference now that the
+	// filename is final.
+	UpdatePrefabRef();
+
 	return hplNew(cEngineEntityLoadedMeshAggregate,(this, msFilename));
 }
 

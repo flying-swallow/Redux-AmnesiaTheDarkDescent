@@ -1,6 +1,7 @@
 #include "graphics/RIDescriptorSetAllocator.h"
 #include "system/stb_ds.h"
 #include <cassert>
+#include <cstring>
 
 struct RIDescriptorSetSlot *allocDescriptorSetSlot( struct RIDescriptorSetAlloc *alloc )
 {
@@ -161,5 +162,12 @@ void freeDescriptorSetAlloc( struct RIDevice *device, struct RIDescriptorSetAllo
 		vkDestroyDescriptorPool( device->vk.device, alloc->pools[i].vk.handle, NULL );
 	}
 	arrfree( alloc->pools );
+	arrfree( alloc->reservedSlots );
+	// The queue/hash entries point into the freed blocks — clear them so the
+	// alloc struct is inert (and reusable) after a dispose.
+	alloc->queue_begin = NULL;
+	alloc->queue_end = NULL;
+	memset( alloc->hash_slots, 0, sizeof( alloc->hash_slots ) );
+	alloc->blockIndex = 0;
 #endif
 }

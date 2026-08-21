@@ -121,7 +121,11 @@ class cModelEditorWorld : public iEditorWorld
 {
 public:
 	cModelEditorWorld(iEditorBase* apEditor);
-	
+	// Frees mpClass (SetType(NULL) releases the current class instance) — needed
+	// for transient headless use (MCP create_entity_file) and plugs a latent leak
+	// in the ModelEditor itself.
+	~cModelEditorWorld();
+
 	void Reset();
 
 	cEntityWrapperTypeSubMesh* GetSubMeshType() { return mpTypeSubMesh; }

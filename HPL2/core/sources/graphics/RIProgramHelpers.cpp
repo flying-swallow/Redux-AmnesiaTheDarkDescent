@@ -11,7 +11,7 @@ void LoadSlangCompute(RIDevice *device, RIProgram &prog,
   auto bin = RIProgram::loadShaderStage(resources->GetFileSearcher(), name);
   std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
       RIProgram::PROGRAM_STAGE_COMPUTE, bin, entryPoint}};
-  prog.initialize(device, stages, externalLayouts);
+  prog.initialize(device, stages, externalLayouts, name);
 }
 
 void LoadSlangGraphics(RIDevice *device, RIProgram &prog,
@@ -26,7 +26,7 @@ void LoadSlangGraphics(RIDevice *device, RIProgram &prog,
                                vertEntryPoint},
         RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, bin,
                                fragEntryPoint}};
-    prog.initialize(device, stages, externalLayouts);
+    prog.initialize(device, stages, externalLayouts, fragName);
     return;
   }
   auto vsBin = RIProgram::loadShaderStage(resources->GetFileSearcher(), vertName);
@@ -36,7 +36,7 @@ void LoadSlangGraphics(RIDevice *device, RIProgram &prog,
                              vertEntryPoint},
       RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, fsBin,
                              fragEntryPoint}};
-  prog.initialize(device, stages, externalLayouts);
+  prog.initialize(device, stages, externalLayouts, fragName);
 }
 
 } // namespace hpl

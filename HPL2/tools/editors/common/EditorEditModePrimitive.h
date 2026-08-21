@@ -32,6 +32,9 @@ class iPrimitiveMeshCreator
 {
 public:
 	iPrimitiveMeshCreator(cEditorEditModePrimitives* apEditMode);
+	// Virtual: concrete creators are deleted through this base —
+	// non-virtual dtor = wrong-sized delete.
+	virtual ~iPrimitiveMeshCreator() {}
 
 	void SetPrimitiveType(iEntityWrapperType* apType) { mpType = apType; }
 

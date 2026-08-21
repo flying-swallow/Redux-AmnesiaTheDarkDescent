@@ -21,6 +21,7 @@
 #include "impl/MeshLoaderMSH.h"
 #include "impl/MeshLoaderFBX.h"
 #include "impl/MeshLoaderCollada.h"
+#include "impl/MeshLoaderGLTF.h"
 #include "impl/BitmapLoaderDevilDDS.h"
 #include "impl/BitmapLoaderDevilMisc.h"
 
@@ -69,6 +70,7 @@ namespace hpl {
 		cMeshLoaderMSH *pLoaderMSH = hplNew( cMeshLoaderMSH,());
 		apHandler->AddLoader(pLoaderMSH);
 		apHandler->AddLoader(hplNew( cMeshLoaderCollada,(pLoaderMSH, true)));
+		apHandler->AddLoader(hplNew( cMeshLoaderGLTF,(pLoaderMSH, true)));
 		//apHandler->AddLoader(hplNew( cMeshLoaderFBX,(pLoaderMSH, true)));
 	}
 

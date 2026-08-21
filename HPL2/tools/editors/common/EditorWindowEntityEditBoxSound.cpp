@@ -134,7 +134,7 @@ bool cEditorWindowEntityEditBoxSound::WindowSpecificInputCallback(iEditorInput* 
 		return true;
 
 	iEditorAction* pAction = NULL;
-	iEditorWorld* pWorld = mpEditor->GetEditorWorld();
+	iEditorWorld* pWorld = mpEditMode->GetEditorWorld();
 	int lID = mpEntity->GetID();
 
 	if(apInput==mpInpSoundEntity)

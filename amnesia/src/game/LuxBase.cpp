@@ -1115,14 +1115,14 @@ bool cLuxBase::InitEngine()
 	iLowLevelSound::SetSoundDeviceNameFilter("soft");
 #endif
 	
-	//renderer variables
-	iRenderer::SetShadowMapQuality((eShadowMapQuality)mpConfigHandler->mlShadowQuality);
-	iRenderer::SetShadowMapResolution((eShadowMapResolution)mpConfigHandler->mlShadowRes);
-	
-	iRenderer::SetParallaxQuality((eParallaxQuality)mpConfigHandler->mlParallaxQuality);
-	iRenderer::SetParallaxEnabled(mpConfigHandler->mbParallaxEnabled);
+	////renderer variables
+	//iRenderer::SetShadowMapQuality((eShadowMapQuality)mpConfigHandler->mlShadowQuality);
+	//iRenderer::SetShadowMapResolution((eShadowMapResolution)mpConfigHandler->mlShadowRes);
+	//
+	//iRenderer::SetParallaxQuality((eParallaxQuality)mpConfigHandler->mlParallaxQuality);
+	//iRenderer::SetParallaxEnabled(mpConfigHandler->mbParallaxEnabled);
 
-	iRenderer::SetRefractionEnabled(mpConfigHandler->mbRefraction);
+	//iRenderer::SetRefractionEnabled(mpConfigHandler->mbRefraction);
 
 	//Other vars
 	cResources::SetForceCacheLoadingAndSkipSaving(mpConfigHandler->mbForceCacheLoadingAndSkipSaving);

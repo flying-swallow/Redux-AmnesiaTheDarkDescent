@@ -64,7 +64,7 @@ public:
 protected:
 	bool CheckDataIsValid();
 
-	void OnEditorUpdate();
+	void OnEditorUpdate(float afTimeStep);
 
 	bool mbEmittersUpdated;
 	bool mbPSDataUpdated;

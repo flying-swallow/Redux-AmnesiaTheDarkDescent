@@ -22,6 +22,7 @@
 #include "EntityWrapperEntity.h"
 
 #include "EditorEditModeSelect.h"
+#include "EditorHostActions.h"
 
 //----------------------------------------------------------------------------
 
@@ -34,6 +35,8 @@
 cEditorWindowEntityEditBoxEntity::cEditorWindowEntityEditBoxEntity(cEditorEditModeSelect* apEditMode, cEntityWrapperEntity* apObject) : cEditorWindowEntityEditBoxUserDefinedEntity(apEditMode, apObject)
 {
 	mpEntity = apObject;
+	mpBOpenModelEditor = NULL;
+	mpBEditContents = NULL;
 }
 
 //----------------------------------------------------------------------------
@@ -77,6 +80,37 @@ void cEditorWindowEntityEditBoxEntity::Create()
 
 	mpInpFile = CreateInputFile(vPos, _W("Entity File"), "", mpTabGeneral, 100);
 	mpInpFile->SetBrowserType(eEditorResourceType_EntityFile);
+	vPos.y += mpInpFile->GetSize().y+10;
+
+	// LevelEditor-only host capabilities (external-editor launch + ent-file scope),
+	// discovered via the iEditorHostActions capability cast — NULL in editors that
+	// don't offer them, which is how these buttons stay hidden elsewhere.
+	iEditorHostActions* pHost = dynamic_cast<iEditorHostActions*>(mpEditor);
+
+	////////////////////////////////////////
+	// "Edit in Model Editor" button (only where launching is supported, i.e.
+	// the LevelEditor). Opens this entity's .ent in the standalone ModelEditor;
+	// the file watcher / MCP reload then updates the placed instances live.
+	// Suppressed while this box is the parent entity's own box shown INSIDE an
+	// ent-file scope — you're already editing the contents in place.
+	if(pHost && pHost->IsEntFileScoped()==false)
+	{
+		mpBOpenModelEditor = mpSet->CreateWidgetButton(vPos, cVector2f(160,25), _W("Edit in Model Editor"), mpTabGeneral);
+		mpBOpenModelEditor->AddCallback(eGuiMessage_ButtonPressed, this, kGuiCallback(OpenModelEditorCallback));
+		vPos.y += mpBOpenModelEditor->GetSize().y+5;
+	}
+
+	////////////////////////////////////////
+	// "Edit Contents" button (only where scoping is supported, i.e. the
+	// LevelEditor). Re-roots the hierarchy into this entity so its embedded
+	// lights/particles/sounds/bodies can be edited in place — no ModelEditor launch.
+	// Suppressed while this box is the parent entity's own box shown INSIDE a scope
+	// (re-scoping into the already-scoped entity is pointless/confusing).
+	if(pHost && pHost->IsEntFileScoped()==false)
+	{
+		mpBEditContents = mpSet->CreateWidgetButton(vPos, cVector2f(160,25), _W("Edit Contents"), mpTabGeneral);
+		mpBEditContents->AddCallback(eGuiMessage_ButtonPressed, this, kGuiCallback(EditContentsCallback));
+	}
 
     ////////////////////////////////////////
 	// Properties in Tab 'Specific'
@@ -102,6 +136,43 @@ bool cEditorWindowEntityEditBoxEntity::WindowSpecificInputCallback(iEditorInput*
 
 	return true;
 }
+
+//----------------------------------------------------------------------------
+
+bool cEditorWindowEntityEditBoxEntity::OpenModelEditorCallback(iWidget* apWidget, const cGuiMessageData& aData)
+{
+	tString sFile = mpEntity->GetFilename();
+	if(sFile.empty())
+	{
+		Warning("[ModelEditor] selected entity has no .ent file to edit\n");
+		return true;
+	}
+
+	Log("[ModelEditor] launch requested for '%s'\n", sFile.c_str());
+	if(iEditorHostActions* pHost = dynamic_cast<iEditorHostActions*>(mpEditor))
+		pHost->OpenInModelEditor(sFile);
+
+	return true;
+}
+kGuiCallbackDeclaredFuncEnd(cEditorWindowEntityEditBoxEntity, OpenModelEditorCallback);
+
+//----------------------------------------------------------------------------
+
+bool cEditorWindowEntityEditBoxEntity::EditContentsCallback(iWidget* apWidget, const cGuiMessageData& aData)
+{
+	tString sFile = mpEntity->GetFilename();
+	if(sFile.empty())
+	{
+		Warning("[EntFileScope] selected entity has no .ent file to edit\n");
+		return true;
+	}
+
+	if(iEditorHostActions* pHost = dynamic_cast<iEditorHostActions*>(mpEditor))
+		pHost->EnterEntFileScope(mpEntity->GetID());
+
+	return true;
+}
+kGuiCallbackDeclaredFuncEnd(cEditorWindowEntityEditBoxEntity, EditContentsCallback);
 
 //----------------------------------------------------------------------------
 

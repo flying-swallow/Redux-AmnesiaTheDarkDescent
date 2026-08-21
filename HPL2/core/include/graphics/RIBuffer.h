@@ -42,6 +42,11 @@ enum RIMemoryLocation_e {
   // Persistently mapped for sequential host writes
   // (VMA AUTO + MAPPED + HOST_ACCESS_SEQUENTIAL_WRITE).
   RI_MEMORY_HOST_UPLOAD,
+  // Persistently mapped for random host reads — a GPU->CPU readback
+  // destination (VMA AUTO + MAPPED + HOST_ACCESS_RANDOM). mappedAddress is
+  // host-readable; invalidate the allocation before reading if it landed in
+  // HOST_CACHED memory.
+  RI_MEMORY_HOST_READBACK,
 };
 
 // Backend-neutral buffer creation descriptor consumed by RIBuffer::create.

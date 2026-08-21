@@ -36,6 +36,7 @@
 #include "EditorGrid.h"
 #include "EditorWorld.h"
 #include "EditorSelection.h"
+#include "PrefabManager.h"
 #include "EditorHelper.h"
 
 #include "EditorInput.h"
@@ -97,8 +98,16 @@ cMeshEntity* cEditorEntityLoader::LoadEntFile(int alID, const tString& asName, c
 	cResources* pRes = mpEditor->GetEngine()->GetResources();
 	tWString sFullPath = pRes->GetFileSearcher()->GetFilePath(asFilename);
 
+	// Pending in-memory entity file (MCP define_entity_file, not yet written to
+	// disk)? Load it through the exact same element path as on-disk files.
+	tinyxml2::XMLElement* pPendingRoot = mpEditor->GetPendingEntFileRoot(asFilename);
+	if(pPendingRoot)
+	{
+		return LoadEntityFromElement(alID, asName, pPendingRoot, apWorld, asFilename, sFullPath,
+									 abLoadAnims, abLoadParticles, abLoadBillboards, abLoadSounds, abLoadLights);
+	}
+
 	cMeshEntity* pEntity = NULL;
-	tinyxml2::XMLElement* pXmlEntity = NULL;
 
 	tinyxml2::XMLElement* pDoc = pRes->LoadXmlDocument(asFilename);
 	if(pDoc==NULL)
@@ -199,6 +208,7 @@ iEditorBase::iEditorBase(const tWString& asFileCategoryName, const tWString& asF
 	mpTempWorld=NULL;
 
 	mpEntityLoader=NULL;
+	mpPrefabManager=NULL;
 
 	mbViewportLocked = false;
 
@@ -230,7 +240,14 @@ iEditorBase::~iEditorBase()
 	hplDelete(mpSelection);
 
 	hplDelete(mpEditorWorld);
-	
+
+	// After the world: its entity wrappers held the last prefab resource handles.
+	if(mpPrefabManager)
+	{
+		hplDelete(mpPrefabManager);
+		mpPrefabManager = NULL;
+	}
+
 	/////////////////////////////////////
 	//Destroy all Widgets
 	mpEngine->GetGui()->DestroySet(mpSet);
@@ -467,6 +484,9 @@ void iEditorBase::Save()
 	mpEditorWorld->UpdateSavedModifications();
 
 	hpl::SaveXmlFile(xmlDoc, msSaveFilename);
+
+	// Post-save hook (e.g. ModelEditor notifies the LevelEditor of the change).
+	OnPostSave();
 }
 
 //-----------------------------------------------------------------------
@@ -738,7 +758,8 @@ void iEditorBase::Init(cEngine* apEngine, const char* asName, const char* asBuil
 		vars.mGraphics.mbFullscreen = cString::ToBool(GetSetting("FullScreen").c_str(), false);
 		vars.mGraphics.msWindowCaption = msCaption;
 
-		iRenderer::SetShadowMapQuality(eShadowMapQuality_Medium);
+		// (Legacy GL global shadow-quality hint; the static iRenderer setter was
+		// removed in the RHI refactor — quality now comes from engine init vars.)
 
 		mbOwnsEngine = true;
 		mpEngine = CreateHPLEngine(eHplAPI_OpenGL, eHplSetup_All, &vars);
@@ -811,6 +832,14 @@ void iEditorBase::Init(cEngine* apEngine, const char* asName, const char* asBuil
 	mpClassDefManager = hplNew(cEditorUserClassDefinitionManager,(this));
 	SetUpClassDefinitions(mpClassDefManager);
 	mpClassDefManager->Init();
+
+	////////////////////////////////////
+	// Prefab resource manager (needs the engine's resource system, so created
+	// here rather than in the constructor). Must exist before the world: the
+	// world's constructor connects its prefab-changed handler to the manager's
+	// broadcast. Destroyed in ~iEditorBase AFTER the world, so entity wrappers
+	// drop their prefab handles first.
+	mpPrefabManager = hplNew(cPrefabManager,(this));
 
 	////////////////////////////////////
 	// Create world
@@ -1309,7 +1338,7 @@ void iEditorBase::Update(float afTimeStep)
 	////////////////////////////////////////////////////////////////////
 	// Run world update routines, if any
 	if(mpEditorWorld)
-		mpEditorWorld->OnEditorUpdate();
+		mpEditorWorld->OnEditorUpdate(afTimeStep);
 
 
 	////////////////////////////////////////////////////////////////////
@@ -1354,6 +1383,9 @@ void iEditorBase::OnDraw(float afFrameTime)
 	// viewport here (see EditorThumbnailBuilder.h).
 	if(mpThumbnailBuilder)
 		mpThumbnailBuilder->Pump(afFrameTime);
+
+	// App hook, same post-render window (drives the LevelEditor MCP camera capture).
+	OnPostRender(afFrameTime);
 }
 
 //----------------------------------------------------------------------------
@@ -1518,9 +1550,12 @@ void iEditorBase::InitLayout()
 
 	////////////////////////////////////////////////////////
 	// Set up EditMode Windows
-	//SetLayoutVec3f(eLayoutVec3_EditModeWindowPos, vViewportAreaPos+cVector3f(vViewportAreaSize.x,0,0));
-
 	cVector3f vEditWindowPos = vViewportAreaPos+cVector3f(vViewportAreaSize.x,-2,0);
+
+	// Publish the right-pane anchor so a windowless Select mode (the LevelEditor's
+	// scoped ent-file session) can position its property box there too.
+	SetLayoutVec3f(eLayoutVec3_EditModeWindowPos, vEditWindowPos);
+
 	for(int i=0;i<(int)mvEditModes.size();++i)
 	{
 		iEditorWindow* pWin = mvEditModes[i]->CreateWindow();

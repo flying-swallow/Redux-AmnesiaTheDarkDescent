@@ -80,6 +80,16 @@ public:
 
 	void SetUpClassDefinitions(cEditorUserClassDefinitionManager* apManager);
 
+	///////////////////////////
+	// LevelEditor launch integration (set by ModelEditorMain from the command
+	// line when opened via the LevelEditor's "Edit in Model Editor" button).
+	void SetStartupFile(const tString& asFile) { msStartupFile = asFile; }
+	void SetReloadNotifyEndpoint(int alPort, const tString& asToken) { mlNotifyPort = alPort; msNotifyToken = asToken; }
+
+	// Opens the startup .ent (if one was set) after Init(). Resolves the
+	// resource-relative path through the file searcher, then loads it.
+	void OpenStartupFile();
+
 protected:
 	///////////////////////////
 	// Own functions
@@ -124,6 +134,10 @@ protected:
 	void AppSpecificLoad(tinyxml2::XMLElement* apDoc);
 	void AppSpecificSave(tinyxml2::XMLElement* apDoc);
 
+	// Fires after a successful Save(): push a live-reload notification to the
+	// LevelEditor that launched us (no-op when launched standalone).
+	void OnPostSave();
+
 	cWidgetMainMenu* CreateMainMenu();
 
 	///////////////////////////
@@ -167,6 +181,13 @@ protected:
 	// Saving / Loading
 	tWString msImportedMeshFilename;
 	tWString msLastMeshPath;
+
+	///////////////////////
+	// LevelEditor sync (set from the command line when launched from the
+	// LevelEditor; all default/empty means we were opened standalone).
+	tString msStartupFile;   // resource-relative .ent to open + notify about
+	int     mlNotifyPort;    // LevelEditor MCP port (0 = no notify)
+	tString msNotifyToken;   // LevelEditor MCP bearer token (may be empty)
 
 	///////////////////////
 	// Model User Settings

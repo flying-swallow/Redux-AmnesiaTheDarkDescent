@@ -43,7 +43,6 @@
 #include "LuxInventory.h"
 #include "LuxLoadScreenHandler.h"
 
-#include "scene/RenderableContainer_DynBoxTree.h"
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -195,62 +194,18 @@ void cLuxDebugHandler::Reset()
 
 //-----------------------------------------------------------------------
 
-static tString gsTemp;
-static const char* GetSpaces(int alAmount)
-{
-	gsTemp.resize(alAmount, ' ');
-    return gsTemp.c_str();	
-}
-
-static void PrintContainerNode(iRenderableContainerNode *apNode, int alLevel)
-{
-	//apNode->UpdateBeforeUse();
-	Log("%sNode %d Radius: %f Min: (%s) Max: (%s) Objects: %d\n",	GetSpaces(alLevel), apNode, apNode->GetRadius(), 
-																	apNode->GetMin().ToString().c_str(), 
-																	apNode->GetMax().ToString().c_str(),
-																	apNode->GetObjectNum());
-	
-	tRenderableList *pObjList = apNode->GetObjectList();
-	tRenderableListIt objIt = pObjList->begin();
-	for(; objIt != pObjList->end(); ++objIt)
-	{
-		iRenderable *pObject = *objIt;
-        
-		//Log("%s -> '%s'\n", GetSpaces(alLevel), pObject->GetName().c_str());
-	}
-
-	tRenderableContainerNodeList* pList = apNode->GetChildNodeList();
-	tRenderableContainerNodeListIt it = pList->begin();
-	for(; it != pList->end(); ++it)
-	{
-		PrintContainerNode(*it, alLevel+1);
-	}
-}
-
-//-----------------------------------------------------------------------
-
 void cLuxDebugHandler::Update(float afTimeStep)
 {
 	iCharacterBody *pCharBody = gpBase->mpPlayer->GetCharacterBody();
-	
+
 	if(mbFirstUpdateOnMap)// && mlTempCount>0)
 	{
 		mbFirstUpdateOnMap = false;
-		
+
 		//DEBUG:
 		//gpBase->mpEngine->GetUpdater()->SetContainer("Journal");
 		//gpBase->mpJournal->OpenNote(gpBase->mpJournal->GetNote(0));
 		//gpBase->mpEngine->GetUpdater()->SetContainer("Inventory");
-		
-		cLuxMap *pMap = gpBase->mpMapHandler->GetCurrentMap();
-		if(pMap)
-		{
-			iRenderableContainer *pContainer = pMap->GetWorld()->GetRenderableContainer(eWorldContainerType_Dynamic);
-			//pContainer->UpdateBeforeRendering();
-			//pContainer->GetRoot()->UpdateBeforeUse();
-			//PrintContainerNode(pContainer->GetRoot(),0);
-			//Log("Root objects: %d Root has childs: %d\n",pContainer->GetRoot()->GetObjectNum(), pContainer->GetRoot()->HasChildNodes()?1:0);
-		}
 	}
 	mlTempCount++;
 
@@ -776,46 +731,13 @@ void cLuxDebugHandler::CheckLineObjectIntersection(iRenderable *apObject, const 
 
 //-----------------------------------------------------------------------
 
-void cLuxDebugHandler::IterateRenderableNode(iRenderableContainerNode *apNode, const cVector3f& avStart, const cVector3f& avEnd, cBoundingVolume *apBV)
+void cLuxDebugHandler::IterateRenderables(cRenderableSet *apSet, const cVector3f& avStart, const cVector3f& avEnd, cBoundingVolume *apBV)
 {
-	apNode->UpdateBeforeUse();
-
-	if(	apNode->GetParent()!=NULL)
+	for(iRenderable *pObject : apSet->GetObjects())
 	{
-		if(cMath::CheckAABBIntersection(apNode->GetMin(), apNode->GetMax(), apBV->GetMin(), apBV->GetMax())==false) return;
-	
-		if(cMath::CheckPointInAABBIntersection(avStart, apNode->GetMin(), apNode->GetMax())==false)
-		{
-			float fT=0;
-			if(cMath::CheckAABBLineIntersection(apNode->GetMin(), apNode->GetMax(), avStart, avEnd,NULL, &fT)==false) return;
-			if(fT > gfMinT) return;
-		}
-	}
+		if(pObject->GetRenderType() != eRenderableType_SubMesh) continue;
 
-	/////////////////////////////
-	//Iterate objects
-	if(apNode->HasObjects())
-	{
-		tRenderableListIt it = apNode->GetObjectList()->begin();
-		for(; it != apNode->GetObjectList()->end(); ++it)
-		{
-			iRenderable *pObject = *it;
-			if(pObject->GetRenderType() != eRenderableType_SubMesh) continue;
-			
-			CheckLineObjectIntersection(pObject, avStart, avEnd, apBV);
-		}
-	}
-
-	////////////////////////
-	//Iterate children
-	if(apNode->HasChildNodes())
-	{
-		tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-		for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
-		{
-			iRenderableContainerNode *pChildNode = *childIt;
-			IterateRenderableNode(pChildNode, avStart, avEnd, apBV);
-		}
+		CheckLineObjectIntersection(pObject, avStart, avEnd, apBV);
 	}
 }
 
@@ -842,19 +764,19 @@ void cLuxDebugHandler::UpdateInspectionMeshEntity(float afTimeStep)
 	mpInspectMeshEntity = NULL;
 	
 	/////////////////////////////
-	// Get Containers
+	// Get renderable sets
     cWorld *pWorld = gpBase->mpMapHandler->GetCurrentMap()->GetWorld();
-	iRenderableContainer *pContainers[2] ={
-		pWorld->GetRenderableContainer(eWorldContainerType_Dynamic),
-		pWorld->GetRenderableContainer(eWorldContainerType_Static),
+	cRenderableSet *pSets[2] ={
+		pWorld->GetRenderableSet(eWorldContainerType_Dynamic),
+		pWorld->GetRenderableSet(eWorldContainerType_Static),
 	};
 
 	/////////////////////////////
-	// Search nodes in containers
+	// Scan the sets
 	for(int i=0; i<2; ++i)
 	{
-		pContainers[i]->UpdateBeforeRendering();
-		IterateRenderableNode(pContainers[i]->GetRoot(), vStart, vEnd, &lineBV);       		
+		pSets[i]->UpdateBeforeRendering();
+		IterateRenderables(pSets[i], vStart, vEnd, &lineBV);
 	}
 }
 
@@ -1073,12 +995,6 @@ void cLuxDebugHandler::CreateGuiWindow()
 		pButton = mpGuiSet->CreateWidgetButton(vGroupPos,vSize,_W("Print Container Debug Info"),pGroup);
 		pButton->AddCallback(eGuiMessage_ButtonPressed,this, kGuiCallback(PressPrinfContDebugInfo));
 		vGroupPos.y += 22;
-
-		//Rebuild dyn contianer
-		pButton = mpGuiSet->CreateWidgetButton(vGroupPos,vSize,_W("Rebuild Dyn Container"),pGroup);
-		pButton->AddCallback(eGuiMessage_ButtonPressed,this, kGuiCallback(PressRebuildDynCont));
-		vGroupPos.y += 22;
-
 
 		//Group end
 		vGroupSize.y = vGroupPos.y + 15;
@@ -1445,164 +1361,21 @@ void cLuxDebugHandler::LoadBatchLoadFile(const tWString& asFilePath)
 
 void cLuxDebugHandler::DrawDynamicContainerDebugInfo()
 {
-	iRenderableContainer* pDynContainer = gpBase->mpMapHandler->GetCurrentMap()->GetWorld()->GetRenderableContainer(eWorldContainerType_Dynamic);
-	pDynContainer->UpdateBeforeRendering();
-	
-	////////////////////////////////////////
-	// Dynamic container output
-	Log("---------- BEGIN DYNAMIC CONTAINER OUTPUT ---------------\n");
-
-	OutputContainerContentsRec(pDynContainer->GetRoot(), 0);
-
-	Log("---------- END DYNAMIC CONTAINER OUTPUT ---------------\n");
+	cRenderableSet* pDynSet = gpBase->mpMapHandler->GetCurrentMap()->GetWorld()->GetRenderableSet(eWorldContainerType_Dynamic);
+	pDynSet->UpdateBeforeRendering();
 
 	////////////////////////////////////////
-	// Dynamic container bugs
-	Log("---------- BEGIN CHECK DYNAMIC BUGS ---------------\n");
-	
-	CheckDynamicContainerBugsRec(pDynContainer->GetRoot(), 0);
+	// Dynamic set output
+	Log("---------- BEGIN DYNAMIC SET OUTPUT (%d objects) ---------------\n", pDynSet->Size());
 
-	Log("---------- STOP CHECK DYNAMIC BUGS ---------------\n");
-}
-
-
-//-----------------------------------------------------------------------
-
-static tString GetTab(int alLevel)
-{
-	tString sOutput = "";
-	for(int i=0; i<alLevel; ++i) sOutput += "\t";
-	return sOutput;
-}
-
-void cLuxDebugHandler::OutputContainerContentsRec(iRenderableContainerNode *apNode, int alLevel)
-{
-	///////////////////////////////////////
-	//Make sure node is updated
-	//apNode->UpdateBeforeUse(); <- skip this as it might remove any bug otherwise (as it changes stuff from how it was rendered)
-
-	Log("%s-- Node %d AABB: (%s)-(%s)  ------\n",GetTab(alLevel).c_str(), apNode, apNode->GetMin().ToString().c_str(), apNode->GetMax().ToString().c_str());
-
-	/////////////////////////////
-	//Iterate objects
-	if(apNode->HasObjects())
+	for(iRenderable *pObject : pDynSet->GetObjects())
 	{
-		Log("%sObjects:\n", GetTab(alLevel).c_str());
-		tRenderableListIt it = apNode->GetObjectList()->begin();
-		for(; it != apNode->GetObjectList()->end(); ++it)
-		{
-			iRenderable *pObject = *it;
-			cBoundingVolume *pBV = pObject->GetBoundingVolume();
-
-			Log("%s %s (%s) AABB: (%s)-(%s)\n", GetTab(alLevel).c_str(), pObject->GetName().c_str(),pObject->GetEntityType().c_str(), 
-												pBV->GetMin().ToString().c_str(), pBV->GetMax().ToString().c_str());				
-		}
+		cBoundingVolume *pBV = pObject->GetBoundingVolume();
+		Log(" %s (%s) AABB: (%s)-(%s)\n", pObject->GetName().c_str(), pObject->GetEntityType().c_str(),
+											pBV->GetMin().ToString().c_str(), pBV->GetMax().ToString().c_str());
 	}
 
-	////////////////////////
-	//Iterate children
-	if(apNode->HasChildNodes())
-	{
-		tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-		for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
-		{
-			iRenderableContainerNode *pChildNode = *childIt;
-			OutputContainerContentsRec(pChildNode, alLevel+1);
-		}
-	}
-
-	Log("%s--------\n",GetTab(alLevel).c_str());
-}
-
-//-----------------------------------------------------------------------
-
-static bool CheckEntityInsideBox(iEntity3D *apEntity, const cVector3f&avMin, const cVector3f &avMax)
-{
-	cBoundingVolume *pBV = apEntity->GetBoundingVolume();
-	const cVector3f& vEntMin = pBV->GetMin();
-	const cVector3f& vEntMax = pBV->GetMin();
-
-	const float fOffset = 0.001f;
-
-	if(vEntMin.x+fOffset < avMin.x) return false;
-	if(vEntMin.y+fOffset < avMin.y) return false;
-	if(vEntMin.z+fOffset< avMin.z) return false;
-
-	if(vEntMax.x-fOffset > avMax.x) return false;
-	if(vEntMax.y-fOffset > avMax.y) return false;
-	if(vEntMax.z-fOffset > avMax.z) return false;
-
-	return true;
-}
-
-static cVector3f GetOutSideAmount(iEntity3D *apEntity, const cVector3f&avMin, const cVector3f &avMax)
-{
-	cBoundingVolume *pBV = apEntity->GetBoundingVolume();
-	const cVector3f& vEntMin = pBV->GetMin();
-	const cVector3f& vEntMax = pBV->GetMin();
-
-	cVector3f vAmount(0);
-
-	if(vEntMin.x-0.001f < avMin.x) vAmount.x = vEntMin.x - avMin.x;
-	if(vEntMin.y-0.001f < avMin.y) vAmount.y = vEntMin.y - avMin.y;
-	if(vEntMin.z-0.001f < avMin.z) vAmount.z = vEntMin.z - avMin.z;
-
-	if(vEntMax.x+0.001f > avMax.x) vAmount.x = vEntMax.x - avMax.x;
-	if(vEntMax.y+0.001f > avMax.y) vAmount.y = vEntMax.y - avMax.y;
-	if(vEntMax.z+0.001f > avMax.z) vAmount.z = vEntMax.z - avMax.z;
-
-	return vAmount;
-}
-
-void cLuxDebugHandler::CheckDynamicContainerBugsRec(iRenderableContainerNode *apNode, int alLevel)
-{
-	///////////////////////////////////////
-	//Make sure node is updated
-	apNode->UpdateBeforeUse();
-
-	//Log("%s-- Node %d ------\n",GetTab(alLevel).c_str(), apNode);
-
-	cVector3f vBoxMin = 9999999.f;
-	cVector3f vBoxMax = -9999999.f;
-
-	/////////////////////////////
-	//Iterate objects
-	if(apNode->HasObjects())
-	{
-		tRenderableListIt it = apNode->GetObjectList()->begin();
-		for(; it != apNode->GetObjectList()->end(); ++it)
-		{
-			iRenderable *pObject = *it;
-			cBoundingVolume *pBV = pObject->GetBoundingVolume();
-
-			cMath::ExpandAABB(vBoxMin, vBoxMax, pBV->GetMin(), pBV->GetMax());
-
-			iRenderableContainerNode *pCheckNode = apNode;
-			int lLevel =0;
-			while(pCheckNode && pCheckNode->GetParent())
-			{
-				if(CheckEntityInsideBox(pObject, pCheckNode->GetMin(), pCheckNode->GetMax())==false)
-				{
-					Log(" Object: '%s' is outside node %d AABB Amount: %s!\n", pObject->GetName().c_str(),lLevel, GetOutSideAmount(pObject, pCheckNode->GetMin(), pCheckNode->GetMax()).ToString().c_str());
-					break;
-				}
-				++lLevel;
-				pCheckNode = pCheckNode->GetParent();
-			}
-		}
-	}
-
-	////////////////////////
-	//Iterate children
-	if(apNode->HasChildNodes())
-	{
-		tRenderableContainerNodeListIt childIt = apNode->GetChildNodeList()->begin();
-		for(; childIt != apNode->GetChildNodeList()->end(); ++childIt)
-		{
-			iRenderableContainerNode *pChildNode = *childIt;
-			CheckDynamicContainerBugsRec(pChildNode, alLevel+1);
-		}
-	}
+	Log("---------- END DYNAMIC SET OUTPUT ---------------\n");
 }
 
 //-----------------------------------------------------------------------
@@ -1651,18 +1424,6 @@ bool cLuxDebugHandler::PressPrinfContDebugInfo(iWidget* apWidget, const cGuiMess
 	return true;
 }
 kGuiCallbackDeclaredFuncEnd(cLuxDebugHandler, PressPrinfContDebugInfo);
-
-bool cLuxDebugHandler::PressRebuildDynCont(iWidget* apWidget, const cGuiMessageData& aData)
-{
-	Log("---------------- REBUILDING DYNAMIC --------------------\n");
-	cWorld *pWorld = gpBase->mpMapHandler->GetCurrentMap()->GetWorld();
-	cRenderableContainer_DynBoxTree* pBoxTree = static_cast<cRenderableContainer_DynBoxTree*>(pWorld->GetRenderableContainer(eWorldContainerType_Dynamic));
-	pBoxTree->RebuildNodes();
-
-	return true;
-}
-kGuiCallbackDeclaredFuncEnd(cLuxDebugHandler, PressRebuildDynCont);
-
 
 //-----------------------------------------------------------------------
 

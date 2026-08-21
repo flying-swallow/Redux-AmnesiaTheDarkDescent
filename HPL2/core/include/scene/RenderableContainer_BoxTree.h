@@ -71,9 +71,7 @@ namespace hpl {
 
 		iRenderableContainerNode* GetRoot();
 
-        void Compile();	
-
-		void RenderDebug(cRendererCallbackFunctions* apFunctions) {} // STUB
+        void Compile();
 
 		void SetMinLeafObjects(int alX){mlMinLeafObjects = alX;}
 		int GetMinLeafObjects(){ return mlMinLeafObjects;}
@@ -98,8 +96,6 @@ namespace hpl {
 		void CompileTempNode(cBoxTreeTempNode *apNode, int alLevel, int alSplitAxis);
 		void BuildNodeFromTemp(cBoxTreeTempNode *apTempNode, cRCNode_BoxTree *apNode, int alLevel);
 
-		void RenderDebugNode(cRendererCallbackFunctions* apFunctions, cRCNode_BoxTree* apNode, int alLevel) {} // STUB
-
 		void CalculateMinMax(tRenderableList *apObjectList, cVector3f& avMin, cVector3f& avMax);
 		cVector3f CalculateSize(tRenderableList *apObjectList);
 
@@ -118,8 +114,6 @@ namespace hpl {
 		float mfMinForceIntersectionRelativeSize;
 
 		tRenderableList m_mlstTempObjects;
-
-		cRenderableContainerObjectCallback *mpObjectCalllback;
 	};
 
 	//-------------------------------------------

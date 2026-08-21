@@ -33,13 +33,22 @@ using namespace hpl;
 class iEditorWindowEditModeSidebar : public iEditorWindow
 {
 public:
-	iEditorWindowEditModeSidebar(iEditorBase* apEditor);
+	// abHorizontal lays the edit-mode buttons out in a row (toolbar under the
+	// menu bar) instead of the default vertical strip on the left edge. Only
+	// the LevelEditor passes true; the other editors keep the vertical strip.
+	iEditorWindowEditModeSidebar(iEditorBase* apEditor, bool abHorizontal=false);
 	virtual ~iEditorWindowEditModeSidebar();
 
 	void OnInitLayout();
 	void OnUpdate(float afTimeStep);
 
-    
+	// Rebuild the edit-mode buttons from the given mode list, destroying the previous
+	// buttons + their global shortcuts first. Passing the editor's own modes (what
+	// OnInitLayout does) shows the normal toolbar; the LevelEditor passes a scoped
+	// ent-file session's modes + abShowReturn to add a "Return to World" button that
+	// exits scope. Safe to call repeatedly.
+	void RebuildButtons(const std::vector<iEditorEditMode*>& avModes, bool abShowReturn);
+
 protected:
 	///////////////////////////
 	// Own functions
@@ -49,6 +58,11 @@ protected:
 	///////////////////////////
 	// Data
 	std::vector<cWidgetButton*> mvEditModeButtons;
+	// Global (numeric) shortcuts we created for the current buttons, so RebuildButtons
+	// can drop them before destroying the widgets they point at (no dangling shortcut).
+	std::vector<cGuiGlobalShortcut*> mvShortcuts;
+
+	bool mbHorizontal;
 };
 
 //----------------------------------------------------------------

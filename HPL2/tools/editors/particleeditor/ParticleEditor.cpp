@@ -41,6 +41,8 @@ using namespace hpl;
 
 #include "ParticleEditorWorld.h"
 
+#include "ParticleEditorReloadNotify.h"
+
 #include <tinyxml2.h>
 
 #include <algorithm>
@@ -62,6 +64,7 @@ using namespace hpl;
 
 cParticleEditor::cParticleEditor() : iEditorBase(_W("Particle Systems"), _W("*.ps"))
 {
+	mlNotifyPort = 0;
 }
 
 cParticleEditor::~cParticleEditor()
@@ -86,6 +89,43 @@ void cParticleEditor::AppSpecificReset()
 	SetFocusedViewport(mvViewports[0]);
 
 	mpWEmitters->Reset();
+}
+
+//--------------------------------------------------------------------
+
+void cParticleEditor::OpenStartupFile()
+{
+	if(msStartupFile.empty())
+		return;
+
+	////////////////////////////////////////////////////////////////////
+	// The LevelEditor hands us a resource-relative path; resolve it to a full
+	// path for the loader, falling back to a literal path if it isn't indexed.
+	tWString sFull = GetEngine()->GetResources()->GetFileSearcher()->GetFilePath(msStartupFile);
+	if(sFull.empty())
+		sFull = cString::To16Char(msStartupFile);
+
+	Log("[ParticleEditor] opening startup file '%s'\n", msStartupFile.c_str());
+
+	mvLoadFilenames.clear();
+	mvLoadFilenames.push_back(sFull);
+	Load();
+}
+
+//--------------------------------------------------------------------
+
+void cParticleEditor::OnPostSave()
+{
+	if(mlNotifyPort<=0 || msStartupFile.empty())
+		return;
+
+	// Tell the LevelEditor that launched us to reload this .ps live. We notify
+	// with the resource-relative path it originally handed us (what its
+	// reload_particle_system tool matches placed instances against).
+	Log("[ParticleEditor] notifying LevelEditor (127.0.0.1:%d) to reload '%s'\n",
+		mlNotifyPort, msStartupFile.c_str());
+
+	ParticleEditorNotifyReload("127.0.0.1", mlNotifyPort, msNotifyToken, msStartupFile);
 }
 
 //--------------------------------------------------------------------
