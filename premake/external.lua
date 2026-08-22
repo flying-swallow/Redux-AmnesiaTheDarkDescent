@@ -109,12 +109,17 @@ function link_sdl2()
 end
 
 -- ---- openal-soft -----------------------------------------------------------
+-- ALSOFT_ENABLE_MODULES=OFF: openal-soft auto-enables C++20 modules with the
+-- "Visual Studio 17 2022" generator on MSVC 14.34+ (and Ninja on GCC 15+/Clang 17+).
+-- Its sources then `import alc.context;` / `import gsl;`, which the MSBuild module
+-- build fails to resolve here (C2230 could not find module 'alc.context'). The
+-- non-module #include path is the supported fallback, so force it everywhere.
 cmake_makefile(OPENAL_PROJECT,
     DEPS_EXTERN .. "/openal-soft",
-    "-DLIBTYPE=SHARED -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF -DALSOFT_INSTALL=OFF "
+    "-DLIBTYPE=SHARED -DALSOFT_ENABLE_MODULES=OFF -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF -DALSOFT_INSTALL=OFF "
         .. "-DALSOFT_INSTALL_CONFIG=OFF -DALSOFT_INSTALL_HRTF_DATA=OFF -DALSOFT_INSTALL_AMBDEC_PRESETS=OFF "
         .. "-DALSOFT_INSTALL_EXAMPLES=OFF -DALSOFT_INSTALL_UTILS=OFF -DALSOFT_UPDATE_BUILD_VERSION=OFF",
-    "-DLIBTYPE=STATIC -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF -DALSOFT_INSTALL=OFF "
+    "-DLIBTYPE=STATIC -DALSOFT_ENABLE_MODULES=OFF -DALSOFT_UTILS=OFF -DALSOFT_EXAMPLES=OFF -DALSOFT_INSTALL=OFF "
         .. "-DALSOFT_INSTALL_CONFIG=OFF -DALSOFT_INSTALL_HRTF_DATA=OFF -DALSOFT_INSTALL_AMBDEC_PRESETS=OFF "
         .. "-DALSOFT_INSTALL_EXAMPLES=OFF -DALSOFT_INSTALL_UTILS=OFF -DALSOFT_UPDATE_BUILD_VERSION=OFF "
         .. "-DCMAKE_CXX_FLAGS=\"/EHsc /wd4267 /wd4875\"",
