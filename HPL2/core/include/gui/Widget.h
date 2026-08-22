@@ -24,6 +24,7 @@
 
 #include "gui/GuiTypes.h"
 #include "system/LowLevelSystem.h"
+#include <array>
 #include <functional>
 #include <list>
 #include <vector>
