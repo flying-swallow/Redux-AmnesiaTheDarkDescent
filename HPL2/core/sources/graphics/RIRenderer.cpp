@@ -204,6 +204,18 @@ VkBool32 VKAPI_PTR __VK_DebugUtilsMessenger(
     const VkDebugUtilsMessengerCallbackDataEXT *callbackData, void *userData) {
   switch (messageSeverity) {
   case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
+    // GENERAL-only errors come from the LOADER, not from a validation layer:
+    // stale implicit-layer registrations (an overlay/capture app uninstalled but
+    // its HKLM\SOFTWARE\Khronos\Vulkan\ImplicitLayers value left behind, so
+    // loader_get_json fails to open the .json), missing optional ICDs, and
+    // similar third-party debris. The loader logs these and carries on; they say
+    // nothing about our own API usage, and taking the process down over another
+    // program's leftover registry key is never right. Warn and continue.
+    if ((messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT) == 0 &&
+        (messageType & VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT) == 0) {
+      hpl::Warning("VK LOADER: %s\n", callbackData->pMessage);
+      break;
+    }
     // assert(callbackData->messageIdNumber ==0xc1c74a9c );
     hpl::FatalError("VK ERROR: %s\n", callbackData->pMessage);
     if (callbackData->messageIdNumber != 0xcc9c32be &&
