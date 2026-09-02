@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl-dev libglu1-mesa-dev libegl1-mesa-dev \
         libwayland-dev libxkbcommon-dev libdecor-0-dev \
         libasound2-dev libpulse-dev libdbus-1-dev libsamplerate0-dev \
+        libudev-dev \
         liblcms2-dev \
     && rm -rf /var/lib/apt/lists/*
 
