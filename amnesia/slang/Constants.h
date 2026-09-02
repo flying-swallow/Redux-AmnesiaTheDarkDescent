@@ -2,14 +2,10 @@
 
 #include "HostDefinitions.h"
 
-// Surfel GI behavior knobs & runtime-param defaults.
-// Bindless buffer capacities, counter-buffer layout, and atlas dimensions
-// also live here (moved from SceneTypes.slang).
-//
-// Sources:
-//   SurfelGI/RenderPasses/Surfel/SurfelGI/StaticParams.slang
-//   SurfelGI/RenderPasses/Surfel/SurfelGI/SurfelTypes.slang
-//   SurfelGI/RenderPasses/Surfel/SurfelGI/SurfelGI.h (StaticParams / RuntimeParams defaults)
+// Shared host/shader constants: bindless descriptor-set binding numbers, pool
+// capacities, material/blend flag bits, and the renderer's tuning knobs
+// (light grid, direct-lighting denoiser, path tracer, water).
+// (Moved out of SceneTypes.slang.)
 
 // -----------------------------------------------------------------------------
 // Standard-BSDF diffuse lobe (Falcor BSDFConfig.slangh analogue). Selects the
@@ -51,16 +47,9 @@ SHARED_CONST uint kBindingTextures2DArray           = 2u;  // Texture2DArray[] �
 // Slot 3 is reused for the animated-texture record table; 4..8 stay free.
 SHARED_CONST uint kBindingAnimTex                    = 3u;  // StructuredBuffer<AnimTexRec> — per-2D-array-slot animation params
 SHARED_CONST uint kBindingMaterialSampler            = 9u;
-SHARED_CONST uint kBindingSurfelCounter              = 10u;
-SHARED_CONST uint kBindingSurfelBuffer               = 11u;
-SHARED_CONST uint kBindingSurfelGeometry             = 12u;  // cached packed TriangleHit per surfel
-SHARED_CONST uint kBindingSurfelValidIndex          = 13u;
-SHARED_CONST uint kBindingSurfelDirtyIndex          = 14u;
-SHARED_CONST uint kBindingSurfelFreeIndex           = 15u;
-SHARED_CONST uint kBindingSurfelRecycle              = 16u;  // SurfelRecycleInfo
-SHARED_CONST uint kBindingSurfelRayResult           = 17u;  // SurfelRayResult (kRayBudget)
-SHARED_CONST uint kBindingCellInfo                   = 18u;  // CellInfo (kCellCount)
-SHARED_CONST uint kBindingCellToSurfel              = 19u;
+// Slots 10..19 were the surfel/cell SSBOs (counter, surfel, geometry, valid,
+// dirty, free, recycle, rayResult, cellInfo, cellToSurfel) — the surfel cache
+// is gone and these slots are free. Numbering of the survivors is unchanged.
 SHARED_CONST uint kBindingSceneObjects               = 20u;  // UniformObject[]
 SHARED_CONST uint kBindingMaterials                  = 21u;  // MaterialDataBlob[] flat material table
 // Slots 22/23 (formerly kBindingPointLights / kBindingAreaLights on set 0) and
@@ -69,16 +58,13 @@ SHARED_CONST uint kBindingMaterials                  = 21u;  // MaterialDataBlob
 // kBindingWorld* below.
 // 24/25/26 were the translucent/water/decal typed material SSBOs — folded into
 // the single MaterialDataBlob table, leaving these slots free.
-SHARED_CONST uint kBindingSurfelRefCounter          = 27u;
-SHARED_CONST uint kBindingSurfelReservation          = 28u;
+// Slots 27/28 (surfel ref-counter / per-cell reservation) are now free.
 SHARED_CONST uint kBindingPackedHitInfo             = 31u;  // RGBA32UI storage image
-SHARED_CONST uint kBindingSurfelDepthMap            = 33u;  // RG32F storage image
-SHARED_CONST uint kBindingSurfelDepthSampled        = 34u;  // RG32F sampled image (filtered reads)
-SHARED_CONST uint kBindingSurfelDepthSampler        = 35u;  // SamplerState paired with above
-SHARED_CONST uint kBindingTlas                        = 36u;  // RaytracingAccelerationStructure for surfel RT scatter
-SHARED_CONST uint kBindingSurfelBounds                = 37u;  // SurfelBounds (compact cull record, kTotalSurfelLimit)
+// Slots 33/34/35 were the surfel depth atlas (storage image / sampled image /
+// its sampler) and 37 the SurfelBounds cull record — all free now.
+SHARED_CONST uint kBindingTlas                        = 36u;  // RaytracingAccelerationStructure
 SHARED_CONST uint kBindingBindlessSlotGeneration      = 38u;  // per object slot: reuse generation (kObjectSlotCapacity)
-SHARED_CONST uint kBindingSurfelSlotGeneration        = 39u;  // per surfel: anchor-slot generation captured at spawn (kTotalSurfelLimit)
+// Slot 39 (per-surfel captured anchor generation) is now free.
 SHARED_CONST uint kBindingLightGridCount              = 40u;  // RWStructuredBuffer<uint> (kLightGridCellCount) — world-space light grid
 SHARED_CONST uint kBindingLightGridList               = 41u;  // RWStructuredBuffer<uint> (kLightGridCellCount * kLightsPerCellMax)
 // Slot 42 (formerly kBindingFogAreas on set 0) is now free — fog moved to kWorldSet.
@@ -92,7 +78,7 @@ SHARED_CONST uint kBindingPackedReflectionHitInfo     = 44u;  // RGBA32UI storag
 SHARED_CONST uint kBindingDissolveMap                 = 48u;  // immutable core_dissolve noise (128px), UV-sampled by the shared alphaTest dissolve fade
 // set 1: depth-aspect SRV of the scene depth buffer (opaque geometry), bound
 // per-frame by the particle pass for the soft-particle depth fade. Reflected
-// per-program (like gPerFrame / the surfel set-1 images), not a fixed layout.
+// per-program (like gPerFrame / the other set-1 images), not a fixed layout.
 SHARED_CONST uint kBindingSceneDepth                  = 49u;  // Texture2D<float> scene depth (soft particles)
 
 // Per-world decal data baked by cWorld::Compile, bound on the MainCompositePass.
@@ -165,16 +151,18 @@ SHARED_CONST uint kAnimModeOscillate         = 2u;
 // categories it wants to hit. instance.mask & ray.cullMask must be non-zero
 // for a hit to be considered. Translucents joined the TLAS in the same
 // commit that added the mesh translucent / refraction-bounce path, and the
-// surfel indirect-lighting path tracer must not bounce off them — sampling
+// indirect-lighting path tracer must not bounce off them — sampling
 // a translucent's shared DiffuseMaterial slot (no albedo texture, no solid
-// scalars) feeds NaN into rayResult.radiance, which poisons surfel.radiance
-// via MSME and surfaces as NaN in SurfelGenerationPass gOutput.
+// scalars) feeds NaN into the bounce radiance, which surfaces as NaN in the
+// indirect output.
 SHARED_CONST uint kRayMaskOpaque             = 0x01u;
 SHARED_CONST uint kRayMaskTranslucent        = 0x02u;
 // Shadow-caster bit: set ONLY on opaque instances whose eRenderableFlag_ShadowCaster
-// is on. Shadow rays cull on this bit (so non-casters stop blocking light) while
-// primary / GI / reflection rays keep using kRayMaskOpaque (non-casters stay
-// visible, lit, reflected, and contribute GI).
+// is on, while primary / GI / reflection rays keep using kRayMaskOpaque
+// (non-casters stay visible, lit, reflected, and contribute GI).
+// With allLightsCastShadows on (the default) shadow rays trace against
+// kRayMaskOpaque instead, so this bit is only consulted in the legacy opt-out
+// mode, where shadow rays cull on it and non-casters stop blocking light.
 SHARED_CONST uint kRayMaskShadow             = 0x04u;
 SHARED_CONST uint kRayMaskAll                = 0xffu;
 
@@ -197,7 +185,7 @@ SHARED_CONST uint kMaterialFlagEnableDissolveAlpha      = 1u << 7;
 SHARED_CONST uint kMaterialFlagEnableCubeMapAlpha       = 1u << 8;
 SHARED_CONST uint kMaterialFlagIsHeightMapSingleChannel = 1u << 9;   // parallax samples .r vs .a
 SHARED_CONST uint kMaterialFlagIsAlphaSingleChannel     = 1u << 10;
-// Water surface — drives the SurfelVBuffer.rt wave-animated refraction +
+// Water surface — drives the V-buffer RT wave-animated refraction +
 // reflection bounce and the GIRenderPass refraction swap (water also sets
 // HasRefraction). Not a texture-presence flag; set host-side per MaterialID.
 // Bit 11 is free (12/13 unused, 14/15/16 are the refraction/dissolve bits).
@@ -229,7 +217,7 @@ SHARED_CONST float kPerceptualBlendExp = 2.2f;
 // Soft particles: world-space view-depth band (meters) over which a particle
 // fades to zero alpha as it approaches the opaque geometry behind it. Larger =
 // softer/wider fade; smaller = closer to the old hard intersection edge.
-// Amnesia is meter-scale (see surfel-gi-world-scale).
+// Amnesia is meter-scale.
 SHARED_CONST float kSoftParticleFadeDistance = 0.35f;
 
 // Blend-mode value families (see BlendModes.slang for the shared math).
@@ -254,43 +242,20 @@ SHARED_CONST uint kMaterialBlendModeAlpha       = 4u;
 SHARED_CONST uint kMaterialBlendModePremulAlpha = 5u;
 
 // -----------------------------------------------------------------------------
-// Surfel-GI capacities + cell-grid sizing.
-//   kTotalSurfelLimit:    surfel buffer head count.
-//   kRayBudget:           per-frame ray slots in gSurfelRayResultBuffer.
-//   kCellDimension:       linear cell count along each axis of the uniform
-//                         world-space hash grid.
-//   kCellCount:           total cells (= kCellDimension^3).
-//   kCellToSurfelCapacity: backing array for the cell→surfel index lists.
-//   kCellUnit:            world-space side length of one cell.
-//   kSurfelTargetArea:    surfel-radius target area used by collectCellInfo.
-//   kPerCellSurfelLimit:  per-cell surfel cap (debug + sanity bound).
-//   k{Ref,Max,SleepingMax}*Life / kRefCountThreshold: surfel lifecycle.
-//   kSurfelDepth{Width,Height,Unit}:   depth atlas geometry (4096×4096, 7×7 tile).
+// World-space cell-grid sizing. The surfel cache that owned this grid is gone;
+// kCellDimension / kCellUnit survive because the light grid derives its world
+// coverage (kLightGridExtent) from them.
+//   kCellDimension: linear cell count along each axis of the uniform grid.
+//   kCellUnit:      world-space side length of one cell.
 // -----------------------------------------------------------------------------
-SHARED_CONST uint  kTotalSurfelLimit    = 150000u;
-SHARED_CONST uint  kRayBudget           = kTotalSurfelLimit * 64u;
 SHARED_CONST uint  kCellDimension       = 250u;
-SHARED_CONST uint  kCellCount           = kCellDimension * kCellDimension * kCellDimension;
-SHARED_CONST uint  kCellToSurfelCapacity = kTotalSurfelLimit * 125u;
 SHARED_CONST float kCellUnit            = 0.25f;
-SHARED_CONST float kSurfelTargetArea    = 50000.0f;
-SHARED_CONST uint  kPerCellSurfelLimit  = 1024u;
-SHARED_CONST uint  kRefCountThreshold   = 32u;
-SHARED_CONST uint  kMaxLife             = 240u;
-SHARED_CONST uint  kSleepingMaxLife     = kMaxLife / 4u;
 SHARED_CONST uint2 kTileSize            = uint2(16, 16);
-// uint2 atlas geometry — surfel utility math uses `.x` / `.y` accessors.
-SHARED_CONST uint2 kSurfelDepthTextureRes  = uint2(4096, 4096);
-SHARED_CONST uint2 kSurfelDepthTextureUnit = uint2(7, 7);
-// Half-extent of one depth-atlas tile (Falcor SurfelTypes.slang:
-// kSurfelDepthTextureUnit / 2). Used by SurfelIntegratePass's octahedral
-// depth-write offset math.
-SHARED_CONST uint2 kSurfelDepthTextureHalfUnit = uint2(3, 3);
 
-// World-space light grid (coarse, camera-centered) for surfel NEE importance
-// sampling. kLightGridExtent sets the per-axis world coverage independently of
-// the surfel grid; kLightGridUnit is derived from it. Built each frame by
-// LightGridBuildPass; read by SurfelRayTrace.rt evalAnalyticLight.
+// World-space light grid (coarse, camera-centered) for NEE importance
+// sampling. kLightGridExtent sets the per-axis world coverage; kLightGridUnit
+// is derived from it. Built each frame by LightGridBuildPass; read by the
+// direct pass and the path tracer's getCellLights.
 SHARED_CONST uint  kLightGridDim       = 32u;
 SHARED_CONST float kLightGridExtent    = float(kCellDimension) * kCellUnit;
 SHARED_CONST float kLightGridUnit      = kLightGridExtent / float(kLightGridDim);
@@ -303,8 +268,8 @@ SHARED_CONST uint  kLightsPerCellMax   = 128u;                                  
 SHARED_CONST uint  kMaxObjectDecalIndices = 1u << 20;   // 1M (offset is 24-bit; cap well under that)
 
 // -----------------------------------------------------------------------------
-// GI bounce-albedo boost — art-directed, applied in the surfel RAY PATH only
-// (SurfelRayTrace NEE + bounce throughput); the direct pass and the composite's
+// GI bounce-albedo boost — art-directed, applied in the GI RAY PATH only
+// (path-tracer NEE + bounce throughput); the direct pass and the composite's
 // albedo multiply stay physically correct. Amnesia's diffuse sets are dark
 // (measured mean GI-hit albedo ≈ 0.04 linear), so a physically-correct bounce
 // keeps ~4% of the light's energy and indirect reads as black. Bounce albedo
@@ -314,55 +279,15 @@ SHARED_CONST uint  kMaxObjectDecalIndices = 1u << 20;   // 1M (offset is 24-bit;
 // -----------------------------------------------------------------------------
 SHARED_CONST float kSurfelGIAlbedoBoostExp = 1.0f;
 
-// -----------------------------------------------------------------------------
-// gSurfelCounter slot indices. The counter is a flat
-// RWStructuredBuffer<uint> sized to kSurfelCounterSlotCount. Slots 0..5
-// mirror the SurfelCounterOffset enum; SurfelPreparePass zeroes them each
-// frame and HybridRenderer's stats-log block reads them for the per-second
-// log line.
-// -----------------------------------------------------------------------------
-SHARED_CONST uint kSurfelCounterValid          = 0u;
-SHARED_CONST uint kSurfelCounterDirty          = 1u;
-SHARED_CONST uint kSurfelCounterFree           = 2u;
-SHARED_CONST uint kSurfelCounterCell           = 3u;
-SHARED_CONST uint kSurfelCounterRequestedRay   = 4u;
-SHARED_CONST uint kSurfelCounterMissBounce     = 5u;
-SHARED_CONST uint kSurfelCounterSlotCount      = 6u;
-
-// -----------------------------------------------------------------------------
-// Runtime param defaults (originally SurfelGI::RuntimeParams in SurfelGI.h).
-// Kept here so host and UI code share one source of truth.
-// -----------------------------------------------------------------------------
-SHARED_CONST uint  kMaxSurfelForStep            = 10u;
-
-// Surfel generation.
-SHARED_CONST float kDefaultChanceMultiply       = 0.3f;
-SHARED_CONST uint  kDefaultChancePower          = 1u;
-SHARED_CONST float kDefaultPlacementThreshold   = 2.f;
-SHARED_CONST float kDefaultRemovalThreshold     = 4.f;
-SHARED_CONST float kDefaultThresholdGap         = 2.f;
-// Frames a freshly-spawned surfel ramps in over before it contributes fully
-// to the indirect output (smoothstep(0, delay, frame) in SurfelGenerationPass).
-// The Falcor reference uses 240 (~4s @ 60fps); on this camera-relative grid a
-// surfel must survive that long before it shows up, so a moving camera / churn
-// can keep indirect at ~0. Reduced to ramp in under ~0.5s while debugging.
-SHARED_CONST uint  kDefaultBlendingDelay        = 30u;
-
-// Ray tracing.
-SHARED_CONST float kDefaultVarianceSensitivity  = 40.f;
-SHARED_CONST uint  kDefaultMinRayCount          = 4u;
-SHARED_CONST uint  kDefaultMaxRayCount          = 64u;
-SHARED_CONST uint  kDefaultRayStep              = 3u;
-SHARED_CONST uint  kDefaultMaxStep              = 6u;
-
-// Integrate.
-SHARED_CONST float kDefaultShortMeanWindow      = 0.03f;
+// Reference per-pixel path tracer (PathTracePass.rt.slang).
+SHARED_CONST uint  kPathTraceMaxBounces        = 3u;   // path vertices after the primary hit
+SHARED_CONST uint  kPathTraceSamplesPerPixel   = 1u;   // rays per pixel per frame; temporal accumulation does the rest
 
 // determins the strenght of the wave intensity
 SHARED_CONST float kWaterRefractionIntensity = 0.6f;
 
 // Brightness multiplier for the water refraction/reflection bounce radiance.
-// The RT bounces are re-shaded (NEE direct + surfel indirect + emission), which
+// The RT bounces are re-shaded (NEE direct + indirect + emission), which
 // reads dimmer than the base game's fully-lit framebuffer/cubemap sample; this
 // lifts them back toward that brightness. 1.0 = raw re-shade.
 SHARED_CONST float kWaterReflectionExposure = 1.0f;
@@ -374,6 +299,15 @@ SHARED_CONST float kWaterRefractionExposure = 2.0f; //0.5f;
 // ripples so it reads more like a mirror and less turbulent. 0 = perfect
 // mirror, 1 = full wave distortion.
 SHARED_CONST float kWaterReflectionTurbulence = 0.3f;
+
+// Indirect bounce traced from a water REFLECTION hit (Water.frag.slang).
+// Each sample is a full RayQuery + re-shade inside the fragment stage, paid per
+// water pixel with no denoiser behind it, so the count stays tiny and the
+// directions are a deterministic stratified set instead of a per-frame random
+// one. The intensity is the art knob for how strongly that one bounce shows up
+// in the reflection; 1.0 = the raw traced estimate.
+SHARED_CONST uint  kWaterReflectionIndirectSamples   = 2u;
+SHARED_CONST float kWaterReflectionIndirectIntensity = 1.0f;
 
 // Evaluation / composite overlay modes. 0 = normal indirect lighting.
 // Non-zero values render diagnostic visualizations:
@@ -397,9 +331,9 @@ SHARED_CONST uint  kDefaultOverlayMode          = kOverlayModeIndirectLighting;
 SHARED_CONST uint  kObjectFlagShadowCaster      = 0x00000001u;
 
 // MainCompositePass per-component toggles. 0 = skip that term, 1 = add
-// it. The host used to drive these via a per-pass CB (SurfelGIRenderCB);
-// they were always set to 1 there, so they live here as static defaults
-// alongside the rest of the SurfelGI knobs. Flip in source + recompile
+// it. The host used to drive these via a per-pass CB; they were always set
+// to 1 there, so they live here as static defaults
+// alongside the rest of the GI knobs. Flip in source + recompile
 // to A/B direct vs. indirect.
 SHARED_CONST uint  kDefaultRenderDirectLighting    = 1u;
 SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
@@ -445,6 +379,11 @@ SHARED_CONST float kSvgfSigmaZ                      = 4.0f;    // depth edge-sto
 SHARED_CONST float kSvgfSigmaN                      = 64.0f;   // normal edge-stop exponent
 SHARED_CONST float kSvgfSigmaL                      = 4.0f;    // luminance edge-stop
 SHARED_CONST float kDirectVarianceBoost            = 4.0f;    // early-frame (low count) variance scale
+// Temporal accumulation window for the path-traced indirect term. The indirect
+// pass keeps a running mean whose alpha channel is the frame count (1..N); the
+// à-trous pass reads that count for its kDirectVarianceBoost term, so this also
+// sets how long a fresh pixel stays in the widened-luminance-gate regime.
+SHARED_CONST float kIndirectMaxAccumFrames         = 32.0f;   // temporal window for the path-traced indirect term
 // ReSTIR DI (Bitterli 2020, biased reuse). The direct pass keeps a per-pixel
 // light-selection reservoir instead of a radiance running-mean: a streaming RIS
 // build over the cell lights, then temporal reuse (reproject + merge previous
@@ -459,7 +398,7 @@ SHARED_CONST float kDirectVarianceBoost            = 4.0f;    // early-frame (lo
 SHARED_CONST float kReservoirMClamp                = 30.0f;   // temporal staleness cap (× current M)
 SHARED_CONST int   kSpatialSamples                 = 6;       // spatial neighbours resampled
 SHARED_CONST float kSpatialRadius                  = 16.0f;   // spatial search radius (px)
-// Screen-space direct-lighting reuse in surfel bounce NEE. When 1 the surfel RT
+// Screen-space direct-lighting reuse in GI bounce NEE. When 1 the RT
 // shader projects each bounce hit into screen space and reads gDirectLightingSSReuse
 // (written by the early DirectSpatialReusePass) instead of firing a shadow ray.
 // Falls back to 1-sample NEE when the hit is off-screen. Set to 0 to revert to
@@ -469,7 +408,7 @@ SHARED_CONST uint  kSurfelDirectScreenReuse            = 1u;
 // PBR point/spot-light falloff — Falcor LightData semantics, no scale knobs:
 // `intensity` IS the light's radiance (the host uploads the authored engine
 // radius verbatim for both point and spot — one unit for every analytic light,
-// so direct and the surfel NEE agree by construction). The shader emits
+// so direct and the GI NEE agree by construction). The shader emits
 // radiance = color · intensity · 1/(d² + sourceRadius²) — a softened
 // inverse-square that goes HDR (>1) near the source so lights cross the bloom
 // white point. Brightness tuning is an AUTHORING concern (light radius /
@@ -479,8 +418,8 @@ SHARED_CONST uint  kSurfelDirectScreenReuse            = 1u;
 // channel's radiance dims to kLightRadianceFloor:
 //   reach² = maxChannel(color) · intensity / kLightRadianceFloor − sourceRadius²
 // reach² ≤ 0 (peak below the floor) drops the light entirely. NOTE: this bin reach
-// also governs indirect/GI spread — the surfel NEE only samples lights binned into a
-// surfel's cell, so lowering the floor widens and brightens GI (and crowds the
+// also governs indirect/GI spread — the GI NEE only samples lights binned into a
+// hit's cell, so lowering the floor widens and brightens GI (and crowds the
 // per-cell light cap); it is not purely a grid-cost knob.
 SHARED_CONST float kLightRadianceFloor         = 0.005f;    // min per-channel radiance (linear) worth binning; reach² = maxC(color)·authoredRadius/floor − sourceRadiusSq (scale-independent)
 SHARED_CONST float kPointLightSourceRadiusSq   = 0.25f;  // soft source radius² (0.5m) — near-field softening + on-source peak cap (caps on-lamp radiance at color·intensity/this instead of 1/d²→∞; raise to soften lamp hotspots further)

@@ -1,9 +1,9 @@
 /// Copyright 2023 Michael Pollind
 /// SPDX-License-Identifier: GPL-3.0
 //
-// Raster water surface — fragment stage. The underwater refraction background is
-// already in the pogo (SurfelVBuffer.rt's water refraction clobbered the primary
-// hit, shaded by the GI composite). This pass adds the surface on top in TWO draws
+// Raster water surface — fragment stage. The underwater background is already
+// in the pogo (the composite-shaded scene behind the water, with NO refraction
+// bend applied to it). This pass adds the surface on top in TWO draws
 // (hardware blend can't tint-dst and add reflection in one):
 //   pass 0 (MUL blend): output surfaceTint·refractionExposure → dst *= that
 //                       (tints + lifts the refracted bottom, matching the old
@@ -21,7 +21,9 @@ import Material;             // load*Material / materialAlphaTest / traceShadowR
 import bindless;
 import PerFrame.resource;
 import Fog;                  // computeFog — fade the water surface into world/area fog
-import SurfelGI.SurfelShade;        // DiffuseShading / prepareDiffuseShading / evalAnalyticLight / gatherSurfelIndirect
+import Shading;                     // DiffuseShading / prepareDiffuseShading / evalAnalyticLight
+import Brdf;                 // brdfTangentToWorld — local->world hemisphere basis
+import Random;               // interleavedGradientNoise — per-pixel stable dither
 import Translucent.WaterCommon; // waterWaveNormalTangent
 
 struct WaterPC
@@ -52,18 +54,81 @@ float computeFresnel(float edotN, float bias, float pw)
     return saturate(bias + (1.0f - bias) * pow(facing, pw));
 }
 
-// Fully (lit-)shade a reflection-ray hit: albedo·(direct NEE + surfel-indirect)
-// + emission — the same energy convention as the primary composite.
-float3 shadeReflectionHit(TriangleHit th)
+// One traced bounce of indirect irradiance at a world-space point, ALBEDO-
+// DEMODULATED like PathTracePass.rt.slang's output: the point's own albedo is
+// deliberately left out (the caller re-modulates), the throughput starts at 1
+// and the cosine pdf cancels the diffuse lobe's 1/pi, so each sample's
+// contribution is just what the bounce vertex emits/reflects. Only ONE bounce:
+// a fragment shader has no payload recursion under inline RayQuery and cannot
+// afford a path loop per water pixel.
+//
+// SAMPLING IS DETERMINISTIC ON PURPOSE. Nothing denoises or temporally filters
+// behind the water pass, so a per-frame random direction would boil visibly on
+// the reflection. Instead the u1 (elevation) dimension is stratified over the
+// sample count and u2 (azimuth) is rotated by a dither that depends only on the
+// pixel - no gPerFrame.totalFrames. The tradeoff is deliberate: the estimate is
+// biased into a fixed low-sample pattern (a faint static structure in the
+// bounce) rather than unbiased-but-flickering, which reads far better with no
+// denoiser behind it.
+float3 traceIndirectAtHit(float3 posW, float3 normalW, uint2 pixel)
+{
+    float3x3 basis  = brdfTangentToWorld(normalW);   // rows (T,B,N): mul(local, basis) -> world
+    float    dither = interleavedGradientNoise(pixel);
+    float3   origin = posW + normalW * 1.0e-3f;
+    float3   sum    = float3(0.f);
+
+    const float invSamples = 1.0f / float(kWaterReflectionIndirectSamples);
+    for (uint s = 0u; s < kWaterReflectionIndirectSamples; ++s)
+    {
+        // Stratified elevation, golden-ratio-advanced + pixel-rotated azimuth.
+        float u1 = (float(s) + 0.5f) * invSamples;
+        float u2 = frac(dither + float(s) * 0.61803398875f);
+
+        // Cosine-weighted hemisphere sample (z = up) - the same concentric map
+        // the path tracer's diffuse bounce uses.
+        float  r   = sqrt(u1);
+        float  phi = 2.0f * 3.14159265358979f * u2;
+        float3 localDir = float3(r * cos(phi), r * sin(phi), sqrt(max(0.f, 1.0f - u1)));
+        float3 dir = normalize(mul(localDir, basis));
+
+        // A miss contributes nothing - there is no environment map and the path
+        // tracer's miss shader is black too, so both agree that "sky" = 0.
+        TriangleHit gh;
+        if (!traceReflectionHit(origin, dir, 1.0e30f, gh))
+            continue;
+
+        uint       gMat = gSceneObjects[gh.instanceID].materialID;
+        VertexData gv   = getVertexData(gh);
+        float      gIll = gSceneObjects[gh.instanceID].illuminationAmount;
+        DiffuseShading gsd = prepareDiffuseShading(gv, gMat, gIll, /*decodeRoughness=*/true);
+
+        // Same energy math as PathTracePass.rt.slang::handleHit: emission enters
+        // the path directly and the NEE direct term is scaled by the ART-DIRECTED
+        // bounce albedo pow(albedo, kSurfelGIAlbedoBoostExp), so this producer
+        // stays in the path tracer's units.
+        float3 giAlbedo = pow(gsd.albedo, kSurfelGIAlbedoBoostExp);
+        sum += gsd.emission + giAlbedo * evalAnalyticLight(gsd);
+    }
+
+    return sum * invSamples * kWaterReflectionIndirectIntensity;
+}
+
+// Fully (lit-)shade a reflection-ray hit: albedo·(direct NEE + one traced
+// indirect bounce) + emission - the same energy convention as the primary
+// composite, which is exactly albedo·(direct + indirect) + emission. The
+// screen-space gIndirectLighting texture cannot be sampled at an arbitrary
+// reflection-ray hit, so the indirect term is re-traced here instead; without
+// it, geometry that is only GI-lit reflects as black.
+float3 shadeReflectionHit(TriangleHit th, uint2 pixel)
 {
     uint matID  = gSceneObjects[th.instanceID].materialID;
     VertexData v = getVertexData(th);
     float illum = gSceneObjects[th.instanceID].illuminationAmount;
     DiffuseShading sd = prepareDiffuseShading(v, matID, illum);
-    float3 direct   = (kDefaultRenderDirectLighting   != 0u) ? evalAnalyticLight(sd) : float3(0.f);
+    float3 direct = (kDefaultRenderDirectLighting != 0u) ? evalAnalyticLight(sd) : float3(0.f);
     float3 indirect = (kDefaultRenderIndirectLighting != 0u)
-                      ? gatherSurfelIndirect(sd.posW, sd.normalW) : float3(0.f);
-    // Both terms are demodulated irradiance — one albedo turns them into
+                        ? traceIndirectAtHit(sd.posW, sd.normalW, pixel) : float3(0.f);
+    // Both terms are demodulated irradiance - one albedo turns them into
     // outgoing radiance, matching the primary composite's convention.
     return sd.albedo * (direct + indirect) + sd.emission;
 }
@@ -145,7 +210,7 @@ float4 psMain(WaterVSOut psIn) : SV_TARGET
     TriangleHit rh;
     float3 reflColor = float3(0.0f);
     if (traceReflectionHit(origin, reflectedDir, 1.0e30f, rh))
-        reflColor = shadeReflectionHit(rh) * kWaterReflectionExposure;
+        reflColor = shadeReflectionHit(rh, uint2(psIn.posH.xy)) * kWaterReflectionExposure;
 
     // Fade the reflection by fog visibility, then add the fog colour exactly
     // once (the MUL pass already zeroed the surface at full fog) so the water

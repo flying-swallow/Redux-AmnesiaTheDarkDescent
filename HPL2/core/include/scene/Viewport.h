@@ -190,14 +190,9 @@ public:
     RISharedPointer<RITexture> visibilityTexture[RI_MAX_SWAPCHAIN_IMAGES];
     RISharedPointer<RITextureView> visibilityView[RI_MAX_SWAPCHAIN_IMAGES];
 
-    // Surfel-generation output — full-res HDR storage image written by
-    // surfel_generation_pass (set=3, binding=1). One per swapchain image.
-    RISharedPointer<RITexture> surfelResultTexture[RI_MAX_SWAPCHAIN_IMAGES];
-    RISharedPointer<RITextureView> surfelResultView[RI_MAX_SWAPCHAIN_IMAGES];
-
-    // Stage B packed visibility — RGBA32UI storage image written by the
-    // surfel_vbuffer RT pipeline, sampled by the Stage D / F surfel update
-    // and generation passes. Per-frame layout is UNDEFINED → GENERAL →
+    // Packed visibility — RGBA32UI storage image written by the V-buffer
+    // pass, sampled by the direct-lighting, path-tracing and composite
+    // passes. Per-frame layout is UNDEFINED → GENERAL →
     // SHADER_READ_ONLY, like the gbuffer outputs.
     RISharedPointer<RITexture> packedHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES];
     RISharedPointer<RITextureView> packedHitInfoView[RI_MAX_SWAPCHAIN_IMAGES];
@@ -241,6 +236,45 @@ public:
     // composite samples the final iteration's output instead of directLighting.
     RISharedPointer<RITexture> directAtrousTexture[2];
     RISharedPointer<RITextureView> directAtrousView[2];
+
+    // Path-traced indirect: raw per-pixel irradiance (rgb) + history count (a),
+    // its (viewZ, normal.xyz) surface key, and the à-trous scratch. Ping-pong
+    // across frames like the direct chain above; all kept in GENERAL.
+    // indirectLightingInit triggers the one-time UNDEFINED→GENERAL + clear,
+    // re-armed by Update on resize.
+    RISharedPointer<RITexture> indirectRadianceTexture[2];
+    RISharedPointer<RITextureView> indirectRadianceView[2];
+    RISharedPointer<RITexture> indirectKeyTexture[2];
+    RISharedPointer<RITextureView> indirectKeyView[2];
+    RISharedPointer<RITexture> indirectAtrousTexture[2];
+    RISharedPointer<RITextureView> indirectAtrousView[2];
+    // POST-à-trous indirect result, ping-ponged so [cur] is this frame's
+    // filtered output and [^1] is the temporal history the indirect
+    // accumulation pass reprojects next frame — the final à-trous iteration
+    // writes straight here, so no extra copy is needed.
+    RISharedPointer<RITexture> indirectResolvedTexture[2];
+    RISharedPointer<RITextureView> indirectResolvedView[2];
+    // Indirect SPECULAR chain — the exact mirror of the diffuse one above and
+    // denoised by the SAME programs (indirect temporal accumulation, then the
+    // à-trous passes), just bound over these textures. Difference is what the
+    // path tracer writes: the diffuse channel is albedo-demodulated (the
+    // composite re-applies albedo), the specular channel is NOT demodulated and
+    // the composite adds it straight on top.
+    RISharedPointer<RITexture> indirectSpecularTexture[2];
+    RISharedPointer<RITextureView> indirectSpecularView[2];
+    RISharedPointer<RITexture> indirectSpecularAtrousTexture[2];
+    RISharedPointer<RITextureView> indirectSpecularAtrousView[2];
+    RISharedPointer<RITexture> indirectSpecularResolvedTexture[2];
+    RISharedPointer<RITextureView> indirectSpecularResolvedView[2];
+    // Second half of the surface key: primary-hit GGX alpha in .x, rest
+    // reserved. Ping-pongs with (and is indexed by the same counter as) the
+    // key above.
+    RISharedPointer<RITexture> indirectKeyExtraTexture[2];
+    RISharedPointer<RITextureView> indirectKeyExtraView[2];
+    // Shared by BOTH the diffuse and the specular chain — one index, one init
+    // flag, so the two stay in lockstep across frames.
+    uint32_t indirectLightingIndex = 0;
+    bool indirectLightingInit = false;
 
     // ReSTIR DI reservoirs (RGBA32F = packed light index + W + M; exact uint
     // index needs full-float storage). [reservoirHistory] ping-pongs across

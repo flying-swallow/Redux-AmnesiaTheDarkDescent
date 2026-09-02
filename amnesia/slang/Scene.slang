@@ -240,8 +240,8 @@ public VertexData getVertexData(TriangleHit hit)
 // Same as getVertexData, but also returns the raw per-vertex triangle data
 // (positions / normals / tangents / UVs). Parallax mapping needs the
 // per-vertex UVs to invert a UV offset back into a barycentric delta — see
-// SurfelVBuffer.rt.slang. Fetches the bindless triangle once so callers that
-// want both don't pay the BDA handle loads twice.
+// VBuffer/VBufferPomBary.cs.slang. Fetches the bindless triangle once so
+// callers that want both don't pay the BDA handle loads twice.
 public VertexData getVertexDataAndTri(TriangleHit hit, out BindlessTriangleVtx vtx)
 {
     fetchBindlessTriangle(hit.instanceID, hit.primitiveIndex, vtx);

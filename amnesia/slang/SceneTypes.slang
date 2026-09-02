@@ -329,7 +329,7 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC uint  fogAreaCount;               // active entries in gFogAreas[]
     SLANG_PUBLIC uint  decalCount;                 // active entries in gDecals[]
     SLANG_PUBLIC uint  areaLightCount;             // gAreaLights[] SLOT CAPACITY (high-water of stable slots; sparse, zeroed holes)
-    SLANG_PUBLIC uint  forceShadows;               // debug override: ignore shadow flags and use pre-shadow-flag behavior
+    SLANG_PUBLIC uint  allLightsCastShadows;       // non-zero: treat every light as shadow-casting and trace shadow rays against all opaque instances
 
     SLANG_PUBLIC float3 posW;
     SLANG_PUBLIC float jitterX;

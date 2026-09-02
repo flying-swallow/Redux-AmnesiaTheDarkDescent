@@ -19,7 +19,7 @@ import Scene;
 import bindless;                       // gPackedHitInfo, gRtAccel, lights, grid
 import HitInfo;
 import PerFrame.resource;
-import SurfelGI.SurfelShade;           // prepareDiffuseShading / directTargetPdf / resolveDirectReservoir
+import Shading;                        // prepareDiffuseShading / directTargetPdf / resolveDirectReservoir
 import Random;
 import Reservoir;
 

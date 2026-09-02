@@ -1,17 +1,20 @@
-// Final composite pass for surfel-GI rendering.
+// Final composite pass.
 //
-// Reads `gPackedHitInfo` (uint4 TriangleHit) + `gIndirectLighting`
-// (per-pixel indirect from the surfel cache) and returns the final
-// shaded color. The pass either:
+// Reads `gPackedHitInfo` (uint4 TriangleHit) + the path tracer's two
+// indirect channels — `gIndirectLighting` (albedo-DEMODULATED indirect
+// diffuse) and `gIndirectSpecular` (indirect specular, NOT demodulated,
+// already outgoing radiance) — and returns the final shaded color. The
+// pass either:
 //   * misses → no environment-map eval today, so emits black
 //   * hits   → recovers world-space vertex data + diffuse albedo,
 //              optionally adds direct lighting via NEE-over-all-lights
-//              with inline RayQuery shadow tests, and multiplies the
-//              indirect by albedo (since the surfel cache stored
-//              incoming radiance with the cosθ factor baked in, the
-//              composite weight is just albedo / π · π = albedo)
+//              with inline RayQuery shadow tests, multiplies the
+//              demodulated direct + indirect diffuse by albedo (each
+//              stores incoming radiance with the cosθ factor baked in, so
+//              the composite weight is just albedo / π · π = albedo), and
+//              adds the specular channel on top of that product
 //
-// Runs as a compute pass: one thread per pixel writes the surfel-GI result
+// Runs as a compute pass: one thread per pixel writes the composited result
 // into the post-effect pogo buffer bound as a storage image (gOutput). The
 // renderer transitions the pogo attach to GENERAL around the dispatch and back
 // to COLOR_ATTACHMENT_OPTIMAL afterwards, so the downstream pogo toggle and the
@@ -26,7 +29,8 @@ import bindless;
 import HitInfo;
 import PerFrame.resource;
 import Fog;
-import SurfelGI.SurfelShade;        // DiffuseShading / prepareDiffuseShading / evalAnalyticLight / gatherSurfelIndirect
+import Shading;                     // DiffuseShading / prepareDiffuseShading / evalAnalyticLight
+import Material;                    // loadMaterialHeader (shadow-flag overlay's translucent test)
 import Grid;                         // gridCellPos / gridFlattenCellIndex / gridCellValid (decal grid lookup)
 import Utils.Color.ColorHelpers;     // linearToSRGB / sRGBToLinear (legacy display-space decal blend)
 import BlendModes;                   // blendDisplaySpaceExact (raw eMaterialBlendMode numbering)
@@ -49,7 +53,7 @@ Texture2D<float4> gIndirectLighting;
 Texture2D<float4> gDirectLighting;
 
 // Rasterized V-buffer fallback. Same packed layout as `gPackedHitInfo`
-// (see SurfelGBuffer.3d.slang's psMain), but produced by the raster
+// (see VBufferRaster.3d.slang's psMain), but produced by the raster
 // GBuffer pass instead of the RT V-buffer. We fall back to it when the
 // RT hit is invalid so pixels covered by raster geometry but missed by
 // the RT path (subpixel jitter at edges, tMax slop, alpha-test
@@ -89,6 +93,13 @@ StructuredBuffer<uint> gObjectDecalIndices;
 Texture2D<float4> gDecalMul;
 [vk::binding(7, 2)]
 Texture2D<float4> gDecalAdd;
+
+// Denoised path-traced indirect SPECULAR. NOT demodulated — there is no single
+// albedo to divide out (F0 and roughness vary per texel), so this channel is
+// already outgoing radiance and is added AFTER the albedo multiply, not folded
+// into it. Set-2 slot 8, the first free one after the decal accumulators.
+[vk::binding(8, 2)]
+Texture2D<float4> gIndirectSpecular;
 
 // --- Decal projection (folded in from the old albedo_resolve pass) ----------
 // Clustered OOB decals are composited directly onto the base albedo here, before
@@ -205,35 +216,40 @@ void csMain(uint3 tid : SV_DispatchThreadID)
             return;
         }
     }
-    
-    // Modes 1–5 are already rendered as diagnostic colors by
-    // SurfelGenerationPass. Display them without albedo, direct lighting,
-    // emission, decals, or fog modifying them.
-    if (overlayMode >= kOverlayModeVariance && overlayMode <= kOverlayModeCoverage)
-    {
-        gOutput[pixelPos] = float4(gIndirectLighting[pixelPos].xyz, 1.f);
-        return;
-    }
 
     TriangleHit triangleHit = hitInfo.getTriangleHit();
     UniformObject obj = gSceneObjects[triangleHit.instanceID];
 
     if (overlayMode == kOverlayModeShadowFlag)
     {
-        const bool castsShadow = (obj.renderFlags & kObjectFlagShadowCaster) != 0u;
-        gOutput[pixelPos] = float4(castsShadow ? float3(0.f, 1.f, 0.f)
-                                               : float3(1.f, 0.f, 0.f),
-                                   1.f);
+        // Report what actually blocks shadow rays, not just the authored bit.
+        // Mirrors the TLAS mask rule in World.cpp: an instance joins the shadow
+        // mask when it is not translucent AND (allLightsCastShadows || authored).
+        // Yellow calls out the gap — opaque geometry the artist did NOT flag,
+        // occluding anyway because the all-lights policy is on; flipping the
+        // authored bit there changes nothing until the policy is off.
+        const bool authored    = (obj.renderFlags & kObjectFlagShadowCaster) != 0u;
+        const bool translucent = loadMaterialHeader(obj.materialID).type == MATERIAL_TYPE_TRANSLUCENT;
+        const bool effective   = !translucent && (gPerFrame.allLightsCastShadows != 0u || authored);
+
+        float3 overlayColor = float3(1.f, 0.f, 0.f);          // not an occluder
+        if (effective)
+            overlayColor = authored ? float3(0.f, 1.f, 0.f)   // authored caster
+                                    : float3(1.f, 1.f, 0.f);  // caster via policy only
+
+        gOutput[pixelPos] = float4(overlayColor, 1.f);
         return;
     }
 
     uint materialID = obj.materialID;
 
-    // Water and glass refraction need no swap here: SurfelVBuffer.rt re-traces the
-    // refraction ray as a kind-0 bounce that clobbers gPackedHitInfo with the
-    // refracted background, so the primary hit read above IS already that
-    // background at water/glass pixels. The water surface (tint + reflection) and
-    // the glass surface are drawn on top in their raster passes.
+    // No refraction re-trace happens anywhere: the primary hit read above is the
+    // plain rasterized front surface, so at water/glass pixels this shades the
+    // translucent surface's own front face. The water surface (tint + reflection)
+    // and the glass surface are then drawn on top in their raster passes.
+    // Refracted-background support is currently MISSING: the legacy bend-behind
+    // was removed and the RT V-buffer meant to replace it was retired without
+    // ever running. Known gap, not working behaviour.
 
     VertexData v = getVertexData(triangleHit);
     DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount);
@@ -268,16 +284,22 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     }
 
     float3 direct = wantDirect ? gDirectLighting[pixelPos].xyz : float3(0.f);
-    float3 indirect = wantIndirect ? gIndirectLighting[pixelPos].xyz : float3(0.f);
+    float3 indirectDiffuse = wantIndirect ? gIndirectLighting[pixelPos].xyz : float3(0.f);
+    float3 indirectSpecular = wantIndirect ? gIndirectSpecular[pixelPos].xyz : float3(0.f);
 
-    // Both terms are demodulated irradiance: direct is Σ Li·NdotL·vis from the
-    // direct pass (albedo factored out so the accumulation can't smear it),
-    // indirect is incoming irradiance from the cosine-sampled surfel cache
+    // `direct` and `indirectDiffuse` are demodulated irradiance: direct is
+    // Σ Li·NdotL·vis from the direct pass (albedo factored out so the
+    // accumulation can't smear it), indirectDiffuse is the path tracer's
+    // cosine-weighted indirect diffuse with the same albedo factored out
     // (f = albedo/π, pdf = cosθ/π → reduces to albedo). Each takes exactly one
-    // albedo to become outgoing radiance — applied here, AFTER compositeDecals,
-    // so projected decals modulate direct and indirect alike (matching the old
-    // inline evalAnalyticLight path and the base game's albedo·color·atten·NdotL).
-    float3 finalGather = sd.albedo * (direct + indirect);
+    // albedo to become outgoing radiance — applied here, AFTER compositeDecals.
+    //
+    // `indirectSpecular` is NOT demodulated: the path tracer already evaluated
+    // its GGX lobe (F0, roughness, NdotV all vary per texel, so there is no one
+    // albedo to pull out), making it outgoing radiance already. It is added
+    // OUTSIDE the albedo factor. Consequence: projected decals modulate direct
+    // and indirect diffuse, but NOT the specular term.
+    float3 finalGather = sd.albedo * (direct + indirectDiffuse) + indirectSpecular;
 
     if (!(overlayMode == kOverlayModeDirectOnly || overlayMode == kOverlayModeIndirectOnly))
     {

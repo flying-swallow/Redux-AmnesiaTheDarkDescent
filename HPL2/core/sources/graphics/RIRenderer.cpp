@@ -132,9 +132,9 @@ const static char *DefaultDeviceExtension[] = {
     /************************************************************************/
     VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
     /************************************************************************/
-    // SV_Barycentrics support — SurfelGBuffer's psMain reads barycentric
+    // SV_Barycentrics support — VBufferRaster's psMain reads barycentric
     // coords directly off the fragment input to pack into the visibility
-    // buffer (see amnesia/slang/SurfelGBuffer/SurfelGBuffer.3d.slang).
+    // buffer (see amnesia/slang/VBuffer/VBufferRaster.3d.slang).
     /************************************************************************/
     VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME,
 };

@@ -107,7 +107,7 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     {
       // Gbuffer pass: one .spv, two entry points (vsMain / psMain).
       auto gbuffer_bin = RIProgram::loadShaderStage(
-          apResources->GetFileSearcher(), "SurfelGBuffer.3d.spv");
+          apResources->GetFileSearcher(), "VBufferRaster.3d.spv");
       std::array<RIProgram::ModuleStage, 2> stages = {
           RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, gbuffer_bin,
                                  "vsMain"},
@@ -137,45 +137,26 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     // packedHitInfoTexture and applies parallax-occlusion barycentric
     // correction for height-mapped diffuse surfaces.
     loadSlangCompute(m_vBufferPomBary, "VBufferPomBary.cs.spv", "csMain");
-    loadSlangCompute(m_surfelPrepare, "SurfelPreparePass.cs.spv", "csMain");
-    // SurfelUpdatePass — one .spv, three entry points (collectCellInfo /
-    // accumulateCellInfo / updateCellToSurfelBuffer). The blob vector must
-    // outlive all three initialize() calls — ModuleStage holds a non-owning
-    // view.
+    // PathTracePass — per-pixel reference path tracer. One .spv, four entry
+    // points (rayGen / ptMiss / ptCloseHit / ptAnyHit). Shadow rays use inline
+    // RayQuery, so no second hit group is needed (SBT stays single-ray-type).
     {
-      auto upd_bin = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
-                                                "SurfelUpdatePass.cs.spv");
-      auto initFromBlob = [&](RIProgram &prog, const char *entryPoint) {
-        std::array<RIProgram::ModuleStage, 1> stages = {RIProgram::ModuleStage{
-            RIProgram::PROGRAM_STAGE_COMPUTE, upd_bin, entryPoint}};
-        prog.initialize(&mpGraphics->device, stages, externalLayouts, entryPoint);
-      };
-      initFromBlob(m_surfelUpdateCollect, "collectCellInfo");
-      initFromBlob(m_surfelUpdateAccumulate, "accumulateCellInfo");
-      initFromBlob(m_surfelUpdateScatter, "updateCellToSurfelBuffer");
-    }
-    // SurfelRayTrace — one .spv, four entry points (rayGen / scatterMiss /
-    // scatterCloseHit / scatterAnyHit). Shadow rays use inline RayQuery, so no
-    // second hit group is needed (SBT stays single-ray-type).
-    {
-      auto rt_bin = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
-                                               "SurfelRayTrace.rt.spv");
+      auto pt_bin = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
+                                               "PathTracePass.rt.spv");
       std::array<RIProgram::ModuleStage, 4> stages = {
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_RAYGEN, rt_bin,
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_RAYGEN, pt_bin,
                                  "rayGen"},
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_MISS, rt_bin,
-                                 "scatterMiss"},
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_CLOSEST_HIT, rt_bin,
-                                 "scatterCloseHit"},
-          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_ANY_HIT, rt_bin,
-                                 "scatterAnyHit"}};
-      m_surfelRT.initialize(&mpGraphics->device, stages, externalLayouts, "Hybrid.surfelRT");
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_MISS, pt_bin,
+                                 "ptMiss"},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_CLOSEST_HIT, pt_bin,
+                                 "ptCloseHit"},
+          RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_ANY_HIT, pt_bin,
+                                 "ptAnyHit"}};
+      m_pathTrace.initialize(&mpGraphics->device, stages, externalLayouts, "Hybrid.pathTrace");
     }
     // LightGridBuildPass — single compute entry (binLights) that bins
     // point/spot lights into the coarse world-space light grid each frame.
     loadSlangCompute(m_lightGrid, "LightGridBuildPass.cs.spv", "binLights");
-    loadSlangCompute(m_surfelIntegrate, "SurfelIntegratePass.cs.spv", "csMain");
-    loadSlangCompute(m_surfelGenerate, "SurfelGenerationPass.cs.spv", "csMain");
     // Composite — compute pass: one thread per pixel writes the composite
     // (albedo + inline decals + lighting) into the pogo attach bound as
     // gOutput. The renderer transitions the attach to GENERAL around the
@@ -185,6 +166,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     loadSlangCompute(m_directSpatialReuse, "DirectSpatialReusePass.cs.spv",
                      "csMain");
     loadSlangCompute(m_directAtrous, "DirectAtrousPass.cs.spv", "csMain");
+    loadSlangCompute(m_indirectTemporal, "IndirectTemporalPass.cs.spv",
+                     "csMain");
     {
       // Particle pass (amnesia/slang/Particle).
       auto p_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
@@ -248,35 +231,6 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     m_indirectDrawBuffer = detail::CreateBindlessSlotBuffer(
         &mpGraphics->device, indirectDesc.maxElements, sizeof(VkDrawIndirectCommand),
         VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-
-    // VkTraceRaysIndirectCommandKHR — 3 × uint32: {width, height=1, depth=1}.
-    // Width is patched each frame via vkCmdCopyBuffer from
-    // gSurfelCounter[kSurfelCounterRequestedRay]. SHADER_DEVICE_ADDRESS_BIT is
-    // required by vkCmdTraceRaysIndirectKHR.
-    m_surfelRTIndirectBuf = detail::CreateBindlessSlotBuffer(
-        &mpGraphics->device, 3u, sizeof(uint32_t),
-        VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-
-    for (uint32_t i = 0; i < mpGraphics->swapchain->imageCount; ++i) {
-      RITextureDesc desc = {};
-      desc.type = RI_TEXTURE_2D;
-      desc.format = RI_FORMAT_RGBA16_SFLOAT;
-      desc.width = 4096u;
-      desc.height = 4096u;
-      // TRANSFER_DST: this atlas is seeded once via vkCmdClearColorImage.
-      desc.usage = RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-                   RI_USAGE_TRANSFER_DST;
-      m_surfelDepthTexture[i] = RITexture::create(&mpGraphics->device, desc);
-
-      RITextureViewDesc viewDesc = {};
-      viewDesc.viewType = RI_VIEWTYPE_SHADER_RESOURCE_2D;
-      viewDesc.format = RI_FORMAT_RGBA16_SFLOAT;
-      viewDesc.mipNum = 1;
-      viewDesc.layerNum = 1;
-      m_surfelDepthView[i] =
-          RITextureView::create(&mpGraphics->device, &m_surfelDepthTexture[i], viewDesc);
-    }
   }
 }
 
@@ -312,9 +266,8 @@ void cViewport::HybridViewportState::Update(cGraphics::FrameContext *cntx,
         &renderTarget[i], &renderTargetView[i],
         "HybridViewportState.renderTarget");
 
-    // SAMPLED lets surfel_generate / surfel_raytrace bind the depth as
-    // `sampler2D depthMap` after the gbuffer pass flips it to
-    // SHADER_READ_ONLY.
+    // SAMPLED lets the compute passes bind the depth as `sampler2D depthMap`
+    // after the gbuffer pass flips it to SHADER_READ_ONLY.
     // DEPTH|STENCIL view: the Z passes only touch the depth aspect, but
     // cLuxEffectRenderer's outline pass binds this same view as a stencil
     // attachment (mark silhouette -> NOTEQUAL composite), so the view must
@@ -348,17 +301,8 @@ void cViewport::HybridViewportState::Update(cGraphics::FrameContext *cntx,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &visibilityTexture[i],
         &visibilityView[i], "HybridViewportState.visibility");
 
-    // Surfel-generation output — storage write (surfel_generate), sampled
-    // by the composite, cleared per frame (TRANSFER_DST).
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &surfelResultTexture[i],
-        &surfelResultView[i], "HybridViewportState.surfelResult");
-
-    // Stage B packed visibility — RT pipeline storage write, sampled by the
-    // surfel update / generation / direct passes.
+    // Packed visibility — RT pipeline storage write, sampled by the
+    // path-tracing / direct / composite passes.
     CreateViewportAttachmentTexture(
         &pGraphics->device, renderW, renderH, cGraphics::VisibilityFormat,
         RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE,
@@ -410,6 +354,62 @@ void cViewport::HybridViewportState::Update(cGraphics::FrameContext *cntx,
             RI_USAGE_TRANSFER_DST,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &directAtrousTexture[i],
         &directAtrousView[i], "HybridViewportState.directAtrous");
+    // Path-traced indirect ping-pong + surface key + à-trous scratch (RGBA16F).
+    CreateViewportAttachmentTexture(
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+            RI_USAGE_TRANSFER_DST,
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectRadianceTexture[i],
+        &indirectRadianceView[i], "HybridViewportState.indirectRadiance");
+    CreateViewportAttachmentTexture(
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+            RI_USAGE_TRANSFER_DST,
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectKeyTexture[i],
+        &indirectKeyView[i], "HybridViewportState.indirectKey");
+    CreateViewportAttachmentTexture(
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+            RI_USAGE_TRANSFER_DST,
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectAtrousTexture[i],
+        &indirectAtrousView[i], "HybridViewportState.indirectAtrous");
+    // Filtered indirect result — also next frame's temporal history.
+    CreateViewportAttachmentTexture(
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+            RI_USAGE_TRANSFER_DST,
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectResolvedTexture[i],
+        &indirectResolvedView[i], "HybridViewportState.indirectResolved");
+    // Indirect specular chain — the same three textures again (raw radiance,
+    // à-trous scratch, filtered result / next frame's history), denoised by
+    // the same programs. Undemodulated, so the composite adds it directly.
+    CreateViewportAttachmentTexture(
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+            RI_USAGE_TRANSFER_DST,
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectSpecularTexture[i],
+        &indirectSpecularView[i], "HybridViewportState.indirectSpecular");
+    CreateViewportAttachmentTexture(
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+            RI_USAGE_TRANSFER_DST,
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectSpecularAtrousTexture[i],
+        &indirectSpecularAtrousView[i],
+        "HybridViewportState.indirectSpecularAtrous");
+    CreateViewportAttachmentTexture(
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+            RI_USAGE_TRANSFER_DST,
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectSpecularResolvedTexture[i],
+        &indirectSpecularResolvedView[i],
+        "HybridViewportState.indirectSpecularResolved");
+    // Second half of the indirect surface key (primary-hit GGX alpha in .x).
+    CreateViewportAttachmentTexture(
+        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+            RI_USAGE_TRANSFER_DST,
+        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectKeyExtraTexture[i],
+        &indirectKeyExtraView[i], "HybridViewportState.indirectKeyExtra");
     // ReSTIR reservoir history ping-pong (RGBA32F: asfloat(lightIndex), W, M).
     CreateViewportAttachmentTexture(
         &pGraphics->device, renderW, renderH, RI_FORMAT_RGBA32_SFLOAT,
@@ -426,10 +426,13 @@ void cViewport::HybridViewportState::Update(cGraphics::FrameContext *cntx,
       RI_VIEWTYPE_SHADER_RESOURCE_2D, &reservoirTemporalTexture,
       &reservoirTemporalView, "HybridViewportState.reservoirTemporal");
 
-  // Recreation invalidated every history: re-arm the one-time direct-lighting
-  // init/clear and re-seed prev-camera = current on the next Draw.
+  // Recreation invalidated every history: re-arm the one-time direct- and
+  // indirect-lighting init/clear and re-seed prev-camera = current on the
+  // next Draw.
   directLightingIndex = 0;
   directLightingInit = false;
+  indirectLightingIndex = 0;
+  indirectLightingInit = false;
   hasPrevCamera = false;
 }
 
@@ -439,7 +442,6 @@ cViewport::HybridViewportState::~HybridViewportState() {
     pGraphics->graphicsDefer.push(renderTarget[i]);
     pGraphics->graphicsDefer.push(depthTextures[i]);
     pGraphics->graphicsDefer.push(visibilityTexture[i]);
-    pGraphics->graphicsDefer.push(surfelResultTexture[i]);
     pGraphics->graphicsDefer.push(packedHitInfoTexture[i]);
     pGraphics->graphicsDefer.push(velocityTexture[i]);
     pGraphics->graphicsDefer.push(decalMulTexture[i]);
@@ -449,7 +451,6 @@ cViewport::HybridViewportState::~HybridViewportState() {
     pGraphics->graphicsDefer.push(depthView[i]);
     pGraphics->graphicsDefer.push(depthSampleView[i]);
     pGraphics->graphicsDefer.push(visibilityView[i]);
-    pGraphics->graphicsDefer.push(surfelResultView[i]);
     pGraphics->graphicsDefer.push(packedHitInfoView[i]);
     pGraphics->graphicsDefer.push(velocityView[i]);
     pGraphics->graphicsDefer.push(decalMulView[i]);
@@ -459,11 +460,27 @@ cViewport::HybridViewportState::~HybridViewportState() {
     pGraphics->graphicsDefer.push(directLightingTexture[i]);
     pGraphics->graphicsDefer.push(directKeyTexture[i]);
     pGraphics->graphicsDefer.push(directAtrousTexture[i]);
+    pGraphics->graphicsDefer.push(indirectRadianceTexture[i]);
+    pGraphics->graphicsDefer.push(indirectKeyTexture[i]);
+    pGraphics->graphicsDefer.push(indirectAtrousTexture[i]);
+    pGraphics->graphicsDefer.push(indirectResolvedTexture[i]);
+    pGraphics->graphicsDefer.push(indirectSpecularTexture[i]);
+    pGraphics->graphicsDefer.push(indirectSpecularAtrousTexture[i]);
+    pGraphics->graphicsDefer.push(indirectSpecularResolvedTexture[i]);
+    pGraphics->graphicsDefer.push(indirectKeyExtraTexture[i]);
     pGraphics->graphicsDefer.push(reservoirTexture[i]);
 
     pGraphics->graphicsDefer.push(directLightingView[i]);
     pGraphics->graphicsDefer.push(directKeyView[i]);
     pGraphics->graphicsDefer.push(directAtrousView[i]);
+    pGraphics->graphicsDefer.push(indirectRadianceView[i]);
+    pGraphics->graphicsDefer.push(indirectKeyView[i]);
+    pGraphics->graphicsDefer.push(indirectAtrousView[i]);
+    pGraphics->graphicsDefer.push(indirectResolvedView[i]);
+    pGraphics->graphicsDefer.push(indirectSpecularView[i]);
+    pGraphics->graphicsDefer.push(indirectSpecularAtrousView[i]);
+    pGraphics->graphicsDefer.push(indirectSpecularResolvedView[i]);
+    pGraphics->graphicsDefer.push(indirectKeyExtraView[i]);
     pGraphics->graphicsDefer.push(reservoirView[i]);
   }
   pGraphics->graphicsDefer.push(reservoirTemporalTexture);
@@ -666,7 +683,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   perFrame.fireflyClampThreshold = 10.0f;
   perFrame.zNear = apFrustum->GetNearPlane();
   perFrame.zFar = apFrustum->GetFarPlane();
-  perFrame.forceShadows = mpGraphics->forceShadows ? 1u : 0u;
+  perFrame.allLightsCastShadows = mpGraphics->allLightsCastShadows ? 1u : 0u;
   // invViewRotationMat = rotation part of the inverse view matrix (camera
   // world-space basis, translation zeroed). Translucent.frag rotates the
   // view-space cube-map reflection vector into world space with it (matching
@@ -775,19 +792,18 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
     }
   }
 
-  // state.packedHitInfoView / m_surfelDepthView and the
+  // state.packedHitInfoView and the
   // freshly built TLAS now live on set 1 and are pushed per-dispatch via
-  // RIProgram::bindDescriptors below (see the m_vBufferPomBary / m_surfelRT
-  // / m_surfelIntegrate / m_surfelGenerate / m_composite call sites).
+  // RIProgram::bindDescriptors below (see the m_vBufferPomBary / m_pathTrace
+  // / m_composite call sites).
   // Set 1 is allocated from a frame-rotated pool, so each frame's writes
   // land on an idle descriptor set.
 
   std::vector<RIProgram::DescriptorBinding> bindings;
   bindings.reserve(16);
-  // Surfel image / TLAS bindings are pushed inline below. Note: the storage
-  // images (`gPackedHitInfo` / `gSurfelDepthMap`) and the matching sampled view
-  // (`gSurfelDepth`) all use GENERAL layout — the depth image stays GENERAL
-  // across the frame, which satisfies both storage and sampled access.
+  // Per-pass image / TLAS bindings are pushed inline below. Note: the storage
+  // image `gPackedHitInfo` uses GENERAL layout, which satisfies both storage
+  // and sampled access.
   {
     RIProgram::DescriptorBinding b;
     b.handle = DescriptorBindingID::Create("gPerFrame");
@@ -838,183 +854,13 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   depthAttachment.clearValue.depth = 1.0f;
 
   // ----------------------------------------------------------------------
-  // Surfel prepare + cell/ref-counter clear. Runs first each frame: promote
-  // the previous frame's ValidSurfel count to DirtySurfel, zero the per-frame
-  // counters, and clear the cellInfo / surfelReservation / surfelRefCounter
-  // buffers so the update pass accumulates from scratch.
-  // ----------------------------------------------------------------------
-  {
-    VkComputePipelineCreateInfo computeCreate = {
-        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelPrepare(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
-                                "SurfelPrepare");
-    m_surfelPrepare.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
-                                        "SurfelPreparePass.cs", &computeCreate);
-    m_surfelPrepare.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
-                                              &mpGraphics->globalset->m_bindlessSet, 0,
-                                              VK_PIPELINE_BIND_POINT_COMPUTE);
-    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, 1u, 1u, 1u);
-  }
-
-  // Ping-pong the surfel-index buffers: copy this frame's previously-valid
-  // indices into the dirty buffer so update_collect can walk them. A straight
-  // copy each frame — negligible cost (≤600 KB).
-  //
-  // The source was last written by the previous frame, already ordered by the
-  // frame fence, so no pre-copy barrier is needed. The post-copy barrier
-  // (with the prepare-pass writes above) covers the copy's TRANSFER_WRITE and
-  // prepare's SHADER_WRITE against update_collect's SHADER_READ.
-  {
-    mpGraphics->primary.cmds[0].copyBuffer(
-        &mpGraphics->device, &mpGraphics->globalset->m_surfelValidBuffer, 0,
-        &mpGraphics->globalset->m_surfelDirtyIndexBuffer, 0,
-        (RIDeviceSize)kTotalSurfelLimit * sizeof(uint32_t));
-  }
-  {
-    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
-        {RI_RESOURCE_STATE_STORAGE_WRITE | RI_RESOURCE_STATE_COPY_DST,
-         RI_RESOURCE_STATE_UNORDERED_ACCESS, RI_STAGE_COMPUTE | RI_STAGE_COPY,
-         RI_STAGE_COMPUTE});
-  }
-  // Cell + ref-counter clears are now done by SurfelPreparePass +
-  // SurfelUpdatePass on the Slang side. No standalone clear dispatch.
-  {
-    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
-        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_UNORDERED_ACCESS,
-         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
-  }
-  // Stage B (packedHitInfo) is now produced by the raster G-buffer +
-  // VBufferPomBary compute pass later in the frame. SurfelUpdate (Stage D)
-  // reads cached geometry anchors (gSurfelGeometryBuffer), not gPackedHitInfo,
-  // so it does not need the V-buffer this early.
-
-  // ----------------------------------------------------------------------
-  // (Surfels anchored to destroyed geometry are handled before the opaque
-  // draw loop above: the retired slots' stream handles are zeroed, so
-  // collectCellInfo below recycles those surfels via its free-list branch
-  // instead of dereferencing a freed vertex buffer-device-address. Map-load
-  // wholesale resets are handled separately by resetSurfelState().)
-  // ----------------------------------------------------------------------
-
-  // ----------------------------------------------------------------------
-  // Stage D — surfel update (collect → accumulate → scatter).
-  //
-  // collect: per dirty surfel, refresh pos/normal from gSurfelGeometryBuffer,
-  //          allocate ray budget by MSME variance, bump cellInfo counts
-  // accumulate: prefix-sum the per-cell counts into cellToSurfelBufferOffset
-  // scatter: per valid surfel, write its index into cellToSurfel[] for each
-  //          of the 125 neighbour cells it intersects.
-  //
-  // The geometry buffer (cached uint4 hits) is filled by the Stage F
-  // generation pass; until that lands DirtySurfel stays 0 and these
-  // dispatches are no-ops.
-  // ----------------------------------------------------------------------
-  {
-    VkComputePipelineCreateInfo computeCreate = {
-        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelCollect(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
-                                "SurfelUpdateCollect");
-    m_surfelUpdateCollect.bindComputePipeline(
-        &mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
-        "SurfelUpdatePass.cs:collectCellInfo", &computeCreate);
-    m_surfelUpdateCollect.bindBindlessDescriptorSet(
-        &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
-        VK_PIPELINE_BIND_POINT_COMPUTE);
-
-    std::vector<RIProgram::DescriptorBinding> bnd;
-    bnd.reserve(1);
-    {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("gPerFrame");
-      mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-      bnd.push_back(b);
-    }
-    m_surfelUpdateCollect.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
-                                          mpGraphics->frameIndex, bnd.data(), bnd.size(),
-                                          VK_PIPELINE_BIND_POINT_COMPUTE);
-
-    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (kTotalSurfelLimit + 63u) / 64u, 1u,
-                                1u);
-  }
-  // RAW: accumulate reads cellInfo.surfelCount (collect-written) and reads
-  // surfelCounter (collect-incremented). Accumulate's own writes are synced by
-  // the next barrier — dstAccess=READ is sufficient and avoids an L2 flush of
-  // every other SSBO collect touched (valid/free/recycle/rayResult/refCounter).
-  {
-    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
-        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
-         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
-  }
-  {
-    VkComputePipelineCreateInfo computeCreate = {
-        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelAccum(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
-                              "SurfelUpdateAccumulate");
-    m_surfelUpdateAccumulate.bindComputePipeline(
-        &mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
-        "SurfelUpdatePass.cs:accumulateCellInfo", &computeCreate);
-    m_surfelUpdateAccumulate.bindBindlessDescriptorSet(
-        &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
-        VK_PIPELINE_BIND_POINT_COMPUTE);
-    const uint32_t groups = (kCellDimension + 3u) / 4u;
-    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, groups, groups, groups);
-  }
-  // RAW: scatter reads cellInfo.cellToSurfelBufferOffset (accumulate-written)
-  // and RMWs cellInfo.surfelCount (accumulate zeroed it). Scatter's writes are
-  // synced by the next barrier. Atomic RMWs only need the prior write visible
-  // for the read half — dstAccess=READ suffices.
-  {
-    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
-        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
-         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
-  }
-  {
-    VkComputePipelineCreateInfo computeCreate = {
-        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelScatter(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
-                                "SurfelUpdateScatter");
-    m_surfelUpdateScatter.bindComputePipeline(
-        &mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
-        "SurfelUpdatePass.cs:updateCellToSurfelBuffer", &computeCreate);
-    m_surfelUpdateScatter.bindBindlessDescriptorSet(
-        &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
-        VK_PIPELINE_BIND_POINT_COMPUTE);
-
-    std::vector<RIProgram::DescriptorBinding> bnd;
-    bnd.reserve(1);
-    {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("gPerFrame");
-      mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-      bnd.push_back(b);
-    }
-    m_surfelUpdateScatter.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
-                                          mpGraphics->frameIndex, bnd.data(), bnd.size(),
-                                          VK_PIPELINE_BIND_POINT_COMPUTE);
-
-    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (kTotalSurfelLimit + 63u) / 64u, 1u,
-                                1u);
-  }
-  {
-    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
-        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
-         RI_STAGE_COMPUTE,
-         RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING | RI_STAGE_FRAGMENT});
-  }
-
-  // ----------------------------------------------------------------------
-  // World-space light grid build (feeds the surfel ray-trace NEE importance
+  // World-space light grid build (feeds the path tracer's NEE importance
   // sampling + the Composite direct cull). Per-cell gather: one thread
   // per grid cell walks the light list and writes that cell's count + list. The
   // light SSBOs were uploaded + barriered to SHADER_READ earlier this frame, so
   // binLights reads them directly. No per-cell count clear is needed — every
-  // cell's count is written unconditionally by its thread. Placed here (after
-  // the cell scatter, before Stage E) for ordering only — independent of the
-  // surfel cell grid.
+  // cell's count is written unconditionally by its thread. Runs before any
+  // consumer of the grid (direct lighting, path trace, composite).
   // ----------------------------------------------------------------------
   {
     VkComputePipelineCreateInfo computeCreate = {
@@ -1047,133 +893,16 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   }
 
   {
-    // binLights writes are read by two consumers later this frame: the surfel
-    // ray-trace NEE (ray tracing) and the MainCompositePass direct-lighting
-    // cull (fragment — SurfelShade.evalAnalyticLight walks the per-cell light
-    // list). Both stages must be in dst or the fragment reads see an empty grid
-    // and drop every point/spot light. Compute kept in dst for safety.
+    // binLights writes are read by several consumers later this frame: the
+    // path tracer's NEE (ray tracing), the direct-lighting pass (compute) and
+    // the MainCompositePass direct cull (fragment — evalAnalyticLight walks the
+    // per-cell light list). Every stage must be in dst or the fragment reads
+    // see an empty grid and drop every point/spot light.
     mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
          RI_STAGE_COMPUTE,
          RI_STAGE_RAY_TRACING | RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT});
   }
-
-  // One-shot UNDEFINED -> GENERAL transition for the surfel depth atlas the
-  // first time each swapchain image appears. Subsequent frames skip this —
-  // the atlas stays in GENERAL for life so integrate's EMA-blend reads keep
-  // working and cross-frame sync goes through the engine frame fence.
-  if (!m_surfelRTIndirectInit) {
-    // Seed the fixed height=1 and depth=1 words once. Width (offset 0) is
-    // overwritten each frame from the surfel counter via vkCmdCopyBuffer.
-    vkCmdFillBuffer(mpGraphics->primary.cmds[0].vk.cmd, m_surfelRTIndirectBuf.vk.buffer,
-                    4u, 4u, 1u); // height = 1 at offset 4
-    vkCmdFillBuffer(mpGraphics->primary.cmds[0].vk.cmd, m_surfelRTIndirectBuf.vk.buffer,
-                    8u, 4u, 1u); // depth  = 1 at offset 8
-    m_surfelRTIndirectInit = true;
-  }
-
-  if (!m_surfelAtlasesInitialized[mpGraphics->swapchainIndex]) {
-    // First touch of this swapchain image's atlas: UNDEFINED -> GENERAL and
-    // *seed its contents*. SurfelIntegratePass accumulates into it via an EMA
-    // read-modify-write (gSurfelDepthMap), so the starting value must be
-    // defined — UNDEFINED discards it, leaving uninitialized / NaN reads that
-    // poison the EMA and the generation pass's Chebyshev weight. The depth
-    // atlas stores (E[z], E[z^2]) per octahedral texel; seed E[z^2] high so
-    // the generation pass's weight
-    //   variance / (variance + (dist - mean)^2),  variance = E[z^2] - E[z]^2
-    // starts ~1 (no visibility suppression) and tightens only as real
-    // first-bounce depths converge. Clearing to 0 instead would make variance=0
-    // => weight 0 => every surfel contribution zeroed until the atlas fills in
-    // (~hundreds of frames), i.e. a multi-second indirect black-out on enable.
-    RITextureBarrier toClear[1] = {{&m_surfelDepthTexture[mpGraphics->swapchainIndex],
-                                    RI_RESOURCE_STATE_UNDEFINED,
-                                    RI_RESOURCE_STATE_CLEAR_STORAGE}};
-    mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<1>(1, toClear);
-
-    // (E[z], E[z^2] seeded high (half-float safe), 0, 0)
-    const float depthClear[4] = {0.0f, 60000.0f, 0.0f, 0.0f};
-    mpGraphics->primary.cmds[0].clearStorageImage(
-        &mpGraphics->device, &m_surfelDepthTexture[mpGraphics->swapchainIndex], depthClear);
-
-    // Clear (transfer) -> integrate's storage RW + ray-trace / generation reads
-    // (sampled). Same GENERAL layout, availability/visibility only.
-    RITextureBarrier toShader[1] = {
-        {&m_surfelDepthTexture[mpGraphics->swapchainIndex],
-         RI_RESOURCE_STATE_CLEAR_STORAGE,
-         RI_RESOURCE_STATE_UNORDERED_ACCESS | RI_RESOURCE_STATE_SHADER_RESOURCE,
-         RI_STAGE_NONE, RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING}};
-    mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<1>(1, toShader);
-    m_surfelAtlasesInitialized[mpGraphics->swapchainIndex] = true;
-  }
-
-  // ----------------------------------------------------------------------
-  // Stage E — surfel ray-trace.
-  //
-  // One TraceRay per pending ray slot. The rgen pulls RequestedRay from
-  // the counter, derives a tangent-space hemisphere direction per surfel,
-  // and iteratively bounces (closest-hit updates the payload, miss / max
-  // step / RR / surfel-cache finalize all terminate the path). NEE inside
-  // the closest-hit uses an inline ray query so no recursion is needed
-  // (maxPipelineRayRecursionDepth = 1).
-  //
-  // The reference's expected per-surfel ray count is bounded by
-  // gMaxRayCount = 64; the actual requested count lives in
-  // gSurfelCounter[kSurfelCounterRequestedRay] and is copied into the
-  // indirect args buffer so only the requested rays are launched.
-  // ----------------------------------------------------------------------
-  if (apWorld->GetTlas() != nullptr) {
-    // Copy the requested ray count (4 bytes) from the surfel counter buffer
-    // into m_surfelRTIndirectBuf.width (offset 0). Height and depth were
-    // seeded to 1 once at m_surfelRTIndirectInit time above.
-    {
-      VkBufferCopy region = {};
-      region.srcOffset = static_cast<VkDeviceSize>(kSurfelCounterRequestedRay) *
-                         sizeof(uint32_t);
-      region.dstOffset = 0u;
-      region.size = sizeof(uint32_t);
-      vkCmdCopyBuffer(mpGraphics->primary.cmds[0].vk.cmd,
-                      mpGraphics->globalset->m_surfelCounterBuffer.vk.buffer,
-                      m_surfelRTIndirectBuf.vk.buffer, 1u, &region);
-    }
-    // TRANSFER_WRITE → INDIRECT_COMMAND_READ before the RT dispatch reads the
-    // args.
-    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
-        {RI_RESOURCE_STATE_COPY_DST, RI_RESOURCE_STATE_INDIRECT_ARGUMENT,
-         RI_STAGE_COPY, RI_STAGE_DRAW_INDIRECT | RI_STAGE_RAY_TRACING});
-
-    VkRayTracingPipelineCreateInfoKHR rtCreate = {
-        VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR};
-    rtCreate.maxPipelineRayRecursionDepth = 1;
-    const hash_t kRtHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelRT(&mpGraphics->profiler, &mpGraphics->primary.cmds[0], "SurfelRT");
-    m_surfelRT.bindRayTracingPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kRtHash,
-                                      "SurfelRayTrace.rt", &rtCreate);
-    m_surfelRT.bindBindlessDescriptorSet(
-        &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
-        VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
-
-    std::vector<RIProgram::DescriptorBinding> rtBnd;
-    rtBnd.reserve(2);
-    {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("gPerFrame");
-      mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-      rtBnd.push_back(b);
-    }
-    rtBnd.emplace_back("gRtAccel", RIDescriptor::accelerationStructure(
-                                       &mpGraphics->device, apWorld->GetTlas()));
-    appendWorldLightFog(rtBnd, apWorld);
-    m_surfelRT.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex,
-                               rtBnd.data(), rtBnd.size(),
-                               VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
-
-    const VkDeviceAddress indirectAddr =
-        m_surfelRTIndirectBuf.GetDeviceHandle(&mpGraphics->device);
-    m_surfelRT.traceRaysIndirect(&mpGraphics->primary.cmds[0], kRtHash, indirectAddr);
-  }
-  mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
-      {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
-       RI_STAGE_RAY_TRACING, RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT});
 
   RIBeginRenderingDesc gbufferBeginDesc = {};
   gbufferBeginDesc.renderArea.width = (int16_t)renderWidth;
@@ -1203,7 +932,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                                           cGraphics::VelocityFormat,
                                           cGraphics::DepthFormat);
       m_gbuffer.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], pipelineDesc.hash,
-                             "SurfelGBuffer.3d", &pipelineDesc.createInfo);
+                             "VBufferRaster.3d", &pipelineDesc.createInfo);
       m_gbuffer.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
                                           &mpGraphics->globalset->m_bindlessSet, 0);
       m_gbuffer.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex,
@@ -1218,14 +947,13 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
     mpGraphics->primary.cmds[0].vk_d3d12_endRendering(&mpGraphics->device);
   }
 
-  // Gbuffer output -> SHADER_READ_ONLY for the surfel-generation compute
-  // pass (and any later fragment consumer). Includes depth, which the
-  // gbuffer left in DEPTH_STENCIL_ATTACHMENT_OPTIMAL. The surfel result
-  // image transitions UNDEFINED -> GENERAL for its first compute write.
+  // Gbuffer output -> SHADER_READ_ONLY for the downstream compute
+  // passes (and any later fragment consumer). Includes depth, which the
+  // gbuffer left in DEPTH_STENCIL_ATTACHMENT_OPTIMAL.
   // packedHitInfoTexture transitions UNDEFINED -> STORAGE_WRITE for the
   // POM compute pass that follows immediately.
   {
-    RITextureBarrier toRead[5] = {};
+    RITextureBarrier toRead[4] = {};
     // Visibility -> SHADER_READ for the fragment + compute consumers.
     toRead[0] = {state.visibilityTexture[mpGraphics->swapchainIndex].Get(),
                  RI_RESOURCE_STATE_RENDER_TARGET,
@@ -1240,11 +968,8 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                  RI_STAGE_COMPUTE,
                  RI_BARRIER_ASPECT_DEPTH};
 
-    toRead[2] = {state.surfelResultTexture[mpGraphics->swapchainIndex].Get(),
-                 RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE};
-
     // Velocity (gbuffer MRT) -> SHADER_READ for the direct-lighting pass.
-    toRead[3] = {state.velocityTexture[mpGraphics->swapchainIndex].Get(),
+    toRead[2] = {state.velocityTexture[mpGraphics->swapchainIndex].Get(),
                  RI_RESOURCE_STATE_RENDER_TARGET,
                  RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_NONE,
                  RI_STAGE_COMPUTE};
@@ -1252,26 +977,11 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
     // packedHitInfo: UNDEFINED -> STORAGE_WRITE for the POM compute pass.
     // Previously written by the Stage B RT V-buffer; now produced by
     // VBufferPomBary.cs immediately after this barrier.
-    toRead[4] = {state.packedHitInfoTexture[mpGraphics->swapchainIndex].Get(),
+    toRead[3] = {state.packedHitInfoTexture[mpGraphics->swapchainIndex].Get(),
                  RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_STORAGE_WRITE,
                  RI_STAGE_NONE, RI_STAGE_COMPUTE};
 
-    mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<5>(5, toRead);
-  }
-
-  // Clear the surfel-result image to zero indirect (see toRead[2] above), then
-  // make the clear visible to surfel_generation_pass's storage write.
-  {
-    // (0,0,0,1): zero radiance, opaque alpha
-    const float clearColor[4] = {0.0f, 0.0f, 0.0f, 1.0f};
-    mpGraphics->primary.cmds[0].clearStorageImage(
-        &mpGraphics->device, state.surfelResultTexture[mpGraphics->swapchainIndex].Get(),
-        clearColor);
-
-    mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
-        {state.surfelResultTexture[mpGraphics->swapchainIndex].Get(),
-         RI_RESOURCE_STATE_CLEAR_STORAGE, RI_RESOURCE_STATE_UNORDERED_ACCESS,
-         RI_STAGE_NONE, RI_STAGE_COMPUTE});
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<4>(4, toRead);
   }
 
   // ----------------------------------------------------------------------
@@ -1328,121 +1038,319 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
          RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT | RI_STAGE_RAY_TRACING});
   }
 
-  // ----------------------------------------------------------------------
-  // Surfel integrate + generation.
-  //   integrate: per valid surfel, MSME-blend the per-frame raytraced radiance
-  //              (gSurfelRayResultBuffer) into surfel.radiance.
-  //   generate:  per pixel, walk the visibility cell's surfel list, write the
-  //              indirect term into state.surfelResultTexture (sampled by the
-  //              composite), and spawn / recycle surfels by coverage.
-  // ----------------------------------------------------------------------
-  {
-    VkComputePipelineCreateInfo computeCreate = {
-        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelIntegrate(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
-                                  "SurfelIntegrate");
-    m_surfelIntegrate.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
-                                          kHash, "SurfelIntegratePass.cs",
-                                          &computeCreate);
-    m_surfelIntegrate.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
-                                                &mpGraphics->globalset->m_bindlessSet, 0,
-                                                VK_PIPELINE_BIND_POINT_COMPUTE);
+  // Path-traced indirect ping-pong: [ilCur] is this frame's write target,
+  // [ilPrev] is the history the temporal pass reprojects. Declared at Draw
+  // scope — the composite below binds the denoised result.
+  const uint32_t ilCur = state.indirectLightingIndex;
+  const uint32_t ilPrev = ilCur ^ 1u;
+  // What the composite samples: the temporal result when à-trous is off, else
+  // the last à-trous output. One per indirect channel — diffuse
+  // (albedo-demodulated) and specular (undemodulated).
+  RITextureView *indirectResultView = nullptr;
+  RITextureView *indirectSpecularResultView = nullptr;
 
-    // gSurfelDepthSampler is bindless (set 0). The image views and the
-    // CB are gone — params come from Constants.h. gPerFrame and the depth
-    // atlas (RW + sampled views of the same image) push into set 1.
-    std::vector<RIProgram::DescriptorBinding> bnd;
-    bnd.reserve(3);
-    {
-      RIProgram::DescriptorBinding b;
-      b.handle = DescriptorBindingID::Create("gPerFrame");
-      mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-      bnd.push_back(b);
-    }
-    bnd.emplace_back("gSurfelDepthMap",
-                     RIDescriptor::storageImage(
-                         &mpGraphics->device, &m_surfelDepthView[mpGraphics->swapchainIndex]));
-    bnd.emplace_back("gSurfelDepth",
-                     RIDescriptor::sampledImage(
-                         &mpGraphics->device, &m_surfelDepthView[mpGraphics->swapchainIndex],
-                         RI_RESOURCE_STATE_GENERAL));
-    m_surfelIntegrate.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
-                                      mpGraphics->frameIndex, bnd.data(), bnd.size(),
-                                      VK_PIPELINE_BIND_POINT_COMPUTE);
-    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (kTotalSurfelLimit + 31u) / 32u, 1u,
-                                1u);
-  }
-  {
-    // SHADER_RESOURCE: with USE_SURFEL_DEPTH the generation pass samples the
-    // depth atlas (gSurfelDepth) that integrate just wrote via a storage image;
-    // the sampled read needs the write made visible to it, not just storage
-    // reads.
+  if (!state.indirectLightingInit) {
+    // First use: UNDEFINED -> GENERAL + cleared so the history/denoise reads
+    // are defined; they stay GENERAL thereafter.
+    RITextureBarrier toGen[16] = {
+        {state.indirectRadianceTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectRadianceTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectKeyTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectKeyTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectAtrousTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectAtrousTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectResolvedTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectResolvedTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_CLEAR_STORAGE},
+        // Specular chain + the second key half, same treatment.
+        {state.indirectSpecularTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectSpecularTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectSpecularAtrousTexture[0].Get(),
+         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectSpecularAtrousTexture[1].Get(),
+         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectSpecularResolvedTexture[0].Get(),
+         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectSpecularResolvedTexture[1].Get(),
+         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectKeyExtraTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_CLEAR_STORAGE},
+        {state.indirectKeyExtraTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
+         RI_RESOURCE_STATE_CLEAR_STORAGE}};
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<16>(16, toGen);
+
+    const float clr[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    for (uint32_t i = 0; i < 16; ++i)
+      mpGraphics->primary.cmds[0].clearStorageImage(&mpGraphics->device, toGen[i].texture, clr);
+
     mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
-        {RI_RESOURCE_STATE_STORAGE_WRITE,
-         RI_RESOURCE_STATE_UNORDERED_ACCESS | RI_RESOURCE_STATE_SHADER_RESOURCE,
-         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
+        {RI_RESOURCE_STATE_CLEAR_STORAGE,
+         RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_WRITE,
+         RI_STAGE_NONE, RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING});
+    state.indirectLightingInit = true;
+  } else {
+    // Make last frame's writes visible to this frame's RT write / composite
+    // read. All stay GENERAL.
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE | RI_RESOURCE_STATE_SHADER_RESOURCE,
+         RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_WRITE,
+         RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING,
+         RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING});
   }
-  {
-    VkComputePipelineCreateInfo computeCreate = {
-        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
-    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
-    RIGpuScope _gsSurfelGenerate(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
-                                 "SurfelGenerate");
-    m_surfelGenerate.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
-                                         "SurfelGenerationPass.cs",
-                                         &computeCreate);
-    m_surfelGenerate.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
-                                               &mpGraphics->globalset->m_bindlessSet, 0,
-                                               VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    // gPerFrame + the set-1 surfel images (gPackedHitInfo, gSurfelDepth
-    // sampled view) plus the per-pixel indirect-lighting output `gOutput`
-    // at set 2 binding 0.
-    std::vector<RIProgram::DescriptorBinding> bnd;
-    bnd.reserve(4);
+  if (apWorld->GetTlas() != nullptr) {
+    // ----------------------------------------------------------------
+    // PathTracePass — per-pixel reference path tracer. Rooted at the primary
+    // V-buffer hit; writes two indirect channels (albedo-demodulated diffuse +
+    // undemodulated specular) and the surface key both denoise chains reject
+    // on (viewZ/normal, plus the GGX alpha in the key extra). Needs this
+    // frame's POM-corrected gPackedHitInfo, hence its position after
+    // VBufferPomBary.
+    // ----------------------------------------------------------------
+    RIGpuScope _gsPathTrace(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
+                            "PathTrace");
+    VkRayTracingPipelineCreateInfoKHR ptCreate = {
+        VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR};
+    ptCreate.maxPipelineRayRecursionDepth = 1;
+    const hash_t kPtHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+    m_pathTrace.bindRayTracingPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                       kPtHash, "PathTracePass.rt", &ptCreate);
+    m_pathTrace.bindBindlessDescriptorSet(
+        &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
+        VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
+
+    std::vector<RIProgram::DescriptorBinding> ptBnd;
+    ptBnd.reserve(8);
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
       mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
-      bnd.push_back(b);
+      ptBnd.push_back(b);
     }
-    bnd.emplace_back(
+    ptBnd.emplace_back(
         "gPackedHitInfo",
         RIDescriptor::storageImage(
             &mpGraphics->device, state.packedHitInfoView[mpGraphics->swapchainIndex].Get()));
-    bnd.emplace_back("gSurfelDepth",
-                     RIDescriptor::sampledImage(
-                         &mpGraphics->device, &m_surfelDepthView[mpGraphics->swapchainIndex],
-                         RI_RESOURCE_STATE_GENERAL));
+    ptBnd.emplace_back("gRtAccel", RIDescriptor::accelerationStructure(
+                                       &mpGraphics->device, apWorld->GetTlas()));
+    ptBnd.emplace_back(
+        "gPackedHitInfoRaster",
+        RIDescriptor::sampledImage(
+            &mpGraphics->device, state.visibilityView[mpGraphics->swapchainIndex].Get(),
+            RI_RESOURCE_STATE_SHADER_RESOURCE));
+    // Two radiance channels: diffuse is albedo-demodulated (the composite
+    // re-applies albedo), specular is left undemodulated.
+    ptBnd.emplace_back("gIndirectDiffuse",
+                       RIDescriptor::storageImage(
+                           &mpGraphics->device, state.indirectRadianceView[ilCur].Get()));
+    ptBnd.emplace_back("gIndirectSpecular",
+                       RIDescriptor::storageImage(
+                           &mpGraphics->device, state.indirectSpecularView[ilCur].Get()));
+    ptBnd.emplace_back("gIndirectKeyOut",
+                       RIDescriptor::storageImage(
+                           &mpGraphics->device, state.indirectKeyView[ilCur].Get()));
+    // Key extra: primary-hit GGX alpha in .x, rest reserved.
+    ptBnd.emplace_back("gIndirectKeyExtra",
+                       RIDescriptor::storageImage(
+                           &mpGraphics->device, state.indirectKeyExtraView[ilCur].Get()));
+    appendWorldLightFog(ptBnd, apWorld);
+    m_pathTrace.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                mpGraphics->frameIndex, ptBnd.data(), ptBnd.size(),
+                                VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR);
+    m_pathTrace.traceRays(&mpGraphics->primary.cmds[0], kPtHash, renderWidth,
+                          renderHeight, 1u);
+  }
+  // PathTracePass storage writes -> sampled read by the denoiser below.
+  mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
+      {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
+       RI_STAGE_RAY_TRACING, RI_STAGE_COMPUTE});
+
+  // ----------------------------------------------------------------------
+  // Indirect denoise — run once per channel (diffuse, then specular), each
+  // the temporal half followed by the à-trous spatial half. 1 spp of
+  // path-traced indirect is far too noisy to composite raw: reproject the
+  // previous frame's RESOLVED result through gVelocity and blend it into this
+  // frame's sample, rejecting on the (viewZ, normal) key. Resolved means the
+  // à-trous output when the spatial half runs, and the temporal pass's own
+  // output when it does not. Both channels use the SAME two programs and the
+  // SAME shared key textures — only the radiance/scratch/resolved arrays
+  // differ, so the body below is a lambda invoked twice.
+  // ----------------------------------------------------------------------
+  {
+    VkComputePipelineCreateInfo ci = {
+        VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+    const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+
+    // `radiance` is the path tracer's raw output for this channel (and the
+    // temporal pass's in-place accumulation target), `atrous` the à-trous
+    // ping-pong scratch, `resolved` the filtered result + next frame's
+    // history. All three are [2] arrays indexed by ilCur/ilPrev. Returns the
+    // view the composite should sample.
+    auto denoiseIndirectChannel =
+        [&](const char *temporalScope, const char *atrousScope,
+            RISharedPointer<RITextureView> *radiance,
+            RISharedPointer<RITextureView> *atrous,
+            RISharedPointer<RITextureView> *resolved) -> RITextureView * {
+    RITextureView *resultView = nullptr;
     {
-      bnd.emplace_back(
-          "gOutput",
-          RIDescriptor::storageImage(
-              &mpGraphics->device, state.surfelResultView[mpGraphics->swapchainIndex].Get()));
-    }
-    m_surfelGenerate.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
-                                     mpGraphics->frameIndex, bnd.data(), bnd.size(),
-                                     VK_PIPELINE_BIND_POINT_COMPUTE);
+      RIGpuScope _gsIndirectTemporal(&mpGraphics->profiler,
+                                     &mpGraphics->primary.cmds[0],
+                                     temporalScope);
+      m_indirectTemporal.bindComputePipeline(&mpGraphics->device,
+                                             &mpGraphics->primary.cmds[0], kHash,
+                                             "IndirectTemporalPass.cs", &ci);
+      m_indirectTemporal.bindBindlessDescriptorSet(
+          &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
+          VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    static_assert(sizeof(OverlayPushConstants) == 4);
-    const OverlayPushConstants push{m_overlayMode};
-    vkCmdPushConstants(mpGraphics->primary.cmds[0].vk.cmd,
-                       m_surfelGenerate.getPipelineLayout(),
-                       VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);
+      std::vector<RIProgram::DescriptorBinding> tb;
+      tb.reserve(7);
+      tb.emplace_back("gIndirectCurrent",
+                      RIDescriptor::sampledImage(
+                          &mpGraphics->device, radiance[ilCur].Get(),
+                          RI_RESOURCE_STATE_GENERAL));
+      tb.emplace_back("gIndirectKey",
+                      RIDescriptor::sampledImage(
+                          &mpGraphics->device, state.indirectKeyView[ilCur].Get(),
+                          RI_RESOURCE_STATE_GENERAL));
+      // History is the previous frame's resolved result: the à-trous output when
+      // the filter runs, otherwise this pass's own output (seeded via
+      // gIndirectResolvedOut below). Feeding the unfiltered term back while the
+      // filter is on would re-amplify noise.
+      tb.emplace_back("gIndirectHistory",
+                      RIDescriptor::sampledImage(
+                          &mpGraphics->device, resolved[ilPrev].Get(),
+                          RI_RESOURCE_STATE_GENERAL));
+      tb.emplace_back("gIndirectKeyHistory",
+                      RIDescriptor::sampledImage(
+                          &mpGraphics->device, state.indirectKeyView[ilPrev].Get(),
+                          RI_RESOURCE_STATE_GENERAL));
+      tb.emplace_back(
+          "gVelocity",
+          RIDescriptor::sampledImage(
+              &mpGraphics->device, state.velocityView[mpGraphics->swapchainIndex].Get(),
+              RI_RESOURCE_STATE_SHADER_RESOURCE));
+      // Same view as gIndirectCurrent: the accumulation is a per-texel
+      // read-modify-write over the raw sample with no cross-texel reads of the
+      // output, so it resolves in place like the direct chain does.
+      tb.emplace_back("gIndirectOut",
+                      RIDescriptor::storageImage(&mpGraphics->device,
+                                                 radiance[ilCur].Get()));
+      // Second copy of the same result into the history texture, so next frame's
+      // gIndirectHistory is never stale when the à-trous loop is disabled
+      // (kAtrousIterations == 0). The loop's last iteration overwrites it with
+      // the filtered result when it runs.
+      tb.emplace_back("gIndirectResolvedOut",
+                      RIDescriptor::storageImage(&mpGraphics->device,
+                                                 resolved[ilCur].Get()));
 
-    const uint32_t fullW = renderWidth;
-    const uint32_t fullH = renderHeight;
-    mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (fullW + 15u) / 16u,
-                                (fullH + 15u) / 16u, 1u);
+      m_indirectTemporal.bindDescriptors(
+          &mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex,
+          tb.data(), tb.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
+      mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (renderWidth + 15u) / 16u,
+                                  (renderHeight + 15u) / 16u, 1u);
+    } // _gsIndirectTemporal
+
+    // Accumulated indirect -> à-trous / composite sampled read (stays GENERAL).
+    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
+        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
+         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
+
+    // With the filter disabled this is what the composite gets; it is also the
+    // fallback if the loop below never runs. Next frame's temporal history does
+    // not depend on the loop — the temporal pass just seeded
+    // indirectResolved[ilCur] itself.
+    resultView = radiance[ilCur].Get();
+    {
+      // Same DirectAtrousPass kernel, bound against this channel's textures.
+      // The last iteration writes resolved[ilCur] directly, overwriting the
+      // temporal pass's seed so next frame's history is the filtered result with
+      // no extra copy.
+      RIGpuScope _gsIndirectAtrous(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
+                                   atrousScope);
+      for (int it = 0; it < kAtrousIterations; ++it) {
+        RITextureView *inView = (it == 0) ? radiance[ilCur].Get()
+                                          : atrous[(it - 1) & 1].Get();
+        const uint32_t outIdx = static_cast<uint32_t>(it) & 1u;
+        RITextureView *outView = (it == kAtrousIterations - 1)
+                                     ? resolved[ilCur].Get()
+                                     : atrous[outIdx].Get();
+
+        m_directAtrous.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                           kHash, "DirectAtrousPass.cs", &ci);
+        m_directAtrous.bindBindlessDescriptorSet(
+            &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
+            VK_PIPELINE_BIND_POINT_COMPUTE);
+
+        // Per-iteration tap spacing (1, 2, 4 …). Padded to 16 bytes (std140
+        // UBO).
+        struct AtrousParamsHost {
+          uint32_t stepSize;
+          uint32_t pad[3];
+        } ap = {};
+        ap.stepSize = 1u << it;
+
+        std::vector<RIProgram::DescriptorBinding> ab;
+        ab.reserve(4);
+        {
+          RIProgram::DescriptorBinding b;
+          b.handle = DescriptorBindingID::Create("gAtrous");
+          mpGraphics->UpdateFrameUBO(&b.descriptor, &ap, sizeof(ap));
+          ab.push_back(b);
+        }
+        ab.emplace_back("gAtrousIn",
+                        RIDescriptor::sampledImage(&mpGraphics->device, inView,
+                                                   RI_RESOURCE_STATE_GENERAL));
+        ab.emplace_back("gDirectKey",
+                        RIDescriptor::sampledImage(
+                            &mpGraphics->device, state.indirectKeyView[ilCur].Get(),
+                            RI_RESOURCE_STATE_GENERAL));
+        ab.emplace_back("gAtrousOut",
+                        RIDescriptor::storageImage(&mpGraphics->device, outView));
+
+        m_directAtrous.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                                       mpGraphics->frameIndex, ab.data(), ab.size(),
+                                       VK_PIPELINE_BIND_POINT_COMPUTE);
+        mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (renderWidth + 15u) / 16u,
+                                    (renderHeight + 15u) / 16u, 1u);
+
+        // This iteration's write -> next iteration's / composite's sampled
+        // read.
+        mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
+            {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
+             RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
+        resultView = outView;
+      }
+    } // _gsIndirectAtrous
+    return resultView;
+    };
+
+    // Diffuse first (unchanged from the single-chain version), then the
+    // specular channel over its own textures. Both reject on the same key.
+    indirectResultView = denoiseIndirectChannel(
+        "IndirectTemporal", "IndirectAtrous", state.indirectRadianceView,
+        state.indirectAtrousView, state.indirectResolvedView);
+    indirectSpecularResultView = denoiseIndirectChannel(
+        "IndirectSpecularTemporal", "IndirectSpecularAtrous",
+        state.indirectSpecularView, state.indirectSpecularAtrousView,
+        state.indirectSpecularResolvedView);
   }
 
   // --------------------------------------------------------------------
   // DirectAtrousPass — SVGF-lite edge-aware à-trous spatial denoise.
-  // DirectLighting + DirectSpatialReuse were moved before
-  // SurfelRayTrace above so gDirectLighting[dlCur] is ready for surfel bounce
-  // NEE screen-space reuse. This block only runs the atrous denoise on that
-  // already-resolved buffer.
+  // DirectLighting + DirectSpatialReuse ran earlier in the frame so
+  // gDirectLighting[dlCur] is ready for the path tracer's screen-space NEE
+  // reuse. This block only runs the atrous denoise on that already-resolved
+  // buffer.
   // --------------------------------------------------------------------
   // The image the composite samples for direct lighting: the raw accumulation
   // when à-trous is disabled, else the final à-trous iteration's output.
@@ -1702,8 +1610,8 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   }
 
   // --------------------------------------------------------------------
-  // Composite — compute pass. Reads gIndirectLighting
-  // (state.surfelResultView, from SurfelGenerationPass above) + gPackedHitInfo
+  // Composite — compute pass. Reads gIndirectLighting + gIndirectSpecular
+  // (the two denoised path-traced indirect channels) + gPackedHitInfo
   // / gPackedHitInfoRaster / TLAS / gPerFrame, and writes the composited color
   // into the viewport render target. The forward passes draw on top of it; the
   // tail crop-blits it into the viewport backbuffer, which Scene.cpp's
@@ -1714,26 +1622,20 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   // band, single image — the main draw never ping-pongs); cropped 1:1 center
   // into the authored-size viewport backbuffer at the end of Draw.
 
-  // Barrier: make the surfel cache + gIndirectLighting visible to the COMPUTE
-  // SurfelGI composite, and put the render target into GENERAL for the storage
-  // write. (The RT V-buffer pass (2956) and the raster visibility buffer (3016)
-  // were already barriered to the COMPUTE stage upstream.)
+  // Barrier: make the lighting results visible to the COMPUTE composite, and
+  // put the render target into GENERAL for the storage write. (The RT V-buffer
+  // pass and the raster visibility buffer were already barriered to the COMPUTE
+  // stage upstream.)
   {
-    // SHADER_RESOURCE for the gIndirectLighting image sample; STORAGE_READ so
-    // the isWater branch's gatherSurfelIndirect can read the surfel-cache SSBOs
-    // (gSurfelBuffer / gCellInfoBuffer / gCellToSurfelBuffer), written by the
-    // surfel compute passes earlier this frame.
+    // SHADER_RESOURCE for the gIndirectLighting / gDirectLighting image
+    // samples; STORAGE_READ for the SSBOs the composite walks (light grid,
+    // object / material pools) written earlier this frame.
     RIMemoryBarrier mem = {RI_RESOURCE_STATE_STORAGE_WRITE,
                            RI_RESOURCE_STATE_SHADER_RESOURCE |
                                RI_RESOURCE_STATE_STORAGE_READ,
                            RI_STAGE_COMPUTE, RI_STAGE_COMPUTE};
 
-    RITextureBarrier imageBarriers[2] = {
-        // gIndirectLighting GENERAL -> SHADER_READ_ONLY, now consumed by
-        // compute.
-        {state.surfelResultTexture[mpGraphics->swapchainIndex].Get(),
-         RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
-         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE},
+    RITextureBarrier imageBarriers[1] = {
         // Pogo attach -> GENERAL for the compute storage write. Discard prior
         // contents (UNDEFINED): the dispatch writes every pixel, matching the
         // old fragment pass's LOAD_OP_DONT_CARE. This also covers the
@@ -1742,13 +1644,13 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
          RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_STORAGE_WRITE,
          RI_STAGE_NONE, RI_STAGE_COMPUTE}};
 
-    mpGraphics->primary.cmds[0].vk_d3d12_resourceBarrier<1, 0, 2>(1, &mem, 0, NULL, 2,
+    mpGraphics->primary.cmds[0].vk_d3d12_resourceBarrier<1, 0, 1>(1, &mem, 0, NULL, 1,
                                                          imageBarriers);
   }
 
   // Depth flip shared by the decal pre-pass (below) and the particle /
   // translucent passes further down: depth arrives in SHADER_READ_ONLY from
-  // surfel-generate and flips once to DEPTH_READ_ONLY for any depth-tested
+  // the gbuffer barrier and flips once to DEPTH_READ_ONLY for any depth-tested
   // pass.
   bool depthFlippedForReadOnly = false;
   auto flipDepthToReadOnly = [&]() {
@@ -1946,22 +1848,22 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                            addDecals);
   }
 
-  // Surfel-GI compute pass — one thread per pixel writes the composite into the
+  // Composite compute pass — one thread per pixel writes the composite into the
   // pogo attach bound as gOutput (storage image, GENERAL).
   {
-    VkComputePipelineCreateInfo surfelCreate = {
+    VkComputePipelineCreateInfo compositeCreate = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
     RIGpuScope _gsComposite(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
                                 "Composite");
     m_composite.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash,
-                                        "Composite.cs", &surfelCreate);
+                                        "Composite.cs", &compositeCreate);
     m_composite.bindBindlessDescriptorSet(&mpGraphics->primary.cmds[0],
                                               &mpGraphics->globalset->m_bindlessSet, 0,
                                               VK_PIPELINE_BIND_POINT_COMPUTE);
 
     std::vector<RIProgram::DescriptorBinding> bnd;
-    bnd.reserve(10);
+    bnd.reserve(11);
     {
       RIProgram::DescriptorBinding b;
       b.handle = DescriptorBindingID::Create("gPerFrame");
@@ -1974,14 +1876,21 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
             &mpGraphics->device, state.packedHitInfoView[mpGraphics->swapchainIndex].Get()));
     bnd.emplace_back("gRtAccel", RIDescriptor::accelerationStructure(
                                      &mpGraphics->device, apWorld->GetTlas()));
+    // gIndirectLighting — this frame's path-traced indirect DIFFUSE channel
+    // only (PathTracePass, albedo-demodulated: the composite re-applies
+    // albedo). gIndirectSpecular is the second channel, undemodulated, and is
+    // added on top as-is. Both are the temporal + à-trous denoised result, or
+    // the raw accumulation if the filter is disabled. Sampled, GENERAL.
+    bnd.emplace_back("gIndirectLighting",
+                     RIDescriptor::sampledImage(&mpGraphics->device,
+                                                indirectResultView,
+                                                RI_RESOURCE_STATE_GENERAL));
+    bnd.emplace_back("gIndirectSpecular",
+                     RIDescriptor::sampledImage(&mpGraphics->device,
+                                                indirectSpecularResultView,
+                                                RI_RESOURCE_STATE_GENERAL));
     {
-      bnd.emplace_back(
-          "gIndirectLighting",
-          RIDescriptor::sampledImage(
-              &mpGraphics->device, state.surfelResultView[mpGraphics->swapchainIndex].Get()));
-    }
-    {
-      // Rasterized V-buffer fallback — SurfelGBuffer writes
+      // Rasterized V-buffer fallback — VBufferRaster writes
       // Interface<cGraphics>::Get()->visibilityTexture earlier this frame and the toRead[] barriers
       // upstream already transitioned it to SHADER_READ_ONLY_OPTIMAL (visible
       // to COMPUTE).
@@ -2051,9 +1960,10 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                                 (renderHeight + 15u) / 16u, 1u);
   }
 
-  // Toggle the direct-lighting ping-pong: this frame's write becomes next
-  // frame's history.
+  // Toggle the direct- and indirect-lighting ping-pongs: this frame's writes
+  // become next frame's history.
   state.directLightingIndex ^= 1u;
+  state.indirectLightingIndex ^= 1u;
 
   // Render target: GENERAL (compute write) -> COLOR_ATTACHMENT_OPTIMAL so the
   // downstream raster passes find the layout they expect.
@@ -2084,9 +1994,10 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   // fogged.)
 
   // --------------------------------------------------------------------
-  // Water pass — raster the water surface over the refracted background that
-  // the GI composite already shaded (SurfelVBuffer.rt's water refraction
-  // clobbered the primary hit). Two draws per mesh: MUL (tint + refraction
+  // Water pass — raster the water surface over the background the GI
+  // composite already shaded. That background is NOT refracted: no refraction
+  // pass runs, so the primary hit under the water is the plain rasterized
+  // front surface. Two draws per mesh: MUL (tint + refraction
   // exposure) then ADD (inline-RT lit reflection × Fresnel). Reuses the
   // translucent 5-stream layout + TranslucentMeshPipelineDesc state (depth ≤,
   // no write); the m_water program supplies the shaders (Water.vert/frag).
@@ -2169,16 +2080,6 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
         wbnd.emplace_back("gRtAccel", RIDescriptor::accelerationStructure(
                                           &mpGraphics->device, apWorld->GetTlas()));
         appendWorldLightFog(wbnd, apWorld);
-        // The water frag's lit reflection shades the RT hit via
-        // gatherSurfelIndirect (shadeReflectionHit), which samples the set-1
-        // surfel depth atlas. The surfel storage buffers ride set 0
-        // (m_bindlessSet, bound above), but gSurfelDepth is set 1 and must be
-        // bound here or the pipeline reports it as
-        // statically-used-but-never-updated (VUID-vkCmdDrawIndexed-None-08114).
-        wbnd.emplace_back("gSurfelDepth",
-                          RIDescriptor::sampledImage(
-                              &mpGraphics->device, &m_surfelDepthView[mpGraphics->swapchainIndex],
-                              RI_RESOURCE_STATE_GENERAL));
         m_water.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex,
                                 wbnd.data(), (uint32_t)wbnd.size());
       }
@@ -2438,7 +2339,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
 
         // Particles share the object-slot pool with opaque solids; the payload
         // submit also bumps the slot generation when the slot is (re)assigned —
-        // so a surfel still anchored to the slot's previous opaque occupant
+        // so a consumer still anchored to the slot's previous opaque occupant
         // self-invalidates before it dereferences this slot's smaller streams.
         const uint32_t slot = mpGraphics->globalset->submitObject(
             pEmitter->GetUniqueCookie(), (uint32_t)mpGraphics->frameIndex, nullptr, d,
@@ -2487,11 +2388,13 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   // ordered the translucent list back-to-front, so iterating in list order
   // here gives correct Alpha-blend results.
   //
-  // Refraction is handled upstream by SurfelVBuffer.rt's primary-ray bend
-  // (closeHit::isRefractive branch) — the GI composite already shows the
-  // refracted background under refractive translucents by the time this pass
-  // runs. Water is filtered out of the mesh collection below; it has its own
-  // raster pass (m_water) over that refracted background.
+  // Refraction is currently NOT implemented: the legacy screen-copy
+  // bend-behind distortion was dropped, and the RT V-buffer pass meant to
+  // replace it (bending the primary ray at refractive surfaces) was retired
+  // before it ever ran. So refractive translucents just alpha-blend over the
+  // unrefracted composite. Water is filtered out of the mesh collection
+  // below; it has its own raster pass (m_water) over that same unrefracted
+  // background.
   // --------------------------------------------------------------------
   {
     RIGpuScope _gsTranslucent(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
@@ -2511,12 +2414,11 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
           mode >= eMaterialBlendMode_LastEnum)
         continue;
       // No material-flag filtering here: HasRefraction draws through the
-      // standard blend pipeline (the background already comes pre-refracted
-      // from the RT V-buffer); HasWorldReflection is harmless (the
-      // legacy-only planar reflection buffer is unused).
-      // Water is NOT rasterized — it's composited entirely in
-      // MainCompositePass (isWater branch) from the primary hit + the
-      // refraction / reflection bounce V-buffers, so skip it here.
+      // standard blend pipeline (the background it blends over is the
+      // unrefracted composite — no refraction pass runs); HasWorldReflection
+      // is harmless (the legacy-only planar reflection buffer is unused).
+      // Water is skipped here because it has its own raster sub-pass
+      // (m_water, above) with the MUL + ADD draw pair.
       if (pMat->GetMaterialID() == MaterialID::Water)
         continue;
       cVertexBuffer *pVB = pObj->GetVertexBuffer();
@@ -2659,7 +2561,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
         d.renderFlags = pObj->GetRenderFlags();
 
         // Stable slot keyed on the renderable's unique cookie. submitObject
-        // bumps the slot generation on (re)assignment so a surfel anchored to a
+        // bumps the slot generation on (re)assignment so a consumer anchored to a
         // previous opaque occupant self-invalidates before dereferencing the
         // wrong VB/IB.
         const uint32_t slot = mpGraphics->globalset->submitObject(
@@ -2702,10 +2604,11 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
 
         // Second draw for the cube-map Fresnel + rim contribution.
         // Reference gates this on `cubeMap && !isRefraction`
-        // (RendererDeferred.cpp:4660); under the RT ray-bend model
-        // isRefraction surfaces already get their refracted background
-        // from the GI composite, so the cube-map second draw stays gated
-        // only on whether the material carries a cube map.
+        // (RendererDeferred.cpp:4660) because its refraction path consumed
+        // the screen copy the cube-map draw would have overwritten. Nothing
+        // here refracts (no refraction pass exists), so there is no such
+        // conflict and the cube-map second draw stays gated only on whether
+        // the material carries a cube map.
         if (pMat->GetImage(eMaterialTexture_CubeMap)) {
           TranslucentMeshPipelineDesc addDesc(
               meshTargetFormat, cGraphics::DepthFormat,
@@ -2733,7 +2636,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
 
   // Restore depth to DEPTH_ATTACHMENT_OPTIMAL before yielding the command
   // buffer: RI_VK_FillDepthAttachment hardcodes that layout, and depth ends
-  // here in either SHADER_READ_ONLY_OPTIMAL (surfel-only) or
+  // here in either SHADER_READ_ONLY_OPTIMAL (compute-only) or
   // DEPTH_READ_ONLY_OPTIMAL (flipDepthToReadOnly ran for particle/decal).
   {
     const uint32_t beforeState = depthFlippedForReadOnly
@@ -2810,25 +2713,17 @@ cHybridRenderer::~cHybridRenderer() {
   // (cGraphics teardown) destroys it after the device is idle.
   // Fallback vertex streams are cGraphics members (process-lifetime, like
   // Interface<cGraphics>::Get()->nulVertexBuffer); not freed here.
-  for (uint32_t i = 0; i < RI_MAX_SWAPCHAIN_IMAGES; ++i) {
-    m_surfelDepthView[i].dispose(&mpGraphics->device);
-    m_surfelDepthTexture[i].dispose(&mpGraphics->device);
-    m_surfelDepthTexture[i] = {};
-  }
-  m_surfelRTIndirectBuf.dispose(&mpGraphics->device);
-  m_surfelRTIndirectBuf = {};
-
   // Every pipeline program owned by the renderer. dispose() frees the pipelines,
-  // pipeline layout, descriptor-set layouts, and (for m_surfelRT) the ray-tracing
+  // pipeline layout, descriptor-set layouts, and (for m_pathTrace) the ray-tracing
   // SBT buffer — the last of which is a VMA allocation that otherwise trips the
   // vmaDestroyAllocator leak assert at device teardown. Safe on an unused program.
   RIProgram *programs[] = {
-      &m_gbuffer,        &m_vBufferPomBary,        &m_surfelPrepare,
-      &m_surfelUpdateCollect, &m_surfelUpdateAccumulate, &m_surfelUpdateScatter,
-      &m_lightGrid,   &m_surfelRT,             &m_surfelIntegrate,
-      &m_surfelGenerate, &m_composite,        &m_directLighting,
-      &m_directSpatialReuse, &m_directAtrous,     &m_particle,
+      &m_gbuffer,        &m_vBufferPomBary,
+      &m_lightGrid,      &m_composite,           &m_directLighting,
+      &m_directSpatialReuse, &m_directAtrous,     &m_indirectTemporal,
+      &m_particle,
       &m_translucentMesh, &m_decal,               &m_water,
+      &m_pathTrace,
   };
   for (RIProgram *p : programs)
     p->dispose(&mpGraphics->device);

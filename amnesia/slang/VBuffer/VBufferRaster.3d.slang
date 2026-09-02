@@ -112,8 +112,9 @@ GBufferOut psMain(VSOut vsOut,
 
     GBufferOut o;
 
-    // Packed TriangleHit — must match SurfelVBuffer.rt's pack() so the surfel
-    // passes and the composite decode raster + RT hits identically:
+    // Packed TriangleHit — this layout is the packing contract every
+    // downstream decoder depends on (VBufferPomBary.cs, the composite, the
+    // path tracer's primary-hit recovery), so it must stay byte-exact:
     //   .x = instanceID  .y = primitiveIndex  .z = packHalf2x16(b1,b2)  .w = 0
     uint b1 = f32tof16(barys.y);
     uint b2 = f32tof16(barys.z);

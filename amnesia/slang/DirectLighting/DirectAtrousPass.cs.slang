@@ -1,4 +1,8 @@
-// SVGF-lite edge-aware à-trous wavelet filter for the direct-lighting pass.
+// SVGF-lite edge-aware à-trous wavelet filter — shared by the direct-lighting and
+// the path-traced indirect chains. Nothing here is direct-specific: it is generic
+// over (gAtrousIn, gDirectKey, gAtrousOut), so the host binds it a second time
+// with the indirect textures (IndirectTemporalPass output + indirect key) and
+// runs the same iteration loop.
 //
 // The direct pass produces a temporally-accumulated but still 1-spp-noisy
 // demodulated irradiance (rgb) plus a history length (count) and a surface key

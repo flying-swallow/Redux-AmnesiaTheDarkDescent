@@ -26,8 +26,8 @@ public:
   // scene/Viewport.h), held by cViewport; this renderer owns its
   // creation/sizing (file-local helper in HybridRenderer.cpp).
 
-  // kObjectSlotCapacity / kTextureSlotCapacity / kMaterialCapacity and
-  // kTotalSurfelLimit / kRayBudget come from amnesia/glsl/forward_shared.h.
+  // kObjectSlotCapacity / kTextureSlotCapacity / kMaterialCapacity come from
+  // amnesia/glsl/forward_shared.h.
 
   virtual void Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                     float afFrameTime, cFrustum *apFrustum, cWorld *apWorld,
@@ -57,62 +57,35 @@ private:
   // The ray-tracing TLAS (storage + instance buffer) is owned by cWorld and built
   // in cWorld::PrepareFrame; each RT pass binds it via apWorld->GetTlas().
 
-  // (The per-viewport frame textures — surfel result, packed hit info,
+  // (The per-viewport frame textures — packed hit info,
   // velocity, direct-lighting history + ping-pong index/init, prev-frame
   // camera — live on cViewport::HybridViewportState; their Update/Dispose
   // are defined in HybridRenderer.cpp.)
 
-  // Per-bounce V-buffers written by SurfelVBuffer.rt.slang's closeHit when
-  // the primary surface is refractive / reflective. Same format + dims as
-  // the viewport state's packedHitInfoTexture; cleared to uint4(0) host-side each frame so
-  // consumers detect "no bounce here" via the valid bit in .w. .w high
-  // bits also stamp the source instanceID (the glass / mirror that bent
-  // the ray) so consumers can look up its DiffuseMaterial for blending.
-
   // prepare gbuffer
 	RIProgram m_gbuffer;
-
-  // Surfel-GI compute / ray-tracing programs. Filled by stage B–F of the
-  // SurfelGI port. Until Stage F lands, the visibility_shade composite
-  // reads vec3(0) indirect — direct lighting still renders correctly.
 
   // VBuffer POM barycentric correction compute pass (amnesia/slang/VBuffer/).
   // Copies visibilityTexture (raw raster hit) → packedHitInfoTexture and
   // perturbs barycentrics on height-mapped diffuse surfaces so downstream
   // getVertexData() reconstructs the parallax-occluded point.
-  // Water/glass refraction pixels are handled by a follow-up sparse RT pass.
+  // There is no refraction pass: water/glass pixels keep the rasterized
+  // front-surface hit, so nothing behind them is bent.
   RIProgram m_vBufferPomBary;
 
-  // Stage D: surfel prepare / cell-clear / update chain. Each .comp maps to
-  // one of the SurfelGI reference's csMain entry points (the reference is
-  // a single .slang file with three [shader("compute")] entries; we split
-  // each into its own SPIR-V module because GLSL is one-entry-per-file).
-  // The reservation+refcounter clears are factored out into auxiliary
-  // dispatches that the reference folds into the front of its prepare/
-  // accumulate passes; explicit dispatches mirror the data dependency.
-  RIProgram m_surfelPrepare;
-  RIProgram m_surfelUpdateCollect;
-  RIProgram m_surfelUpdateAccumulate;
-  RIProgram m_surfelUpdateScatter;
+  // Clustered light-grid build (LightGridBuildPass.cs). Bins the frame's
+  // lights into the world-space cell grid that next-event estimation reads:
+  // both the direct-lighting pass and the path tracer's getCellLights()
+  // depend on it, so it runs before either.
   RIProgram m_lightGrid;
 
-  // Stage E: path-tracer RT pipeline. One ray per pending SurfelRayResult
-  // slot; the rgen drives an iterative trace loop (no recursive TraceRay),
-  // closest-hit handles material shading + next-event-estimation using an
-  // inline ray-query for shadow visibility.
-  RIProgram m_surfelRT;
-  // Indirect args for vkCmdTraceRaysIndirectKHR: VkTraceRaysIndirectCommandKHR
-  // {width, height=1, depth=1}. Width is copied from gSurfelCounter[kSurfelCounterRequestedRay]
-  // each frame so the RT dispatch scales to actual ray demand.
-  struct RIBuffer m_surfelRTIndirectBuf;
-
-  // Stage F: integrate + generation. The integrate pass folds ray results
-  // into per-surfel radiance via MSME; the generation pass walks the
-  // visibility buffer per pixel, scores cell coverage, spawns / recycles
-  // surfels, and writes the indirect-lighting term into
-  // the viewport state's surfelResultTexture which visibility_shade.frag samples.
-  RIProgram m_surfelIntegrate;
-  RIProgram m_surfelGenerate;
+  // Per-pixel path tracer (amnesia/slang/PathTracer/PathTracePass.rt.slang).
+  // Rooted at the primary V-buffer hit: one cosine-sampled path per pixel,
+  // NEE per vertex, writing demodulated indirect irradiance + the
+  // (viewZ, normal) denoiser key. The rgen drives an iterative trace loop
+  // (no recursive TraceRay); closest-hit handles material shading +
+  // next-event estimation using an inline ray-query for shadow visibility.
+  RIProgram m_pathTrace;
 
   // Final composite (amnesia/slang/Composite/MainCompositePass.cs.slang). Reads
   // gPackedHitInfo + gIndirectLighting + gDirectLighting and writes gOutput.
@@ -126,6 +99,9 @@ private:
   RIProgram m_directSpatialReuse;
   // SVGF-lite à-trous spatial denoise for the direct pass (DirectAtrousPass.cs).
   RIProgram m_directAtrous;
+  // Temporal accumulation for the path-traced indirect term. The spatial
+  // half reuses m_directAtrous, bound against the indirect textures.
+  RIProgram m_indirectTemporal;
 
 
 	// Particle (translucent) pass — port of legacy RendererDeferred's
@@ -156,21 +132,6 @@ private:
 	// PipelineSlot cache. Port of decal.frag.fsl / decal.vert.fsl.
 	RIProgram m_decal;
 	RIProgram m_water;
-
-	// Surfel-ray depth map — RG16F atlas storing (depth, depth^2) per
-	// octahedral tile texel for each surfel. Written by surfel_integrate.comp;
-	// sampled by the surfel shading passes for visibility-aware GI gather.
-	// Lives at VK_IMAGE_LAYOUT_GENERAL across all surfel passes so the same
-	// view can be bound as both storage image (writes) and sampled image.
-	struct RITexture     m_surfelDepthTexture[RI_MAX_SWAPCHAIN_IMAGES] = {};
-	struct RITextureView m_surfelDepthView[RI_MAX_SWAPCHAIN_IMAGES]    = {};
-
-	// One-shot UNDEFINED -> GENERAL transition tracker for the two surfel
-	// atlases. Per-swapchain-image because each backing image needs the
-	// transition once on its first appearance; after that the atlas data
-	// must persist (integrate EMA-blends with the prior frame's values).
-	std::array<bool, RI_MAX_SWAPCHAIN_IMAGES> m_surfelAtlasesInitialized = {};
-  bool m_surfelRTIndirectInit = false;
 
 	struct OverlayPushConstants { uint32_t overlayMode; };
 	uint32_t m_overlayMode = kDefaultOverlayMode;

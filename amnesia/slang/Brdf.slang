@@ -51,7 +51,7 @@ float brdfLuminance(float3 c) { return dot(c, float3(0.2126f, 0.7152f, 0.0722f))
 
 // Rows (T, B, N): local->world via mul(localDir, basis), matching the
 // get_tangentspace() convention used elsewhere in the surfel passes.
-float3x3 brdfTangentToWorld(float3 N)
+public float3x3 brdfTangentToWorld(float3 N)
 {
     float3 helper = abs(N.x) > 0.99f ? float3(0, 0, 1) : float3(1, 0, 0);
     float3 T = normalize(cross(N, helper));
@@ -183,10 +183,15 @@ public float3 evalBrdf(SurfaceBRDF s, float3 V, float3 L)
 // Sample an outgoing direction. Returns false when the sample is below the
 // horizon / degenerate. `weight` is f * N.L / pdf (lobe-selection probability
 // folded in), i.e. the factor a path throughput should be multiplied by.
-public bool sampleBrdf(SurfaceBRDF s, float3 V, inout RNG rng, out float3 L, out float3 weight)
+// `sampledSpecular` reports which lobe was picked, so a caller can route the
+// sample into a separate specular channel (the path tracer demodulates only
+// the diffuse one).
+public bool sampleBrdf(SurfaceBRDF s, float3 V, inout RNG rng, out float3 L, out float3 weight,
+                       out bool sampledSpecular)
 {
     L = s.N;
     weight = float3(0.0f);
+    sampledSpecular = false;
 
     float NoV = dot(s.N, V);
     if (NoV <= 0.0f) return false;
@@ -204,6 +209,7 @@ public bool sampleBrdf(SurfaceBRDF s, float3 V, inout RNG rng, out float3 L, out
 
     if (rng.next_float() < pSpec)
     {
+        sampledSpecular = true;
         // Specular: importance-sample the GGX half-vector.
         float a    = s.rough;
         float u1   = rng.next_float();

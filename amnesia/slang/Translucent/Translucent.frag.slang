@@ -14,13 +14,13 @@
 // output going into the blender is in the right space.
 //
 // Aligned with the reference translucency.frag.fsl — the one deliberate
-// deviation is refraction. The legacy bend-behind distortion (screen-color
-// copy + per-fragment UV offset) is moved upstream: the RT V-buffer
-// (SurfelVBuffer.rt.slang::closeHit) bends the primary ray through refractive
-// materials and MainCompositePass.cs.slang shades the resulting hit, so by
-// the time this shader runs the GI composite already shows the refracted
-// background at every refractive pixel. The translucent surface just
-// alpha-blends on top — no screen-color sample, no refraction block here.
+// deviation is refraction, which is NOT implemented in this port. The legacy
+// bend-behind distortion (screen-color copy + per-fragment UV offset) was
+// dropped, and the RT V-buffer that was meant to supply the refracted
+// background by bending the primary ray was retired without ever being wired
+// up. So the background behind a refractive pixel is unrefracted and this
+// pass simply alpha-blends over it — no screen-color sample, no refraction
+// block here.
 // Reflection stays the material's static cube map, exactly as the reference.
 
 

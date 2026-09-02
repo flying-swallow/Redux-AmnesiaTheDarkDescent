@@ -205,7 +205,7 @@ iWidget* iEditorWindowLowerToolbar::AddDebugControls()
 	mpBShadowFlag = mpSet->CreateWidgetButton(cVector3f(15, 9, 0.1f), cVector2f(85, 25), _W("Shadow Flag"), mpDebugControlsGroup);
 	mpBShadowFlag->SetDefaultFontSize(13);
 	mpBShadowFlag->AddCallback(eGuiMessage_ButtonPressed, this, kGuiCallback(InputCallback));
-	mpBShadowFlag->SetToolTip(_W("Toggle debug overlay for \"Cast shadows\" flag"));
+	mpBShadowFlag->SetToolTip(_W("Toggle debug overlay for effective shadow casting: green = \"Cast shadows\" flag set, yellow = casting only because all lights cast shadows, red = not blocking shadow rays"));
 	mpBShadowFlag->SetToolTipEnabled(true);
 	mpBShadowFlag->SetToggleable(true);
 

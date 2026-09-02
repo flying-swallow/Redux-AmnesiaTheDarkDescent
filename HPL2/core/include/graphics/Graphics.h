@@ -304,8 +304,15 @@ public:
   uint32_t swapchainIndex = 0;
   uint32_t frameIndex = 0;
 
-  // Debug override: every opaque instance blocks shadow rays.
-  bool forceShadows = false;
+  // Renderer requirement, not a debug override: when set, every light's shadow
+  // flag is treated as set AND every opaque instance blocks shadow rays,
+  // regardless of the authored CastShadows / eRenderableFlag_ShadowCaster bits.
+  // The path tracer's next-event estimation shades the analytic lights at every
+  // indirect bounce hit, so an unshadowed light does not just leak locally: the
+  // error is accumulated temporally and smeared by the a-trous filter into a
+  // room-wide DC offset. The legacy authored-flag behaviour stays reachable via
+  // the debug checkbox for A/B comparison.
+  bool allLightsCastShadows = true;
 
   struct RIResourceUploader uploader = {};
 

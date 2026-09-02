@@ -1,15 +1,15 @@
 #pragma once
-// Shared surfel-GI surface shading helpers.
+// Shared surface shading + ReSTIR DI helpers.
 //
-// Extracted from MainCompositePass.cs.slang so both the final composite
-// pass and the reflection-resolve pass shade a resolved TriangleHit the same
-// way: albedo + emission prep, NEE-over-all-lights direct lighting (standard
-// diffuse lobe, kDiffuseBrdf — demodulated, π-compensated knobs), and a
-// world-space surfel-cache indirect gather. Keeping one copy avoids the two
-// passes drifting on the lighting convention.
+// Extracted from MainCompositePass.cs.slang so every pass that shades a
+// resolved TriangleHit does it the same way: albedo + emission prep and
+// NEE-over-all-lights direct lighting (standard diffuse lobe, kDiffuseBrdf --
+// demodulated, pi-compensated knobs), plus the reservoir build / temporal /
+// spatial reuse core shared by the direct-lighting passes. Keeping one copy
+// avoids the consumers drifting on the lighting convention.
 
-#include "../HostDefinitions.h"
-#include "../Constants.h"
+#include "HostDefinitions.h"
+#include "Constants.h"
 
 import SceneTypes;
 import Scene;
@@ -17,8 +17,6 @@ import bindless;
 import Brdf;                    // decodeMaterialRoughness (diffuse-lobe roughness)
 import ILight;
 import PerFrame.resource;
-import SurfelGI.SurfelTypes;
-import SurfelGI.SurfelGather;   // cell lookup + coverage/kernel/depth weights
 import Grid;                    // gridCellPos / gridFlattenCellIndex / gridCellValid (light grid cull)
 import Random;                  // RNG for soft-shadow disk sampling
 import Reservoir;               // ReSTIR DI light-selection reservoir
@@ -28,12 +26,12 @@ __exported import DiffuseShading;
 
 static const float kShadeRayEps = 1.0e-3f;
 
-// The per-light shade (sample → NdotL-cull → ray-traced shadow →
-// Li·NdotL·f_d/albedo with the standard diffuse lobe) is shadeAnalyticLight in
-// the shared DiffuseShading module (re-exported above), also used by
-// the surfel NEE pass. Demodulated: returns albedo-free radiance — the caller
-// applies albedo where outgoing radiance is needed. V here is toward the camera
-// (these wrappers shade camera-visible points: composite, water, direct pass).
+// The per-light shade (sample -> NdotL-cull -> ray-traced shadow ->
+// Li*NdotL*f_d/albedo with the standard diffuse lobe) is shadeAnalyticLight in
+// the shared DiffuseShading module (re-exported above). Demodulated: returns
+// albedo-free radiance -- the caller applies albedo where outgoing radiance is
+// needed. V here is toward the camera (these wrappers shade camera-visible
+// points: composite, water, direct pass).
 float3 evalAnalyticLight(DiffuseShading sd)
 {
     float3 Lr = float3(0.f);
@@ -102,43 +100,4 @@ float3 resolveDirectReservoir(DiffuseShading sd, Reservoir r, inout RNG rng)
     float3 shaded = shadeAnalyticLightSoft(sd.posW, sd.normalW, V, sd.rough,
                                                   r.y, origin, rng);
     return shaded * r.W;
-}
-
-// World-space surfel-cache indirect gather. Mirrors the per-pixel gather in
-// SurfelEvaluationPass.cs.slang, but takes an explicit (posW, normalW) so it
-// works for any shaded point — including a reflection / refraction hit that is
-// not the primary camera pixel. Returns averaged incoming radiance (the cosθ
-// factor is baked into the surfel cache), or float3(0) when no surfel covers
-// the point. Multiply by albedo at the call site (f = albedo/π, pdf = cosθ/π
-// → reduces to albedo) to get outgoing radiance.
-float3 gatherSurfelIndirect(float3 posW, float3 normalW)
-{
-    uint flattenIndex;
-    CellInfo cellInfo;
-    if (!lookupSurfelCell(posW, gPerFrame.posW, flattenIndex, cellInfo))
-        return float3(0.f);
-
-    float4 indirect = float4(0.f);
-    for (uint i = 0; i < cellInfo.surfelCount; ++i)
-    {
-        uint surfelIndex = gCellToSurfelBuffer[cellInfo.cellToSurfelBufferOffset + i];
-        Surfel surfel = gSurfelBuffer[surfelIndex];
-
-        float3 sNormal = normalize(surfel.normal);
-        SurfelHit hit;
-        if (!testSurfelCoverage(posW, normalW, surfel.position, sNormal,
-                                surfel.radius, hit))
-            continue;
-
-        float contribution = surfelKernelWeight(hit.dotN, hit.dist, surfel.radius);
-        contribution *= surfelDepthWeight(surfelIndex, hit.dirUnit, sNormal, hit.dist);
-
-        SurfelRecycleInfo recycleInfo = gSurfelRecycleInfoBuffer[surfelIndex];
-        float blendDelayT = smoothstep(0.f, float(kDefaultBlendingDelay), float(recycleInfo.frame));
-        indirect += float4(surfel.radiance, 1.f) * contribution * blendDelayT;
-    }
-
-    if (indirect.w > 0.f)
-        return indirect.xyz / indirect.w;
-    return float3(0.f);
 }

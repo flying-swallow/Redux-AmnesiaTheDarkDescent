@@ -18,9 +18,6 @@
 import SceneTypes;
 import PerFrame.resource;   // gPerFrame.afT for animated-texture frame selection
 
-import SurfelGI.SurfelTypes;
-
-
 
 // -----------------------------------------------------------------------------
 // Bindless texture pools (LRU-allocated by cHybridRenderer's bindless
@@ -98,70 +95,15 @@ public float4 sampleBindless2D(uint idx, float2 uv)
 // and the gbuffer / particle vertex shaders read the addresses off gSceneObjects.
 // -----------------------------------------------------------------------------
 
-// -----------------------------------------------------------------------------
-// Surfel-GI buffers — mirror cHybridRenderer's m_surfel*Buffer / m_cell*Buffer.
-// Counter is a flat uint[kSurfelCounterSlotCount] indexed via the
-// SURFEL_COUNTER_* macros from forward_shared.h. Remaining buffers are sized
-// by kTotalSurfelLimit (rayResult by kRayBudget, cellInfo by kCellCount,
-// cellToSurfel by kCellToSurfelCapacity).
-// -----------------------------------------------------------------------------
-[vk::binding(kBindingSurfelCounter, 0)]
-public RWStructuredBuffer<uint> gSurfelCounter;
-
-[vk::binding(kBindingSurfelBuffer, 0)]
-public RWStructuredBuffer<Surfel> gSurfelBuffer;
-
-// Cached packed TriangleHit (uint4) per surfel — see HitInfo in SceneTypes.slang.
-[vk::binding(kBindingSurfelGeometry, 0)]
-public RWStructuredBuffer<uint4> gSurfelGeometryBuffer;
-
-[vk::binding(kBindingSurfelValidIndex, 0)]
-public RWStructuredBuffer<uint> gSurfelValidIndexBuffer;
-
-[vk::binding(kBindingSurfelDirtyIndex, 0)]
-public RWStructuredBuffer<uint> gSurfelDirtyIndexBuffer;
-
-[vk::binding(kBindingSurfelFreeIndex, 0)]
-public RWStructuredBuffer<uint> gSurfelFreeIndexBuffer;
-
-[vk::binding(kBindingSurfelRecycle, 0)]
-public RWStructuredBuffer<SurfelRecycleInfo> gSurfelRecycleInfoBuffer;
-
-[vk::binding(kBindingSurfelRayResult, 0)]
-public RWStructuredBuffer<SurfelRayResult> gSurfelRayResultBuffer;
-
-[vk::binding(kBindingCellInfo, 0)]
-public RWStructuredBuffer<CellInfo> gCellInfoBuffer;
-
-[vk::binding(kBindingCellToSurfel, 0)]
-public RWStructuredBuffer<uint> gCellToSurfelBuffer;
-
-[vk::binding(kBindingSurfelRefCounter, 0)]
-public RWStructuredBuffer<uint> gSurfelRefCounter;
-
-[vk::binding(kBindingSurfelReservation, 0)]
-public RWStructuredBuffer<uint> gSurfelReservationBuffer;
-
-// Compact per-surfel cull record (position/radius/pre-normalized normal).
-// Written by SurfelUpdatePass::collectCellInfo, read by the
-// SurfelGenerationPass per-pixel cull loop in place of the full gSurfelBuffer.
-[vk::binding(kBindingSurfelBounds, 0)]
-public RWStructuredBuffer<SurfelBounds> gSurfelBoundsBuffer;
-
-// Per-object-slot reuse generation, plus the value each surfel captured at
-// spawn. collectCellInfo compares them: a mismatch means the surfel's anchor
-// bindless slot was reassigned to different geometry, so its cached TriangleHit
-// (instanceID/primitiveIndex) is stale and must NOT be dereferenced through
-// getVertexData. The host bumps gBindlessSlotGeneration whenever m_diffuseBindless
-// (re)assigns a slot to a different object (see cHybridRenderer::Draw).
+// Per-object-slot reuse generation: the host bumps the slot's counter whenever
+// m_diffuseBindless (re)assigns that bindless slot to a different object (see
+// cHybridRenderer::Draw), so a consumer holding a cached slot index can detect
+// that the slot now refers to different geometry.
 [vk::binding(kBindingBindlessSlotGeneration, 0)]
 public RWStructuredBuffer<uint> gBindlessSlotGeneration;
 
-[vk::binding(kBindingSurfelSlotGeneration, 0)]
-public RWStructuredBuffer<uint> gSurfelSlotGeneration;
-
-// Coarse world-space light grid (LightGridBuildPass writes, SurfelRayTrace NEE
-// reads). gLightGridList stores PACKED light ids (packLightId(type, slot) — the
+// Coarse world-space light grid (LightGridBuildPass writes, the shading passes'
+// NEE reads). gLightGridList stores PACKED light ids (packLightId(type, slot) — the
 // same value getLight() decodes; stable across frames so a reservoir's persisted
 // id stays valid) for each cell, kLightsPerCellMax per cell; gLightGridCount is
 // the (capped) per-cell length.
@@ -213,10 +155,9 @@ public RWStructuredBuffer<RectLight> gAreaLights;
 public RWStructuredBuffer<FogAreaParams> gFogAreas;
 
 // -----------------------------------------------------------------------------
-// Surfel V-buffer + depth atlas. Written by SurfelVBuffer,
-// consumed by SurfelGI integrate / evaluation / generation passes.
+// V-buffer. Written by the V-buffer passes, consumed by the shading passes.
 //
-// These four images and the TLAS live on **set 1** (not the persistent
+// This image and the TLAS live on **set 1** (not the persistent
 // bindless set 0). They're swapchain-indexed views / per-frame-rebuilt
 // acceleration structures, so they'd collide with the previous frame's
 // in-flight command buffer if rewritten in place on set 0. Set 1 is
@@ -226,14 +167,6 @@ public RWStructuredBuffer<FogAreaParams> gFogAreas;
 // mechanism `gPerFrame` uses.
 //
 //   gPackedHitInfo   : full-resolution V-buffer; uint4 = HitInfo.packed
-//   gSurfelDepthMap  : 4K atlas of (mean, sqr-mean) depth per surfel tile,
-//                      RW storage view used for atomic / unfiltered writes.
-//   gSurfelDepth     : same image as gSurfelDepthMap, sampled view paired
-//                      with gSurfelDepthSampler for filtered reads inside
-//                      the integrate / evaluation passes.
-//
-// gSurfelDepthSampler stays on set 0 (immutable — same sampler every frame,
-// no collision concern).
 // -----------------------------------------------------------------------------
 [vk::binding(kBindingPackedHitInfo, 1)]
 public RWTexture2D<uint4> gPackedHitInfo;
@@ -241,15 +174,6 @@ public RWTexture2D<uint4> gPackedHitInfo;
 // (Per-bounce refraction/reflection V-buffers removed: water refraction now
 // clobbers gPackedHitInfo like glass, and water reflection moved to the raster
 // water pass.)
-
-[vk::binding(kBindingSurfelDepthMap, 1)]
-public RWTexture2D<float2> gSurfelDepthMap;
-
-[vk::binding(kBindingSurfelDepthSampled, 1)]
-public Texture2D<float2> gSurfelDepth;
-
-[vk::binding(kBindingSurfelDepthSampler, 0)]
-public SamplerState gSurfelDepthSampler;
 
 // Scene depth (opaque geometry) — depth-aspect SRV of the main depth buffer.
 // Bound per-frame on set 1 by the particle pass for the soft-particle fade.
@@ -264,7 +188,7 @@ public Texture2D<float> gSceneDepth;
 [vk::binding(kBindingDissolveMap, 0)]
 public Texture2D<float4> gDissolveMap;
 
-// Surfel-GI scatter RT acceleration structure. Pushed on set 1
+// Scene top-level acceleration structure (TLAS). Pushed on set 1
 // per-dispatch (the TLAS is rebuilt every frame).
 [vk::binding(kBindingTlas, 1)]
 public RaytracingAccelerationStructure gRtAccel;
