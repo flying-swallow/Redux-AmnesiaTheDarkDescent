@@ -75,18 +75,34 @@ newaction {
                 or name:match("%.dll$")
                 or name:match("%.exe$")
         end
+        -- Mirror one source tree into dest, skipping names the filter rejects.
+        local function mirror(srcroot, dest, reject)
+            for _, src in ipairs(os.matchfiles(srcroot .. "/**")) do
+                local rel = path.getrelative(srcroot, src)
+                if not (reject and reject(path.getname(rel))) then
+                    local target = dest .. "/" .. rel
+                    os.mkdir(path.getdirectory(target))
+                    os.copyfile(src, target)
+                end
+            end
+        end
+
         local gd = path.getabsolute(gamedir)
+        -- In-tree editor/viewer runtime data (HPL2/tools/resources -> editor/,
+        -- viewer/). Copied AFTER the game assets so our copy wins over whatever
+        -- an HPL2-tools-era install happens to carry. The editor targets also
+        -- drop this in as a postbuild (premake/tools.lua), so deploying is not
+        -- required to get it -- this keeps `premake5 deploy` self-sufficient for
+        -- anyone populating a build dir without rebuilding the editors.
+        local res = ROOT .. "/HPL2/tools/resources"
         for _, cfg in ipairs({ "Debug", "Release" }) do
             local dest = ROOT .. "/build-premake/amnesia/" .. cfg
             if os.isdir(dest) then
                 print("Deploying assets to " .. dest)
-                for _, src in ipairs(os.matchfiles(gd .. "/**")) do
-                    local rel = path.getrelative(gd, src)
-                    if not excluded(path.getname(rel)) then
-                        local target = dest .. "/" .. rel
-                        os.mkdir(path.getdirectory(target))
-                        os.copyfile(src, target)
-                    end
+                mirror(gd, dest, excluded)
+                if os.isdir(res) then
+                    print("Deploying editor resources to " .. dest)
+                    mirror(res, dest, nil)
                 end
             end
         end

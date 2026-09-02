@@ -4,6 +4,15 @@
 local TOOLS   = ROOT .. "/HPL2/tools"
 local EDITORS = TOOLS .. "/editors"
 
+-- Editor/viewer runtime data (editor/AreaTypes.cfg, editor/EntityTypes.cfg, the
+-- billboard icon set, editor models/textures, viewer sample assets). The engine
+-- resolves these relative to the working dir -- EditorBaseClasses.cpp registers
+-- "editor/" as a resource dir -- so they must sit next to the built editor
+-- executables. Mirrors the CMake `install(DIRECTORY tools/resources/ ...)` hack.
+local RESOURCES = TOOLS .. "/resources"
+
+local function winpath(p) return (p:gsub("/", "\\")) end
+
 -- Resolve a list of bare source names recursively under the editors tree,
 -- mirroring CMake's file(GLOB_RECURSE ... <name>.cpp).
 local function resolve(basenames)
@@ -42,6 +51,25 @@ local function editor_includes()
     filter {}
 end
 
+-- Copy tools/resources/ next to the built executables. Done per editor target
+-- (postbuild) rather than only in the `deploy` action, so a plain `make` -- and
+-- therefore the CI release archive, which just tars the runtime dir -- carries
+-- the editor data even when no retail install is deployed over it.
+local function tool_resources_postbuild()
+    local dest = runtime_dir("")
+    filter "system:not windows"
+        postbuildcommands {
+            string.format('{MKDIR} "%s"', dest),
+            string.format('cp -R "%s/." "%s/"', RESOURCES, dest),
+        }
+    filter "system:windows"
+        postbuildcommands {
+            string.format('xcopy /E /I /Y /Q "%s" "%s\\" >nul',
+                winpath(RESOURCES), winpath(dest)),
+        }
+    filter {}
+end
+
 local function editor_target(name, subdir, basenames)
     project(name)
         -- HPL2's entry wrapper (LowLevelSystemSDL.cpp) provides WinMain on Windows
@@ -56,6 +84,7 @@ local function editor_target(name, subdir, basenames)
         files (resolve(basenames))
         includedirs { EDITORS .. "/" .. subdir }
         editor_includes()
+        tool_resources_postbuild()
         buildid(name, EDITORS .. "/" .. subdir)
 end
 
