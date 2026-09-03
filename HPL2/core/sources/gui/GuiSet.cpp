@@ -702,7 +702,7 @@ namespace hpl {
 			if (pTexture) {
 				diffuseTexture = pTexture->GetTexture();
 			}
-			if (diffuseTexture) {
+			if (diffuseTexture && !diffuseTexture->view.isEmpty()) {
 				mpGraphics->graphicsDefer.push(PinResource(pTexture));
 				uniformBlock.textureCfg |= (1 << 0); // Has texture
 				bindings[numBindings].descriptor = diffuseTexture->descriptor();

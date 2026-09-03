@@ -63,7 +63,7 @@ public uint lightIdType(uint id)              { return id >> kLightSlotBits; }
 public uint lightIdSlot(uint id)              { return id & kLightSlotMask; }
 
 // Packed-id → ILight resolver. The interface return goes through Slang's
-// existential boxing; callers (incl. surfel NEE) sample lights via
+// existential boxing; callers sample lights via
 // getLight(id).sample(...). No slot bounds check — an out-of-range slot is a
 // caller bug, not a guarded case. A destroyed-but-not-reused slot is a zeroed
 // hole (intensity/color/radius 0) and decodes to a no-op light.
@@ -110,7 +110,7 @@ public Ray cameraComputeRayPinhole(uint2 pixel, uint2 frameDim, bool applyJitter
 
 // One world-space light-grid cell's light list, resolved once by
 // getCellLights() so the four light-grid walkers (composite eval, reservoir
-// build, surfel NEE, lightLevelAt) share the cell-lookup boilerplate instead of
+// build, path-tracer NEE, lightLevelAt) share the cell-lookup boilerplate instead of
 // each re-deriving cell → validate → flatten → count.
 public struct CellLights
 {

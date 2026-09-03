@@ -47,9 +47,9 @@ SHARED_CONST uint kBindingTextures2DArray           = 2u;  // Texture2DArray[] �
 // Slot 3 is reused for the animated-texture record table; 4..8 stay free.
 SHARED_CONST uint kBindingAnimTex                    = 3u;  // StructuredBuffer<AnimTexRec> — per-2D-array-slot animation params
 SHARED_CONST uint kBindingMaterialSampler            = 9u;
-// Slots 10..19 were the surfel/cell SSBOs (counter, surfel, geometry, valid,
-// dirty, free, recycle, rayResult, cellInfo, cellToSurfel) — the surfel cache
-// is gone and these slots are free. Numbering of the survivors is unchanged.
+// Slots 10..19 held the retired surfel-cache SSBOs (counter, surfel, geometry,
+// valid, dirty, free, recycle, rayResult, cellInfo, cellToSurfel) and are free.
+// Numbering of the survivors is unchanged.
 SHARED_CONST uint kBindingSceneObjects               = 20u;  // UniformObject[]
 SHARED_CONST uint kBindingMaterials                  = 21u;  // MaterialDataBlob[] flat material table
 // Slots 22/23 (formerly kBindingPointLights / kBindingAreaLights on set 0) and
@@ -58,18 +58,22 @@ SHARED_CONST uint kBindingMaterials                  = 21u;  // MaterialDataBlob
 // kBindingWorld* below.
 // 24/25/26 were the translucent/water/decal typed material SSBOs — folded into
 // the single MaterialDataBlob table, leaving these slots free.
-// Slots 27/28 (surfel ref-counter / per-cell reservation) are now free.
+// Slots 27/28 held the retired surfel ref-counter / per-cell reservation SSBOs
+// and are free.
 SHARED_CONST uint kBindingPackedHitInfo             = 31u;  // RGBA32UI storage image
-// Slots 33/34/35 were the surfel depth atlas (storage image / sampled image /
-// its sampler) and 37 the SurfelBounds cull record — all free now.
+// Slots 33/34/35 held the retired surfel depth atlas (storage image / sampled
+// image / its sampler) and 37 its SurfelBounds cull record — all free.
 SHARED_CONST uint kBindingTlas                        = 36u;  // RaytracingAccelerationStructure
 SHARED_CONST uint kBindingBindlessSlotGeneration      = 38u;  // per object slot: reuse generation (kObjectSlotCapacity)
-// Slot 39 (per-surfel captured anchor generation) is now free.
+// Slot 39 held the retired per-surfel captured anchor generation and is free.
 SHARED_CONST uint kBindingLightGridCount              = 40u;  // RWStructuredBuffer<uint> (kLightGridCellCount) — world-space light grid
 SHARED_CONST uint kBindingLightGridList               = 41u;  // RWStructuredBuffer<uint> (kLightGridCellCount * kLightsPerCellMax)
 // Slot 42 (formerly kBindingFogAreas on set 0) is now free — fog moved to kWorldSet.
-SHARED_CONST uint kBindingPackedRefractionHitInfo     = 43u;  // RGBA32UI storage image — refracted-bounce V-buffer
-SHARED_CONST uint kBindingPackedReflectionHitInfo     = 44u;  // RGBA32UI storage image — reflected-bounce V-buffer
+// Slots 43/44 were the refracted / reflected per-bounce V-buffers; nothing
+// binds or declares them any more (water refraction clobbers gPackedHitInfo
+// like glass, water reflection moved to the raster water pass).
+SHARED_CONST uint kBindingPackedRefractionHitInfo     = 43u;  // RGBA32UI storage image — unused
+SHARED_CONST uint kBindingPackedReflectionHitInfo     = 44u;  // RGBA32UI storage image — unused
 // Slot 45 (formerly kBindingAttenuationLut, the light falloff LUT) is now free —
 // lighting is fully analytic (inverse-square radial + smoothstep spot cone).
 // Slots 46/47 (formerly kBindingDecals / kBindingObjectDecalIndices on set 0)
@@ -84,8 +88,9 @@ SHARED_CONST uint kBindingSceneDepth                  = 49u;  // Texture2D<float
 // Per-world decal data baked by cWorld::Compile, bound on the MainCompositePass.
 // It rides set 2 — the conventional per-pass compute-I/O set — alongside the
 // composite's own resources, so its bindings start at 4 to clear the composite's
-// set-2 slots 0..3 (gIndirectLighting@0, gPackedHitInfoRaster@1, gOutput@2,
-// gDirectLighting@3). gDecals is read only by MainCompositePass.
+// set-2 slots 0..3 (gIndirectLighting@0, slot 1 unused, gOutput@2,
+// gDirectLighting@3) — decals stay at 4 even though slot 1 is now a gap, so the
+// layout stays stable. gDecals is read only by MainCompositePass.
 SHARED_CONST uint kWorldDecalSet                      = 2u;
 SHARED_CONST uint kBindingWorldDecals                 = 4u;  // StructuredBuffer<GpuDecal>  — baked OOB decals
 SHARED_CONST uint kBindingWorldObjectDecalIndices     = 5u;  // StructuredBuffer<uint>      — flat per-object decal-index pool
@@ -242,7 +247,7 @@ SHARED_CONST uint kMaterialBlendModeAlpha       = 4u;
 SHARED_CONST uint kMaterialBlendModePremulAlpha = 5u;
 
 // -----------------------------------------------------------------------------
-// World-space cell-grid sizing. The surfel cache that owned this grid is gone;
+// World-space cell-grid sizing. This grid was owned by the retired surfel cache;
 // kCellDimension / kCellUnit survive because the light grid derives its world
 // coverage (kLightGridExtent) from them.
 //   kCellDimension: linear cell count along each axis of the uniform grid.
@@ -277,7 +282,7 @@ SHARED_CONST uint  kMaxObjectDecalIndices = 1u << 20;   // 1M (offset is 24-bit;
 // 0.2 (~5× indirect on this content) — the same knob as Lumen's Diffuse Color
 // Boost. Per-channel pow slightly desaturates dark hues; expected.
 // -----------------------------------------------------------------------------
-SHARED_CONST float kSurfelGIAlbedoBoostExp = 1.0f;
+SHARED_CONST float kGIAlbedoBoostExp = 1.0f;
 
 // Reference per-pixel path tracer (PathTracePass.rt.slang).
 SHARED_CONST uint  kPathTraceMaxBounces        = 3u;   // path vertices after the primary hit
@@ -306,24 +311,40 @@ SHARED_CONST float kWaterReflectionTurbulence = 0.3f;
 // directions are a deterministic stratified set instead of a per-frame random
 // one. The intensity is the art knob for how strongly that one bounce shows up
 // in the reflection; 1.0 = the raw traced estimate.
+//
+// WHY 2 IS THE DEFAULT. Ray budget per water pixel is
+//     1 (reflection) + N * (1 bounce ray + one shadow ray per light in the
+//                          bounce vertex's grid cell)
+// so N is a straight multiplier on the most expensive part of the pass, and the
+// pass has no denoiser and no temporal reuse to amortise it. N=2 is the
+// smallest count that still gets a stratified elevation pair (N=1 collapses the
+// stratification to a single mid-hemisphere direction and biases the bounce
+// toward the surface normal). It is chosen as the conservative floor that fixes
+// the actual defect - GI-only-lit geometry reflecting as pure black - rather
+// than as a measured optimum: no frame-time capture on a screen-filling water
+// surface has been taken yet. Raise to 4 only if the fixed low-sample structure
+// reads as objectionable in motion, and drop kWaterReflectionIndirectIntensity
+// before dropping N if the bounce is merely too strong. Setting N to 0 disables
+// the bounce entirely and is the A/B baseline for measuring its cost.
 SHARED_CONST uint  kWaterReflectionIndirectSamples   = 2u;
 SHARED_CONST float kWaterReflectionIndirectIntensity = 1.0f;
 
 // Evaluation / composite overlay modes. 0 = normal indirect lighting.
 // Non-zero values render diagnostic visualizations:
 //   1 = variance, 2 = ray count, 3 = ref count, 4 = life, 5 = coverage,
-//   6 = direct only, 7 = indirect only, 8 = shadow-caster flag.
-// Initial value for the runtime overlay-mode push constant. The host may
-// change the active mode at runtime without recompiling the shader.
+//   6 = shadow-caster flag.
+// The debug UI passes the combo-box item INDEX straight through as the mode
+// value, so this enum must stay dense and match the item order.
+// kDefaultOverlayMode is the initial value for the runtime overlay-mode push
+// constant. The host may change the active mode at runtime without
+// recompiling the shader.
 SHARED_CONST uint  kOverlayModeIndirectLighting = 0u;
 SHARED_CONST uint  kOverlayModeVariance         = 1u;
 SHARED_CONST uint  kOverlayModeRayCount         = 2u;
 SHARED_CONST uint  kOverlayModeRefCount         = 3u;
 SHARED_CONST uint  kOverlayModeLife             = 4u;
 SHARED_CONST uint  kOverlayModeCoverage         = 5u;
-SHARED_CONST uint  kOverlayModeDirectOnly       = 6u;
-SHARED_CONST uint  kOverlayModeIndirectOnly     = 7u;
-SHARED_CONST uint  kOverlayModeShadowFlag       = 8u;
+SHARED_CONST uint  kOverlayModeShadowFlag       = 6u;
 SHARED_CONST uint  kDefaultOverlayMode          = kOverlayModeIndirectLighting;
 
 // Per-object render flag bits mirrored from GraphicsTypes.h for shader-side
@@ -384,6 +405,14 @@ SHARED_CONST float kDirectVarianceBoost            = 4.0f;    // early-frame (lo
 // à-trous pass reads that count for its kDirectVarianceBoost term, so this also
 // sets how long a fresh pixel stays in the widened-luminance-gate regime.
 SHARED_CONST float kIndirectMaxAccumFrames         = 32.0f;   // temporal window for the path-traced indirect term
+
+// NRD v4.17 Reblur hit-distance normalization parameters (A, B, C). The
+// vendored NRD removed the historical D member in v4.17; keep this vector in
+// the shared header so the shader and C++ nrd::ReblurSettings setup cannot
+// drift. The C++ integration MUST read hpl::kNrdHitDistanceParameters
+// and copy its components into ReblurSettings::hitDistanceParameters.{A,B,C}.
+SHARED_CONST float3 kNrdHitDistanceParameters    = float3(3.0f, 0.1f, 20.0f);
+
 // ReSTIR DI (Bitterli 2020, biased reuse). The direct pass keeps a per-pixel
 // light-selection reservoir instead of a radiance running-mean: a streaming RIS
 // build over the cell lights, then temporal reuse (reproject + merge previous
@@ -398,12 +427,6 @@ SHARED_CONST float kIndirectMaxAccumFrames         = 32.0f;   // temporal window
 SHARED_CONST float kReservoirMClamp                = 30.0f;   // temporal staleness cap (× current M)
 SHARED_CONST int   kSpatialSamples                 = 6;       // spatial neighbours resampled
 SHARED_CONST float kSpatialRadius                  = 16.0f;   // spatial search radius (px)
-// Screen-space direct-lighting reuse in GI bounce NEE. When 1 the RT
-// shader projects each bounce hit into screen space and reads gDirectLightingSSReuse
-// (written by the early DirectSpatialReusePass) instead of firing a shadow ray.
-// Falls back to 1-sample NEE when the hit is off-screen. Set to 0 to revert to
-// pure NEE for A/B comparison (no code path changes, just a compile-time gate).
-SHARED_CONST uint  kSurfelDirectScreenReuse            = 1u;
 
 // PBR point/spot-light falloff — Falcor LightData semantics, no scale knobs:
 // `intensity` IS the light's radiance (the host uploads the authored engine

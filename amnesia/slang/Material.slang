@@ -46,7 +46,7 @@ public WaterMaterial loadWaterMaterial(uint materialID)
 // chandelier_simple_alpha.tga, loaded as R8_UNORM) carry the mask in
 // .r — kMaterialFlagIsAlphaSingleChannel picks the channel.
 // Alpha test + CoverageAmount dissolve — ONE gate for every ray/raster
-// context (gbuffer FS, V-buffer anyhit, surfel scatter anyhit, shadow /
+// context (V-buffer raster FS, path-trace scatter anyhit, shadow /
 // reflection RayQuery loops), so a fading object's primary visibility,
 // shadows, and direct lighting all dissolve consistently instead of a
 // half-dissolved mesh casting a full-strength ghost shadow.

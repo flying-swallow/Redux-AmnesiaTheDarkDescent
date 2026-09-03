@@ -22,8 +22,8 @@ import Random;               // concentricDiskSample (soft-shadow source samplin
 // -----------------------------------------------------------------------------
 // ILight — common shape for the point/spot/box bindless light SSBO entries.
 // `getPosition()` returns the source for point/spot, the AABB
-// center for box. `sample()` is the NEE entry point used by the surfel ray
-// pipeline and any future direct-lighting code.
+// center for box. `sample()` is the NEE entry point used by the
+// direct-lighting and path-trace shading paths.
 // -----------------------------------------------------------------------------
 public interface ILight
 {

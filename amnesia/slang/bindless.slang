@@ -155,7 +155,8 @@ public RWStructuredBuffer<RectLight> gAreaLights;
 public RWStructuredBuffer<FogAreaParams> gFogAreas;
 
 // -----------------------------------------------------------------------------
-// V-buffer. Written by the V-buffer passes, consumed by the shading passes.
+// V-buffer. Written by VBufferPomBary.cs (fed by the raster VBufferRaster.3d
+// hit), consumed by the shading passes.
 //
 // This image and the TLAS live on **set 1** (not the persistent
 // bindless set 0). They're swapchain-indexed views / per-frame-rebuilt
@@ -166,7 +167,10 @@ public RWStructuredBuffer<FogAreaParams> gFogAreas;
 // a fresh, idle set. The host pushes them per-dispatch via the same
 // mechanism `gPerFrame` uses.
 //
-//   gPackedHitInfo   : full-resolution V-buffer; uint4 = HitInfo.packed
+//   gPackedHitInfo   : full-resolution V-buffer; uint4 = HitInfo.packed.
+//                      Written by VBufferPomBary.cs, which copies the raster
+//                      hit from gPackedHitInfoRaster and perturbs the
+//                      barycentrics for parallax-occlusion mapping.
 // -----------------------------------------------------------------------------
 [vk::binding(kBindingPackedHitInfo, 1)]
 public RWTexture2D<uint4> gPackedHitInfo;

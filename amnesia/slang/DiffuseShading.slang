@@ -1,6 +1,7 @@
 #pragma once
 // Shared diffuse-shading helpers, used by both the composite / direct stack
-// (SurfelShade.slang) and the surfel path tracer (SurfelRayTrace.rt.slang):
+// (MainCompositePass.cs, DirectLightingPass.cs) and the path tracer
+// (PathTracePass.rt.slang):
 //   * DiffuseShading + prepareDiffuseShading — surface shading state from a hit.
 //   * shadeAnalyticLight / *Soft / unshadowedAnalyticLight — the per-light
 //     diffuse shade (hard / jittered-disk / no shadow ray). These were Scene
@@ -31,7 +32,7 @@ public struct DiffuseShading
 };
 
 // emission = illumination-map texel (DiffuseMaterial slot 5) * per-object glow
-// scalar (UniformObject.illuminationAmount). Without this the surfel composite
+// scalar (UniformObject.illuminationAmount). Without this the composite pass
 // ignores illumination entirely and glowing textures render dark.
 //
 // decodeRoughness: the path tracer decodes per-texel roughness
@@ -41,7 +42,7 @@ public struct DiffuseShading
 //
 // applyNormalMap: perturb normalW with the material's tangent-space normal map
 // (tex[1], gated by kMaterialFlagEnableNormal). Defaults to false so existing
-// callers (composite / water / surfel) are unchanged; the ReSTIR direct pass
+// callers (composite / water) are unchanged; the ReSTIR direct pass
 // opts in so its lighting picks up bump detail. World-space TBN built from the
 // interpolated normal + tangent: T is Gram-Schmidt orthogonalized against N,
 // B = cross(N, T) with the tangent handedness dropped, and the map is decoded
@@ -91,8 +92,7 @@ public DiffuseShading prepareDiffuseShading(VertexData v, uint materialID,
 // --- Per-light analytic diffuse shading -----------------------------------
 // Demodulated throughout: Li·NdotL·f_d/albedo (no albedo — the caller applies
 // it). f_d is the standard diffuse lobe (kDiffuseBrdf, carries its 1/π). V is
-// toward the camera for the composite/direct stack, back along the scatter ray
-// for the surfel NEE.
+// toward the camera for the composite/direct stack.
 
 // Shared core: sample + back-face cull + demodulated contribution. Returns false
 // (contrib unset) when the sample fails or N·L ≤ 0. The three public variants

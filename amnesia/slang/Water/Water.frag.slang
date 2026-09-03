@@ -11,6 +11,25 @@
 //   pass 1 (ADD blend): wave normal + Fresnel·fade × an inline RT LIT reflection
 //                       → dst += reflColor·fresnel.
 // Combined: surfaceTint·refr + reflColor·fresnel — the old water combine.
+//
+// The two draws are issued per mesh and INTERLEAVED (obj0 MUL, obj0 ADD, obj1
+// MUL, obj1 ADD, ...). That interleaving is required, not incidental. With the
+// surfaces drawn back-to-front it yields a correct nested over-composite; for
+// two surfaces the target ends up as
+//   bg·M0·M1 + A0·M1 + A1,   M_i = tint_i·exposure·visibility_i
+//                            A_i = refl_i·fresnel_i·visibility_i + fogColor_i
+// so the far surface's own reflection and fog colour are themselves tinted and
+// fogged by the near surface they are seen through. The pass is therefore
+// ORDER-DEPENDENT: the renderer sorts water meshes back-to-front before issuing
+// them (cHybridRenderer::Draw). Hoisting all MUL passes ahead of all ADD passes
+// would break this — the far surface's reflection and fog would come out
+// unattenuated by the near surface.
+//
+// Fog is not double-applied across overlapping surfaces: each surface
+// contributes its own fogColor exactly once, at its own layer. In the full-fog
+// limit every visibility_i → 0, so every M_i → 0 and each A_i → fogColor_i, and
+// the nesting telescopes to the nearest surface's fogColor — exactly fogColor,
+// for any number of surfaces.
 
 #include "../HostDefinitions.h"
 #include "../Constants.h"
@@ -102,12 +121,33 @@ float3 traceIndirectAtHit(float3 posW, float3 normalW, uint2 pixel)
         float      gIll = gSceneObjects[gh.instanceID].illuminationAmount;
         DiffuseShading gsd = prepareDiffuseShading(gv, gMat, gIll, /*decodeRoughness=*/true);
 
-        // Same energy math as PathTracePass.rt.slang::handleHit: emission enters
-        // the path directly and the NEE direct term is scaled by the ART-DIRECTED
-        // bounce albedo pow(albedo, kSurfelGIAlbedoBoostExp), so this producer
-        // stays in the path tracer's units.
-        float3 giAlbedo = pow(gsd.albedo, kSurfelGIAlbedoBoostExp);
-        sum += gsd.emission + giAlbedo * evalAnalyticLight(gsd);
+        // Same energy convention as PathTracePass.rt.slang::handleHit: emission
+        // enters the path directly and the NEE direct term carries the BOUNCE
+        // vertex's albedo (the primary point's albedo stays out, for the caller).
+        // The pow(albedo, kGIAlbedoBoostExp) art-direction knob is this site only -
+        // handleHit folds plain albedo into evalBrdf and never applies the boost.
+        // At the current kGIAlbedoBoostExp = 1.0f the pow is identity and the two
+        // sites are numerically in the same units; raising the boost above 1.0
+        // makes this producer read hotter than the path tracer's for the same
+        // input, which also shifts what the firefly threshold below means here.
+        float3 giAlbedo = pow(gsd.albedo, kGIAlbedoBoostExp);
+        float3 sampleRadiance = gsd.emission + giAlbedo * evalAnalyticLight(gsd);
+
+        // Firefly clamp, same form as PathTracePass.rt.slang's rayGen: cap the
+        // sample's luminance by scaling the whole float3, so hue survives where a
+        // per-channel clamp would shift it. What is capped is DEMODULATED
+        // irradiance (only the BOUNCE albedo is inside; this point's own albedo is
+        // the caller's) - the path tracer's units, so gPerFrame.fireflyClampThreshold
+        // means the same thing at both sites. Applied per sample, BEFORE the
+        // invSamples average (each sample estimates the same integral, so the
+        // per-sample scale is the final scale) and before the artistic
+        // kWaterReflectionIndirectIntensity gain, which is deliberately outside the
+        // clamped units. Threshold <= 0 disables.
+        float sampleLum = brdfLuminance(sampleRadiance);
+        if (gPerFrame.fireflyClampThreshold > 0.f && sampleLum > gPerFrame.fireflyClampThreshold)
+            sampleRadiance *= gPerFrame.fireflyClampThreshold / sampleLum;
+
+        sum += sampleRadiance;
     }
 
     return sum * invSamples * kWaterReflectionIndirectIntensity;
@@ -215,5 +255,7 @@ float4 psMain(WaterVSOut psIn) : SV_TARGET
     // Fade the reflection by fog visibility, then add the fog colour exactly
     // once (the MUL pass already zeroed the surface at full fog) so the water
     // composites to fogColor in the distance — matching opaque applyFog.
-    return float4(reflColor * fresnel * fog.visibility + fog.color, 1.0f);
+    // Alpha 0: this blend is additive in alpha too (srcAlpha=ONE, dstAlpha=ONE),
+    // so 0 is the identity that preserves the a = 1 the composite wrote.
+    return float4(reflColor * fresnel * fog.visibility + fog.color, 0.0f);
 }

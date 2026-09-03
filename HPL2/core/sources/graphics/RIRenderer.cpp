@@ -1386,8 +1386,9 @@ int InitRIRenderer(const struct RIBackendInit *init) {
 
     g_renderer.vk.apiVersion = appInfo.apiVersion;
 
-    // GPU-Assisted Validation is enabled here to localize the surfel-branch
-    // GPUVM read fault (TCP client, RW:0, high BDA-range address): with GPU-AV
+    // GPU-Assisted Validation was originally enabled here to localize a GPUVM
+    // read fault on the since-retired surfel GI branch (TCP client, RW:0, high
+    // BDA-range address); the setting outlived that branch. With GPU-AV
     // on, the Khronos layer instruments shader buffer access — including
     // buffer_reference (BDA) derefs and descriptor-indexed reads — and emits a
     // precise ERROR naming the faulting shader + access BEFORE it becomes a

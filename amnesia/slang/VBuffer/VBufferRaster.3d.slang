@@ -8,9 +8,11 @@
 //
 // psMain alpha-tests against the diffuse material's alpha slot, then writes
 // the closest hit (instanceID, primitiveIndex, barycentrics) into the
-// project's packed TriangleHit format — uint4 with the same layout
-// surfel_vbuffer.rgen produces and surfel_generation_pass.comp /
-// surfel_update_collect.comp consume via unpackHit().
+// project's packed TriangleHit format — the uint4 layout of HitInfo /
+// TriangleHit in SceneTypes.slang. VBufferPomBary.cs copies it into
+// gPackedHitInfo, and PathTracePass.rt, DirectLightingPass.cs,
+// DirectSpatialReusePass.cs and MainCompositePass.cs decode it there via
+// HitInfo(uint4).
 
 import Scene;
 import PerFrame.resource;     // gPerFrame (camera view-proj / eye position)

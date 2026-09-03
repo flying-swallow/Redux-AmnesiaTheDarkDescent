@@ -5,7 +5,7 @@
 // valid only against a buffer allocated for that grid's gridDim³ cells.
 //
 // Camera-centered: cell (0,0,0) brackets the camera; valid cells span
-// [-gridDim/2 + 1, gridDim/2 - 1] per axis (same convention as the surfel grid).
+// [-gridDim/2 + 1, gridDim/2 - 1] per axis.
 
 int3 gridCellPos(float3 posW, float3 cameraPosW, float gridUnit)
 {

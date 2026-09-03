@@ -6,7 +6,7 @@
 // adapted to use **traditional Vulkan vertex bindings** instead of the
 // bindless BDA-pull pattern the opaque + particle paths use.
 //
-// Rationale: only refractive translucents live in the surfel TLAS (World.cpp
+// Rationale: only refractive translucents live in the TLAS (World.cpp
 // admits them as kRayMaskTranslucent and skips every other translucent), and
 // that TLAS slot is the only consumer of the per-translucent vertex BDAs in
 // gOpaque*Handles[]. Note the original reason for that membership — letting an

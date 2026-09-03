@@ -10,7 +10,8 @@
 // run kAtrousIterations times with the tap spacing doubling each iteration
 // (stepSize 1 → 2 → 4 …), sharing the estimate across same-surface neighbours.
 // Edge-stopping weights gate on depth (σZ), normal (σN exponent) and luminance
-// (σL, scaled by a local variance estimate so sharp lighting features survive).
+// (σL, scaled by a local variance estimate — measured over the same strided
+// footprint the iteration filters — so sharp lighting features survive).
 // The count is carried through unfiltered as the per-pixel confidence; while it
 // is low (fresh / disoccluded pixel) the luminance gate is widened
 // (kDirectVarianceBoost) so the noise spike is blurred harder before it has had
@@ -80,6 +81,8 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     float  centerCount = center.a;
     float  lumC        = luma(centerRgb);
 
+    int step = int(gAtrous.stepSize);
+
     // Cross-bilateral, gaussian-weighted 5×5 luminance variance estimate. A raw
     // box of the 1-spp-noisy input gives a jittery variance, so the luminance
     // gate phiL (and thus the filter footprint) pulses frame-to-frame — a primary
@@ -87,11 +90,17 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // filter uses (so only same-surface pixels contribute, no cross-surface
     // luminance inflating the estimate) and by a gaussian falloff yields a far
     // steadier estimate. Still widened while the temporal history is short.
+    // The taps are strided by the same stepSize as the filter loop below, so the
+    // variance describes the footprint actually being filtered: a stride-1
+    // estimate under-reports what the wide iterations see (up to 16× smaller a
+    // footprint at the last one), phiL comes out too tight, the luminance gate
+    // closes too hard on the wide taps and the late passes stop removing the
+    // low-frequency noise they exist to remove.
     float  mL = 0.f, mL2 = 0.f, wv = 0.f;
     for (int dy = -2; dy <= 2; ++dy)
     for (int dx = -2; dx <= 2; ++dx)
     {
-        int2 q = p + int2(dx, dy);
+        int2 q = p + int2(dx, dy) * step;
         if (q.x < 0 || q.y < 0 || q.x >= int(w) || q.y >= int(h)) continue;
         float4 qkey = gDirectKey.Load(int3(q, 0));
         float3 nq   = qkey.yzw;
@@ -112,8 +121,6 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     }
     variance *= (1.f + kDirectVarianceBoost / max(centerCount, 1.f));
     float phiL = kSvgfSigmaL * sqrt(variance) + 1.0e-4f;
-
-    int step = int(gAtrous.stepSize);
 
     float3 sum  = float3(0.f);
     float  wsum = 0.f;

@@ -1,12 +1,24 @@
-// Reference per-pixel path tracer — two-channel indirect (diffuse + specular).
+// Reference per-pixel path tracer — two-channel output (diffuse + specular).
 //
-// This is SurfelRayTrace.rt.slang with the surfel cache removed and the path
-// re-rooted from surfels to screen pixels: no cache gather / finalize, no
-// sleeping-surfel lifecycle, no gSurfel* buffers.
+// This pass outputs INDIRECT diffuse only (albedo-demodulated). The ReSTIR DI
+// chain (DirectLightingPass -> DirectSpatialReusePass -> DirectAtrousPass)
+// still runs BEFORE this pass, but its denoised result is added by
+// MainCompositePass, AFTER the indirect denoiser — summing it into the
+// accumulator here would push an already-denoised signal through
+// IndirectTemporalPass's history blend a second time and add lag on moving
+// lights and shadows.
+// Primary-hit emission is still the composite's job (see rayGen).
+//
+// History: derived from the since-deleted SurfelRayTrace.rt.slang when the
+// surfel GI cache was retired. The path is rooted at screen pixels instead of
+// surfels, and nothing of the cache survives — no gather / finalize, no
+// lifecycle, no gSurfel* buffers.
 //
 // BSDF: every scatter (primary and bounce) importance-samples the full
-// Cook-Torrance GGX BSDF of Brdf.slang via sampleBrdf() — a diffuse lobe plus a
-// GGX specular lobe, chosen stochastically. The returned weight is already
+// Cook-Torrance GGX BSDF of Brdf.slang via sampleBrdfLobe() — a diffuse lobe
+// plus a GGX specular lobe. The PRIMARY lobe is picked by a screen-space Bayer
+// dither with a clamped probability; bounces keep the 0.05/0.95 white-noise
+// pick through sampleBrdf(). The returned weight is already
 // f·N.L/pdf with the lobe-selection probability folded in, so nothing else
 // (cosine, albedo, 1/pSpec) is applied on top. NEE weights the light's raw
 // Li·NdotL with evalBrdf() for the same reason.
@@ -15,16 +27,17 @@
 // into one of two outputs.
 //   * gIndirectDiffuse is DEMODULATED: the primary throughput is seeded with
 //     weight / albedo, so what lands there is indirect irradiance divided by
-//     the primary surface's albedo — the quantity MainCompositePass re-
-//     modulates with `sd.albedo * (direct + indirect)`.
+//     the primary surface's albedo — INDIRECT only. MainCompositePass fetches
+//     the ReSTIR DI chain's demodulated direct irradiance separately and
+//     re-modulates the two together with a single `sd.albedo *`.
 //   * gIndirectSpecular is NOT demodulated: there is no single albedo to divide
 //     out (F0 and roughness vary per texel), so it carries radiance directly.
 // Bounce albedo (every vertex AFTER the primary hit) is inside the BSDF weight
 // as usual — only the primary diffuse factor is divided out.
 //
-// There is no primary ray: the V-buffer already holds the primary hit, so
-// rayGen recovers it the way MainCompositePass / DirectLightingPass do and
-// traces only the scattered rays.
+// There is no primary ray: the V-buffer already holds the primary hit — from
+// the raster pass, POM-corrected — so rayGen recovers it the way
+// MainCompositePass / DirectLightingPass do and traces only the scattered rays.
 
 #include "../HostDefinitions.h"
 #include "../Constants.h"
@@ -45,12 +58,37 @@ import DiffuseShading;       // shared DiffuseShading + prepareDiffuseShading
 // RIProgram::bindDescriptors, so they must match the host side exactly.
 [vk::binding(0, 2)] RWTexture2D<float4> gIndirectDiffuse;      // DEMODULATED indirect diffuse (.a = history count)
 [vk::binding(1, 2)] RWTexture2D<float4> gIndirectKeyOut;       // surface key (viewZ, normal.xyz)
-[vk::binding(2, 2)] Texture2D<uint4>    gPackedHitInfoRaster;  // raster V-buffer fallback
+// Slot 2 is a gap; the remaining bindings keep their numbers so the host-side
+// layout stays stable.
 [vk::binding(3, 2)] RWTexture2D<float4> gIndirectSpecular;     // indirect specular, NOT demodulated
-[vk::binding(4, 2)] RWTexture2D<float4> gIndirectKeyExtra;     // (.x = primary GGX alpha, yzw reserved)
+[vk::binding(4, 2)] RWTexture2D<float4> gIndirectKeyExtra;     // .x = primary GGX alpha; .y = diffuse primary hit distance (m); .z = specular primary hit distance (m); .w reserved
+// Slot 5 is now free: the denoised ReSTIR DI result is consumed by MainCompositePass, not here.
 
 // Plane-offset epsilon for the shadow / scatter ray origin.
 static const float kRayEps = 1.0e-3f;
+
+// AREA_3X3 requires the primary lobe probability to be clamped to [1/4; 3/4].
+// The dither takes 4 distinct values per 2x2 tile, so this guarantees that any
+// 2x2 block — and therefore any 3x3 window — contains at least one pixel that
+// picked specular and at least one that picked diffuse, exactly what NRD's
+// hit-distance reconstruction needs. The +frameIndex rotation is the "global
+// temporal jitter" requested by NRD's README; it is a uniform permutation of
+// the tile, so it preserves the guarantee. This replaces white noise for the
+// primary lobe pick ONLY.
+static const float kPrimaryLobeProbMin = 0.25f;
+
+// Ordered 2x2 Bayer rank in [0;3] with a global temporal rotation.
+uint bayer2x2ui(uint2 samplePos, uint frameIndex)
+{
+    uint2 p = samplePos & 1u;
+    uint  b = (p.y << 1u) | (p.y ^ p.x);
+    return (b + frameIndex) & 0x3u;
+}
+
+float bayer2x2(uint2 samplePos, uint frameIndex)
+{
+    return (float(bayer2x2ui(samplePos, frameIndex)) + 0.5f) * 0.25f;
+}
 
 // [status]
 // 0x0002 : terminated
@@ -111,9 +149,11 @@ void handleHit(TriangleHit triangleHit, inout ScatterPayload scatterPayload)
     uint materialID = gSceneObjects[triangleHit.instanceID].materialID;
     float illuminationAmount = gSceneObjects[triangleHit.instanceID].illuminationAmount;
     DiffuseShading sd = prepareDiffuseShading(v, materialID, illuminationAmount,
-                                              /*decodeRoughness=*/true);
+                                              /*decodeRoughness=*/true,
+                                              /*applyNormalMap=*/true);
     // Full PBR surface for the BSDF (albedo / F0 / GGX alpha). prepareDiffuseShading
-    // still supplies posW, normalW and emission.
+    // still supplies posW, the normal-mapped normalW (the BSDF shades with the
+    // bumped normal, same as the direct pass) and emission.
     SurfaceBRDF s = prepareSurface(loadDiffuseMaterial(materialID), sd.normalW, v.texC);
 
     if (scatterPayload.currStep == 1u)
@@ -177,9 +217,9 @@ void handleHit(TriangleHit triangleHit, inout ScatterPayload scatterPayload)
     scatterPayload.direction = bounceL;
     scatterPayload.thp      *= bounceWeight;
 
-    // Russian roulette on luminance(thp), same as the surfel path tracer. With
-    // no cache to finalize into, the path just keeps going until the bounce
-    // budget (kPathTraceMaxBounces, enforced by the rayGen loop) or RR kills it.
+    // Russian roulette on luminance(thp). There is nothing to finalize into, so
+    // the path just keeps going until the bounce budget (kPathTraceMaxBounces,
+    // enforced by the rayGen loop) or RR kills it.
     uint rayStep = kPathTraceMaxBounces;
     if (scatterPayload.currStep < rayStep)
     {
@@ -251,17 +291,17 @@ void rayGen()
     if (pixel.x >= outW || pixel.y >= outH)
         return;
 
-    // Primary hit comes from the V-buffer (RT hit info, raster V-buffer as the
-    // fallback for rasterized/alpha geometry) — same recovery as the composite
-    // and direct passes. No primary ray is traced here.
+    // Primary hit comes from the V-buffer (rasterized primary visibility with
+    // POM-corrected barycentrics) — same as the composite and direct passes.
+    // No primary ray is traced here. `gPackedHitInfo` already carries the
+    // raster hit, so a miss here is a real miss.
     HitInfo hitInfo = HitInfo(gPackedHitInfo[pixel]);
-    if (!hitInfo.isValid())
-        hitInfo = HitInfo(gPackedHitInfoRaster.Load(int3(pixel, 0)));
     if (!hitInfo.isValid())
     {
         gIndirectDiffuse[pixel]  = float4(0.f, 0.f, 0.f, 0.f);
         gIndirectSpecular[pixel] = float4(0.f, 0.f, 0.f, 0.f);
         gIndirectKeyOut[pixel]   = float4(0.f, 0.f, 0.f, 0.f); // zero normal → rejected
+        // NRD reserves a raw hit distance of 0 for no hit / sky.
         gIndirectKeyExtra[pixel] = float4(0.f, 0.f, 0.f, 0.f);
         return;
     }
@@ -270,24 +310,35 @@ void rayGen()
     VertexData v = getVertexData(th);
     UniformObject obj = gSceneObjects[th.instanceID];
     DiffuseShading sd = prepareDiffuseShading(v, obj.materialID, obj.illuminationAmount,
-                                              /*decodeRoughness=*/true);
+                                              /*decodeRoughness=*/true,
+                                              /*applyNormalMap=*/true);
+    // Bumped normal for the BSDF; the reprojection key below deliberately keeps
+    // the GEOMETRIC normal (same convention as DirectLightingPass).
     SurfaceBRDF s = prepareSurface(loadDiffuseMaterial(obj.materialID), sd.normalW, v.texC);
 
     RNG rng;
     rng.init(pixel, gPerFrame.totalFrames);
 
     float3 V = normalize(gPerFrame.posW - sd.posW);
+    float pSpecPrimary = brdfSpecularProbability(s, V, kPrimaryLobeProbMin);
 
     float3 diffuseSum  = float3(0.f);
     float3 specularSum = float3(0.f);
+    float  diffuseHitDistance  = 0.f;
+    float  specularHitDistance = 0.f;
     for (uint sampleIdx = 0u; sampleIdx < kPathTraceSamplesPerPixel; ++sampleIdx)
     {
+        // Pick the primary lobe with screen-space Bayer dithering. Adding
+        // sampleIdx keeps the strata distinct if kPathTraceSamplesPerPixel is
+        // ever raised above 1.
+        float lobeU = bayer2x2(pixel, gPerFrame.totalFrames + sampleIdx);
+
         // Importance-sample the primary BSDF; the lobe that comes back decides
         // which channel this whole path lands in.
         float3 L;
         float3 weight;
         bool   sampledSpecular;
-        if (!sampleBrdf(s, V, rng, L, weight, sampledSpecular))
+        if (!sampleBrdfLobe(s, V, pSpecPrimary, lobeU, rng, L, weight, sampledSpecular))
             continue;   // below the horizon / degenerate — nothing to trace
 
         ScatterPayload payload = ScatterPayload(rng.s);
@@ -303,8 +354,30 @@ void rayGen()
         while (!((payload.status & 0x0002u) != 0u) && payload.currStep <= kPathTraceMaxBounces)
             traceScatterRay(payload);
 
-        if (sampledSpecular) specularSum += payload.radiance;
-        else                 diffuseSum  += payload.radiance;
+        // The traced ray IS the sampled lobe's ray, so its first-bounce distance
+        // belongs to that lobe. The other lobe stays at zero this frame because
+        // it was not sampled: this is NRD's "skipped lobe" encoding, which is
+        // why the host enables HitDistanceReconstructionMode.
+        if (sampledSpecular)
+            specularHitDistance = payload.firstRayLength;
+        else
+            diffuseHitDistance = payload.firstRayLength;
+
+        // The primary lobe probability floor raises the worst-case selection
+        // boost from at most 20x (old 0.05 floor) to at most 4x (0.25 floor),
+        // so fewer samples cross this threshold and the clamp fires less often;
+        // this clamp never touches hit distance.
+        // Firefly clamp: cap this sample's luminance at gPerFrame.fireflyClampThreshold
+        // by scaling the whole float3, so hue survives where a per-channel clamp would
+        // shift it. Note what is capped is DEMODULATED irradiance (diffuse has the
+        // primary albedo divided out above), not final radiance. Threshold <= 0 disables.
+        float3 sampleRadiance = payload.radiance;
+        float  sampleLum      = brdfLuminance(sampleRadiance);
+        if (gPerFrame.fireflyClampThreshold > 0.f && sampleLum > gPerFrame.fireflyClampThreshold)
+            sampleRadiance *= gPerFrame.fireflyClampThreshold / sampleLum;
+
+        if (sampledSpecular) specularSum += sampleRadiance;
+        else                 diffuseSum  += sampleRadiance;
 
         // Carry the path's RNG state back so the next sample is decorrelated.
         rng.s = uint2(payload.rngHi, payload.rngLo);
@@ -313,10 +386,21 @@ void rayGen()
     // .a is the history / confidence count consumed by the temporal pass and
     // DirectAtrousPass — a freshly traced pixel carries exactly one sample.
     //
-    // With kPathTraceSamplesPerPixel == 1 the lobe choice is a coin flip, so
-    // exactly ONE of these two sums is non-zero for a given pixel/frame and the
-    // other writes black. That is expected, not a bug: the temporal accumulator
-    // resolves both channels over frames.
+    // With kPathTraceSamplesPerPixel == 1 the primary lobe is picked by a
+    // screen-space Bayer dither with a clamped probability, so exactly ONE of
+    // these two sums is non-zero for a given pixel/frame and the other writes
+    // black. That is expected, not a bug: the temporal accumulator resolves both
+    // channels over frames. Bounce lobe choices remain the stochastic white-noise
+    // picks made by sampleBrdf().
+    //
+    // NOTE: primary-hit emission deliberately stays in MainCompositePass. This
+    // output is denoised downstream (IndirectTemporal + 5 atrous iterations);
+    // an illumination-map's sharp emissive texels would be blurred across the
+    // surface if they went through it. The ReSTIR DI chain's direct term stays
+    // out of this sum for the mirror-image reason: it is ALREADY denoised by
+    // DirectAtrous, so feeding it to IndirectTemporal's history blend a second
+    // time would only add lag on moving lights and shadows. MainCompositePass
+    // adds it instead.
     gIndirectDiffuse[pixel]  = float4(diffuseSum  / float(kPathTraceSamplesPerPixel), 1.0f);
     gIndirectSpecular[pixel] = float4(specularSum / float(kPathTraceSamplesPerPixel), 1.0f);
 
@@ -327,8 +411,14 @@ void rayGen()
     float3 curN = normalize(v.normalW);
     gIndirectKeyOut[pixel] = float4(curZ, curN);
 
-    // Side-channel for a future roughness-aware denoiser: the primary hit's GGX
-    // alpha. Kept OUT of gIndirectKeyOut because DirectAtrousPass is shared with
-    // the direct chain and hard-codes that (viewZ, normal.xyz) layout.
-    gIndirectKeyExtra[pixel] = float4(s.rough, 0.f, 0.f, 0.f);
+    // Side-channel consumed by NrdPack.cs.slang: the primary hit's GGX
+    // alpha plus per-lobe primary-bounce hit distances (.y diffuse, .z
+    // specular). The traced ray belongs to whichever lobe was sampled, so the
+    // other channel remains 0 for this frame — NRD's "skipped lobe" encoding.
+    // The host enables HitDistanceReconstructionMode for this probabilistic
+    // lobe-selection convention. Kept OUT of gIndirectKeyOut because
+    // DirectAtrousPass is shared with the direct chain and hard-codes that
+    // (viewZ, normal.xyz) layout.
+    gIndirectKeyExtra[pixel] =
+        float4(s.rough, diffuseHitDistance, specularHitDistance, 0.f);
 }

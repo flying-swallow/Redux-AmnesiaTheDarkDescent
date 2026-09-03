@@ -23,8 +23,8 @@ import Shading;                        // prepareDiffuseShading / directTargetPd
 import Random;
 import Reservoir;
 
-// Pass-private (set 2).
-[vk::binding(0, 2)] Texture2D<uint4>    gPackedHitInfoRaster;  // raster V-buffer fallback
+// Pass-private (set 2). Slot 0 is a gap; the remaining bindings keep their
+// numbers so the host-side layout stays stable.
 [vk::binding(1, 2)] Texture2D<float4>   gReservoirIn;          // temporally-merged reservoir
 [vk::binding(2, 2)] Texture2D<float4>   gDirectKey;            // current surface key (viewZ, normal.xyz)
 [vk::binding(3, 2)] RWTexture2D<float4> gReservoirOut;         // output: final reservoir (next frame's history)
@@ -43,9 +43,9 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     if (p.x >= int(outW) || p.y >= int(outH))
         return;
 
+    // `gPackedHitInfo` already carries the raster hit (only the barycentrics
+    // are POM-perturbed), so a miss here is a real miss.
     HitInfo hitInfo = HitInfo(gPackedHitInfo[uint2(p)]);
-    if (!hitInfo.isValid())
-        hitInfo = HitInfo(gPackedHitInfoRaster.Load(int3(p, 0)));
     if (!hitInfo.isValid())
     {
         gReservoirOut[p]  = float4(0.f, 0.f, 0.f, 0.f);

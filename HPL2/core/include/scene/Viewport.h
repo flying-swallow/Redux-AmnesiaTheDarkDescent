@@ -266,15 +266,41 @@ public:
     RISharedPointer<RITextureView> indirectSpecularAtrousView[2];
     RISharedPointer<RITexture> indirectSpecularResolvedTexture[2];
     RISharedPointer<RITextureView> indirectSpecularResolvedView[2];
-    // Second half of the surface key: primary-hit GGX alpha in .x, rest
+    // Second half of the surface key: primary-hit GGX alpha in .x, shared
+    // primary hit distance in metres in .y/.z (0 = no hit/sky), and .w
     // reserved. Ping-pongs with (and is indexed by the same counter as) the
     // key above.
     RISharedPointer<RITexture> indirectKeyExtraTexture[2];
     RISharedPointer<RITextureView> indirectKeyExtraView[2];
+
+    // Separate NRD frontend inputs produced from the path-traced textures.
+    // These are ping-ponged with indirectLightingIndex so the NRD pass selects
+    // the same frame slot without aliasing the SVGF fallback inputs.
+    RISharedPointer<RITexture> nrdNormalRoughnessTexture[2];
+    RISharedPointer<RITextureView> nrdNormalRoughnessView[2];
+    RISharedPointer<RITexture> nrdViewZTexture[2];
+    RISharedPointer<RITextureView> nrdViewZView[2];
+    RISharedPointer<RITexture> nrdDiffuseRadianceHitDistTexture[2];
+    RISharedPointer<RITextureView> nrdDiffuseRadianceHitDistView[2];
+    RISharedPointer<RITexture> nrdSpecularRadianceHitDistTexture[2];
+    RISharedPointer<RITextureView> nrdSpecularRadianceHitDistView[2];
+    // NRD writes IN_MV during temporal stabilization, so keep a private
+    // writable copy instead of handing it the shared velocity attachment.
+    RISharedPointer<RITexture> nrdMotionVectorsTexture[2];
+    RISharedPointer<RITextureView> nrdMotionVectorsView[2];
+
     // Shared by BOTH the diffuse and the specular chain — one index, one init
     // flag, so the two stay in lockstep across frames.
     uint32_t indirectLightingIndex = 0;
     bool indirectLightingInit = false;
+
+    // Runtime denoiser switches invalidate both temporal histories. This is
+    // separate from indirectLightingInit: the latter describes resource
+    // lifetime and therefore must not reissue UNDEFINED barriers mid-stream.
+    bool indirectHistoryReset = false;
+    bool nrdInputInShaderResource[2] = {};
+    bool denoiserToggleInitialized = false;
+    bool lastUseNrdDenoiser = false;
 
     // ReSTIR DI reservoirs (RGBA32F = packed light index + W + M; exact uint
     // index needs full-float storage). [reservoirHistory] ping-pongs across

@@ -4,6 +4,7 @@
 #include "graphics/GlobalManagedSets.h"
 #include "graphics/HPLGraphicsConfig.h"
 #include "graphics/Material.h"
+#include "graphics/NrdIntegration.h"
 #include "graphics/RenderList.h"
 #include "graphics/Renderer.h"
 #include "graphics/RISegmentAlloc.h"
@@ -88,7 +89,10 @@ private:
   RIProgram m_pathTrace;
 
   // Final composite (amnesia/slang/Composite/MainCompositePass.cs.slang). Reads
-  // gPackedHitInfo + gIndirectLighting + gDirectLighting and writes gOutput.
+  // gPackedHitInfo + the two denoised indirect channels (gIndirectLighting,
+  // gIndirectSpecular) + gDirectLighting (the ReSTIR DI chain's denoised term,
+  // summed with the indirect diffuse here rather than in the path tracer) and
+  // writes gOutput.
   RIProgram m_composite;
 
   // Direct-lighting passes (amnesia/slang/DirectLighting/):
@@ -102,6 +106,12 @@ private:
   // Temporal accumulation for the path-traced indirect term. The spatial
   // half reuses m_directAtrous, bound against the indirect textures.
   RIProgram m_indirectTemporal;
+  // NRD frontend repack, dispatched immediately before NrdIntegration when
+  // the runtime NRD toggle is enabled.
+  RIProgram m_nrdPack;
+  // Native NRD denoiser; shares the renderer lifetime with the other denoiser
+  // programs and owns NRD's internal history/output resources.
+  NrdIntegration m_nrd;
 
 
 	// Particle (translucent) pass — port of legacy RendererDeferred's

@@ -1,5 +1,5 @@
-/// Screen-space fog helper shared by the opaque (SurfelGI composite) and
-/// translucent fragment shaders. Replaces the legacy per-object fog-area
+/// Screen-space fog helper shared by the main composite pass and the
+/// translucent / particle / water fragment shaders. Replaces the legacy per-object fog-area
 /// visibility (RendererDeferred.cpp:365-478) with a per-pixel iteration
 /// that walks the gFogAreas SSBO and accumulates both a visibility scalar
 /// and an additive fog colour.
