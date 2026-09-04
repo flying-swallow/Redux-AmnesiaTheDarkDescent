@@ -32,16 +32,16 @@ void GlobalManagedSets::initialize(RIDevice *device,
   cGraphics* pGraphics = Interface<cGraphics>::Get();
   {
     std::vector<RIBindlessDescriptorSet::Binding> bindings = {};
-    // Stage mask shared by every binding the SurfelGI RT pipeline touches —
+    // Stage mask shared by every binding the RT pipeline touches —
     // raygen/any-hit/closest-hit/miss all need bindless texture+vertex
-    // access for the alpha test, camera-ray reconstruction, and (in Stage E)
-    // material shading inside the path-tracer.
+    // access for the alpha test, camera-ray reconstruction, and material
+    // shading inside the path-tracer.
     const VkShaderStageFlags kRtSharedStages =
         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
         VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_RAYGEN_BIT_KHR |
         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
         VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR;
-    // textures_2d[] — sampled by the gbuffer, the composite, and the SurfelGI
+    // textures_2d[] — sampled by the gbuffer, the composite, and the
     // RT pipeline (any-hit alpha test + closest-hit albedo).
     bindings.push_back(RIBindlessDescriptorSet::Binding{
         kBindingTextures2D, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
@@ -73,26 +73,21 @@ void GlobalManagedSets::initialize(RIDevice *device,
     bindings.push_back(RIBindlessDescriptorSet::Binding{
         kBindingMaterialSampler, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
         kRtSharedStages, 0});
-    // SurfelGI SSBOs. Reachable from compute, ray-tracing, and fragment stages
-    // (the update/raytrace passes, the VBuffer/RT raygen, and the composite).
-    const uint32_t kSurfelCellBindings[] = {
-        kBindingSurfelCounter,      kBindingSurfelBuffer,
-        kBindingSurfelGeometry,     kBindingSurfelValidIndex,
-        kBindingSurfelDirtyIndex,  kBindingSurfelFreeIndex,
-        kBindingSurfelRecycle,      kBindingSurfelRayResult,
-        kBindingCellInfo,           kBindingCellToSurfel,
-        kBindingSurfelRefCounter,  kBindingSurfelReservation,
-        kBindingSurfelBounds,
-        kBindingBindlessSlotGeneration, kBindingSurfelSlotGeneration,
-        kBindingLightGridCount,         kBindingLightGridList,
+    // Slot-generation + light-grid SSBOs. Reachable from compute, ray-tracing,
+    // and fragment stages (LightGridBuildPass writes the grid; the direct pass,
+    // the path tracer's getCellLights and the object-slot consumers read).
+    const uint32_t kGridSlotBindings[] = {
+        kBindingBindlessSlotGeneration,
+        kBindingLightGridCount,
+        kBindingLightGridList,
     };
-    const VkShaderStageFlags kSurfelStageFlags =
+    const VkShaderStageFlags kGridSlotStageFlags =
         VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
         VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
         VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR;
-    for (uint32_t b : kSurfelCellBindings) {
+    for (uint32_t b : kGridSlotBindings) {
       bindings.push_back(RIBindlessDescriptorSet::Binding{
-          b, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kSurfelStageFlags, 0});
+          b, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, kGridSlotStageFlags, 0});
     }
     // Scene-object + flat material table. Read by the gbuffer, the composite,
     // and the RT pipeline's hit shaders.
@@ -109,20 +104,9 @@ void GlobalManagedSets::initialize(RIDevice *device,
     // set kWorldSet (program-managed + cached) by every pass that reads them —
     // see appendWorldLightFog in HybridRenderer.cpp. set 0 stays pure engine state.
 
-    // gSurfelDepthSampler stays on set 0 — immutable, never collides with the
-    // in-flight frame. The surfel images + TLAS live on set 1 instead, pushed
-    // per-dispatch from a frame-rotated pool (see RIProgram::bindDescriptors).
-    bindings.push_back(RIBindlessDescriptorSet::Binding{
-        kBindingSurfelDepthSampler, VK_DESCRIPTOR_TYPE_SAMPLER, 1,
-        VK_SHADER_STAGE_COMPUTE_BIT | VK_SHADER_STAGE_FRAGMENT_BIT |
-            VK_SHADER_STAGE_RAYGEN_BIT_KHR |
-            VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
-            VK_SHADER_STAGE_ANY_HIT_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR,
-        0});
-
     // core_dissolve noise — one immutable sampled image on set 0, written once
     // at init. UV-sampled by the shared SceneMaterials.alphaTest in every
-    // alpha-testing context (gbuffer FS, V-buffer / surfel anyhit, shadow and
+    // alpha-testing context (gbuffer FS, V-buffer anyhit, shadow and
     // reflection RayQuery loops) — the legacy solid_z dissolve fade.
     bindings.push_back(RIBindlessDescriptorSet::Binding{
         kBindingDissolveMap, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1,
@@ -137,14 +121,14 @@ void GlobalManagedSets::initialize(RIDevice *device,
     // textures_2d_array[] + the dissolve noise map.
     poolSizes[0] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                                         kTextureSlotCapacity * 2 + kTexture2DArrayCapacity + 2};
-    // Storage-buffer pool budget: 17 surfel/cell bindings (kSurfelCellBindings,
-    // incl. kBindingSurfelBounds, the two slot-generation buffers, and the two
-    // light-grid buffers) + 2 scene/material + 1 animTex ≈ 20. The per-world
-    // light/fog SSBOs are no longer here (they ride kWorldSet). 40 keeps slack.
+    // Storage-buffer pool budget: 3 slot-generation / light-grid bindings
+    // (kGridSlotBindings) + 2 scene/material + 1 animTex = 6 actually bound.
+    // The per-world light/fog SSBOs are no longer here (they ride kWorldSet).
+    // 16 keeps slack for future set-0 SSBOs.
     poolSizes[1] =
-        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 40};
-    // Two samplers: gMaterialSampler + gSurfelDepthSampler.
-    poolSizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLER, 2};
+        VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 16};
+    // One sampler: gMaterialSampler.
+    poolSizes[2] = VkDescriptorPoolSize{VK_DESCRIPTOR_TYPE_SAMPLER, 1};
 
     m_bindlessSet.initialize(device, bindings, poolSizes);
   }
@@ -152,7 +136,7 @@ void GlobalManagedSets::initialize(RIDevice *device,
   const VkBufferUsageFlags kStorage =
       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
       VK_BUFFER_USAGE_TRANSFER_DST_BIT |
-      VK_BUFFER_USAGE_TRANSFER_SRC_BIT;  // surfelValid→surfelDirty ping-pong copy
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
   m_objectBuffer = detail::CreateBindlessSlotBuffer(
       device, kObjectSlotCapacity, sizeof(UniformObject), kStorage,
       /*deviceLocalOnly*/ true);
@@ -170,60 +154,6 @@ void GlobalManagedSets::initialize(RIDevice *device,
       device, kTexture2DArrayCapacity, sizeof(AnimTexRec), kStorage,
       /*deviceLocalOnly*/ true);
 
-  // === SurfelGI SSBOs ===
-  // Sizes from the kSurfel* / kCell* / kRayBudget constants:
-  //   surfelCounter         : kSurfelCounterSlotCount × uint32
-  //   surfel/geometry/etc   : kTotalSurfelLimit × element
-  //   surfelRayResult       : kRayBudget × SurfelRayResult (~460 MB)
-  //   cellInfo / reservation: kCellCount × element  (15.6M cells × 8B/4B)
-  //   cellToSurfel          : kCellToSurfelCapacity × uint32  (75 MB)
-  // Lock host sizeof against the Slang ArrayStride for every SSBO struct the
-  // host allocates by sizeof(). Mismatches here silently undersize the
-  // bindless buffer; robust-access turns the out-of-bounds writes into no-ops
-  // and reads return zeros — which manifested as Cell=0/ReqRay=0 because every
-  // dirty surfel's data came back as zero.
-  //
-  // The shaders compile with `-fvk-use-scalar-layout` (cmake/shaders.cmake),
-  // so the GPU strides are the natural/packed sizes (float3 = 12B, no 16B
-  // struct rounding) and match the host's plain-C layout. These are NOT the
-  // std430 values (which would be 128/32/64). Re-measure after any struct or
-  // layout-flag change: `slangc … -target spirv-assembly | grep ArrayStride`.
-  static_assert(sizeof(Surfel)            == 104, "Surfel host size != Slang scalar ArrayStride (104); re-check struct layout / -fvk-use-scalar-layout");
-  static_assert(sizeof(SurfelBounds)      == 28,  "SurfelBounds host size != Slang scalar ArrayStride (28)");
-  static_assert(sizeof(SurfelRayResult)   == 48,  "SurfelRayResult host size != Slang scalar ArrayStride (48)");
-  static_assert(sizeof(CellInfo)          == 8,   "CellInfo host size != Slang scalar ArrayStride (8)");
-  static_assert(sizeof(SurfelRecycleInfo) == 6,   "SurfelRecycleInfo host size != Slang scalar ArrayStride (6)");
-
-  m_surfelCounterBuffer = detail::CreateBindlessSlotBuffer(
-      device, kSurfelCounterSlotCount, sizeof(uint32_t), kStorage,
-      /*deviceLocalOnly*/ true);
-  m_surfelBuffer = detail::CreateBindlessSlotBuffer(
-      device, kTotalSurfelLimit, sizeof(Surfel), kStorage);
-  m_surfelGeometryBuffer = detail::CreateBindlessSlotBuffer(
-      device, kTotalSurfelLimit, sizeof(uint32_t) * 4u, kStorage);
-  m_surfelValidBuffer = detail::CreateBindlessSlotBuffer(
-      device, kTotalSurfelLimit, sizeof(uint32_t), kStorage);
-  m_surfelDirtyIndexBuffer = detail::CreateBindlessSlotBuffer(
-      device, kTotalSurfelLimit, sizeof(uint32_t), kStorage);
-  m_surfelFreeBuffer = detail::CreateBindlessSlotBuffer(
-      device, kTotalSurfelLimit, sizeof(uint32_t), kStorage);
-  m_surfelRecycleBuffer = detail::CreateBindlessSlotBuffer(
-      device, kTotalSurfelLimit, sizeof(SurfelRecycleInfo), kStorage);
-  m_surfelRayResultBuffer = detail::CreateBindlessSlotBuffer(
-      device, kRayBudget, sizeof(SurfelRayResult), kStorage);
-  m_surfelRefCounterBuffer = detail::CreateBindlessSlotBuffer(
-      device, kTotalSurfelLimit, sizeof(uint32_t), kStorage);
-  m_surfelReservationBuffer = detail::CreateBindlessSlotBuffer(
-      device, kCellCount, sizeof(uint32_t), kStorage);
-  m_cellInfoBuffer = detail::CreateBindlessSlotBuffer(
-      device, kCellCount, sizeof(CellInfo), kStorage);
-  m_cellToSurfelBuffer = detail::CreateBindlessSlotBuffer(
-      device, kCellToSurfelCapacity, sizeof(uint32_t), kStorage);
-  // Compact cull record per surfel; written by collectCellInfo before the
-  // generation pass reads it, so no defensive zeroing is needed (every index
-  // pulled from a cell list has already passed through collect this frame).
-  m_surfelBoundsBuffer = detail::CreateBindlessSlotBuffer(
-      device, kTotalSurfelLimit, sizeof(SurfelBounds), kStorage);
   // Coarse world-space light grid. GPU-only: zeroed each frame via
   // vkCmdFillBuffer and (re)filled by LightGridBuildPass before the ray trace,
   // so no host seeding / mapping is needed (deviceLocalOnly).
@@ -234,39 +164,16 @@ void GlobalManagedSets::initialize(RIDevice *device,
       device, kLightGridCellCount * kLightsPerCellMax, sizeof(uint32_t),
       kStorage, /*deviceLocalOnly*/ true);
 
-  // Seed the surfel free-list. gSurfelCounter[Free] is a stack pointer and
-  // gSurfelFreeIndexBuffer holds the available slot indices; at boot every slot
-  // is free, so Free = kTotalSurfelLimit and the index buffer is iota
-  // [0..kTotalSurfelLimit). Without this the free list starts empty (Free=0):
-  // SurfelGenerationPass's InterlockedAdd(Free,-1) underflows, Valid/Dirty stay
-  // 0 forever => no rays => no indirect light. It can't bootstrap from the
-  // recycle path either (collectCellInfo only frees *dirty* surfels, of which
-  // there are none). m_surfelFreeBuffer is host-mapped (iota seeded below);
-  // m_surfelCounterBuffer is device-local, so its Free seed stages through
-  // m_surfelCounterMirror on the first flushMirrors().
-  {
-    auto *freeIdx =
-        static_cast<uint32_t *>(m_surfelFreeBuffer.mappedAddress);
-    for (uint32_t i = 0; i < kTotalSurfelLimit; ++i)
-      freeIdx[i] = i;
-  }
-
-  // Slot-reuse generation buffers (see m_bindlessSlotGenerationBuffer). Both
-  // start at 0; the host bumps a slot's generation to a unique nonzero value
-  // the first time it's assigned (in Draw), so a real surfel always
-  // captures a matching value and 0 can never alias a live slot.
+  // Slot-reuse generation buffer (see m_bindlessSlotGenerationBuffer). Starts
+  // at 0; the host bumps a slot's generation to a unique nonzero value the
+  // first time it's assigned (in Draw), so 0 can never alias a live slot.
   m_bindlessSlotGenerationBuffer = detail::CreateBindlessSlotBuffer(
       device, kObjectSlotCapacity, sizeof(uint32_t), kStorage,
       /*deviceLocalOnly*/ true);
-  m_surfelSlotGenerationBuffer = detail::CreateBindlessSlotBuffer(
-      device, kTotalSurfelLimit, sizeof(uint32_t), kStorage);
-  // m_bindlessSlotGenerationBuffer is now device-local (no mappedAddress); the
-  // CPU shadow mirror is zero-initialized by init() below and markAllDirty()
-  // forces the first frame's flushMirrors() to seed the device buffer
-  // to zero before collectCellInfo reads it. m_surfelSlotGenerationBuffer stays
-  // host-mapped (GPU-written each frame; only this boot zero touches it).
-  std::memset(m_surfelSlotGenerationBuffer.mappedAddress, 0,
-              (size_t)kTotalSurfelLimit * sizeof(uint32_t));
+  // m_bindlessSlotGenerationBuffer is device-local (no mappedAddress); the CPU
+  // shadow mirror is zero-initialized by init() below and markAllDirty() forces
+  // the first frame's flushMirrors() to seed the device buffer to zero before
+  // any consumer reads it.
 
   // Shadow mirror for the device-local slot-generation buffer. Host writes
   // target this (never GPU-mapped memory); flushMirrors() stages the dirty range
@@ -275,15 +182,6 @@ void GlobalManagedSets::initialize(RIDevice *device,
   // (Per-stream BDA handles now ride the UniformObject upload — no mirrors.)
   m_bindlessSlotGenerationMirror.init(kObjectSlotCapacity, sizeof(uint32_t));
   m_bindlessSlotGenerationMirror.markAllDirty();
-
-  // Boot-seed the device-local surfel counter: init() zero-fills, then set
-  // Free = kTotalSurfelLimit (the free-list stack pointer). markAllDirty()
-  // stages the seed on the first frame's flushMirrors(), which lands ahead of
-  // the surfel passes via Interface<cGraphics>::Get()->uploader's fenced pre-pass. The host never touches
-  // this mirror again — the GPU owns the counter thereafter.
-  m_surfelCounterMirror.init(kSurfelCounterSlotCount, sizeof(uint32_t));
-  m_surfelCounterMirror.write<uint32_t>(kSurfelCounterFree, kTotalSurfelLimit);
-  m_surfelCounterMirror.markAllDirty();
 
   // Light SSBOs (point/spot/box) + fog/decal/object-decal-index. Unlike the
   // bindless slot buffers above these are device-local — the per-frame fill in
@@ -316,36 +214,8 @@ void GlobalManagedSets::initialize(RIDevice *device,
       RIBuffer *buffer;
       VkDeviceSize range;
     } ssbos[] = {
-        {kBindingSurfelCounter, &m_surfelCounterBuffer,
-         kSurfelCounterSlotCount * sizeof(uint32_t)},
-        {kBindingSurfelBuffer, &m_surfelBuffer,
-         kTotalSurfelLimit * sizeof(Surfel)},
-        {kBindingSurfelGeometry, &m_surfelGeometryBuffer,
-         kTotalSurfelLimit * sizeof(uint32_t) * 4u},
-        {kBindingSurfelValidIndex, &m_surfelValidBuffer,
-         kTotalSurfelLimit * sizeof(uint32_t)},
-        {kBindingSurfelDirtyIndex, &m_surfelDirtyIndexBuffer,
-         kTotalSurfelLimit * sizeof(uint32_t)},
-        {kBindingSurfelFreeIndex, &m_surfelFreeBuffer,
-         kTotalSurfelLimit * sizeof(uint32_t)},
-        {kBindingSurfelRecycle, &m_surfelRecycleBuffer,
-         kTotalSurfelLimit * sizeof(SurfelRecycleInfo)},
-        {kBindingSurfelRayResult, &m_surfelRayResultBuffer,
-         kRayBudget * sizeof(SurfelRayResult)},
-        {kBindingCellInfo, &m_cellInfoBuffer,
-         kCellCount * sizeof(CellInfo)},
-        {kBindingCellToSurfel, &m_cellToSurfelBuffer,
-         kCellToSurfelCapacity * sizeof(uint32_t)},
-        {kBindingSurfelRefCounter, &m_surfelRefCounterBuffer,
-         kTotalSurfelLimit * sizeof(uint32_t)},
-        {kBindingSurfelReservation, &m_surfelReservationBuffer,
-         kCellCount * sizeof(uint32_t)},
-        {kBindingSurfelBounds, &m_surfelBoundsBuffer,
-         kTotalSurfelLimit * sizeof(SurfelBounds)},
         {kBindingBindlessSlotGeneration, &m_bindlessSlotGenerationBuffer,
          kObjectSlotCapacity * sizeof(uint32_t)},
-        {kBindingSurfelSlotGeneration, &m_surfelSlotGenerationBuffer,
-         kTotalSurfelLimit * sizeof(uint32_t)},
         {kBindingLightGridCount, &m_lightGridCountBuffer,
          kLightGridCellCount * sizeof(uint32_t)},
         {kBindingLightGridList, &m_lightGridListBuffer,
@@ -373,18 +243,6 @@ void GlobalManagedSets::initialize(RIDevice *device,
     writes[count].arrayElement = 0;
     writes[count].descriptor = *m_materialSampler;
     count++;
-    // gSurfelDepthSampler — immutable bilinear clamp sampler, written
-    // once at init time. The image views it samples (kBindingSurfelDepthSampled
-    // / kBindingSurfelDepth) live on set 1 and are pushed per-dispatch.
-    {
-      auto surfelDepthDesc = pGraphics->resolve_filter_descriptor(
-          eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
-          eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
-      writes[count].binding = kBindingSurfelDepthSampler;
-      writes[count].arrayElement = 0;
-      writes[count].descriptor = *surfelDepthDesc;
-      count++;
-    }
     // gDissolveMap — the legacy 128×128 dissolve noise (solid_z.frag.fsl),
     // bound once here on set 0. UV-sampled by the shared
     // SceneMaterials.alphaTest for the CoverageAmount fade.
@@ -504,9 +362,12 @@ GlobalManagedSets::submitMaterial(cGraphics::FrameContext *cntx,
           trans.rimLightPow         = data.m_rimLightPow;
           std::memcpy(blob.data, &trans, sizeof(trans));
         } else if constexpr (std::is_same_v<T, MaterialWater>) {
-          // Water always refracts + reflects via the SurfelVBuffer.rt wave-animated
-          // bounce. IsWater drives that branch; HasRefraction makes the GIRenderPass
-          // swap show the refracted background.
+          // Water is flagged as always refracting + reflecting. Reflection is
+          // real (Water.frag traces it with an inline RayQuery); refraction is
+          // not — no refraction pass runs, so the background under the water
+          // surface is the unrefracted composite. The HasRefraction flag is
+          // kept because the CPU side reads it (e.g. TLAS instance gathering in
+          // cWorld) and it stays correct once a refraction pass lands.
           gpu.materialConfig |= kMaterialFlagIsWater | kMaterialFlagHasRefraction;
           WaterMaterial water = {};
           water.type            = MATERIAL_TYPE_WATER;
@@ -569,24 +430,24 @@ uint32_t GlobalManagedSets::submitObject(uint64_t objectCookie,
                                               uint32_t flags) {
   cGraphics* pGraphics = Interface<cGraphics>::Get();
   // Stable slot per object: keyed on the renderable's unique cookie only, so a
-  // moving object keeps its slot (its surfels follow via object-space anchoring +
-  // the per-frame modelMat upload below). frameInFlight = 0, so a slot is only
-  // unavailable if every slot is already taken this frame.
+  // moving object keeps its slot (the per-frame modelMat upload below carries
+  // the movement). frameInFlight = 0, so a slot is only unavailable if every
+  // slot is already taken this frame.
   auto req = m_objectSlots.request(objectCookie, frameIndex);
   if (req.exhausted)
     return UINT32_MAX;
   const uint32_t slot = req.id;
 
-  // Generation bump triggers (surfel anchor invalidation): a fresh occupant
-  // (!found) or a topology change. The only hard fault is primitiveIndex >=
-  // triangleCount, so a change in the VB's index count is the one geometry edit
-  // that must invalidate anchored surfels; a same-count realloc just refreshes
-  // the BDA (writeObjectStreamHandles, every frame) and keeps surfels valid.
+  // Generation bump triggers (invalidate anything holding a cached reference to
+  // this object slot): a fresh occupant (!found) or a topology change. The only
+  // hard fault is primitiveIndex >= triangleCount, so a change in the VB's index
+  // count is the one geometry edit that must invalidate; a same-count realloc
+  // just refreshes the BDA (every frame) and stays valid.
   const uint32_t indexCount = vb ? (uint32_t)vb->GetIndexNum() : 0u;
   if (!req.found && vb) {
     // Bind the VB-destroy hook on a fresh slot: when the geometry is freed, bump
-    // this slot's generation so surfels still anchored here go stale before they
-    // dereference the freed vertex/index BDA. Writes the CPU shadow only (may
+    // this slot's generation so any cached reference to it goes stale before it
+    // dereferences the freed vertex/index BDA. Writes the CPU shadow only (may
     // fire off-frame during teardown); flushMirrors() stages it next frame.
     req.state->onDestroy = EventHandler<>([this, slot]() {
       m_bindlessSlotGenerationMirror.write<uint32_t>(
@@ -712,9 +573,6 @@ void GlobalManagedSets::flushMirrors(RIDevice *device) {
   };
   const Item items[] = {
       {&m_bindlessSlotGenerationBuffer, &m_bindlessSlotGenerationMirror},
-      // Boot-seed only: dirty on frame 0 (Free = kTotalSurfelLimit), a no-op
-      // every frame after — the GPU owns the counter once the passes run.
-      {&m_surfelCounterBuffer, &m_surfelCounterMirror},
   };
   for (const auto &it : items) {
     if (!it.mir->hasDirty())
@@ -725,8 +583,8 @@ void GlobalManagedSets::flushMirrors(RIDevice *device) {
     trans.target = *it.buf;
     trans.size = sz;
     trans.offset = off;
-    // Read as storage buffers by the gbuffer VS (vertex pull), the surfel
-    // VBuffer / ray-trace chit+ahit, and collectCellInfo (compute). The WAR
+    // Read as storage buffers by the gbuffer VS (vertex pull) and the
+    // ray-trace chit+ahit stages. The WAR
     // pre-barrier (currentState/currentStages) waits on the prior frame's reads before
     // the staged copy overwrites the slot; this is the m_objectBuffer path.
     trans.currentState = RI_RESOURCE_STATE_UNORDERED_ACCESS;
@@ -746,22 +604,8 @@ void GlobalManagedSets::destroy(RIDevice *device) {
   RIBuffer *ownedBuffers[] = {
       &m_objectBuffer,
       &m_bindlessSlotGenerationBuffer,
-      &m_surfelCounterBuffer,
-      &m_surfelBuffer,
-      &m_surfelGeometryBuffer,
-      &m_surfelValidBuffer,
-      &m_surfelDirtyIndexBuffer,
-      &m_surfelFreeBuffer,
-      &m_surfelRecycleBuffer,
-      &m_surfelRayResultBuffer,
-      &m_cellInfoBuffer,
-      &m_cellToSurfelBuffer,
-      &m_surfelRefCounterBuffer,
-      &m_surfelReservationBuffer,
-      &m_surfelBoundsBuffer,
       &m_lightGridCountBuffer,
       &m_lightGridListBuffer,
-      &m_surfelSlotGenerationBuffer,
       &m_materialBuffer,
       &m_animTexBuffer,
   };

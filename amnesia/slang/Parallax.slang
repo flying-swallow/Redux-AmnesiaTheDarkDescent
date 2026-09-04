@@ -9,12 +9,14 @@
 // vector through the [0,1] height volume and stops where the ray crosses the
 // stored height field.
 //
-// The result is a warped UV. Callers decide how to apply it — the SurfelVBuffer
-// V-buffer converts the UV delta into a barycentric perturbation so the whole
-// pipeline reconstructs the occluded point (see SurfelVBuffer.rt.slang).
+// The result is a warped UV. Callers decide how to apply it — the POM
+// barycentric pass converts the UV delta into a barycentric perturbation so
+// the whole pipeline reconstructs the occluded point
+// (see VBuffer/VBufferPomBary.cs.slang).
 //
-// RT note: closest-hit shaders have no automatic texture derivatives, so every
-// height sample uses an explicit LOD (0).
+// Derivative note: the callers are non-pixel stages (compute) with no
+// automatic texture derivatives, so every height sample uses an explicit
+// LOD (0).
 
 import SceneTypes;          // kInvalidTextureIndex (shared consts live here)
 import bindless;            // gTextures2D, gMaterialSampler

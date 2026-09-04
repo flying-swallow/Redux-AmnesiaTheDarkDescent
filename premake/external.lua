@@ -4,7 +4,7 @@
 -- impractical (and brittle) to reimplement in premake. Each is wrapped in a
 -- premake kind "Makefile" project whose buildcommands run the library's own
 -- CMake (configure + build) into build-premake/external/<name>/<config>.
--- Consumers pull in the headers/links via link_sdl2() / link_openal().
+-- Consumers pull in the headers/links via link_sdl2() / link_openal() / link_nrd().
 --
 -- Linux keeps the shared-library deployment flow and copies the resulting .so
 -- files next to the game. Windows builds static SDL2/openal-soft libraries, so
@@ -18,6 +18,11 @@ local RUNTIME_EXE  = ROOT .. "/build-premake/amnesia/%{cfg.buildcfg}"
 local function winpath(p) return (p:gsub("/", "\\")) end
 local SDL2_PROJECT = "SDL2"
 local OPENAL_PROJECT = "OpenALSoft"
+local NRD_PROJECT = "NRD"
+-- Keep the Premake wrapper project distinct from the archive's linker name.
+-- Otherwise links { "NRD" } is resolved as a project dependency and gmake2
+-- omits -lNRD from final executable link lines.
+local NRD_BUILD_PROJECT = "NRDExternal"
 
 -- unix_args / win_args: platform-specific CMake configure arguments.
 -- copy_glob: optional posix shared-lib glob copied next to the game (Linux, into libs/).
@@ -138,4 +143,62 @@ function link_openal()
         libdirs { EXT_ROOT .. "/" .. OPENAL_PROJECT .. "/%{cfg.buildcfg}/%{cfg.buildcfg}" }
         links { "OpenAL32" }
     filter {}
+end
+
+-- ---- NRD (NVIDIA Real-Time Denoisers) --------------------------------------
+-- NRD's CMake compiles its HLSL denoiser shaders with ShaderMake and embeds the
+-- resulting blobs into the library. ShaderMake downloads a pinned DXC at CMake
+-- configure time ("ShaderMake: downloading DXC v1.8.2505..."), so no DXC has to
+-- be supplied by this repo -- the slangc-only toolchain here is untouched, NRD's
+-- shaders never pass through slangc.
+--
+-- MathLib is pulled by NRD's own FetchContent into its build tree; that copy is
+-- private to NRD and deliberately separate from HPL2/extern/MathLib (mathlib_use()).
+--
+-- Only SPIR-V blobs are embedded: this engine is Vulkan-only, and DXIL/DXBC would
+-- additionally require FXC on Windows.
+--
+-- NRD_SHADERS_PATH / CMAKE_*_OUTPUT_DIRECTORY are overridden because NRD defaults
+-- them to _Shaders/ and _Bin/ *inside its own source tree*, which would dirty the
+-- submodule on every build.
+local NRD_BUILD = EXT_ROOT .. "/" .. NRD_PROJECT .. "/%{cfg.buildcfg}"
+local NRD_COMMON_ARGS =
+    "-DNRD_STATIC_LIBRARY=ON -DNRD_NRI=OFF -DNRD_EMBEDS_SPIRV_SHADERS=ON "
+        .. string.format('-DNRD_SHADERS_PATH="%s/_Shaders" ', NRD_BUILD)
+        .. string.format('-DCMAKE_RUNTIME_OUTPUT_DIRECTORY="%s/_Bin" ', NRD_BUILD)
+        .. string.format('-DCMAKE_LIBRARY_OUTPUT_DIRECTORY="%s/_Bin"', NRD_BUILD)
+
+cmake_makefile(NRD_BUILD_PROJECT,
+    DEPS_EXTERN .. "/NRD",
+    NRD_COMMON_ARGS,
+    NRD_COMMON_ARGS .. " -DNRD_EMBEDS_DXIL_SHADERS=OFF -DNRD_EMBEDS_DXBC_SHADERS=OFF",
+    nil, nil)
+
+function link_nrd()
+    dependson { NRD_BUILD_PROJECT }
+    -- NRD.h includes NRDDescs.h/NRDSettings.h from the same directory and
+    -- nothing else beyond <cstddef>/<cstdint>, so Include/ is the whole public
+    -- surface. (Integration/ is deliberately not exposed: NRDIntegration.hpp
+    -- needs NRI, which is disabled via -DNRD_NRI=OFF.)
+    includedirs {
+        DEPS_EXTERN .. "/NRD/Include",
+    }
+    -- NRD links ShaderMakeBlob PRIVATE, which for a static library means the
+    -- consumer still has to resolve ShaderMake::FindPermutationInBlob().
+    filter "system:linux"
+        libdirs {
+            NRD_BUILD .. "/_Bin",
+            NRD_BUILD .. "/_deps/shadermake-build",
+        }
+    filter "system:windows"
+        -- MSBuild is multi-config, so it appends the configuration name to the
+        -- output directories.
+        libdirs {
+            NRD_BUILD .. "/_Bin/%{cfg.buildcfg}",
+            NRD_BUILD .. "/_Bin",
+            NRD_BUILD .. "/_deps/shadermake-build/%{cfg.buildcfg}",
+            NRD_BUILD .. "/_deps/shadermake-build",
+        }
+    filter {}
+    links { "NRD", "ShaderMakeBlob" }
 end

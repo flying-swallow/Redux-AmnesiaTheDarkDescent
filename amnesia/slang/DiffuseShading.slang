@@ -1,6 +1,7 @@
 #pragma once
 // Shared diffuse-shading helpers, used by both the composite / direct stack
-// (SurfelShade.slang) and the surfel path tracer (SurfelRayTrace.rt.slang):
+// (MainCompositePass.cs, DirectLightingPass.cs) and the path tracer
+// (PathTracePass.rt.slang):
 //   * DiffuseShading + prepareDiffuseShading — surface shading state from a hit.
 //   * shadeAnalyticLight / *Soft / unshadowedAnalyticLight — the per-light
 //     diffuse shade (hard / jittered-disk / no shadow ray). These were Scene
@@ -31,7 +32,7 @@ public struct DiffuseShading
 };
 
 // emission = illumination-map texel (DiffuseMaterial slot 5) * per-object glow
-// scalar (UniformObject.illuminationAmount). Without this the surfel composite
+// scalar (UniformObject.illuminationAmount). Without this the composite pass
 // ignores illumination entirely and glowing textures render dark.
 //
 // decodeRoughness: the path tracer decodes per-texel roughness
@@ -41,9 +42,11 @@ public struct DiffuseShading
 //
 // applyNormalMap: perturb normalW with the material's tangent-space normal map
 // (tex[1], gated by kMaterialFlagEnableNormal). Defaults to false so existing
-// callers (composite / water / surfel) are unchanged; the ReSTIR direct pass
+// callers (composite / water) are unchanged; the ReSTIR direct pass
 // opts in so its lighting picks up bump detail. World-space TBN built from the
-// interpolated normal + tangent — same decode/convention as SurfelVBuffer.rt.
+// interpolated normal + tangent: T is Gram-Schmidt orthogonalized against N,
+// B = cross(N, T) with the tangent handedness dropped, and the map is decoded
+// as 2*sample-1.
 public DiffuseShading prepareDiffuseShading(VertexData v, uint materialID,
                                             float illuminationAmount,
                                             bool decodeRoughness = false,
@@ -89,8 +92,7 @@ public DiffuseShading prepareDiffuseShading(VertexData v, uint materialID,
 // --- Per-light analytic diffuse shading -----------------------------------
 // Demodulated throughout: Li·NdotL·f_d/albedo (no albedo — the caller applies
 // it). f_d is the standard diffuse lobe (kDiffuseBrdf, carries its 1/π). V is
-// toward the camera for the composite/direct stack, back along the scatter ray
-// for the surfel NEE.
+// toward the camera for the composite/direct stack.
 
 // Shared core: sample + back-face cull + demodulated contribution. Returns false
 // (contrib unset) when the sample fails or N·L ≤ 0. The three public variants
@@ -115,8 +117,9 @@ public float3 shadeAnalyticLight(float3 posW, float3 normalW, float3 V,
     float3 contrib;
     if (!sampleLightShade(lightIndex, posW, normalW, V, rough, ls, contrib))
         return float3(0.f);
-    // Force-shadows restores the old behavior: every light traces a shadow ray.
-    if ((gPerFrame.forceShadows != 0u || getLight(lightIndex).castsShadow()) &&
+    // Default policy: every light is shadow-casting, so every light traces a
+    // shadow ray. The authored flag only decides in the legacy opt-out mode.
+    if ((gPerFrame.allLightsCastShadows != 0u || getLight(lightIndex).castsShadow()) &&
         !traceShadowRay(origin, ls.dir, ls.distance)) return float3(0.f);
     return contrib;
 }
@@ -140,14 +143,46 @@ public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW, float3 V,
     // function no longer touches the typed SSBOs or knows the source shape. Spheres
     // (point/spot) return a disk point; area lights sample their rectangle; a
     // degenerate source returns the centre (hard ray).
-    float3 target = getLight(lightIndex).sampleSourcePoint(ls.dir, rng.next_float2());
+    float3 target = getLight(lightIndex).sampleSourcePoint(posW, ls.dir, rng.next_float2());
     float3 toT  = target - origin;
     float  sMax = length(toT);
     float3 sDir = toT / max(sMax, 1.0e-6f);
 
-    if ((gPerFrame.forceShadows != 0u || getLight(lightIndex).castsShadow()) &&
+    // Default policy: every light is shadow-casting, so every light traces a
+    // shadow ray. The authored flag only decides in the legacy opt-out mode.
+    if ((gPerFrame.allLightsCastShadows != 0u || getLight(lightIndex).castsShadow()) &&
         !traceShadowRay(origin, sDir, sMax)) return float3(0.f);
     return contrib;
+}
+
+// Undemodulated, BRDF-FREE light contribution: returns Li·NdotL plus the light
+// direction `L`, so the caller can weight it with its own BSDF
+// (`evalBrdf(s, V, L) * LiNdotL`). Unlike the three demodulated variants above
+// — which bake in the diffuse lobe with albedo factored out — the path tracer
+// evaluates the full Cook-Torrance GGX BSDF (diffuse + specular) at the hit and
+// keeps albedo in, so it needs the raw radiance rather than a
+// diffuse-only/albedo-less one. Same sample + NdotL cull + shadow-ray gate as
+// shadeAnalyticLight, so the shadow policy stays in one place.
+// Returns false (outs zeroed) on sample failure, back-face, or occlusion.
+public bool shadeAnalyticLightRadiance(float3 posW, float3 normalW, uint lightIndex,
+                                       float3 origin, out float3 L, out float3 LiNdotL)
+{
+    L       = float3(0.f);
+    LiNdotL = float3(0.f);
+
+    LightSample ls;
+    if (!getLight(lightIndex).sample(posW, ls)) return false;
+    float NdotL = dot(normalW, ls.dir);
+    if (NdotL <= 0.f) return false;
+
+    // Default policy: every light is shadow-casting, so every light traces a
+    // shadow ray. The authored flag only decides in the legacy opt-out mode.
+    if ((gPerFrame.allLightsCastShadows != 0u || getLight(lightIndex).castsShadow()) &&
+        !traceShadowRay(origin, ls.dir, ls.distance)) return false;
+
+    L       = ls.dir;
+    LiNdotL = ls.Li * NdotL;
+    return true;
 }
 
 // Unshadowed contribution (no ray). Used as the RIS target weight for stochastic

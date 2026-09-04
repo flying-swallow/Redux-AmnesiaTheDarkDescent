@@ -132,9 +132,9 @@ const static char *DefaultDeviceExtension[] = {
     /************************************************************************/
     VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME,
     /************************************************************************/
-    // SV_Barycentrics support — SurfelGBuffer's psMain reads barycentric
+    // SV_Barycentrics support — VBufferRaster's psMain reads barycentric
     // coords directly off the fragment input to pack into the visibility
-    // buffer (see amnesia/slang/SurfelGBuffer/SurfelGBuffer.3d.slang).
+    // buffer (see amnesia/slang/VBuffer/VBufferRaster.3d.slang).
     /************************************************************************/
     VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME,
 };
@@ -1398,8 +1398,9 @@ int InitRIRenderer(const struct RIBackendInit *init) {
 
     g_renderer.vk.apiVersion = appInfo.apiVersion;
 
-    // GPU-Assisted Validation is enabled here to localize the surfel-branch
-    // GPUVM read fault (TCP client, RW:0, high BDA-range address): with GPU-AV
+    // GPU-Assisted Validation was originally enabled here to localize a GPUVM
+    // read fault on the since-retired surfel GI branch (TCP client, RW:0, high
+    // BDA-range address); the setting outlived that branch. With GPU-AV
     // on, the Khronos layer instruments shader buffer access — including
     // buffer_reference (BDA) derefs and descriptor-indexed reads — and emits a
     // precise ERROR naming the faulting shader + access BEFORE it becomes a

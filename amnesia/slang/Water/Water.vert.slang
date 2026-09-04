@@ -4,7 +4,7 @@
 // Raster water surface — vertex stage. Mirrors Translucent.vert's fixed-function
 // 5-stream layout + SV_InstanceID → bindless OBJECT slot, but outputs WORLD-space
 // position / normal / tangent (the frag's wave normal + inline RT reflection are
-// world-space, like the surfel GI). Drawn over the refracted background already in
+// world-space, like the ray-tracing passes). Drawn over the refracted background already in
 // the pogo (the V-buffer's water refraction clobbered the primary hit).
 
 import bindless;

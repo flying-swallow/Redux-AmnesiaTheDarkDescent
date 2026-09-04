@@ -1,5 +1,6 @@
 // LightGridBuildPass — builds the coarse, camera-centered world-space light
-// grid used by the surfel ray-trace NEE and the MainCompositePass direct cull.
+// grid used by the path tracer's NEE, the direct-lighting passes and the
+// MainCompositePass direct cull.
 //
 //   binLights : ONE THREAD PER CELL. Each cell walks every light type over its
 //               stable SLOT CAPACITY (gPerFrame.{point,spot,area}LightCount are
@@ -23,8 +24,10 @@
 // actually reach instead of its whole bounding sphere. Binning stays conservative
 // (downstream SpotLight.sample does the exact cone test).
 //
-// Dispatched each frame after the surfel cell scatter and before the surfel
-// ray trace (Stage E) in cHybridRenderer::Draw.
+// Dispatched each frame in cHybridRenderer::Draw just before the G-buffer
+// raster pass, followed by a storage-write barrier into ray-tracing / compute /
+// fragment — i.e. it runs ahead of every consumer of the grid (direct lighting,
+// path trace, composite).
 
 #include "../Constants.h"
 

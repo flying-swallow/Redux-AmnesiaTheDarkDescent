@@ -751,7 +751,7 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 				Image *pDiffImage = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : NULL;
 				cTexture *diffTex =
 					pDiffImage ? pDiffImage->GetTexture() : nullptr;
-				if (!diffTex) continue;
+				if (!diffTex || diffTex->view.isEmpty()) continue;
 
 				if (!BindGeomStreamsUv(pCmd, pVB)) continue;
 				BindGeomPipeline(mGlowProgram, pCmd, eGeomPassMode_Glow,
@@ -934,7 +934,7 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 					pAlphaImage ? pAlphaImage->GetTexture() : nullptr;
 
 				bool bDrewAlpha = false;
-				if (alphaTex && BindGeomStreamsUv(apCmd, pVB)) {
+				if (alphaTex && !alphaTex->view.isEmpty() && BindGeomStreamsUv(apCmd, pVB)) {
 					BindGeomPipeline(mAlphaProgram, apCmd, mode, /*normalPresent=*/false,
 									 /*uvLayout=*/true, "LuxOutline.alpha");
 

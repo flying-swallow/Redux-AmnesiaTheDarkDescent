@@ -1133,16 +1133,14 @@ void cLuxDebugHandler::CreateGuiWindow()
 		mpCBEvaluationOverlay->AddItem("Ref Count");
 		mpCBEvaluationOverlay->AddItem("Life");
 		mpCBEvaluationOverlay->AddItem("Coverage");
-		mpCBEvaluationOverlay->AddItem("Direct Only");
-		mpCBEvaluationOverlay->AddItem("Indirect Only");
 		mpCBEvaluationOverlay->AddItem("Shadow Flag");
 		mpCBEvaluationOverlay->SetSelectedItem(-1);
 		mpCBEvaluationOverlay->AddCallback(eGuiMessage_SelectionChange, this, kGuiCallback(ChangeEvaluationOverlay));
 		vGroupPos.y += 22;
 
-		// Force shadows
-		pCheckBox = mpGuiSet->CreateWidgetCheckBox(cVector3f(vGroupPos.x, vGroupPos.y + 8, vGroupPos.z), vSize, _W("Force shadows"), pGroup);
-		pCheckBox->SetChecked(hpl::Interface<cGraphics>::Get()->forceShadows, false);
+		// Honor authored shadow flags
+		pCheckBox = mpGuiSet->CreateWidgetCheckBox(cVector3f(vGroupPos.x, vGroupPos.y + 8, vGroupPos.z), vSize, _W("Honor authored shadow flags"), pGroup);
+		pCheckBox->SetChecked(!hpl::Interface<cGraphics>::Get()->allLightsCastShadows, false);
 		pCheckBox->SetUserValue(19);
 		pCheckBox->AddCallback(eGuiMessage_CheckChange, this, kGuiCallback(ChangeDebugText));
 		vGroupPos.y += 22;
@@ -1410,7 +1408,7 @@ bool cLuxDebugHandler::ChangeDebugText(iWidget* apWidget, const cGuiMessageData&
 
 	else if(lNum == 17)  SetFastForward(bActive);
 
-	else if (lNum == 19) hpl::Interface<cGraphics>::Get()->forceShadows = bActive;
+	else if (lNum == 19) hpl::Interface<cGraphics>::Get()->allLightsCastShadows = !bActive;
 
 	return true;
 }

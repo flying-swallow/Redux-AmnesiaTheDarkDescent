@@ -20,7 +20,6 @@
 
 #include "Constants.h"
 #include "SceneTypes.slang"
-#include "SurfelGI/SurfelTypes.slang"
 
 namespace hpl {
 
@@ -209,9 +208,9 @@ public:
 
   // Own the object's stable slot and stage its payload. Finds/allocates the slot
   // for `objectCookie` (stable per object — keyed on the renderable's unique
-  // cookie, NOT its transform, so a moving object keeps its slot and its surfels
-  // follow via object-space anchoring), then builds a UniformObject from `desc`
-  // and stages it into m_objectBuffer[slot] every frame. Bumps the slot's reuse
+  // cookie, NOT its transform, so a moving object keeps its slot), then builds a
+  // UniformObject from `desc` and stages it into m_objectBuffer[slot] every
+  // frame. Bumps the slot's reuse
   // generation when the slot is (re)assigned to a different object or `vb`'s index
   // count changes (the only `primitiveIndex >= triangleCount` fault), and binds a
   // VB-destroy hook on a fresh slot that bumps the generation when the geometry is
@@ -268,10 +267,10 @@ public:
 
   // Per-object-slot reuse generation (sized kObjectSlotCapacity). Bumped to a
   // fresh monotonic value each time the object cache (re)assigns a slot to a
-  // different object; surfels capture it at spawn so a reused slot
-  // self-invalidates the stale anchor in collectCellInfo. m_nextSlotGeneration
-  // is the host-side source of new values so we never read back the
-  // write-combined mapped buffer.
+  // different object or its geometry changes, so a consumer that cached an
+  // object-slot reference can detect that the slot now describes different
+  // geometry. m_nextSlotGeneration is the host-side source of new values so we
+  // never read back the write-combined mapped buffer.
   struct RIBuffer m_bindlessSlotGenerationBuffer;
   uint32_t m_nextSlotGeneration = 0;
 
@@ -281,34 +280,11 @@ public:
   // UniformObject upload in submitObject, so they no longer need mirrors.)
   BindlessShadowMirror m_bindlessSlotGenerationMirror;
 
-  // Boot-seed-only shadow for the device-local m_surfelCounterBuffer.
-  BindlessShadowMirror m_surfelCounterMirror;
-
-  // === SurfelGI resources (set=0 bindings 10..19, 27..28, 31..33) ===
-  struct RIBuffer m_surfelCounterBuffer;
-  struct RIBuffer m_surfelBuffer;
-  struct RIBuffer m_surfelGeometryBuffer;
-  struct RIBuffer m_surfelValidBuffer;
-  struct RIBuffer m_surfelDirtyIndexBuffer;
-  struct RIBuffer m_surfelFreeBuffer;
-  struct RIBuffer m_surfelRecycleBuffer;
-  struct RIBuffer m_surfelRayResultBuffer;
-  struct RIBuffer m_cellInfoBuffer;
-  struct RIBuffer m_cellToSurfelBuffer;
-  struct RIBuffer m_surfelRefCounterBuffer;
-  struct RIBuffer m_surfelReservationBuffer;
-  // Compact per-surfel cull record (SurfelBounds) read by the generation
-  // pass's hot loop in place of the full m_surfelBuffer gather.
-  struct RIBuffer m_surfelBoundsBuffer;
-
-  // Coarse world-space light grid (LightGridBuildPass writes, SurfelRayTrace
-  // NEE reads): per-cell light count + packed per-cell unified-light-index list.
+  // Coarse world-space light grid (LightGridBuildPass writes, the direct
+  // lighting pass and the path tracer's getCellLights read): per-cell light
+  // count + packed per-cell unified-light-index list.
   struct RIBuffer m_lightGridCountBuffer;
   struct RIBuffer m_lightGridListBuffer;
-
-  // Per-surfel copy of its anchor slot's generation, captured at spawn and
-  // compared against m_bindlessSlotGenerationBuffer in collectCellInfo.
-  struct RIBuffer m_surfelSlotGenerationBuffer;
 
   // Bindless material wiring (Falcor MaterialSystem model). One flat table of
   // fixed-size MaterialDataBlobs (m_materialBuffer, kBindingMaterials) indexed by

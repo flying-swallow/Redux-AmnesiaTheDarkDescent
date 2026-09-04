@@ -231,7 +231,7 @@ namespace hpl {
 
 			pLightArea->SetWidth(GetAttributeFloat(apElement, "SourceWidth", 1.0f));
 			pLightArea->SetHeight(GetAttributeFloat(apElement, "SourceHeight", 1.0f));
-			pLightArea->SetBarnDoorAngle(GetAttributeFloat(apElement, "BarnDoorAngle", cMath::ToRad(88.0f)));
+			pLightArea->SetBarnDoorAngle(GetAttributeFloat(apElement, "BarnDoorAngle", cMath::ToRad(45.0f)));
 			pLightArea->SetBarnDoorLength(GetAttributeFloat(apElement, "BarnDoorLength", 0.0f));
 
 			//Optional source texture (stored in the base gobo slot — a 2D image). Tints emission.

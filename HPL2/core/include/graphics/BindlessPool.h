@@ -61,9 +61,10 @@ private:
 // caller can (re)initialize it on a miss (`found == false`).
 //
 // Used to park an hpl::EventHandler<> per bindless object slot: a vertex
-// buffer's destruction fires the handler, which retires that slot for surfel
-// cleanup. The handler's lifetime is bounded by this cache (a renderer member),
-// so it can never fire after the renderer is gone. T must be default-
+// buffer's destruction fires the handler, which bumps that slot's generation so
+// cached references to it go stale before they dereference the freed
+// vertex/index BDA. The handler's lifetime is bounded by this cache (a renderer
+// member), so it can never fire after the renderer is gone. T must be default-
 // constructible and move-assignable.
 template <typename T>
 class LRUCacheState {

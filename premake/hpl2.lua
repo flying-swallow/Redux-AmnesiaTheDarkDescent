@@ -75,6 +75,7 @@ project "HPL2"
     vulkan_includes()
     link_sdl2()      -- SDL2 headers + link + dependson
     link_openal()    -- openal-soft headers + link + dependson
+    link_nrd()       -- NRD denoiser headers + link + dependson
     mathlib_use()
 
     -- Keep HPL2 aware of its dependency set; final executables still call

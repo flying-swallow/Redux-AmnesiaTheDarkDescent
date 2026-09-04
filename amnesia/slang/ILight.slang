@@ -22,8 +22,8 @@ import Random;               // concentricDiskSample (soft-shadow source samplin
 // -----------------------------------------------------------------------------
 // ILight — common shape for the point/spot/box bindless light SSBO entries.
 // `getPosition()` returns the source for point/spot, the AABB
-// center for box. `sample()` is the NEE entry point used by the surfel ray
-// pipeline and any future direct-lighting code.
+// center for box. `sample()` is the NEE entry point used by the
+// direct-lighting and path-trace shading paths.
 // -----------------------------------------------------------------------------
 public interface ILight
 {
@@ -39,9 +39,11 @@ public interface ILight
     // Jittered point on the emitter for soft-shadow rays. `dirToLight` is the unit
     // direction from the shading point to the light (used to orient a perpendicular
     // disk for spherical point/spot sources; area lights ignore it and sample their
-    // own plane). `u` is a uniform float2 in [0,1). Returns the light center when
-    // the source is degenerate (point/spot with sourceRadius 0) => hard shadow.
-    public float3 sampleSourcePoint(float3 dirToLight, float2 u);
+    // own plane). `shadingPosW` is the point being shaded — area lights need it to
+    // re-derive the barn-door clipped source region, spherical sources ignore it.
+    // `u` is a uniform float2 in [0,1). Returns the light center when the source is
+    // degenerate (point/spot with sourceRadius 0) => hard shadow.
+    public float3 sampleSourcePoint(float3 shadingPosW, float3 dirToLight, float2 u);
 };
 
 // Jittered point on a spherical source of `radius` at `center`, on a disk facing
@@ -58,24 +60,63 @@ float3 diskSourcePoint(float3 center, float radius, float3 dirToLight, float2 u)
     return center + d.x * t + d.y * b;
 }
 
-// One-sided barn-door occlusion for a RectLight, evaluated per tangential axis.
-// `coord` is the shading point's rect-local tangential coordinate (lx or ly),
-// `halfExt` the rect half-extent on that axis, `lz` the depth along the emission
-// normal (> 0). The flaps hinge on the rect edges, tilt from the normal by the
-// barn-door angle θ (sinA/cosA), and extend `L` world units. Their tips form a
-// smaller exit aperture; light is confined to the frustum from the source rect
-// through that aperture. Returns 1 fully lit … 0 fully shadowed.
-//   xin  = near-source-edge graze (depends only on θ): everything inside is lit.
-//   xout = far-source-edge graze over the flap tip (depends on L): full shadow beyond.
-// L = 0 or θ → 90° (cosA → 0) means the flaps are open → no-op (returns 1).
-float barnAxis(float coord, float halfExt, float lz, float sinA, float cosA, float L)
+// Barn-door clipped view of the emitter rectangle, in rect-local tangential
+// coordinates (x along `right`, y along `up`). `valid` is false when the flaps
+// hide the source completely from the shading point.
+struct BarnRect
 {
-    float a = abs(coord);
-    if (a <= halfExt) return 1.0;                          // over the rect → lit
-    if (L <= 0.0 || cosA <= 1.0e-4) return 1.0;            // no flap / fully open
-    float xin  = halfExt + lz * (sinA / cosA);             // hw + lz·tanθ
-    float xout = -halfExt + lz * (2.0 * halfExt + L * sinA) / (L * cosA);
-    return saturate((xout - a) / max(xout - xin, 1.0e-4));
+    float2 lo;
+    float2 hi;
+    bool   valid;
+};
+
+// One tangential axis of the barn-door clip. The flap hinges on the rect edge at
+// +halfExt, tilts from the emission normal by θ (sinA/cosA) and runs L world units,
+// so its tip sits at (halfExt + L·sinθ, L·cosθ) in (lateral, depth). From a shading
+// point at (coord, lz) the tip occludes the far part of the emitter: the ray through
+// the tip, extended back to the emitter plane, is the clip boundary. Returns the
+// visible (lo, hi) span on that axis; lo >= hi means nothing is visible.
+float2 barnClipAxis(float coord, float halfExt, float lz, float sinA, float cosA, float L)
+{
+    float h   = L * cosA;              // flap tip depth
+    float tip = halfExt + L * sinA;    // flap tip lateral offset
+
+    if (lz > h)
+    {
+        float inv = 1.0 / (lz - h);
+        float hi = min( halfExt, ( tip * lz - coord * h) * inv);
+        float lo = max(-halfExt, (-tip * lz - coord * h) * inv);
+        return float2(lo, hi);
+    }
+
+    // Level with the flaps (between the emitter plane and the tip depth): the point
+    // is either inside the channel and sees the whole emitter, or outside a flap,
+    // which blocks that side entirely.
+    float channel = halfExt + lz * (sinA / cosA);
+    if (abs(coord) > channel) return float2(1.0, -1.0);   // empty
+    return float2(-halfExt, halfExt);
+}
+
+// Both axes of the clip. `dLocal` is the shading point in the rect frame
+// (x = right, y = up, z = emission normal, z > 0). L = 0 or θ → 90° (cosA → 0)
+// means the flaps are open, so the full rect stays visible.
+BarnRect barnClipRect(float3 dLocal, float hw, float hh, float barnDoorAngle, float barnDoorLength)
+{
+    BarnRect br;
+    br.lo    = float2(-hw, -hh);
+    br.hi    = float2( hw,  hh);
+    br.valid = true;
+
+    float sinA, cosA;
+    sincos(barnDoorAngle, sinA, cosA);
+    if (barnDoorLength <= 0.0 || cosA <= 1.0e-4) return br;   // open / disabled
+
+    float2 cx = barnClipAxis(dLocal.x, hw, dLocal.z, sinA, cosA, barnDoorLength);
+    float2 cy = barnClipAxis(dLocal.y, hh, dLocal.z, sinA, cosA, barnDoorLength);
+    br.lo    = float2(cx.x, cy.x);
+    br.hi    = float2(cx.y, cy.y);
+    br.valid = (br.hi.x > br.lo.x) && (br.hi.y > br.lo.y);
+    return br;
 }
 
 public extension PointLight : ILight
@@ -84,7 +125,7 @@ public extension PointLight : ILight
     public float3 getPosition() { return position; }
     public float getRadius()       { return radius; }
     public bool castsShadow()   { return shadowEnabled != 0u; }
-    public float3 sampleSourcePoint(float3 dirToLight, float2 u)
+    public float3 sampleSourcePoint(float3 shadingPosW, float3 dirToLight, float2 u)
     {
         return diskSourcePoint(position, sourceRadius, dirToLight, u);
     }
@@ -124,7 +165,7 @@ public extension SpotLight : ILight
     public float3 getPosition() { return position; }
     public float getRadius()       { return radius; }
     public bool castsShadow()   { return shadowEnabled != 0u; }
-    public float3 sampleSourcePoint(float3 dirToLight, float2 u)
+    public float3 sampleSourcePoint(float3 shadingPosW, float3 dirToLight, float2 u)
     {
         return diskSourcePoint(position, sourceRadius, dirToLight, u);
     }
@@ -173,12 +214,27 @@ public extension RectLight : ILight
     public float3 getPosition() { return position; }
     public float getRadius()       { return radius; }
     public bool castsShadow()   { return shadowEnabled != 0u; }
-    // Soft shadows sample the actual rectangle: a uniform point across the
-    // width×height plane (right/up axes). The area itself IS the source, so there
-    // is no disk radius — a larger source rectangle casts a softer penumbra.
-    public float3 sampleSourcePoint(float3 dirToLight, float2 u)
+    // Rect-local frame of a shading point: (x along right, y along up, z along the
+    // emission normal). Shared by sample() and sampleSourcePoint() so both see the
+    // same barn-door clip.
+    public float3 toLightLocal(float3 shadingPosW)
     {
-        return position + (u.x - 0.5) * width * right + (u.y - 0.5) * height * up;
+        float3 d = shadingPosW - position;
+        return float3(dot(d, right), dot(d, up), dot(d, normal));
+    }
+
+    // Soft shadows sample the actual rectangle: a uniform point across the visible
+    // (barn-door clipped) part of the width×height plane. The area itself IS the
+    // source, so there is no disk radius — a larger source rectangle casts a softer
+    // penumbra — and clipping here is what keeps the penumbra inside the shaped beam.
+    public float3 sampleSourcePoint(float3 shadingPosW, float3 dirToLight, float2 u)
+    {
+        float3 l = toLightLocal(shadingPosW);
+        if (l.z <= 0.0) return position;
+        BarnRect br = barnClipRect(l, width * 0.5, height * 0.5, barnDoorAngle, barnDoorLength);
+        if (!br.valid) return position;                    // fully occluded: aim at the centre
+        float2 p = lerp(br.lo, br.hi, u);
+        return position + p.x * right + p.y * up;
     }
 
     // Analytic closest-point-on-rectangle shading (UE Rect Light model). The
@@ -190,25 +246,32 @@ public extension RectLight : ILight
     // (rect-local UV; does NOT affect shadows — those sample the area in
     // sampleSourcePoint). One-sided: only the +normal hemisphere is lit. pdf = 1.
     // Barn doors (barnDoorAngle θ, barnDoorLength L) confine the beam: four flaps hinged on the
-    // rect edges, tilted from the normal by θ and L units long, form a smaller exit aperture that
-    // occludes off-axis light (see barnAxis). θ → 90° or L = 0 ⇒ flaps open ⇒ no-op.
+    // rect edges, tilted from the normal by θ and L units long, occlude part of the emitter as
+    // seen from the shading point. barnClipRect turns that into a clipped source rectangle, which
+    // both moves the closest point and scales the contribution by the visible area fraction, so
+    // the beam narrows AND dims at its edge. θ → 90° or L = 0 ⇒ flaps open ⇒ no-op.
     public bool sample(float3 shadingPosW, out LightSample ls)
     {
         ls.Li = float3(0.0); ls.pdf = 1.0; ls.dir = float3(0,0,1); ls.distance = 0.0;
 
         // Shading point in the rect's local frame.
-        float3 d  = shadingPosW - position;
-        float  lx = dot(d, right);
-        float  ly = dot(d, up);
-        float  lz = dot(d, normal);
+        float3 l  = toLightLocal(shadingPosW);
+        float  lx = l.x;
+        float  ly = l.y;
+        float  lz = l.z;
         if (lz <= 0.0) return false;                       // behind the emitter
 
         float hw = width  * 0.5;
         float hh = height * 0.5;
 
-        // Closest point on the rect: clamp the tangential coords to the extent.
-        float  cx = clamp(lx, -hw, hw);
-        float  cy = clamp(ly, -hh, hh);
+        // Barn-door beam shaping: clip the emitter to the part this point can still
+        // see past the flaps. Open/disabled flaps leave the full rect.
+        BarnRect br = barnClipRect(l, hw, hh, barnDoorAngle, barnDoorLength);
+        if (!br.valid) return false;                       // flaps hide the source
+
+        // Closest point on the VISIBLE rect: clamp to the clipped span.
+        float  cx = clamp(lx, br.lo.x, br.hi.x);
+        float  cy = clamp(ly, br.lo.y, br.hi.y);
         float3 Q  = position + right * cx + up * cy;
 
         float3 toLight = Q - shadingPosW;
@@ -239,13 +302,12 @@ public extension RectLight : ILight
             srcTex = sampleBindless2DLevel(sourceTextureIndex, uv, 0.0).rgb;
         }
 
-        // Barn-door beam shaping: occlude off-axis light per tangential axis.
-        float sinA, cosA;
-        sincos(barnDoorAngle, sinA, cosA);
-        float barn = barnAxis(lx, hw, lz, sinA, cosA, barnDoorLength)
-                   * barnAxis(ly, hh, lz, sinA, cosA, barnDoorLength);
+        // Visible fraction of the emitter after clipping. The closest-point model has
+        // no notion of a partly hidden source, so scale the contribution by the area
+        // that survives the flaps — this is what dims the beam edge.
+        float coverage = saturate(((br.hi.x - br.lo.x) * (br.hi.y - br.lo.y)) / area);
 
-        ls.Li       = color * (intensity / area) * srcTex * atten * barn;
+        ls.Li       = color * (intensity / area) * srcTex * atten * coverage;
         ls.dir      = L;
         ls.distance = dist;
         return true;

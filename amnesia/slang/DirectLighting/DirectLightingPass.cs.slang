@@ -1,9 +1,10 @@
 // Direct-lighting pass — stage 1 of 3 (ReSTIR DI temporal reuse).
 //
-// Per pixel: reconstruct the surface from the V-buffer (RT hit, raster
-// fallback), build a light-selection reservoir by streaming RIS over the cell's
-// lights (unshadowed-luminance target, NO shadow ray), then temporally reuse the
-// previous frame's reservoir — reprojected through the velocity texture and
+// Per pixel: reconstruct the surface from the V-buffer (rasterized primary
+// visibility, POM-corrected barycentrics), build a light-selection reservoir by
+// streaming RIS over the cell's lights (unshadowed-luminance target, NO shadow
+// ray), then temporally reuse the previous
+// frame's reservoir — reprojected through the velocity texture and
 // rejected on a depth/normal disocclusion test, with the previous confidence M
 // clamped so stale lighting can't dominate. Writes the merged reservoir
 // (consumed by DirectSpatialReusePass) and the current surface key.
@@ -20,12 +21,12 @@ import Scene;
 import bindless;                       // gPackedHitInfo, lights, grid
 import HitInfo;
 import PerFrame.resource;
-import SurfelGI.SurfelShade;           // prepareDiffuseShading / buildDirectReservoir / directTargetPdf
+import Shading;                        // prepareDiffuseShading / buildDirectReservoir / directTargetPdf
 import Random;
 import Reservoir;
 
-// Pass-private (set 2).
-[vk::binding(0, 2)] Texture2D<uint4>    gPackedHitInfoRaster;  // raster V-buffer fallback
+// Pass-private (set 2). Slot 0 is a gap; the remaining bindings keep their
+// numbers so the host-side layout stays stable.
 [vk::binding(1, 2)] Texture2D<float2>   gVelocity;             // screen-space motion (RG16F)
 [vk::binding(2, 2)] Texture2D<float4>   gReservoirHistory;     // previous frame's final reservoir
 [vk::binding(3, 2)] RWTexture2D<float4> gReservoirOut;         // output: temporally-merged reservoir
@@ -42,9 +43,9 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     if (pixelPos.x >= outW || pixelPos.y >= outH)
         return;
 
+    // `gPackedHitInfo` already carries the raster hit (only the barycentrics
+    // are POM-perturbed), so a miss here is a real miss.
     HitInfo hitInfo = HitInfo(gPackedHitInfo[pixelPos]);
-    if (!hitInfo.isValid())
-        hitInfo = HitInfo(gPackedHitInfoRaster.Load(int3(pixelPos, 0)));
     if (!hitInfo.isValid())
     {
         gReservoirOut[pixelPos] = float4(0.f, 0.f, 0.f, 0.f); // empty reservoir

@@ -2,14 +2,16 @@
 //
 // Copies the raw raster V-buffer (gPackedHitInfoRaster / visibilityTexture)
 // into gPackedHitInfo, then for pixels that hit an opaque diffuse surface
-// with a height map it applies the same parallax-occlusion barycentric
-// perturbation that SurfelVBuffer.rt.slang's closeHit used to do inline.
+// with a height map it applies a parallax-occlusion barycentric
+// perturbation: the POM-stepped UV is inverted back into a barycentric
+// delta so the stored hit lands on the occluded surface point.
 //
 // Keeping the perturbation here rather than in the raster pixel shader lets
 // the raw raster hit (gPackedHitInfoRaster) stay as the clean surface key
 // for temporal reprojection while gPackedHitInfo carries the POM-shifted
-// version that the surfel generation + composite use to reconstruct the
-// occluded surface point.
+// version that the path tracer, the direct-lighting passes
+// (DirectLightingPass / DirectSpatialReusePass) and MainCompositePass use to
+// reconstruct the occluded surface point.
 //
 // One 16×16 thread group per tile. Out-of-bounds threads early-out.
 
@@ -66,13 +68,15 @@ void csMain(uint3 dtid : SV_DispatchThreadID)
             VertexData v = getVertexDataAndTri(triangleHit, vtx);
 
             // TBN matching the legacy parallax basis: cross(N,T)*handedness.
-            // Same sign convention as SurfelVBuffer.rt closeHit — NOT the
-            // normal-map bitangent in Translucent.vert.slang.
+            // Bitangent is cross(N,T)*handedness — NOT the normal-map
+            // bitangent used in Translucent.vert.slang.
             float3 N = normalize(v.normalW);
             float3 T = normalize(v.tangentW - N * dot(N, v.tangentW));
             float3 B = normalize(cross(N, T)) * vtx.tangentL[0].w;
 
-            // Reconstruct primary ray for this pixel (with jitter, matching RT).
+            // Reconstruct primary ray for this pixel. Jitter is applied so the
+            // ray matches the jittered raster projection VBufferRaster.3d.slang
+            // wrote this hit with.
             Ray ray = cameraComputeRayPinhole(pixelPos, uint2(w, h), /*applyJitter=*/true);
 
             bool single = (m.materialConfig & kMaterialFlagIsHeightMapSingleChannel) != 0u;

@@ -31,6 +31,7 @@
 #include "resources/EngineFileLoading.h"
 #include "resources/BinaryBuffer.h"
 #include "resources/XmlHelper.h"
+#include "resources/XmlDelta.h"
 
 #include <tinyxml2.h>
 
@@ -121,6 +122,7 @@ namespace hpl {
 
 		mpCurrentWorld = NULL;
 		mpCurrentPhysicsWorld = NULL; 
+		mlDeltaHash = 0;
 
 		///////////////////////////////////
 		// Generate some tables used by map loading
@@ -245,6 +247,27 @@ namespace hpl {
 			}
 		}
 
+		////////////////////////////////////
+		// Read map data (name for now). The map root (<Level> for editor-saved
+		// maps) wraps the actual data — the legacy iXmlDocument wrapper exposed
+		// the root element's children, so "MapData" was found one level down.
+		tinyxml2::XMLElement* pXmlMapData =
+			xmlDoc.RootElement() ? xmlDoc.RootElement()->FirstChildElement("MapData") : NULL;
+		if(pXmlMapData==NULL)
+		{
+			Error("File '%s' has no MapData element!\n", cString::To8Char(asFile).c_str());
+			return NULL;
+		}
+
+		////////////////////////////////////
+		// Apply any .map_delta overlays to the parsed tree.
+		//
+		// This happens after the .cmap round trip above (so patched content is
+		// never baked into a compressed map) and before anything reads the tree,
+		// so every per-object loader below stays delta-unaware. The file on disk
+		// is untouched -- only this in-memory document is patched.
+		mlDeltaHash = ApplyMapDeltas(asFile, pXmlMapData);
+
 		////////////////////////////////
 		// Init general vars
 		mbLoadedCache= false;
@@ -257,6 +280,18 @@ namespace hpl {
 		if( (mlCurrentFlags & eWorldLoadFlag_FastPhysicsLoad) || (mlCurrentFlags & eWorldLoadFlag_FastStaticLoad) )
 		{
 			msCacheFileExt = _W("map_cache_fastload");
+		}
+
+		//////////////////////////////////////////////
+		// The cache holds baked combined static meshes and collision data, so a
+		// delta that touches static geometry invalidates it. Key the cache on the
+		// contents of the delta set: each combination of mods gets its own cache
+		// file, and editing a delta changes the hash rather than going stale.
+		if(mlDeltaHash!=0)
+		{
+			char vHashBuf[32];
+			snprintf(vHashBuf, sizeof(vHashBuf), "_d%016llx", mlDeltaHash);
+			msCacheFileExt += cString::To16Char(vHashBuf);
 		}
 		
 		
@@ -290,18 +325,6 @@ namespace hpl {
 		// Try loading cache
 		LoadCacheFile(asFile);
 
-
-		////////////////////////////////////
-		// Read map data (name for now). The map root (<Level> for editor-saved
-		// maps) wraps the actual data — the legacy iXmlDocument wrapper exposed
-		// the root element's children, so "MapData" was found one level down.
-		tinyxml2::XMLElement* pXmlMapData =
-			xmlDoc.RootElement() ? xmlDoc.RootElement()->FirstChildElement("MapData") : NULL;
-		if(pXmlMapData==NULL)
-		{
-			Error("File '%s' has no MapData element!\n", cString::To8Char(asFile).c_str());
-			return NULL;
-		}
 
 		////////////////////////////////////
 		// Load fog
@@ -449,6 +472,50 @@ namespace hpl {
 	
 	//-----------------------------------------------------------------------
 
+	unsigned long long cWorldLoaderHplMap::ApplyMapDeltas(const tWString& asFile, tinyxml2::XMLElement* apXmlMapData)
+	{
+		tWStringVec vDeltaFiles;
+		if(mpResources->FindDeltaFiles(asFile, "map_delta", vDeltaFiles)==false) return 0;
+
+		int lNextAddID = HPL_XML_DELTA_FIRST_ADD_ID;
+		cXmlDeltaStats totalStats;
+		int lApplied =0;
+
+		for(size_t i=0; i<vDeltaFiles.size(); ++i)
+		{
+			tinyxml2::XMLDocument deltaDoc;
+			if(LoadXmlFile(deltaDoc, vDeltaFiles[i])==false)
+			{
+				Error("Could not load map delta '%s'!\n", cString::To8Char(vDeltaFiles[i]).c_str());
+				continue;
+			}
+
+			cXmlDeltaStats stats;
+			if(ApplyXmlDelta(apXmlMapData, deltaDoc.RootElement(), lNextAddID, stats)==false)
+			{
+				Error("Could not apply map delta '%s'!\n", cString::To8Char(vDeltaFiles[i]).c_str());
+				continue;
+			}
+
+			Log("  Map delta '%s': %d added, %d modified, %d removed, %d skipped\n",
+				cString::To8Char(cString::GetFileNameW(vDeltaFiles[i])).c_str(),
+				stats.mlAdded, stats.mlModified, stats.mlRemoved, stats.mlSkipped);
+
+			totalStats.Add(stats);
+			++lApplied;
+		}
+
+		if(lApplied==0) return 0;
+
+		Log(" Applied %d map delta(s) to '%s': %d added, %d modified, %d removed, %d skipped\n",
+			lApplied, cString::To8Char(cString::GetFileNameW(asFile)).c_str(),
+			totalStats.mlAdded, totalStats.mlModified, totalStats.mlRemoved, totalStats.mlSkipped);
+
+		return HashFileSet(vDeltaFiles);
+	}
+
+	//-----------------------------------------------------------------------
+
 	void cWorldLoaderHplMap::LoadCacheFile(const tWString& asFile)
 	{
 #if (defined(__PPC__) || defined(__ppc__))
@@ -461,7 +528,11 @@ namespace hpl {
 		cDate currentDate = cPlatform::FileModifiedDate(asFile);
 		cDate cacheDate = cPlatform::FileModifiedDate(sCacheFile);
 		
-		if(cResources::GetForceCacheLoadingAndSkipSaving()==false)
+		// ForceCacheLoadingAndSkipSaving promises a prebuilt cache shipped beside
+		// the map. That promise cannot cover a delta-patched map -- its cache is
+		// keyed on the delta set and has to be built on the player's machine --
+		// so fall back to the normal existence/date check for those.
+		if(cResources::GetForceCacheLoadingAndSkipSaving()==false || mlDeltaHash!=0)
 		{
 			if(cacheDate < currentDate || cPlatform::FileExists(sCacheFile)==false)
 			{
@@ -713,7 +784,7 @@ namespace hpl {
 		return;
 #endif
 		if(mbLoadedCache) return; //No need to save if cache was loaded!
-		if(cResources::GetForceCacheLoadingAndSkipSaving()) return;
+		if(cResources::GetForceCacheLoadingAndSkipSaving() && mlDeltaHash==0) return;
 
 		Log("Saving cache file for '%s'\n", cString::To8Char(asFile).c_str());
 

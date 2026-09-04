@@ -124,6 +124,8 @@ namespace hpl {
 		cWorld* LoadWorld(const tWString& asFile, tWorldLoadFlag aFlags);
 
 	private:
+		unsigned long long ApplyMapDeltas(const tWString& asFile, tinyxml2::XMLElement* apXmlMapData);
+
 		void LoadCacheFile(const tWString& asFile);
 		void SaveCacheFile(const tWString& asFile);
 
@@ -183,6 +185,11 @@ namespace hpl {
 		float *mpBytePosFloatTable;
 
 		tWString msCacheFileExt;
+
+		// Non-zero once .map_delta files have patched the map being loaded; keys
+		// the cache file and disables the "ship a prebuilt cache" shortcut, which
+		// cannot hold for a patched map.
+		unsigned long long mlDeltaHash;
 
 		tWorldLoadFlag mlCurrentFlags;
 		tHplMapStaticUserDataList mlstTempStaticUserData;

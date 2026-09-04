@@ -24,6 +24,8 @@
 #include "graphics/RenderList.h"
 #include "graphics/RIProgram.h"
 
+#include <memory>
+
 namespace hpl {
 
     //---------------------------------------------
@@ -37,7 +39,7 @@ namespace hpl {
 	public:
 		cRendererSimple(cGraphics *apGraphics,cResources* apResources);
 
-		bool LoadData() override { return true; }
+		bool LoadData() override;
 		void DestroyData() override;
 
 		virtual void Draw(
@@ -50,7 +52,7 @@ namespace hpl {
 				bool abSendFrameBufferToPostEffects) override;
 
 	private:
-		RIProgram m_simple;
+		std::shared_ptr<RIProgram> m_simple;
 		cRenderList2 m_rendererList;
 	};
 

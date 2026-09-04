@@ -247,7 +247,7 @@ RISwapchain RISwapchain::create( struct RIDevice *device, const struct RISwapcha
 		sc.width = (uint16_t)imageExtent.width;
 		sc.height = (uint16_t)imageExtent.height;
 		swapChainCreateInfo.imageArrayLayers = 1;
-		// SurfelGI composite now writes into the pogo buffer (a separate
+		// MainCompositePass now writes into the pogo buffer (a separate
 		// color attachment) instead of the swapchain image, so STORAGE_BIT
 		// is no longer required on the swapchain — and many sRGB swapchain
 		// formats (e.g. VK_FORMAT_B8G8R8A8_SRGB with OPTIMAL tiling) don't
@@ -313,7 +313,7 @@ RISwapchain RISwapchain::create( struct RIDevice *device, const struct RISwapcha
 		createInfo.subresourceRange = VkImageSubresourceRange{
 			VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1,
 		};
-		// The SurfelGI composite + post-effect chain write into the viewport
+		// MainCompositePass + the post-effect chain write into the viewport
 		// backbuffer, so the swapchain view only needs COLOR_ATTACHMENT.
 		usageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 		createInfo.image = sc.vk.images[i];

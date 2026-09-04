@@ -23,6 +23,7 @@
 #define HPL_VIEWPORT_H
 
 #include "graphics/GraphicsTypes.h"
+#include "graphics/NrdIntegration.h"
 #include "graphics/Graphics.h"
 #include "graphics/RIPogoBuffer.h"
 #include "gui/GuiTypes.h"
@@ -190,14 +191,9 @@ public:
     RISharedPointer<RITexture> visibilityTexture[RI_MAX_SWAPCHAIN_IMAGES];
     RISharedPointer<RITextureView> visibilityView[RI_MAX_SWAPCHAIN_IMAGES];
 
-    // Surfel-generation output — full-res HDR storage image written by
-    // surfel_generation_pass (set=3, binding=1). One per swapchain image.
-    RISharedPointer<RITexture> surfelResultTexture[RI_MAX_SWAPCHAIN_IMAGES];
-    RISharedPointer<RITextureView> surfelResultView[RI_MAX_SWAPCHAIN_IMAGES];
-
-    // Stage B packed visibility — RGBA32UI storage image written by the
-    // surfel_vbuffer RT pipeline, sampled by the Stage D / F surfel update
-    // and generation passes. Per-frame layout is UNDEFINED → GENERAL →
+    // Packed visibility — RGBA32UI storage image written by the V-buffer
+    // pass, sampled by the direct-lighting, path-tracing and composite
+    // passes. Per-frame layout is UNDEFINED → GENERAL →
     // SHADER_READ_ONLY, like the gbuffer outputs.
     RISharedPointer<RITexture> packedHitInfoTexture[RI_MAX_SWAPCHAIN_IMAGES];
     RISharedPointer<RITextureView> packedHitInfoView[RI_MAX_SWAPCHAIN_IMAGES];
@@ -220,31 +216,79 @@ public:
     RISharedPointer<RITexture> decalAddTexture[RI_MAX_SWAPCHAIN_IMAGES];
     RISharedPointer<RITextureView> decalAddView[RI_MAX_SWAPCHAIN_IMAGES];
 
-    // Direct-lighting accumulation history (RGBA16F ping-pong, kept in
-    // GENERAL). [directLightingIndex] is this frame's write target; [^1] is
-    // the history the direct pass reprojects. NOT swapchain-indexed (history
-    // spans frames). directLightingInit triggers the one-time
-    // UNDEFINED→GENERAL + clear — re-armed by Update on resize, since
-    // recreation invalidates the history.
-    RISharedPointer<RITexture> directLightingTexture[2];
-    RISharedPointer<RITextureView> directLightingView[2];
-    // Parallel surface-key ping-pong (viewZ, normal.xyz) for disocclusion
-    // rejection; shares directLightingIndex with the colour history above.
+    // ReSTIR DI's resolved, albedo-demodulated direct irradiance (RGBA16F,
+    // GENERAL). Written fresh every frame and consumed by NrdPack in the same
+    // frame — REBLUR owns the temporal filtering, so this is NOT a history and
+    // does not ping-pong. NOT swapchain-indexed. directLightingInit triggers
+    // the one-time UNDEFINED→GENERAL + clear, re-armed by Update on resize.
+    RISharedPointer<RITexture> directLightingTexture;
+    RISharedPointer<RITextureView> directLightingView;
+    // Surface-key ping-pong (viewZ, normal.xyz). Still [2]: DirectLightingPass
+    // reprojects the ReSTIR reservoir against the PREVIOUS frame's key, so the
+    // history slot is required even though the colour no longer ping-pongs.
     RISharedPointer<RITexture> directKeyTexture[2];
     RISharedPointer<RITextureView> directKeyView[2];
     uint32_t directLightingIndex = 0;
     bool directLightingInit = false;
 
-    // SVGF-lite à-trous scratch (RGBA16F ping-pong, GENERAL). NOT history — each
-    // iteration is fully written before it is read, so these only need a one-time
-    // UNDEFINED→GENERAL transition (folded into the directLighting init). The
-    // composite samples the final iteration's output instead of directLighting.
-    RISharedPointer<RITexture> directAtrousTexture[2];
-    RISharedPointer<RITextureView> directAtrousView[2];
+    // Path tracer output, consumed by NrdPack in the same frame. NRD owns all
+    // denoiser history, so none of these ping-pong any more and none is
+    // swapchain-indexed. indirectLightingInit triggers the one-time
+    // UNDEFINED→GENERAL + clear, re-armed by Update on resize.
+    //
+    // The diffuse channel is albedo-demodulated (the composite re-applies
+    // albedo); the specular channel is NOT demodulated and the composite adds
+    // it straight on top.
+    RISharedPointer<RITexture> indirectRadianceTexture;
+    RISharedPointer<RITextureView> indirectRadianceView;
+    RISharedPointer<RITexture> indirectSpecularTexture;
+    RISharedPointer<RITextureView> indirectSpecularView;
+    // Surface key (viewZ, normal.xyz), and its second half: primary-hit GGX
+    // alpha in .x, per-lobe primary hit distance in metres in .y (diffuse) and
+    // .z (specular), 0 = lobe not sampled / sky, .w reserved.
+    RISharedPointer<RITexture> indirectKeyTexture;
+    RISharedPointer<RITextureView> indirectKeyView;
+    RISharedPointer<RITexture> indirectKeyExtraTexture;
+    RISharedPointer<RITextureView> indirectKeyExtraView;
+
+    // NRD frontend inputs, repacked from the path-traced textures by NrdPack.
+    // Written and consumed within one frame — NRD keeps its own history
+    // internally — so a single slot each.
+    RISharedPointer<RITexture> nrdNormalRoughnessTexture;
+    RISharedPointer<RITextureView> nrdNormalRoughnessView;
+    RISharedPointer<RITexture> nrdViewZTexture;
+    RISharedPointer<RITextureView> nrdViewZView;
+    RISharedPointer<RITexture> nrdDiffuseRadianceHitDistTexture;
+    RISharedPointer<RITextureView> nrdDiffuseRadianceHitDistView;
+    RISharedPointer<RITexture> nrdSpecularRadianceHitDistTexture;
+    RISharedPointer<RITextureView> nrdSpecularRadianceHitDistView;
+    // NRD writes IN_MV during temporal stabilization, so keep a private
+    // writable copy instead of handing it the shared velocity attachment.
+    RISharedPointer<RITexture> nrdMotionVectorsTexture;
+    RISharedPointer<RITextureView> nrdMotionVectorsView;
+
+    // The denoiser itself lives HERE, not on the renderer: NRD's history and
+    // its internal pool are sized to one extent, so a renderer-scoped instance
+    // shared between two differently-sized viewports would thrash both every
+    // frame. Created lazily by Update once the extent is known.
+    //
+    // shared_ptr, not unique_ptr: ~HybridViewportState hands ownership to
+    // graphicsDefer inside a std::function so NRD's pipelines outlive the
+    // in-flight command buffers still referencing them, and std::function
+    // requires a copyable capture.
+    std::shared_ptr<NrdIntegration> nrd;
+
+    bool indirectLightingInit = false;
+
+    // Set when the temporal history must be discarded (resize, level load,
+    // teleport). Separate from indirectLightingInit: the latter describes
+    // resource lifetime and must not reissue UNDEFINED barriers mid-stream.
+    bool indirectHistoryReset = false;
+    bool nrdInputInShaderResource = false;
 
     // ReSTIR DI reservoirs (RGBA32F = packed light index + W + M; exact uint
     // index needs full-float storage). [reservoirHistory] ping-pongs across
-    // frames (shares directLightingIndex): DirectLightingPass reads [^1] as the
+    // frames (shares directLightingIndex with directKey): DirectLightingPass reads [^1] as the
     // temporal history and DirectSpatialReusePass writes [cur] as next frame's
     // history. [reservoirTemporal] is the intra-frame hand-off from the temporal
     // pass to the spatial pass. All GENERAL, one-time clear with the others.

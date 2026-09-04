@@ -137,6 +137,7 @@ function link_engine()
     }
     link_sdl2()
     link_openal()
+    link_nrd()
     filter "system:linux"
         links { "pthread", "dl" }
     filter "system:windows"

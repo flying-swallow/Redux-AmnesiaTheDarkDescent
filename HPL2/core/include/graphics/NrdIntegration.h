@@ -1,0 +1,71 @@
+#ifndef HPL_NRD_INTEGRATION_H
+#define HPL_NRD_INTEGRATION_H
+
+#include <cstdint>
+#include <memory>
+
+struct RICmd;
+struct RITextureView;
+
+namespace hpl {
+
+class cGraphics;
+
+// The matrices are copied from the renderer's gPerFrame values.  They are
+// column-major, column-vector matrices: this is both the engine convention
+// (the shaders use mul(proj, view) and mul(view, position)) and NRD's required
+// CommonSettings convention.
+struct NrdFrameData {
+  float viewToClipMatrix[16] = {};
+  float viewToClipMatrixPrev[16] = {};
+  float worldToViewMatrix[16] = {};
+  float worldToViewMatrixPrev[16] = {};
+  uint32_t frameIndex = 0;
+  // View-space depth past which a pixel counts as sky/background. 0 keeps
+  // NRD's own default.
+  float denoisingRange = 0.0f;
+  // Milliseconds since the previous frame. 0 lets NRD derive a fixed step from
+  // frameIndex, which desyncs it from a variable frame rate.
+  float timeDeltaMs = 0.0f;
+};
+
+struct NrdDenoiseInputs {
+  RITextureView *normalRoughness = nullptr;
+  RITextureView *viewZ = nullptr;
+  RITextureView *motionVectors = nullptr;
+  RITextureView *diffuseRadianceHitDistance = nullptr;
+  RITextureView *specularRadianceHitDistance = nullptr;
+};
+
+struct NrdDenoiseOutputs {
+  RITextureView *diffuseRadianceHitDistance = nullptr;
+  RITextureView *specularRadianceHitDistance = nullptr;
+};
+
+// Native integration for one NRD denoiser instance.  Textures and compute
+// programs are owned by this object and are recreated only when the extent
+// changes.  The caller owns the input views and records Denoise into cmd.
+class NrdIntegration {
+public:
+  explicit NrdIntegration(cGraphics *graphics);
+  ~NrdIntegration();
+
+  NrdIntegration(const NrdIntegration &) = delete;
+  NrdIntegration &operator=(const NrdIntegration &) = delete;
+
+  void OnResize(uint32_t width, uint32_t height);
+  // Discard the temporal history without reallocating NRD resources. The next
+  // Denoise call uses NRD's CLEAR_AND_RESTART accumulation mode.
+  void ResetHistory();
+
+  NrdDenoiseOutputs Denoise(RICmd *cmd, const NrdFrameData &frame,
+                            const NrdDenoiseInputs &inputs);
+
+private:
+  struct Impl;
+  std::unique_ptr<Impl> m_impl;
+};
+
+} // namespace hpl
+
+#endif // HPL_NRD_INTEGRATION_H

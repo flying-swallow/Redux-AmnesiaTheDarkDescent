@@ -65,7 +65,7 @@ cEntityWrapperTypeLightArea::cEntityWrapperTypeLightArea() : iEntityWrapperTypeL
 
 	AddFloat(eLightAreaFloat_SourceWidth, "SourceWidth", 1.0f);
 	AddFloat(eLightAreaFloat_SourceHeight, "SourceHeight", 1.0f);
-	AddFloat(eLightAreaFloat_BarnDoorAngle, "BarnDoorAngle", cMath::ToRad(88.0f));
+	AddFloat(eLightAreaFloat_BarnDoorAngle, "BarnDoorAngle", cMath::ToRad(45.0f));
 	AddFloat(eLightAreaFloat_BarnDoorLength, "BarnDoorLength", 0.0f);
 	AddString(eLightAreaStr_SourceTexture, "SourceTexture");
 }
@@ -104,7 +104,7 @@ cEntityWrapperLightArea::cEntityWrapperLightArea(iEntityWrapperData* apData) : i
 {
 	mfWidth = 1.0f;
 	mfHeight = 1.0f;
-	mfBarnDoorAngle = cMath::ToRad(88.0f);
+	mfBarnDoorAngle = cMath::ToRad(45.0f);
 	mfBarnDoorLength = 0.0f;
 }
 

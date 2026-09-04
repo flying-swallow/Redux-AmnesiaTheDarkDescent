@@ -13,7 +13,7 @@
 import SceneTypes;       // MaterialDataBlob / MaterialHeader / concrete structs, VertexData, TriangleHit
 import bindless;         // gMaterials, gSceneObjects, gMaterialSampler, gDissolveMap, gRtAccel, sampleBindless2DLevel
 import Scene;            // getVertexData (vertex fetch for the RayQuery traces)
-import PerFrame.resource; // gPerFrame.forceShadows
+import PerFrame.resource; // gPerFrame.allLightsCastShadows
 
 // Typed material reads. gMaterials[materialID] is a fixed-size MaterialDataBlob;
 // reinterpret<T> turns it into the concrete struct (the host memcpys the struct
@@ -46,7 +46,7 @@ public WaterMaterial loadWaterMaterial(uint materialID)
 // chandelier_simple_alpha.tga, loaded as R8_UNORM) carry the mask in
 // .r — kMaterialFlagIsAlphaSingleChannel picks the channel.
 // Alpha test + CoverageAmount dissolve — ONE gate for every ray/raster
-// context (gbuffer FS, V-buffer anyhit, surfel scatter anyhit, shadow /
+// context (V-buffer raster FS, path-trace scatter anyhit, shadow /
 // reflection RayQuery loops), so a fading object's primary visibility,
 // shadows, and direct lighting all dissolve consistently instead of a
 // half-dissolved mesh casting a full-strength ghost shadow.
@@ -131,9 +131,10 @@ public bool traceShadowRay(float3 origin, float3 dir, float tMax)
     RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
            | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES
            | RAY_FLAG_CULL_FRONT_FACING_TRIANGLES> q;
-    // Force-shadows restores the old behavior by tracing against all opaque
-    // instances. Normal mode culls on the shadow-caster bit.
-    uint shadowMask = gPerFrame.forceShadows != 0u ? kRayMaskOpaque : kRayMaskShadow;
+    // Default: trace against every opaque instance, so any opaque geometry
+    // blocks the shadow ray. The legacy opt-out mode instead culls on the
+    // authored shadow-caster bit.
+    uint shadowMask = gPerFrame.allLightsCastShadows != 0u ? kRayMaskOpaque : kRayMaskShadow;
     q.TraceRayInline(gRtAccel, 0, shadowMask, ray);
 
     while (q.Proceed())

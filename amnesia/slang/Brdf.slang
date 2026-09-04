@@ -1,6 +1,6 @@
 #pragma once
 //
-// Physically based (Cook-Torrance GGX) BRDF for the surfel-GI shading paths.
+// Physically based (Cook-Torrance GGX) BRDF for the shading paths.
 //
 // HPL2 materials are not authored as PBR, so the surface parameters are
 // reconstructed from the legacy DiffuseMaterial fields (see SceneTypes.slang):
@@ -29,6 +29,7 @@ import bindless;   // gTextures2D, gMaterialSampler
 import Random;              // RNG
 
 static const float kBrdfPi   = 3.14159265358979323846f;
+static const float kBrdfLobeProbMin = 0.05f;
 // Roughness floor — keeps the GGX lobe from collapsing to a delta (infinite
 // NDF spike / NaN throughput) for near-mirror surfaces.
 static const float kMinRough = 0.04f;
@@ -47,11 +48,10 @@ public struct SurfaceBRDF
     public bool   hasSpecular;
 };
 
-float brdfLuminance(float3 c) { return dot(c, float3(0.2126f, 0.7152f, 0.0722f)); }
+public float brdfLuminance(float3 c) { return dot(c, float3(0.2126f, 0.7152f, 0.0722f)); }
 
-// Rows (T, B, N): local->world via mul(localDir, basis), matching the
-// get_tangentspace() convention used elsewhere in the surfel passes.
-float3x3 brdfTangentToWorld(float3 N)
+// Rows (T, B, N): local->world via mul(localDir, basis).
+public float3x3 brdfTangentToWorld(float3 N)
 {
     float3 helper = abs(N.x) > 0.99f ? float3(0, 0, 1) : float3(1, 0, 0);
     float3 T = normalize(cross(N, helper));
@@ -180,16 +180,9 @@ public float3 evalBrdf(SurfaceBRDF s, float3 V, float3 L)
     return diffuse + spec;
 }
 
-// Sample an outgoing direction. Returns false when the sample is below the
-// horizon / degenerate. `weight` is f * N.L / pdf (lobe-selection probability
-// folded in), i.e. the factor a path throughput should be multiplied by.
-public bool sampleBrdf(SurfaceBRDF s, float3 V, inout RNG rng, out float3 L, out float3 weight)
+public float brdfSpecularProbability(SurfaceBRDF s, float3 V, float minProb)
 {
-    L = s.N;
-    weight = float3(0.0f);
-
     float NoV = dot(s.N, V);
-    if (NoV <= 0.0f) return false;
 
     // Energy split: diffuse keeps the (1 - F) the specular lobe reflects away.
     float3 Fv = s.hasSpecular ? fresnelSchlick(NoV, s.F0, s.fresnelPow) : float3(0.0f);
@@ -198,12 +191,34 @@ public bool sampleBrdf(SurfaceBRDF s, float3 V, inout RNG rng, out float3 L, out
     float wDiff = brdfLuminance(kd);
     float wSpec = s.hasSpecular ? brdfLuminance(Fv) : 0.0f;
     float sum   = wDiff + wSpec;
-    float pSpec = (s.hasSpecular && sum > 1e-6f) ? clamp(wSpec / sum, 0.05f, 0.95f) : 0.0f;
+    return (s.hasSpecular && sum > 1e-6f) ? clamp(wSpec / sum, minProb, 1.0f - minProb) : 0.0f;
+}
+
+// Sample an outgoing direction. Returns false when the sample is below the
+// horizon / degenerate. `weight` is f * N.L / pdf (lobe-selection probability
+// folded in), i.e. the factor a path throughput should be multiplied by.
+// `sampledSpecular` reports which lobe was picked, so a caller can route the
+// sample into a separate specular channel (the path tracer demodulates only
+// the diffuse one).
+public bool sampleBrdfLobe(SurfaceBRDF s, float3 V, float pSpec, float lobeU, inout RNG rng,
+                           out float3 L, out float3 weight, out bool sampledSpecular)
+{
+    L = s.N;
+    weight = float3(0.0f);
+    sampledSpecular = false;
+
+    float NoV = dot(s.N, V);
+    if (NoV <= 0.0f) return false;
+
+    // Energy split: diffuse keeps the (1 - F) the specular lobe reflects away.
+    float3 Fv = s.hasSpecular ? fresnelSchlick(NoV, s.F0, s.fresnelPow) : float3(0.0f);
+    float3 kd = s.albedo * (float3(1.0f) - Fv);
 
     float3x3 basis = brdfTangentToWorld(s.N);
 
-    if (rng.next_float() < pSpec)
+    if (lobeU < pSpec)
     {
+        sampledSpecular = true;
         // Specular: importance-sample the GGX half-vector.
         float a    = s.rough;
         float u1   = rng.next_float();
@@ -245,6 +260,14 @@ public bool sampleBrdf(SurfaceBRDF s, float3 V, inout RNG rng, out float3 L, out
     weight = kd * diffuseLobeWeight(NoL, NoV, LoH, sqrt(s.rough))
                 / max(1.0f - pSpec, 1e-4f);
     return true;
+}
+
+public bool sampleBrdf(SurfaceBRDF s, float3 V, inout RNG rng, out float3 L, out float3 weight,
+                       out bool sampledSpecular)
+{
+    float pSpec = brdfSpecularProbability(s, V, kBrdfLobeProbMin);
+    float lobeU = rng.next_float();
+    return sampleBrdfLobe(s, V, pSpec, lobeU, rng, L, weight, sampledSpecular);
 }
 
 // Reconstruct PBR surface parameters from a DiffuseMaterial + interpolated

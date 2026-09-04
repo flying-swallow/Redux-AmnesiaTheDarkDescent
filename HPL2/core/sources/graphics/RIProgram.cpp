@@ -435,9 +435,29 @@ void RIProgram::bindDescriptors(struct RIDevice* device, struct RICmd* cmd, uint
 			// (or vkCmdBindDescriptorSets directly). Skip alloc/write/bind here.
 			if( programDescriptors[setIndex].isExternal )
 				continue;
+			auto findBindingReflection = [this](const DescriptorBinding &binding) {
+				return binding.useSlot
+					? findReflectionBySlot(binding.slotSet, binding.slotBinding)
+					: findReflection(binding.handle);
+			};
 			hash_t hash = HASH_INITIAL_VALUE;
+#if !defined( NDEBUG )
+			// Debug-only bookkeeping for the unwritten-binding check below: which
+			// reflected bindings of this set the caller actually wrote, and which
+			// ones every supplied entry flagged as optional.
+			std::unordered_set<hash_t> coveredBindings;
+			std::unordered_map<hash_t, bool> suppliedOptional;
+#endif
 			for( size_t i = 0; i < bindingCount; i++ ) {
-				const struct RIProgram::BindingReflection *refl = findReflection(bindings[i].handle );
+				const struct RIProgram::BindingReflection *refl = findBindingReflection(bindings[i]);
+#if !defined( NDEBUG )
+				if( refl && setIndex == (uint32_t)refl->set ) {
+					auto opt = suppliedOptional.emplace( refl->hash, true ).first;
+					opt->second = opt->second && bindings[i].optional;
+					if( !bindings[i].descriptor.isEmpty() )
+						coveredBindings.insert( refl->hash );
+				}
+#endif
 				if( !refl || setIndex != refl->set || bindings[i].descriptor.isEmpty() )
 					continue;
 				hash = hash_u64( hash, refl->hash );
@@ -445,6 +465,35 @@ void RIProgram::bindDescriptors(struct RIDevice* device, struct RICmd* cmd, uint
 				assert( bindings[i].descriptor.cookie != 0 );
 				hash = hash_u64( hash, bindings[i].descriptor.cookie );
 			}
+#if !defined( NDEBUG )
+			// A binding the shader reflects but nobody wrote is a descriptor the
+			// shader reads undefined. Report it once per program; never assert,
+			// the warm-up frames before the first TLAS / world-buffer build hit
+			// this legitimately and must stay runnable.
+			{
+				const bool setNeverBound = ( hash == HASH_INITIAL_VALUE );
+				for( const struct RIProgram::BindingReflection &refl : bindingReflection ) {
+					if( (uint32_t)refl.set != setIndex )
+						continue;
+					// Array bindings are laid out with
+					// VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, so unwritten
+					// elements are legal.
+					if( refl.isArray )
+						continue;
+					if( coveredBindings.count( refl.hash ) > 0 )
+						continue;
+					const auto opt = suppliedOptional.find( refl.hash );
+					if( opt != suppliedOptional.end() && opt->second )
+						continue;
+					const uint64_t reportKey = hash_u64( hash_u32( HASH_INITIAL_VALUE, setIndex ), refl.hash );
+					if( !m_reportedUnwrittenBindings.insert( reportKey ).second )
+						continue;
+					Error( "RIProgram(%s): descriptor set %u binding %u '%s' is reflected by the shader but was never written%s — the shader will read an undefined descriptor (VUID-vkCmdDrawIndexed-None-08114). Add it to the DescriptorBinding list, or construct it with optional=true if it may legitimately be empty.\n",
+						m_debugName.c_str(), setIndex, (unsigned)refl.baseRegisterIndex, refl.debugName.c_str(),
+						setNeverBound ? " (the caller supplied nothing at all for this set, so it is never bound)" : "" );
+				}
+			}
+#endif
 			if( hash == HASH_INITIAL_VALUE )
 				continue;
 			struct DescriptorSetSlot *info = &programDescriptors[setIndex];
@@ -461,7 +510,7 @@ void RIProgram::bindDescriptors(struct RIDevice* device, struct RICmd* cmd, uint
 				VkDescriptorBufferInfo bufferInfos[32] = {};
 				VkAccelerationStructureKHR accelHandles[32] = {};
 				for( size_t i = 0; i < bindingCount; i++ ) {
-						const struct RIProgram::BindingReflection *refl = findReflection(bindings[i].handle );
+					const struct RIProgram::BindingReflection *refl = findBindingReflection(bindings[i]);
 					if( !refl || setIndex != refl->set || bindings[i].descriptor.isEmpty() )
 						continue;
 
@@ -658,6 +707,15 @@ const struct RIProgram::BindingReflection* RIProgram::findReflection(const struc
   return NULL;
 }
 
+const struct RIProgram::BindingReflection *
+RIProgram::findReflectionBySlot(uint32_t set, uint32_t binding) {
+  for (auto &ref : bindingReflection) {
+    if (ref.set == set && ref.baseRegisterIndex == binding)
+      return &ref;
+  }
+  return NULL;
+}
+
 std::vector<char> RIProgram::loadShaderStage(cFileSearcher *searcher, const tString& asName) {
   std::vector<char> result = {};
 	tWString sPath = searcher->GetFilePath(asName);
@@ -676,6 +734,9 @@ void RIProgram::initialize(RIDevice* device, std::span<ModuleStage> moduleInit,
                            const char *debugName) {
   assert(device);
   this->device = device;
+#if !defined(NDEBUG)
+  m_debugName = debugName ? debugName : "<unnamed program>";
+#endif
 
   VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {
       VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
@@ -784,7 +845,9 @@ void RIProgram::initialize(RIDevice* device, std::span<ModuleStage> moduleInit,
         reflc->baseRegisterIndex = reflectionBinding->binding;
         reflc->isArray = reflectionBinding->count > 1;
         reflc->dimCount = std::max<uint16_t>(1, reflectionBinding->count);
-        Log("[MP] Descriptor[%zu], name: %s hash: %llu stage: %u\n", i_set, reflectionBinding->name ? reflectionBinding->name : "<null>", (unsigned long long)reflc->hash, (unsigned)init.stage);
+#if !defined(NDEBUG)
+        reflc->debugName = reflectionBinding->name ? reflectionBinding->name : "<unnamed>";
+#endif
 
         VkDescriptorSetLayoutBinding *layoutBinding = NULL;
         VkDescriptorBindingFlags *bindingFlags = NULL;

@@ -93,27 +93,43 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 	cRendererSimple::cRendererSimple(cGraphics *apGraphics,cResources* apResources)
-		: iRenderer("Simple",apGraphics, apResources)
+		: iRenderer("Simple",apGraphics, apResources),
+		  m_simple(std::make_shared<RIProgram>())
+	{
+		LoadData();
+	}
+
+	//-----------------------------------------------------------------------
+
+	bool cRendererSimple::LoadData()
 	{
 		// Standalone program (no bindless set) — mirrors cRendererWireFrame;
 		// per-draw state arrives via a frame-scratch UBO ("pass") plus a
 		// per-draw diffuse texture + sampler (DebugDraw-style named bindings).
-		auto vert_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "Simple.vert.spv");
-		auto frag_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "Simple.frag.spv");
+		auto vert_stage = RIProgram::loadShaderStage(mpResources->GetFileSearcher(), "Simple.vert.spv");
+		auto frag_stage = RIProgram::loadShaderStage(mpResources->GetFileSearcher(), "Simple.frag.spv");
 		std::array<RIProgram::ModuleStage, 2> stages = {
 			RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, vert_stage, "vsMain"},
 			RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, frag_stage, "psMain"}
 		};
-		m_simple.initialize(&mpGraphics->device, stages, {}, "RendererSimple");
+		m_simple->initialize(&mpGraphics->device, stages, {}, "RendererSimple");
+		return true;
 	}
 
 	//-----------------------------------------------------------------------
 
 	void cRendererSimple::DestroyData()
 	{
-		// Runs from DestroyRenderObjects, before cGraphics::Dispose — the
-		// device is still alive (same pattern as ~cHybridRenderer).
-		m_simple.dispose(&mpGraphics->device);
+		// Keep the old program alive until every command buffer that may have
+		// bound one of its pipelines has retired. This also covers the public
+		// ReloadRendererData path, which can run while a frame is active.
+		auto oldProgram = std::move(m_simple);
+		m_simple = std::make_shared<RIProgram>();
+		mpGraphics->graphicsDefer.push(std::function<void()>(
+			[oldProgram = std::move(oldProgram), device = &mpGraphics->device]() mutable {
+				if (oldProgram)
+					oldProgram->dispose(device);
+			}));
 	}
 
 	//-----------------------------------------------------------------------
@@ -499,7 +515,7 @@ namespace hpl {
 
 			hash_t hash = hash_u32(HASH_INITIAL_VALUE, (uint32_t)aVariant);
 			hash = hash_u32(hash, alVtxMask);
-			m_simple.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], hash, "simple", &pipelineCreateInfo);
+			m_simple->bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], hash, "simple", &pipelineCreateInfo);
 		};
 
 		////////////////////////////////////////////
@@ -596,13 +612,13 @@ namespace hpl {
 					(listType == eRenderListType_Diffuse && pMat &&
 					 pMat->GetAlphaMode() == eMaterialAlphaMode_Trans) ? 0.5f : 0.0f;
 
-				// Per-draw diffuse: material texture when present, else the
-				// 1x1 white default. Pin real textures so a mid-frame destroy
-				// can't free the VkImage before this submit retires.
+				// Per-draw diffuse: material texture when present and uploaded,
+				// else the 1x1 white default. Pin real textures so a mid-frame
+				// destroy can't free the VkImage before this submit retires.
 				Image *pDiffuseImage = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : nullptr;
 				cTexture *texture = pDiffuseImage ? pDiffuseImage->GetTexture() : nullptr;
 				RIDescriptor textureDescriptor = mpGraphics->whiteTexture2DDescriptor();
-				if(texture) {
+				if(texture && !texture->view.isEmpty()) {
 					mpGraphics->graphicsDefer.push(PinResource(pDiffuseImage));
 					textureDescriptor = texture->descriptor();
 				}
@@ -621,7 +637,7 @@ namespace hpl {
 				bindings[1].handle = DescriptorBindingID::Create("diffuseSampler");
 				bindings[2].descriptor = textureDescriptor;
 				bindings[2].handle = DescriptorBindingID::Create("diffuseMap");
-				m_simple.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex, bindings, 3);
+				m_simple->bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex, bindings, 3);
 
 				RIBuffer *vertBufs[3] = {
 					posBuffer,

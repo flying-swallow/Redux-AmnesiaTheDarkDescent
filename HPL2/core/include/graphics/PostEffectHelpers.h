@@ -15,7 +15,8 @@ namespace hpl {
 // descriptor() (cookie lives on the view).
 //
 // Lifecycle: create via CreatePostEffectColorTarget, destroy via
-// DestroyPostEffectColorTarget. The owner re-creates when the viewport
+// DestroyPostEffectColorTarget. Destruction is deferred to graphicsDefer, so
+// it is safe to call mid-frame. The owner re-creates when the viewport
 // dimensions change (compare against `width` / `height`).
 struct PostEffectColorTarget {
     struct RITexture     texture {};
@@ -32,7 +33,8 @@ struct PostEffectColorTarget {
 // Allocate `out` with the given dimensions / format and a usage of
 // (SAMPLED | COLOR_ATTACHMENT | additionalUsage). additionalUsage covers
 // uncommon needs (e.g. TRANSFER_SRC for the ImageTrail accumulator).
-// The caller must destroy via DestroyPostEffectColorTarget before exit.
+// Destroy via DestroyPostEffectColorTarget before exit; destruction is
+// deferred to graphicsDefer and is safe to call mid-frame.
 void CreatePostEffectColorTarget(PostEffectColorTarget &out, uint32_t width,
                                  uint32_t height, enum RI_Format_e format,
                                  uint32_t additionalUsage, // RITextureUsageBits_e

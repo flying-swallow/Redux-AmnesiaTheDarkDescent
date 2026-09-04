@@ -1,13 +1,13 @@
 #pragma once
-// Shared water-surface helpers used by both the raster water shader
-// (Water.frag.slang) and the ray-traced water bounce (SurfelVBuffer.rt.slang),
-// so the wave-animated normal stays identical between the two passes.
+// Water-surface helpers. Water.frag.slang is the only consumer today; kept
+// in its own module so any future water pass can share the exact same
+// wave-animated normal.
 //
 // Ported from AmnesiaTheDarkDescent/HPL2/resource/translucency_water.frag.fsl:
 // two scrolling normal-map samples (one slow + base frequency, one faster +
 // 1.2x frequency) blended 70/30 to break up periodicity. Returned in TANGENT
-// space; callers rotate into view (raster) or world (RT) space via their own
-// TBN frame.
+// space; callers rotate it into their own space (view, for the raster pass)
+// via their own TBN frame.
 
 #include "Constants.h"
 import bindless;

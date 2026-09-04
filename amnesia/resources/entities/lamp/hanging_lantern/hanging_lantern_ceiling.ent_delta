@@ -1,0 +1,5 @@
+<EntDelta Version="1" Target="entities/lamp/hanging_lantern/hanging_lantern_ceiling.ent">
+    <Modify Category="Entities" ID="12" Name="PointLight_1">
+        <SetAttr Intensity="2.2" Radius="11.5" SourceRadius="0.4" WorldPos="3.8147e-06 -0.672 0" />
+    </Modify>
+</EntDelta>

@@ -1,7 +1,7 @@
 #pragma once
 #include "HostDefinitions.h"
 // SceneTypes is the canonical Slang home for the SHARED_CONST capacity /
-// surfel-grid / counter-slot constants declared in Constants.h. Setting
+// grid / counter-slot constants declared in Constants.h. Setting
 // HPL_DEFINE_SHARED_CONSTS makes Constants.h emit them here; other Slang
 // modules that need them `import SceneTypes` instead of re-#including.
 #define HPL_DEFINE_SHARED_CONSTS
@@ -15,7 +15,7 @@ HOST_NAMESPACE_BEGIN
 // in `type` at offset 0, so any consumer can read the first 4 bytes of a
 // record to identify its concrete kind without knowing which buffer it came
 // from. This is the contract the ILight interface, the Material.slang loaders,
-// and the surfel GI iteration loops rely on.
+// and the light-grid build / NEE sampling loops rely on.
 // -----------------------------------------------------------------------------
 
 
@@ -77,9 +77,12 @@ SLANG_PUBLIC struct SpotLight {
 // optional `sourceTextureIndex` (textures_2d[], rect-local UV). Soft shadows sample
 // the rectangle itself (RectLight.sampleSourcePoint) — the area IS the source.
 // `barnDoorAngle`/`barnDoorLength` shape the beam: four flaps hinged on the rect
-// edges, tilted from the normal by the angle and extended by the length, confine
-// the emission to a frustum (RectLight.sample barnAxis). Angle → 90° or length 0
-// leaves the flaps open (no-op).
+// edges, tilted from the normal by the angle and extended by the length, occlude
+// part of the emitter per shading point. barnClipRect (ILight.slang) turns that into
+// a clipped source rectangle used for BOTH the closest-point shade (scaled by the
+// visible area fraction) and the shadow-ray source sampling, so the beam narrows,
+// dims at its edge, and its penumbra matches. Angle → 90° or length 0 leaves the
+// flaps open (no-op).
 SLANG_PUBLIC struct RectLight {
     SLANG_PUBLIC uint  sourceTextureIndex;           // textures_2d[]; kInvalidTextureIndex when absent
     SLANG_PUBLIC float3 position;                   // rect center, world space
@@ -251,8 +254,9 @@ SLANG_PUBLIC struct GpuDecal {
 };
 
 // -----------------------------------------------------------------------------
-// Surfel-GI shared types (HitInfo / TriangleHit / VertexData / LightSample).
-// Used by the ray-tracing surfel passes for hit packing and NEE sampling.
+// Shared hit / sampling types (HitInfo / TriangleHit / VertexData / LightSample).
+// Used by the V-buffer, direct-lighting and path-trace passes for hit packing
+// and NEE sampling.
 // -----------------------------------------------------------------------------
 
 // Result of sampling any ILight from a shading point. `dir` points from the
@@ -265,8 +269,9 @@ SLANG_PUBLIC struct LightSample {
     SLANG_PUBLIC float distance;        // shadow-ray tMax
 };
 
-// Packed primary-ray hit. Mirrors the layout of `gPackedHitInfo` (a uint4
-// V-buffer image) used across the surfel V-buffer / G-buffer port:
+// Packed primary hit. Mirrors the layout of `gPackedHitInfo` (a uint4
+// V-buffer image written by VBufferPomBary.cs from the raster VBufferRaster.3d
+// hit) used across the V-buffer / G-buffer port:
 //   .x : geometry instance id
 //   .y : primitive (triangle) index inside the instance
 //   .z : barycentrics packed as two float16s (low=b1, high=b2; b0 = 1-b1-b2)
@@ -279,7 +284,7 @@ SLANG_PUBLIC struct HitInfo {
 
 // Closer-to-Falcor TriangleHit alias; same logical content as HitInfo but
 // unpacked. Kept distinct so future hit kinds (procedural, displaced) can
-// grow into HitInfo without disturbing the surfel triangle-only paths.
+// grow into HitInfo without disturbing the existing triangle-only paths.
 SLANG_PUBLIC struct TriangleHit {
     SLANG_PUBLIC uint  instanceID;
     SLANG_PUBLIC uint  primitiveIndex;
@@ -287,7 +292,7 @@ SLANG_PUBLIC struct TriangleHit {
 };
 
 // Per-hit interpolated vertex data. World-space because every consumer of it
-// (surfel placement, cell hashing, NEE shadow origin) wants world-space.
+// (shading, light-grid cell lookup, NEE shadow origin) wants world-space.
 SLANG_PUBLIC struct VertexData {
     SLANG_PUBLIC float3  posW;
     SLANG_PUBLIC float3  normalW;
@@ -322,14 +327,14 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC uint  totalFrames;                // monotonic frame counter
     SLANG_PUBLIC float cameraFov;                  // main camera vertical FOV (radians)
     SLANG_PUBLIC uint  pointLightCount;            // gPointLights[] SLOT CAPACITY (high-water of stable slots; sparse, zeroed holes)
-    SLANG_PUBLIC float fireflyClampThreshold;      // luminance cap in surfel raytrace + integrate
+    SLANG_PUBLIC float fireflyClampThreshold;      // firefly luminance cap on per-sample path radiance (PathTracePass.rt.slang rayGen); <= 0 disables
     SLANG_PUBLIC float zNear;                      // view-space, positive
     SLANG_PUBLIC float zFar;                       // view-space, positive
     SLANG_PUBLIC uint  spotLightCount;             // gSpotLights[] SLOT CAPACITY (high-water of stable slots; sparse, zeroed holes)
     SLANG_PUBLIC uint  fogAreaCount;               // active entries in gFogAreas[]
     SLANG_PUBLIC uint  decalCount;                 // active entries in gDecals[]
     SLANG_PUBLIC uint  areaLightCount;             // gAreaLights[] SLOT CAPACITY (high-water of stable slots; sparse, zeroed holes)
-    SLANG_PUBLIC uint  forceShadows;               // debug override: ignore shadow flags and use pre-shadow-flag behavior
+    SLANG_PUBLIC uint  allLightsCastShadows;       // non-zero: treat every light as shadow-casting and trace shadow rays against all opaque instances
 
     SLANG_PUBLIC float3 posW;
     SLANG_PUBLIC float jitterX;

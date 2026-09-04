@@ -1128,6 +1128,9 @@ bool cLuxBase::InitEngine()
 	cResources::SetForceCacheLoadingAndSkipSaving(mpConfigHandler->mbForceCacheLoadingAndSkipSaving);
 	cResources::SetCreateAndLoadCompressedMaps(false);
 	//cResources::SetCreateAndLoadCompressedMaps(mbPTestActivated || mpConfigHandler->mbCreateAndLoadCompressedMaps);
+	// .map_delta / .ent_delta overlays: on for the game, off for the editors and
+	// the offline tools (they must see unpatched files to author deltas against).
+	cResources::SetDeltasEnabled(true);
     
 	/////////////////////////
 	// Create the engine
