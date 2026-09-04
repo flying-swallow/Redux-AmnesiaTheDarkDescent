@@ -143,7 +143,7 @@ public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW, float3 V,
     // function no longer touches the typed SSBOs or knows the source shape. Spheres
     // (point/spot) return a disk point; area lights sample their rectangle; a
     // degenerate source returns the centre (hard ray).
-    float3 target = getLight(lightIndex).sampleSourcePoint(ls.dir, rng.next_float2());
+    float3 target = getLight(lightIndex).sampleSourcePoint(posW, ls.dir, rng.next_float2());
     float3 toT  = target - origin;
     float  sMax = length(toT);
     float3 sDir = toT / max(sMax, 1.0e-6f);

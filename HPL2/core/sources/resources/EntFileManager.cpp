@@ -24,6 +24,7 @@
 #include "resources/Resources.h"
 #include "resources/LowLevelResources.h"
 #include "resources/XmlHelper.h"
+#include "resources/XmlDelta.h"
 
 #include <tinyxml2.h>
 
@@ -39,6 +40,7 @@ namespace hpl {
 	cEntFile::cEntFile(const tString& asName, const tWString& asFullPath, cResources *apResources) : iResourceBase(asName, asFullPath, 0)
 	{
 		mpXmlDoc = hplNew( tinyxml2::XMLDocument, () );
+		mpResources = apResources;
 	}
 	cEntFile::~cEntFile()
 	{
@@ -47,7 +49,38 @@ namespace hpl {
 
 	bool cEntFile::CreateFromFile()
 	{
-		return LoadXmlFile(*mpXmlDoc, GetFullPath());
+		if(LoadXmlFile(*mpXmlDoc, GetFullPath())==false) return false;
+
+		////////////////////////////////////
+		// Apply any .ent_delta overlays to the parsed tree. Every placed instance
+		// of this entity shares this document, so a patched definition reaches all
+		// of them; the .ent on disk is untouched.
+		tWStringVec vDeltaFiles;
+		if(mpResources->FindDeltaFiles(GetFullPath(), "ent_delta", vDeltaFiles)==false) return true;
+
+		int lNextAddID = HPL_XML_DELTA_FIRST_ADD_ID;
+		for(size_t i=0; i<vDeltaFiles.size(); ++i)
+		{
+			tinyxml2::XMLDocument deltaDoc;
+			if(LoadXmlFile(deltaDoc, vDeltaFiles[i])==false)
+			{
+				Error("Could not load ent delta '%s'!\n", cString::To8Char(vDeltaFiles[i]).c_str());
+				continue;
+			}
+
+			cXmlDeltaStats stats;
+			if(ApplyXmlDelta(mpXmlDoc->RootElement(), deltaDoc.RootElement(), lNextAddID, stats)==false)
+			{
+				Error("Could not apply ent delta '%s'!\n", cString::To8Char(vDeltaFiles[i]).c_str());
+				continue;
+			}
+
+			Log("  Ent delta '%s' on '%s': %d added, %d modified, %d removed, %d skipped\n",
+				cString::To8Char(cString::GetFileNameW(vDeltaFiles[i])).c_str(), GetName().c_str(),
+				stats.mlAdded, stats.mlModified, stats.mlRemoved, stats.mlSkipped);
+		}
+
+		return true;
 	}
 
 	tinyxml2::XMLElement* cEntFile::GetXmlDoc()

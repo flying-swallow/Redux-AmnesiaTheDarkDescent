@@ -1,0 +1,141 @@
+<MapDelta Version="1" Target="maps/main/ch01/03_archives.map">
+    <Modify Category="StaticObjects" ID="4924" Name="web_spider01_4">
+        <SetAttr WorldPos="87.843 5.07 16.59" />
+    </Modify>
+    <Remove Category="Entities" ID="1689" Name="PointLight_2" />
+    <Remove Category="Entities" ID="1690" Name="SpotLight_2" />
+    <Remove Category="Entities" ID="1693" Name="PointLight_4" />
+    <Remove Category="Entities" ID="1694" Name="SpotLight_4" />
+    <Remove Category="Entities" ID="1698" Name="SpotLight_5" />
+    <Remove Category="Entities" ID="1702" Name="SpotLight_6" />
+    <Remove Category="Entities" ID="1704" Name="SpotLight_8" />
+    <Remove Category="Entities" ID="1705" Name="SpotLight_9" />
+    <Remove Category="Entities" ID="1706" Name="PointLight_8" />
+    <Remove Category="Entities" ID="1707" Name="PointLight_9" />
+    <Remove Category="Entities" ID="1708" Name="PointLight_10" />
+    <Remove Category="Entities" ID="1709" Name="PointLight_11" />
+    <Remove Category="Entities" ID="2726" Name="PointLight_33" />
+    <Remove Category="Entities" ID="2727" Name="PointLight_34" />
+    <Remove Category="Entities" ID="2728" Name="PointLight_35" />
+    <Remove Category="Entities" ID="2974" Name="BoxLight_2" />
+    <Remove Category="Entities" ID="2975" Name="BoxLight_3" />
+    <Remove Category="Entities" ID="3278" Name="PointLight_36" />
+    <Remove Category="Entities" ID="3279" Name="PointLight_37" />
+    <Remove Category="Entities" ID="3490" Name="BoxLight_4" />
+    <Remove Category="Entities" ID="4425" Name="SpotLight_11" />
+    <Remove Category="Entities" ID="4426" Name="SpotLight_12" />
+    <Remove Category="Entities" ID="4427" Name="SpotLight_13" />
+    <Remove Category="Entities" ID="4429" Name="PointLight_17" />
+    <Remove Category="Entities" ID="4596" Name="PointLight_39" />
+    <Remove Category="Entities" ID="4669" Name="PointLight_41" />
+    <Remove Category="Entities" ID="4670" Name="PointLight_42" />
+    <Remove Category="Entities" ID="4690" Name="PointLight_43" />
+    <Remove Category="Entities" ID="4805" Name="SpotLight_15" />
+    <Remove Category="Entities" ID="5220" Name="BoxLight_8" />
+    <Remove Category="Entities" ID="5234" Name="BoxLight_5" />
+    <Remove Category="Entities" ID="6255" Name="PointLight_12" />
+    <Remove Category="Entities" ID="6256" Name="PointLight_13" />
+    <Remove Category="Entities" ID="6257" Name="PointLight_15" />
+    <Remove Category="Entities" ID="6258" Name="PointLight_16" />
+    <Remove Category="Entities" ID="7011" Name="PointLight_18" />
+    <Remove Category="Entities" ID="7013" Name="PointLight_20" />
+    <Remove Category="Entities" ID="7015" Name="PointLight_21" />
+    <Remove Category="Entities" ID="7016" Name="PointLight_22" />
+    <Remove Category="Entities" ID="7017" Name="PointLight_23" />
+    <Remove Category="Entities" ID="7019" Name="PointLight_25" />
+    <Remove Category="Entities" ID="7020" Name="PointLight_26" />
+    <Remove Category="Entities" ID="7022" Name="PointLight_27" />
+    <Remove Category="Entities" ID="7023" Name="PointLight_28" />
+    <Remove Category="Entities" ID="7024" Name="PointLight_29" />
+    <Remove Category="Entities" ID="7025" Name="PointLight_30" />
+    <Remove Category="Entities" ID="7065" Name="PointLight_31" />
+    <Remove Category="Entities" ID="7066" Name="PointLight_32" />
+    <Remove Category="Entities" ID="7067" Name="PointLight_45" />
+    <Remove Category="Entities" ID="7148" Name="PointLight_3" />
+    <Remove Category="Entities" ID="7156" Name="PointLight_46" />
+    <Modify Category="Entities" ID="3277" Name="SpotLight_7">
+        <SetAttr Intensity="4" Radius="28.2799" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="4428" Name="PointLight_14">
+        <SetAttr Intensity="7" Radius="17.3034" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="4492" Name="Billboard_181">
+        <SetAttr WorldPos="98.247 2 9" />
+    </Modify>
+    <Modify Category="Entities" ID="4597" Name="PointLight_40">
+        <SetAttr Intensity="3" Radius="10.711" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="4668" Name="SpotLight_14">
+        <SetAttr Intensity="4.5" Radius="29.9958" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="4718" Name="OrbLight">
+        <SetAttr Intensity="5" Radius="28.0564" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="4803" Name="PointLight_44">
+        <SetAttr Intensity="4" Radius="12.3714" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="4827" Name="candlestick_tri_3">
+        <SetVar Name="ConnectedLight" Value="" />
+    </Modify>
+    <Modify Category="Entities" ID="6921" Name="PointLight_6">
+        <SetAttr Intensity="10" Radius="6.24206" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="6923" Name="PointLight_7">
+        <SetAttr Intensity="10" Radius="6.24206" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="6957" Name="SpotLight_10">
+        <SetAttr Intensity="100" Radius="9" SourceRadius="2" WorldPos="70.25 7.5 26.5" />
+    </Modify>
+    <Modify Category="Entities" ID="7003" Name="Billboard_1">
+        <SetAttr ConnectLight="" />
+    </Modify>
+    <Modify Category="Entities" ID="7004" Name="Billboard_2">
+        <SetAttr ConnectLight="" />
+    </Modify>
+    <Modify Category="Entities" ID="7005" Name="Billboard_3">
+        <SetAttr ConnectLight="" />
+    </Modify>
+    <Modify Category="Entities" ID="7006" Name="Billboard_4">
+        <SetAttr ConnectLight="" />
+    </Modify>
+    <Modify Category="Entities" ID="7009" Name="Billboard_6">
+        <SetAttr ConnectLight="" />
+    </Modify>
+    <Modify Category="Entities" ID="7012" Name="PointLight_19">
+        <SetAttr Intensity="3.5" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="7018" Name="PointLight_24">
+        <SetAttr Intensity="4" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="7149" Name="PointLight_5">
+        <SetAttr Intensity="3.5" Radius="9.63109" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="7150" Name="PointLight_38">
+        <SetAttr Intensity="4" Radius="15.9558" SourceRadius="0" />
+    </Modify>
+    <Add Category="Entities">
+        <AreaLight Name="AreaLight_Win_N44_1" WorldPos="44.175 2.4466 -5.2319" Rotation="0 -1.5708 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="385" Radius="28" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.74 0.93 1 1" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="1.818" SourceHeight="2.123" BarnDoorAngle="0.785398" BarnDoorLength="0" SourceTexture="" />
+        <AreaLight Name="AreaLight_Win_N50_1" WorldPos="50.25 2.4466 -5.2319" Rotation="0 -1.5708 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="385" Radius="28" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.74 0.93 1 1" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="1.818" SourceHeight="2.123" BarnDoorAngle="0.785398" BarnDoorLength="0" SourceTexture="" />
+        <AreaLight Name="AreaLight_Win_N54_1" WorldPos="54.75 2.665 -5.109" Rotation="0 -1.5708 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="100" Radius="28" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.74 0.93 1 1" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="1.218" SourceHeight="1.823" BarnDoorAngle="0.785398" BarnDoorLength="0" SourceTexture="" />
+        <AreaLight Name="AreaLight_Win_N60_1" WorldPos="60.75 2.447 -5.095" Rotation="0 -1.5708 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="5" Radius="28" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.74 0.93 1 1" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="1.818" SourceHeight="2.123" BarnDoorAngle="0.785398" BarnDoorLength="0" SourceTexture="" />
+        <AreaLight Name="AreaLight_Win_N72_1" WorldPos="72.5 2.426 -5.474" Rotation="0 -1.5708 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="10" Radius="28.5" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.74 0.93 1 1" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="1.642" SourceHeight="1.485" BarnDoorAngle="0.802851" BarnDoorLength="2.6" SourceTexture="" />
+        <AreaLight Name="AreaLight_Win_N81_1" WorldPos="81.5 1.937 -5.4838" Rotation="0 -1.5708 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="300" Radius="28" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.74 0.93 1 1" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="2.9199" SourceHeight="2.1846" BarnDoorAngle="0.785398" BarnDoorLength="0" SourceTexture="" />
+        <AreaLight Name="AreaLight_Win_N85_1" WorldPos="85.5 1.937 -5.4838" Rotation="0 -1.5708 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="300" Radius="28" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.74 0.93 1 1" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="2.9199" SourceHeight="2.1846" BarnDoorAngle="0.785398" BarnDoorLength="0" SourceTexture="" />
+        <AreaLight Name="AreaLight_Win_S64_1" WorldPos="64.4753 1.937 31.7333" Rotation="0 1.5708 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="50" Radius="28" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.74 0.93 1 1" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="2.9199" SourceHeight="2.1846" BarnDoorAngle="0.785398" BarnDoorLength="0" SourceTexture="" />
+        <AreaLight Name="AreaLight_Win_S74_1" WorldPos="74.475 1.937 32.311" Rotation="0 1.5708 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="640" Radius="28" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.74 0.93 1 1" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="1.72" SourceHeight="1.685" BarnDoorAngle="0.785398" BarnDoorLength="0" SourceTexture="" />
+        <AreaLight Name="AreaLight_Win_E96z13_1" WorldPos="96.5 2.187 12.687" Rotation="0 1.5708 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="10" Radius="24" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.74 0.93 1 1" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="3.22" SourceHeight="0.385" BarnDoorAngle="0.855211" BarnDoorLength="0.2" SourceTexture="" />
+        <SpotLight Name="SpotLight_3" WorldPos="84.5 2 31" Rotation="0.785398 0 3.14159" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="Medium" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="10" Radius="33.1983" SourceRadius="0" FalloffMap="" Gobo="gobo_mansionbase_window02_large.dds" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.8 0.9 0.85 0.8" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" FOV="1.22173" Aspect="1.5" NearClipPlane="0.1" SpotFalloffMap="" />
+        <SpotLight Name="SpotLight_5" WorldPos="54.5 2 31.25" Rotation="0.785398 0 3.14159" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="Medium" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="20" Radius="33.1983" SourceRadius="0" FalloffMap="" Gobo="gobo_mansionbase_window02_large.dds" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.8 0.9 0.85 0.8" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" FOV="1.0472" Aspect="1.5" NearClipPlane="0.1" SpotFalloffMap="" />
+        <SpotLight Name="SpotLight_6" WorldPos="44.2051 2.49239 -4.65612" Rotation="2.09439 0 3.14159" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="5" Radius="14.6216" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.4 0.5 0.45 0.4" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" FOV="0.959931" Aspect="0.3" NearClipPlane="0.1" SpotFalloffMap="" />
+        <SpotLight Name="SpotLight_8" WorldPos="50.25 2.75 -4.25" Rotation="-1.13446 3.14159 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="20" Radius="23.3065" SourceRadius="0" FalloffMap="" Gobo="gobo_mansionbase_window.dds" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.7 0.8 0.75 0.7" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" FOV="0.959931" Aspect="1.25" NearClipPlane="0.1" SpotFalloffMap="" />
+        <SpotLight Name="SpotLight_9" WorldPos="60.75 2.75 -4.25" Rotation="-1.13446 3.14159 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="Medium" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="50" Radius="23.3065" SourceRadius="0" FalloffMap="" Gobo="gobo_mansionbase_window.dds" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.7 0.8 0.75 0.7" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" FOV="0.959931" Aspect="1.25" NearClipPlane="0.1" SpotFalloffMap="" />
+        <SpotLight Name="SpotLight_11" WorldPos="72.5 2.75 -4.75" Rotation="-1.13446 3.14159 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="15" Radius="23.3065" SourceRadius="0" FalloffMap="" Gobo="gobo_mansionbase_window.dds" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.7 0.8 0.75 0.7" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" FOV="0.959931" Aspect="1.25" NearClipPlane="0.1" SpotFalloffMap="" />
+        <SpotLight Name="SpotLight_12" WorldPos="85.5 2.25 -4" Rotation="-1.91986 0 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="Low" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="3.5" Radius="20.5531" SourceRadius="0" FalloffMap="" Gobo="lights/gobo_mansionbase_window02_large.dds" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.7 0.8 0.75 0.7" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" FOV="1.25664" Aspect="1.2" NearClipPlane="0.1" SpotFalloffMap="" />
+        <SpotLight Name="SpotLight_13" WorldPos="96.5 2.25 6.25" Rotation="-1.91986 0 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="Low" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="10" Radius="19.0275" SourceRadius="0" FalloffMap="" Gobo="lights/gobo_mansionbase_window02_large.dds" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.7 0.8 0.75 0.7" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" FOV="1.25664" Aspect="1.2" NearClipPlane="0.1" SpotFalloffMap="" />
+        <SpotLight Name="SpotLight_15" WorldPos="98.25 2.474 9.086" Rotation="1.0472 -1.48353 3.14159" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="Low" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="10" Radius="19.0275" SourceRadius="0" FalloffMap="" Gobo="lights/gobo_mansionbase_window02_large.dds" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.7 0.8 0.75 0.7" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" FOV="1.25664" Aspect="1.2" NearClipPlane="0.1" SpotFalloffMap="" />
+        <SpotLight Name="SpotLight_16" WorldPos="81.542 2.35538 -3.51204" Rotation="-1.91986 0 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="Low" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="3.2" Radius="19.652" SourceRadius="0" FalloffMap="" Gobo="lights/gobo_mansionbase_window02_large.dds" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.7 0.8 0.75 0.7" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" FOV="0.785398" Aspect="2.5" NearClipPlane="0.1" SpotFalloffMap="" />
+        <AreaLight Name="AreaLight_1" WorldPos="107.45 0 35.715" Rotation="0 0 0" Scale="1 1 1" Tag="" Active="true" CastShadows="false" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="1" Radius="1" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="1 1 1 1" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="1" SourceHeight="1" BarnDoorAngle="0.785398" BarnDoorLength="0" SourceTexture="" />
+        <AreaLight Name="AreaLight_2" WorldPos="92.906 0 22.314" Rotation="0 0 0" Scale="1 1 1" Tag="" Active="true" CastShadows="false" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="1" Radius="1" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="1 1 1 1" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="1" SourceHeight="1" BarnDoorAngle="0.785398" BarnDoorLength="0" SourceTexture="" />
+        <AreaLight Name="AreaLight_5" WorldPos="87.448 5.563 16.248" Rotation="0 0 -1.5708" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="50" Radius="20.5" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.74 0.93 1 1" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="2" SourceHeight="1.8" BarnDoorAngle="0.785398" BarnDoorLength="0" SourceTexture="" />
+    </Add>
+</MapDelta>

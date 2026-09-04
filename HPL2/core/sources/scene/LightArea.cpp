@@ -44,7 +44,7 @@ namespace hpl {
 
 		mfWidth = 1.0f;
 		mfHeight = 1.0f;
-		mfBarnDoorAngle = cMath::ToRad(88.0f);
+		mfBarnDoorAngle = cMath::ToRad(45.0f);
 		mfBarnDoorLength = 0.0f;
 
 		UpdateBoundingVolume();

@@ -77,9 +77,12 @@ SLANG_PUBLIC struct SpotLight {
 // optional `sourceTextureIndex` (textures_2d[], rect-local UV). Soft shadows sample
 // the rectangle itself (RectLight.sampleSourcePoint) — the area IS the source.
 // `barnDoorAngle`/`barnDoorLength` shape the beam: four flaps hinged on the rect
-// edges, tilted from the normal by the angle and extended by the length, confine
-// the emission to a frustum (RectLight.sample barnAxis). Angle → 90° or length 0
-// leaves the flaps open (no-op).
+// edges, tilted from the normal by the angle and extended by the length, occlude
+// part of the emitter per shading point. barnClipRect (ILight.slang) turns that into
+// a clipped source rectangle used for BOTH the closest-point shade (scaled by the
+// visible area fraction) and the shadow-ray source sampling, so the beam narrows,
+// dims at its edge, and its penumbra matches. Angle → 90° or length 0 leaves the
+// flaps open (no-op).
 SLANG_PUBLIC struct RectLight {
     SLANG_PUBLIC uint  sourceTextureIndex;           // textures_2d[]; kInvalidTextureIndex when absent
     SLANG_PUBLIC float3 position;                   // rect center, world space

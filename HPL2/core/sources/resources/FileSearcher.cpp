@@ -125,6 +125,23 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
+	size_t cFileSearcher::GetAllFilePaths(const tString& asFileName, tWStringVec& avPaths)
+	{
+		tString sLowName = cString::ToLowerCase(cString::GetFileName(asFileName));
+
+		size_t lAdded =0;
+		std::pair<tFilePathMapIt, tFilePathMapIt> range = m_mapFiles.equal_range(sLowName);
+		for(tFilePathMapIt it = range.first; it != range.second; ++it)
+		{
+			avPaths.push_back(it->second.msPath);
+			++lAdded;
+		}
+
+		return lAdded;
+	}
+
+	//-----------------------------------------------------------------------
+
 	const tWString& cFileSearcher::GetFilePath(const tString& asFileNameAndPath, int *apEqualCount)
 	{
 		tString sFile = cString::GetFileName(asFileNameAndPath);

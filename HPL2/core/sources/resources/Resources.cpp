@@ -36,6 +36,7 @@
 #include "resources/ConfigFile.h"
 #include "resources/LanguageFile.h"
 #include "resources/XmlHelper.h"
+#include "resources/XmlDelta.h"
 #include "resources/BitmapLoaderHandler.h"
 #include "resources/WorldLoaderHandler.h"
 #include "resources/BinaryBuffer.h"
@@ -49,6 +50,9 @@
 
 #include <tinyxml2.h>
 
+#include <algorithm>
+#include <vector>
+
 namespace hpl {
 
 	//////////////////////////////////////////////////////////////////////////
@@ -59,6 +63,7 @@ namespace hpl {
 
 	bool cResources::mbForceCacheLoadingAndSkipSaving = false;
 	bool cResources::mbCreateAndLoadCompressedMaps= false; 
+	bool cResources::mbDeltasEnabled = false;
 
 	//-----------------------------------------------------------------------
 
@@ -471,6 +476,61 @@ namespace hpl {
 		}
 
 		return true;
+	}
+
+	//-----------------------------------------------------------------------
+
+	namespace {
+
+		// One candidate delta, kept with the sort keys so the whole set can be
+		// ordered before any of it is applied.
+		class cDeltaCandidate
+		{
+		public:
+			int mlPriority;
+			tWString msPath;
+
+			bool operator<(const cDeltaCandidate& aOther) const
+			{
+				if(mlPriority != aOther.mlPriority) return mlPriority < aOther.mlPriority;
+				return msPath < aOther.msPath;
+			}
+		};
+	}
+
+	bool cResources::FindDeltaFiles(const tWString& asBaseFile, const tString& asDeltaExt, tWStringVec& avPaths)
+	{
+		if(mbDeltasEnabled==false) return false;
+
+		tWString sDeltaName = cString::GetFileNameW(cString::SetFileExtW(asBaseFile, cString::To16Char(asDeltaExt)));
+
+		tWStringVec vCandidatePaths;
+		if(mpFileSearcher->GetAllFilePaths(cString::To8Char(sDeltaName), vCandidatePaths)==0) return false;
+
+		////////////////////////////////////
+		// Peek at each candidate's root for its Priority
+		std::vector<cDeltaCandidate> vCandidates;
+		for(size_t i=0; i<vCandidatePaths.size(); ++i)
+		{
+			tinyxml2::XMLDocument xmlDoc;
+			if(LoadXmlFile(xmlDoc, vCandidatePaths[i])==false)
+			{
+				Error("Could not parse delta file '%s'!\n", cString::To8Char(vCandidatePaths[i]).c_str());
+				continue;
+			}
+
+			cDeltaCandidate candidate;
+			candidate.mlPriority = GetXmlDeltaPriority(xmlDoc.RootElement());
+			candidate.msPath = vCandidatePaths[i];
+			vCandidates.push_back(candidate);
+		}
+
+		std::sort(vCandidates.begin(), vCandidates.end());
+
+		for(size_t i=0; i<vCandidates.size(); ++i)
+			avPaths.push_back(vCandidates[i].msPath);
+
+		return avPaths.empty()==false;
 	}
 
 	//-----------------------------------------------------------------------
