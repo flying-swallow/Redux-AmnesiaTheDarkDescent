@@ -96,7 +96,7 @@ static inline bool BindVertexStreams(struct RICmd *cmd, cVertexBuffer *pVB,
 } // namespace detail
 
 cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
-    : iRenderer("Hybrid", apGraphics, apResources), m_nrd(apGraphics) {
+    : iRenderer("Hybrid", apGraphics, apResources) {
   {
     // The global bindless descriptor set (set 0) and every buffer bound to it
     // are an engine-lifetime singleton, constructed in cGraphics::Init via
@@ -164,9 +164,6 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     loadSlangCompute(m_composite, "MainCompositePass.cs.spv", "csMain");
     loadSlangCompute(m_directLighting, "DirectLightingPass.cs.spv", "csMain");
     loadSlangCompute(m_directSpatialReuse, "DirectSpatialReusePass.cs.spv",
-                     "csMain");
-    loadSlangCompute(m_directAtrous, "DirectAtrousPass.cs.spv", "csMain");
-    loadSlangCompute(m_indirectTemporal, "IndirectTemporalPass.cs.spv",
                      "csMain");
     loadSlangCompute(m_nrdPack, "NrdPack.cs.spv", "csMain");
     {
@@ -333,131 +330,18 @@ void cViewport::HybridViewportState::Update(cGraphics::FrameContext *cntx,
         "HybridViewportState.decalAdd");
   }
 
-  // Direct-lighting accumulation ping-pong + parallel surface-key textures —
-  // STORAGE (compute write) + SAMPLED (history reproject + composite read) +
-  // TRANSFER_DST (first-use clear). Kept in GENERAL; toggled per frame.
+  // Still ping-ponged across frames: the ReSTIR DI surface key and reservoir.
+  // DirectLightingPass reprojects last frame's reservoir and rejects on last
+  // frame's key, so both need a history slot. STORAGE (compute write) +
+  // SAMPLED (history reproject) + TRANSFER_DST (first-use clear); kept in
+  // GENERAL, toggled per frame by directLightingIndex.
   for (uint32_t i = 0; i < 2; i++) {
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &directLightingTexture[i],
-        &directLightingView[i], "HybridViewportState.directLighting");
     CreateViewportAttachmentTexture(
         &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
         RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
             RI_USAGE_TRANSFER_DST,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &directKeyTexture[i], &directKeyView[i],
         "HybridViewportState.directKey");
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &directAtrousTexture[i],
-        &directAtrousView[i], "HybridViewportState.directAtrous");
-    // Path-traced indirect ping-pong + surface key + à-trous scratch (RGBA16F).
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectRadianceTexture[i],
-        &indirectRadianceView[i], "HybridViewportState.indirectRadiance");
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectKeyTexture[i],
-        &indirectKeyView[i], "HybridViewportState.indirectKey");
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectAtrousTexture[i],
-        &indirectAtrousView[i], "HybridViewportState.indirectAtrous");
-    // Filtered indirect result — also next frame's temporal history.
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectResolvedTexture[i],
-        &indirectResolvedView[i], "HybridViewportState.indirectResolved");
-    // Indirect specular chain — the same three textures again (raw radiance,
-    // à-trous scratch, filtered result / next frame's history), denoised by
-    // the same programs. Undemodulated, so the composite adds it directly.
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectSpecularTexture[i],
-        &indirectSpecularView[i], "HybridViewportState.indirectSpecular");
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectSpecularAtrousTexture[i],
-        &indirectSpecularAtrousView[i],
-        "HybridViewportState.indirectSpecularAtrous");
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectSpecularResolvedTexture[i],
-        &indirectSpecularResolvedView[i],
-        "HybridViewportState.indirectSpecularResolved");
-    // Second half of the indirect surface key: primary-hit GGX alpha in .x,
-    // diffuse primary hit distance in metres in .y, specular primary hit distance
-    // in .z; both are 0 for no hit/skipped lobe, and .w is reserved.
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-        RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectKeyExtraTexture[i],
-        &indirectKeyExtraView[i], "HybridViewportState.indirectKeyExtra");
-
-    // NRD frontend inputs. Keep these separate from the SVGF fallback's
-    // radiance/key textures so its reads remain pixel-identical. The normal
-    // target uses the exact configured R10G10B10A2_UNORM NRD encoding; the
-    // radiance targets carry YCoCg + normalized hit distance in RGBA16F; viewZ
-    // is a linear R32F guide.
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH,
-        RI_FORMAT_R10_G10_B10_A2_UNORM,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &nrdNormalRoughnessTexture[i],
-        &nrdNormalRoughnessView[i], "HybridViewportState.nrdNormalRoughness");
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, RI_FORMAT_R32_SFLOAT,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &nrdViewZTexture[i], &nrdViewZView[i],
-        "HybridViewportState.nrdViewZ");
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D,
-        &nrdDiffuseRadianceHitDistTexture[i],
-        &nrdDiffuseRadianceHitDistView[i],
-        "HybridViewportState.nrdDiffuseRadianceHitDist");
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D,
-        &nrdSpecularRadianceHitDistTexture[i],
-        &nrdSpecularRadianceHitDistView[i],
-        "HybridViewportState.nrdSpecularRadianceHitDist");
-    // NRD declares IN_MV as an output in temporal stabilization. Keep this
-    // RG16F copy private to NRD; the shared velocity attachment remains a
-    // read-only input for the rest of the frame.
-    CreateViewportAttachmentTexture(
-        &pGraphics->device, renderW, renderH, cGraphics::VelocityFormat,
-        RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
-            RI_USAGE_TRANSFER_DST,
-        RI_VIEWTYPE_SHADER_RESOURCE_2D, &nrdMotionVectorsTexture[i],
-        &nrdMotionVectorsView[i], "HybridViewportState.nrdMotionVectors");
-
     // ReSTIR reservoir history ping-pong (RGBA32F: asfloat(lightIndex), W, M).
     CreateViewportAttachmentTexture(
         &pGraphics->device, renderW, renderH, RI_FORMAT_RGBA32_SFLOAT,
@@ -466,6 +350,95 @@ void cViewport::HybridViewportState::Update(cGraphics::FrameContext *cntx,
         RI_VIEWTYPE_SHADER_RESOURCE_2D, &reservoirTexture[i], &reservoirView[i],
         "HybridViewportState.reservoir");
   }
+
+  // Everything below is written and consumed within a single frame — NRD owns
+  // all denoiser history internally — so one slot each, no ping-pong.
+  //
+  // ReSTIR DI's resolved direct irradiance, and the path tracer's two lighting
+  // channels plus the two halves of its surface key.
+  CreateViewportAttachmentTexture(
+      &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+      RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+          RI_USAGE_TRANSFER_DST,
+      RI_VIEWTYPE_SHADER_RESOURCE_2D, &directLightingTexture,
+      &directLightingView, "HybridViewportState.directLighting");
+  CreateViewportAttachmentTexture(
+      &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+      RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+          RI_USAGE_TRANSFER_DST,
+      RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectRadianceTexture,
+      &indirectRadianceView, "HybridViewportState.indirectRadiance");
+  CreateViewportAttachmentTexture(
+      &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+      RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+          RI_USAGE_TRANSFER_DST,
+      RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectSpecularTexture,
+      &indirectSpecularView, "HybridViewportState.indirectSpecular");
+  CreateViewportAttachmentTexture(
+      &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+      RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+          RI_USAGE_TRANSFER_DST,
+      RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectKeyTexture, &indirectKeyView,
+      "HybridViewportState.indirectKey");
+  // Second half of the indirect surface key: primary-hit GGX alpha in .x,
+  // diffuse primary hit distance in metres in .y, specular primary hit distance
+  // in .z; both are 0 for no hit/skipped lobe, and .w is reserved.
+  CreateViewportAttachmentTexture(
+      &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+      RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+          RI_USAGE_TRANSFER_DST,
+      RI_VIEWTYPE_SHADER_RESOURCE_2D, &indirectKeyExtraTexture,
+      &indirectKeyExtraView, "HybridViewportState.indirectKeyExtra");
+
+  // NRD frontend inputs. The normal target uses the exact configured
+  // R10G10B10A2_UNORM NRD encoding; the radiance targets carry YCoCg +
+  // normalized hit distance in RGBA16F; viewZ is a linear R32F guide.
+  CreateViewportAttachmentTexture(
+      &pGraphics->device, renderW, renderH, RI_FORMAT_R10_G10_B10_A2_UNORM,
+      RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+          RI_USAGE_TRANSFER_DST,
+      RI_VIEWTYPE_SHADER_RESOURCE_2D, &nrdNormalRoughnessTexture,
+      &nrdNormalRoughnessView, "HybridViewportState.nrdNormalRoughness");
+  CreateViewportAttachmentTexture(
+      &pGraphics->device, renderW, renderH, RI_FORMAT_R32_SFLOAT,
+      RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+          RI_USAGE_TRANSFER_DST,
+      RI_VIEWTYPE_SHADER_RESOURCE_2D, &nrdViewZTexture, &nrdViewZView,
+      "HybridViewportState.nrdViewZ");
+  CreateViewportAttachmentTexture(
+      &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+      RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+          RI_USAGE_TRANSFER_DST,
+      RI_VIEWTYPE_SHADER_RESOURCE_2D, &nrdDiffuseRadianceHitDistTexture,
+      &nrdDiffuseRadianceHitDistView,
+      "HybridViewportState.nrdDiffuseRadianceHitDist");
+  CreateViewportAttachmentTexture(
+      &pGraphics->device, renderW, renderH, cGraphics::PogoColorFormat,
+      RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+          RI_USAGE_TRANSFER_DST,
+      RI_VIEWTYPE_SHADER_RESOURCE_2D, &nrdSpecularRadianceHitDistTexture,
+      &nrdSpecularRadianceHitDistView,
+      "HybridViewportState.nrdSpecularRadianceHitDist");
+  // NRD declares IN_MV as an output in temporal stabilization. Keep this
+  // RG16F copy private to NRD; the shared velocity attachment remains a
+  // read-only input for the rest of the frame.
+  CreateViewportAttachmentTexture(
+      &pGraphics->device, renderW, renderH, cGraphics::VelocityFormat,
+      RI_USAGE_SHADER_RESOURCE_STORAGE | RI_USAGE_SHADER_RESOURCE |
+          RI_USAGE_TRANSFER_DST,
+      RI_VIEWTYPE_SHADER_RESOURCE_2D, &nrdMotionVectorsTexture,
+      &nrdMotionVectorsView, "HybridViewportState.nrdMotionVectors");
+
+  // The denoiser is per-viewport: NRD sizes its history and pools to one
+  // extent, so sharing one instance across differently-sized viewports would
+  // thrash both. Recreating on resize would also be wasteful, hence OnResize.
+  if (!nrd)
+    nrd = std::make_shared<NrdIntegration>(pGraphics);
+  nrd->OnResize(renderW, renderH);
+  // Resource recreation invalidates every temporal history.
+  indirectHistoryReset = true;
+  nrdInputInShaderResource = false;
+
   // Intra-frame reservoir hand-off (temporal pass → spatial pass), RGBA32F.
   CreateViewportAttachmentTexture(
       &pGraphics->device, renderW, renderH, RI_FORMAT_RGBA32_SFLOAT,
@@ -479,7 +452,6 @@ void cViewport::HybridViewportState::Update(cGraphics::FrameContext *cntx,
   // next Draw.
   directLightingIndex = 0;
   directLightingInit = false;
-  indirectLightingIndex = 0;
   indirectLightingInit = false;
   hasPrevCamera = false;
 }
@@ -504,43 +476,45 @@ cViewport::HybridViewportState::~HybridViewportState() {
     pGraphics->graphicsDefer.push(decalMulView[i]);
     pGraphics->graphicsDefer.push(decalAddView[i]);
   }
+  // Ping-ponged pair: the ReSTIR key and reservoir.
   for (uint32_t i = 0; i < 2; i++) {
-    pGraphics->graphicsDefer.push(directLightingTexture[i]);
     pGraphics->graphicsDefer.push(directKeyTexture[i]);
-    pGraphics->graphicsDefer.push(directAtrousTexture[i]);
-    pGraphics->graphicsDefer.push(indirectRadianceTexture[i]);
-    pGraphics->graphicsDefer.push(indirectKeyTexture[i]);
-    pGraphics->graphicsDefer.push(indirectAtrousTexture[i]);
-    pGraphics->graphicsDefer.push(indirectResolvedTexture[i]);
-    pGraphics->graphicsDefer.push(indirectSpecularTexture[i]);
-    pGraphics->graphicsDefer.push(indirectSpecularAtrousTexture[i]);
-    pGraphics->graphicsDefer.push(indirectSpecularResolvedTexture[i]);
-    pGraphics->graphicsDefer.push(indirectKeyExtraTexture[i]);
-    pGraphics->graphicsDefer.push(nrdNormalRoughnessTexture[i]);
-    pGraphics->graphicsDefer.push(nrdViewZTexture[i]);
-    pGraphics->graphicsDefer.push(nrdDiffuseRadianceHitDistTexture[i]);
-    pGraphics->graphicsDefer.push(nrdSpecularRadianceHitDistTexture[i]);
-    pGraphics->graphicsDefer.push(nrdMotionVectorsTexture[i]);
     pGraphics->graphicsDefer.push(reservoirTexture[i]);
-
-    pGraphics->graphicsDefer.push(directLightingView[i]);
     pGraphics->graphicsDefer.push(directKeyView[i]);
-    pGraphics->graphicsDefer.push(directAtrousView[i]);
-    pGraphics->graphicsDefer.push(indirectRadianceView[i]);
-    pGraphics->graphicsDefer.push(indirectKeyView[i]);
-    pGraphics->graphicsDefer.push(indirectAtrousView[i]);
-    pGraphics->graphicsDefer.push(indirectResolvedView[i]);
-    pGraphics->graphicsDefer.push(indirectSpecularView[i]);
-    pGraphics->graphicsDefer.push(indirectSpecularAtrousView[i]);
-    pGraphics->graphicsDefer.push(indirectSpecularResolvedView[i]);
-    pGraphics->graphicsDefer.push(indirectKeyExtraView[i]);
-    pGraphics->graphicsDefer.push(nrdNormalRoughnessView[i]);
-    pGraphics->graphicsDefer.push(nrdViewZView[i]);
-    pGraphics->graphicsDefer.push(nrdDiffuseRadianceHitDistView[i]);
-    pGraphics->graphicsDefer.push(nrdSpecularRadianceHitDistView[i]);
-    pGraphics->graphicsDefer.push(nrdMotionVectorsView[i]);
     pGraphics->graphicsDefer.push(reservoirView[i]);
   }
+  // NRD owns Vulkan pipelines and its own texture pool, and it disposes them
+  // eagerly rather than through graphicsDefer. Destroying it here would call
+  // vkDestroyPipeline on pipelines the in-flight command buffers still
+  // reference (the viewport dies while frames are outstanding, unlike the
+  // renderer, which is torn down after the device is idle). So hand ownership
+  // to the deferral: the lambda runs once the GPU has passed this frame.
+  if (nrd)
+    pGraphics->graphicsDefer.push(
+        std::function<void()>([keep = std::move(nrd)]() mutable { keep.reset(); }));
+
+  // Single-slot, intra-frame resources.
+  pGraphics->graphicsDefer.push(directLightingTexture);
+  pGraphics->graphicsDefer.push(indirectRadianceTexture);
+  pGraphics->graphicsDefer.push(indirectSpecularTexture);
+  pGraphics->graphicsDefer.push(indirectKeyTexture);
+  pGraphics->graphicsDefer.push(indirectKeyExtraTexture);
+  pGraphics->graphicsDefer.push(nrdNormalRoughnessTexture);
+  pGraphics->graphicsDefer.push(nrdViewZTexture);
+  pGraphics->graphicsDefer.push(nrdDiffuseRadianceHitDistTexture);
+  pGraphics->graphicsDefer.push(nrdSpecularRadianceHitDistTexture);
+  pGraphics->graphicsDefer.push(nrdMotionVectorsTexture);
+
+  pGraphics->graphicsDefer.push(directLightingView);
+  pGraphics->graphicsDefer.push(indirectRadianceView);
+  pGraphics->graphicsDefer.push(indirectSpecularView);
+  pGraphics->graphicsDefer.push(indirectKeyView);
+  pGraphics->graphicsDefer.push(indirectKeyExtraView);
+  pGraphics->graphicsDefer.push(nrdNormalRoughnessView);
+  pGraphics->graphicsDefer.push(nrdViewZView);
+  pGraphics->graphicsDefer.push(nrdDiffuseRadianceHitDistView);
+  pGraphics->graphicsDefer.push(nrdSpecularRadianceHitDistView);
+  pGraphics->graphicsDefer.push(nrdMotionVectorsView);
   pGraphics->graphicsDefer.push(reservoirTemporalTexture);
   pGraphics->graphicsDefer.push(reservoirTemporalView);
 }
@@ -615,20 +589,12 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   const uint32_t renderWidth = state.width; // overscan applied by Update
   const uint32_t renderHeight = state.height;
 
-  // NRD owns renderer-lifetime history, while the packed inputs are
-  // per-viewport. Resize it alongside this viewport's texture pool.
-  m_nrd.OnResize(renderWidth, renderHeight);
-
-  const bool useNrdDenoiser = mpGraphics->mbUseNrdDenoiser;
-  if (!state.denoiserToggleInitialized ||
-      state.lastUseNrdDenoiser != useNrdDenoiser) {
-    if (state.denoiserToggleInitialized)
-      state.indirectHistoryReset = true;
-    if (useNrdDenoiser)
-      m_nrd.ResetHistory();
-    state.lastUseNrdDenoiser = useNrdDenoiser;
-    state.denoiserToggleInitialized = true;
-  }
+  // NOTE: HybridViewportState::Update creates and sizes state.nrd alongside the
+  // packed-input textures, so it is non-null and correctly sized here.
+  //
+  // NOTE: cameraJitter is deliberately left at zero in NrdIntegration because
+  // perFrame.jitterX/Y are hard-zeroed below ("TAA not yet wired up"). Whoever
+  // lands TAA must plumb the jitter into CommonSettings at the same time.
 
   ml::float4x4 mainFrustumViewInvMat = apFrustum->GetViewMat();
   mainFrustumViewInvMat.Invert();
@@ -1120,37 +1086,29 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   }
 
   // --------------------------------------------------------------------
-  // ReSTIR DI chain — DirectLighting -> DirectSpatialReuse -> DirectAtrous,
-  // the whole direct-lighting chain, run HERE, before the path tracer. Its
-  // denoised output (directResultView) is NOT fed to the path tracer: it is
-  // bound to the COMPOSITE, which sums it with the denoised indirect diffuse.
-  // That sum happens after the indirect denoiser deliberately — DirectAtrous
-  // has already denoised this term, and running it through IndirectTemporal's
-  // history blend as well would only add lag on moving lights and shadow
-  // casters.
+  // ReSTIR DI chain — DirectLighting -> DirectSpatialReuse, run HERE, before
+  // the path tracer. This is variance REDUCTION, not denoising: it stabilizes
+  // light selection and resolves one shadow ray per pixel. The resolved,
+  // albedo-demodulated irradiance is handed to NrdPack, which sums it into
+  // REBLUR's diffuse channel so one denoiser filters direct and indirect
+  // together. Its output is NOT fed back into the path tracer.
   // --------------------------------------------------------------------
-  // The image the composite samples for direct lighting: the raw accumulation
-  // when à-trous is disabled, else the final à-trous iteration's output.
+  // The resolved direct irradiance NrdPack sums into the diffuse channel.
   RITextureView *directResultView = nullptr;
   {
     const uint32_t dlCur = state.directLightingIndex;
     const uint32_t dlPrev = dlCur ^ 1u;
 
     if (!state.directLightingInit) {
-      // First use: the colour + key ping-pong textures UNDEFINED -> GENERAL +
-      // cleared so the history reads are defined; they stay GENERAL thereafter.
-      RITextureBarrier toGen[9] = {
-          {state.directLightingTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
-           RI_RESOURCE_STATE_CLEAR_STORAGE},
-          {state.directLightingTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
+      // First use: the direct target plus the ping-ponged key/reservoir
+      // textures UNDEFINED -> GENERAL + cleared so the history reads are
+      // defined; they stay GENERAL thereafter.
+      RITextureBarrier toGen[6] = {
+          {state.directLightingTexture.Get(), RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE},
           {state.directKeyTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE},
           {state.directKeyTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
-           RI_RESOURCE_STATE_CLEAR_STORAGE},
-          {state.directAtrousTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
-           RI_RESOURCE_STATE_CLEAR_STORAGE},
-          {state.directAtrousTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE},
           {state.reservoirTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE},
@@ -1158,10 +1116,10 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
            RI_RESOURCE_STATE_CLEAR_STORAGE},
           {state.reservoirTemporalTexture.Get(), RI_RESOURCE_STATE_UNDEFINED,
            RI_RESOURCE_STATE_CLEAR_STORAGE}};
-      mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<9>(9, toGen);
+      mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<6>(6, toGen);
 
       const float clr[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-      for (uint32_t i = 0; i < 9; ++i)
+      for (uint32_t i = 0; i < 6; ++i)
         mpGraphics->primary.cmds[0].clearStorageImage(&mpGraphics->device, toGen[i].texture, clr);
 
       mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
@@ -1240,7 +1198,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
     // DirectSpatialReusePass — ReSTIR DI spatial reuse + resolve. Merges a few
     // same-surface neighbours' reservoirs, then traces ONE soft shadow ray for
     // the chosen light to demodulated irradiance. Writes reservoir[dlCur] (next
-    // frame's temporal history) and directLighting[dlCur] (the à-trous input).
+    // frame's temporal history) and directLighting (NrdPack's direct input).
     // ----------------------------------------------------------------
     {
       RIGpuScope _gsDirectSpatialReuse(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
@@ -1279,25 +1237,12 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                       RIDescriptor::sampledImage(
                           &mpGraphics->device, state.directKeyView[dlCur].Get(),
                           RI_RESOURCE_STATE_GENERAL));
-      sb.emplace_back("gVelocity",
-                      RIDescriptor::sampledImage(
-                          &mpGraphics->device,
-                          state.velocityView[mpGraphics->swapchainIndex].Get(),
-                          RI_RESOURCE_STATE_SHADER_RESOURCE));
-      sb.emplace_back("gDirectHistory",
-                      RIDescriptor::sampledImage(
-                          &mpGraphics->device, state.directLightingView[dlPrev].Get(),
-                          RI_RESOURCE_STATE_GENERAL));
-      sb.emplace_back("gDirectKeyHistory",
-                      RIDescriptor::sampledImage(
-                          &mpGraphics->device, state.directKeyView[dlPrev].Get(),
-                          RI_RESOURCE_STATE_GENERAL));
       sb.emplace_back("gReservoirOut",
                       RIDescriptor::storageImage(
                           &mpGraphics->device, state.reservoirView[dlCur].Get()));
       sb.emplace_back("gDirectLighting",
                       RIDescriptor::storageImage(
-                          &mpGraphics->device, state.directLightingView[dlCur].Get()));
+                          &mpGraphics->device, state.directLightingView.Get()));
 
       appendWorldLightFog(sb, apWorld);
       m_directSpatialReuse.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
@@ -1307,150 +1252,50 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                                   (renderHeight + 15u) / 16u, 1u);
     }
 
-    // Resolved direct + final reservoir writes -> à-trous / composite reads
+    // Resolved direct + final reservoir writes -> NrdPack / next-frame reads
     // (stays GENERAL).
     mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
          RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
 
-    // ----------------------------------------------------------------
-    // DirectAtrousPass — SVGF-lite edge-aware à-trous spatial denoise. The
-    // spatial half of the direct denoiser: share the 1-spp estimate across
-    // same-surface neighbours, tap spacing doubling each iteration. Iteration 0
-    // reads the accumulation (directLighting[dlCur]); later iterations
-    // ping-pong the directAtrous scratch. All textures stay GENERAL.
-    // ----------------------------------------------------------------
-    directResultView = state.directLightingView[dlCur].Get();
-    {
-      RIGpuScope _gsDirectAtrous(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
-                                 "DirectAtrous");
-      for (int it = 0; it < kAtrousIterations; ++it) {
-        RITextureView *inView =
-            (it == 0) ? state.directLightingView[dlCur].Get()
-                      : state.directAtrousView[(it - 1) & 1].Get();
-        const uint32_t outIdx = static_cast<uint32_t>(it) & 1u;
-        RITextureView *outView = state.directAtrousView[outIdx].Get();
-
-        m_directAtrous.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
-                                           kHash, "DirectAtrousPass.cs", &ci);
-        m_directAtrous.bindBindlessDescriptorSet(
-            &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
-            VK_PIPELINE_BIND_POINT_COMPUTE);
-
-        // Per-iteration tap spacing (1, 2, 4 …). Padded to 16 bytes (std140
-        // UBO).
-        struct AtrousParamsHost {
-          uint32_t stepSize;
-          uint32_t pad[3];
-        } ap = {};
-        ap.stepSize = 1u << it;
-
-        std::vector<RIProgram::DescriptorBinding> ab;
-        ab.reserve(4);
-        {
-          RIProgram::DescriptorBinding b;
-          b.handle = DescriptorBindingID::Create("gAtrous");
-          mpGraphics->UpdateFrameUBO(&b.descriptor, &ap, sizeof(ap));
-          ab.push_back(b);
-        }
-        ab.emplace_back("gAtrousIn",
-                        RIDescriptor::sampledImage(&mpGraphics->device, inView,
-                                                   RI_RESOURCE_STATE_GENERAL));
-        ab.emplace_back("gDirectKey",
-                        RIDescriptor::sampledImage(
-                            &mpGraphics->device, state.directKeyView[dlCur].Get(),
-                            RI_RESOURCE_STATE_GENERAL));
-        ab.emplace_back("gAtrousOut",
-                        RIDescriptor::storageImage(&mpGraphics->device, outView));
-
-        m_directAtrous.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
-                                       mpGraphics->frameIndex, ab.data(), ab.size(),
-                                       VK_PIPELINE_BIND_POINT_COMPUTE);
-        mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (renderWidth + 15u) / 16u,
-                                    (renderHeight + 15u) / 16u, 1u);
-
-        // This iteration's write -> next iteration's / composite's sampled
-        // read.
-        mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
-            {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
-             RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
-        directResultView = outView;
-      }
-    } // _gsDirectAtrous
+    // The resolved direct irradiance goes straight to NrdPack, which sums it
+    // into REBLUR's diffuse channel. There is no spatial filter here any more:
+    // REBLUR owns all denoising for that channel.
+    directResultView = state.directLightingView.Get();
   }
 
-  // Path-traced indirect ping-pong: [ilCur] is this frame's write target,
-  // [ilPrev] is the history the temporal pass reprojects. Declared at Draw
-  // scope — the composite below binds the denoised result.
-  const uint32_t ilCur = state.indirectLightingIndex;
-  const uint32_t ilPrev = ilCur ^ 1u;
-  // What the composite samples: the temporal result when à-trous is off, else
-  // the last à-trous output. One per indirect channel — diffuse
-  // (albedo-demodulated) and specular (undemodulated).
+  // What the composite samples: REBLUR's two denoised outputs. One per lobe —
+  // diffuse (albedo-demodulated, carrying direct + indirect) and specular
+  // (undemodulated). Declared at Draw scope; the composite below binds them.
   RITextureView *indirectResultView = nullptr;
   RITextureView *indirectSpecularResultView = nullptr;
 
   if (!state.indirectLightingInit) {
-    // First use: UNDEFINED -> GENERAL + cleared so the history/denoise reads
-    // are defined; they stay GENERAL thereafter.
-    RITextureBarrier toGen[26] = {
-        {state.indirectRadianceTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
+    // First use: UNDEFINED -> GENERAL + cleared so every read is defined even
+    // on a frame with no TLAS; they stay GENERAL thereafter.
+    RITextureBarrier toGen[9] = {
+        {state.indirectRadianceTexture.Get(), RI_RESOURCE_STATE_UNDEFINED,
          RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectRadianceTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
+        {state.indirectSpecularTexture.Get(), RI_RESOURCE_STATE_UNDEFINED,
          RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectKeyTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
+        {state.indirectKeyTexture.Get(), RI_RESOURCE_STATE_UNDEFINED,
          RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectKeyTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
+        {state.indirectKeyExtraTexture.Get(), RI_RESOURCE_STATE_UNDEFINED,
          RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectAtrousTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
+        {state.nrdNormalRoughnessTexture.Get(), RI_RESOURCE_STATE_UNDEFINED,
          RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectAtrousTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
+        {state.nrdViewZTexture.Get(), RI_RESOURCE_STATE_UNDEFINED,
          RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectResolvedTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectResolvedTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        // Specular chain + the second key half, same treatment.
-        {state.indirectSpecularTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectSpecularTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectSpecularAtrousTexture[0].Get(),
+        {state.nrdDiffuseRadianceHitDistTexture.Get(),
          RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectSpecularAtrousTexture[1].Get(),
+        {state.nrdSpecularRadianceHitDistTexture.Get(),
          RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectSpecularResolvedTexture[0].Get(),
-         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectSpecularResolvedTexture[1].Get(),
-         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectKeyExtraTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectKeyExtraTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.nrdNormalRoughnessTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.nrdNormalRoughnessTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.nrdViewZTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.nrdViewZTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.nrdDiffuseRadianceHitDistTexture[0].Get(),
-         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.nrdDiffuseRadianceHitDistTexture[1].Get(),
-         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.nrdSpecularRadianceHitDistTexture[0].Get(),
-         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.nrdSpecularRadianceHitDistTexture[1].Get(),
-         RI_RESOURCE_STATE_UNDEFINED, RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.nrdMotionVectorsTexture[0].Get(), RI_RESOURCE_STATE_UNDEFINED,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.nrdMotionVectorsTexture[1].Get(), RI_RESOURCE_STATE_UNDEFINED,
+        {state.nrdMotionVectorsTexture.Get(), RI_RESOURCE_STATE_UNDEFINED,
          RI_RESOURCE_STATE_CLEAR_STORAGE}};
-    mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<26>(26, toGen);
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<9>(9, toGen);
 
     const float clr[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    for (uint32_t i = 0; i < 26; ++i)
+    for (uint32_t i = 0; i < 9; ++i)
       mpGraphics->primary.cmds[0].clearStorageImage(&mpGraphics->device, toGen[i].texture, clr);
 
     mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
@@ -1458,60 +1303,18 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
          RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_WRITE,
          RI_STAGE_NONE, RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING});
     state.indirectLightingInit = true;
-  } else if (state.indirectHistoryReset) {
-    // A runtime denoiser switch invalidates the SVGF temporal history. These
-    // resources are already initialized and kept in GENERAL, so use a real
-    // GENERAL -> CLEAR transition rather than repeating the resize-time
-    // UNDEFINED transition. Clearing the key makes IndirectTemporalPass's
-    // existing disocclusion predicate reject the old history on this frame.
-    RITextureBarrier resetHistory[16] = {
-        {state.indirectRadianceTexture[0].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectRadianceTexture[1].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectKeyTexture[0].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectKeyTexture[1].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectAtrousTexture[0].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectAtrousTexture[1].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectResolvedTexture[0].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectResolvedTexture[1].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectSpecularTexture[0].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectSpecularTexture[1].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectSpecularAtrousTexture[0].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectSpecularAtrousTexture[1].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectSpecularResolvedTexture[0].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectSpecularResolvedTexture[1].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectKeyExtraTexture[0].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE},
-        {state.indirectKeyExtraTexture[1].Get(), RI_RESOURCE_STATE_GENERAL,
-         RI_RESOURCE_STATE_CLEAR_STORAGE}};
-    mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<16>(16, resetHistory);
-
-    const float clr[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    for (uint32_t i = 0; i < 16; ++i)
-      mpGraphics->primary.cmds[0].clearStorageImage(
-          &mpGraphics->device, resetHistory[i].texture, clr);
-
-    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
-        {RI_RESOURCE_STATE_CLEAR_STORAGE,
-         RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_WRITE,
-         RI_STAGE_NONE, RI_STAGE_COMPUTE | RI_STAGE_RAY_TRACING});
     state.indirectHistoryReset = false;
   } else {
-    // Make last frame's writes visible to this frame's RT write / composite
-    // read. All stay GENERAL.
+    if (state.indirectHistoryReset) {
+      // The engine-side textures hold no history any more — they are rewritten
+      // every frame — so there is nothing here to clear. All temporal state
+      // lives inside NRD, which discards it via CLEAR_AND_RESTART on the next
+      // Denoise call.
+      state.nrd->ResetHistory();
+      state.indirectHistoryReset = false;
+    }
+    // Make last frame's writes visible to this frame's RT write / pack read.
+    // All stay GENERAL.
     mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE | RI_RESOURCE_STATE_SHADER_RESOURCE,
          RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_WRITE,
@@ -1558,18 +1361,18 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
     // re-applies albedo), specular is left undemodulated.
     ptBnd.emplace_back("gIndirectDiffuse",
                        RIDescriptor::storageImage(
-                           &mpGraphics->device, state.indirectRadianceView[ilCur].Get()));
+                           &mpGraphics->device, state.indirectRadianceView.Get()));
     ptBnd.emplace_back("gIndirectSpecular",
                        RIDescriptor::storageImage(
-                           &mpGraphics->device, state.indirectSpecularView[ilCur].Get()));
+                           &mpGraphics->device, state.indirectSpecularView.Get()));
     ptBnd.emplace_back("gIndirectKeyOut",
                        RIDescriptor::storageImage(
-                           &mpGraphics->device, state.indirectKeyView[ilCur].Get()));
+                           &mpGraphics->device, state.indirectKeyView.Get()));
     // Key extra: primary-hit GGX alpha in .x, diffuse primary hit distance in .y,
     // specular primary hit distance in .z, and .w reserved.
     ptBnd.emplace_back("gIndirectKeyExtra",
                        RIDescriptor::storageImage(
-                           &mpGraphics->device, state.indirectKeyExtraView[ilCur].Get()));
+                           &mpGraphics->device, state.indirectKeyExtraView.Get()));
     appendWorldLightFog(ptBnd, apWorld);
     m_pathTrace.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                 mpGraphics->frameIndex, ptBnd.data(), ptBnd.size(),
@@ -1583,185 +1386,41 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
        RI_STAGE_RAY_TRACING, RI_STAGE_COMPUTE});
 
   // ----------------------------------------------------------------------
-  // Indirect denoise — run once per channel (diffuse, then specular), each
-  // the temporal half followed by the à-trous spatial half. 1 spp of
-  // path-traced indirect is far too noisy to composite raw: reproject the
-  // previous frame's RESOLVED result through gVelocity and blend it into this
-  // frame's sample, rejecting on the (viewZ, normal) key. Resolved means the
-  // à-trous output when the spatial half runs, and the temporal pass's own
-  // output when it does not. Both channels use the SAME two programs and the
-  // SAME shared key textures — only the radiance/scratch/resolved arrays
-  // differ, so the body below is a lambda invoked twice.
+  // Denoise — NrdPack repacks this frame's lighting into NRD's layouts, then
+  // one REBLUR_DIFFUSE_SPECULAR instance filters both lobes. 1 spp is far too
+  // noisy to composite raw. This runs even with no TLAS (the path tracer is
+  // skipped, but the pack targets and NRD's history must still advance).
+  //
+  // The diffuse channel carries the ReSTIR DI direct term as well as the
+  // indirect bounce: REBLUR splits by LOBE at the primary vertex, not by
+  // direct/indirect, because its specular path needs roughness-driven
+  // reprojection and virtual history.
   // ----------------------------------------------------------------------
   {
     VkComputePipelineCreateInfo ci = {
         VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
     const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
 
-    // `radiance` is the path tracer's raw output for this channel (and the
-    // temporal pass's in-place accumulation target), `atrous` the à-trous
-    // ping-pong scratch, `resolved` the filtered result + next frame's
-    // history. All three are [2] arrays indexed by ilCur/ilPrev. Returns the
-    // view the composite should sample.
-    auto denoiseIndirectChannel =
-        [&](const char *temporalScope, const char *atrousScope,
-            RISharedPointer<RITextureView> *radiance,
-            RISharedPointer<RITextureView> *atrous,
-            RISharedPointer<RITextureView> *resolved) -> RITextureView * {
-    RITextureView *resultView = nullptr;
     {
-      RIGpuScope _gsIndirectTemporal(&mpGraphics->profiler,
-                                     &mpGraphics->primary.cmds[0],
-                                     temporalScope);
-      m_indirectTemporal.bindComputePipeline(&mpGraphics->device,
-                                             &mpGraphics->primary.cmds[0], kHash,
-                                             "IndirectTemporalPass.cs", &ci);
-      m_indirectTemporal.bindBindlessDescriptorSet(
-          &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
-          VK_PIPELINE_BIND_POINT_COMPUTE);
-
-      std::vector<RIProgram::DescriptorBinding> tb;
-      tb.reserve(7);
-      tb.emplace_back("gIndirectCurrent",
-                      RIDescriptor::sampledImage(
-                          &mpGraphics->device, radiance[ilCur].Get(),
-                          RI_RESOURCE_STATE_GENERAL));
-      tb.emplace_back("gIndirectKey",
-                      RIDescriptor::sampledImage(
-                          &mpGraphics->device, state.indirectKeyView[ilCur].Get(),
-                          RI_RESOURCE_STATE_GENERAL));
-      // History is the previous frame's resolved result: the à-trous output when
-      // the filter runs, otherwise this pass's own output (seeded via
-      // gIndirectResolvedOut below). Feeding the unfiltered term back while the
-      // filter is on would re-amplify noise.
-      tb.emplace_back("gIndirectHistory",
-                      RIDescriptor::sampledImage(
-                          &mpGraphics->device, resolved[ilPrev].Get(),
-                          RI_RESOURCE_STATE_GENERAL));
-      tb.emplace_back("gIndirectKeyHistory",
-                      RIDescriptor::sampledImage(
-                          &mpGraphics->device, state.indirectKeyView[ilPrev].Get(),
-                          RI_RESOURCE_STATE_GENERAL));
-      tb.emplace_back(
-          "gVelocity",
-          RIDescriptor::sampledImage(
-              &mpGraphics->device, state.velocityView[mpGraphics->swapchainIndex].Get(),
-              RI_RESOURCE_STATE_SHADER_RESOURCE));
-      // Same view as gIndirectCurrent: the accumulation is a per-texel
-      // read-modify-write over the raw sample with no cross-texel reads of the
-      // output, so it resolves in place like the direct chain does.
-      tb.emplace_back("gIndirectOut",
-                      RIDescriptor::storageImage(&mpGraphics->device,
-                                                 radiance[ilCur].Get()));
-      // Second copy of the same result into the history texture, so next frame's
-      // gIndirectHistory is never stale when the à-trous loop is disabled
-      // (kAtrousIterations == 0). The loop's last iteration overwrites it with
-      // the filtered result when it runs.
-      tb.emplace_back("gIndirectResolvedOut",
-                      RIDescriptor::storageImage(&mpGraphics->device,
-                                                 resolved[ilCur].Get()));
-
-      m_indirectTemporal.bindDescriptors(
-          &mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex,
-          tb.data(), tb.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
-      mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (renderWidth + 15u) / 16u,
-                                  (renderHeight + 15u) / 16u, 1u);
-    } // _gsIndirectTemporal
-
-    // Accumulated indirect -> à-trous / composite sampled read (stays GENERAL).
-    mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
-        {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
-         RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
-
-    // With the filter disabled this is what the composite gets; it is also the
-    // fallback if the loop below never runs. Next frame's temporal history does
-    // not depend on the loop — the temporal pass just seeded
-    // indirectResolved[ilCur] itself.
-    resultView = radiance[ilCur].Get();
-    {
-      // Same DirectAtrousPass kernel, bound against this channel's textures.
-      // The last iteration writes resolved[ilCur] directly, overwriting the
-      // temporal pass's seed so next frame's history is the filtered result with
-      // no extra copy.
-      RIGpuScope _gsIndirectAtrous(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
-                                   atrousScope);
-      for (int it = 0; it < kAtrousIterations; ++it) {
-        RITextureView *inView = (it == 0) ? radiance[ilCur].Get()
-                                          : atrous[(it - 1) & 1].Get();
-        const uint32_t outIdx = static_cast<uint32_t>(it) & 1u;
-        RITextureView *outView = (it == kAtrousIterations - 1)
-                                     ? resolved[ilCur].Get()
-                                     : atrous[outIdx].Get();
-
-        m_directAtrous.bindComputePipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
-                                           kHash, "DirectAtrousPass.cs", &ci);
-        m_directAtrous.bindBindlessDescriptorSet(
-            &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
-            VK_PIPELINE_BIND_POINT_COMPUTE);
-
-        // Per-iteration tap spacing (1, 2, 4 …). Padded to 16 bytes (std140
-        // UBO).
-        struct AtrousParamsHost {
-          uint32_t stepSize;
-          uint32_t pad[3];
-        } ap = {};
-        ap.stepSize = 1u << it;
-
-        std::vector<RIProgram::DescriptorBinding> ab;
-        ab.reserve(4);
-        {
-          RIProgram::DescriptorBinding b;
-          b.handle = DescriptorBindingID::Create("gAtrous");
-          mpGraphics->UpdateFrameUBO(&b.descriptor, &ap, sizeof(ap));
-          ab.push_back(b);
-        }
-        ab.emplace_back("gAtrousIn",
-                        RIDescriptor::sampledImage(&mpGraphics->device, inView,
-                                                   RI_RESOURCE_STATE_GENERAL));
-        ab.emplace_back("gDirectKey",
-                        RIDescriptor::sampledImage(
-                            &mpGraphics->device, state.indirectKeyView[ilCur].Get(),
-                            RI_RESOURCE_STATE_GENERAL));
-        ab.emplace_back("gAtrousOut",
-                        RIDescriptor::storageImage(&mpGraphics->device, outView));
-
-        m_directAtrous.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
-                                       mpGraphics->frameIndex, ab.data(), ab.size(),
-                                       VK_PIPELINE_BIND_POINT_COMPUTE);
-        mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, (renderWidth + 15u) / 16u,
-                                    (renderHeight + 15u) / 16u, 1u);
-
-        // This iteration's write -> next iteration's / composite's sampled
-        // read.
-        mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
-            {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
-             RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
-        resultView = outView;
-      }
-    } // _gsIndirectAtrous
-    return resultView;
-    };
-
-    if (useNrdDenoiser) {
       // Repack the path tracer's engine-native key/radiance/velocity buffers
       // into the layouts required by NRD. The pack targets are read-only after
       // this pass, except for NRD's private IN_MV, which stabilization writes;
       // transition only the slot that was previously consumed by NRD.
-      if (state.nrdInputInShaderResource[ilCur]) {
+      if (state.nrdInputInShaderResource) {
         RITextureBarrier toStorage[5] = {
-            {state.nrdNormalRoughnessTexture[ilCur].Get(),
+            {state.nrdNormalRoughnessTexture.Get(),
              RI_RESOURCE_STATE_SHADER_RESOURCE,
              RI_RESOURCE_STATE_STORAGE_WRITE, RI_STAGE_COMPUTE, RI_STAGE_COMPUTE},
-            {state.nrdViewZTexture[ilCur].Get(), RI_RESOURCE_STATE_SHADER_RESOURCE,
+            {state.nrdViewZTexture.Get(), RI_RESOURCE_STATE_SHADER_RESOURCE,
              RI_RESOURCE_STATE_STORAGE_WRITE, RI_STAGE_COMPUTE, RI_STAGE_COMPUTE},
-            {state.nrdDiffuseRadianceHitDistTexture[ilCur].Get(),
+            {state.nrdDiffuseRadianceHitDistTexture.Get(),
              RI_RESOURCE_STATE_SHADER_RESOURCE,
              RI_RESOURCE_STATE_STORAGE_WRITE, RI_STAGE_COMPUTE, RI_STAGE_COMPUTE},
-            {state.nrdSpecularRadianceHitDistTexture[ilCur].Get(),
+            {state.nrdSpecularRadianceHitDistTexture.Get(),
              RI_RESOURCE_STATE_SHADER_RESOURCE,
              RI_RESOURCE_STATE_STORAGE_WRITE, RI_STAGE_COMPUTE, RI_STAGE_COMPUTE}};
         toStorage[4] = {
-            state.nrdMotionVectorsTexture[ilCur].Get(),
+            state.nrdMotionVectorsTexture.Get(),
             RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_WRITE,
             RI_RESOURCE_STATE_STORAGE_WRITE, RI_STAGE_COMPUTE, RI_STAGE_COMPUTE};
         mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<5>(5, toStorage);
@@ -1778,7 +1437,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
             0, VK_PIPELINE_BIND_POINT_COMPUTE);
 
         std::vector<RIProgram::DescriptorBinding> nb;
-        nb.reserve(11);
+        nb.reserve(12);
         {
           RIProgram::DescriptorBinding b;
           b.handle = DescriptorBindingID::Create("gPerFrame");
@@ -1787,47 +1446,54 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
         }
         nb.emplace_back("gIndirectKey",
                         RIDescriptor::sampledImage(
-                            &mpGraphics->device, state.indirectKeyView[ilCur].Get(),
+                            &mpGraphics->device, state.indirectKeyView.Get(),
                             RI_RESOURCE_STATE_GENERAL));
         nb.emplace_back("gIndirectKeyExtra",
                         RIDescriptor::sampledImage(
                             &mpGraphics->device,
-                            state.indirectKeyExtraView[ilCur].Get(),
+                            state.indirectKeyExtraView.Get(),
                             RI_RESOURCE_STATE_GENERAL));
         nb.emplace_back("gIndirectDiffuse",
                         RIDescriptor::sampledImage(
                             &mpGraphics->device,
-                            state.indirectRadianceView[ilCur].Get(),
+                            state.indirectRadianceView.Get(),
                             RI_RESOURCE_STATE_GENERAL));
         nb.emplace_back("gIndirectSpecular",
                         RIDescriptor::sampledImage(
                             &mpGraphics->device,
-                            state.indirectSpecularView[ilCur].Get(),
+                            state.indirectSpecularView.Get(),
                             RI_RESOURCE_STATE_GENERAL));
         nb.emplace_back("gVelocity",
                         RIDescriptor::sampledImage(
                             &mpGraphics->device,
                             state.velocityView[mpGraphics->swapchainIndex].Get(),
                             RI_RESOURCE_STATE_SHADER_RESOURCE));
+        // ReSTIR DI's resolved direct irradiance. NrdPack sums it into the
+        // diffuse channel so one REBLUR instance denoises direct + indirect
+        // together; REBLUR splits by lobe, not by direct/indirect.
+        nb.emplace_back("gDirectLighting",
+                        RIDescriptor::sampledImage(
+                            &mpGraphics->device, directResultView,
+                            RI_RESOURCE_STATE_GENERAL));
         nb.emplace_back("gNrdNormalRoughness",
                         RIDescriptor::storageImage(
                             &mpGraphics->device,
-                            state.nrdNormalRoughnessView[ilCur].Get()));
+                            state.nrdNormalRoughnessView.Get()));
         nb.emplace_back("gNrdViewZ",
                         RIDescriptor::storageImage(
-                            &mpGraphics->device, state.nrdViewZView[ilCur].Get()));
+                            &mpGraphics->device, state.nrdViewZView.Get()));
         nb.emplace_back("gNrdDiffuseRadianceHitDist",
                         RIDescriptor::storageImage(
                             &mpGraphics->device,
-                            state.nrdDiffuseRadianceHitDistView[ilCur].Get()));
+                            state.nrdDiffuseRadianceHitDistView.Get()));
         nb.emplace_back("gNrdSpecularRadianceHitDist",
                         RIDescriptor::storageImage(
                             &mpGraphics->device,
-                            state.nrdSpecularRadianceHitDistView[ilCur].Get()));
+                            state.nrdSpecularRadianceHitDistView.Get()));
         nb.emplace_back("gNrdMotionVectors",
                         RIDescriptor::storageImage(
                             &mpGraphics->device,
-                            state.nrdMotionVectorsView[ilCur].Get()));
+                            state.nrdMotionVectorsView.Get()));
 
         m_nrdPack.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                   mpGraphics->frameIndex, nb.data(), nb.size(),
@@ -1838,25 +1504,25 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
       }
 
       RITextureBarrier toSampled[5] = {
-          {state.nrdNormalRoughnessTexture[ilCur].Get(),
+          {state.nrdNormalRoughnessTexture.Get(),
            RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
            RI_STAGE_COMPUTE, RI_STAGE_COMPUTE},
-          {state.nrdViewZTexture[ilCur].Get(), RI_RESOURCE_STATE_STORAGE_WRITE,
+          {state.nrdViewZTexture.Get(), RI_RESOURCE_STATE_STORAGE_WRITE,
            RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_COMPUTE, RI_STAGE_COMPUTE},
-          {state.nrdDiffuseRadianceHitDistTexture[ilCur].Get(),
+          {state.nrdDiffuseRadianceHitDistTexture.Get(),
            RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
            RI_STAGE_COMPUTE, RI_STAGE_COMPUTE},
-          {state.nrdSpecularRadianceHitDistTexture[ilCur].Get(),
+          {state.nrdSpecularRadianceHitDistTexture.Get(),
            RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
            RI_STAGE_COMPUTE, RI_STAGE_COMPUTE},
           // IN_MV is sampled by most NRD dispatches and written by temporal
           // stabilization, so leave it in GENERAL with both accesses enabled.
-          {state.nrdMotionVectorsTexture[ilCur].Get(),
+          {state.nrdMotionVectorsTexture.Get(),
            RI_RESOURCE_STATE_STORAGE_WRITE,
            RI_RESOURCE_STATE_SHADER_RESOURCE | RI_RESOURCE_STATE_STORAGE_WRITE,
            RI_STAGE_COMPUTE, RI_STAGE_COMPUTE}};
       mpGraphics->primary.cmds[0].vk_d3d12_textureBarriers<5>(5, toSampled);
-      state.nrdInputInShaderResource[ilCur] = true;
+      state.nrdInputInShaderResource = true;
 
       NrdFrameData nrdFrame = {};
       // perFrame.prev* are the previous camera matrices copied from the
@@ -1870,45 +1536,38 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
       std::memcpy(nrdFrame.worldToViewMatrixPrev, perFrame.prevViewMat,
                   sizeof(nrdFrame.worldToViewMatrixPrev));
       nrdFrame.frameIndex = perFrame.totalFrames;
+      // Past the far plane a pixel is sky; NrdPack already writes NRD_INF into
+      // viewZ there, and this keeps the two consistent.
+      nrdFrame.denoisingRange = apFrustum->GetFarPlane();
+      nrdFrame.timeDeltaMs = afFrameTime * 1000.0f;
 
       NrdDenoiseInputs nrdInputs = {};
-      nrdInputs.normalRoughness = state.nrdNormalRoughnessView[ilCur].Get();
-      nrdInputs.viewZ = state.nrdViewZView[ilCur].Get();
+      nrdInputs.normalRoughness = state.nrdNormalRoughnessView.Get();
+      nrdInputs.viewZ = state.nrdViewZView.Get();
       nrdInputs.motionVectors =
-          state.nrdMotionVectorsView[ilCur].Get();
+          state.nrdMotionVectorsView.Get();
       nrdInputs.diffuseRadianceHitDistance =
-          state.nrdDiffuseRadianceHitDistView[ilCur].Get();
+          state.nrdDiffuseRadianceHitDistView.Get();
       nrdInputs.specularRadianceHitDistance =
-          state.nrdSpecularRadianceHitDistView[ilCur].Get();
+          state.nrdSpecularRadianceHitDistView.Get();
 
       NrdDenoiseOutputs nrdOutputs = {};
       {
         RIGpuScope _gsNrdDenoise(&mpGraphics->profiler,
                                  &mpGraphics->primary.cmds[0], "NRD.Denoise");
-        nrdOutputs = m_nrd.Denoise(&mpGraphics->primary.cmds[0], nrdFrame,
+        nrdOutputs = state.nrd->Denoise(&mpGraphics->primary.cmds[0], nrdFrame,
                                    nrdInputs);
       }
       indirectResultView = nrdOutputs.diffuseRadianceHitDistance;
       indirectSpecularResultView = nrdOutputs.specularRadianceHitDistance;
-    } else {
-      // Diffuse first (unchanged from the single-chain version), then the
-      // specular channel over its own textures. Both reject on the same key.
-      indirectResultView = denoiseIndirectChannel(
-          "IndirectTemporal", "IndirectAtrous", state.indirectRadianceView,
-          state.indirectAtrousView, state.indirectResolvedView);
-      indirectSpecularResultView = denoiseIndirectChannel(
-          "IndirectSpecularTemporal", "IndirectSpecularAtrous",
-          state.indirectSpecularView, state.indirectSpecularAtrousView,
-          state.indirectSpecularResolvedView);
     }
   }
 
   // --------------------------------------------------------------------
-  // Composite — compute pass. Reads gIndirectLighting + gIndirectSpecular
-  // (the two denoised path-traced indirect channels) + gDirectLighting (the
-  // ReSTIR DI chain's denoised direct term, summed with the indirect diffuse
-  // here) + gPackedHitInfo / TLAS / gPerFrame, and writes the composited color
-  // into the viewport render target. The forward passes draw on top of it; the
+  // Composite — compute pass. Reads REBLUR's two denoised outputs
+  // (gIndirectLighting = the diffuse channel, carrying direct + indirect;
+  // gIndirectSpecular = the GGX lobe) + gPackedHitInfo / TLAS / gPerFrame, and
+  // writes the composited color into the viewport render target. The forward passes draw on top of it; the
   // tail crop-blits it into the viewport backbuffer, which Scene.cpp's
   // post-effect chain + swapchain tail blit consume.
   // --------------------------------------------------------------------
@@ -1922,7 +1581,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   // visibility buffer and the VBufferPomBary output were already barriered to
   // the COMPUTE stage upstream.)
   {
-    // SHADER_RESOURCE for the gIndirectLighting / gDirectLighting image
+    // SHADER_RESOURCE for the two denoised lighting image
     // samples; STORAGE_READ for the SSBOs the composite walks (light grid,
     // object / material pools) written earlier this frame.
     RIMemoryBarrier mem = {RI_RESOURCE_STATE_STORAGE_WRITE,
@@ -2175,11 +1834,12 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                      RIDescriptor::accelerationStructure(&mpGraphics->device,
                                                          apWorld->GetTlas()),
                      0, true);
-    // gIndirectLighting — this frame's path-traced indirect DIFFUSE channel
-    // only (PathTracePass, albedo-demodulated: the composite re-applies
-    // albedo). gIndirectSpecular is the second channel, undemodulated, and is
-    // added on top as-is. Both are the temporal + à-trous denoised result, or
-    // the raw accumulation if the filter is disabled. Sampled, GENERAL.
+    // gIndirectLighting — REBLUR's OUT_DIFF_RADIANCE_HITDIST: the denoised,
+    // albedo-demodulated diffuse channel, carrying the ReSTIR DI direct term
+    // summed with the path tracer's indirect bounce (NrdPack does that sum).
+    // gIndirectSpecular is OUT_SPEC_RADIANCE_HITDIST, undemodulated and added
+    // on top as-is. Both are YCoCg-packed; the shader unpacks them. NRD leaves
+    // its outputs in GENERAL. There is no separate direct input any more.
     bnd.emplace_back("gIndirectLighting",
                      RIDescriptor::sampledImage(&mpGraphics->device,
                                                 indirectResultView,
@@ -2187,15 +1847,6 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
     bnd.emplace_back("gIndirectSpecular",
                      RIDescriptor::sampledImage(&mpGraphics->device,
                                                 indirectSpecularResultView,
-                                                RI_RESOURCE_STATE_GENERAL));
-    // gDirectLighting — this frame's direct irradiance the composite multiplies
-    // albedo into: the SVGF-lite à-trous output (or the raw accumulation if the
-    // filter is disabled), sampled, GENERAL. Summed with the denoised indirect
-    // diffuse HERE, after the indirect denoiser, on purpose: DirectAtrous has
-    // already denoised it, and pushing it through IndirectTemporal's history
-    // blend a second time only adds lag on moving lights and shadow casters.
-    bnd.emplace_back("gDirectLighting",
-                     RIDescriptor::sampledImage(&mpGraphics->device, directResultView,
                                                 RI_RESOURCE_STATE_GENERAL));
     // gOutput — the viewport render target bound as a storage image (GENERAL).
     bnd.emplace_back(
@@ -2258,10 +1909,9 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                                 (renderHeight + 15u) / 16u, 1u);
   }
 
-  // Toggle the direct- and indirect-lighting ping-pongs: this frame's writes
-  // become next frame's history.
+  // Toggle the ReSTIR key/reservoir ping-pong: this frame's writes become next
+  // frame's history. Nothing else ping-pongs — NRD keeps its own history.
   state.directLightingIndex ^= 1u;
-  state.indirectLightingIndex ^= 1u;
 
   // Render target: GENERAL (compute write) -> COLOR_ATTACHMENT_OPTIMAL so the
   // downstream raster passes find the layout they expect.
@@ -3038,8 +2688,7 @@ cHybridRenderer::~cHybridRenderer() {
   RIProgram *programs[] = {
       &m_gbuffer,        &m_vBufferPomBary,
       &m_lightGrid,      &m_composite,           &m_directLighting,
-      &m_directSpatialReuse, &m_directAtrous,     &m_indirectTemporal,
-      &m_nrdPack,
+      &m_directSpatialReuse, &m_nrdPack,
       &m_particle,
       &m_translucentMesh, &m_decal,               &m_water,
       &m_pathTrace,

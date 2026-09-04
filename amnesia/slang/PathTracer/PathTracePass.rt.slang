@@ -1,12 +1,11 @@
 // Reference per-pixel path tracer — two-channel output (diffuse + specular).
 //
 // This pass outputs INDIRECT diffuse only (albedo-demodulated). The ReSTIR DI
-// chain (DirectLightingPass -> DirectSpatialReusePass -> DirectAtrousPass)
-// still runs BEFORE this pass, but its denoised result is added by
-// MainCompositePass, AFTER the indirect denoiser — summing it into the
-// accumulator here would push an already-denoised signal through
-// IndirectTemporalPass's history blend a second time and add lag on moving
-// lights and shadows.
+// chain (DirectLightingPass -> DirectSpatialReusePass) still runs BEFORE this
+// pass; NrdPack sums its resolved direct term into the diffuse channel just
+// before packing, so one REBLUR instance denoises direct and indirect together.
+// The sum is kept out of this shader so the tracer does not depend on the
+// direct chain's output layout.
 // Primary-hit emission is still the composite's job (see rayGen).
 //
 // History: derived from the since-deleted SurfelRayTrace.rt.slang when the
@@ -383,30 +382,26 @@ void rayGen()
         rng.s = uint2(payload.rngHi, payload.rngLo);
     }
 
-    // .a is the history / confidence count consumed by the temporal pass and
-    // DirectAtrousPass — a freshly traced pixel carries exactly one sample.
+    // .a is unused downstream — NrdPack reads rgb only — and is written as 1
+    // to keep the RGBA16F layout meaningful.
     //
     // With kPathTraceSamplesPerPixel == 1 the primary lobe is picked by a
     // screen-space Bayer dither with a clamped probability, so exactly ONE of
     // these two sums is non-zero for a given pixel/frame and the other writes
-    // black. That is expected, not a bug: the temporal accumulator resolves both
-    // channels over frames. Bounce lobe choices remain the stochastic white-noise
+    // black. That is expected, not a bug: REBLUR's hit-distance reconstruction
+    // and temporal accumulation resolve both channels over frames. Bounce lobe choices remain the stochastic white-noise
     // picks made by sampleBrdf().
     //
     // NOTE: primary-hit emission deliberately stays in MainCompositePass. This
-    // output is denoised downstream (IndirectTemporal + 5 atrous iterations);
-    // an illumination-map's sharp emissive texels would be blurred across the
-    // surface if they went through it. The ReSTIR DI chain's direct term stays
-    // out of this sum for the mirror-image reason: it is ALREADY denoised by
-    // DirectAtrous, so feeding it to IndirectTemporal's history blend a second
-    // time would only add lag on moving lights and shadows. MainCompositePass
-    // adds it instead.
+    // output is denoised downstream by REBLUR; an illumination-map's sharp
+    // emissive texels would be blurred across the surface if they went through
+    // it.
     gIndirectDiffuse[pixel]  = float4(diffuseSum  / float(kPathTraceSamplesPerPixel), 1.0f);
     gIndirectSpecular[pixel] = float4(specularSum / float(kPathTraceSamplesPerPixel), 1.0f);
 
     // Surface key in the SAME encoding DirectLightingPass writes to gDirectKeyOut
-    // (viewZ, geometric normal) — DirectAtrousPass hard-codes that layout and its
-    // kSvgfSigmaZ scaling assumes this viewZ.
+    // (viewZ, geometric normal). NrdPack reads it to build IN_VIEWZ and
+    // IN_NORMAL_ROUGHNESS.
     float  curZ = -mul(gPerFrame.viewMat, float4(sd.posW, 1.0f)).z;
     float3 curN = normalize(v.normalW);
     gIndirectKeyOut[pixel] = float4(curZ, curN);
@@ -416,9 +411,8 @@ void rayGen()
     // specular). The traced ray belongs to whichever lobe was sampled, so the
     // other channel remains 0 for this frame — NRD's "skipped lobe" encoding.
     // The host enables HitDistanceReconstructionMode for this probabilistic
-    // lobe-selection convention. Kept OUT of gIndirectKeyOut because
-    // DirectAtrousPass is shared with the direct chain and hard-codes that
-    // (viewZ, normal.xyz) layout.
+    // lobe-selection convention. Kept OUT of gIndirectKeyOut so that texture
+    // keeps the same (viewZ, normal.xyz) layout the direct chain's key uses.
     gIndirectKeyExtra[pixel] =
         float4(s.rough, diffuseHitDistance, specularHitDistance, 0.f);
 }

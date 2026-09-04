@@ -4,7 +4,6 @@
 #include "graphics/GlobalManagedSets.h"
 #include "graphics/HPLGraphicsConfig.h"
 #include "graphics/Material.h"
-#include "graphics/NrdIntegration.h"
 #include "graphics/RenderList.h"
 #include "graphics/Renderer.h"
 #include "graphics/RISegmentAlloc.h"
@@ -95,23 +94,18 @@ private:
   // writes gOutput.
   RIProgram m_composite;
 
-  // Direct-lighting passes (amnesia/slang/DirectLighting/):
-  // DirectLightingPass.cs — soft-shadowed analytic direct lighting, temporally
-  // accumulated via the velocity texture; writes the ping-pong direct texture.
+  // Direct-lighting passes (amnesia/slang/DirectLighting/): ReSTIR DI, which
+  // is variance reduction rather than denoising — REBLUR does all the
+  // filtering downstream.
+  // DirectLightingPass.cs — temporal reservoir reuse against the previous
+  // frame's key; writes this frame's key and the merged reservoir.
   RIProgram m_directLighting;
-  // ReSTIR DI spatial reuse + resolve (DirectSpatialReusePass.cs).
+  // ReSTIR DI spatial reuse + one shadow ray to resolve (DirectSpatialReusePass.cs).
   RIProgram m_directSpatialReuse;
-  // SVGF-lite à-trous spatial denoise for the direct pass (DirectAtrousPass.cs).
-  RIProgram m_directAtrous;
-  // Temporal accumulation for the path-traced indirect term. The spatial
-  // half reuses m_directAtrous, bound against the indirect textures.
-  RIProgram m_indirectTemporal;
-  // NRD frontend repack, dispatched immediately before NrdIntegration when
-  // the runtime NRD toggle is enabled.
+  // NRD frontend repack. Sums the resolved direct irradiance into the diffuse
+  // channel and packs both lobes into NRD's layout, immediately before the
+  // per-viewport NrdIntegration denoises them.
   RIProgram m_nrdPack;
-  // Native NRD denoiser; shares the renderer lifetime with the other denoiser
-  // programs and owns NRD's internal history/output resources.
-  NrdIntegration m_nrd;
 
 
 	// Particle (translucent) pass — port of legacy RendererDeferred's

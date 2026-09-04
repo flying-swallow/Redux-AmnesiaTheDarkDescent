@@ -338,12 +338,11 @@ SHARED_CONST float kWaterReflectionIndirectIntensity = 1.0f;
 // kDefaultOverlayMode is the initial value for the runtime overlay-mode push
 // constant. The host may change the active mode at runtime without
 // recompiling the shader.
+// Modes 1..5 were Variance / RayCount / RefCount / Life / Coverage; the
+// Surfel GI passes that produced them are gone and no shader implements them,
+// so only the two live modes are named. The gap is kept because the debug UI
+// passes the combo-box item INDEX straight through.
 SHARED_CONST uint  kOverlayModeIndirectLighting = 0u;
-SHARED_CONST uint  kOverlayModeVariance         = 1u;
-SHARED_CONST uint  kOverlayModeRayCount         = 2u;
-SHARED_CONST uint  kOverlayModeRefCount         = 3u;
-SHARED_CONST uint  kOverlayModeLife             = 4u;
-SHARED_CONST uint  kOverlayModeCoverage         = 5u;
 SHARED_CONST uint  kOverlayModeShadowFlag       = 6u;
 SHARED_CONST uint  kDefaultOverlayMode          = kOverlayModeIndirectLighting;
 
@@ -351,60 +350,23 @@ SHARED_CONST uint  kDefaultOverlayMode          = kOverlayModeIndirectLighting;
 // diagnostics. UniformObject.renderFlags stores the raw iRenderable flags.
 SHARED_CONST uint  kObjectFlagShadowCaster      = 0x00000001u;
 
-// MainCompositePass per-component toggles. 0 = skip that term, 1 = add
-// it. The host used to drive these via a per-pass CB; they were always set
-// to 1 there, so they live here as static defaults
-// alongside the rest of the GI knobs. Flip in source + recompile
-// to A/B direct vs. indirect.
+// Per-component lighting toggles. 0 = skip that term, 1 = add it. The host
+// used to drive these via a per-pass CB; they were always set to 1 there, so
+// they live here as static defaults. Flip in source + recompile.
+//
+// kDefaultRenderDirectLighting now only affects Water.frag.slang, which shades
+// outside the denoiser. MainCompositePass cannot honour it: direct and indirect
+// diffuse share one REBLUR channel and are indivisible by the time they reach
+// the composite.
 SHARED_CONST uint  kDefaultRenderDirectLighting    = 1u;
 SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
-// Direct-lighting temporal accumulation (SVGF temporal stage, in the resolve
-// pass). Running mean weighted by history length: alpha = max(1/count,
-// kDirectTemporalAlpha), count capped at kDirectMaxAccum. The 1/count term gives
-// an exact average for the first ~1/floor frames; the floor then keeps it
-// adaptive so changing lighting isn't permanently lagged.
-//
-// Steady-state residual noise ≈ sqrt(alpha/(2-alpha)) × per-frame noise, so the
-// FLOOR is the main grain knob on a static view: 0.05 → ~0.16×, 0.02 → ~0.10×,
-// 0.01 → ~0.07×. Lower floor / higher cap = smoother but laggier on lighting
-// changes (disocclusion still resets count=1, so newly-revealed areas recover
-// cleanly regardless). Tuned down from 0.05/16 to settle a grainy static image;
-// drop the floor further (toward 0.01) if it's still grainy, raise it (toward
-// 0.05) if dynamic lights start to smear.
-SHARED_CONST float kDirectTemporalAlpha            = 0.02f;
-SHARED_CONST float kDirectMaxAccum                 = 64.0f;
-// Firefly clamp applied to the resolved irradiance before temporal accumulation
-// (once history exists): caps the current sample's luminance at this multiple of
-// the history luminance so a single bright spike can't enter the running mean and
-// slowly bleed out — a primary boiling source. Lower = more aggressive.
-SHARED_CONST float kDirectFireflyClamp             = 8.0f;
-// Disocclusion rejection for the direct pass: reproject the surface key (view
-// depth + normal) and reject history (restart accumulation) when the reprojected
-// surface differs — kills camera-motion smear at silhouettes.
+// Geometry rejection for ReSTIR DI reuse: reproject/compare the surface key
+// (view depth + normal) and reject a neighbour or the previous frame's
+// reservoir when the surface differs. Used by DirectLightingPass (temporal
+// reservoir reprojection) and DirectSpatialReusePass (spatial neighbour
+// rejection). NOT a denoiser knob — REBLUR runs its own disocclusion test.
 SHARED_CONST float kReprojZRelTol                  = 0.05f;   // ≤5% view-depth difference accepted
 SHARED_CONST float kReprojNormalCos                = 0.9f;    // ≈25° normal tolerance
-// Disocclusion seed: a fresh pixel borrows already-converged direct from
-// same-surface neighbors in the previous accumulation, searching a
-// (2R+1)² window (no shadow rays). Larger = more reuse, more taps.
-SHARED_CONST int   kDisoccSearchRadius             = 3;       // 7×7 spatial reuse window
-// SVGF-lite spatial denoise for the direct pass. After temporal accumulation, an
-// edge-aware à-trous wavelet filter (5×5, step doubling each iteration) shares the
-// 1-spp estimate across same-surface neighbors — the spatial half the temporal-only
-// accumulation was missing, and the thing that hides the per-frame speckle / the
-// disocclusion noise spike. Edge-stopping weights gate on view depth (σZ), world
-// normal (σN exponent), and luminance (σL, scaled by a local variance estimate).
-// kDirectVarianceBoost widens the luminance gate while the history is short
-// (count low) so fresh pixels blur harder before they've converged.
-SHARED_CONST int   kAtrousIterations               = 5;       // edge-aware à-trous passes (host loop count)
-SHARED_CONST float kSvgfSigmaZ                      = 4.0f;    // depth edge-stop
-SHARED_CONST float kSvgfSigmaN                      = 64.0f;   // normal edge-stop exponent
-SHARED_CONST float kSvgfSigmaL                      = 4.0f;    // luminance edge-stop
-SHARED_CONST float kDirectVarianceBoost            = 4.0f;    // early-frame (low count) variance scale
-// Temporal accumulation window for the path-traced indirect term. The indirect
-// pass keeps a running mean whose alpha channel is the frame count (1..N); the
-// à-trous pass reads that count for its kDirectVarianceBoost term, so this also
-// sets how long a fresh pixel stays in the widened-luminance-gate regime.
-SHARED_CONST float kIndirectMaxAccumFrames         = 32.0f;   // temporal window for the path-traced indirect term
 
 // NRD v4.17 Reblur hit-distance normalization parameters (A, B, C). The
 // vendored NRD removed the historical D member in v4.17; keep this vector in

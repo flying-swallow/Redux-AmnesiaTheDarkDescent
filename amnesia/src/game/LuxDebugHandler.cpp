@@ -1145,13 +1145,6 @@ void cLuxDebugHandler::CreateGuiWindow()
 		pCheckBox->AddCallback(eGuiMessage_CheckChange, this, kGuiCallback(ChangeDebugText));
 		vGroupPos.y += 22;
 
-		// Use native NRD indirect denoiser
-		pCheckBox = mpGuiSet->CreateWidgetCheckBox(cVector3f(vGroupPos.x, vGroupPos.y + 8, vGroupPos.z), vSize, _W("Use NRD denoiser"), pGroup);
-		pCheckBox->SetChecked(hpl::Interface<cGraphics>::Get()->mbUseNrdDenoiser, false);
-		pCheckBox->SetUserValue(20);
-		pCheckBox->AddCallback(eGuiMessage_CheckChange, this, kGuiCallback(ChangeDebugText));
-		vGroupPos.y += 22;
-
 		// Group end
 		vGroupSize.y = vGroupPos.y + 15;
 		pGroup->SetSize(vGroupSize);
@@ -1416,7 +1409,6 @@ bool cLuxDebugHandler::ChangeDebugText(iWidget* apWidget, const cGuiMessageData&
 	else if(lNum == 17)  SetFastForward(bActive);
 
 	else if (lNum == 19) hpl::Interface<cGraphics>::Get()->allLightsCastShadows = !bActive;
-	else if (lNum == 20) hpl::Interface<cGraphics>::Get()->mbUseNrdDenoiser = bActive;
 
 	return true;
 }

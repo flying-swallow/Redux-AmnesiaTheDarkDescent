@@ -633,6 +633,13 @@ struct NrdIntegration::Impl {
     commonSettings.rectSizePrev[0] = static_cast<uint16_t>(width);
     commonSettings.rectSizePrev[1] = static_cast<uint16_t>(height);
     commonSettings.frameIndex = frame.frameIndex;
+    // Beyond this view-space depth NRD treats a pixel as sky/background and
+    // skips it. Fed from the frustum far plane so it tracks the camera.
+    if (frame.denoisingRange > 0.0f)
+      commonSettings.denoisingRange = frame.denoisingRange;
+    // Drives antilag and accumulation speed. Left at 0 NRD derives a fixed step
+    // from frameIndex, which desyncs the denoiser from a variable frame rate.
+    commonSettings.timeDeltaBetweenFrames = frame.timeDeltaMs;
     commonSettings.accumulationMode =
         historyReset ? nrd::AccumulationMode::CLEAR_AND_RESTART
                      : nrd::AccumulationMode::CONTINUE;

@@ -314,10 +314,6 @@ public:
   // the debug checkbox for A/B comparison.
   bool allLightsCastShadows = true;
 
-  // Runtime debug switch for the native NRD indirect denoiser. Keep the
-  // SVGF-lite chain as the default/shipping path until explicitly enabled.
-  bool mbUseNrdDenoiser = false;
-
   struct RIResourceUploader uploader = {};
 
   // Engine-lifetime set-0 tables (bindless / object / material / light);

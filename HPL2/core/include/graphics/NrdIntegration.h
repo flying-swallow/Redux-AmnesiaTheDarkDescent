@@ -21,6 +21,12 @@ struct NrdFrameData {
   float worldToViewMatrix[16] = {};
   float worldToViewMatrixPrev[16] = {};
   uint32_t frameIndex = 0;
+  // View-space depth past which a pixel counts as sky/background. 0 keeps
+  // NRD's own default.
+  float denoisingRange = 0.0f;
+  // Milliseconds since the previous frame. 0 lets NRD derive a fixed step from
+  // frameIndex, which desyncs it from a variable frame rate.
+  float timeDeltaMs = 0.0f;
 };
 
 struct NrdDenoiseInputs {

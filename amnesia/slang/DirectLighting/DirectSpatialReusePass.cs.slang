@@ -4,8 +4,14 @@
 // DirectLightingPass, and merge a few same-surface neighbours' reservoirs
 // (geometry-rejected on the depth/normal key, so light can't leak across
 // surfaces). Then RESOLVE: one soft (blue-noise disk) shadow ray for the chosen
-// light, weighted by the reservoir's UCW → demodulated irradiance the SVGF-lite
-// à-trous pass filters and the composite multiplies albedo into.
+// light, weighted by the reservoir's UCW → demodulated irradiance that NrdPack
+// sums into REBLUR's diffuse channel, which denoises it together with the path
+// tracer's indirect bounce.
+//
+// This pass does NO temporal filtering of the resolved irradiance. It used to
+// run an EMA accumulation here, but REBLUR now owns all temporal filtering for
+// the diffuse channel; keeping a second accumulator upstream would double-filter
+// and add lag on moving lights and shadows.
 //
 // The merged reservoir is also written out as the next frame's temporal history.
 // One shadow ray per pixel per frame; the reuse drives the effective candidate
@@ -24,14 +30,12 @@ import Random;
 import Reservoir;
 
 // Pass-private (set 2). Slot 0 is a gap; the remaining bindings keep their
-// numbers so the host-side layout stays stable.
+// numbers so the host-side layout stays stable. Slots 5-7 (velocity and the
+// two history textures) were dropped with the temporal accumulation.
 [vk::binding(1, 2)] Texture2D<float4>   gReservoirIn;          // temporally-merged reservoir
 [vk::binding(2, 2)] Texture2D<float4>   gDirectKey;            // current surface key (viewZ, normal.xyz)
 [vk::binding(3, 2)] RWTexture2D<float4> gReservoirOut;         // output: final reservoir (next frame's history)
-[vk::binding(4, 2)] RWTexture2D<float4> gDirectLighting;       // output: accumulated demodulated irradiance (rgb, count)
-[vk::binding(5, 2)] Texture2D<float2>   gVelocity;             // screen-space motion (RG16F)
-[vk::binding(6, 2)] Texture2D<float4>   gDirectHistory;        // previous accumulated direct (rgb, count)
-[vk::binding(7, 2)] Texture2D<float4>   gDirectKeyHistory;     // previous surface key (viewZ, normal.xyz)
+[vk::binding(4, 2)] RWTexture2D<float4> gDirectLighting;       // output: resolved demodulated irradiance (rgb; .a unused)
 
 [shader("compute")]
 [numthreads(16, 16, 1)]
@@ -98,39 +102,7 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // Resolve the chosen light with one soft (blue-noise disk) shadow ray.
     float3 curResolved = resolveDirectReservoir(sd, R, rng);
 
-    // Temporal accumulation of the RESOLVED irradiance (SVGF temporal stage).
-    // The reservoir stabilizes light SELECTION, but the single per-frame shadow
-    // ray's visibility / penumbra still needs temporal averaging — without it the
-    // soft-shadow edge shimmers. Reproject the previous accumulation through the
-    // motion vector and reject on the depth/normal disocclusion test, then EMA-
-    // blend by history length. The à-trous pass cleans the spatial residual.
-    float2 dims   = float2(outW, outH);
-    float2 curUV  = (float2(p) + 0.5f) / dims;
-    float2 histUV = curUV - gVelocity.Load(int3(p, 0)).xy;
-
-    bool tvalid = !(any(histUV < 0.0f) || any(histUV > 1.0f));
-    if (tvalid)
-    {
-        int2 ht = clamp(int2(histUV * dims), int2(0), int2(dims) - 1);
-        float4 hk = gDirectKeyHistory.Load(int3(ht, 0));
-        tvalid = abs(curZ - hk.x) <= kReprojZRelTol * max(curZ, 1.0e-3f)
-              && dot(curN, normalize(hk.yzw)) >= kReprojNormalCos;
-    }
-
-    float3 result;
-    float  count;
-    if (tvalid)
-    {
-        float4 h = gDirectHistory.SampleLevel(gMaterialSampler, histUV, 0.0f);
-        count = min(h.a + 1.0f, kDirectMaxAccum);
-        float alpha = max(1.0f / count, kDirectTemporalAlpha);
-        result = lerp(h.rgb, curResolved, alpha);
-    }
-    else
-    {
-        result = curResolved;
-        count  = 1.0f;
-    }
-
-    gDirectLighting[p] = float4(result, count);
+    // No temporal accumulation here: REBLUR filters this channel downstream.
+    // .a is written as 1 only to keep the RGBA16F layout; nothing reads it.
+    gDirectLighting[p] = float4(curResolved, 1.0f);
 }
