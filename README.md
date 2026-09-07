@@ -11,67 +11,74 @@
 	- Newton Dynamics was upgraded from 2.08 to 2.32 (I simply couldn't find the source code for 2.08)
 	- Fbx support is temporarily removed (I'm planning to re-implement it using OpenFBX)
 
-The repository ships **two parallel build systems**: a Visual Studio solution (`Amnesia.sln`) intended for Windows development, and a CMake project (`CMakeLists.txt`) used for Linux/macOS and as an alternative on Windows. They build the same code from the same dependency sources — pick whichever fits your platform.
+The project builds with **premake5**, using one project model for Linux and Windows; see [BUILD.md](BUILD.md) for the full instructions.
 
 ## Prerequisites
 - A legitimate copy of **Amnesia: The Dark Descent** (e.g. via Steam). The build only produces the executable; assets, scripts, configs, and shaders come from your installed copy.
-- **Git**. The tree includes bundled dependency sources under `HPL2/extern/`, so no submodule init is required. On Windows, enable long paths first: `git config --system core.longpaths true`.
-- **Perl** on `PATH`, used by `HPL2/core/buildcounter.pl` to stamp build IDs during compilation. Strawberry Perl works.
+- **Git**. The project uses dependency submodules under `HPL2/extern/`; clone recursively or run `git submodule update --init --recursive`. On Windows, enable long paths first: `git config --system core.longpaths true`.
+- **premake5** on `PATH` (`premake5.exe` on Windows), used to generate the build files.
 - A C++20-capable toolchain — see each build path below for specifics.
 
 ```
-git clone https://github.com/<your-fork>/Amnesia64.git
+git clone --recurse-submodules https://github.com/<your-fork>/Amnesia64.git
 cd Amnesia64
 ```
 
-## Building with Visual Studio (`Amnesia.sln`)
+## Building on Windows
 
-Recommended path on Windows.
+Requires `premake5.exe` on `PATH` and Visual Studio with the *Desktop development with C++* workload. Run:
 
-**Required tools**
-- **Visual Studio 2019** or newer with the *Desktop development with C++* workload (v142 or v143 toolset and Windows 10 SDK).
+```
+.\build-windows.ps1 [release|debug]
+```
 
-**Steps**
-1. Open `Amnesia.sln` in Visual Studio.
-2. Pick a configuration: `Debug|x64`, `Release|x64`, `Debug|Win32`, or `Release|Win32`.
-3. Right-click **Lux** → *Set as Startup Project*.
-4. Define an environment variable `ATDD_DIR` pointing to your installed Amnesia game folder, then restart Visual Studio:
-	```
-	setx ATDD_DIR "C:\Program Files (x86)\Steam\steamapps\common\Amnesia The Dark Descent"
-	```
-	The Lux debugger's working directory is `$(ATDD_DIR)` (see `amnesia\src\game\Lux.vcxproj.user`), which is what lets the freshly built exe find game assets when you press F5.
-5. Build the solution (Ctrl+Shift+B). All bundled dependencies (SDL2, AngelScript, Newton, DevIL, GLEW, jpeg, png, ogg, vorbis, theora, zlib, freealut) compile from source as part of the solution.
-6. Run/debug **Lux**. It will launch into your existing game install.
+The wrapper generates `build-premake\Amnesia.sln` via `premake5 vs2026`, then builds it with MSBuild targeting `x64`. After generation, you can also open the generated solution directly in Visual Studio.
+
+Its options include `-Clean` to remove `build-premake\` before generation, `-NoDeploy` to skip asset deployment, `-GameDir <path>` to provide the installed game folder, and `--` to pass extra arguments through to Premake (for example, `--with-tools=no`). `ATDD_DIR` is still honored as the game-folder environment variable and as the generated projects' debugger working directory; `-GameDir` also sets it for the wrapper build.
+
+The [Windows workflow](.github/workflows/windows-build.yml) uses `premake5 vs2022`. `premake5.lua` does not pin `_ACTION`, so `vs2022` and `vs2026` generate the same project model.
 
 > Note: per the most recent commits, post effects and the menu background are temporarily disabled on this branch while the renderer backend is being reworked.
 
-## Building with CMake (`CMakeLists.txt`)
+## Building on Linux
 
-Used for Linux and macOS, and works on Windows as an alternative to the VS solution.
+Generate Makefiles and build with:
 
-**Required tools**
-- **CMake 3.5+**
-- A C++20 compiler: GCC 10+, Clang 11+, or MSVC matching the VS prerequisites above.
-- An assembler (the build calls `enable_language(ASM)`). NASM/GAS on Linux; MASM ships with MSVC.
-
-**Steps**
 ```
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAMNESIA_GAME_DIRECTORY="/path/to/Amnesia The Dark Descent"
-cmake --build build --config Release -j
-cmake --install build
+premake5 gmake2 [options]
+make -C build-premake config=release -j"$(nproc)"
 ```
 
-The install step copies the game's data files (excluding the original executables and DLLs) next to the freshly built binaries via `amnesia/copy_game_assets.cmake`, producing a self-contained `build/bin/` you can run directly.
+The built output is in `build-premake/amnesia/<Debug|Release>/`. The native wrapper performs generation, the build, Python tests, and optional deployment on the host: `./build-linux.sh [release|debug]`.
 
-**Useful CMake options** (all `OFF` by default — bundled sources are used otherwise):
-- `USE_SYSTEM_ZLIB`, `USE_SYSTEM_OPENAL`, `USE_SYSTEM_TINYXML`, `USE_SYSTEM_SDL2`, `USE_SYSTEM_OGG`, `USE_SYSTEM_VORBIS`, `USE_SYSTEM_DEVIL`
-- Linux display backends: `USE_GRAPHICS_X11=ON`, `USE_GRAPHICS_WAYLAND=ON` (both on by default)
-- `AMNESIA_GAME_DIRECTORY` defaults to `~/.local/share/Steam/steamapps/common/Amnesia The Dark Descent` on Linux; on other platforms it must be set explicitly.
+The containerized wrapper performs generation, the build, Python tests, and deployment in one step:
+
+```
+./build-linux-docker.sh [release|debug]
+```
+
+`cmake` is still required as an installed tool because `premake/external.lua` drives the bundled SDL2 and openal-soft builds with their own CMake; `--cmake=PATH` overrides which executable is used.
+
+**Useful premake options** (see [BUILD.md](BUILD.md) for the full table):
+- `--game-dir=PATH` — no default; required by the `deploy` action.
+- `--with-tools=yes|no` — default `yes`.
+- `--with-tests=yes|no` — default `yes`.
+- `--with-python-tests=yes|no` — default `yes`.
+- `--with-fsr=yes|no` — default `yes`.
+- `--with-xess=yes|no` — default `yes`; Windows only and ignored on Linux.
+- `--graphics-x11=on|off` — default `on`.
+- `--graphics-wayland=on|off` — default `on`.
+- `--slangc=PATH` — no explicit default; an extracted compiler is reused or the pinned release is downloaded when omitted.
+- `--cmake=PATH` — default `cmake` on `PATH`.
 
 ## Running
 
-Launch the built `Lux` (or `Amnesia`) executable from a directory that contains the game's `config/`, `entities/`, `maps/`, `core/`, etc.
-- **Visual Studio path**: that directory is your `ATDD_DIR`.
-- **CMake path**: that directory is the `bin/` folder produced by `cmake --install`.
+First stage the game assets with:
 
-If the game complains about missing files on startup, the working directory is wrong — fix `ATDD_DIR` (VS) or re-run the install step (CMake).
+```
+premake5 deploy --game-dir="/path/to/Amnesia The Dark Descent"
+```
+
+This copies assets from the installed game into `build-premake/amnesia/Debug/` and `build-premake/amnesia/Release/`, excluding names beginning with `Amnesia` and files matching `*.rar`, `*.pdf`, `*.dll`, or `*.exe`. The result is a self-contained directory; launch the built executable from the corresponding output directory. `build-linux-docker.sh` runs this action for you unless `--no-deploy` is supplied.
+
+If the game complains about missing files on startup, check that you built or deployed into the expected `build-premake/amnesia/<Debug|Release>/` directory, then re-run `premake5 deploy` with the correct install path.

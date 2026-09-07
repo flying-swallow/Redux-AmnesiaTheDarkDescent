@@ -29,6 +29,7 @@ public struct DiffuseShading
     public float3 albedo;
     public float3 emission;
     public float  rough;    // perceptual diffuse-lobe roughness
+    public float  surfaceFootprintW; // world-space footprint DIAMETER at the hit
 };
 
 // emission = illumination-map texel (DiffuseMaterial slot 5) * per-object glow
@@ -49,12 +50,15 @@ public struct DiffuseShading
 // as 2*sample-1.
 public DiffuseShading prepareDiffuseShading(VertexData v, uint materialID,
                                             float illuminationAmount,
+                                            float texLodBase,
+                                            float surfaceFootprintW,
                                             bool decodeRoughness = false,
                                             bool applyNormalMap   = false)
 {
     DiffuseShading sd;
     sd.posW    = v.posW;
     sd.normalW = normalize(v.normalW);
+    sd.surfaceFootprintW = surfaceFootprintW;
     DiffuseMaterial m = loadDiffuseMaterial(materialID);
 
     if (applyNormalMap && (m.materialConfig & kMaterialFlagEnableNormal) != 0u &&
@@ -66,7 +70,7 @@ public DiffuseShading prepareDiffuseShading(VertexData v, uint materialID,
         {
             T = normalize(T);
             float3 B = cross(N, T);                        // world-space TBN (tangent.w dropped)
-            float3 mn = sampleBindless2DLevel(m.tex[1], v.texC, 0.0f).xyz * 2.0f - 1.0f;
+            float3 mn = sampleBindless2DCone(m.tex[1], v.texC, texLodBase).xyz * 2.0f - 1.0f;
             sd.normalW = normalize(mn.x * T + mn.y * B + mn.z * N);
         }
     }
@@ -75,16 +79,16 @@ public DiffuseShading prepareDiffuseShading(VertexData v, uint materialID,
     if (diffuseTex == kInvalidTextureIndex)
         sd.albedo = float3(0.5f);
     else
-        sd.albedo = sampleBindless2DLevel(diffuseTex, v.texC, 0.0f).rgb;
+        sd.albedo = sampleBindless2DCone(diffuseTex, v.texC, texLodBase).rgb;
 
     uint illumTex = m.tex[5];
     if (illumTex == kInvalidTextureIndex || illuminationAmount <= 0.f)
         sd.emission = float3(0.f);
     else
-        sd.emission = sampleBindless2DLevel(illumTex, v.texC, 0.0f).rgb
+        sd.emission = sampleBindless2DCone(illumTex, v.texC, texLodBase).rgb
                       * illuminationAmount;
 
-    sd.rough = decodeRoughness ? decodeMaterialRoughness(m, v.texC)
+    sd.rough = decodeRoughness ? decodeMaterialRoughness(m, v.texC, texLodBase)
                                : kDefaultDiffuseRoughness;
     return sd;
 }
@@ -97,11 +101,12 @@ public DiffuseShading prepareDiffuseShading(VertexData v, uint materialID,
 // Shared core: sample + back-face cull + demodulated contribution. Returns false
 // (contrib unset) when the sample fails or N·L ≤ 0. The three public variants
 // differ ONLY in the shadow ray.
-bool sampleLightShade(uint lightIndex, float3 posW, float3 normalW, float3 V,
-                      float rough, out LightSample ls, out float3 contrib)
+bool sampleLightShade(uint lightIndex, float3 posW, float3 normalW,
+                      float surfaceFootprintW, float3 V, float rough,
+                      out LightSample ls, out float3 contrib)
 {
     contrib = float3(0.f);
-    if (!getLight(lightIndex).sample(posW, ls)) return false;
+    if (!getLight(lightIndex).sample(posW, surfaceFootprintW, ls)) return false;
     float NdotL = dot(normalW, ls.dir);
     if (NdotL <= 0.f) return false;
     contrib = ls.Li * NdotL * evalDiffuseDemodulated(normalW, V, ls.dir, rough);
@@ -111,11 +116,13 @@ bool sampleLightShade(uint lightIndex, float3 posW, float3 normalW, float3 V,
 // Hard shadow: trace one ray at the light centre. `origin` is the
 // (epsilon-offset) shadow-ray origin the caller computes.
 public float3 shadeAnalyticLight(float3 posW, float3 normalW, float3 V,
-                                 float rough, uint lightIndex, float3 origin)
+                                 float surfaceFootprintW, float rough,
+                                 uint lightIndex, float3 origin)
 {
     LightSample ls;
     float3 contrib;
-    if (!sampleLightShade(lightIndex, posW, normalW, V, rough, ls, contrib))
+    if (!sampleLightShade(lightIndex, posW, normalW, surfaceFootprintW,
+                          V, rough, ls, contrib))
         return float3(0.f);
     // Default policy: every light is shadow-casting, so every light traces a
     // shadow ray. The authored flag only decides in the legacy opt-out mode.
@@ -130,12 +137,14 @@ public float3 shadeAnalyticLight(float3 posW, float3 normalW, float3 V,
 // light centre — only occlusion is softened. sourceRadius == 0 falls back to the
 // hard centre ray.
 public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW, float3 V,
-                                     float rough, uint lightIndex,
+                                     float surfaceFootprintW, float rough,
+                                     uint lightIndex,
                                      float3 origin, inout RNG rng)
 {
     LightSample ls;
     float3 contrib;
-    if (!sampleLightShade(lightIndex, posW, normalW, V, rough, ls, contrib))
+    if (!sampleLightShade(lightIndex, posW, normalW, surfaceFootprintW,
+                          V, rough, ls, contrib))
         return float3(0.f);
 
     // Aim the shadow ray at a jittered point on the light's source via the ILight
@@ -164,14 +173,16 @@ public float3 shadeAnalyticLightSoft(float3 posW, float3 normalW, float3 V,
 // diffuse-only/albedo-less one. Same sample + NdotL cull + shadow-ray gate as
 // shadeAnalyticLight, so the shadow policy stays in one place.
 // Returns false (outs zeroed) on sample failure, back-face, or occlusion.
-public bool shadeAnalyticLightRadiance(float3 posW, float3 normalW, uint lightIndex,
-                                       float3 origin, out float3 L, out float3 LiNdotL)
+public bool shadeAnalyticLightRadiance(float3 posW, float3 normalW,
+                                       float surfaceFootprintW, uint lightIndex,
+                                       float3 origin, out float3 L,
+                                       out float3 LiNdotL)
 {
     L       = float3(0.f);
     LiNdotL = float3(0.f);
 
     LightSample ls;
-    if (!getLight(lightIndex).sample(posW, ls)) return false;
+    if (!getLight(lightIndex).sample(posW, surfaceFootprintW, ls)) return false;
     float NdotL = dot(normalW, ls.dir);
     if (NdotL <= 0.f) return false;
 
@@ -189,10 +200,12 @@ public bool shadeAnalyticLightRadiance(float3 posW, float3 normalW, uint lightIn
 // light selection — keeping the lobe keeps the target proportional to the true
 // integrand.
 public float3 unshadowedAnalyticLight(float3 posW, float3 normalW, float3 V,
-                                      float rough, uint lightIndex)
+                                      float surfaceFootprintW, float rough,
+                                      uint lightIndex)
 {
     LightSample ls;
     float3 contrib;
-    sampleLightShade(lightIndex, posW, normalW, V, rough, ls, contrib);
+    sampleLightShade(lightIndex, posW, normalW, surfaceFootprintW,
+                     V, rough, ls, contrib);
     return contrib;   // contrib stays float3(0) on sample-fail / back-face
 }

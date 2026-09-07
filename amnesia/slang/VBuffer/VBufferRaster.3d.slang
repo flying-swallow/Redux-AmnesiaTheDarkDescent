@@ -84,12 +84,13 @@ VSOut vsMain(uint vertexID    : SV_VertexID,
 
     float4 worldP     = mul(obj.modelMat,     float4(aPos, 1.0f));
     float4 prevWorldP = mul(obj.prevModelMat, float4(aPos, 1.0f));
-    float4x4 viewProj     = mul(gPerFrame.projMat, gPerFrame.viewMat);
-    // curClip wants the no-jitter view-proj for motion vectors; identical to
-    // viewProj until TAA jitter lands (then split the jitter out here).
+    // Category a: the primary raster sample uses the host-side jittered
+    // projection, which the matching full-extent ray reconstruction samples.
+    float4x4 jitteredViewProj   = mul(gPerFrame.projMat, gPerFrame.viewMat);
+    float4x4 unjitteredViewProj = mul(gPerFrame.unjitteredProjMat, gPerFrame.viewMat);
     float4x4 prevViewProj = mul(gPerFrame.prevProjMat, gPerFrame.prevViewMat);
-    o.posH       = mul(viewProj, worldP);
-    o.curClip    = mul(viewProj, worldP);
+    o.posH       = mul(jitteredViewProj, worldP);
+    o.curClip    = mul(unjitteredViewProj, worldP);
     o.prevClip   = mul(prevViewProj, prevWorldP);
     o.texC       = mul(obj.uvMat, float4(aUv, 0.0f, 1.0f)).xy;
     o.instanceID = instanceID;
@@ -108,7 +109,7 @@ GBufferOut psMain(VSOut vsOut,
     // target.
     VertexData v = {};
     v.texC = vsOut.texC;
-    if (materialAlphaTest(v, vsOut.materialID, 0.0f,
+    if (materialAlphaTest(v, vsOut.materialID,
                           gSceneObjects[vsOut.instanceID].dissolveAmount))
         discard;
 
@@ -125,8 +126,10 @@ GBufferOut psMain(VSOut vsOut,
     o.hit.z = b1 | (b2 << 16);
     o.hit.w = 1u;
 
-    // Screen-space velocity = curUV - prevUV (resolve samples history at
-    // uv - velocity). NDC→UV uses the engine's y-down convention
+    // Category b: screen-space velocity deliberately stays unjittered
+    // curUV - prevUV (NRD and the upscaler expect this); camera jitter is
+    // delivered separately via CommonSettings.cameraJitter and must not be
+    // folded into this velocity. NDC→UV uses the engine's y-down convention
     // (uv = ndc * (0.5,-0.5) + 0.5, see computeNonNormalizedRayDirPinhole).
     float2 curUV  = (vsOut.curClip.xy  / vsOut.curClip.w)  * float2(0.5f, -0.5f) + 0.5f;
     float2 prevUV = (vsOut.prevClip.xy / vsOut.prevClip.w) * float2(0.5f, -0.5f) + 0.5f;

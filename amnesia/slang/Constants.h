@@ -298,6 +298,21 @@ SHARED_CONST float kWaterRefractionIntensity = 0.6f;
 SHARED_CONST float kWaterReflectionExposure = 1.0f;
 SHARED_CONST float kWaterRefractionExposure = 2.0f; //0.5f;
 
+// Global scene exposure, applied by the tonemap post effect before the display
+// encode (posteffect_tonemap.frag.slang). The maps carry legacy light
+// intensities (3-5) authored for the old LDR renderer, while the PBR model
+// here is radiance = color * intensity / (d^2 + sourceRadiusSq) -- so the
+// composited scene lands far below display range. This is the single global
+// compensation for that; per-map fixes belong in the light authoring.
+//
+// A linear multiply, deliberately not a display-gamma curve: the particle and
+// translucent passes blend against an exact sRGBToLinear/linearToSRGB inverse
+// pair (BlendModes.slang), so a gamma curve breaks the identity and lifts
+// faint fog/halo content hardest. An exposure scale preserves every blend
+// ratio. Read host-side by the tonemap's callers (LuxMapHandler,
+// LuxMainMenu, iEditorViewport, cLevelEditorCameraCapture).
+SHARED_CONST float kSceneExposure = 2.5f;
+
 // How much wave turbulence the REFLECTION bounce normal keeps (the refraction
 // bounce always uses the full wave normal). The RT reflection is a sharp mirror
 // trace; blending its normal back toward the flat surface normal calms the
@@ -305,43 +320,23 @@ SHARED_CONST float kWaterRefractionExposure = 2.0f; //0.5f;
 // mirror, 1 = full wave distortion.
 SHARED_CONST float kWaterReflectionTurbulence = 0.3f;
 
-// Indirect bounce traced from a water REFLECTION hit (Water.frag.slang).
-// Each sample is a full RayQuery + re-shade inside the fragment stage, paid per
-// water pixel with no denoiser behind it, so the count stays tiny and the
-// directions are a deterministic stratified set instead of a per-frame random
-// one. The intensity is the art knob for how strongly that one bounce shows up
-// in the reflection; 1.0 = the raw traced estimate.
-//
-// WHY 2 IS THE DEFAULT. Ray budget per water pixel is
-//     1 (reflection) + N * (1 bounce ray + one shadow ray per light in the
-//                          bounce vertex's grid cell)
-// so N is a straight multiplier on the most expensive part of the pass, and the
-// pass has no denoiser and no temporal reuse to amortise it. N=2 is the
-// smallest count that still gets a stratified elevation pair (N=1 collapses the
-// stratification to a single mid-hemisphere direction and biases the bounce
-// toward the surface normal). It is chosen as the conservative floor that fixes
-// the actual defect - GI-only-lit geometry reflecting as pure black - rather
-// than as a measured optimum: no frame-time capture on a screen-filling water
-// surface has been taken yet. Raise to 4 only if the fixed low-sample structure
-// reads as objectionable in motion, and drop kWaterReflectionIndirectIntensity
-// before dropping N if the bounce is merely too strong. Setting N to 0 disables
-// the bounce entirely and is the A/B baseline for measuring its cost.
-SHARED_CONST uint  kWaterReflectionIndirectSamples   = 2u;
+// Continuation gain for the reduced-resolution water reflection producer.
+// WaterReflection.rt.slang keeps the first reflected vertex at full strength and
+// scales only the second-vertex continuation radiance with this art-direction
+// knob: firstVertexRadiance + continuation * kWaterReflectionIndirectIntensity.
 SHARED_CONST float kWaterReflectionIndirectIntensity = 1.0f;
 
-// Evaluation / composite overlay modes. 0 = normal indirect lighting.
-// Non-zero values render diagnostic visualizations:
-//   1 = variance, 2 = ray count, 3 = ref count, 4 = life, 5 = coverage,
-//   6 = shadow-caster flag.
-// The debug UI passes the combo-box item INDEX straight through as the mode
-// value, so this enum must stay dense and match the item order.
+// Evaluation / composite overlay modes. Mode 0 is indirect lighting (the
+// default), and mode 6 is the shadow-flag visualisation. Values 1..5 are
+// historical reserved slots from the retired Surfel diagnostics and have no
+// shader implementation.
+// The numbering is retained for compatibility with the host overlay API and
+// the editor's lower toolbar (HPL2/tools/editors/common/EditorWindowLowerToolbar.cpp,
+// which still selects between kOverlayModeShadowFlag and
+// kOverlayModeIndirectLighting), not with any in-game debug combo box.
 // kDefaultOverlayMode is the initial value for the runtime overlay-mode push
 // constant. The host may change the active mode at runtime without
 // recompiling the shader.
-// Modes 1..5 were Variance / RayCount / RefCount / Life / Coverage; the
-// Surfel GI passes that produced them are gone and no shader implements them,
-// so only the two live modes are named. The gap is kept because the debug UI
-// passes the combo-box item INDEX straight through.
 SHARED_CONST uint  kOverlayModeIndirectLighting = 0u;
 SHARED_CONST uint  kOverlayModeShadowFlag       = 6u;
 SHARED_CONST uint  kDefaultOverlayMode          = kOverlayModeIndirectLighting;

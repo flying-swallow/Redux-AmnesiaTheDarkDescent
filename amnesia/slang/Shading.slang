@@ -44,8 +44,8 @@ float3 evalAnalyticLight(DiffuseShading sd)
     // deterministic sum is exact apart from the kLightsPerCellMax cap.
     CellLights cl = getCellLights(sd.posW);
     for (uint k = 0u; k < cl.count; ++k)
-        Lr += shadeAnalyticLight(sd.posW, sd.normalW, V, sd.rough,
-                                        cellLightAt(cl, k), origin);
+        Lr += shadeAnalyticLight(sd.posW, sd.normalW, V, sd.surfaceFootprintW,
+                                        sd.rough, cellLightAt(cl, k), origin);
 
     return Lr;
 }
@@ -63,7 +63,8 @@ static const float3 kReservoirLum = float3(0.2126f, 0.7152f, 0.0722f);
 float directTargetPdf(DiffuseShading sd, uint lightIndex)
 {
     float3 V = normalize(gPerFrame.posW - sd.posW);
-    return dot(unshadowedAnalyticLight(sd.posW, sd.normalW, V, sd.rough,
+    return dot(unshadowedAnalyticLight(sd.posW, sd.normalW, V,
+                                              sd.surfaceFootprintW, sd.rough,
                                               lightIndex),
                kReservoirLum);
 }
@@ -81,6 +82,7 @@ Reservoir buildDirectReservoir(DiffuseShading sd, inout RNG rng)
     {
         uint li = cellLightAt(cl, k);
         float pHat = dot(unshadowedAnalyticLight(sd.posW, sd.normalW, V,
+                                                        sd.surfaceFootprintW,
                                                         sd.rough, li),
                          kReservoirLum);
         r.streamCandidate(li, pHat, rng);
@@ -97,7 +99,8 @@ float3 resolveDirectReservoir(DiffuseShading sd, Reservoir r, inout RNG rng)
         return float3(0.f);
     float3 V = normalize(gPerFrame.posW - sd.posW);
     float3 origin = sd.posW + sd.normalW * kShadeRayEps;
-    float3 shaded = shadeAnalyticLightSoft(sd.posW, sd.normalW, V, sd.rough,
+    float3 shaded = shadeAnalyticLightSoft(sd.posW, sd.normalW, V,
+                                                  sd.surfaceFootprintW, sd.rough,
                                                   r.y, origin, rng);
     return shaded * r.W;
 }

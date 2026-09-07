@@ -26,13 +26,6 @@
 namespace hpl {
 namespace {
 
-// Keep the denoiser choice in one place.  Changing this enum also changes the
-// settings type and the NRD dispatch list used below.
-constexpr nrd::Denoiser kNrdDenoiser =
-    nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR;
-constexpr nrd::Identifier kNrdDenoiserIdentifier =
-    static_cast<nrd::Identifier>(kNrdDenoiser);
-
 constexpr RI_Format_e NrdOutputFormat = RI_FORMAT_RGBA16_SFLOAT;
 
 static void NrdRequire(bool condition, const char *message) {
@@ -210,7 +203,12 @@ static uint32_t NrdTextureExtent(uint32_t extent, uint16_t downsampleFactor) {
 } // namespace
 
 struct NrdIntegration::Impl {
-  explicit Impl(cGraphics *graphics) : graphics(graphics) {
+  explicit Impl(cGraphics *graphics, NrdDenoiserMode mode)
+      : graphics(graphics),
+        denoiser(mode == NrdDenoiserMode::Specular
+                     ? nrd::Denoiser::REBLUR_SPECULAR
+                     : nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR),
+        denoiserIdentifier(static_cast<nrd::Identifier>(denoiser)) {
     NrdRequire(graphics != nullptr, "graphics is null");
 
     // Keep NRD's C++ normalization settings in lockstep with the shader-side
@@ -219,18 +217,28 @@ struct NrdIntegration::Impl {
     reblurSettings.hitDistanceParameters.B = kNrdHitDistanceParameters.y;
     reblurSettings.hitDistanceParameters.C = kNrdHitDistanceParameters.z;
 
-    // The tracer's probabilistic lobe split leaves a 0 hit distance in the skipped
-    // channel every frame, so enable reconstruction for the missing lobe distance.
-    reblurSettings.hitDistanceReconstructionMode =
-        nrd::HitDistanceReconstructionMode::AREA_3X3;
+    if (denoiser == nrd::Denoiser::REBLUR_SPECULAR) {
+      // The specular-only consumer traces a specular sample at every valid
+      // texel of a half-width and half-height reflection buffer, so there is
+      // no missing lobe distance to reconstruct and no checkerboard encoding
+      // in play.
+      reblurSettings.hitDistanceReconstructionMode =
+          nrd::HitDistanceReconstructionMode::OFF;
+    } else {
+      // The tracer's probabilistic lobe split leaves a 0 hit distance in the
+      // skipped channel every frame, so enable reconstruction for the missing
+      // lobe distance.
+      reblurSettings.hitDistanceReconstructionMode =
+          nrd::HitDistanceReconstructionMode::AREA_3X3;
+    }
 
     const nrd::LibraryDesc *libraryDesc = nrd::GetLibraryDesc();
     NrdRequire(libraryDesc != nullptr, "NRD library description is null");
     library = *libraryDesc;
 
     nrd::DenoiserDesc denoiserDesc = {};
-    denoiserDesc.identifier = kNrdDenoiserIdentifier;
-    denoiserDesc.denoiser = kNrdDenoiser;
+    denoiserDesc.identifier = denoiserIdentifier;
+    denoiserDesc.denoiser = denoiser;
     nrd::InstanceCreationDesc creationDesc = {};
     creationDesc.denoisers = &denoiserDesc;
     creationDesc.denoisersNum = 1;
@@ -290,6 +298,9 @@ struct NrdIntegration::Impl {
   }
 
   void ReleaseTexture(NrdTexture &texture) {
+    // A mode that does not allocate this channel leaves the whole entry empty.
+    if (texture.texture.isEmpty())
+      return;
     // Views are parked before their image so Vulkan never observes a live view
     // after the image is released.  The deferral queue releases these after
     // the current frame's graphics timeline value.
@@ -354,8 +365,11 @@ struct NrdIntegration::Impl {
     // NRD's OUT_* resources are application-owned resources, not entries in
     // either pool.  Keep them in the same storage-capable RGBA16F convention
     // as the engine's radiance+hit-distance inputs and return their SRV views.
-    diffuseOutput = CreateNrdTexture(graphics, width, height, NrdOutputFormat,
-                                     "failed to create NRD diffuse output");
+    if (denoiser != nrd::Denoiser::REBLUR_SPECULAR) {
+      diffuseOutput = CreateNrdTexture(
+          graphics, width, height, NrdOutputFormat,
+          "failed to create NRD diffuse output");
+    }
     specularOutput = CreateNrdTexture(graphics, width, height, NrdOutputFormat,
                                       "failed to create NRD specular output");
   }
@@ -364,8 +378,11 @@ struct NrdIntegration::Impl {
 
   void TransitionTexturesToGeneral(RICmd *cmd) {
     std::vector<RITextureBarrier> barriers;
-    barriers.reserve(permanentPool.size() + transientPool.size() + 2);
+    barriers.reserve(permanentPool.size() + transientPool.size() +
+                     (denoiser == nrd::Denoiser::REBLUR_SPECULAR ? 1 : 2));
     auto add = [&barriers](NrdTexture &texture) {
+      if (texture.texture.isEmpty())
+        return;
       barriers.emplace_back(texture.texture.Get(), RI_RESOURCE_STATE_UNDEFINED,
                             RI_RESOURCE_STATE_GENERAL, RI_STAGE_NONE,
                             RI_STAGE_COMPUTE);
@@ -416,10 +433,14 @@ struct NrdIntegration::Impl {
     case nrd::ResourceType::IN_VIEWZ:
       return inputs.viewZ;
     case nrd::ResourceType::IN_DIFF_RADIANCE_HITDIST:
+      NrdRequire(denoiser != nrd::Denoiser::REBLUR_SPECULAR,
+                 "IN_DIFF_RADIANCE_HITDIST is unavailable in specular mode");
       return inputs.diffuseRadianceHitDistance;
     case nrd::ResourceType::IN_SPEC_RADIANCE_HITDIST:
       return inputs.specularRadianceHitDistance;
     case nrd::ResourceType::OUT_DIFF_RADIANCE_HITDIST:
+      NrdRequire(denoiser != nrd::Denoiser::REBLUR_SPECULAR,
+                 "OUT_DIFF_RADIANCE_HITDIST is unavailable in specular mode");
       return descriptorType == nrd::DescriptorType::STORAGE_TEXTURE
                  ? diffuseOutput.storageView.Get()
                  : diffuseOutput.sampledView.Get();
@@ -617,6 +638,10 @@ struct NrdIntegration::Impl {
     std::memcpy(commonSettings.worldToViewMatrixPrev,
                 frame.worldToViewMatrixPrev,
                 sizeof(commonSettings.worldToViewMatrixPrev));
+    commonSettings.cameraJitter[0] = frame.cameraJitter[0];
+    commonSettings.cameraJitter[1] = frame.cameraJitter[1];
+    commonSettings.cameraJitterPrev[0] = frame.cameraJitterPrev[0];
+    commonSettings.cameraJitterPrev[1] = frame.cameraJitterPrev[1];
     // The engine's gVelocity is current - previous and its temporal shaders
     // subtract it from the current UV.  NRD adds MV to current UV, so negate
     // the two screen-space components to provide NRD's previous - current.
@@ -647,23 +672,22 @@ struct NrdIntegration::Impl {
     NrdRequire(nrd::SetCommonSettings(*instance, commonSettings) ==
                    nrd::Result::SUCCESS,
                "SetCommonSettings failed");
-    NrdRequire(nrd::SetDenoiserSettings(*instance, kNrdDenoiserIdentifier,
+    NrdRequire(nrd::SetDenoiserSettings(*instance, denoiserIdentifier,
                                         &reblurSettings) == nrd::Result::SUCCESS,
                "SetDenoiserSettings failed");
 
     if (!texturesInGeneral)
       TransitionTexturesToGeneral(cmd);
 
-    const nrd::Identifier identifier = kNrdDenoiserIdentifier;
     const nrd::DispatchDesc *dispatchDescs = nullptr;
     uint32_t dispatchDescsNum = 0;
-    NrdRequire(nrd::GetComputeDispatches(*instance, &identifier, 1,
+    NrdRequire(nrd::GetComputeDispatches(*instance, &denoiserIdentifier, 1,
                                          dispatchDescs,
                                          dispatchDescsNum) == nrd::Result::SUCCESS,
                "GetComputeDispatches failed");
 
     RIGpuScope denoiseScope(&graphics->profiler, cmd,
-                            nrd::GetDenoiserString(kNrdDenoiser));
+                            nrd::GetDenoiserString(denoiser));
     RIDescriptor previousConstantBuffer;
     bool hasPreviousConstantBuffer = false;
     for (uint32_t i = 0; i < dispatchDescsNum; ++i) {
@@ -692,10 +716,14 @@ struct NrdIntegration::Impl {
     }
     historyReset = false;
 
+    if (denoiser == nrd::Denoiser::REBLUR_SPECULAR)
+      return {nullptr, specularOutput.sampledView.Get()};
     return {diffuseOutput.sampledView.Get(), specularOutput.sampledView.Get()};
   }
 
   cGraphics *graphics = nullptr;
+  nrd::Denoiser denoiser;
+  nrd::Identifier denoiserIdentifier;
   nrd::Instance *instance = nullptr;
   nrd::LibraryDesc library = {};
   nrd::InstanceDesc instanceDesc = {};
@@ -711,8 +739,8 @@ struct NrdIntegration::Impl {
   bool historyReset = true;
 };
 
-NrdIntegration::NrdIntegration(cGraphics *graphics)
-    : m_impl(std::make_unique<Impl>(graphics)) {}
+NrdIntegration::NrdIntegration(cGraphics *graphics, NrdDenoiserMode mode)
+    : m_impl(std::make_unique<Impl>(graphics, mode)) {}
 
 NrdIntegration::~NrdIntegration() = default;
 

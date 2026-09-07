@@ -478,6 +478,7 @@ namespace hpl {
 			singleImage.image.emplace();
 			hpl::cTexture::BitmapLoadOptions opts = {0};
 			opts.use_mipmaps = true;
+			opts.generate_mipmaps = false; // Drawn at 1:1; mips risk bleeding between packed atlas entries.
 			if(!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT, *mpBitmap, opts)) {
 				Error("Failed to load bitmap");
 				return false;

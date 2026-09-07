@@ -334,14 +334,17 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 	/**
-	 * \todo File searcher should check so if the dir is allready added and if so return false and not add
-	 * \param &asDir 
-	 * \param &asMask 
-	 * \return 
+	 * Re-adding a directory is idempotent: cFileSearcher::AddDirectory keeps one
+	 * index entry per (filename, path) and raises it to the highest priority seen.
+	 * \param &asDir Directory to add.
+	 * \param abAddSubDirectories Whether to add subdirectories.
+	 * \param &asMask File mask.
+	 * \param alPriority Directory priority.
+	 * \return true always; no caller checks the result.
 	 */
-	bool cResources::AddResourceDir(const tWString &asDir, bool abAddSubDirectories, const tString &asMask)
+	bool cResources::AddResourceDir(const tWString &asDir, bool abAddSubDirectories, const tString &asMask, int alPriority)
 	{
-		mpFileSearcher->AddDirectory(asDir, asMask, abAddSubDirectories);
+		mpFileSearcher->AddDirectory(asDir, asMask, abAddSubDirectories, alPriority);
 		if(iResourceBase::GetLogCreateAndDelete())
 			Log(" Added resource directory '%s'\n",cString::To8Char(asDir).c_str());
 		return true;
@@ -465,14 +468,19 @@ namespace hpl {
 			}
 
 			bool bAddSubDirs = GetAttributeBool(pChildElem, "AddSubDirs",false);
+			//Higher priority shadows lower for files of the same name, whatever
+			//order this file lists the dirs in -- same sense as the Priority on
+			//an xml delta. Default 0 is what every dir got before, so a config
+			//that sets none resolves exactly as it did.
+			int lPriority = GetAttributeInt(pChildElem, "Priority", klFileSearchDefaultPriority);
 
 			if(sPath[0]=='/' || sPath[0]=='\\') sPath = cString::Sub(sPath, 1);
 
 			tWString tsPath = cString::To16Char(sPath);
 			if (asAltPath.length() > 0) {
-				AddResourceDir(asAltPath + tsPath,bAddSubDirs);
+				AddResourceDir(asAltPath + tsPath,bAddSubDirs,"*.*",lPriority);
 			}
-			AddResourceDir(tsPath,bAddSubDirs);
+			AddResourceDir(tsPath,bAddSubDirs,"*.*",lPriority);
 		}
 
 		return true;

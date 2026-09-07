@@ -108,6 +108,9 @@ namespace hpl {
 		RenderSettingsCopy(mlMinimumObjectsBeforeOcclusionTesting);
 		RenderSettingsCopy(mlSampleVisiblilityLimit);
 		mpReflectionSettings->mbUseScissorRect = false;
+		// Reflection/helper viewports must not inherit the main camera's temporal
+		// history or incidentally enable an SDK.
+		mpReflectionSettings->mTemporalUpscaler = {};
 		
 		////////////////////////////
 		// Shadow settings

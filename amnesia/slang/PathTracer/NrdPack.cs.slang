@@ -44,19 +44,29 @@ void csMain(uint3 tid : SV_DispatchThreadID)
 {
     uint w, h;
     gNrdViewZ.GetDimensions(w, h);
+    // Camera-jitter audit (a): the engine-native inputs and pack targets here
+    // are all full render extent, so `p` directly names the primary raster
+    // sample. NRD's internal downsampled pool is entered after this pack and
+    // does not create a half-resolution index for this shader.
     uint2 p = tid.xy;
     if (p.x >= w || p.y >= h)
         return;
 
-    // The engine stores screen-space velocity as currentUV - previousUV.
+    // Category (b): IN_MV is copied from the raster velocity texture unchanged.
+    // The engine stores screen-space velocity as currentUV - previousUV, while
     // NRD's (-1,-1,0) motionVectorScale supplies its previousUV - currentUV
-    // convention when this unchanged RG16F payload is consumed.
+    // convention. Camera jitter is supplied separately through NRD
+    // CommonSettings.cameraJitter, so it must not be baked into this texture.
     gNrdMotionVectors[p] = gVelocity.Load(int3(p, 0));
 
     float4 key   = gIndirectKey.Load(int3(p, 0));
     float4 extra = gIndirectKeyExtra.Load(int3(p, 0));
     float3 normal = key.yzw;
     bool validSurface = dot(normal, normal) > 1.0e-8f;
+
+    // Category (b): IN_VIEWZ is the V-buffer surface key's unjittered
+    // view-space depth. No camera ray or screen-space UV is reconstructed in
+    // this packing pass, and invalid/sky pixels retain NRD's infinite depth.
 
     // NRD's configured normal encoding is R10G10B10A2_UNORM. A zero normal
     // cannot be passed to the packer (it normalizes internally), so sky gets a

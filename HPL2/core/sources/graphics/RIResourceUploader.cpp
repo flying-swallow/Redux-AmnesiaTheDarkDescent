@@ -1,9 +1,11 @@
 #include "graphics/RIResourceUploader.h"
 #include "graphics/RIFormat.h"
+#include "graphics/RIVK.h"
 
 #include <system/Types.h>
 #include <system/stb_ds.h>
 
+#include <algorithm>
 #include <cassert>
 #include <cstring>
 
@@ -222,7 +224,8 @@ void RI_ResourceEndCopyBuffer( struct RIDevice *device, struct RIResourceUploade
 void RI_ResourceBeginCopyTexture( struct RIDevice *device, struct RIResourceUploader *res, struct RIResourceTextureTransaction *trans )
 {
 	const struct RIFormatProps *formatProps = GetRIFormatProps( trans->format );
-	const uint64_t alignedRowPitch = ALIGN_TO( trans->rowPitch, device->physicalAdapter.uploadBufferTextureRowAlignment );
+	const uint64_t alignedRowPitch = RIFormatAlignRowPitch( trans->rowPitch,
+		device->physicalAdapter.uploadBufferTextureRowAlignment, formatProps->stride );
 	const uint64_t alignedSlicePitch = (uint64_t)trans->sliceNum * alignedRowPitch;
 
 	trans->alignRowPitch = (uint32_t)alignedRowPitch;
@@ -250,6 +253,7 @@ void RI_ResourceEndCopyTexture( struct RIDevice *device, struct RIResourceUpload
 	// writes rows at alignRowPitch (which equals rowPitch on AMD/Intel where
 	// optimalBufferCopyRowPitchAlignment == 1, but is 256-aligned on NVIDIA).
 	// Deriving from the unaligned rowPitch caused texture corruption on NVIDIA.
+	// The aligned pitch is also a whole number of format strides.
 	const uint32_t rowBlockNum = trans->alignRowPitch / formatProps->stride;
 	const uint32_t bufferRowLength = rowBlockNum * formatProps->blockWidth;
 	const uint32_t sliceRowNum = trans->alignSlicePitch / trans->alignRowPitch;
@@ -304,6 +308,119 @@ void RI_ResourceEndCopyTexture( struct RIDevice *device, struct RIResourceUpload
 		post_barrier.layerCount = 1;
 		barrierCmd->vk_d3d12_textureBarrier( post_barrier );
 	}
+#endif
+}
+
+bool RI_FormatSupportsMipGeneration( struct RIDevice *device, uint32_t format )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	const struct RIFormatProps *formatProps = GetRIFormatProps( format );
+	if( formatProps->blockWidth > 1 ) {
+		// vkCmdBlitImage cannot write compressed images; BC sources come from DDS
+		// and already carry authored mips.
+		return false;
+	}
+
+	VkFormatProperties properties = {};
+	vkGetPhysicalDeviceFormatProperties( device->physicalAdapter.vk.physicalDevice, RIFormatToVK( format ), &properties );
+	const VkFormatFeatureFlags required = VK_FORMAT_FEATURE_BLIT_SRC_BIT |
+		VK_FORMAT_FEATURE_BLIT_DST_BIT |
+		VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+	return ( properties.optimalTilingFeatures & required ) == required;
+#else
+	(void)device;
+	(void)format;
+	return false;
+#endif
+}
+
+void RI_ResourceGenerateMips( struct RIDevice *device, struct RIResourceUploader *res, struct RIGenerateMipsDesc *desc )
+{
+#if ( DEVICE_IMPL_VULKAN )
+	assert( desc );
+	if( !desc || desc->mipNum <= 1 )
+		return;
+
+	// The blit must be recorded on the graphics queue group, not copy_resource:
+	// vkCmdBlitImage requires a queue with graphics capability.
+	VkCommandBuffer cmd = __AcquireCmd( device, &res->upload_resource );
+	struct RICmd *barrierCmd = &res->upload_resource.cmd[res->upload_resource.active_set];
+	const uint32_t layerNum = desc->layerNum ? desc->layerNum : 1;
+
+	struct RITextureBarrier mip0_barrier = {};
+	mip0_barrier.texture = &desc->target;
+	mip0_barrier.before = desc->currentState;
+	mip0_barrier.beforeStages = desc->currentStages;
+	mip0_barrier.after = RI_RESOURCE_STATE_COPY_SRC;
+	mip0_barrier.afterStages = RI_STAGE_BLIT;
+	mip0_barrier.baseMip = 0;
+	mip0_barrier.mipCount = 1;
+	mip0_barrier.baseLayer = (uint16_t)desc->arrayOffset;
+	mip0_barrier.layerCount = (uint16_t)layerNum;
+	barrierCmd->vk_d3d12_textureBarrier( mip0_barrier );
+
+	struct RITextureBarrier destination_barrier = {};
+	destination_barrier.texture = &desc->target;
+	destination_barrier.before = RI_RESOURCE_STATE_UNDEFINED;
+	destination_barrier.after = RI_RESOURCE_STATE_COPY_DST;
+	destination_barrier.afterStages = RI_STAGE_BLIT;
+	destination_barrier.baseMip = 1;
+	destination_barrier.mipCount = (uint16_t)( desc->mipNum - 1 );
+	destination_barrier.baseLayer = (uint16_t)desc->arrayOffset;
+	destination_barrier.layerCount = (uint16_t)layerNum;
+	barrierCmd->vk_d3d12_textureBarrier( destination_barrier );
+
+	for( uint32_t i = 1; i < desc->mipNum; i++ ) {
+		const uint32_t srcWidth = std::max( 1u, desc->width >> ( i - 1 ) );
+		const uint32_t srcHeight = std::max( 1u, desc->height >> ( i - 1 ) );
+		const uint32_t srcDepth = std::max( 1u, desc->depth >> ( i - 1 ) );
+		const uint32_t dstWidth = std::max( 1u, desc->width >> i );
+		const uint32_t dstHeight = std::max( 1u, desc->height >> i );
+		const uint32_t dstDepth = std::max( 1u, desc->depth >> i );
+
+		VkImageBlit region = {};
+		region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.srcSubresource.mipLevel = i - 1;
+		region.srcSubresource.baseArrayLayer = desc->arrayOffset;
+		region.srcSubresource.layerCount = layerNum;
+		region.srcOffsets[1] = {(int32_t)srcWidth, (int32_t)srcHeight, (int32_t)srcDepth};
+		region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		region.dstSubresource.mipLevel = i;
+		region.dstSubresource.baseArrayLayer = desc->arrayOffset;
+		region.dstSubresource.layerCount = layerNum;
+		region.dstOffsets[1] = {(int32_t)dstWidth, (int32_t)dstHeight, (int32_t)dstDepth};
+
+		vkCmdBlitImage( cmd, desc->target.vk.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			desc->target.vk.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region, VK_FILTER_LINEAR );
+
+		struct RITextureBarrier source_barrier = {};
+		source_barrier.texture = &desc->target;
+		source_barrier.before = RI_RESOURCE_STATE_COPY_DST;
+		source_barrier.beforeStages = RI_STAGE_BLIT;
+		source_barrier.after = RI_RESOURCE_STATE_COPY_SRC;
+		source_barrier.afterStages = RI_STAGE_BLIT;
+		source_barrier.baseMip = (uint16_t)i;
+		source_barrier.mipCount = 1;
+		source_barrier.baseLayer = (uint16_t)desc->arrayOffset;
+		source_barrier.layerCount = (uint16_t)layerNum;
+		barrierCmd->vk_d3d12_textureBarrier( source_barrier );
+	}
+
+	struct RITextureBarrier post_barrier = {};
+	post_barrier.texture = &desc->target;
+	post_barrier.before = RI_RESOURCE_STATE_COPY_SRC;
+	post_barrier.beforeStages = RI_STAGE_BLIT;
+	post_barrier.after = desc->postState;
+	post_barrier.afterStages = desc->postStages;
+	post_barrier.baseMip = 0;
+	post_barrier.mipCount = (uint16_t)desc->mipNum;
+	post_barrier.baseLayer = (uint16_t)desc->arrayOffset;
+	post_barrier.layerCount = (uint16_t)layerNum;
+	barrierCmd->vk_d3d12_textureBarrier( post_barrier );
+#else
+	(void)device;
+	(void)res;
+	(void)desc;
 #endif
 }
 

@@ -720,13 +720,17 @@ namespace hpl {
 			bindings[numBindings].descriptor = *desc;
 			bindings[numBindings++].handle = DescriptorBindingID::Create("diffuseSampler");
 
-			// Whether the rendering instance has a depth attachment — viewport
-			// state: whoever opened the instance attached the same
-			// GetDepthView(). No-depth variant for GUI-only frames (menus) and
-			// viewport-less renders: the pipeline's depth format must be
-			// UNDEFINED to match the attachment-less instance.
+			// Whether the rendering instance has a depth attachment. This must use
+			// the same GetDepthViewForExtent predicate and swapchain extent as
+			// Scene.cpp when it opens the instance; keep both call sites keyed on
+			// that same extent and predicate. No-depth variant for GUI-only frames
+			// (menus) and viewport-less renders: the pipeline's depth format must
+			// be UNDEFINED to match the attachment-less instance.
 			const bool bRenderPassHasDepth =
-				apViewport != nullptr && apViewport->GetDepthView() != nullptr;
+				apViewport != nullptr &&
+				apViewport->GetDepthViewForExtent(
+					mpGraphics->swapchain->width,
+					mpGraphics->swapchain->height) != nullptr;
 
 			hash_t hash = hash_u32(HASH_INITIAL_VALUE, materialType);
 			hash = hash_u32(hash, bRenderPassHasDepth ? cGraphics::DepthFormat

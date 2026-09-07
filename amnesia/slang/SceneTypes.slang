@@ -310,10 +310,11 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC float4x4  invViewRotationMat;
     SLANG_PUBLIC float4x4  viewMat;
     SLANG_PUBLIC float4x4  invViewMat;
-    SLANG_PUBLIC float4x4  projMat;
-    SLANG_PUBLIC float4x4  invProjMat;                 // for WorldPosFromDepth
-    SLANG_PUBLIC float4x4  prevViewMat;                // last frame's view/proj (no jitter); motion vectors
-    SLANG_PUBLIC float4x4  prevProjMat;
+    SLANG_PUBLIC float4x4  projMat;                    // current frame's actual jittered raster projection
+    SLANG_PUBLIC float4x4  invProjMat;                 // inverse of the actual jittered projMat; exact depth-based world-position reconstruction
+    SLANG_PUBLIC float4x4  prevViewMat;                // previous frame's UNJITTERED view matrix; motion vectors
+    SLANG_PUBLIC float4x4  prevProjMat;                // previous frame's UNJITTERED projection; motion vectors
+    SLANG_PUBLIC float4x4  unjitteredProjMat;          // current frame's unjittered projection; motion vectors and NRD
 
     SLANG_PUBLIC float worldFogStart;
     SLANG_PUBLIC float worldFogLength;
@@ -336,11 +337,17 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC uint  areaLightCount;             // gAreaLights[] SLOT CAPACITY (high-water of stable slots; sparse, zeroed holes)
     SLANG_PUBLIC uint  allLightsCastShadows;       // non-zero: treat every light as shadow-casting and trace shadow rays against all opaque instances
 
+    // Camera sampling contract: top-left pixel coordinates (y down),
+    // pixelUV = (pixel + 0.5) / renderExtent. jitterUV is the sample offset
+    // from the pixel center in normalized render-extent units.
     SLANG_PUBLIC float3 posW;
-    SLANG_PUBLIC float jitterX;
+    SLANG_PUBLIC float jitterX;                       // current jitterUV.x: top-left normalized sample offset from pixel center (jitterPixels / renderExtent, |jitterPixels| <= 0.5 render pixels), +x right
     SLANG_PUBLIC float3 cameraU;
-    SLANG_PUBLIC float jitterY;
+    SLANG_PUBLIC float jitterY;                       // current jitterUV.y: top-left normalized sample offset from pixel center (jitterPixels / renderExtent, |jitterPixels| <= 0.5 render pixels), +y down
     SLANG_PUBLIC float3 cameraV;
     SLANG_PUBLIC float3 cameraW;
+    SLANG_PUBLIC float prevJitterX;                   // previous frame's jitterUV.x, same units and sign convention
+    SLANG_PUBLIC float prevJitterY;                   // previous frame's jitterUV.y, same units and sign convention
+    SLANG_PUBLIC float materialMipBias;               // mip bias for gradient-based MATERIAL sampling when a temporal provider shades at a reduced render extent; 0 for Off/NativeAA/native-extent frames
 };
 HOST_NAMESPACE_END

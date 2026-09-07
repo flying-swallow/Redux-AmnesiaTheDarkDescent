@@ -15,8 +15,10 @@
 // (see VBuffer/VBufferPomBary.cs.slang).
 //
 // Derivative note: the callers are non-pixel stages (compute) with no
-// automatic texture derivatives, so every height sample uses an explicit
-// LOD (0).
+// automatic texture derivatives, so every height sample uses an explicit,
+// texture-size-independent lodBase. The POM march intentionally samples the
+// height map at ONE fixed lod for all steps of a march, so the march stays
+// self-consistent rather than changing mip mid-march.
 
 import SceneTypes;          // kInvalidTextureIndex (shared consts live here)
 import bindless;            // gTextures2D, gMaterialSampler
@@ -24,9 +26,10 @@ import bindless;            // gTextures2D, gMaterialSampler
 // Sample the height field. Legacy convention: depth is in the alpha channel,
 // except dedicated grayscale height maps (kMaterialFlagIsHeightMapSingleChannel)
 // carry it in .r.
-public float sampleHeight(uint heightTexIdx, float2 uv, bool singleChannel)
+public float sampleHeight(uint heightTexIdx, float2 uv, bool singleChannel,
+                          float texLodBase)
 {
-    float4 s = sampleBindless2DLevel(heightTexIdx, uv, 0.0f);
+    float4 s = sampleBindless2DCone(heightTexIdx, uv, texLodBase);
     return singleChannel ? s.r : s.a;
 }
 
@@ -40,7 +43,8 @@ public float2 parallaxOcclusionUV(
     bool   singleChannel,
     float3 worldViewDir,
     float3 N, float3 T, float3 B,
-    float2 baseUv)
+    float2 baseUv,
+    float texLodBase)
 {
     if (heightTexIdx == kInvalidTextureIndex)
         return baseUv;
@@ -86,7 +90,7 @@ public float2 parallaxOcclusionUV(
     [loop]
     for (int i = 0; i < nSteps - 1; ++i)
     {
-        float h = sampleHeight(heightTexIdx, pos.xy, singleChannel);
+        float h = sampleHeight(heightTexIdx, pos.xy, singleChannel, texLodBase);
         if (pos.z < h)
             pos += step;
     }
@@ -95,7 +99,7 @@ public float2 parallaxOcclusionUV(
     [unroll]
     for (uint i = 0u; i < 6u; ++i)
     {
-        float h = sampleHeight(heightTexIdx, pos.xy, singleChannel);
+        float h = sampleHeight(heightTexIdx, pos.xy, singleChannel, texLodBase);
         if (pos.z < h)
             pos += step;
         step *= 0.5f;

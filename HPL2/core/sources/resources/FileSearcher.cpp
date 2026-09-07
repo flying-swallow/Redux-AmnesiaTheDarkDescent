@@ -33,9 +33,10 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 
-	cFileSearcherEntry::cFileSearcherEntry(const tWString& asPath)
+	cFileSearcherEntry::cFileSearcherEntry(const tWString& asPath, int alPriority)
 	{
 		msPath = asPath;
+		mlPriority = alPriority;
         
 		tWString sSepp = _W("/\\");
 		cString::GetStringVecW(msPath,mvPathDirs,&sSepp);
@@ -69,7 +70,7 @@ namespace hpl {
 
 	//-----------------------------------------------------------------------
 	
-	void cFileSearcher::AddDirectory(const tWString& asSearchPath, const tString &asMask, bool abAddSubDirectories)
+	void cFileSearcher::AddDirectory(const tWString& asSearchPath, const tString &asMask, bool abAddSubDirectories, int alPriority)
 	{
 		//Make the path with only "/" and lower case.
 		tWString sPath = cString::ReplaceCharToW(asSearchPath,_W("\\"),_W("/"));
@@ -86,9 +87,26 @@ namespace hpl {
 			tString sLowFile = cString::ToLowerCase(cString::To8Char(sFile));
 			tWString sFilePath = cString::ReplaceCharToW( cPlatform::GetFullFilePath( cString::SetFilePathW(sFile,sPath)), _W("\\"),_W("/"));;
 			
-			//Check if file and path already exist
-			tFilePathMapIt pathIt = m_mapFiles.find(sLowFile);
-			if(pathIt != m_mapFiles.end() && pathIt->second.msPath == sFilePath)
+			//Check if file and path already exist. The whole equivalent range is scanned:
+			//another directory may have contributed a file of this bare name first, and find()
+			//is not guaranteed to return the first element of the range (see GetFilePath).
+			//On re-add the highest priority is kept, so the index does not depend on the order
+			//the dirs were added in -- which is what the Priority attribute in resources.cfg
+			//promises (see the resolution order in GetFilePath). A re-add can raise a path's priority, never lower it.
+			std::pair<tFilePathMapIt, tFilePathMapIt> range = m_mapFiles.equal_range(sLowFile);
+			tFilePathMapIt pathIt = range.first;
+			for(; pathIt != range.second; ++pathIt)
+			{
+				if(pathIt->second.msPath == sFilePath)
+				{
+					if(pathIt->second.mlPriority < alPriority)
+					{
+						pathIt->second.mlPriority = alPriority;
+					}
+					break;
+				}
+			}
+			if(pathIt != range.second)
 			{
 				continue;
 			}
@@ -96,7 +114,7 @@ namespace hpl {
 			//Add file
 			//Log("Adding lowercase file: '%s' with path: '%s'\n 8bitHash: %u 16bitHash %u\n", sLowFile.c_str(), cString::To8Char(sFilePath).c_str(),
 			//	cString::GetHash(cString::To8Char(sFilePath)), cString::GetHashW(sFilePath));
-			m_mapFiles.insert(tFilePathMap::value_type(sLowFile, cFileSearcherEntry(sFilePath) ));
+			m_mapFiles.insert(tFilePathMap::value_type(sLowFile, cFileSearcherEntry(sFilePath, alPriority) ));
 		}
 		
 		//////////////////////////////////
@@ -110,7 +128,7 @@ namespace hpl {
 			{
 				tWString sNewPath = cString::SetFilePathW(*it, sPath);
 
-				AddDirectory(sNewPath,asMask,true);
+				AddDirectory(sNewPath,asMask,true,alPriority);
 			}
 		}
 	}
@@ -120,7 +138,6 @@ namespace hpl {
 	void cFileSearcher::ClearDirectories()
 	{
 		m_mapFiles.clear();
-		m_setLoadedDirs.clear();
 	}
 
 	//-----------------------------------------------------------------------
@@ -148,49 +165,52 @@ namespace hpl {
 		tString sLowName = cString::ToLowerCase(sFile);
 
 		//////////////////////
-		//Get the iterator to path
-		tFilePathMapIt it = m_mapFiles.find(sLowName);
-		if(it == m_mapFiles.end())
+		//Get the iterator to path. equal_range is used because find() is not guaranteed to return the first element of the equivalent range.
+		std::pair<tFilePathMapIt, tFilePathMapIt> range = m_mapFiles.equal_range(sLowName);
+		if(range.first == range.second)
 		{
 			if(apEqualCount) *apEqualCount = 0;
 			return msNull;
 		}
 		
 		//////////////////////
-		//Count the number of files with same name
-		//if 1, just return it.
-		size_t lCount = m_mapFiles.count(sLowName);
-		if(lCount==1 && apEqualCount==NULL)
+		//If there is only one file with this name, just return it.
+		//The range already answers that, so no second lookup is needed.
+		tFilePathMapIt nextIt = range.first;
+		++nextIt;
+		if(nextIt == range.second && apEqualCount==NULL)
 		{
-			return it->second.msPath;
+			return range.first->second.msPath;
 		}
 
 		/////////////////////////////
 		//Compare paths
 		tWString sWantedPath = cString::To16Char(cString::GetFilePath(asFileNameAndPath));
-		if(sWantedPath == _W("")) return it->second.msPath;
 
 		tWStringVec vWantedDirs;
 		tWString sSepp =_W("/\\");
 		
 		int lBestEqualCount = 0;
-        tFilePathMapIt bestEqualIt = it;
+		int lBestPriority = range.first->second.mlPriority;
+		tFilePathMapIt bestEqualIt = range.first;
         
 		cString::GetStringVecW(sWantedPath, vWantedDirs,&sSepp);
 
-		//Iterate according to count and compare
-		for(size_t itcount=0; itcount<lCount; ++itcount, ++it)
+		//Iterate through equivalent entries and compare
+		for(tFilePathMapIt it = range.first; it != range.second; ++it)
 		{
-			///////////////////////////////
-			//Compare the wanted path with current, seeing how many directories are in common
+			const tWStringVec& vCandidateDirs = it->second.mvPathDirs;
 
+			//How well the candidate's directory chain matches the wanted one: the
+			//larger of the two subsequence-match counts (wanted-driven and
+			//candidate-driven).
 			//Start with the wanted path dir
-			int lEqualCount1 =0;
-			int j = (int)it->second.mvPathDirs.size()-1;
-            for(int i= (int)vWantedDirs.size()-1; (i>=0 && j>=0); --j)
+			int lEqualCount1 = 0;
+			int j = (int)vCandidateDirs.size()-1;
+			for(int i= (int)vWantedDirs.size()-1; (i>=0 && j>=0); --j)
 			{
 				//if equal, increase equal count and go to next wanted dir
-				if(vWantedDirs[i] == it->second.mvPathDirs[j])
+				if(vWantedDirs[i] == vCandidateDirs[j])
 				{
 					lEqualCount1++;
 					--i;
@@ -198,12 +218,12 @@ namespace hpl {
 			}
 
 			//Start with the available path dir
-			int lEqualCount2 =0;
+			int lEqualCount2 = 0;
 			j = (int)vWantedDirs.size()-1;
-			for(int i= (int)it->second.mvPathDirs.size()-1; (i>=0 && j>=0); --j)
+			for(int i= (int)vCandidateDirs.size()-1; (i>=0 && j>=0); --j)
 			{
 				//if equal, increase equal count and go to next wanted dir
-				if(it->second.mvPathDirs[i] == vWantedDirs[j])
+				if(vCandidateDirs[i] == vWantedDirs[j])
 				{
 					lEqualCount2++;
 					--i;
@@ -213,11 +233,25 @@ namespace hpl {
 			int lMaxCount = lEqualCount1 > lEqualCount2 ? lEqualCount1 : lEqualCount2;
 
 			/////////////////////
-			//If a better equal count was found, use that.
-			if(lMaxCount > lBestEqualCount)
+			//Resolution order when several indexed files share a bare filename:
+			//  1. highest resource-dir priority wins outright -- an override dir
+			//     shadows a shipped asset however well the shipped path matches,
+			//     and whatever order resources.cfg happens to list the dirs in;
+			//  2. then the best path-component match score;
+			//  3. then the first-indexed candidate -- both comparisons are
+			//     deliberately strict, so a tie leaves the incumbent in place and
+			//     the first-indexed directory keeps winning.
+			//Every dir defaults to klFileSearchDefaultPriority, so a config that
+			//sets no Priority resolves exactly as it did before priorities existed.
+			const bool bBetterCandidate =
+				it->second.mlPriority != lBestPriority
+					? it->second.mlPriority > lBestPriority
+					: lMaxCount > lBestEqualCount;
+			if(bBetterCandidate)
 			{
 				lBestEqualCount = lMaxCount;
-                bestEqualIt = it;				
+				lBestPriority = it->second.mlPriority;
+				bestEqualIt = it;
 			}
 		}
 

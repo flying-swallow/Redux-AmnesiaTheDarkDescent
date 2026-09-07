@@ -356,7 +356,8 @@ struct RIPhysicalAdapter {
 
       uint32_t isSwapChainSupported : 1; // swapchain Support
       uint32_t isBufferDeviceAddressSupported : 1;
-      uint32_t isAMDDeviceCoherentMemorySupported : 1;
+      uint32_t isAMDDeviceCoherentMemorySupported
+          : 1; // PHYSICAL support: extension advertised and feature reported
       uint32_t isPresentIDSupported : 1;
       // uint32_t YCbCrExtension : 1;
       // uint32_t FillModeNonSolid : 1;
@@ -407,6 +408,9 @@ struct RIDevice {
   void dispose();
   struct RIPhysicalAdapter physicalAdapter;
   struct RIQueue queues[RI_QUEUE_LEN];
+  // Provider query consumed by the XeSS upscaler adapter.
+  bool xessAvailable;
+  char xessUnavailableReason[128];
   union {
 #if (DEVICE_IMPL_VULKAN)
     struct {
@@ -414,6 +418,8 @@ struct RIDevice {
       uint32_t conservaitveRasterTier : 1;
       uint32_t swapchainMutableFormat : 1;
       uint32_t memoryBudget : 1;
+      uint32_t deviceCoherentMemoryEnabled
+          : 1; // Feature enabled on the logical device, never mere physical availability
       VkDevice device;
       VmaAllocator vmaAllocator;
     } vk;

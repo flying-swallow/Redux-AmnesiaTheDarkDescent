@@ -12,16 +12,29 @@ on:
         type: string
         default: ''
         required: false
+      name_suffix:
+        description: 'Optional suffix appended to the job and artifact names'
+        type: string
+        default: ''
+        required: false
+      with_fsr:
+        description: 'Whether FSR is enabled; controls setup of FSR-only tools'
+        type: boolean
+        default: true
+        required: false
 
 jobs:
   windows:
-    name: "win-x86_64-${{ inputs.config }}"
+    name: "win-x86_64-${{ inputs.config }}${{ inputs.name_suffix }}"
     runs-on: windows-2022
     env:
-      CONFIG_NAME: "win-x86_64-${{ inputs.config }}"
+      CONFIG_NAME: "win-x86_64-${{ inputs.config }}${{ inputs.name_suffix }}"
       BUILD_FOLDER: "${{ inputs.config == 'release' && 'Release' || 'Debug' }}"
       # Keep in sync with the ARG in the repo-root Dockerfile.
       PREMAKE_VERSION: "5.0.0-beta8"
+      # Pinned Khronos release used by the FSR SDK shader-compiler wrapper.
+      GLSLANG_VERSION: "16.5.0"
+      GLSLANG_SHA256: "06b71298b750268c127f2ee7ae0ef7525e2068120c6c8a3a08b2f58ca6f325ce"
     steps:
       # Must run before checkout: this tree has paths that exceed MAX_PATH.
       - name: Enable long paths
@@ -31,6 +44,48 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      # cmake/fsr hard-fails without Python 3; pin the minor version rather than
+      # depending on whichever interpreter the hosted runner happens to expose.
+      - name: Install Python
+        if: ${{ inputs.with_fsr }}
+        id: setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate Python
+        if: ${{ inputs.with_fsr }}
+        run: |
+          $python = "${{ steps.setup-python.outputs.python-path }}"
+          if (-not $python -or -not (Test-Path -LiteralPath $python)) {
+            throw "setup-python did not provide a usable interpreter path"
+          }
+          $minor = (& $python -c "import sys; print(f'{sys.version_info[0]}.{sys.version_info[1]}')").Trim()
+          if ($minor -ne "3.12") {
+            throw "unexpected Python minor version: $minor"
+          }
+
+      # The FSR SDK shader compiler needs the glslang driver; do not depend on
+      # whatever happens to be installed in the runner image or on the Vulkan SDK.
+      # glslang >= 16 ships the binary as glslang.exe (glslangValidator.exe was
+      # dropped); the command line is unchanged, and cmake/fsr looks for both names.
+      - name: Install glslang
+        if: ${{ inputs.with_fsr }}
+        run: |
+          $archive = "$env:RUNNER_TEMP\glslang.zip"
+          $root = "$env:RUNNER_TEMP\glslang"
+          curl.exe -fsSL -o $archive `
+            "https://github.com/KhronosGroup/glslang/releases/download/$env:GLSLANG_VERSION/glslang-$env:GLSLANG_VERSION-windows-x86_64-release.zip"
+          if ((Get-FileHash -Path $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:GLSLANG_SHA256) {
+            throw "glslang archive checksum mismatch"
+          }
+          Expand-Archive -Path $archive -DestinationPath $root -Force
+          $bin = Join-Path $root "bin"
+          if (-not (Test-Path (Join-Path $bin "glslang.exe"))) {
+            throw "glslang.exe not found in the pinned archive's bin directory"
+          }
+          $bin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Install premake5
         run: |
@@ -49,13 +104,90 @@ jobs:
           path: build-premake/_deps/slang-prebuilt
           key: slang-${{ runner.os }}-${{ hashFiles('premake/slang.lua') }}
 
+      # The FSR archive is immutable and verified by this SHA-256 in premake;
+      # cache it with its extracted tree so enabled builds do not download it again.
+      - name: Cache FSR SDK
+        if: ${{ inputs.with_fsr }}
+        uses: actions/cache@v4
+        with:
+          path: build-premake/_deps/fsr-sdk
+          key: fsr-sdk-${{ runner.os }}-1.1.4-9a19e1f20bf269163f052186ed563209c5a1d0f7b1cf7e567e643dee6cc61179
+
+      # The XeSS archive is immutable and verified by this SHA-256 in premake;
+      # cache it with its extracted tree so builds do not download it again.
+      # No FSR guard: XeSS is enabled for every Windows build.
+      - name: Cache XeSS SDK
+        uses: actions/cache@v4
+        with:
+          path: build-premake/_deps/xess-sdk
+          key: xess-sdk-${{ runner.os }}-3.0.2-88b8a373f30e33f3558a77a93e634f11b8132fc3047ea1a8edeead32b8471990
+
       # build-windows.ps1 uses vs2026 locally; hosted runners ship VS 2022 and
       # premake5.lua pins no _ACTION, so vs2022 generates the same projects.
       - name: Generate solution
+        if: ${{ inputs.with_fsr }}
+        run: premake5 vs2022 --python="${{ steps.setup-python.outputs.python-path }}" ${{ inputs.premake_args }}
+
+      # --with-fsr=no skips the SDK and cmake/fsr entirely, so it needs no
+      # FSR-specific tool setup or Python override.
+      - name: Generate solution (FSR disabled)
+        if: ${{ !inputs.with_fsr }}
         run: premake5 vs2022 ${{ inputs.premake_args }}
 
+      # PythonTests uses setup-python for FSR builds and the runner's PATH
+      # Python otherwise.
       - name: Build
         run: msbuild build-premake\Amnesia.sln /p:Configuration=$env:BUILD_FOLDER /p:Platform=x64 /m /v:m
+
+      # Exercise the FSR copy_dir deploy on a warm tree; this is one incremental
+      # external-target rerun, not a second full compile.
+      - name: Rebuild FSR external (incremental)
+        if: ${{ inputs.with_fsr }}
+        run: msbuild build-premake\Amnesia.sln /t:FsrSdkExternal /p:Configuration=$env:BUILD_FOLDER /p:Platform=x64 /v:m
+
+      # Force the game deploy postbuilds, including XeSS; this costs one relink,
+      # not a second full compile.
+      - name: Relink game to re-run deploy postbuilds
+        run: |
+          $outputDir = "build-premake\amnesia\$env:BUILD_FOLDER"
+          $gameExe = Join-Path $outputDir "Amnesia.exe"
+          if (-not (Test-Path -LiteralPath $gameExe -PathType Leaf)) {
+            throw "Expected game executable before relink: $gameExe"
+          }
+          Remove-Item -LiteralPath $gameExe -Force -ErrorAction Stop
+
+          msbuild build-premake\Amnesia.sln /t:Amnesia /p:Configuration=$env:BUILD_FOLDER /p:Platform=x64 /m /v:m
+          if ($LASTEXITCODE -ne 0) {
+            throw "relink failed with exit code $LASTEXITCODE"
+          }
+
+          if (-not (Test-Path -LiteralPath $gameExe -PathType Leaf)) {
+            throw "Game executable was not recreated by the relink: $gameExe"
+          }
+          if ("${{ inputs.with_fsr }}" -eq "true") {
+            $fsrLicenses = Join-Path $outputDir "licenses"
+            if (-not (Test-Path -LiteralPath $fsrLicenses -PathType Container)) {
+              throw "Expected FSR deployment directory was not created: $fsrLicenses"
+            }
+            if (-not (Get-ChildItem -LiteralPath $fsrLicenses -Force -ErrorAction Stop | Select-Object -First 1)) {
+              throw "FSR deployment directory is empty: $fsrLicenses"
+            }
+          }
+          # link_xess() echoes and continues when a notice file is absent from the
+          # SDK, so assert the deploy only for files the SDK actually ships --
+          # a missing destination with the source present is the bug we are after.
+          $xessSdk = "build-premake\_deps\xess-sdk\XeSS_SDK_3.0.2"
+          $xessLicenses = Join-Path $outputDir "licenses\xess"
+          foreach ($license in @("LICENSE.txt", "third-party-programs.txt")) {
+            if (-not (Test-Path -LiteralPath (Join-Path $xessSdk $license) -PathType Leaf)) {
+              Write-Host "XeSS SDK does not ship $license; skipping deploy assertion"
+              continue
+            }
+            $licensePath = Join-Path $xessLicenses $license
+            if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
+              throw "Expected XeSS deployed license file was not created: $licensePath"
+            }
+          }
 
       - name: Package
         working-directory: build-premake\amnesia\${{ inputs.config == 'release' && 'Release' || 'Debug' }}

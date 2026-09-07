@@ -96,6 +96,24 @@ struct RIResourceTextureTransaction {
 	struct RIMappedMemoryRange mapped;
 };
 
+struct RIGenerateMipsDesc {
+	struct RITexture target;
+
+	uint32_t format; // RI_Format_e
+	uint32_t width;
+	uint32_t height;
+	uint32_t depth;
+	uint32_t mipNum;
+	uint32_t arrayOffset;
+	uint32_t layerNum;
+
+	// State of mip 0 before generation and state of all mips afterwards.
+	enum RIResourceState_e currentState;
+	uint32_t currentStages; // RIStageBits_e
+	enum RIResourceState_e postState;
+	uint32_t postStages; // RIStageBits_e
+};
+
 void RI_InitResourceUploader( struct RIDevice *device, struct RIResourceUploader *res );
 void RI_FreeResourceUploader( struct RIDevice *device, struct RIResourceUploader *res );
 
@@ -104,6 +122,14 @@ void RI_ResourceEndCopyBuffer( struct RIDevice *device, struct RIResourceUploade
 
 void RI_ResourceBeginCopyTexture( struct RIDevice *device, struct RIResourceUploader *res, struct RIResourceTextureTransaction *trans );
 void RI_ResourceEndCopyTexture( struct RIDevice *device, struct RIResourceUploader *res, struct RIResourceTextureTransaction *trans );
+
+bool RI_FormatSupportsMipGeneration( struct RIDevice *device, uint32_t format /* RI_Format_e */ );
+
+// vkCmdBlitImage performs the format's own texel conversion on read and write:
+// for an sRGB VkFormat it decodes source texels to linear, filters linearly,
+// and re-encodes to sRGB. That is correct; a naive CPU box filter over sRGB-
+// encoded bytes would darken every mip.
+void RI_ResourceGenerateMips( struct RIDevice *device, struct RIResourceUploader *res, struct RIGenerateMipsDesc *desc );
 
 struct RIResourceUploaderVKResult {
 	bool signaled;

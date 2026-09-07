@@ -115,6 +115,10 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
     // Per-pixel fog (world + per-area). The shared Fog helper returns a
     // visibility scalar — translucents multiply it into the per-pixel alpha
     // so glass/decals fade behind fog without painting the fog colour.
+    // Category (a): this world position comes from the view-space position
+    // interpolated at the jittered primary raster sample, not from a pixel
+    // index; preserving that interpolant keeps the fragment aligned with the
+    // sample that produced its material UVs.
     float3 surfacePosW = mul(gPerFrame.invViewMat, float4(psIn.viewPos, 1.0f)).xyz;
     FogResult fog = computeFog(surfacePosW, gPerFrame.posW);
     float finalAlpha = pc.sceneAlpha * fog.visibility;
@@ -170,6 +174,9 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
             screenNormal = normalize(psIn.normal);
         }
 
+        // Category (a): the view vector is derived from the interpolated
+        // primary-raster view position, not a reconstructed pixel-index ray;
+        // no explicit jitter term or unjittered projection belongs here.
         float3 eyeVec   = normalize(psIn.viewPos);
         float  edotN    = max(dot(-eyeVec, screenNormal), 0.0f);
         float  fresnel  = computeFresnel(edotN, mat.frenselBias, mat.frenselPow);

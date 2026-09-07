@@ -266,16 +266,25 @@ namespace hpl {
 				cCamera* pCamera = pViewPort->GetCamera();
 				cFrustum* pFrustum = pCamera ? pCamera->GetFrustum() : NULL;
 
-				// GUI block: open a rendering instance with color (+ depth when the
-				// viewport has one), render the GUIs, close it. When the world render
+				// GUI block: open a rendering instance with color and, only when
+				// GetDepthViewForExtent matches the full swapchain extent, depth;
+				// render the GUIs, close it. When the world render
 				// ran, the tail draw left the swapchain in COLOR_ATTACHMENT_OPTIMAL
 				// with the composite inside — LOAD so the GUI overlays on top.
 				// Otherwise CLEAR (also establishes UNDEFINED → COLOR transition).
-				// Depth LOADs when present (the viewport's renderer populated it
-				// earlier); GUI-only frames (menus) have no viewport depth and the
-				// sets render the no-depth pipeline variant (they derive it from the
-				// viewport passed into cGuiSet::Render).
-				struct RITextureView *pGuiDepthView = pViewPort->GetDepthView();
+				// Depth LOADs when that exact-extent view is present (the viewport's
+				// renderer populated it earlier); otherwise the sets render the
+				// no-depth pipeline variant.
+				// The instance below covers the whole swapchain, so a depth
+				// attachment that isn't swapchain-sized is illegal
+				// (VUID-VkRenderingInfo-pNext-06079) — under an upscaler the
+				// viewport's depth is render-extent sized. GuiSet asks the same
+				// question with the same extent to pick its depth / no-depth
+				// pipeline variant; Scene.cpp and GuiSet.cpp must stay keyed on this
+				// same extent and predicate.
+				struct RITextureView *pGuiDepthView =
+					pViewPort->GetDepthViewForExtent(mpGraphics->swapchain->width,
+													 mpGraphics->swapchain->height);
 
 				// Color LOADs the world composite when present, else CLEARs (also
 				// establishes the UNDEFINED → COLOR transition).

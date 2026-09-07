@@ -180,7 +180,10 @@ namespace hpl {
 		iLowLevelResources* GetLowLevel();
 		cFileSearcher* GetFileSearcher();
 
-		bool AddResourceDir(const tWString &asDir, bool abAddSubDirectories, const tString &asMask = "*.*");
+		/**
+		 * \param alPriority Higher-priority directories shadow lower-priority directories for files with the same name.
+		 */
+		bool AddResourceDir(const tWString &asDir, bool abAddSubDirectories, const tString &asMask = "*.*", int alPriority = klFileSearchDefaultPriority);
 		void ClearResourceDirs();
 
 		bool AddLanguageFile(const tString &asFilePath, bool abAddResourceDirs, const tWString &asAltPath = _W(""));

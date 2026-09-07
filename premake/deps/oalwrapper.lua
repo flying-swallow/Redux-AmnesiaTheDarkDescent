@@ -1,4 +1,4 @@
--- OALWrapper -- mirrors extern/CMakeLists.txt. Wraps OpenAL + ogg/vorbis + SDL2.
+-- OALWrapper -- wraps OpenAL + ogg/vorbis + SDL2.
 project "OALWrapper"
     kind "StaticLib"
     language "C++"
@@ -19,6 +19,7 @@ project "OALWrapper"
     }
     links { "ogg", "vorbisfile", "vorbis", "freealut" }
 
-    -- SDL2 + OpenAL headers/links (built via their own CMake).
+    -- SDL2 + OpenAL headers/links (built via HPL2/extern/SDL/CMakeLists.txt and
+    -- HPL2/extern/openal-soft/CMakeLists.txt).
     link_sdl2()
     link_openal()

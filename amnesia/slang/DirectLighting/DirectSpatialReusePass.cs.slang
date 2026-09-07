@@ -22,6 +22,7 @@
 
 import SceneTypes;
 import Scene;
+import RayCone;
 import bindless;                       // gPackedHitInfo, gRtAccel, lights, grid
 import HitInfo;
 import PerFrame.resource;
@@ -43,12 +44,17 @@ void csMain(uint3 tid : SV_DispatchThreadID)
 {
     uint outW, outH;
     gDirectLighting.GetDimensions(outW, outH);
+    // Camera-jitter audit (a): this dispatch covers the full render extent,
+    // matching the V-buffer, direct key, reservoirs, and lighting output. `p`
+    // is the primary raster sample in that common grid; no camera ray is
+    // reconstructed and no jittered UV conversion is required.
     int2 p = int2(tid.xy);
     if (p.x >= int(outW) || p.y >= int(outH))
         return;
 
-    // `gPackedHitInfo` already carries the raster hit (only the barycentrics
-    // are POM-perturbed), so a miss here is a real miss.
+    // The surface is recovered from the full-resolution V-buffer hit (only its
+    // barycentrics are POM-perturbed), not from a pixel-to-ray reconstruction;
+    // it already follows the raster sample and needs no extra jitter term.
     HitInfo hitInfo = HitInfo(gPackedHitInfo[uint2(p)]);
     if (!hitInfo.isValid())
     {
@@ -59,12 +65,26 @@ void csMain(uint3 tid : SV_DispatchThreadID)
 
     TriangleHit th  = hitInfo.getTriangleHit();
     uint materialID = gSceneObjects[th.instanceID].materialID;
-    VertexData v    = getVertexData(th);
+    float triLod;
+    VertexData v    = getVertexDataAndLodConstant(th, triLod);
+    // Use the geometric interpolated normal: cone-to-surface projection must
+    // not be changed by a normal map applied later during shading.
+    float3 toHit  = v.posW - gPerFrame.posW;
+    float  hitT   = length(toHit);
+    RayCone cone  = rayConePropagate(rayConePrimary(), hitT);
+    float texLodBase = rayConeTexLodBase(cone, triLod, v.normalW,
+                                         toHit / max(hitT, 1e-6f));
+    float surfaceFootprintW = rayConeSurfaceFootprint(cone, v.normalW,
+                                                      toHit / max(hitT, 1e-6f));
     UniformObject obj = gSceneObjects[th.instanceID];
     DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount,
+                                              texLodBase, surfaceFootprintW,
                                               /*decodeRoughness*/ false, /*applyNormalMap*/ true);
 
     float4 ckey = gDirectKey.Load(int3(p, 0));
+    // Category (b): this guide is the current V-buffer key, including viewZ
+    // from the unjittered view transform; spatial reuse must not add projection
+    // jitter to it.
     float  curZ = ckey.x;
     float3 curN = normalize(ckey.yzw);
 
@@ -82,6 +102,9 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     for (int i = 0; i < kSpatialSamples; ++i)
     {
         float2 o = (rng.next_float2() * 2.0f - 1.0f) * kSpatialRadius;
+        // Category (a): neighbours remain integer samples of the same
+        // full-resolution raster-derived grid. No coarser-grid offset or UV
+        // jitter belongs in this same-grid spatial reuse operation.
         int2   q = p + int2(int(round(o.x)), int(round(o.y)));
         if (q.x < 0 || q.y < 0 || q.x >= int(outW) || q.y >= int(outH)) continue;
         if (q.x == p.x && q.y == p.y) continue;

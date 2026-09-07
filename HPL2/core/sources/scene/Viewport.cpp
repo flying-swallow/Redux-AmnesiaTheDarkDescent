@@ -25,6 +25,11 @@
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
 #include "graphics/Renderer.h"
+#include "graphics/TemporalReactiveMask.h"
+#include "graphics/TemporalPresentation.h"
+#include "graphics/WaterReflectionPass.h"
+
+#include "resources/Resources.h"
 
 #include "system/Hasher.h"
 #include "system/LowLevelSystem.h"
@@ -37,13 +42,86 @@
 #include "scene/Scene.h"
 #include "scene/World.h"
 
+#include <cmath>
+#include <cstring>
+#include <functional>
+
+namespace hpl {
+namespace {
+
+constexpr const char *kTemporalProviderInvalidRenderExtent =
+		"provider returned an invalid render extent";
+constexpr const char *kTemporalProviderCreationFailed =
+		"provider creation failed";
+constexpr const char *kTemporalProviderPreparationFailed =
+		"provider context preparation failed";
+constexpr const char *kTemporalProviderUnknownFailure =
+		"unknown provider failure";
+
+TemporalUpscalerExtent ToTemporalExtent(const cVector2l &aExtent)
+{
+	return {
+		aExtent.x > 0 ? static_cast<uint32_t>(aExtent.x) : 0u,
+		aExtent.y > 0 ? static_cast<uint32_t>(aExtent.y) : 0u};
+}
+
+cVector2l FromTemporalExtent(TemporalUpscalerExtent aExtent)
+{
+	return cVector2l(static_cast<int>(aExtent.width),
+			static_cast<int>(aExtent.height));
+}
+
+TemporalRenderExtentOwner ToPolicyOwner(cViewport::eRenderExtentOwner aOwner)
+{
+	switch (aOwner) {
+	case cViewport::eRenderExtentOwner::DevRenderScale:
+		return TemporalRenderExtentOwner::DevRenderScale;
+	case cViewport::eRenderExtentOwner::Provider:
+		return TemporalRenderExtentOwner::Provider;
+	case cViewport::eRenderExtentOwner::Native:
+	default:
+		return TemporalRenderExtentOwner::Native;
+	}
+}
+
+cViewport::eRenderExtentOwner FromPolicyOwner(TemporalRenderExtentOwner aOwner)
+{
+	switch (aOwner) {
+	case TemporalRenderExtentOwner::DevRenderScale:
+		return cViewport::eRenderExtentOwner::DevRenderScale;
+	case TemporalRenderExtentOwner::Provider:
+		return cViewport::eRenderExtentOwner::Provider;
+	case TemporalRenderExtentOwner::Native:
+	default:
+		return cViewport::eRenderExtentOwner::Native;
+	}
+}
+
+} // namespace
+} // namespace hpl
+
 namespace hpl {
 
 	//////////////////////////////////////////////////////////////////////////
 	// CONSTRUCTORS
 	//////////////////////////////////////////////////////////////////////////
 
+} // namespace hpl
+
+void std::default_delete<hpl::WaterReflectionViewportState>::operator()(
+    hpl::WaterReflectionViewportState *apState) const noexcept
+{
+    delete apState;
+}
+
+namespace hpl {
+
 	//-----------------------------------------------------------------------
+
+	cViewport::HybridViewportState::HybridViewportState() = default;
+
+	cViewport::HybridViewportState::HybridViewportState(
+		HybridViewportState &&rhs) noexcept = default;
 
 	cViewport::cViewport(cScene *apScene)
 	{
@@ -72,6 +150,12 @@ namespace hpl {
 		// state's resources are deferred by its destructor when m_state is
 		// destroyed below; only the pogo buffer needs an explicit hand-off.
 		cGraphics::FrameContext *cntx = Interface<cGraphics>::Get()->GetActiveSet();
+		if (mpTemporalPresentation)
+			mpTemporalPresentation->Release(cntx);
+		if (mpTemporalReactiveMask)
+			mpTemporalReactiveMask->Release(cntx);
+		ReleaseTemporalProvider();
+		mTemporalReactiveMaskActive = false;
 		ReleasePogoBuffer(cntx);
 	}
 
@@ -95,11 +179,146 @@ namespace hpl {
 				} else {
 					return cVector2l((int)arg.width, (int)arg.height);
 				}
-			},
+		},
 			mTarget);
 	}
 
-	struct RITextureView* cViewport::GetDepthView()
+	void cViewport::SetTarget(const Target &aTarget)
+	{
+		// Presentation images may still be referenced by an in-flight command
+		// buffer. Release only through the graphics defer queue when the target
+		// is replaced; the next Evaluate will recreate the presentation object.
+		cGraphics *pGraphics = Interface<cGraphics>::Get();
+		cGraphics::FrameContext *cntx =
+			pGraphics ? pGraphics->GetActiveSet() : nullptr;
+		if (mpTemporalPresentation)
+		{
+			mpTemporalPresentation->Release(cntx);
+		}
+		if (mpTemporalReactiveMask)
+			mpTemporalReactiveMask->Release(cntx);
+		ReleaseTemporalProvider();
+		ClearTemporalProviderFailure();
+		mTemporalReactiveMaskActive = false;
+		mTemporalPresentationDepthValid = false;
+		TemporalHistoryResetTriggers resetTriggers;
+		resetTriggers.outputExtentChanged = true;
+		mTemporalHistoryReset |= TemporalHistoryResetRequired(resetTriggers);
+		mTarget = aTarget;
+	}
+
+	cVector2l cViewport::GetRenderExtent() const
+	{
+		const cVector2l displayExtent = GetDisplayExtent();
+		if (displayExtent.x <= 0 || displayExtent.y <= 0)
+			return displayExtent;
+
+		if (mRenderExtent.x == 0 && mRenderExtent.y == 0)
+			return displayExtent;
+
+		const int renderWidth = mRenderExtent.x < 1 ? 1 : mRenderExtent.x;
+		const int renderHeight = mRenderExtent.y < 1 ? 1 : mRenderExtent.y;
+		return cVector2l(renderWidth > displayExtent.x ? displayExtent.x : renderWidth,
+						 renderHeight > displayExtent.y ? displayExtent.y : renderHeight);
+	}
+
+	const TemporalUpscalerSettings &cViewport::GetTemporalUpscalerSettings() const
+	{
+		return mTemporalUpscalerSettings;
+	}
+
+	void cViewport::SetTemporalUpscalerSettings(
+			const TemporalUpscalerSettings &aSettings)
+	{
+		mTemporalUpscalerRequestedSettings = aSettings;
+		if (mpRenderSettings)
+			mpRenderSettings->mTemporalUpscaler = aSettings;
+		mTemporalUpscalerStatus.requestedProvider = aSettings.provider;
+		mTemporalUpscalerStatus.requestedQuality = aSettings.quality;
+		ClearTemporalProviderFailure();
+	}
+
+	uint32_t cViewport::GetTemporalJitterPhaseCount() const
+	{
+		return mbTemporalProviderPrepared ? mlTemporalJitterPhaseCount : 0;
+	}
+
+	bool cViewport::IsTemporalProviderPrepared() const
+	{
+		return mbTemporalProviderPrepared;
+	}
+
+	TemporalUpscalerStatus cViewport::GetTemporalUpscalerStatus() const
+	{
+		return mTemporalUpscalerStatus;
+	}
+
+	cTemporalReactiveMask *cViewport::GetTemporalReactiveMask()
+	{
+		return mTemporalReactiveMaskActive ? mpTemporalReactiveMask.get() : nullptr;
+	}
+
+	void cViewport::PublishRasterCamera(const float aViewMat[16],
+											const float aProjMat[16])
+	{
+		if (aViewMat == nullptr || aProjMat == nullptr)
+		{
+			mRasterCamera.valid = false;
+			return;
+		}
+
+		std::memcpy(mRasterCamera.viewMat, aViewMat,
+					sizeof(mRasterCamera.viewMat));
+		std::memcpy(mRasterCamera.projMat, aProjMat,
+					sizeof(mRasterCamera.projMat));
+		cGraphics *pGraphics = Interface<cGraphics>::Get();
+		mRasterCamera.frameIndex = pGraphics ? pGraphics->frameIndex : UINT32_MAX;
+		mRasterCamera.valid = pGraphics != nullptr;
+	}
+
+	void cViewport::PublishRasterTemporalFrame(
+			const TemporalFrameSnapshot &aFrame, float aDeltaTimeMs)
+	{
+		// Keep the actual raster pair in the same record as the temporal
+		// snapshot. The renderer calls PublishRasterCamera immediately before
+		// this method, but copying them here also makes this sibling API safe on
+		// its own and still derives every field from the one snapshot.
+		std::memcpy(mRasterCamera.viewMat, aFrame.viewMat,
+					sizeof(mRasterCamera.viewMat));
+		std::memcpy(mRasterCamera.projMat, aFrame.projMat,
+					sizeof(mRasterCamera.projMat));
+		std::memcpy(mRasterCamera.unjitteredProjMat, aFrame.unjitteredProjMat,
+					sizeof(mRasterCamera.unjitteredProjMat));
+		std::memcpy(mRasterCamera.previousViewMat, aFrame.prevViewMat,
+					sizeof(mRasterCamera.previousViewMat));
+		std::memcpy(mRasterCamera.previousUnjitteredProjMat,
+					aFrame.prevUnjitteredProjMat,
+					sizeof(mRasterCamera.previousUnjitteredProjMat));
+		std::memcpy(mRasterCamera.jitterPixels, aFrame.jitterPixels,
+					sizeof(mRasterCamera.jitterPixels));
+		std::memcpy(mRasterCamera.previousJitterPixels,
+					aFrame.prevJitterPixels,
+					sizeof(mRasterCamera.previousJitterPixels));
+		mRasterCamera.deltaTimeMs = aDeltaTimeMs;
+		mRasterCamera.historyReset = aFrame.historyReset;
+		cGraphics *pGraphics = Interface<cGraphics>::Get();
+		mRasterCamera.frameIndex = pGraphics ? pGraphics->frameIndex : UINT32_MAX;
+		mRasterCamera.valid = pGraphics != nullptr;
+	}
+
+	const cViewport::RasterCamera &cViewport::GetRasterCamera() const
+	{
+		return mRasterCamera;
+	}
+
+	bool cViewport::ConsumeTemporalHistoryReset()
+	{
+		const bool reset = mTemporalHistoryReset;
+		mTemporalHistoryReset = false;
+		return reset;
+	}
+
+	struct RITextureView* cViewport::GetRenderDepthView()
 	{
 		return std::visit(
 			[](auto &&arg) -> struct RITextureView * {
@@ -107,14 +326,18 @@ namespace hpl {
 				if constexpr (std::is_same_v<T, std::monostate>) {
 					return nullptr;
 				} else {
-					return arg.width != 0 ? arg.depthView[Interface<cGraphics>::Get()->swapchainIndex].Get()
-										  : nullptr;
+					const uint32_t swapchainIndex = Interface<cGraphics>::Get()->swapchainIndex;
+					return arg.width > 0 && arg.height > 0 &&
+						   !arg.depthView[swapchainIndex].isEmpty() &&
+						   !arg.depthTextures[swapchainIndex].isEmpty()
+						? arg.depthView[swapchainIndex].Get()
+						: nullptr;
 				}
 			},
 			m_state);
 	}
 
-	struct RITexture* cViewport::GetDepthTexture()
+	struct RITexture* cViewport::GetRenderDepthTexture()
 	{
 		return std::visit(
 			[](auto &&arg) -> struct RITexture * {
@@ -122,11 +345,149 @@ namespace hpl {
 				if constexpr (std::is_same_v<T, std::monostate>) {
 					return nullptr;
 				} else {
-					return arg.width != 0 ? arg.depthTextures[Interface<cGraphics>::Get()->swapchainIndex].Get()
-										  : nullptr;
+					const uint32_t swapchainIndex = Interface<cGraphics>::Get()->swapchainIndex;
+					return arg.width > 0 && arg.height > 0 &&
+						   !arg.depthTextures[swapchainIndex].isEmpty() &&
+						   !arg.depthView[swapchainIndex].isEmpty()
+						? arg.depthTextures[swapchainIndex].Get()
+						: nullptr;
 				}
 			},
 			m_state);
+	}
+
+	struct RITextureView* cViewport::GetRenderDepthSampleView()
+	{
+		return std::visit(
+			[](auto &&arg) -> struct RITextureView * {
+				using T = std::decay_t<decltype(arg)>;
+				if constexpr (std::is_same_v<T, std::monostate> ||
+								  std::is_same_v<T, SimpleViewportState>) {
+					return nullptr;
+				} else {
+					const uint32_t swapchainIndex = Interface<cGraphics>::Get()->swapchainIndex;
+					return arg.width > 0 && arg.height > 0 &&
+						   !arg.depthSampleView[swapchainIndex].isEmpty() &&
+						   !arg.depthTextures[swapchainIndex].isEmpty()
+						? arg.depthSampleView[swapchainIndex].Get()
+						: nullptr;
+				}
+			},
+			m_state);
+	}
+
+	bool cViewport::RenderExtentEqualsDisplayExtent() const
+	{
+		const cVector2l displayExtent = GetDisplayExtent();
+		if (displayExtent.x <= 0 || displayExtent.y <= 0)
+			return false;
+		const cVector2l renderExtent = GetRenderExtent();
+		return renderExtent.x == displayExtent.x &&
+			   renderExtent.y == displayExtent.y;
+	}
+
+	cViewport::DisplayDepthResources cViewport::BuildDisplayDepthInputs() const
+	{
+		DisplayDepthResources resources = {};
+		cGraphics *pGraphics = Interface<cGraphics>::Get();
+		if (!pGraphics)
+			return resources;
+
+		const cVector2l displayExtent = GetDisplayExtent();
+		if (displayExtent.x <= 0 || displayExtent.y <= 0)
+			return resources;
+
+		resources.inputs.displayExtent = {
+			static_cast<uint32_t>(displayExtent.x),
+			static_cast<uint32_t>(displayExtent.y)};
+
+		if (mTemporalPresentationDepthValid && mpTemporalPresentation) {
+			const TemporalUpscalerExtent extent = {
+				resources.inputs.displayExtent.width,
+				resources.inputs.displayExtent.height};
+			resources.presentation.image =
+				mpTemporalPresentation->GetDisplayDepthTexture(
+					pGraphics->frameIndex, extent);
+			resources.presentation.attachmentView =
+				mpTemporalPresentation->GetDisplayDepthAttachmentView(
+					pGraphics->frameIndex, extent);
+			resources.inputs.presentation.allocatedExtent =
+				resources.inputs.displayExtent;
+			resources.inputs.presentation.hasImage =
+				resources.presentation.image != nullptr;
+			resources.inputs.presentation.hasAttachmentView =
+				resources.presentation.attachmentView != nullptr;
+			resources.inputs.presentationCurrent =
+				resources.inputs.presentation.hasImage &&
+				resources.inputs.presentation.hasAttachmentView;
+		}
+
+		resources.inputs.sceneIndexInRange =
+			pGraphics->swapchainIndex < RI_MAX_SWAPCHAIN_IMAGES;
+		resources.inputs.sceneExtentCompatible =
+			RenderExtentEqualsDisplayExtent();
+		if (resources.inputs.sceneIndexInRange) {
+			const uint32_t swapchainIndex = pGraphics->swapchainIndex;
+			std::visit(
+				[&resources, swapchainIndex](auto &&arg) {
+					using T = std::decay_t<decltype(arg)>;
+					if constexpr (!std::is_same_v<T, std::monostate>) {
+						resources.inputs.scene.allocatedExtent = {
+							arg.width, arg.height};
+						resources.inputs.scene.hasImage =
+							!arg.depthTextures[swapchainIndex].isEmpty();
+						resources.inputs.scene.hasAttachmentView =
+							!arg.depthView[swapchainIndex].isEmpty();
+						resources.scene.image =
+							resources.inputs.scene.hasImage
+								? arg.depthTextures[swapchainIndex].Get()
+								: nullptr;
+						resources.scene.attachmentView =
+							resources.inputs.scene.hasAttachmentView
+								? arg.depthView[swapchainIndex].Get()
+								: nullptr;
+					}
+				},
+				m_state);
+		}
+
+		return resources;
+	}
+
+	cViewport::DisplayDepthPair cViewport::ResolveDisplayDepth(
+			const DisplayDepthExtent *apRequestedExtent) const
+	{
+		const DisplayDepthResources resources = BuildDisplayDepthInputs();
+		const DisplayDepthSource source = apRequestedExtent
+			? SelectDisplayDepthForExtent(resources.inputs,
+												apRequestedExtent->width,
+												apRequestedExtent->height)
+			: SelectDisplayDepth(resources.inputs);
+		switch (source) {
+		case DisplayDepthSource::Presentation:
+			return resources.presentation;
+		case DisplayDepthSource::Scene:
+			return resources.scene;
+		default:
+			return {};
+		}
+	}
+
+	struct RITextureView* cViewport::GetDepthView()
+	{
+		return ResolveDisplayDepth().attachmentView;
+	}
+
+	struct RITexture* cViewport::GetDepthTexture()
+	{
+		return ResolveDisplayDepth().image;
+	}
+
+	struct RITextureView* cViewport::GetDepthViewForExtent(uint32_t alWidth,
+														  uint32_t alHeight)
+	{
+		const DisplayDepthExtent requestedExtent = {alWidth, alHeight};
+		return ResolveDisplayDepth(&requestedExtent).attachmentView;
 	}
 
 	cViewport::BackBuffer cViewport::GetBackBuffer()
@@ -137,7 +498,8 @@ namespace hpl {
 				if constexpr (std::is_same_v<T, std::monostate>) {
 					return BackBuffer{}; // zeroed — check renderTarget.vk.image
 				} else {
-					return arg.width != 0 ? arg.GetBackBuffer() : BackBuffer{};
+					return arg.width > 0 && arg.height > 0 ? arg.GetBackBuffer()
+														 : BackBuffer{};
 				}
 			},
 			m_state);
@@ -252,13 +614,12 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 	RI_PogoBuffer* cViewport::PreparePogoBuffer(cGraphics::FrameContext *cntx)
 	{
 		const cVector2l vSize = GetTargetSize();
+		if(vSize.x <= 0 || vSize.y <= 0)
+			return nullptr;
 		const uint32_t alWidth = (uint32_t)vSize.x;
 		const uint32_t alHeight = (uint32_t)vSize.y;
-		if(alWidth == 0 || alHeight == 0)
-		{
-			return PogoBuffer();
-		}
-		if(mlPogoWidth == alWidth && mlPogoHeight == alHeight)
+		if(mlPogoWidth == alWidth && mlPogoHeight == alHeight &&
+			PogoBuffer() != nullptr)
 		{
 			return &mPogoBuffer;
 		}
@@ -381,6 +742,250 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 
 	//-----------------------------------------------------------------------
 
+	bool cViewport::ClaimProviderRenderExtent(cVector2l aRenderExtent)
+	{
+		const TemporalRenderExtentState current = {
+				ToPolicyOwner(mRenderExtentOwner), ToTemporalExtent(mRenderExtent)};
+		const TemporalRenderExtentDecision decision =
+				ClaimTemporalProviderRenderExtent(current,
+						ToTemporalExtent(aRenderExtent));
+		mRenderExtentOwner = FromPolicyOwner(decision.state.owner);
+		SetRenderExtent(FromTemporalExtent(decision.state.extent));
+		if (decision.historyReset)
+			mTemporalHistoryReset = true;
+		return decision.ownershipChanged || decision.historyReset;
+	}
+
+	void cViewport::ReleaseProviderRenderExtent()
+	{
+		if (mRenderExtentOwner != eRenderExtentOwner::Provider)
+			return;
+
+		const TemporalRenderExtentState current = {
+				ToPolicyOwner(mRenderExtentOwner), ToTemporalExtent(mRenderExtent)};
+		const TemporalRenderExtentDecision decision =
+				ReleaseTemporalProviderRenderExtent(current);
+		mRenderExtentOwner = FromPolicyOwner(decision.state.owner);
+		SetRenderExtent(FromTemporalExtent(decision.state.extent));
+		if (decision.historyReset)
+			mTemporalHistoryReset = true;
+		mbDevRenderScaleIgnoredLogged = false;
+	}
+
+	void cViewport::ReleaseTemporalProvider()
+	{
+		cGraphics *pGraphics = Interface<cGraphics>::Get();
+		if (mpTemporalUpscalerProvider) {
+			std::shared_ptr<iTemporalUpscaler> keepProvider =
+					std::move(mpTemporalUpscalerProvider);
+			if (pGraphics) {
+				pGraphics->graphicsDefer.push(std::function<void()>(
+						[keepProvider = std::move(keepProvider)]() mutable {
+							keepProvider.reset();
+						}));
+			}
+		}
+
+		mbTemporalProviderPrepared = false;
+		mlTemporalJitterPhaseCount = 0;
+		mTemporalProviderPreparedSettings = {};
+		mTemporalProviderPreparedRenderExtent = {};
+		mTemporalProviderPreparedDisplayExtent = {};
+		mTemporalUpscalerSettings = {};
+		mTemporalUpscalerStatus.effectiveProvider =
+				TemporalUpscalerProvider::Off;
+		mTemporalUpscalerStatus.effectiveQuality =
+				TemporalUpscalerQuality::Quality;
+		ReleaseProviderRenderExtent();
+	}
+
+	void cViewport::ClearTemporalProviderFailure()
+	{
+		::hpl::ClearTemporalProviderFailure(mTemporalProviderFailure);
+		mpTemporalProviderFailureReason = nullptr;
+		mTemporalUpscalerStatus.unavailableReason = nullptr;
+	}
+
+	bool cViewport::PrepareTemporalProvider(cGraphics::FrameContext *cntx,
+			bool worldWillRender)
+	{
+		const bool hadPreparedProvider = mbTemporalProviderPrepared;
+		const TemporalUpscalerSettings previousPreparedSettings =
+				mTemporalProviderPreparedSettings;
+		const TemporalUpscalerExtent previousPreparedDisplayExtent =
+				mTemporalProviderPreparedDisplayExtent;
+		mbTemporalProviderPrepared = false;
+		mlTemporalJitterPhaseCount = 0;
+		mTemporalUpscalerSettings = {};
+
+		const TemporalUpscalerSettings desired =
+				GetRenderSettings() ? GetRenderSettings()->mTemporalUpscaler
+														: TemporalUpscalerSettings{};
+		mTemporalUpscalerRequestedSettings = desired;
+		mTemporalUpscalerStatus = {};
+		mTemporalUpscalerStatus.requestedProvider = desired.provider;
+		mTemporalUpscalerStatus.requestedQuality = desired.quality;
+		mTemporalUpscalerStatus.effectiveProvider =
+				TemporalUpscalerProvider::Off;
+		mTemporalUpscalerStatus.effectiveQuality =
+				TemporalUpscalerQuality::Quality;
+		mTemporalUpscalerStatus.available =
+				desired.provider == TemporalUpscalerProvider::Off;
+
+		const cVector2l displaySize = GetDisplayExtent();
+		const bool displayValid = displaySize.x > 0 && displaySize.y > 0;
+		const TemporalProviderFailureKey failureKey = {
+				desired.provider,
+				desired.quality,
+				ToTemporalExtent(displaySize)};
+		if (mTemporalProviderFailure.latched &&
+				!TemporalProviderFailureKeyMatches(
+						mTemporalProviderFailure.key, failureKey))
+			ClearTemporalProviderFailure();
+
+		if (desired.provider == TemporalUpscalerProvider::Off ||
+				!worldWillRender) {
+			ReleaseTemporalProvider();
+			return false;
+		}
+
+		if (!displayValid) {
+			ReleaseTemporalProvider();
+			return false;
+		}
+		const TemporalUpscalerExtent displayExtent = {
+				static_cast<uint32_t>(displaySize.x),
+				static_cast<uint32_t>(displaySize.y)};
+
+		if (TemporalProviderFailureSuppressed(mTemporalProviderFailure,
+				failureKey)) {
+			mTemporalUpscalerStatus.available = false;
+			mTemporalUpscalerStatus.unavailableReason =
+					mpTemporalProviderFailureReason;
+			ReleaseTemporalProvider();
+			return false;
+		}
+
+		auto latchFailure = [&](const char *reason) {
+			LatchTemporalProviderFailure(
+					mTemporalProviderFailure,
+					{desired.provider, desired.quality, displayExtent});
+			mpTemporalProviderFailureReason =
+					reason ? reason : kTemporalProviderUnknownFailure;
+			TemporalHistoryResetTriggers resetTriggers;
+			resetTriggers.providerFailure = true;
+			mTemporalHistoryReset |=
+					TemporalHistoryResetRequired(resetTriggers);
+			mTemporalUpscalerStatus.effectiveProvider =
+					TemporalUpscalerProvider::Off;
+			mTemporalUpscalerStatus.effectiveQuality =
+					TemporalUpscalerQuality::Quality;
+			mTemporalUpscalerStatus.available = false;
+			mTemporalUpscalerStatus.unavailableReason =
+					mpTemporalProviderFailureReason;
+		};
+
+		const TemporalUpscalerStatus queried =
+				TemporalUpscalerQuery(desired);
+		mTemporalUpscalerStatus = queried;
+		if (!queried.available) {
+			const char *reason = queried.unavailableReason
+														? queried.unavailableReason
+														: kTemporalProviderUnknownFailure;
+			latchFailure(reason);
+			if (!mpTemporalProviderUnavailableReasonLogged ||
+					std::strcmp(mpTemporalProviderUnavailableReasonLogged, reason) != 0) {
+				Warning("cViewport: temporal upscaler unavailable: %s\n", reason);
+				mpTemporalProviderUnavailableReasonLogged = reason;
+			}
+			ReleaseTemporalProvider();
+			return false;
+		}
+
+		const TemporalUpscalerSettings effective = {
+				queried.effectiveProvider, queried.effectiveQuality};
+		if (hadPreparedProvider &&
+				(previousPreparedSettings.provider != effective.provider ||
+				 previousPreparedSettings.quality != effective.quality ||
+				 previousPreparedDisplayExtent.width != displayExtent.width ||
+				 previousPreparedDisplayExtent.height != displayExtent.height)) {
+			TemporalHistoryResetTriggers resetTriggers;
+			resetTriggers.providerChanged =
+					previousPreparedSettings.provider != effective.provider;
+			resetTriggers.qualityChanged =
+					previousPreparedSettings.quality != effective.quality;
+			resetTriggers.outputExtentChanged =
+					previousPreparedDisplayExtent.width != displayExtent.width ||
+					previousPreparedDisplayExtent.height != displayExtent.height;
+			mTemporalHistoryReset |=
+					TemporalHistoryResetRequired(resetTriggers);
+		}
+		if (mpTemporalUpscalerProvider &&
+				mTemporalProviderPreparedSettings.provider !=
+						effective.provider) {
+			ReleaseTemporalProvider();
+		}
+
+		if (!mpTemporalUpscalerProvider) {
+			std::unique_ptr<iTemporalUpscaler> created =
+					TemporalUpscalerCreate(effective.provider,
+														Interface<cGraphics>::Get());
+			mpTemporalUpscalerProvider = std::move(created);
+			if (!mpTemporalUpscalerProvider) {
+				latchFailure(kTemporalProviderCreationFailed);
+				ReleaseTemporalProvider();
+				Warning("cViewport: temporal upscaler preparation failed: %s\n",
+						kTemporalProviderCreationFailed);
+				return false;
+			}
+		}
+
+		const TemporalUpscalerExtent renderExtent =
+				effective.quality == TemporalUpscalerQuality::NativeAA
+						? displayExtent
+						: mpTemporalUpscalerProvider->GetRecommendedRenderExtent(
+								displayExtent, effective.quality);
+		if (!TemporalUpscalerNegotiatedExtentValid(
+					renderExtent, displayExtent, effective.quality)) {
+			latchFailure(kTemporalProviderInvalidRenderExtent);
+			ReleaseTemporalProvider();
+			Warning("cViewport: temporal upscaler preparation failed: %s\n",
+					kTemporalProviderInvalidRenderExtent);
+			return false;
+		}
+
+		if (!mpTemporalUpscalerProvider->PrepareContext(
+					effective, renderExtent, displayExtent, cntx)) {
+			latchFailure(kTemporalProviderPreparationFailed);
+			ReleaseTemporalProvider();
+			Warning("cViewport: temporal upscaler preparation failed: %s\n",
+					kTemporalProviderPreparationFailed);
+			return false;
+		}
+
+		mlTemporalJitterPhaseCount =
+				mpTemporalUpscalerProvider->GetJitterPhaseCount(renderExtent,
+						displayExtent);
+		if (mlTemporalJitterPhaseCount == 0)
+			mlTemporalJitterPhaseCount = 1;
+		mbTemporalProviderPrepared = true;
+		mTemporalProviderPreparedSettings = effective;
+		mTemporalProviderPreparedRenderExtent = renderExtent;
+		mTemporalProviderPreparedDisplayExtent = displayExtent;
+		mTemporalUpscalerSettings = effective;
+		mTemporalUpscalerStatus = queried;
+		mTemporalUpscalerStatus.available = true;
+		mTemporalUpscalerStatus.unavailableReason = nullptr;
+		::hpl::ClearTemporalProviderFailure(mTemporalProviderFailure);
+		mpTemporalProviderFailureReason = nullptr;
+		ClaimProviderRenderExtent(
+				cVector2l(static_cast<int>(renderExtent.width),
+							static_cast<int>(renderExtent.height)));
+		return true;
+	}
+
+	//-----------------------------------------------------------------------
+
 	bool cViewport::Evaluate(cGraphics::FrameContext *cntx, float afFrameTime, tFlag alFlags)
 	{
 		cGraphics* pGraphics = Interface<cGraphics>::Get();
@@ -393,12 +998,66 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 			return false;
 		}
 		mlLastEvaluatedFrame = pGraphics->frameIndex;
+		// Display depth is exposed only after a successful presentation resolve
+		// in this evaluation. This also rejects a provider failure that occurred
+		// after the module had already prepared its display-depth resource.
+		mTemporalPresentationDepthValid = false;
+		mTemporalReactiveMaskActive = false;
+
+		// A provider failure is latched by the presentation module for the next
+		// frame. Revert to native input and carry the reset into the renderer's
+		// single TemporalBeginFrame snapshot.
+		if (mpTemporalPresentation &&
+				mpTemporalPresentation->ConsumeProviderFailure()) {
+			const TemporalRenderExtentState current = {
+					ToPolicyOwner(mRenderExtentOwner), ToTemporalExtent(mRenderExtent)};
+			const TemporalRenderExtentDecision decision =
+					ConsumeTemporalProviderFailure(current);
+			mRenderExtentOwner = FromPolicyOwner(decision.state.owner);
+			SetRenderExtent(FromTemporalExtent(decision.state.extent));
+			if (decision.historyReset)
+				mTemporalHistoryReset = true;
+			mbDevRenderScaleIgnoredLogged = false;
+		}
 
 		cFrustum* pFrustum = mpCamera ? mpCamera->GetFrustum() : NULL;
 
 		const bool worldRendered =
 				(alFlags & tSceneRenderFlag_World) &&
 				mpRenderer && mpWorld && pFrustum;
+
+		// This must claim the negotiated input extent before the development
+		// render-scale override and before Draw allocates scene targets.
+		PrepareTemporalProvider(cntx, worldRendered);
+
+		const float fDevScale = pGraphics ? pGraphics->devRenderScale : 1.0f;
+		const TemporalRenderExtentResolution extentResolution = {
+				mbTemporalProviderPrepared,
+				mTemporalProviderPreparedRenderExtent,
+				fDevScale,
+				ToTemporalExtent(GetDisplayExtent()),
+				{ToPolicyOwner(mRenderExtentOwner), ToTemporalExtent(mRenderExtent)}};
+		const TemporalRenderExtentDecision extentDecision =
+				ResolveTemporalRenderExtent(extentResolution);
+		mRenderExtentOwner = FromPolicyOwner(extentDecision.state.owner);
+		SetRenderExtent(FromTemporalExtent(extentDecision.state.extent));
+		if (extentDecision.historyReset)
+			mTemporalHistoryReset = true;
+		if (extentDecision.devRenderScaleIgnored &&
+				!mbDevRenderScaleIgnoredLogged) {
+				Warning("cViewport: development render scale %.3f ignored because "
+						"the temporal upscaler owns the render extent\n",
+						fDevScale);
+				mbDevRenderScaleIgnoredLogged = true;
+			}
+
+		if (!worldRendered && mpTemporalReactiveMask) {
+			TemporalReactiveMaskFrameDesc disabledMaskFrame = {};
+			disabledMaskFrame.frameContext = cntx;
+			disabledMaskFrame.frameIndex = pGraphics->frameIndex;
+			disabledMaskFrame.viewportCookie = this;
+			mpTemporalReactiveMask->BeginFrame(disabledMaskFrame);
+		}
 
 		if(alFlags & tSceneRenderFlag_World)
 		{
@@ -409,8 +1068,8 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 			preCtx.device     = &pGraphics->device;
 			preCtx.frame      = cntx;
 			preCtx.frustum    = pFrustum;
-			preCtx.width      = (uint32_t)vPreSize.x;
-			preCtx.height     = (uint32_t)vPreSize.y;
+			preCtx.width      = vPreSize.x > 0 ? (uint32_t)vPreSize.x : 0;
+			preCtx.height     = vPreSize.y > 0 ? (uint32_t)vPreSize.y : 0;
 			preCtx.frameIndex = pGraphics->frameIndex;
 			preCtx.frameTime  = afFrameTime;
 			m_onPreWorldDraw.Signal(preCtx);
@@ -423,6 +1082,40 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 				// RT passes would otherwise trace last frame's TLAS against this
 				// frame's rewritten object slots.
 				mpWorld->PrepareFrame(cntx);
+
+				// Gate every mask allocation and dispatch on an active provider. The
+				// Off/native path must incur no opaque copy, no dispatch, and no
+				// retained targets, so BeginFrame releases whatever it owns and
+				// returns false.
+				mTemporalReactiveMaskActive = false;
+				const cVector2l maskExtent = GetRenderExtent();
+				if (mTemporalUpscalerSettings.provider !=
+						TemporalUpscalerProvider::Off) {
+					if (!mpTemporalReactiveMask) {
+						cResources *pResources = Interface<cResources>::Get();
+						if (pResources)
+							mpTemporalReactiveMask =
+								std::make_unique<cTemporalReactiveMask>(
+										pResources->GetFileSearcher());
+					}
+				}
+				if (mpTemporalReactiveMask) {
+					TemporalReactiveMaskFrameDesc maskFrame = {};
+					maskFrame.frameContext = cntx;
+					maskFrame.frameIndex = pGraphics->frameIndex;
+					maskFrame.viewportCookie = this;
+					maskFrame.renderExtent = {
+						maskExtent.x > 0 ? static_cast<uint32_t>(maskExtent.x) : 0u,
+						maskExtent.y > 0 ? static_cast<uint32_t>(maskExtent.y) : 0u};
+					maskFrame.enabled =
+						mTemporalUpscalerSettings.provider !=
+						TemporalUpscalerProvider::Off;
+					maskFrame.needUnjitteredVariant =
+						mTemporalUpscalerSettings.provider ==
+						TemporalUpscalerProvider::XeSS;
+					mTemporalReactiveMaskActive =
+						mpTemporalReactiveMask->BeginFrame(maskFrame);
+				}
 
 				mpRenderer->Draw(
 						cntx,
@@ -440,38 +1133,352 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 				// blit + post chain (bloom + tonemap) process it — the pogo
 				// does not exist yet. Handlers must return the BackBuffer to
 				// SHADER_READ for the feed blit below.
-				PostTranslucenceDrawCtx transCtx{};
-				transCtx.viewport   = this;
-				transCtx.cmd        = &pGraphics->primary.cmds[0];
-				transCtx.device     = &pGraphics->device;
-				transCtx.frame      = cntx;
-				transCtx.frustum    = pFrustum;
-				transCtx.width      = (uint32_t)preCtx.width;
-				transCtx.height     = (uint32_t)preCtx.height;
-				transCtx.frameIndex = pGraphics->frameIndex;
-				transCtx.frameTime  = afFrameTime;
-				transCtx.depthView  = GetDepthView();   // pogo not created yet
-				m_onPostTranslucenceDraw.Signal(transCtx);
+				const cVector2l vRenderSize = GetRenderExtent();
+				BackBuffer postTransBackBuffer = GetBackBuffer();
+				if (vRenderSize.x > 0 && vRenderSize.y > 0 &&
+					!postTransBackBuffer.renderTarget.isEmpty() &&
+					!postTransBackBuffer.renderTargetView.isEmpty() &&
+					GetRenderDepthView() != nullptr &&
+					GetRenderDepthTexture() != nullptr) {
+					PostTranslucenceDrawCtx transCtx{};
+					transCtx.viewport   = this;
+					transCtx.cmd        = &pGraphics->primary.cmds[0];
+					transCtx.device     = &pGraphics->device;
+					transCtx.frame      = cntx;
+					transCtx.frustum    = pFrustum;
+					transCtx.width      = (uint32_t)vRenderSize.x;
+					transCtx.height     = (uint32_t)vRenderSize.y;
+					transCtx.frameIndex = pGraphics->frameIndex;
+					transCtx.frameTime  = afFrameTime;
+					transCtx.depthView  = GetRenderDepthView(); // pogo not created yet
+
+					// Hand additive geometry the exact raster camera used by Draw. The
+					// frame check prevents a previous viewport/frame publication from
+					// leaking into a failed or world-less draw.
+					const RasterCamera &rasterCamera = GetRasterCamera();
+					const bool rasterCameraCurrent =
+						rasterCamera.valid &&
+						rasterCamera.frameIndex == pGraphics->frameIndex;
+					if (rasterCameraCurrent) {
+						std::memcpy(transCtx.viewMat, rasterCamera.viewMat,
+									sizeof(transCtx.viewMat));
+						std::memcpy(transCtx.projMat, rasterCamera.projMat,
+									sizeof(transCtx.projMat));
+					} else {
+						const ml::float4x4 frustumView = pFrustum->GetViewMat();
+						const ml::float4x4 frustumProjection =
+								pFrustum->GetProjectionMat();
+						std::memcpy(transCtx.viewMat, frustumView.a,
+									sizeof(transCtx.viewMat));
+						std::memcpy(transCtx.projMat, frustumProjection.a,
+									sizeof(transCtx.projMat));
+					}
+					m_onPostTranslucenceDraw.Signal(transCtx);
+
+					if (mTemporalReactiveMaskActive && mpTemporalReactiveMask) {
+						TemporalReactiveMaskRecordDesc maskRecord = {};
+						maskRecord.cmd = &pGraphics->primary.cmds[0];
+						maskRecord.finalColor =
+							&postTransBackBuffer.renderTarget;
+						maskRecord.finalColorView =
+							&postTransBackBuffer.renderTargetView;
+						maskRecord.finalColorFormat = cGraphics::PogoColorFormat;
+						maskRecord.extent = {
+							vRenderSize.x > 0 ? static_cast<uint32_t>(vRenderSize.x)
+													: 0u,
+							vRenderSize.y > 0 ? static_cast<uint32_t>(vRenderSize.y)
+													: 0u};
+						maskRecord.frameIndex = pGraphics->frameIndex;
+						maskRecord.viewportCookie = this;
+						maskRecord.finalColorEntryState =
+							RI_RESOURCE_STATE_SHADER_RESOURCE;
+						maskRecord.finalColorExitState =
+							RI_RESOURCE_STATE_SHADER_RESOURCE;
+						const RasterCamera &maskRasterCamera = GetRasterCamera();
+						if (maskRasterCamera.valid &&
+							maskRasterCamera.frameIndex == pGraphics->frameIndex) {
+							maskRecord.jitterPixels[0] =
+								maskRasterCamera.jitterPixels[0];
+							maskRecord.jitterPixels[1] =
+								maskRasterCamera.jitterPixels[1];
+						}
+						maskRecord.provider = mTemporalUpscalerSettings.provider;
+						// RecordMasks restores the scene color to the exit state,
+						// exactly what the feed blit below expects.
+						mpTemporalReactiveMask->RecordMasks(maskRecord);
+					}
+				}
 			}
 		}
 
 		// FEED + POST: once the world draw fully evaluated the viewport,
-		// blit the backend's BackBuffer window (the crop is baked in —
-		// the hybrid backend overdraws by its guard band) into the
-		// viewport pogo READ half, prep the ATTACH half, and run the
+		// blit the backend's BackBuffer window (currently the whole negotiated
+		// scene/input image; crop fields are reserved for a future guard band)
+		// into the viewport pogo READ half, prep the ATTACH half, and run the
 		// post-effect chain on the pogo (each effect samples the read
 		// half, renders the attach half, and toggles). Delivery happens
 		// after, per the viewport's Target.
 		BackBuffer backBuffer = GetBackBuffer();
+		TemporalPresentationResult presentationResult = {};
+		if (worldRendered && !backBuffer.renderTarget.isEmpty() &&
+			backBuffer.width != 0 && backBuffer.height != 0) {
+			const cVector2l renderSize = GetRenderExtent();
+			const cVector2l displaySize = GetDisplayExtent();
+			if (renderSize.x > 0 && renderSize.y > 0 && displaySize.x > 0 &&
+				displaySize.y > 0) {
+				if (!mpTemporalPresentation) {
+					cResources *pResources = Interface<cResources>::Get();
+					if (pResources)
+						mpTemporalPresentation =
+							std::make_unique<cTemporalPresentation>(
+								pResources->GetFileSearcher());
+				}
+
+				if (mpTemporalPresentation) {
+					TemporalPresentationFrameInput presentationInput = {};
+					presentationInput.frameContext = cntx;
+					presentationInput.cmd = &pGraphics->primary.cmds[0];
+					presentationInput.renderExtent = {
+						static_cast<uint32_t>(renderSize.x),
+						static_cast<uint32_t>(renderSize.y)};
+					presentationInput.displayExtent = {
+						static_cast<uint32_t>(displaySize.x),
+						static_cast<uint32_t>(displaySize.y)};
+
+					// The scene image and valid rectangle are both INPUT-space;
+					// never substitute the display extent for this rectangle.
+					presentationInput.scene.hdrColor.texture =
+						&backBuffer.renderTarget;
+					presentationInput.scene.hdrColor.view =
+						&backBuffer.renderTargetView;
+					presentationInput.scene.hdrColor.format =
+						cGraphics::PogoColorFormat;
+					presentationInput.scene.hdrColor.extent =
+						presentationInput.renderExtent;
+					presentationInput.scene.hdrColor.entryState =
+						RI_RESOURCE_STATE_SHADER_RESOURCE;
+					presentationInput.scene.hdrColor.exitState =
+						RI_RESOURCE_STATE_SHADER_RESOURCE;
+					presentationInput.scene.hdrValidRect = {
+						backBuffer.x, backBuffer.y, backBuffer.width,
+						backBuffer.height};
+
+					presentationInput.scene.renderDepthTexture =
+						GetRenderDepthTexture();
+					presentationInput.scene.renderDepthAttachmentView =
+						GetRenderDepthView();
+					presentationInput.scene.renderDepthSampleView =
+						GetRenderDepthSampleView();
+					// HybridRenderer leaves the scene depth in DEPTH_WRITE;
+					// ResolveDepth temporarily samples it and restores this state.
+					presentationInput.scene.renderDepthEntryState =
+						RI_RESOURCE_STATE_DEPTH_WRITE;
+					presentationInput.scene.renderDepthExitState =
+						RI_RESOURCE_STATE_DEPTH_WRITE;
+
+					presentationInput.provider =
+							mbTemporalProviderPrepared
+									? mpTemporalUpscalerProvider.get()
+									: nullptr;
+					presentationInput.settings = mTemporalUpscalerSettings;
+
+					// Keep optional motion-vector metadata tied to this render image
+					// for the future activation path.
+					std::visit(
+						[&](auto &&arg) {
+							using T = std::decay_t<decltype(arg)>;
+							if constexpr (std::is_same_v<T, HybridViewportState>) {
+								const uint32_t imageIndex = pGraphics->swapchainIndex;
+								if (!arg.velocityTexture[imageIndex].isEmpty() &&
+									!arg.velocityView[imageIndex].isEmpty()) {
+									presentationInput.scene.motionVectors.texture =
+										arg.velocityTexture[imageIndex].Get();
+									presentationInput.scene.motionVectors.view =
+										arg.velocityView[imageIndex].Get();
+									presentationInput.scene.motionVectors.format =
+										cGraphics::VelocityFormat;
+									presentationInput.scene.motionVectors.extent =
+										presentationInput.renderExtent;
+									presentationInput.scene.motionVectors.entryState =
+										RI_RESOURCE_STATE_SHADER_RESOURCE;
+									presentationInput.scene.motionVectors.exitState =
+										RI_RESOURCE_STATE_SHADER_RESOURCE;
+								}
+							}
+						},
+						m_state);
+
+					// Explicit, caller-produced masks. GetBindings is frame- and
+					// viewport-scoped, so an invalid snapshot yields no bindings at all
+					// and the provider falls back to its own neutral default; an old
+					// frame's or another viewport's resource can never be passed.
+					if (mTemporalReactiveMaskActive && mpTemporalReactiveMask) {
+						const TemporalReactiveMaskBindings maskBindings =
+							mpTemporalReactiveMask->GetBindings(
+									pGraphics->frameIndex,
+									presentationInput.renderExtent, this);
+						if (maskBindings.valid) {
+							presentationInput.scene.opaqueColor =
+								maskBindings.opaqueColor;
+							presentationInput.scene.reactiveMaskJittered =
+								maskBindings.reactiveMaskJittered;
+							presentationInput.scene.compositionMaskJittered =
+								maskBindings.compositionMaskJittered;
+							presentationInput.scene.responsiveMaskUnjittered =
+								maskBindings.responsiveMaskUnjittered;
+						}
+					}
+
+					const RasterCamera &rasterCamera = GetRasterCamera();
+					const bool rasterCameraCurrent =
+						rasterCamera.valid &&
+						rasterCamera.frameIndex == pGraphics->frameIndex;
+					if (rasterCameraCurrent) {
+						std::memcpy(presentationInput.viewMat,
+								rasterCamera.viewMat,
+								sizeof(presentationInput.viewMat));
+						std::memcpy(presentationInput.unjitteredProjMat,
+								rasterCamera.unjitteredProjMat,
+								sizeof(presentationInput.unjitteredProjMat));
+						std::memcpy(presentationInput.previousViewMat,
+								rasterCamera.previousViewMat,
+								sizeof(presentationInput.previousViewMat));
+						std::memcpy(
+							presentationInput.previousUnjitteredProjMat,
+							rasterCamera.previousUnjitteredProjMat,
+							sizeof(presentationInput.previousUnjitteredProjMat));
+						presentationInput.jitterPixels[0] =
+							rasterCamera.jitterPixels[0];
+						presentationInput.jitterPixels[1] =
+							rasterCamera.jitterPixels[1];
+						presentationInput.previousJitterPixels[0] =
+							rasterCamera.previousJitterPixels[0];
+						presentationInput.previousJitterPixels[1] =
+							rasterCamera.previousJitterPixels[1];
+						presentationInput.deltaTimeMs = rasterCamera.deltaTimeMs;
+						presentationInput.resetHistory = rasterCamera.historyReset;
+					} else {
+						// Draw should have published this snapshot. Keep a complete
+						// camera fallback if preparation failed.
+						const ml::float4x4 frustumView = pFrustum->GetViewMat();
+						const ml::float4x4 frustumProjection =
+							pFrustum->GetProjectionMat();
+						std::memcpy(presentationInput.viewMat, frustumView.a,
+							sizeof(presentationInput.viewMat));
+						std::memcpy(presentationInput.unjitteredProjMat,
+							frustumProjection.a,
+							sizeof(presentationInput.unjitteredProjMat));
+						std::memcpy(presentationInput.previousViewMat,
+							frustumView.a,
+							sizeof(presentationInput.previousViewMat));
+						std::memcpy(
+							presentationInput.previousUnjitteredProjMat,
+							frustumProjection.a,
+							sizeof(presentationInput.previousUnjitteredProjMat));
+						presentationInput.deltaTimeMs = afFrameTime * 1000.0f;
+						presentationInput.resetHistory = true;
+					}
+					presentationInput.zNear = pFrustum->GetNearPlane();
+					presentationInput.zFar = pFrustum->GetFarPlane();
+					presentationInput.verticalFovRadians = pFrustum->GetFOV();
+					presentationInput.frameIndex = pGraphics->frameIndex;
+					presentationResult = mpTemporalPresentation->Resolve(
+						presentationInput);
+				}
+			}
+		}
+
 		RI_PogoBuffer *pPogo = nullptr;
-		if(worldRendered && !backBuffer.renderTarget.isEmpty())
+		const cVector2l displaySize = GetDisplayExtent();
+		if(worldRendered && !backBuffer.renderTarget.isEmpty() &&
+			backBuffer.width != 0 && backBuffer.height != 0 &&
+			displaySize.x > 0 && displaySize.y > 0)
 		{
-			const cVector2l vTargetSize = GetTargetSize();
 			pPogo = PreparePogoBuffer(cntx);
+			if (pPogo == nullptr || pPogo->textures[0].isEmpty() ||
+				pPogo->textures[1].isEmpty() || pPogo->pogoView[0].isEmpty() ||
+				pPogo->pogoView[1].isEmpty()) {
+				pPogo = nullptr;
+			} else {
+			// Only expose the display attachment after the presentation resolve
+			// and the feed target both prepared successfully. A failed pogo
+			// preparation must use the render-depth pair as well.
+				// A spatial fallback is a defined current-frame image, never a stale
+				// last-successful SDK frame. providerFailed remains latched so the
+				// next frame still consumes the native-extent reset.
+				mTemporalPresentationDepthValid =
+					presentationResult.displayDepthProduced &&
+					(!presentationResult.providerFailed ||
+					 presentationResult.colorIsSpatialFallback);
 
 			const uint32_t readIdx = (pPogo->attachmentIndex + 1u) % 2u;
-			VkImage srcImage = backBuffer.renderTarget.vk.image;
-			VkImage dstImage = pPogo->textures[readIdx]->vk.image;
+			const uint32_t displayWidth = static_cast<uint32_t>(displaySize.x);
+			const uint32_t displayHeight = static_cast<uint32_t>(displaySize.y);
+			const bool providerColor =
+				presentationResult.colorProduced &&
+				(!presentationResult.providerFailed ||
+				 presentationResult.colorIsSpatialFallback) &&
+				presentationResult.color.texture != nullptr &&
+				presentationResult.color.view != nullptr &&
+				presentationResult.color.IsValid() &&
+				presentationResult.color.extent.width == displayWidth &&
+				presentationResult.color.extent.height == displayHeight;
+
+			if (providerColor) {
+				// Provider output is a display-sized linear RGBA16F image. Only
+				// consume it when the provider explicitly proved it wrote this
+				// module-owned image; the scene BackBuffer remains untouched and
+				// its provider exit contract leaves it SHADER_RESOURCE.
+				const RITextureBarrier providerPre[3] = {
+					ColorBarrier(presentationResult.color.texture,
+								 presentationResult.colorState, RI_STAGE_NONE,
+								 RI_RESOURCE_STATE_COPY_SRC, RI_STAGE_BLIT),
+					ColorBarrier(pPogo->textures[readIdx].Get(),
+								 RI_RESOURCE_STATE_UNDEFINED, RI_STAGE_FRAGMENT,
+								 RI_RESOURCE_STATE_COPY_DST, RI_STAGE_BLIT),
+					RI_PogoAttachmentBarrier(
+								 pPogo->textures[pPogo->attachmentIndex].Get(), /*initial=*/true),
+				};
+				pGraphics->primary.cmds[0].vk_d3d12_textureBarriers<3>(3,
+																	 providerPre);
+
+				VkImageBlit providerRegion = {};
+				providerRegion.srcSubresource =
+					{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+				providerRegion.srcOffsets[0] = {0, 0, 0};
+				providerRegion.srcOffsets[1] = {
+					static_cast<int32_t>(displayWidth),
+					static_cast<int32_t>(displayHeight), 1};
+				providerRegion.dstSubresource =
+					{VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+				providerRegion.dstOffsets[0] = {0, 0, 0};
+				providerRegion.dstOffsets[1] = {
+					static_cast<int32_t>(displayWidth),
+					static_cast<int32_t>(displayHeight), 1};
+				vkCmdBlitImage(
+					pGraphics->primary.cmds[0].vk.cmd,
+					presentationResult.color.texture->vk.image,
+					VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+					pPogo->textures[readIdx]->vk.image,
+					VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &providerRegion,
+					VK_FILTER_NEAREST);
+
+				// Return the provider image to the exact state it reported, and
+				// leave the pogo read half ready for post effects.
+				const RITextureBarrier providerPost[2] = {
+					ColorBarrier(presentationResult.color.texture,
+								 RI_RESOURCE_STATE_COPY_SRC, RI_STAGE_BLIT,
+								 presentationResult.colorState, RI_STAGE_NONE),
+					ColorBarrier(pPogo->textures[readIdx].Get(),
+								 RI_RESOURCE_STATE_COPY_DST, RI_STAGE_BLIT,
+								 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT),
+				};
+				pGraphics->primary.cmds[0].vk_d3d12_textureBarriers<2>(2,
+																	 providerPost);
+			} else {
+				// Explicit spatial fallback: copy the valid INPUT rectangle and
+				// honestly upscale it to the full DISPLAY extent. This is also the
+				// only path allowed to consume the scene BackBuffer.
 
 			// Pre-blit: BackBuffer (left SHADER_READ by the renderer) ->
 			// TRANSFER_SRC, pogo read half -> TRANSFER_DST (UNDEFINED
@@ -499,11 +1506,18 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 			                          (int32_t)(backBuffer.y + backBuffer.height), 1 };
 			region.dstSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 };
 			region.dstOffsets[0]  = { 0, 0, 0 };
-			region.dstOffsets[1]  = { (int32_t)backBuffer.width, (int32_t)backBuffer.height, 1 };
-			vkCmdBlitImage(pGraphics->primary.cmds[0].vk.cmd, srcImage,
-			               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage,
-			               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region,
-			               VK_FILTER_NEAREST);
+				region.dstOffsets[1]  = { (int32_t)displayWidth, (int32_t)displayHeight, 1 };
+				const VkFilter filter =
+					(backBuffer.width == displayWidth &&
+					 backBuffer.height == displayHeight)
+						? VK_FILTER_NEAREST
+						: VK_FILTER_LINEAR;
+				vkCmdBlitImage(pGraphics->primary.cmds[0].vk.cmd,
+				               backBuffer.renderTarget.vk.image,
+				               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				               pPogo->textures[readIdx]->vk.image,
+				               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region,
+				               filter);
 
 			// Post-blit: BackBuffer back to SHADER_READ (the layout the
 			// backend re-acquires it from next frame), pogo read half ->
@@ -517,13 +1531,14 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 							 RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_FRAGMENT),
 			};
 			pGraphics->primary.cmds[0].vk_d3d12_textureBarriers<2>(2, post);
+			}
 
 			cPostEffectComposite *pComposite = GetPostEffectComposite();
 			if(pComposite && (alFlags & tSceneRenderFlag_PostEffects) &&
 			   pComposite->HasActiveEffects())
 			{
 				pComposite->Render(afFrameTime, &pGraphics->primary.cmds[0], pPogo,
-				                   (uint32_t)vTargetSize.x, (uint32_t)vTargetSize.y,
+					                   displayWidth, displayHeight,
 				                   pGraphics->frameIndex);
 			}
 
@@ -534,13 +1549,14 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 			postCtx.device     = &pGraphics->device;
 			postCtx.frame      = cntx;
 			postCtx.frustum    = pFrustum;
-			postCtx.width      = (uint32_t)vTargetSize.x;
-			postCtx.height     = (uint32_t)vTargetSize.y;
+			postCtx.width      = displayWidth;
+			postCtx.height     = displayHeight;
 			postCtx.frameIndex = pGraphics->frameIndex;
 			postCtx.frameTime  = afFrameTime;
 			postCtx.pogo       = pPogo;
 			postCtx.depthView  = GetDepthView();
 			m_onPostWorldDraw.Signal(postCtx);
+			}
 		}
 
 		// Delivery — symmetric branch on the viewport's own Target
@@ -560,8 +1576,8 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 		deliverCtx.device     = &pGraphics->device;
 		deliverCtx.frame      = cntx;
 		deliverCtx.frustum    = pFrustum;
-		deliverCtx.width      = (uint32_t)vDeliverSize.x;
-		deliverCtx.height     = (uint32_t)vDeliverSize.y;
+		deliverCtx.width      = vDeliverSize.x > 0 ? (uint32_t)vDeliverSize.x : 0;
+		deliverCtx.height     = vDeliverSize.y > 0 ? (uint32_t)vDeliverSize.y : 0;
 		deliverCtx.frameIndex = pGraphics->frameIndex;
 		deliverCtx.frameTime  = afFrameTime;
 		if(const auto *pView = std::get_if<TargetView>(&mTarget))
@@ -623,6 +1639,30 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 	//////////////////////////////////////////////////////////////////////////
 
 	//-----------------------------------------------------------------------
+
+	void cViewport::SetCamera(cCamera *apCamera)
+	{
+		if(apCamera == mpCamera)
+			return;
+
+		mpCamera = apCamera;
+		ReleaseTemporalProvider();
+		ClearTemporalProviderFailure();
+		TemporalHistoryResetTriggers resetTriggers;
+		resetTriggers.cameraReplaced = true;
+		mTemporalHistoryReset |= TemporalHistoryResetRequired(resetTriggers);
+		if(auto *pState = std::get_if<HybridViewportState>(&m_state))
+		{
+			// Reflection history is tied to the camera pose. A camera swap is a
+			// genuine discontinuity; ordinary camera movement is handled by the
+			// renderer and must not reset the water denoiser.
+			pState->waterReflection.reset();
+			pState->waterHistoryReset = true;
+			pState->waterPrevCameraValid = false;
+		}
+	}
+
+	//-----------------------------------------------------------------------
 	
 	void cViewport::SetWorld(cWorld *apWorld)
 	{ 
@@ -635,6 +1675,25 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 		if(mpWorld) mpWorld->SetIsSoundEmitter(true);
 
 		mpRenderSettings->ResetVariables();
+		mTemporalUpscalerRequestedSettings = mpRenderSettings->mTemporalUpscaler;
+		mTemporalUpscalerStatus.requestedProvider =
+				mTemporalUpscalerRequestedSettings.provider;
+		mTemporalUpscalerStatus.requestedQuality =
+				mTemporalUpscalerRequestedSettings.quality;
+		ReleaseTemporalProvider();
+		ClearTemporalProviderFailure();
+		TemporalHistoryResetTriggers resetTriggers;
+		resetTriggers.worldReplaced = true;
+		mTemporalHistoryReset |= TemporalHistoryResetRequired(resetTriggers);
+
+		if(auto *pState = std::get_if<HybridViewportState>(&m_state))
+		{
+			// Reflection history must never transfer across worlds or level
+			// loads. The opaque NRD state is intentionally left untouched here.
+			pState->waterReflection.reset();
+			pState->waterHistoryReset = true;
+			pState->waterPrevCameraValid = false;
+		}
 	}
 	
 

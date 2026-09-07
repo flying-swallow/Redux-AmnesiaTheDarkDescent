@@ -74,7 +74,64 @@ public float4 sampleBindless2DLevel(uint idx, float2 uv, float lod)
     return gTextures2D[NonUniformResourceIndex(idx)].SampleLevel(gMaterialSampler, uv, lod);
 }
 
-// Auto-mip variant for fragment passes (gradient-based LOD).
+// Explicit-LOD twin of sampleBindless2D's SampleBias.  Ray-traced primary
+// shading has no fragment derivatives, so it supplies a texture-size-
+// independent ray-cone LOD base; resolve the concrete texture's dimensions
+// here before sampling.  This is where the reduced-render-extent material
+// bias reaches the ray-traced primary shading path, rather than only raster
+// fragment passes.
+//
+// Negative resolved LOD values are intentionally passed through: hardware
+// clamps them to the top mip, which is the correct behavior for a negative
+// materialMipBias at the top mip.
+public float4 sampleBindless2DCone(uint idx, float2 uv, float lodBase)
+{
+    if (idx == kInvalidTextureIndex) return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    if ((idx & kAnimatedTextureBit) != 0u)
+    {
+        uint a = idx & ~kAnimatedTextureBit;
+        float frame = (float)animFrame(gPerFrame.afT, gAnimTex[NonUniformResourceIndex(a)]);
+        uint w;
+        uint h;
+        uint elements;
+        gTextures2DArray[NonUniformResourceIndex(a)].GetDimensions(w, h, elements);
+        float lod = lodBase
+                  + 0.5f * log2(max(float(w) * float(h), 1.0f))
+                  + gPerFrame.materialMipBias;
+        return gTextures2DArray[NonUniformResourceIndex(a)].SampleLevel(gMaterialSampler, float3(uv, frame), lod);
+    }
+    uint w;
+    uint h;
+    gTextures2D[NonUniformResourceIndex(idx)].GetDimensions(w, h);
+    float lod = lodBase
+              + 0.5f * log2(max(float(w) * float(h), 1.0f))
+              + gPerFrame.materialMipBias;
+    return gTextures2D[NonUniformResourceIndex(idx)].SampleLevel(gMaterialSampler, uv, lod);
+}
+
+// Explicit-LOD cube-map sampler for ray-traced projected gobos. Cube textures
+// have no animated variant, so the texture index is always resolved directly
+// from gTexturesCube. Resolve the cube face dimensions here so the supplied
+// texture-size-independent LOD base can be completed before sampling.
+//
+// Negative resolved LOD values are intentionally passed through: hardware
+// clamps them to the top mip, which is the correct behavior for a negative
+// materialMipBias at the top mip.
+public float4 sampleBindlessCubeCone(uint idx, float3 dir, float lodBase)
+{
+    if (idx == kInvalidTextureIndex) return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    uint w;
+    uint h;
+    gTexturesCube[NonUniformResourceIndex(idx)].GetDimensions(w, h);
+    float lod = lodBase
+              + 0.5f * log2(max(float(w) * float(h), 1.0f))
+              + gPerFrame.materialMipBias;
+    return gTexturesCube[NonUniformResourceIndex(idx)].SampleLevel(gMaterialSampler, dir, lod);
+}
+
+// Auto-mip variant for fragment passes (gradient-based LOD), applying
+// gPerFrame.materialMipBias, the temporal-upscaling material bias; zero on
+// native-extent frames.
 public float4 sampleBindless2D(uint idx, float2 uv)
 {
     if (idx == kInvalidTextureIndex) return float4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -82,9 +139,29 @@ public float4 sampleBindless2D(uint idx, float2 uv)
     {
         uint a = idx & ~kAnimatedTextureBit;
         float frame = (float)animFrame(gPerFrame.afT, gAnimTex[NonUniformResourceIndex(a)]);
-        return gTextures2DArray[NonUniformResourceIndex(a)].Sample(gMaterialSampler, float3(uv, frame));
+        return gTextures2DArray[NonUniformResourceIndex(a)].SampleBias(gMaterialSampler, float3(uv, frame), gPerFrame.materialMipBias);
     }
-    return gTextures2D[NonUniformResourceIndex(idx)].Sample(gMaterialSampler, uv);
+    return gTextures2D[NonUniformResourceIndex(idx)].SampleBias(gMaterialSampler, uv, gPerFrame.materialMipBias);
+}
+
+// Explicit-gradient variant for fragment paths that have already propagated
+// derivatives through a procedural UV transform. SampleGrad has no bias
+// parameter, so scale the gradients by 2^materialMipBias: texture LOD is the
+// log2 of gradient magnitude, making this scaling add materialMipBias exactly.
+public float4 sampleBindless2DGrad(uint idx, float2 uv, float2 dUVdx, float2 dUVdy)
+{
+    if (idx == kInvalidTextureIndex) return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    float g = exp2(gPerFrame.materialMipBias);
+    if ((idx & kAnimatedTextureBit) != 0u)
+    {
+        uint a = idx & ~kAnimatedTextureBit;
+        float frame = (float)animFrame(gPerFrame.afT, gAnimTex[NonUniformResourceIndex(a)]);
+        // Texture2DArray gradients are 2D: the array layer has no derivative.
+        return gTextures2DArray[NonUniformResourceIndex(a)].SampleGrad(
+            gMaterialSampler, float3(uv, frame), dUVdx * g, dUVdy * g);
+    }
+    return gTextures2D[NonUniformResourceIndex(idx)].SampleGrad(
+        gMaterialSampler, uv, dUVdx * g, dUVdy * g);
 }
 
 // -----------------------------------------------------------------------------

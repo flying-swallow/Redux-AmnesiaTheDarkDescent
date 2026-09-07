@@ -37,12 +37,19 @@
 // There is no primary ray: the V-buffer already holds the primary hit — from
 // the raster pass, POM-corrected — so rayGen recovers it the way
 // MainCompositePass / DirectLightingPass do and traces only the scattered rays.
+//
+// The payload, the trace submission and the hit shading / continuation live in
+// PathTracer/PathTraceCommon.slang so a reduced-resolution producer can reuse
+// the same estimator. What stays here is stage-specific: the four entry points,
+// the output descriptors, and rayGen's V-buffer reconstruction, Bayer lobe
+// pick, demodulation and channel routing.
 
 #include "../HostDefinitions.h"
 #include "../Constants.h"
 
 import SceneTypes;
 import Scene;
+import RayCone;
 import Material;             // load*Material / materialAlphaTest / traceShadowRay / traceReflectionHit
 import bindless;             // gPackedHitInfo, gSceneObjects, gRtAccel, lights, grid
 import Brdf;                 // SurfaceBRDF / prepareSurface / evalBrdf / sampleBrdf
@@ -52,6 +59,7 @@ import PerFrame.resource;
 import Grid;                 // gridCellPos / gridFlattenCellIndex / gridCellValid (light grid lookup)
 import Random;
 import DiffuseShading;       // shared DiffuseShading + prepareDiffuseShading
+import PathTracer.PathTraceCommon; // shared path continuation and hit shading
 
 // Pass-private (set 2). Names are resolved by reflection in
 // RIProgram::bindDescriptors, so they must match the host side exactly.
@@ -62,9 +70,6 @@ import DiffuseShading;       // shared DiffuseShading + prepareDiffuseShading
 [vk::binding(3, 2)] RWTexture2D<float4> gIndirectSpecular;     // indirect specular, NOT demodulated
 [vk::binding(4, 2)] RWTexture2D<float4> gIndirectKeyExtra;     // .x = primary GGX alpha; .y = diffuse primary hit distance (m); .z = specular primary hit distance (m); .w reserved
 // Slot 5 is now free: the denoised ReSTIR DI result is consumed by MainCompositePass, not here.
-
-// Plane-offset epsilon for the shadow / scatter ray origin.
-static const float kRayEps = 1.0e-3f;
 
 // AREA_3X3 requires the primary lobe probability to be clamped to [1/4; 3/4].
 // The dither takes 4 distinct values per 2x2 tile, so this guarantees that any
@@ -89,161 +94,6 @@ float bayer2x2(uint2 samplePos, uint frameIndex)
     return (float(bayer2x2ui(samplePos, frameIndex)) + 0.5f) * 0.25f;
 }
 
-// [status]
-// 0x0002 : terminated
-struct ScatterPayload
-{
-    float3 radiance;
-    float3 thp;
-    float3 origin;
-    float3 direction;
-    float firstRayLength;
-    uint currStep;
-    uint status;
-    uint rngHi;     // RNG state carried in the payload so sampling is consistent across recursion steps
-    uint rngLo;
-
-    __init(uint2 rngState)
-    {
-        this.radiance = float3(0, 0, 0);
-        this.thp = float3(1, 1, 1);
-        this.origin = float3(0, 0, 0);
-        this.direction = float3(0, 0, 0);
-        this.firstRayLength = 0.f;
-        this.currStep = 1u;
-        this.status = 0x0000;
-        this.rngHi = rngState.x;
-        this.rngLo = rngState.y;
-    }
-}
-
-// Shadow rays use inline RayQuery (no shadow-specific miss/anyhit entry
-// points needed). RIProgram's RT pipeline layout is single-miss +
-// single-hit-group, so keeping shadow off the SBT lets the whole
-// pipeline build with one ray type.
-
-void traceScatterRay(inout ScatterPayload scatterPayload)
-{
-    RayDesc ray;
-    ray.Origin    = scatterPayload.origin;
-    ray.TMin      = 0.f;
-    ray.TMax      = 1e30f;
-    ray.Direction = scatterPayload.direction;
-
-    TraceRay(
-        gRtAccel,
-        RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES | RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
-        kRayMaskOpaque,
-        0, /* hitIdx */
-        1, /* rayTypeCount (scatter only — shadow uses inline RayQuery) */
-        0, /* missIdx */
-        ray,
-        scatterPayload
-    );
-}
-
-void handleHit(TriangleHit triangleHit, inout ScatterPayload scatterPayload)
-{
-    VertexData v = getVertexData(triangleHit);
-    uint materialID = gSceneObjects[triangleHit.instanceID].materialID;
-    float illuminationAmount = gSceneObjects[triangleHit.instanceID].illuminationAmount;
-    DiffuseShading sd = prepareDiffuseShading(v, materialID, illuminationAmount,
-                                              /*decodeRoughness=*/true,
-                                              /*applyNormalMap=*/true);
-    // Full PBR surface for the BSDF (albedo / F0 / GGX alpha). prepareDiffuseShading
-    // still supplies posW, the normal-mapped normalW (the BSDF shades with the
-    // bumped normal, same as the direct pass) and emission.
-    SurfaceBRDF s = prepareSurface(loadDiffuseMaterial(materialID), sd.normalW, v.texC);
-
-    if (scatterPayload.currStep == 1u)
-        scatterPayload.firstRayLength = distance(scatterPayload.origin, v.posW);
-
-    // Emission — emissive (illumination-map) surfaces add radiance directly into
-    // the path, so they bounce into the indirect term.
-    scatterPayload.radiance += scatterPayload.thp * sd.emission;
-
-    // Pull the RNG out of the payload, run NEE + bounce sample, push back.
-    RNG rng;
-    rng.s = uint2(scatterPayload.rngHi, scatterPayload.rngLo);
-
-    // Direct lighting (one-sample NEE). scatterPayload.direction still holds
-    // the incoming ray direction here (overwritten below for the next bounce),
-    // so the outgoing/"view" direction ("V") at the hit is its negation; the
-    // BSDF is view-dependent.
-    //
-    // Importance-sample lights from the world-space light grid: pick uniformly
-    // among only the lights whose radius reaches this shading point's cell
-    // (pdf = 1/count). Empty / out-of-grid cell → no contribution.
-    CellLights cl = getCellLights(sd.posW);
-    if (cl.count != 0u)
-    {
-        float3 V        = -scatterPayload.direction;
-        uint   pick     = rng.next_uint(cl.count);
-        uint   lightIdx = cellLightAt(cl, pick);
-        float  invPdf   = float(cl.count);
-
-        // Shared shadow-ray gate (shadeAnalyticLightRadiance: sample →
-        // NdotL-cull → shadow ray → raw Li·NdotL, undemodulated and BRDF-free),
-        // weighted here by the full GGX BSDF. Albedo is inside evalBrdf — this
-        // is BOUNCE albedo; the primary hit's factor stays out of the diffuse
-        // estimator (see file header).
-        float3 origin = sd.posW + sd.normalW * kRayEps;
-        float3 Ldir, LiNdotL;
-        if (shadeAnalyticLightRadiance(sd.posW, sd.normalW, lightIdx, origin, Ldir, LiNdotL))
-        {
-            float3 perLight = evalBrdf(s, V, Ldir) * LiNdotL;
-            scatterPayload.radiance += scatterPayload.thp * (perLight * invPdf);
-        }
-    }
-
-    // Sample the next bounce from the full BSDF (diffuse or GGX lobe, picked
-    // stochastically). `weight` is already f·N.L/pdf with the lobe-selection
-    // probability folded in — no cosine / albedo / 1/pSpec on top. V is the
-    // incoming ray negated, read BEFORE scatterPayload.direction is overwritten.
-    float3 Vb = -scatterPayload.direction;
-    float3 bounceL;
-    float3 bounceWeight;
-    bool   bounceSpecular;
-    if (!sampleBrdf(s, Vb, rng, bounceL, bounceWeight, bounceSpecular))
-    {
-        scatterPayload.status |= 0x0002u;
-        scatterPayload.rngHi = rng.s.x;
-        scatterPayload.rngLo = rng.s.y;
-        return;
-    }
-
-    scatterPayload.origin    = sd.posW + sd.normalW * kRayEps;
-    scatterPayload.direction = bounceL;
-    scatterPayload.thp      *= bounceWeight;
-
-    // Russian roulette on luminance(thp). There is nothing to finalize into, so
-    // the path just keeps going until the bounce budget (kPathTraceMaxBounces,
-    // enforced by the rayGen loop) or RR kills it.
-    uint rayStep = kPathTraceMaxBounces;
-    if (scatterPayload.currStep < rayStep)
-    {
-        float rrValue = dot(scatterPayload.thp, float3(0.2126f, 0.7152f, 0.0722f));
-        float prob    = max(0.f, 1.f - rrValue);
-        if (rng.next_float() >= prob)
-        {
-            scatterPayload.thp /= max(1e-12f, 1.f - prob);
-            if (any(scatterPayload.thp > 0.f))
-                scatterPayload.currStep++;
-            else
-                scatterPayload.status |= 0x0002u;
-
-            scatterPayload.rngHi = rng.s.x;
-            scatterPayload.rngLo = rng.s.y;
-            return;
-        }
-    }
-
-    scatterPayload.currStep++;
-
-    scatterPayload.rngHi = rng.s.x;
-    scatterPayload.rngLo = rng.s.y;
-}
-
 // Miss / hit shaders.
 
 [shader("miss")]
@@ -252,7 +102,7 @@ void ptMiss(inout ScatterPayload scatterPayload)
     // Environment map evaluator isn't ported — treat the miss as black
     // radiance and terminate. When an env map binding gets added, this is
     // where the lookup goes.
-    scatterPayload.status |= 0x0002u;
+    scatterPayload.status |= kPathTraceStatusTerminated;
 }
 
 [shader("anyhit")]
@@ -266,7 +116,7 @@ void ptAnyHit(inout ScatterPayload scatterPayload, BuiltInTriangleIntersectionAt
     hit.barycentrics   = attribs.barycentrics;
     VertexData v = getVertexData(hit);
     uint materialID = gSceneObjects[hit.instanceID].materialID;
-    if (materialAlphaTest(v, materialID, 0.f,
+    if (materialAlphaTest(v, materialID,
                           gSceneObjects[hit.instanceID].dissolveAmount))
         IgnoreHit();
 }
@@ -278,7 +128,7 @@ void ptCloseHit(inout ScatterPayload scatterPayload, BuiltInTriangleIntersection
     triangleHit.instanceID     = InstanceID();
     triangleHit.primitiveIndex = PrimitiveIndex();
     triangleHit.barycentrics   = attribs.barycentrics;
-    handleHit(triangleHit, scatterPayload);
+    pathTraceHandleHit(triangleHit, scatterPayload, kPathTraceMaxBounces, true);
 }
 
 [shader("raygeneration")]
@@ -286,14 +136,20 @@ void rayGen()
 {
     uint outW, outH;
     gIndirectDiffuse.GetDimensions(outW, outH);
+    // Camera-jitter audit (a): ray generation is dispatched at the full render
+    // extent, which is also the extent of gPackedHitInfo and all four outputs.
+    // `pixel` therefore addresses the primary raster sample directly; there is
+    // no camera ray reconstruction or half-resolution remap that could accept
+    // an additional jitter term here.
     uint2 pixel = DispatchRaysIndex().xy;
     if (pixel.x >= outW || pixel.y >= outH)
         return;
 
-    // Primary hit comes from the V-buffer (rasterized primary visibility with
-    // POM-corrected barycentrics) — same as the composite and direct passes.
-    // No primary ray is traced here. `gPackedHitInfo` already carries the
-    // raster hit, so a miss here is a real miss.
+    // The primary hit comes from the full-resolution V-buffer (rasterized
+    // primary visibility with POM-corrected barycentrics), not from `pixel`
+    // being converted into a camera ray. Its world position below is therefore
+    // already the raster sample's position and needs no second jitter term.
+    // No primary ray is traced here; a miss in gPackedHitInfo is a real miss.
     HitInfo hitInfo = HitInfo(gPackedHitInfo[pixel]);
     if (!hitInfo.isValid())
     {
@@ -306,18 +162,33 @@ void rayGen()
     }
 
     TriangleHit th = hitInfo.getTriangleHit();
-    VertexData v = getVertexData(th);
+    float triLod;
+    VertexData v = getVertexDataAndLodConstant(th, triLod);
     UniformObject obj = gSceneObjects[th.instanceID];
+    // The primary cone uses the geometric interpolated normal. It must be
+    // captured before prepareDiffuseShading applies the normal map, because
+    // cone-to-surface projection is a geometry term.
+    float hitT = length(v.posW - gPerFrame.posW);
+    RayCone cone = rayConePropagate(rayConePrimary(), hitT);
+    float texLodBase = rayConeTexLodBase(cone, triLod, v.normalW,
+                                         normalize(v.posW - gPerFrame.posW));
+    float surfaceFootprintW = rayConeSurfaceFootprint(cone, v.normalW,
+                                                      normalize(v.posW - gPerFrame.posW));
     DiffuseShading sd = prepareDiffuseShading(v, obj.materialID, obj.illuminationAmount,
+                                              texLodBase, surfaceFootprintW,
                                               /*decodeRoughness=*/true,
                                               /*applyNormalMap=*/true);
     // Bumped normal for the BSDF; the reprojection key below deliberately keeps
     // the GEOMETRIC normal (same convention as DirectLightingPass).
-    SurfaceBRDF s = prepareSurface(loadDiffuseMaterial(obj.materialID), sd.normalW, v.texC);
+    SurfaceBRDF s = prepareSurface(loadDiffuseMaterial(obj.materialID), sd.normalW, v.texC,
+                                   texLodBase);
 
     RNG rng;
     rng.init(pixel, gPerFrame.totalFrames);
 
+    // Category (b): this view vector is camera position minus the V-buffer hit
+    // position, not a view vector reconstructed from a pixel index. It is a
+    // world-space geometric direction and must remain free of projection jitter.
     float3 V = normalize(gPerFrame.posW - sd.posW);
     float pSpecPrimary = brdfSpecularProbability(s, V, kPrimaryLobeProbMin);
 
@@ -341,6 +212,10 @@ void rayGen()
             continue;   // below the horizon / degenerate — nothing to trace
 
         ScatterPayload payload = ScatterPayload(rng.s);
+        // Start every traced path at the primary V-buffer footprint; secondary
+        // hits add their travel distance to this cone in pathTraceHandleHit.
+        payload.coneWidth       = cone.width;
+        payload.coneSpreadAngle = cone.spreadAngle;
         payload.origin    = sd.posW + sd.normalW * kRayEps;
         payload.direction = L;
         // Diffuse is demodulated: dividing the primary albedo out of the seed
@@ -350,8 +225,8 @@ void rayGen()
         payload.thp = sampledSpecular ? weight
                                       : weight / max(sd.albedo, float3(1e-4f));
 
-        while (!((payload.status & 0x0002u) != 0u) && payload.currStep <= kPathTraceMaxBounces)
-            traceScatterRay(payload);
+        while (!((payload.status & kPathTraceStatusTerminated) != 0u) && payload.currStep <= kPathTraceMaxBounces)
+            traceScatterRay(payload, kPathTraceOpaqueRayFlags);
 
         // The traced ray IS the sampled lobe's ray, so its first-bounce distance
         // belongs to that lobe. The other lobe stays at zero this frame because
@@ -402,6 +277,9 @@ void rayGen()
     // Surface key in the SAME encoding DirectLightingPass writes to gDirectKeyOut
     // (viewZ, geometric normal). NrdPack reads it to build IN_VIEWZ and
     // IN_NORMAL_ROUGHNESS.
+    // Category (b): the reprojection key's viewZ is derived from the
+    // V-buffer world position with the unjittered view matrix; projection
+    // jitter must not enter this guide value.
     float  curZ = -mul(gPerFrame.viewMat, float4(sd.posW, 1.0f)).z;
     float3 curN = normalize(v.normalW);
     gIndirectKeyOut[pixel] = float4(curZ, curN);

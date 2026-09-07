@@ -19,6 +19,7 @@
 
 import SceneTypes;
 import Scene;               // cameraComputeRayPinhole
+import RayCone;
 import Material;
 import bindless;            // gPackedHitInfo (RWTexture2D<uint4>, set 1 binding kBindingPackedHitInfo)
 import HitInfo;
@@ -74,15 +75,27 @@ void csMain(uint3 dtid : SV_DispatchThreadID)
             float3 T = normalize(v.tangentW - N * dot(N, v.tangentW));
             float3 B = normalize(cross(N, T)) * vtx.tangentL[0].w;
 
-            // Reconstruct primary ray for this pixel. Jitter is applied so the
-            // ray matches the jittered raster projection VBufferRaster.3d.slang
-            // wrote this hit with.
+            // Category a: this ray must match the primary raster sample. The
+            // full-resolution gPackedHitInfo output supplies w,h at the same
+            // full render extent as the raster V-buffer, so apply the shared
+            // FULL-render-extent jitter without rescaling it.
             Ray ray = cameraComputeRayPinhole(pixelPos, uint2(w, h), /*applyJitter=*/true);
+
+            // The POM hit is a primary camera hit. Keep one cone LOD fixed for
+            // the entire height-map march so its linear and binary steps use
+            // one self-consistent footprint.
+            float3 rayDir = normalize(v.posW - gPerFrame.posW);
+            float hitT = length(v.posW - gPerFrame.posW);
+            RayCone cone = rayConePropagate(rayConePrimary(), hitT);
+            float triLod = triangleTexLodConstantForInstance(vtx,
+                                                              triangleHit.instanceID);
+            float texLodBase = rayConeTexLodBase(cone, triLod, v.normalW, rayDir);
 
             bool single = (m.materialConfig & kMaterialFlagIsHeightMapSingleChannel) != 0u;
             float2 newUv = parallaxOcclusionUV(
                 m.tex[4], m.heightMapScale * kParalaxScale, single,
-                normalize(ray.dir), N, T, B, v.texC);
+                normalize(ray.dir), N, T, B, v.texC,
+                texLodBase);
             float2 duv = newUv - v.texC;
 
             // Invert the UV delta into a barycentric delta using the

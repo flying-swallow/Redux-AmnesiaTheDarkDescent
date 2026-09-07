@@ -90,7 +90,7 @@ cLuxDebugHandler::cLuxDebugHandler() : iLuxUpdateable("LuxDebugHandler")
 	mbFastForward = false;
 	mpCBFastForward = NULL;
 
-	mpCBEvaluationOverlay = NULL;
+	mpCBRenderScale = NULL;
 }
 
 //-----------------------------------------------------------------------
@@ -905,7 +905,7 @@ void cLuxDebugHandler::CreateGuiWindow()
 
 	///////////////////////////
 	//Window
-	cVector2f vSize = cVector2f(250, 860);
+	cVector2f vSize = cVector2f(250, 846);
 	vGroupSize.x = vSize.x - 20;
 	cVector3f vPos = cVector3f(mpGuiSet->GetVirtualSize().x - vSize.x - 10, 10, 0);
 	mpDebugWindow = mpGuiSet->CreateWidgetWindow(0,vPos,vSize,_W("Debug Toolbar") );
@@ -1119,30 +1119,24 @@ void cLuxDebugHandler::CreateGuiWindow()
 	}
 
 	//////////////////////////
-	// Evaluation Overlay
+	// Render Scale (dev)
 	{
-		// Group
+		// Development-only control for the render/display resolution split: it only changes
+		// the render extent so the spatial-fallback and display-depth-reconstruction paths
+		// can be exercised; it wires no upscaler provider and enables no camera jitter.
 		vGroupPos = cVector3f(5, 10, 0.1f);
-		pGroup = mpGuiSet->CreateWidgetGroup(vPos, 100, _W("Evaluation Overlay"), mpDebugWindow);
+		pGroup = mpGuiSet->CreateWidgetGroup(vPos, 100, _W("Render Scale (dev)"), mpDebugWindow);
 
-		// Pick overlay
-		mpCBEvaluationOverlay = mpGuiSet->CreateWidgetComboBox(vGroupPos, vSize, _W("None"), pGroup);
-		mpCBEvaluationOverlay->AddItem("None");
-		mpCBEvaluationOverlay->AddItem("Variance");
-		mpCBEvaluationOverlay->AddItem("Ray Count");
-		mpCBEvaluationOverlay->AddItem("Ref Count");
-		mpCBEvaluationOverlay->AddItem("Life");
-		mpCBEvaluationOverlay->AddItem("Coverage");
-		mpCBEvaluationOverlay->AddItem("Shadow Flag");
-		mpCBEvaluationOverlay->SetSelectedItem(-1);
-		mpCBEvaluationOverlay->AddCallback(eGuiMessage_SelectionChange, this, kGuiCallback(ChangeEvaluationOverlay));
-		vGroupPos.y += 22;
-
-		// Honor authored shadow flags
-		pCheckBox = mpGuiSet->CreateWidgetCheckBox(cVector3f(vGroupPos.x, vGroupPos.y + 8, vGroupPos.z), vSize, _W("Honor authored shadow flags"), pGroup);
-		pCheckBox->SetChecked(!hpl::Interface<cGraphics>::Get()->allLightsCastShadows, false);
-		pCheckBox->SetUserValue(19);
-		pCheckBox->AddCallback(eGuiMessage_CheckChange, this, kGuiCallback(ChangeDebugText));
+		// Deliberately not persisted; each launch starts at native.
+		mpCBRenderScale = mpGuiSet->CreateWidgetComboBox(vGroupPos, vSize, _W("Native (100%)"), pGroup);
+		mpCBRenderScale->AddItem("Native (100%)");
+		mpCBRenderScale->AddItem("90%");
+		mpCBRenderScale->AddItem("75%");
+		mpCBRenderScale->AddItem("66%");
+		mpCBRenderScale->AddItem("50%");
+		mpCBRenderScale->AddItem("33%");
+		mpCBRenderScale->SetSelectedItem(0);
+		mpCBRenderScale->AddCallback(eGuiMessage_SelectionChange, this, kGuiCallback(ChangeRenderScale));
 		vGroupPos.y += 22;
 
 		// Group end
@@ -1408,8 +1402,6 @@ bool cLuxDebugHandler::ChangeDebugText(iWidget* apWidget, const cGuiMessageData&
 
 	else if(lNum == 17)  SetFastForward(bActive);
 
-	else if (lNum == 19) hpl::Interface<cGraphics>::Get()->allLightsCastShadows = !bActive;
-
 	return true;
 }
 kGuiCallbackDeclaredFuncEnd(cLuxDebugHandler, ChangeDebugText);
@@ -1578,14 +1570,19 @@ bool cLuxDebugHandler::PressLoadBatchLoadFile(iWidget* apWidget,const cGuiMessag
 }
 kGuiCallbackDeclaredFuncEnd(cLuxDebugHandler, PressLoadBatchLoadFile); 
 
-
 //-----------------------------------------------------------------------
 
-bool cLuxDebugHandler::ChangeEvaluationOverlay(iWidget* apWidget, const cGuiMessageData& aData)
+// Development-only control for the render/display resolution split: it only changes
+// the render extent so the spatial-fallback and display-depth-reconstruction paths
+// can be exercised; it wires no upscaler provider and enables no camera jitter.
+bool cLuxDebugHandler::ChangeRenderScale(iWidget* apWidget, const cGuiMessageData& aData)
 {
-	cHybridRenderer* pHybridRenderer = static_cast<cHybridRenderer*>(gpBase->mpEngine->GetGraphics()->GetRenderer(eRenderer_Main));
-	pHybridRenderer->SetOverlay(aData.mlVal);
+	static const float vRenderScales[] = {1.0f, 0.90f, 0.75f, 0.66f, 0.50f, 0.33f};
+	if(aData.mlVal < 0 || aData.mlVal >= (int)(sizeof(vRenderScales) / sizeof(vRenderScales[0]))) return true;
+
+	cGraphics *pGraphics = hpl::Interface<cGraphics>::Get();
+	if(pGraphics) pGraphics->devRenderScale = vRenderScales[aData.mlVal];
 
 	return true;
 }
-kGuiCallbackDeclaredFuncEnd(cLuxDebugHandler, ChangeEvaluationOverlay);
+kGuiCallbackDeclaredFuncEnd(cLuxDebugHandler, ChangeRenderScale);

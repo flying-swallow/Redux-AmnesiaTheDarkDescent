@@ -22,8 +22,12 @@
 #ifndef HPL_VIEWPORT_H
 #define HPL_VIEWPORT_H
 
+#include "graphics/DisplayDepthPolicy.h"
 #include "graphics/GraphicsTypes.h"
 #include "graphics/NrdIntegration.h"
+#include "graphics/TemporalCamera.h"
+#include "graphics/TemporalUpscaler.h"
+#include "graphics/TemporalUpscalerPolicy.h"
 #include "graphics/Graphics.h"
 #include "graphics/RIPogoBuffer.h"
 #include "gui/GuiTypes.h"
@@ -35,6 +39,31 @@
 #include <type_traits>
 #include <variant>
 #include <vector>
+
+// The graphics headers above drag in the Vulkan WSI / X11 headers, which
+// re-define None after DisplayDepthPolicy.h dropped it. Keep it out of every
+// consumer of this header too (see DebugDraw.h for the same clash).
+#ifdef None
+#undef None
+#endif
+
+namespace hpl {
+class WaterReflectionViewportState;
+}
+
+namespace std {
+
+// HybridViewportState's existing out-of-line destructor is implemented by
+// the renderer translation unit, while the water state intentionally remains
+// forward-declared in this header. Keep the default deleter's call out of
+// line so that unique_ptr can retain its exact default-deleter type without
+// requiring the water pass header here.
+template <> struct default_delete<hpl::WaterReflectionViewportState> {
+  constexpr default_delete() noexcept = default;
+  void operator()(hpl::WaterReflectionViewportState *apState) const noexcept;
+};
+
+} // namespace std
 
 namespace hpl {
 
@@ -50,6 +79,8 @@ class cWorld;
 class cGuiSet;
 class Image;
 class cViewport;
+class cTemporalPresentation;
+class cTemporalReactiveMask;
 struct cTexture;
 
 //------------------------------------------
@@ -83,6 +114,12 @@ struct WorldDrawCtx {
 // (DEPTH_ATTACHMENT_OPTIMAL); the pogo is not created yet.
 struct PostTranslucenceDrawCtx : WorldDrawCtx {
   struct RITextureView    *depthView;
+  // ACTUAL jittered raster view / projection used to draw the scene this
+  // frame. Column-major, column-vector (ml::float4x4 storage order).
+  // ALWAYS populated, including the native zero-jitter case, where they
+  // equal the frustum's own view / projection.
+  float viewMat[16];
+  float projMat[16];
 };
 
 // After the feed blit + post-effect chain: the pogo read half holds the final
@@ -128,6 +165,12 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 
 class cViewport {
 public:
+  enum class eRenderExtentOwner {
+    Native,
+    DevRenderScale,
+    Provider
+  };
+
   cViewport(cScene *apScene);
   ~cViewport();
 
@@ -140,10 +183,10 @@ public:
 
   // The state's finished color target for the current swapchain image, as
   // the consumer should read it: {x, y, width, height} describe the valid
-  // AUTHORED window inside the image — the hybrid backend overdraws by its
-  // guard band, so its window is the centered crop; the simple backend is
-  // 1:1 (0,0). cScene feeds this window into the viewport pogo in the
-  // post-processing step.
+  // authored window inside the scene image. The hybrid guard band is disabled,
+  // so this is currently the whole image; the simple backend is also 1:1.
+  // cScene feeds this window into the viewport pogo in the post-processing
+  // step.
   struct BackBuffer {
     uint32_t x;
     uint32_t y;
@@ -153,28 +196,71 @@ public:
     struct RITextureView renderTargetView = {};
   };
 
-  // cHybridRenderer: overscan intermediates — renderTarget is a SINGLE image
-  // (the main draw never ping-pongs; the composite writes once and the
-  // forward passes draw on top), depth + packed-TriangleHit visibility back
-  // the same overscan frame. Arrays are indexed by Interface<cGraphics>::Get()->swapchainIndex.
-  struct HybridViewportState {
-    uint32_t width = 0;        // image extent = overscanExtent(target size)
-    uint32_t height = 0;
-    uint32_t targetWidth = 0;  // authored target size from Update — the
-    uint32_t targetHeight = 0; //   BackBuffer crop window
+  // The matrices and temporal inputs the renderer actually used for this
+  // viewport's raster frame. viewMat is the unjittered view matrix and
+  // projMat is the jittered projection matrix. All matrices are column-major
+  // column-vector (ml::float4x4 storage order). The record is stale when its
+  // frameIndex differs from the current graphics frame.
+  struct RasterCamera {
+    float viewMat[16] = {};
+    float projMat[16] = {};
+    float unjitteredProjMat[16] = {};
+    float previousViewMat[16] = {};
+    float previousUnjitteredProjMat[16] = {};
+    float jitterPixels[2] = {};
+    float previousJitterPixels[2] = {};
+    float deltaTimeMs = 0.0f;
+    uint32_t frameIndex = 0;
+    bool historyReset = false;
+    bool valid = false;
+  };
 
-    HybridViewportState() = default;
+  void PublishRasterCamera(const float aViewMat[16],
+                           const float aProjMat[16]);
+  void PublishRasterTemporalFrame(const TemporalFrameSnapshot &aFrame,
+                                  float aDeltaTimeMs);
+  const RasterCamera &GetRasterCamera() const;
+
+  // cHybridRenderer: the renderTarget is a SINGLE scene image (the main draw
+  // never ping-pongs; the composite writes once and the forward passes draw on
+  // top), with depth + packed-TriangleHit visibility backing the same frame.
+  // The guard band is disabled: width/height are the negotiated render extent,
+  // and targetWidth/targetHeight are the whole authored crop window inside
+  // that image. The crop fields are INPUT-space and reserved for a future
+  // guard band. Arrays are indexed by Interface<cGraphics>::Get()->swapchainIndex.
+  struct HybridViewportState {
+    uint32_t width = 0;        // negotiated scene/input image extent
+    uint32_t height = 0;
+    uint32_t targetWidth = 0;  // authored crop window inside the input image
+    uint32_t targetHeight = 0;
+
+    HybridViewportState();
     ~HybridViewportState();
     HybridViewportState(const HybridViewportState &) = delete;
     HybridViewportState &operator=(const HybridViewportState &) = delete;
-    HybridViewportState(HybridViewportState &&rhs) noexcept = default;
+    HybridViewportState(HybridViewportState &&rhs) noexcept;
     HybridViewportState &operator=(HybridViewportState &&rhs) noexcept;
 
     void Update(cGraphics::FrameContext *cntx, cVector2l size);
     BackBuffer GetBackBuffer() {
       const uint32_t swapchainIndex = Interface<cGraphics>::Get()->swapchainIndex;
-      return {(width - targetWidth) / 2, (height - targetHeight) / 2,
-              targetWidth, targetHeight, *renderTarget[swapchainIndex],
+      if (width == 0 || height == 0 || renderTarget[swapchainIndex].isEmpty() ||
+          renderTargetView[swapchainIndex].isEmpty())
+        return {};
+
+      // These fields are input-space authored bounds. Keep malformed state
+      // inside the physical scene image before doing unsigned crop arithmetic.
+      const uint32_t validTargetWidth =
+          targetWidth > width ? width : targetWidth;
+      const uint32_t validTargetHeight =
+          targetHeight > height ? height : targetHeight;
+      if (validTargetWidth == 0 || validTargetHeight == 0)
+        return {};
+      return {(width - validTargetWidth) / 2,
+              (height - validTargetHeight) / 2,
+              validTargetWidth,
+              validTargetHeight,
+              *renderTarget[swapchainIndex],
               *renderTargetView[swapchainIndex]};
     }
 
@@ -278,11 +364,30 @@ public:
     // requires a copyable capture.
     std::shared_ptr<NrdIntegration> nrd;
 
+    // Reflection history belongs to one (viewport, water object) pair. The
+    // state is deliberately a unique_ptr because WaterReflectionViewportState
+    // is neither copyable nor movable, while HybridViewportState must remain
+    // movable for the resize path. It is created lazily on first water use;
+    // destroying/resetting it invokes its own deferred GPU-release contract.
+    std::unique_ptr<WaterReflectionViewportState> waterReflection;
+
     bool indirectLightingInit = false;
 
-    // Set when the temporal history must be discarded (resize, level load,
-    // teleport). Separate from indirectLightingInit: the latter describes
-    // resource lifetime and must not reissue UNDEFINED barriers mid-stream.
+    // Water-only cut-detection state. These are intentionally separate from
+    // indirectHistoryReset, which the opaque NRD block consumes and clears
+    // earlier in the frame. Normal camera movement and animated wave normals
+    // do not reset reflection history; only resize, world/camera changes, or
+    // first use do.
+    bool waterHistoryReset = false;
+    bool waterPrevCameraValid = false;
+    cVector3f waterPrevCameraPos;
+    cVector3f waterPrevCameraDir;
+    cMatrixf waterPrevProjMat = cMatrixf::Identity;
+
+    // Set when the opaque temporal history must be discarded (resize, level
+    // load, teleport). Separate from indirectLightingInit: the latter
+    // describes resource lifetime and must not reissue UNDEFINED barriers
+    // mid-stream.
     bool indirectHistoryReset = false;
     bool nrdInputInShaderResource = false;
 
@@ -297,12 +402,9 @@ public:
     RISharedPointer<RITexture> reservoirTemporalTexture;
     RISharedPointer<RITextureView> reservoirTemporalView;
 
-    // Previous-frame camera for velocity / history reprojection —
-    // per-viewport camera state. hasPrevCamera seeds prev = current on the
-    // first frame (and after resize, when the histories were invalidated).
-    float prevViewMat[16] = {};
-    float prevProjMat[16] = {};
-    bool hasPrevCamera = false;
+    // Previous UNJITTERED camera and sample offset for velocity / history
+    // reprojection, kept independently for each viewport.
+    hpl::TemporalViewportState temporal;
   };
 
   // cRendererWireFrame + cRendererSimple (identical needs): they draw 1:1
@@ -324,6 +426,9 @@ public:
     void Update(cGraphics::FrameContext *cntx, cVector2l size);
     BackBuffer GetBackBuffer() {
       const uint32_t swapchainIndex = Interface<cGraphics>::Get()->swapchainIndex;
+      if (width == 0 || height == 0 || renderTarget[swapchainIndex].isEmpty() ||
+          renderTargetView[swapchainIndex].isEmpty())
+        return {};
       return {0, 0, width, height, *renderTarget[swapchainIndex],
               *renderTargetView[swapchainIndex]};
     }
@@ -372,7 +477,7 @@ public:
   void SetIsListener(bool abX) { mbIsListener = abX; }
   bool IsListener() { return mbIsListener; }
 
-  void SetCamera(cCamera *apCamera) { mpCamera = apCamera; }
+  void SetCamera(cCamera *apCamera);
   cCamera *GetCamera() { return mpCamera; }
 
   void SetWorld(cWorld *apWorld);
@@ -399,11 +504,64 @@ public:
   RI_PogoBuffer *PreparePogoBuffer(cGraphics::FrameContext *cntx);
   // Read-only: the existing pogo, or nullptr if none was created yet (no
   // world evaluated at this viewport so far).
-  RI_PogoBuffer *PogoBuffer() { return mlPogoWidth != 0 ? &mPogoBuffer : nullptr; }
+  RI_PogoBuffer *PogoBuffer() {
+    return mlPogoWidth != 0 && mlPogoHeight != 0 &&
+                   !mPogoBuffer.textures[0].isEmpty() &&
+                   !mPogoBuffer.textures[1].isEmpty() &&
+                   !mPogoBuffer.pogoView[0].isEmpty() &&
+                   !mPogoBuffer.pogoView[1].isEmpty()
+               ? &mPogoBuffer
+               : nullptr;
+  }
 
-  void SetTarget(const Target &aTarget) { mTarget = aTarget; }
+  void SetTarget(const Target &aTarget);
   const Target &GetTarget() const { return mTarget; }
   cVector2l GetTargetSize() const;
+  cVector2l GetDisplayExtent() const { return GetTargetSize(); }
+
+  // Negotiated SCENE/INPUT extent used for shading. (0,0) means native —
+  // follow the display extent. GetRenderExtent() clamps a non-native value to
+  // at least 1x1 and at most the display extent, and falls back to the display
+  // extent when the display is degenerate. SetRenderExtent() is the raw setter
+  // and does not change ownership; use the provider ownership entry points
+  // below for a successfully prepared temporal-upscaler context. The provider
+  // owns the extent in preference to the development render-scale override.
+  void SetRenderExtent(cVector2l aRenderExtent) { mRenderExtent = aRenderExtent; }
+  // Claims the render extent for a successfully prepared temporal-upscaler
+  // context. Takes precedence over the development render-scale override.
+  // Returns true when this call changed the extent or took ownership; a
+  // changed extent also flags the temporal history reset.
+  bool ClaimProviderRenderExtent(cVector2l aRenderExtent);
+  // Releases provider ownership: restores the (0,0) native sentinel and lets
+  // the development override take the extent again.
+  void ReleaseProviderRenderExtent();
+  cVector2l GetRenderExtent() const;
+
+  // The provider selection for this viewport. Only a ticket that has
+  // successfully prepared an iTemporalUpscaler context may set a non-Off
+  // provider; the reactive-mask work is gated on it, so the Off/native path
+  // allocates nothing and records nothing.
+  const TemporalUpscalerSettings &GetTemporalUpscalerSettings() const;
+  void SetTemporalUpscalerSettings(const TemporalUpscalerSettings &aSettings);
+
+  // Non-null only when a temporal upscaling provider is prepared for the
+  // current frame and BeginFrame succeeded; null on the Off/native path.
+  class cTemporalReactiveMask *GetTemporalReactiveMask();
+
+  // Returns the number of jitter phases for the provider successfully prepared
+  // for the current frame, or zero when no provider is prepared.
+  uint32_t GetTemporalJitterPhaseCount() const;
+  // Returns whether a temporal provider successfully prepared the current
+  // frame.
+  bool IsTemporalProviderPrepared() const;
+  // Returns the requested and actual effective temporal-upscaler settings and
+  // the reason an effective provider is unavailable, when one exists.
+  TemporalUpscalerStatus GetTemporalUpscalerStatus() const;
+
+  // Consumed by the renderer at the next snapshot point after a provider
+  // failure. This forces its temporal history and the render extent back to
+  // the native path without embedding presentation state in HybridViewportState.
+  bool ConsumeTemporalHistoryReset();
 
   // Fully evaluate the viewport for this frame: world draw -> feed (the
   // BackBuffer crop window blitted into the pogo read half) -> post-effect
@@ -421,10 +579,26 @@ public:
   bool Evaluate(cGraphics::FrameContext *cntx, float afFrameTime, tFlag alFlags);
 
 
+  // Use the render-extent pair for scene-side access before the pre-feed HDR
+  // hook.
+  struct RITextureView *GetRenderDepthView();
+  struct RITexture *GetRenderDepthTexture();
+  struct RITextureView *GetRenderDepthSampleView();
+
+  // The current frame's display attachment is preferred. Otherwise this
+  // returns the scene pair only when its actually allocated size matches the
+  // display extent and the logical render extent also matches; otherwise no
+  // depth is returned.
   struct RITextureView *GetDepthView();
-  // The depth+stencil attachment image backing GetDepthView() — for callers
-  // that need to issue their own subresource (e.g. stencil-aspect) barriers.
+  // The depth+stencil image backing the same selected pair as GetDepthView(),
+  // following the same allocation-size contract.
   struct RITexture *GetDepthTexture();
+  // GetDepthView(), but only when the selected pair's actual allocation is
+  // exactly aWidth x aHeight — the extent of the rendering instance it would
+  // be attached to. Both dimensions must match; otherwise nullptr is
+  // returned and the caller takes its no-depth path.
+  struct RITextureView *GetDepthViewForExtent(uint32_t alWidth,
+                                              uint32_t alHeight);
   BackBuffer GetBackBuffer();
 
   // Pipeline-stage events, signaled by Evaluate. Handlers run inside the
@@ -452,21 +626,61 @@ public:
   Event<const WorldDrawCtx &> &OnPostDelivery() { return m_onPostDelivery; }
 
   template <typename Backend>
-  Backend *PrepareToRender(cGraphics::FrameContext *cntx) {
-    const cVector2l size = GetTargetSize();
+  Backend *PrepareToRender(cGraphics::FrameContext *cntx,
+                           cVector2l aRenderExtent = cVector2l(0, 0)) {
+    const cVector2l size =
+        (aRenderExtent.x == 0 && aRenderExtent.y == 0)
+            ? GetRenderExtent()
+            : aRenderExtent;
+    if (size.x <= 0 || size.y <= 0)
+      return nullptr;
     if (!std::holds_alternative<Backend>(m_state)) {
       // emplace destroys the prior alternative, whose destructor defers its
       // GPU resources to the frame freelist — no explicit dispose needed.
       m_state.emplace<Backend>();
     }
     Backend &state = std::get<Backend>(m_state);
+    const uint32_t previousWidth = state.width;
+    const uint32_t previousHeight = state.height;
     state.Update(cntx, size);
+    if constexpr (std::is_same_v<Backend, HybridViewportState>) {
+      // Update's resize path resets the state with `*this = {}`. Observe the
+      // resulting extent here so the water history is also cut on first use
+      // and on every resize, alongside the opaque history reset.
+      if (state.width != previousWidth || state.height != previousHeight) {
+        state.waterHistoryReset = true;
+        state.waterPrevCameraValid = false;
+      }
+    }
     return &state;
   }
 
 private:
+  struct DisplayDepthPair {
+    struct RITexture *image = nullptr;
+    struct RITextureView *attachmentView = nullptr;
+  };
+
+  struct DisplayDepthResources {
+    DisplayDepthInputs inputs = {};
+    DisplayDepthPair presentation = {};
+    DisplayDepthPair scene = {};
+  };
+
+  // Builds the policy inputs and captures each candidate's resolved pair once.
+  DisplayDepthResources BuildDisplayDepthInputs() const;
+  DisplayDepthPair ResolveDisplayDepth(
+      const DisplayDepthExtent *apRequestedExtent = nullptr) const;
+  // Logical negotiated/clamped extent guard only; it does not prove the
+  // scene depth image was allocated at that extent.
+  bool RenderExtentEqualsDisplayExtent() const;
+
   // Hands the pogo halves' GPU resources to the frame freelist.
   void ReleasePogoBuffer(cGraphics::FrameContext *cntx);
+  bool PrepareTemporalProvider(cGraphics::FrameContext *cntx,
+                               bool worldWillRender);
+  void ReleaseTemporalProvider();
+  void ClearTemporalProviderFailure();
 
   cScene *mpScene;
 
@@ -493,6 +707,31 @@ private:
 
   ViewportState m_state;
   Target mTarget = TargetSwapchain{};
+  cVector2l mRenderExtent = cVector2l(0, 0);
+  RasterCamera mRasterCamera = {};
+  bool mTemporalHistoryReset = false;
+  std::unique_ptr<cTemporalPresentation> mpTemporalPresentation;
+  std::unique_ptr<cTemporalReactiveMask> mpTemporalReactiveMask;
+  std::shared_ptr<iTemporalUpscaler> mpTemporalUpscalerProvider;
+  TemporalUpscalerSettings mTemporalProviderPreparedSettings = {};
+  TemporalUpscalerExtent mTemporalProviderPreparedRenderExtent = {};
+  TemporalUpscalerExtent mTemporalProviderPreparedDisplayExtent = {};
+  bool mbTemporalProviderPrepared = false;
+  uint32_t mlTemporalJitterPhaseCount = 0;
+  TemporalUpscalerSettings mTemporalUpscalerRequestedSettings = {};
+  TemporalUpscalerSettings mTemporalUpscalerSettings = {};
+  TemporalUpscalerStatus mTemporalUpscalerStatus = {};
+  TemporalProviderFailureState mTemporalProviderFailure = {};
+  const char *mpTemporalProviderFailureReason = nullptr;
+  const char *mpTemporalProviderUnavailableReasonLogged = nullptr;
+  bool mTemporalReactiveMaskActive = false;
+  bool mTemporalPresentationDepthValid = false;
+  // Tracks which source owns the current render extent. Native means the
+  // (0,0) sentinel follows the display; the development override may restore
+  // that sentinel only while it owns the extent, so it cannot stomp a
+  // provider-owned extent. The provider takes precedence over the override.
+  eRenderExtentOwner mRenderExtentOwner = eRenderExtentOwner::Native;
+  bool mbDevRenderScaleIgnoredLogged = false;
   std::unique_ptr<cRenderSettings> mpRenderSettings;
 
   uint32_t mlLastEvaluatedFrame = UINT32_MAX; // once-per-frame guard

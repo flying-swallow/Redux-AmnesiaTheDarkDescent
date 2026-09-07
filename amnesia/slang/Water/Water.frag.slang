@@ -8,7 +8,8 @@
 //   pass 0 (MUL blend): output surfaceTint·refractionExposure → dst *= that
 //                       (tints + lifts the refracted bottom, matching the old
 //                        surfaceTint · (refr·kWaterRefractionExposure)).
-//   pass 1 (ADD blend): wave normal + Fresnel·fade × an inline RT LIT reflection
+//   pass 1 (ADD blend): wave normal + Fresnel·fade × a denoised half-resolution
+//                       reflection sampled from WaterReflectionPass before this draw
 //                       → dst += reflColor·fresnel.
 // Combined: surfaceTint·refr + reflColor·fresnel — the old water combine.
 //
@@ -36,19 +37,21 @@
 
 import SceneTypes;
 import Scene;
-import Material;             // load*Material / materialAlphaTest / traceShadowRay / traceReflectionHit
+import Material;             // loadWaterMaterial
 import bindless;
 import PerFrame.resource;
 import Fog;                  // computeFog — fade the water surface into world/area fog
-import Shading;                     // DiffuseShading / prepareDiffuseShading / evalAnalyticLight
-import Brdf;                 // brdfTangentToWorld — local->world hemisphere basis
-import Random;               // interleavedGradientNoise — per-pixel stable dither
-import Translucent.WaterCommon; // waterWaveNormalTangent
+import Water.WaterSurface;
+import Water.WaterReflectionSample;
+
+[vk::binding(0, 2)] Texture2D<float4> gWaterReflectionSpecular;
+[vk::binding(1, 2)] Texture2D<float4> gWaterReflectionGuidePosViewZ;
+[vk::binding(2, 2)] Texture2D<float4> gWaterReflectionGuideNormalWeight;
 
 struct WaterPC
 {
     uint pass;   // 0 = tint (MUL), 1 = reflection (ADD)
-    uint _p0;
+    uint reflectionAvailable;
     uint _p1;
     uint _p2;
 };
@@ -64,118 +67,13 @@ struct WaterVSOut
     float4 posH                    : SV_POSITION;
 };
 
-// Schlick-Fresnel — mirrors deferred_common.h.fsl::Fresnel(eDotN, bias, pw).
-// Base clamped positive: eDotN can exceed 1.0 by a ULP (normalize rounding)
-// and pow(negative, fractional) is NaN — see Translucent.frag.slang.
-float computeFresnel(float edotN, float bias, float pw)
-{
-    float facing = max(1.0f - edotN, 1.0e-6f);
-    return saturate(bias + (1.0f - bias) * pow(facing, pw));
-}
-
-// One traced bounce of indirect irradiance at a world-space point, ALBEDO-
-// DEMODULATED like PathTracePass.rt.slang's output: the point's own albedo is
-// deliberately left out (the caller re-modulates), the throughput starts at 1
-// and the cosine pdf cancels the diffuse lobe's 1/pi, so each sample's
-// contribution is just what the bounce vertex emits/reflects. Only ONE bounce:
-// a fragment shader has no payload recursion under inline RayQuery and cannot
-// afford a path loop per water pixel.
-//
-// SAMPLING IS DETERMINISTIC ON PURPOSE. Nothing denoises or temporally filters
-// behind the water pass, so a per-frame random direction would boil visibly on
-// the reflection. Instead the u1 (elevation) dimension is stratified over the
-// sample count and u2 (azimuth) is rotated by a dither that depends only on the
-// pixel - no gPerFrame.totalFrames. The tradeoff is deliberate: the estimate is
-// biased into a fixed low-sample pattern (a faint static structure in the
-// bounce) rather than unbiased-but-flickering, which reads far better with no
-// denoiser behind it.
-float3 traceIndirectAtHit(float3 posW, float3 normalW, uint2 pixel)
-{
-    float3x3 basis  = brdfTangentToWorld(normalW);   // rows (T,B,N): mul(local, basis) -> world
-    float    dither = interleavedGradientNoise(pixel);
-    float3   origin = posW + normalW * 1.0e-3f;
-    float3   sum    = float3(0.f);
-
-    const float invSamples = 1.0f / float(kWaterReflectionIndirectSamples);
-    for (uint s = 0u; s < kWaterReflectionIndirectSamples; ++s)
-    {
-        // Stratified elevation, golden-ratio-advanced + pixel-rotated azimuth.
-        float u1 = (float(s) + 0.5f) * invSamples;
-        float u2 = frac(dither + float(s) * 0.61803398875f);
-
-        // Cosine-weighted hemisphere sample (z = up) - the same concentric map
-        // the path tracer's diffuse bounce uses.
-        float  r   = sqrt(u1);
-        float  phi = 2.0f * 3.14159265358979f * u2;
-        float3 localDir = float3(r * cos(phi), r * sin(phi), sqrt(max(0.f, 1.0f - u1)));
-        float3 dir = normalize(mul(localDir, basis));
-
-        // A miss contributes nothing - there is no environment map and the path
-        // tracer's miss shader is black too, so both agree that "sky" = 0.
-        TriangleHit gh;
-        if (!traceReflectionHit(origin, dir, 1.0e30f, gh))
-            continue;
-
-        uint       gMat = gSceneObjects[gh.instanceID].materialID;
-        VertexData gv   = getVertexData(gh);
-        float      gIll = gSceneObjects[gh.instanceID].illuminationAmount;
-        DiffuseShading gsd = prepareDiffuseShading(gv, gMat, gIll, /*decodeRoughness=*/true);
-
-        // Same energy convention as PathTracePass.rt.slang::handleHit: emission
-        // enters the path directly and the NEE direct term carries the BOUNCE
-        // vertex's albedo (the primary point's albedo stays out, for the caller).
-        // The pow(albedo, kGIAlbedoBoostExp) art-direction knob is this site only -
-        // handleHit folds plain albedo into evalBrdf and never applies the boost.
-        // At the current kGIAlbedoBoostExp = 1.0f the pow is identity and the two
-        // sites are numerically in the same units; raising the boost above 1.0
-        // makes this producer read hotter than the path tracer's for the same
-        // input, which also shifts what the firefly threshold below means here.
-        float3 giAlbedo = pow(gsd.albedo, kGIAlbedoBoostExp);
-        float3 sampleRadiance = gsd.emission + giAlbedo * evalAnalyticLight(gsd);
-
-        // Firefly clamp, same form as PathTracePass.rt.slang's rayGen: cap the
-        // sample's luminance by scaling the whole float3, so hue survives where a
-        // per-channel clamp would shift it. What is capped is DEMODULATED
-        // irradiance (only the BOUNCE albedo is inside; this point's own albedo is
-        // the caller's) - the path tracer's units, so gPerFrame.fireflyClampThreshold
-        // means the same thing at both sites. Applied per sample, BEFORE the
-        // invSamples average (each sample estimates the same integral, so the
-        // per-sample scale is the final scale) and before the artistic
-        // kWaterReflectionIndirectIntensity gain, which is deliberately outside the
-        // clamped units. Threshold <= 0 disables.
-        float sampleLum = brdfLuminance(sampleRadiance);
-        if (gPerFrame.fireflyClampThreshold > 0.f && sampleLum > gPerFrame.fireflyClampThreshold)
-            sampleRadiance *= gPerFrame.fireflyClampThreshold / sampleLum;
-
-        sum += sampleRadiance;
-    }
-
-    return sum * invSamples * kWaterReflectionIndirectIntensity;
-}
-
-// Fully (lit-)shade a reflection-ray hit: albedo·(direct NEE + one traced
-// indirect bounce) + emission - the same energy convention as the primary
-// composite, which is exactly albedo·(direct + indirect) + emission. The
-// screen-space gIndirectLighting texture cannot be sampled at an arbitrary
-// reflection-ray hit, so the indirect term is re-traced here instead; without
-// it, geometry that is only GI-lit reflects as black.
-float3 shadeReflectionHit(TriangleHit th, uint2 pixel)
-{
-    uint matID  = gSceneObjects[th.instanceID].materialID;
-    VertexData v = getVertexData(th);
-    float illum = gSceneObjects[th.instanceID].illuminationAmount;
-    DiffuseShading sd = prepareDiffuseShading(v, matID, illum);
-    float3 direct = (kDefaultRenderDirectLighting != 0u) ? evalAnalyticLight(sd) : float3(0.f);
-    float3 indirect = (kDefaultRenderIndirectLighting != 0u)
-                        ? traceIndirectAtHit(sd.posW, sd.normalW, pixel) : float3(0.f);
-    // Both terms are demodulated irradiance - one albedo turns them into
-    // outgoing radiance, matching the primary composite's convention.
-    return sd.albedo * (direct + indirect) + sd.emission;
-}
-
 [shader("fragment")]
 float4 psMain(WaterVSOut psIn) : SV_TARGET
 {
+    float2 dBaseUvDx = ddx(psIn.uv);
+    float2 dBaseUvDy = ddy(psIn.uv);
+    float3 dpdx = ddx(psIn.posW);
+    float3 dpdy = ddy(psIn.posW);
     UniformObject obj   = gSceneObjects[psIn.objectId];
     WaterMaterial water = loadWaterMaterial(obj.materialID);
 
@@ -201,61 +99,48 @@ float4 psMain(WaterVSOut psIn) : SV_TARGET
         return float4(tint * kWaterRefractionExposure * fog.visibility, 1.0f);
     }
 
-    // pass 1 — Fresnel-weighted lit reflection (ADD).
-    //
-    // Build the surface frame from screen-space posW derivatives instead of the
-    // interpolated vertex normal/tangent. Water plane meshes frequently ship
-    // without usable normal/tangent streams; we'd then bind the +Z/+X vertex
-    // fallback, which for an XZ-authored water plane points *sideways*, sending
-    // the reflection ray into walls (dark) — the tint still renders because it
-    // doesn't use the normal, so the symptom is "water but no reflection". The
-    // geometric normal from ddx/ddy(posW) is exact for the flat surface and
-    // independent of the mesh's vertex attributes.
+    // pass 1 — Fresnel-weighted lit reflection (ADD). The derivative inputs
+    // were captured before fog and pass control flow above.
+    // Category (a): this view vector is formed from the world position
+    // interpolated at the jittered full-resolution raster sample, not from a
+    // pixel-index ray reconstruction; the raster sample already carries the
+    // primary-sample alignment.
     float3 eye  = normalize(psIn.posW - gPerFrame.posW); // camera -> surface
-    float3 dpdx = ddx(psIn.posW);
-    float3 dpdy = ddy(psIn.posW);
-    float3 N    = normalize(cross(dpdx, dpdy));
-    if (dot(eye, N) > 0.0f)
-        N = -N;                                       // face the camera
-    float3 T  = dpdx - N * dot(dpdx, N);              // tangent in the surface plane
-    float  tl = length(T);
-    T = (tl > 1.0e-5f) ? T / tl
-        : ((abs(N.y) < 0.99f) ? normalize(cross(float3(0.f, 1.f, 0.f), N))
-                              : normalize(cross(float3(1.f, 0.f, 0.f), N)));
-    float3 B = cross(N, T);
-
-    float3 nT = waterWaveNormalTangent(water, psIn.uv, gPerFrame.afT);
-    float3 waveN = normalize(nT.x * T + nT.y * B + nT.z * N);
-    if (dot(eye, waveN) > 0.0f)
-        waveN = -waveN;
-    float edotN   = max(dot(-eye, waveN), 0.0f);
-    float fresnel = computeFresnel(edotN, water.frenselBias, water.frenselPow);
+    WaterSurfaceFrame frame = waterSurfaceFrame(dpdx, dpdy, eye);
+    float3 waveN = waterWaveNormalWorld(water, psIn.uv,
+                                        dBaseUvDx, dBaseUvDy,
+                                        gPerFrame.afT, frame, eye);
+    float fresnel = waterFresnelTerm(water, eye, waveN);
 
     // Distance fade: fade the reflection out with view depth. Only when a real
     // fade range is authored — without this guard a 0 reflectionFadeEnd makes
     // fadeLen ~1e-6 and saturate()→1, which zeroes the reflection everywhere.
-    if (water.reflectionFadeEnd > water.reflectionFadeStart)
+    float viewZ = -mul(gPerFrame.viewMat, float4(psIn.posW, 1.0f)).z;
+    fresnel *= waterDistanceFade(water, viewZ);
+
+    // Reflection normal: calmer than refraction (blend wave normal toward flat).
+    float3 reflN = waterReflectionNormal(frame, waveN);
+
+    float3 sampledReflection = float3(0.0f);
+    if (pc.reflectionAvailable != 0u)
     {
-        float viewZ   = -mul(gPerFrame.viewMat, float4(psIn.posW, 1.0f)).z;
-        float fadeLen = water.reflectionFadeEnd - water.reflectionFadeStart;
-        fresnel *= 1.0f - saturate((viewZ - water.reflectionFadeStart) / fadeLen);
+        WaterReflectionSample s = sampleWaterReflectionHalfRes(
+            gWaterReflectionSpecular,
+            gWaterReflectionGuidePosViewZ,
+            gWaterReflectionGuideNormalWeight,
+            uint2(psIn.posH.xy),
+            psIn.posW,
+            frame.N,
+            reflN);
+        if (s.valid)
+            sampledReflection = s.radiance;
     }
-
-    // Reflection direction: calmer than refraction (blend wave normal toward flat).
-    float3 flatN = N;  // already flipped to face the camera above
-    float3 reflN = normalize(lerp(flatN, waveN, kWaterReflectionTurbulence));
-    float3 reflectedDir = normalize(reflect(eye, reflN));
-
-    float3 origin = psIn.posW + waveN * 1.0e-3f;
-    TriangleHit rh;
-    float3 reflColor = float3(0.0f);
-    if (traceReflectionHit(origin, reflectedDir, 1.0e30f, rh))
-        reflColor = shadeReflectionHit(rh, uint2(psIn.posH.xy)) * kWaterReflectionExposure;
 
     // Fade the reflection by fog visibility, then add the fog colour exactly
     // once (the MUL pass already zeroed the surface at full fog) so the water
     // composites to fogColor in the distance — matching opaque applyFog.
     // Alpha 0: this blend is additive in alpha too (srcAlpha=ONE, dstAlpha=ONE),
     // so 0 is the identity that preserves the a = 1 the composite wrote.
-    return float4(reflColor * fresnel * fog.visibility + fog.color, 0.0f);
+    return float4(sampledReflection * kWaterReflectionExposure * fresnel * fog.visibility
+                  + fog.color, 0.0f);
 }

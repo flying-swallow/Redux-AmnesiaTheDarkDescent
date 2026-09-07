@@ -159,9 +159,40 @@ const struct RIFormatProps* GetRIFormatProps(uint32_t format);
 // and report 0, so a `== 1` single-channel probe treats them as packed.
 uint32_t RIFormatChannelCount(uint32_t format);
 
+// Use ceil division for compressed blocks; 5..7 pixels need two 4x4 blocks.
+// Keep at least one block so sub-block mips do not produce a zero pitch.
+static inline uint32_t RIFormatBlockCount(uint32_t dimension,
+                                          uint32_t blockDimension)
+{
+	return dimension == 0 ? 1u : 1u + ((dimension - 1u) / blockDimension);
+}
+
+// Round a byte row pitch up to a multiple of both the device row alignment and
+// the format's block stride, so a block/texel count derived from the aligned
+// pitch is exact. ALIGN_TO only handles power-of-two alignments, and strides
+// such as 3 (RGB8) do not divide a power-of-two pitch.
+static inline uint64_t RIFormatAlignRowPitch(uint64_t rowPitch,
+                                              uint32_t rowAlignment,
+                                              uint32_t stride)
+{
+	const uint64_t rowAlign = rowAlignment ? (uint64_t)rowAlignment : 1u;
+	const uint64_t blockStride = stride ? (uint64_t)stride : 1u;
+	uint64_t a = rowAlign;
+	uint64_t b = blockStride;
+	uint64_t alignment;
+
+	while( b != 0 ) {
+		const uint64_t remainder = a % b;
+		a = b;
+		b = remainder;
+	}
+	alignment = ( rowAlign / a ) * blockStride; // lcm, a is now the gcd
+
+	return ( rowPitch / alignment + ( rowPitch % alignment != 0 ) ) * alignment;
+}
+
 #ifdef __cplusplus
 }
 #endif /* __cplusplus */
 
 #endif
-

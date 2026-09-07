@@ -41,6 +41,7 @@
 
 import SceneTypes;
 import Scene;
+import RayCone;
 import bindless;
 import HitInfo;
 import PerFrame.resource;
@@ -121,7 +122,8 @@ static const float kDecalFacingCos = 0.25f;
 // Project one decal (by index): box-clip, facing-cull, atlas-UV, sample, blend.
 // The per-object decal list (compositeDecals) is the editor's static association,
 // so a listed decal is one this object was clipped to.
-float3 projectDecal(uint di, float3 albedo, float3 posW, float3 normalW)
+float3 projectDecal(uint di, float3 albedo, float3 posW, float3 normalW,
+                    float surfaceFootprintW)
 {
     GpuDecal d = gDecals[di];
 
@@ -150,16 +152,21 @@ float3 projectDecal(uint di, float3 albedo, float3 posW, float3 normalW)
     uint  sy = max(d.subDivY, 1u);
     float fU = float(d.subDivIndex % sx);
     float fV = float(d.subDivIndex / sx);
+    // This is category (b): decal-atlas UV from V-buffer-derived world position
+    // in decal-local space, not screen-space UV for a jittered raster texture;
+    // the projected cone LOD below uses the same affine decal coordinates.
     float2 uv = float2(saturate((fU + (lp.x + 0.5f)) / float(sx)),
                        1.0f - saturate((fV + (lp.z + 0.5f)) / float(sy)));
 
     // Decal diffuse texture is baked directly into the decal (a pinned, stable
-    // gTextures2D[] slot), so no per-frame material indirection is needed.
+    // gTextures2D[] slot); sample its projected footprint through the cone.
     uint dtex = d.diffuseTexIndex;
     if (dtex == kInvalidTextureIndex)
         return albedo;
 
-    float4 s = sampleBindless2DLevel(dtex, uv, 0.0f);
+    float lodBase = decalTexLodBase(d.invModelMat, d.subDivX, d.subDivY,
+                                    surfaceFootprintW);
+    float4 s = sampleBindless2DCone(dtex, uv, lodBase);
     // Legacy display-space blend, computed EXACTLY (software blend with dst in
     // hand — unlike the raster passes no powered-weight approximation is
     // needed): re-encode the sRGB-decoded texel and the linear albedo back to
@@ -178,12 +185,14 @@ float3 projectDecal(uint di, float3 albedo, float3 posW, float3 normalW)
 // Composite the decals precomputed for this object (the static association the
 // editor clipped it to). `decalList` packs (offset << 8) | count into the shared
 // gObjectDecalIndices pool. `normalW` is the hit surface normal (facing cull).
-float3 compositeDecals(float3 albedo, float3 posW, float3 normalW, uint decalList)
+float3 compositeDecals(float3 albedo, float3 posW, float3 normalW,
+                       float surfaceFootprintW, uint decalList)
 {
     uint count  = decalList & 0xFFu;
     uint offset = decalList >> 8;
     for (uint k = 0u; k < count; ++k)
-        albedo = projectDecal(gObjectDecalIndices[offset + k], albedo, posW, normalW);
+        albedo = projectDecal(gObjectDecalIndices[offset + k], albedo, posW,
+                              normalW, surfaceFootprintW);
     return albedo;
 }
 
@@ -196,11 +205,17 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     uint2 pixelPos = tid.xy;
     uint  outW, outH;
     gOutput.GetDimensions(outW, outH);
+    // Camera-jitter audit (a): composite runs over the full output extent,
+    // matching the packed V-buffer and every denoised input. `pixelPos` is the
+    // primary raster sample in that common grid; no camera ray is reconstructed
+    // and no half-resolution or extra jitter conversion is appropriate.
     if (pixelPos.x >= outW || pixelPos.y >= outH)
         return;   // edge threads of the rounded-up dispatch
 
-    // `gPackedHitInfo` already carries the raster hit (only the barycentrics
-    // are POM-perturbed), so a miss here is a real miss.
+    // The hit and v.posW below come from the full-resolution V-buffer (only the
+    // barycentrics are POM-perturbed), not from reconstructing a camera ray from
+    // pixelPos. They already represent the primary raster sample and need no
+    // second jitter term.
     // NOTE: HitInfo.isValid() passes as long as the fields aren't all zero,
     // so the instance-0 / prim-0 / barys-(0,0,0) corner case reads as
     // invalid. Same edge case that already exists for any consumer of the
@@ -251,13 +266,27 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // was removed and the RT V-buffer meant to replace it was retired without
     // ever running. Known gap, not working behaviour.
 
-    VertexData v = getVertexData(triangleHit);
-    DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount);
+    float triLod;
+    VertexData v = getVertexDataAndLodConstant(triangleHit, triLod);
+    // The primary cone derives its spread from the render extent, so a
+    // reduced temporal-upscaling extent widens the footprint automatically.
+    float3 toHit  = v.posW - gPerFrame.posW;
+    float  hitT   = length(toHit);
+    RayCone cone  = rayConePropagate(rayConePrimary(), hitT);
+    // Use the geometric interpolated normal: cone-to-surface projection must
+    // not be changed by a normal map applied later during shading.
+    float texLodBase = rayConeTexLodBase(cone, triLod, v.normalW,
+                                         toHit / max(hitT, 1e-6f));
+    float surfaceFootprintW = rayConeSurfaceFootprint(cone, v.normalW,
+                                                      toHit / max(hitT, 1e-6f));
+    DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount,
+                                              texLodBase, surfaceFootprintW);
 
     // Composite clustered OOB decals straight onto the base albedo, before
     // lighting, so they get lit like the surface (replaces the old albedo_resolve
     // buffer + decal raster pass).
-    sd.albedo = compositeDecals(sd.albedo, v.posW, sd.normalW, obj.decalList);
+    sd.albedo = compositeDecals(sd.albedo, v.posW, sd.normalW,
+                                surfaceFootprintW, obj.decalList);
 
     // Rasterized Type="Decal" mesh decals (Mul/MulX2/Add): apply the multiply
     // factor then the additive term (same place + reason as the clustered decals
@@ -265,6 +294,9 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // G-buffer — so MulX2's 0.5-gray neutral stays neutral (2×0.5=1) instead of
     // darkening; saturate matches the legacy UNORM [0,1] clamp. White/black
     // identities leave non-decal pixels unchanged. Lit + fogged below.
+    // Category (a): these decal buffers are full-resolution raster outputs, so
+    // direct `pixelPos` indexing keeps their primary sample aligned without a
+    // UV conversion or an extra jitter term.
     float3 albedoG = linearToSRGB(sd.albedo);
     albedoG = saturate(albedoG * gDecalMul[pixelPos].rgb + gDecalAdd[pixelPos].rgb);
     sd.albedo = sRGBToLinear(albedoG);
@@ -313,6 +345,8 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // Per-pixel fog: world fog + each fog-area bounding box from gFogAreas.
     // Replaces the legacy per-object visibility table (which only existed
     // for translucents) — applies uniformly to the opaque composite here.
+    // Fog receives V-buffer-derived world position, so it does not reconstruct
+    // a camera ray from pixelPos and requires no additional projection jitter.
     finalGather = applyFog(finalGather, v.posW, gPerFrame.posW);
 
     gOutput[pixelPos] = float4(finalGather, 1.f);

@@ -3,10 +3,12 @@
 #include "graphics/RIProgram.h"
 #include "graphics/RITypes.h"
 #include "graphics/RIVK.h"
+#include "graphics/XessVulkanSupport.h"
 #include "system/Hasher.h"
 #include "system/QStr.h"
 #include "system/Types.h"
 #include "system/stb_ds.h"
+#include <stddef.h>
 #include <optional>
 #include <vector>
 
@@ -256,6 +258,26 @@ static bool __VK_SupportExtension(VkExtensionProperties *properties, size_t len,
   return false;
 }
 
+#if defined(HPL2_XESS_AVAILABLE) && HPL2_XESS_AVAILABLE
+static bool __VK_XessFeatureBitsSupported(const VkBool32 *requested,
+                                           const VkBool32 *supported,
+                                           size_t count, const char *name) {
+  for (size_t i = 0; i < count; i++) {
+    if (requested[i] != VK_FALSE && supported[i] == VK_FALSE) {
+      hpl::Log("XeSS: required device feature is unsupported in %s (field %u)\n",
+               name, (unsigned)i);
+      return false;
+    }
+  }
+  return true;
+}
+
+#define VK_XESS_CHECK_FEATURES(type, firstMember, requested, supported)         \
+  __VK_XessFeatureBitsSupported(                                               \
+      &(requested).firstMember, &(supported).firstMember,                      \
+      (sizeof(type) - offsetof(type, firstMember)) / sizeof(VkBool32), #type)
+#endif
+
 #endif
 
 int EnumerateRIAdapters(struct RIPhysicalAdapter *adapters,
@@ -371,6 +393,15 @@ int EnumerateRIAdapters(struct RIPhysicalAdapter *adapters,
           R_VK_ADD_STRUCT(&features, &rayQueryFeatures);
         }
 
+        VkPhysicalDeviceCoherentMemoryFeaturesAMD amdCoherentMemoryFeatures = {
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COHERENT_MEMORY_FEATURES_AMD};
+        const bool hasAmdCoherentMemoryExt = __VK_SupportExtension(
+            extensionProperties, extensionNum,
+            qCToStrRef(VK_AMD_DEVICE_COHERENT_MEMORY_EXTENSION_NAME));
+        if (hasAmdCoherentMemoryExt) {
+          R_VK_ADD_STRUCT(&features, &amdCoherentMemoryFeatures);
+        }
+
         VkPhysicalDeviceMemoryProperties memoryProperties = {0};
         vkGetPhysicalDeviceMemoryProperties(physicalAdapter->vk.physicalDevice,
                                             &memoryProperties);
@@ -429,9 +460,8 @@ int EnumerateRIAdapters(struct RIPhysicalAdapter *adapters,
                 extensionProperties, extensionNum,
                 qCToStrRef(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME));
         physicalAdapter->vk.isAMDDeviceCoherentMemorySupported =
-            __VK_SupportExtension(
-                extensionProperties, extensionNum,
-                qCToStrRef(VK_AMD_DEVICE_COHERENT_MEMORY_EXTENSION_NAME));
+            hasAmdCoherentMemoryExt &&
+            amdCoherentMemoryFeatures.deviceCoherentMemory > 0;
 
         const VkPhysicalDeviceLimits *limits = &properties.properties.limits;
 
@@ -809,12 +839,31 @@ int RIDevice::init(struct RIDeviceDesc *init) {
 
   enum RIResult_e riResult = RI_SUCCESS;
   struct RIPhysicalAdapter *physicalAdapter = init->physicalAdapter;
+  hpl::cXessVulkanSupport &xessSupport =
+      hpl::XessVulkanSupportInstance();
+  auto setXessUnavailable = [&](const char *reason) {
+    xessSupport.SetUnavailable(reason);
+    strncpy(device->xessUnavailableReason, xessSupport.UnavailableReason(),
+            sizeof(device->xessUnavailableReason) - 1);
+    device->xessUnavailableReason[sizeof(device->xessUnavailableReason) - 1] =
+        '\0';
+    device->xessAvailable = false;
+  };
+  if (!xessSupport.IsAvailable()) {
+    setXessUnavailable(xessSupport.UnavailableReason());
+    hpl::Log("XeSS: device preflight unavailable: %s\n",
+             device->xessUnavailableReason);
+  }
 
   device->physicalAdapter = *init->physicalAdapter;
 
 #if (DEVICE_IMPL_VULKAN)
   {
     const char **enabledExtensionNames = NULL;
+#if defined(HPL2_XESS_AVAILABLE) && HPL2_XESS_AVAILABLE
+    size_t xessPlainExtensionCount = 0;
+    bool xessRequirementsMerged = false;
+#endif
 
     uint32_t extensionNum = 0;
     vkEnumerateDeviceExtensionProperties(physicalAdapter->vk.physicalDevice,
@@ -1123,6 +1172,16 @@ int RIDevice::init(struct RIDeviceDesc *init) {
       R_VK_ADD_STRUCT(&features, &presentIdFeatures);
     }
 
+    VkPhysicalDeviceCoherentMemoryFeaturesAMD amdCoherentMemoryFeatures = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COHERENT_MEMORY_FEATURES_AMD};
+    const bool amdCoherentMemoryExtensionEnabled =
+        __VK_isExtensionNamesSupported(
+            qCToStrRef(VK_AMD_DEVICE_COHERENT_MEMORY_EXTENSION_NAME),
+            enabledExtensionNames, arrlen(enabledExtensionNames));
+    if (amdCoherentMemoryExtensionEnabled) {
+      R_VK_ADD_STRUCT(&features, &amdCoherentMemoryFeatures);
+    }
+
     VkPhysicalDevicePresentWaitFeaturesKHR presentWaitFeatures = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PRESENT_WAIT_FEATURES_KHR};
     if (__VK_isExtensionNamesSupported(
@@ -1230,6 +1289,210 @@ int RIDevice::init(struct RIDeviceDesc *init) {
 
     vkGetPhysicalDeviceFeatures2(physicalAdapter->vk.physicalDevice, &features);
 
+#if defined(HPL2_XESS_AVAILABLE) && HPL2_XESS_AVAILABLE
+    // Keep copies of every engine-owned feature structure. XeSS may patch
+    // these structures and append SDK-owned structures to the chain; the
+    // copies let the ordinary Vulkan path be restored without querying the
+    // GPU again and accidentally replacing requirements with support bits.
+    xessPlainExtensionCount = arrlen(enabledExtensionNames);
+    void *xessFeatureChain = &features;
+    const VkPhysicalDeviceFeatures2 xessSupportedFeatures = features;
+    const VkPhysicalDeviceVulkan11Features xessSupportedFeatures11 = features11;
+    const VkPhysicalDeviceVulkan12Features xessSupportedFeatures12 = features12;
+    const VkPhysicalDeviceVulkan13Features xessSupportedFeatures13 = features13;
+    const VkPhysicalDeviceMaintenance5FeaturesKHR
+        xessSupportedMaintenance5Features = maintenance5Features;
+    const VkPhysicalDevicePresentIdFeaturesKHR xessSupportedPresentIdFeatures =
+        presentIdFeatures;
+    const VkPhysicalDevicePresentWaitFeaturesKHR
+        xessSupportedPresentWaitFeatures = presentWaitFeatures;
+    const VkPhysicalDeviceLineRasterizationFeaturesKHR
+        xessSupportedLineRasterizationFeatures = lineRasterizationFeatures;
+    const VkPhysicalDeviceAccelerationStructureFeaturesKHR
+        xessSupportedAccelerationStructureFeatures =
+            accelerationStructureFeatures;
+    const VkPhysicalDeviceRayTracingPipelineFeaturesKHR
+        xessSupportedRayTracingPipelineFeatures = rayTracingPipelineFeatures;
+    const VkPhysicalDeviceRayQueryFeaturesKHR xessSupportedRayQueryFeatures =
+        rayQueryFeatures;
+    const VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR
+        xessSupportedFragmentBarycentricFeatures = fragmentBarycentricFeatures;
+    const VkPhysicalDeviceCoherentMemoryFeaturesAMD
+        xessSupportedAmdCoherentMemoryFeatures = amdCoherentMemoryFeatures;
+
+    auto restorePlainXessRequirements = [&]() {
+      arrsetlen(enabledExtensionNames, xessPlainExtensionCount);
+      features = xessSupportedFeatures;
+      features11 = xessSupportedFeatures11;
+      features12 = xessSupportedFeatures12;
+      features13 = xessSupportedFeatures13;
+      maintenance5Features = xessSupportedMaintenance5Features;
+      presentIdFeatures = xessSupportedPresentIdFeatures;
+      presentWaitFeatures = xessSupportedPresentWaitFeatures;
+      lineRasterizationFeatures = xessSupportedLineRasterizationFeatures;
+      accelerationStructureFeatures = xessSupportedAccelerationStructureFeatures;
+      rayTracingPipelineFeatures = xessSupportedRayTracingPipelineFeatures;
+      rayQueryFeatures = xessSupportedRayQueryFeatures;
+      fragmentBarycentricFeatures = xessSupportedFragmentBarycentricFeatures;
+      amdCoherentMemoryFeatures = xessSupportedAmdCoherentMemoryFeatures;
+    };
+
+    if (xessSupport.IsAvailable()) {
+      const auto getRequiredDeviceExtensions =
+          xessSupport.VKGetRequiredDeviceExtensions();
+      const auto getRequiredDeviceFeatures =
+          xessSupport.VKGetRequiredDeviceFeatures();
+      if (!getRequiredDeviceExtensions || !getRequiredDeviceFeatures) {
+        setXessUnavailable("required device query entry point is unavailable");
+        hpl::Log("XeSS: %s\n", device->xessUnavailableReason);
+      } else {
+      uint32_t requiredExtensionCount = 0;
+      const char *const *requiredExtensionNames = NULL;
+      xess_result_t xessResult =
+          getRequiredDeviceExtensions(
+              g_renderer.vk.instance, physicalAdapter->vk.physicalDevice,
+              &requiredExtensionCount, &requiredExtensionNames);
+      if (xessResult != XESS_RESULT_SUCCESS) {
+        char reason[128];
+        snprintf(reason, sizeof(reason),
+                 "required device extension query failed (%d)",
+                 (int)xessResult);
+        setXessUnavailable(reason);
+        hpl::Log("XeSS: %s\n", device->xessUnavailableReason);
+      } else if (requiredExtensionCount && !requiredExtensionNames) {
+        setXessUnavailable("required device extension query returned no names");
+        hpl::Log("XeSS: %s\n", device->xessUnavailableReason);
+      } else {
+        bool deviceExtensionsSupported = true;
+        for (uint32_t extensionIdx = 0; extensionIdx < requiredExtensionCount;
+             extensionIdx++) {
+          const char *requiredName = requiredExtensionNames[extensionIdx];
+          if (!requiredName ||
+              !__VK_isExtensionSupported(requiredName, extensionProperties,
+                                          extensionNum)) {
+            char reason[128];
+            snprintf(reason, sizeof(reason),
+                     "required device extension unsupported: %s",
+                     requiredName ? requiredName : "<null>");
+            setXessUnavailable(reason);
+            hpl::Log("XeSS: %s\n", device->xessUnavailableReason);
+            deviceExtensionsSupported = false;
+            break;
+          }
+        }
+        if (deviceExtensionsSupported) {
+          for (uint32_t extensionIdx = 0; extensionIdx < requiredExtensionCount;
+               extensionIdx++) {
+            const char *requiredName = requiredExtensionNames[extensionIdx];
+            if (!__VK_isExtensionNamesSupported(
+                    qCToStrRef(requiredName), enabledExtensionNames,
+                    arrlen(enabledExtensionNames))) {
+              arrpush(enabledExtensionNames, requiredName);
+              hpl::Log("XeSS: enabled device extension %s\n", requiredName);
+            }
+          }
+
+          xessResult = getRequiredDeviceFeatures(
+              g_renderer.vk.instance, physicalAdapter->vk.physicalDevice,
+              &xessFeatureChain);
+          if (xessResult != XESS_RESULT_SUCCESS) {
+            char reason[128];
+            snprintf(reason, sizeof(reason),
+                     "required device feature query failed (%d)",
+                     (int)xessResult);
+            setXessUnavailable(reason);
+            hpl::Log("XeSS: %s\n", device->xessUnavailableReason);
+          } else if (!xessFeatureChain) {
+            setXessUnavailable("required device feature query returned no chain");
+            hpl::Log("XeSS: %s\n", device->xessUnavailableReason);
+          } else {
+            bool featuresSupported = __VK_XessFeatureBitsSupported(
+                reinterpret_cast<const VkBool32 *>(&features.features),
+                reinterpret_cast<const VkBool32 *>(&xessSupportedFeatures.features),
+                sizeof(VkPhysicalDeviceFeatures) / sizeof(VkBool32),
+                "VkPhysicalDeviceFeatures");
+            featuresSupported =
+                VK_XESS_CHECK_FEATURES(VkPhysicalDeviceVulkan11Features,
+                                       storageBuffer16BitAccess, features11,
+                                       xessSupportedFeatures11) &&
+                featuresSupported;
+            featuresSupported =
+                VK_XESS_CHECK_FEATURES(VkPhysicalDeviceVulkan12Features,
+                                       samplerMirrorClampToEdge, features12,
+                                       xessSupportedFeatures12) &&
+                featuresSupported;
+            featuresSupported =
+                VK_XESS_CHECK_FEATURES(VkPhysicalDeviceVulkan13Features,
+                                       robustImageAccess, features13,
+                                       xessSupportedFeatures13) &&
+                featuresSupported;
+            featuresSupported =
+                VK_XESS_CHECK_FEATURES(VkPhysicalDeviceMaintenance5FeaturesKHR,
+                                       maintenance5, maintenance5Features,
+                                       xessSupportedMaintenance5Features) &&
+                featuresSupported;
+            featuresSupported =
+                VK_XESS_CHECK_FEATURES(VkPhysicalDevicePresentIdFeaturesKHR,
+                                       presentId, presentIdFeatures,
+                                       xessSupportedPresentIdFeatures) &&
+                featuresSupported;
+            featuresSupported =
+                VK_XESS_CHECK_FEATURES(VkPhysicalDevicePresentWaitFeaturesKHR,
+                                       presentWait, presentWaitFeatures,
+                                       xessSupportedPresentWaitFeatures) &&
+                featuresSupported;
+            featuresSupported =
+                VK_XESS_CHECK_FEATURES(
+                    VkPhysicalDeviceLineRasterizationFeaturesKHR,
+                    rectangularLines, lineRasterizationFeatures,
+                    xessSupportedLineRasterizationFeatures) &&
+                featuresSupported;
+            featuresSupported =
+                VK_XESS_CHECK_FEATURES(
+                    VkPhysicalDeviceAccelerationStructureFeaturesKHR,
+                    accelerationStructure, accelerationStructureFeatures,
+                    xessSupportedAccelerationStructureFeatures) &&
+                featuresSupported;
+            featuresSupported =
+                VK_XESS_CHECK_FEATURES(
+                    VkPhysicalDeviceRayTracingPipelineFeaturesKHR,
+                    rayTracingPipeline, rayTracingPipelineFeatures,
+                    xessSupportedRayTracingPipelineFeatures) &&
+                featuresSupported;
+            featuresSupported =
+                VK_XESS_CHECK_FEATURES(VkPhysicalDeviceRayQueryFeaturesKHR,
+                                       rayQuery, rayQueryFeatures,
+                                       xessSupportedRayQueryFeatures) &&
+                featuresSupported;
+            featuresSupported =
+                VK_XESS_CHECK_FEATURES(
+                    VkPhysicalDeviceFragmentShaderBarycentricFeaturesKHR,
+                    fragmentShaderBarycentric, fragmentBarycentricFeatures,
+                    xessSupportedFragmentBarycentricFeatures) &&
+                featuresSupported;
+            featuresSupported =
+                VK_XESS_CHECK_FEATURES(
+                    VkPhysicalDeviceCoherentMemoryFeaturesAMD,
+                    deviceCoherentMemory, amdCoherentMemoryFeatures,
+                    xessSupportedAmdCoherentMemoryFeatures) &&
+                featuresSupported;
+
+            if (featuresSupported) {
+              xessRequirementsMerged = true;
+              hpl::Log("XeSS: device extensions and feature requirements accepted\n");
+            } else {
+              setXessUnavailable("required device feature unsupported");
+              hpl::Log("XeSS: %s\n", device->xessUnavailableReason);
+            }
+          }
+        }
+      }
+      }
+      if (!xessRequirementsMerged)
+        restorePlainXessRequirements();
+    }
+#endif
+
     // Declared up front so the scalar-block-layout `goto vk_done` below
     // doesn't skip an initialization (MSVC C2362). Reused by both the
     // vkCreateDevice and vmaCreateAllocator calls further down.
@@ -1248,6 +1511,10 @@ int RIDevice::init(struct RIDeviceDesc *init) {
     }
 
     deviceCreateInfo.pNext = &features;
+#if defined(HPL2_XESS_AVAILABLE) && HPL2_XESS_AVAILABLE
+    if (xessRequirementsMerged)
+      deviceCreateInfo.pNext = xessFeatureChain;
+#endif
     deviceCreateInfo.pQueueCreateInfos = deviceQueueCreateInfo;
     deviceCreateInfo.enabledExtensionCount =
         (uint32_t)arrlen(enabledExtensionNames);
@@ -1255,10 +1522,40 @@ int RIDevice::init(struct RIDeviceDesc *init) {
 
     result = vkCreateDevice(physicalAdapter->vk.physicalDevice,
                             &deviceCreateInfo, NULL, &device->vk.device);
+#if defined(HPL2_XESS_AVAILABLE) && HPL2_XESS_AVAILABLE
+    if (!VK_WrapResult(result) && xessRequirementsMerged) {
+      char reason[128];
+      snprintf(reason, sizeof(reason),
+               "device creation with XeSS requirements failed (%d); fell back to plain device",
+               (int)result);
+      setXessUnavailable(reason);
+      hpl::Log("XeSS: %s\n", device->xessUnavailableReason);
+      restorePlainXessRequirements();
+      xessRequirementsMerged = false;
+      deviceCreateInfo.pNext = &features;
+      deviceCreateInfo.enabledExtensionCount =
+          (uint32_t)arrlen(enabledExtensionNames);
+      deviceCreateInfo.ppEnabledExtensionNames = enabledExtensionNames;
+      result = vkCreateDevice(physicalAdapter->vk.physicalDevice,
+                              &deviceCreateInfo, NULL, &device->vk.device);
+    }
+#endif
     if (!VK_WrapResult(result)) {
       riResult = RI_FAIL;
       goto vk_done;
     }
+    device->vk.deviceCoherentMemoryEnabled =
+        amdCoherentMemoryExtensionEnabled &&
+        amdCoherentMemoryFeatures.deviceCoherentMemory != 0;
+    hpl::Log("Device coherent memory enabled: %u\n",
+             (unsigned)device->vk.deviceCoherentMemoryEnabled);
+#if defined(HPL2_XESS_AVAILABLE) && HPL2_XESS_AVAILABLE
+    if (xessRequirementsMerged) {
+      device->xessAvailable = true;
+      device->xessUnavailableReason[0] = '\0';
+      hpl::Log("XeSS: Vulkan device created with XeSS requirements\n");
+    }
+#endif
 
     // Load device-direct entrypoints for the device we actually use. Without
     // this, volkLoadInstance left device functions dispatching through the
@@ -1348,7 +1645,7 @@ int RIDevice::init(struct RIDeviceDesc *init) {
         createInfo.flags |= VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
       }
 
-      if (device->physicalAdapter.vk.isAMDDeviceCoherentMemorySupported) {
+      if (device->vk.deviceCoherentMemoryEnabled) {
         createInfo.flags |= VMA_ALLOCATOR_CREATE_AMD_DEVICE_COHERENT_MEMORY_BIT;
       }
 
@@ -1440,7 +1737,7 @@ int InitRIRenderer(const struct RIBackendInit *init) {
         VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instanceCreateInfo.pApplicationInfo = &appInfo;
     const char *enabledLayerNames[8] = {0};
-    const char *enabledExtensionNames[8] = {0};
+    const char **enabledExtensionNames = NULL;
     instanceCreateInfo.ppEnabledLayerNames = enabledLayerNames;
     instanceCreateInfo.enabledLayerCount = 0;
     instanceCreateInfo.ppEnabledExtensionNames = enabledExtensionNames;
@@ -1448,6 +1745,7 @@ int InitRIRenderer(const struct RIBackendInit *init) {
 
     VkLayerProperties *layerProperties = NULL;
     VkExtensionProperties *extProperties = NULL;
+    uint32_t extensionNum = 0;
     {
       assert(1 <= ARRAY_COUNT(enabledLayerNames));
       uint32_t enumInstanceLayers = 0;
@@ -1472,7 +1770,6 @@ int InitRIRenderer(const struct RIBackendInit *init) {
       }
     }
     {
-      uint32_t extensionNum = 0;
       vkEnumerateInstanceExtensionProperties(NULL, &extensionNum, NULL);
       extProperties = (VkExtensionProperties *)malloc(
           extensionNum * sizeof(VkExtensionProperties));
@@ -1513,14 +1810,93 @@ int InitRIRenderer(const struct RIBackendInit *init) {
                  extProperties[i].extensionName, extProperties[i].specVersion,
                  useExtension ? "ENABLED" : "DISABLED");
         if (useExtension) {
-          assert(instanceCreateInfo.enabledExtensionCount <
-                 ARRAY_COUNT(enabledExtensionNames));
-          enabledExtensionNames[instanceCreateInfo.enabledExtensionCount++] =
-              extProperties[i].extensionName;
+          arrpush(enabledExtensionNames, extProperties[i].extensionName);
+          instanceCreateInfo.enabledExtensionCount++;
         }
       }
     }
 
+#if defined(HPL2_XESS_AVAILABLE) && HPL2_XESS_AVAILABLE
+    {
+      hpl::cXessVulkanSupport &xessSupport =
+          hpl::XessVulkanSupportInstance();
+      if (!xessSupport.IsAvailable()) {
+        hpl::Log("XeSS: instance preflight unavailable: %s\n",
+                 xessSupport.UnavailableReason());
+      } else {
+        const auto getRequiredInstanceExtensions =
+            xessSupport.VKGetRequiredInstanceExtensions();
+        if (!getRequiredInstanceExtensions) {
+          xessSupport.SetUnavailable(
+              "required instance query entry point is unavailable");
+          hpl::Log("XeSS: %s\n", xessSupport.UnavailableReason());
+        } else {
+        uint32_t requiredExtensionCount = 0;
+        uint32_t minVkApiVersion = 0;
+        const char *const *requiredExtensionNames = NULL;
+        xess_result_t xessResult =
+            getRequiredInstanceExtensions(
+                &requiredExtensionCount, &requiredExtensionNames,
+                &minVkApiVersion);
+        if (xessResult != XESS_RESULT_SUCCESS) {
+          char reason[128];
+          snprintf(reason, sizeof(reason),
+                   "required instance extension query failed (%d)",
+                   (int)xessResult);
+          xessSupport.SetUnavailable(reason);
+          hpl::Log("XeSS: %s\n", xessSupport.UnavailableReason());
+        } else if (requiredExtensionCount && !requiredExtensionNames) {
+          xessSupport.SetUnavailable(
+              "required instance extension query returned no names");
+          hpl::Log("XeSS: %s\n", xessSupport.UnavailableReason());
+        } else if (minVkApiVersion > appInfo.apiVersion) {
+          char reason[128];
+          snprintf(reason, sizeof(reason),
+                   "required Vulkan API version %u exceeds requested %u",
+                   minVkApiVersion, appInfo.apiVersion);
+          xessSupport.SetUnavailable(reason);
+          hpl::Log("XeSS: %s\n", xessSupport.UnavailableReason());
+        } else {
+          bool instanceExtensionsSupported = true;
+          for (uint32_t extensionIdx = 0;
+               extensionIdx < requiredExtensionCount; extensionIdx++) {
+            const char *requiredName = requiredExtensionNames[extensionIdx];
+            if (!requiredName ||
+                !__VK_isExtensionSupported(requiredName, extProperties,
+                                            extensionNum)) {
+              char reason[128];
+              snprintf(reason, sizeof(reason),
+                       "required instance extension unsupported: %s",
+                       requiredName ? requiredName : "<null>");
+              xessSupport.SetUnavailable(reason);
+              hpl::Log("XeSS: %s\n", xessSupport.UnavailableReason());
+              instanceExtensionsSupported = false;
+              break;
+            }
+          }
+          if (instanceExtensionsSupported) {
+            for (uint32_t extensionIdx = 0;
+                 extensionIdx < requiredExtensionCount; extensionIdx++) {
+              const char *requiredName = requiredExtensionNames[extensionIdx];
+              if (!__VK_isExtensionNamesSupported(
+                      qCToStrRef(requiredName), enabledExtensionNames,
+                      arrlen(enabledExtensionNames))) {
+                arrpush(enabledExtensionNames, requiredName);
+                instanceCreateInfo.enabledExtensionCount++;
+                hpl::Log("XeSS: enabled instance extension %s\n", requiredName);
+              }
+            }
+            hpl::Log("XeSS: instance requirements accepted\n");
+          }
+        }
+        }
+      }
+    }
+#endif
+
+    // stb_ds may relocate the extension array while the instance extensions
+    // are being enumerated and while XeSS requirements are merged.
+    instanceCreateInfo.ppEnabledExtensionNames = enabledExtensionNames;
     if (init->vk.enableValidationLayer) {
       R_VK_ADD_STRUCT(&instanceCreateInfo, &validationFeatures);
       R_VK_ADD_STRUCT(&instanceCreateInfo, &instanceDebugCreateInfo);
@@ -1529,6 +1905,7 @@ int InitRIRenderer(const struct RIBackendInit *init) {
     VkResult result = vkCreateInstance(&instanceCreateInfo, NULL, &g_renderer.vk.instance);
     free(layerProperties);
     free(extProperties);
+    arrfree(enabledExtensionNames);
     if (!VK_WrapResult(result)) {
       return RI_FAIL;
     }

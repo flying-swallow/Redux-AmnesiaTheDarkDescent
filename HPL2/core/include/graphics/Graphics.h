@@ -314,6 +314,18 @@ public:
   // the debug checkbox for A/B comparison.
   bool allLightsCastShadows = true;
 
+  // Shared manual override for the render/display resolution split:
+  // 1.0f means native (the (0,0) render-extent sentinel); values in (0,1)
+  // make every viewport shade at a reduced render extent while presenting at
+  // the display extent. This exercises the spatial-fallback and display-depth
+  // reconstruction paths without an FSR/XeSS provider; it wires no provider
+  // and enables no camera jitter. Written by the game's saved Graphics/
+  // RenderScale setting (cLuxConfigHandler::SetRenderScale) as well as by the
+  // temporary debug menu / editor options overrides. A prepared provider owns
+  // the extent and takes precedence; this value applies when no provider is
+  // prepared.
+  float devRenderScale = 1.0f;
+
   struct RIResourceUploader uploader = {};
 
   // Engine-lifetime set-0 tables (bindless / object / material / light);

@@ -1138,6 +1138,7 @@ bool cLuxBase::InitEngine()
 	
 	/////////////////////////
 	// Set up more properties
+	mpConfigHandler->SetRenderScale(mpConfigHandler->GetRenderScale());
 
 	// Gamma now lives in cLuxConfigHandler (loaded in LoadMainConfig) and is
 	// consumed by the tonemap post-effect; nothing to push here at startup

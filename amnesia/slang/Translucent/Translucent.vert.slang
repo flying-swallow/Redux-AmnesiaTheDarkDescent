@@ -69,6 +69,9 @@ TranslucentVSOut vsMain(TranslucentVSIn vin,
 
     UniformObject obj     = gSceneObjects[instanceId];
     float4x4 modelView    = mul(gPerFrame.viewMat, obj.modelMat);
+    // Category (a): translucent geometry is part of the primary full-render
+    // raster, so projMat remains the host's jittered projection and receives no
+    // duplicate shader-side offset.
     float4x4 modelViewPrj = mul(gPerFrame.projMat, modelView);
 
     // Normal matrix = (modelView^-1)^T = (invModel * invView)^T

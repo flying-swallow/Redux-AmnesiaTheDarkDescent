@@ -11,6 +11,8 @@ namespace hpl {
 
 class cGraphics;
 
+enum class NrdDenoiserMode { DiffuseSpecular, Specular };
+
 // The matrices are copied from the renderer's gPerFrame values.  They are
 // column-major, column-vector matrices: this is both the engine convention
 // (the shaders use mul(proj, view) and mul(view, position)) and NRD's required
@@ -20,6 +22,15 @@ struct NrdFrameData {
   float viewToClipMatrixPrev[16] = {};
   float worldToViewMatrix[16] = {};
   float worldToViewMatrixPrev[16] = {};
+  // Sample offset relative to the pixel center, in THIS NRD instance's INPUT
+  // pixel units (the extent passed to OnResize; callers must convert jitter
+  // to the instance's own pixels for a half-resolution instance). Coordinates
+  // are top-left pixel coordinates, each component is in [-0.5, 0.5],
+  // matching NRD's CommonSettings contract: sampleUv = pixelUv +
+  // cameraJitter. Zero means no jitter. NRD requires both viewToClip matrices
+  // to be UNJITTERED.
+  float cameraJitter[2] = {};
+  float cameraJitterPrev[2] = {};
   uint32_t frameIndex = 0;
   // View-space depth past which a pixel counts as sky/background. 0 keeps
   // NRD's own default.
@@ -47,7 +58,9 @@ struct NrdDenoiseOutputs {
 // changes.  The caller owns the input views and records Denoise into cmd.
 class NrdIntegration {
 public:
-  explicit NrdIntegration(cGraphics *graphics);
+  explicit NrdIntegration(
+      cGraphics *graphics,
+      NrdDenoiserMode mode = NrdDenoiserMode::DiffuseSpecular);
   ~NrdIntegration();
 
   NrdIntegration(const NrdIntegration &) = delete;
@@ -58,6 +71,12 @@ public:
   // Denoise call uses NRD's CLEAR_AND_RESTART accumulation mode.
   void ResetHistory();
 
+  // Denoise leaves the returned outputs in GENERAL and emits only a
+  // compute-to-compute memory dependency.  A consumer that samples an output
+  // from a FRAGMENT shader must add the compute-to-fragment dependency itself.
+  // The caller must provide a private, writable motion-vector texture because
+  // REBLUR's stabilization pass writes IN_MV.  In Specular mode, the diffuse
+  // input may be null and the diffuse output is null.
   NrdDenoiseOutputs Denoise(RICmd *cmd, const NrdFrameData &frame,
                             const NrdDenoiseInputs &inputs);
 

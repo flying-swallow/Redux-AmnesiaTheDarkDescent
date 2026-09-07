@@ -40,8 +40,8 @@ public WaterMaterial loadWaterMaterial(uint materialID)
 }
 
 // Alpha-test for the diffuse opaque path: read tex[2] (alpha slot —
-// see SceneTypes.slang DiffuseMaterial comment), sample at lod with
-// gMaterialSampler, reject when a < 0.5 (matches the GLSL
+// see SceneTypes.slang DiffuseMaterial comment), sample at kAlphaTestLod
+// with gMaterialSampler, reject when a < 0.5 (matches the GLSL
 // ALPHA_REJECT default). Dedicated grayscale alpha maps (e.g.
 // chandelier_simple_alpha.tga, loaded as R8_UNORM) carry the mask in
 // .r — kMaterialFlagIsAlphaSingleChannel picks the channel.
@@ -61,7 +61,27 @@ public WaterMaterial loadWaterMaterial(uint materialID)
 // default, so every caller fetches it. NOTE: rays only reach this for
 // non-FORCE_OPAQUE instances — cHybridRenderer drops that flag while
 // coverage < 1 or the material carries dissolve variants.
-public bool materialAlphaTest(VertexData v, uint materialID, float lod, float dissolveAmount)
+//
+// The level is fixed at absolute 0 for every context by construction — there is
+// no caller knob, on purpose. This gate decides which geometry EXISTS, not how
+// it looks, and the three contexts above must agree on that answer, so a mip
+// selected from one context's footprint cannot be allowed in. Three further
+// reasons it stays put:
+//  - Runtime mip chains are not dependable here. BitmapLoaderDevilMisc.cpp
+//    forces lNumOfMipMaps = 1 for every non-DDS image, and Texture.cpp takes
+//    mipLevels = options.use_mipmaps ? bitmap.GetNumOfMipMaps() : 1, so a
+//    TGA/PNG mask has one level while a mipped DDS mask has many — a mipped
+//    gate would act on some assets and be a no-op on others.
+//  - Nothing generates alpha-coverage-preserving mips, so a fixed 0.5 test on
+//    box-filtered alpha erodes thin cutouts (foliage, grates, chains) with
+//    distance, taking their shadows and dissolve timing with them.
+//  - A footprint-derived level drags gPerFrame.materialMipBias and the temporal
+//    render extent in, making a silhouette depend on render resolution.
+// notes/ray_cone_texture_lod.md carries the full argument and what would have to
+// change to revisit it.
+static const float kAlphaTestLod = 0.0f;
+
+public bool materialAlphaTest(VertexData v, uint materialID, float dissolveAmount)
 {
     // One blob load; `type` is at offset 0 for every material struct, so
     // reinterpreting as DiffuseMaterial reads the discriminator regardless.
@@ -72,7 +92,7 @@ public bool materialAlphaTest(VertexData v, uint materialID, float lod, float di
     uint alphaIdx = m.tex[2];
     if (alphaIdx != kInvalidTextureIndex)
     {
-        float4 s = sampleBindless2DLevel(alphaIdx, v.texC, lod);
+        float4 s = sampleBindless2DLevel(alphaIdx, v.texC, kAlphaTestLod);
         a = (m.materialConfig & kMaterialFlagIsAlphaSingleChannel) != 0u ? s.r : s.a;
     }
     else if (dissolveAmount >= 1.0f &&
@@ -96,7 +116,7 @@ public bool materialAlphaTest(VertexData v, uint materialID, float lod, float di
             uint dat = m.tex[6];
             float da = 1.0f;
             if (dat != kInvalidTextureIndex)
-                da = sampleBindless2DLevel(dat, v.texC, lod).r;
+                da = sampleBindless2DLevel(dat, v.texC, kAlphaTestLod).r;
             d -= (0.25f - da * 0.25f);
         }
         else
@@ -149,7 +169,7 @@ public bool traceShadowRay(float3 origin, float3 dir, float tMax)
             uint materialID = gSceneObjects[hit.instanceID].materialID;
             VertexData v    = getVertexData(hit);
 
-            if (!materialAlphaTest(v, materialID, 0.f,
+            if (!materialAlphaTest(v, materialID,
                                    gSceneObjects[hit.instanceID].dissolveAmount))
                 q.CommitNonOpaqueTriangleHit();
         }
@@ -183,7 +203,7 @@ public bool traceReflectionHit(float3 origin, float3 dir, float tMax, out Triang
             c.barycentrics   = q.CandidateTriangleBarycentrics();
             uint matID  = gSceneObjects[c.instanceID].materialID;
             VertexData v = getVertexData(c);
-            if (!materialAlphaTest(v, matID, 0.f,
+            if (!materialAlphaTest(v, matID,
                                    gSceneObjects[c.instanceID].dissolveAmount))
                 q.CommitNonOpaqueTriangleHit();
         }

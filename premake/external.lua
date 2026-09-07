@@ -1,6 +1,6 @@
--- premake/external.lua -- SDL2 and openal-soft built by driving their own CMake.
+-- premake/external.lua -- CMake-driven SDL2, openal-soft, NRD, and FSR.
 --
--- These two libraries ship large, feature-probing CMake build systems that are
+-- These libraries ship large, feature-probing CMake build systems that are
 -- impractical (and brittle) to reimplement in premake. Each is wrapped in a
 -- premake kind "Makefile" project whose buildcommands run the library's own
 -- CMake (configure + build) into build-premake/external/<name>/<config>.
@@ -27,7 +27,8 @@ local NRD_BUILD_PROJECT = "NRDExternal"
 -- unix_args / win_args: platform-specific CMake configure arguments.
 -- copy_glob: optional posix shared-lib glob copied next to the game (Linux, into libs/).
 -- win_glob: optional Windows DLL glob copied next to the .exe.
-local function cmake_makefile(name, srcdir, unix_args, win_args, copy_glob, win_glob)
+-- copy_dir: optional directory copied next to the game on both platforms.
+local function cmake_makefile(name, srcdir, unix_args, win_args, copy_glob, win_glob, copy_dir)
     local bdir = EXT_ROOT .. "/" .. name .. "/%{cfg.buildcfg}"
     project(name)
         kind "Makefile"
@@ -64,6 +65,24 @@ local function cmake_makefile(name, srcdir, unix_args, win_args, copy_glob, win_
                 buildcommands {
                     string.format('if not exist "%s" mkdir "%s"', winpath(RUNTIME_EXE), winpath(RUNTIME_EXE)),
                     string.format('copy /Y "%s" "%s\\"', winpath(bdir .. "/%{cfg.buildcfg}/" .. win_glob), winpath(RUNTIME_EXE)),
+                }
+        end
+        if copy_dir then
+            local runtime_copy_dir = runtime_dir(copy_dir)
+            filter "system:not windows"
+                buildcommands {
+                    string.format('mkdir -p "%s"', runtime_copy_dir),
+                    -- Staged permissions are fixed in cmake/fsr/CMakeLists.txt;
+                    -- keep -f so older read-only destinations or future
+                    -- read-only inputs are replaced instead of failing.
+                    string.format('cp -Rf "%s"/. "%s"/', bdir .. "/" .. copy_dir, runtime_copy_dir),
+                }
+            filter "system:windows"
+                buildcommands {
+                    string.format('if not exist "%s" mkdir "%s"', winpath(runtime_copy_dir), winpath(runtime_copy_dir)),
+                    -- /R is the Windows counterpart of cp -f for read-only files.
+                    string.format('xcopy /E /I /Y /R "%s\\*" "%s\\" >nul',
+                        winpath(bdir .. "/" .. copy_dir), winpath(runtime_copy_dir)),
                 }
         end
         filter {}
@@ -162,6 +181,11 @@ end
 -- them to _Shaders/ and _Bin/ *inside its own source tree*, which would dirty the
 -- submodule on every build.
 local NRD_BUILD = EXT_ROOT .. "/" .. NRD_PROJECT .. "/%{cfg.buildcfg}"
+-- The CMake *binary* dir, which cmake_makefile() derives from the project name
+-- (NRDExternal), not from NRD_BUILD. Anything CMake places relative to the build
+-- tree instead of the overridden output dirs -- notably FetchContent's
+-- _deps/shadermake-build -- lives under here.
+local NRD_CMAKE_BINARY = EXT_ROOT .. "/" .. NRD_BUILD_PROJECT .. "/%{cfg.buildcfg}"
 local NRD_COMMON_ARGS =
     "-DNRD_STATIC_LIBRARY=ON -DNRD_NRI=OFF -DNRD_EMBEDS_SPIRV_SHADERS=ON "
         .. string.format('-DNRD_SHADERS_PATH="%s/_Shaders" ', NRD_BUILD)
@@ -188,7 +212,7 @@ function link_nrd()
     filter "system:linux"
         libdirs {
             NRD_BUILD .. "/_Bin",
-            NRD_BUILD .. "/_deps/shadermake-build",
+            NRD_CMAKE_BINARY .. "/_deps/shadermake-build",
         }
     filter "system:windows"
         -- MSBuild is multi-config, so it appends the configuration name to the
@@ -196,9 +220,294 @@ function link_nrd()
         libdirs {
             NRD_BUILD .. "/_Bin/%{cfg.buildcfg}",
             NRD_BUILD .. "/_Bin",
-            NRD_BUILD .. "/_deps/shadermake-build/%{cfg.buildcfg}",
-            NRD_BUILD .. "/_deps/shadermake-build",
+            NRD_CMAKE_BINARY .. "/_deps/shadermake-build/%{cfg.buildcfg}",
+            NRD_CMAKE_BINARY .. "/_deps/shadermake-build",
         }
     filter {}
     links { "NRD", "ShaderMakeBlob" }
+end
+
+-- ---- FidelityFX Super Resolution ------------------------------------------
+-- The CMake wrapper builds the Vulkan FSR 3.1 upscaler from the pinned SDK and
+-- emits one configuration-independent archive under its build directory.
+local FSR_VERSION = "1.1.4"
+local FSR_DEPS = ROOT .. "/build-premake/_deps/fsr-sdk"
+local FSR_ARCHIVE = FSR_DEPS .. "/v" .. FSR_VERSION .. ".zip"
+local FSR_ARCHIVE_URL = "https://codeload.github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/zip/refs/tags/v"
+    .. FSR_VERSION
+local FSR_ROOT_NAME = "FidelityFX-SDK-" .. FSR_VERSION
+local FSR_BUILD_PROJECT = "FsrSdkExternal"
+local FSR_BUILD = EXT_ROOT .. "/" .. FSR_BUILD_PROJECT .. "/%{cfg.buildcfg}"
+
+-- The codeload .zip is not downloaded during normal development because the
+-- extracted SDK is checked first. Regenerate the digest with:
+--   curl -L "https://codeload.github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/zip/refs/tags/v1.1.4" -o build-premake/_deps/fsr-sdk/v1.1.4.zip && sha256sum build-premake/_deps/fsr-sdk/v1.1.4.zip
+-- The download path stays fail-closed if this is ever cleared.
+-- (The .tar.gz of the same tag is 25c46398a656150397597f78d44bf7cb445e9e177dd116b309bbfdf50d50cc9f;
+-- the .zip is what premake's zip.extract can read, so that is what is pinned.)
+local FSR_ZIP_SHA256 = "9a19e1f20bf269163f052186ed563209c5a1d0f7b1cf7e567e643dee6cc61179"
+
+local function fsr_sdk_root_is_valid(root)
+    return os.isdir(root .. "/sdk/include")
+end
+
+local function resolve_fsr_sdk()
+    local requested = _OPTIONS["fsr-sdk-dir"]
+    if requested then
+        local root = path.getabsolute(requested)
+        if not fsr_sdk_root_is_valid(root) then
+            error("FSR: --fsr-sdk-dir must name a FidelityFX SDK root containing sdk/include: " .. root)
+        end
+        return root
+    end
+
+    -- An extracted tree wins over every archive path. In particular, do not
+    -- re-extract the SDK supplied in build-premake/_deps/fsr-sdk.
+    local extracted = FSR_DEPS .. "/" .. FSR_ROOT_NAME
+    if fsr_sdk_root_is_valid(extracted) then return extracted end
+
+    os.mkdir(FSR_DEPS)
+    if not FSR_ZIP_SHA256 then
+        error("FSR: the v" .. FSR_VERSION .. " codeload .zip SHA-256 is not pinned; "
+            .. "set FSR_ZIP_SHA256 from the command in the comment above before downloading")
+    end
+    if not os.isfile(FSR_ARCHIVE) then
+        print("FSR: downloading " .. FSR_ARCHIVE_URL)
+        local res, code = http.download(FSR_ARCHIVE_URL, FSR_ARCHIVE, {})
+        if res ~= "OK" then
+            os.remove(FSR_ARCHIVE)
+            error(string.format("FSR: download failed (%s, code %s). URL: %s",
+                tostring(res), tostring(code), FSR_ARCHIVE_URL))
+        end
+    end
+
+    local hash_command
+    if os.target() == "windows" then
+        hash_command = 'certutil -hashfile "' .. winpath(FSR_ARCHIVE) .. '" SHA256'
+    else
+        hash_command = 'sha256sum "' .. FSR_ARCHIVE .. '"'
+    end
+    local hash_output = os.outputof(hash_command) or ""
+    local actual_hash
+    for candidate in hash_output:gmatch("%x+") do
+        if #candidate == 64 then
+            actual_hash = candidate:lower()
+            break
+        end
+    end
+    if not actual_hash then
+        error("FSR: could not calculate SHA-256 for " .. FSR_ARCHIVE)
+    end
+    if actual_hash ~= FSR_ZIP_SHA256:lower() then
+        error(string.format("FSR: SHA-256 mismatch for %s (expected %s, got %s)",
+            FSR_ARCHIVE, FSR_ZIP_SHA256, actual_hash))
+    end
+
+    print("FSR: extracting " .. FSR_ARCHIVE)
+    zip.extract(FSR_ARCHIVE, FSR_DEPS)
+    if not fsr_sdk_root_is_valid(extracted) then
+        error("FSR: could not locate sdk/include in extracted archive at " .. extracted)
+    end
+    return extracted
+end
+
+local function require_fsr_cmake()
+    local version = os.outputof('"' .. CMAKE .. '" --version 2>&1') or ""
+    if not version:lower():find("cmake version", 1, true) then
+        error("FSR: cmake is required when FSR is enabled; could not run '" .. CMAKE .. " --version'")
+    end
+end
+
+local FSR_ENABLED = _OPTIONS["with-fsr"] ~= "no"
+if FSR_ENABLED then
+    require_fsr_cmake()
+    FSR_SDK_ROOT = resolve_fsr_sdk()
+
+    local fsr_common_args = string.format(
+        '-DFSR_SDK_ROOT="%s" -DFSR_VULKAN_HEADERS="%s" -DFSR_OUTPUT_LIB_DIR="%s/lib" -DFSR_VOLK_HEADERS="%s"',
+        FSR_SDK_ROOT, ROOT .. "/HPL2/extern/Vulkan-Headers/include", FSR_BUILD,
+        ROOT .. "/HPL2/extern/volk")
+    if _OPTIONS["python"] then
+        fsr_common_args = fsr_common_args .. ' -DPython3_EXECUTABLE="' .. _OPTIONS["python"] .. '"'
+    end
+    if _OPTIONS["glslang"] then
+        fsr_common_args = fsr_common_args .. ' -DFSR_GLSLANG="' .. _OPTIONS["glslang"] .. '"'
+    end
+    if _OPTIONS["spirv-val"] then
+        fsr_common_args = fsr_common_args .. ' -DFSR_SPIRV_VAL="' .. _OPTIONS["spirv-val"] .. '"'
+    end
+
+    cmake_makefile(FSR_BUILD_PROJECT,
+        ROOT .. "/cmake/fsr",
+        fsr_common_args,
+        fsr_common_args,
+        nil, nil, "licenses")
+end
+
+function link_fsr()
+    if not FSR_ENABLED then
+        defines { "HPL2_FSR_AVAILABLE=0" }
+        return
+    end
+
+    dependson { FSR_BUILD_PROJECT }
+    includedirs { FSR_SDK_ROOT .. "/sdk/include" }
+    libdirs { FSR_BUILD .. "/lib" }
+    links { "ffx_fsr3upscaler_vk" }
+    defines { "HPL2_FSR_AVAILABLE=1" }
+end
+
+-- The shader-blob validation executable includes the same staged SDK headers
+-- that were used to build the archive. Keep these paths behind a helper so
+-- tests.lua does not need to reach into FSR_BUILD/FSR_ENABLED locals.
+function fsr_shader_blob_test_use()
+    if not FSR_ENABLED then
+        return false
+    end
+
+    includedirs {
+        FSR_BUILD .. "/fsr_sdk_staged/sdk/src/backends/shared",
+        FSR_BUILD .. "/fsr_sdk_staged/sdk/src/backends/shared/blob_accessors",
+        FSR_BUILD .. "/fsr_sdk_staged/sdk/src/components",
+        FSR_BUILD .. "/generated_shaders",
+    }
+    defines { "FFX_FSR3UPSCALER" }
+    return true
+end
+
+-- ---- Intel XeSS -----------------------------------------------------------
+-- XeSS is a prebuilt Vulkan SDK. The engine loads libxess.dll dynamically at
+-- runtime, so there is no CMake build or import-library link here.
+local XESS_VERSION = "3.0.2"
+local XESS_DEPS = ROOT .. "/build-premake/_deps/xess-sdk"
+local XESS_ARCHIVE = XESS_DEPS .. "/XeSS_SDK_3.0.2.zip"
+local XESS_ARCHIVE_URL = "https://github.com/intel/xess/releases/download/v3.0.2/XeSS_SDK_3.0.2.zip"
+local XESS_ROOT_NAME = "XeSS_SDK_3.0.2"
+
+-- The v3.0.2 tag resolves to commit 8fe81bdbbaf00b3c1b733fd0d830c333dc84e6f0.
+-- The release .zip is not downloaded when the staged/extracted SDK is present.
+-- Regenerate the digest with:
+--   curl -L "https://github.com/intel/xess/releases/download/v3.0.2/XeSS_SDK_3.0.2.zip" -o build-premake/_deps/xess-sdk/XeSS_SDK_3.0.2.zip && sha256sum build-premake/_deps/xess-sdk/XeSS_SDK_3.0.2.zip
+-- The download path stays fail-closed if this is ever cleared.
+local XESS_ZIP_SHA256 = "88b8a373f30e33f3558a77a93e634f11b8132fc3047ea1a8edeead32b8471990"
+
+local function xess_sdk_root_is_valid(root)
+    return os.isfile(root .. "/inc/xess/xess_vk.h")
+end
+
+local function resolve_xess_sdk()
+    local requested = _OPTIONS["xess-sdk-dir"]
+    if requested then
+        local root = path.getabsolute(requested)
+        if not xess_sdk_root_is_valid(root) then
+            error("XeSS: --xess-sdk-dir must name a XeSS SDK root containing inc/xess/xess_vk.h: " .. root)
+        end
+        return root
+    end
+
+    -- An extracted tree wins over every archive path. In particular, reuse the
+    -- SDK supplied in build-premake/_deps/xess-sdk without downloading it.
+    local extracted = XESS_DEPS .. "/" .. XESS_ROOT_NAME
+    if xess_sdk_root_is_valid(extracted) then return extracted end
+
+    os.mkdir(XESS_DEPS)
+    if not XESS_ZIP_SHA256 then
+        error("XeSS: the v" .. XESS_VERSION .. " release .zip SHA-256 is not pinned; "
+            .. "set XESS_ZIP_SHA256 from the command in the comment above before downloading")
+    end
+    if not os.isfile(XESS_ARCHIVE) then
+        print("XeSS: downloading " .. XESS_ARCHIVE_URL)
+        local res, code = http.download(XESS_ARCHIVE_URL, XESS_ARCHIVE, {})
+        if res ~= "OK" then
+            os.remove(XESS_ARCHIVE)
+            error(string.format("XeSS: download failed (%s, code %s). URL: %s",
+                tostring(res), tostring(code), XESS_ARCHIVE_URL))
+        end
+    end
+
+    local hash_command
+    if os.target() == "windows" then
+        hash_command = 'certutil -hashfile "' .. winpath(XESS_ARCHIVE) .. '" SHA256'
+    else
+        hash_command = 'sha256sum "' .. XESS_ARCHIVE .. '"'
+    end
+    local hash_output = os.outputof(hash_command) or ""
+    local actual_hash
+    for candidate in hash_output:gmatch("%x+") do
+        if #candidate == 64 then
+            actual_hash = candidate:lower()
+            break
+        end
+    end
+    if not actual_hash then
+        error("XeSS: could not calculate SHA-256 for " .. XESS_ARCHIVE)
+    end
+    if actual_hash ~= XESS_ZIP_SHA256:lower() then
+        error(string.format("XeSS: SHA-256 mismatch for %s (expected %s, got %s)",
+            XESS_ARCHIVE, XESS_ZIP_SHA256, actual_hash))
+    end
+
+    print("XeSS: extracting " .. XESS_ARCHIVE)
+    os.mkdir(extracted)
+    -- The release archive is flat (inc/, lib/, bin/, ...), so extract directly
+    -- into the named SDK directory rather than into XESS_DEPS.
+    zip.extract(XESS_ARCHIVE, extracted)
+    if not xess_sdk_root_is_valid(extracted) then
+        error("XeSS: could not locate inc/xess/xess_vk.h in extracted archive at " .. extracted)
+    end
+    return extracted
+end
+
+local XESS_ENABLED = _OPTIONS["with-xess"] ~= "no" and os.target() == "windows"
+local XESS_SDK_ROOT
+if XESS_ENABLED then
+    XESS_SDK_ROOT = resolve_xess_sdk()
+end
+
+-- Add XeSS's public headers and availability define without adding runtime
+-- deployment commands to the HPL2 static-library project.
+function xess_use()
+    if not XESS_ENABLED then
+        defines { "HPL2_XESS_AVAILABLE=0" }
+        return
+    end
+
+    includedirs { XESS_SDK_ROOT .. "/inc" }
+    defines { "HPL2_XESS_AVAILABLE=1" }
+end
+
+function link_xess()
+    xess_use()
+    if not XESS_ENABLED then
+        return
+    end
+
+    local runtime = runtime_dir("")
+    local license_dir = runtime_dir("licenses/xess")
+    local function license_commands(filename, description)
+        local source = winpath(XESS_SDK_ROOT .. "/" .. filename)
+        local destination = winpath(license_dir .. "/" .. filename)
+        local clear_readonly = string.format('if exist "%s" attrib -R "%s" >nul 2>&1',
+            destination, destination)
+        local copy = string.format('if exist "%s" (copy /Y "%s" "%s\\" >nul) else (echo XeSS: missing %s "%s")',
+            source, source, winpath(license_dir), description, source)
+        return clear_readonly, copy
+    end
+    local license_clear, license_copy = license_commands("LICENSE.txt", "license file")
+    local notices_clear, notices_copy = license_commands("third-party-programs.txt", "third-party notices")
+    filter "system:windows"
+        postbuildcommands {
+            string.format('if not exist "%s" mkdir "%s"', winpath(runtime), winpath(runtime)),
+            string.format('if exist "%s" (copy /Y "%s" "%s\\") else (echo XeSS: missing runtime DLL "%s")',
+                winpath(XESS_SDK_ROOT .. "/bin/libxess.dll"),
+                winpath(XESS_SDK_ROOT .. "/bin/libxess.dll"), winpath(runtime),
+                winpath(XESS_SDK_ROOT .. "/bin/libxess.dll")),
+            string.format('if not exist "%s" mkdir "%s"', winpath(license_dir), winpath(license_dir)),
+            -- Keep attrib -R separate so cmd does not parse a nested if and & inside the copy block.
+            license_clear,
+            license_copy,
+            notices_clear,
+            notices_copy,
+        }
+    filter {}
 end

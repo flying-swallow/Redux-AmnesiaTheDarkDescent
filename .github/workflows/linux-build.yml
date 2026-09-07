@@ -12,6 +12,11 @@ on:
         type: string
         default: ''
         required: false
+      with_fsr:
+        description: 'Whether FSR is enabled; controls setup of FSR-only tools'
+        type: boolean
+        default: true
+        required: false
 
 jobs:
   linux:
@@ -33,11 +38,13 @@ jobs:
       # those backends and hard-fails when the headers are missing. cmake is
       # required even though this is not a CMake project -- SDL2 and openal-soft
       # are built by driving their own CMake (premake/external.lua).
+      # glslang-tools, spirv-tools, and python3 are required by the FSR SDK
+      # shader-compiler wrapper and its SPIR-V validation scripts.
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential ninja-build cmake zip \
+            build-essential ninja-build cmake python3 glslang-tools spirv-tools zip \
             libx11-dev libxext-dev libxi-dev libxcursor-dev libxrandr-dev libxss-dev \
             libgl-dev libglu1-mesa-dev libegl1-mesa-dev \
             libwayland-dev libxkbcommon-dev libdecor-0-dev \
@@ -59,11 +66,25 @@ jobs:
           path: build-premake/_deps/slang-prebuilt
           key: slang-${{ runner.os }}-${{ hashFiles('premake/slang.lua') }}
 
+      # The Premake postbuild also runs these tests, but this standalone check
+      # fails fast (it needs no generated makefiles) and still covers
+      # --with-tests=no builds. They must never need a game install, GPU, or
+      # display.
+      - name: Python tests
+        run: python3 scripts/run_python_tests.py -v
+
       - name: Generate makefiles
         run: premake5 gmake2 ${{ inputs.premake_args }}
 
       - name: Build
         run: make -C build-premake config=${{ inputs.config }} -j"$(nproc)"
+
+      # Copy/staging steps only fail on a rebuild over an existing destination;
+      # a single cold build cannot catch that. Re-running this target costs
+      # seconds instead of running a second full build.
+      - name: Rebuild FSR external (incremental)
+        if: ${{ inputs.with_fsr }}
+        run: make -C build-premake config=${{ inputs.config }} FsrSdkExternal
 
       - name: Package
         run: |

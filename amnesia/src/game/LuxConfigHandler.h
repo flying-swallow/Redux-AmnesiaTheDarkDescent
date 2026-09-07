@@ -23,6 +23,7 @@
 //----------------------------------------------
 
 #include "LuxBase.h"
+#include "graphics/TemporalUpscalerTypes.h"
 
 //----------------------------------------------
 
@@ -34,6 +35,17 @@ public:
 
 	void LoadMainConfig();
 	void SaveMainConfig();
+
+	static tString SuperSamplingProviderToString(hpl::TemporalUpscalerProvider aProvider);
+	static hpl::TemporalUpscalerProvider SuperSamplingProviderFromString(const tString& asValue);
+	static tString SuperSamplingQualityToString(hpl::TemporalUpscalerQuality aQuality);
+	static hpl::TemporalUpscalerQuality SuperSamplingQualityFromString(const tString& asValue);
+	static int GetRenderScalePresetNum();
+	static float GetRenderScalePreset(int alIdx);
+	static int GetRenderScalePresetIndex(float afScale); // index of the preset that NormalizeRenderScale(afScale) equals; never negative
+	static float NormalizeRenderScale(float afScale);
+	float GetRenderScale() const;
+	void SetRenderScale(float afScale);
 
 	// Display gamma (1.0 = no-op). Stored here (was the SDL window class);
 	// consumed by the tonemap post-effect. SetGamma live-applies to the active
@@ -77,6 +89,12 @@ public:
 	bool mbOcclusionTestLights;
 	
 	bool mbEdgeSmooth;
+
+	// Requested user preference; the renderer owns effective fallback.
+	TemporalUpscalerSettings mSuperSampling;
+	// Requested manual scene render scale (fraction of display size); a prepared
+	// FSR/XeSS provider owns the extent instead.
+	float mfRenderScale;
 		
 	bool mbWorldReflection;
 	bool mbRefraction;

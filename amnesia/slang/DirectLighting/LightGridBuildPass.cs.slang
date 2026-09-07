@@ -40,6 +40,10 @@ import Grid;                    // gridUnflattenCellIndex / sphereIntersectsGrid
 [numthreads(64, 1, 1)]
 void binLights(uint3 dispatchThreadId: SV_DispatchThreadID)
 {
+    // This coarse dispatch names world-space light-grid cells, not screen
+    // pixels. It never indexes gPackedHitInfo, reconstructs a camera ray, or
+    // produces a UV for NRD, so no primary-raster jitter or own-grid offset
+    // applies here.
     uint flat = dispatchThreadId.x;
     if (flat >= kLightGridCellCount)
         return;

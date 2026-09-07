@@ -17,9 +17,17 @@
 // Bindings (set 0):
 //   binding 0 : SamplerState inputSampler
 //   binding 1 : Texture2D<float4> sourceInput
-// Push constant: exposure (scene-linear multiply); shadowLift unused (layout);
-// gamma (user display-gamma setting, 1.0 = no-op) applied as the final encode
-// step — replaces the deprecated SDL window-brightness ramp.
+// Push constant: exposure (scene-linear multiply, sourced from kSceneExposure);
+// shadowLift unused (layout); gamma (user display-gamma setting, 1.0 = no-op)
+// applied as the final encode step — replaces the deprecated SDL
+// window-brightness ramp.
+//
+// Brightness comes from `exposure`, NOT from gamma. The particle/translucent
+// path (BlendModes.slang) emits sRGBToLinear(authoredDisplayColor) on the
+// assumption that this pass emits exactly linearToSRGB(linear) — an inverse
+// pair. A display-gamma curve breaks that identity and lifts faint content
+// hardest, which reads as milky fog and blown-out halos; a linear exposure
+// multiply preserves every blend ratio.
 
 import Utils.Color.ColorHelpers;   // piecewise linearToSRGB()
 
@@ -70,6 +78,25 @@ struct ToneMapPC
 [vk::push_constant]
 ToneMapPC pc;
 
+// Highlight shoulder knee. Below it the encode is bit-exact, so the particle
+// path's sRGBToLinear/linearToSRGB round trip stays an identity for the faint
+// range those effects live in (see BlendModes.slang). Above it, a Reinhard
+// shoulder with unit slope at the knee, asymptotic to 1.0 — the output must
+// stay bounded because the image trail's fp16 EMA accumulator does not clamp
+// (posteffect_image_trail.frag.slang:33-36).
+static const float kToneMapShoulder = 0.8f;
+
+// Per channel, so a channel that reaches the shoulder first pulls the highlight
+// toward white — the usual filmic desaturation at the top, and the one place
+// this pass deliberately departs from the authored color.
+float3 softShoulder(float3 x)
+{
+    const float k = kToneMapShoulder;
+    const float r = 1.0f - k;
+    float3 over = max(x - k, 0.0f);
+    return min(x, k) + r * over / (r + over);
+}
+
 struct PSIn
 {
     [vk::location(0)] float2 v_uv;
@@ -79,7 +106,10 @@ struct PSIn
 float4 psMain(PSIn pin) : SV_Target
 {
     float3 hdr = sourceInput.Sample(inputSampler, pin.v_uv).rgb * pc.exposure;
-    float3 display = saturate(linearToSRGB(hdr));   // display-encoded sRGB [0,1]
+    // display-encoded sRGB, rolled off into [0,1] instead of hard-clipped.
+    // The trailing saturate is a no-op for in-range values; it only guards
+    // NaN and negatives.
+    float3 display = saturate(softShoulder(max(linearToSRGB(hdr), 0.0f)));
     // User gamma adjust (final): gamma 1.0 = identity, <1 darker / >1 brighter.
     display = pow(display, (1.0f / max(pc.gamma, 1e-4f)).xxx);
     return float4(display, 1.0f);

@@ -23,6 +23,7 @@
 #define HPL_RENDERER_H
 
 #include "graphics/GraphicsTypes.h"
+#include "graphics/TemporalUpscaler.h"
 #include "math/MathTypes.h"
 #include "scene/SceneTypes.h"
 
@@ -85,6 +86,12 @@ public:
   cVector2l mvScissorRectPos;
   cVector2l mvScissorRectSize;
   bool mbRenderWorldReflection;
+
+  // DESIRED temporal upscaler setting, pure data only. It never allocates
+  // Vulkan resources; setting it from a menu callback must not create an SDK
+  // context. The viewport turns it into an actual prepared provider later
+  // in the frame.
+  TemporalUpscalerSettings mTemporalUpscaler = {};
 
   ////////////////////////////
   // Shadow settings

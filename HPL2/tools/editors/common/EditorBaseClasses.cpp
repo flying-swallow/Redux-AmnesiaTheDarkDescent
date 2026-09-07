@@ -1020,6 +1020,24 @@ const cVector2f& iEditorBase::GetViewportCameraPlanes()
 
 //-----------------------------------------------------------------------
 
+void iEditorBase::SetViewportDisplayGamma(float afX)
+{
+	cEditorWindowViewport::SetDisplayGamma(afX);
+	tEditorViewportVec& vViewports = GetViewports();
+	for(int i=0;i<(int)vViewports.size();++i)
+	{
+		cEditorWindowViewport* pViewport = vViewports[i];
+		pViewport->RefreshToneMapParams();
+	}
+}
+
+float iEditorBase::GetViewportDisplayGamma()
+{
+	return cEditorWindowViewport::GetDisplayGamma();
+}
+
+//-----------------------------------------------------------------------
+
 void iEditorBase::SetViewportBGColor(const cColor& aX)
 {
 	tEditorViewportVec& vViewports = GetViewports();

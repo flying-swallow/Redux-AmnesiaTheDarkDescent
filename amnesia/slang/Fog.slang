@@ -29,6 +29,10 @@ FogResult computeFog(float3 surfacePosW, float3 cameraPosW)
     r.visibility = 1.0f;
     r.color      = float3(0.0f);
 
+    // Category (b): `ray` is formed from the caller's world-space surface and
+    // camera positions. In the opaque composite the surface comes from the
+    // V-buffer, so this is not a pixel-derived camera ray; rayDir is jitter-
+    // independent by construction and must not receive a screen-space term.
     float3 ray = surfacePosW - cameraPosW;
     float cameraDist = length(ray);
     if (cameraDist <= 0.0f) return r;

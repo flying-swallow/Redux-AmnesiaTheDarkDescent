@@ -19,6 +19,8 @@
 
 #include "LuxMapHandler.h"
 
+#include "Constants.h"   // kSceneExposure
+
 #include <tinyxml2.h>
 #include "resources/XmlHelper.h"
 
@@ -136,7 +138,7 @@ cLuxMapHandler::cLuxMapHandler() : iLuxUpdateable("LuxMapHandler")
 	//the mandatory output encode, so it must always run — no config toggle.
 	//Only the image trail runs after it (negative priority), in display space.
 	cPostEffectParams_ToneMap tonemapParams;
-	tonemapParams.mfExposure = 1.0f;
+	tonemapParams.mfExposure = kSceneExposure;
 	tonemapParams.mfShadowLift = 1.0f;
 	tonemapParams.mfGamma = gpBase->mpConfigHandler->GetGamma();
 	mpPostEffect_ToneMap = pGraphics->CreatePostEffect(&tonemapParams);
@@ -259,6 +261,8 @@ void cLuxMapHandler::UpdateViewportRenderProperties()
 	cRenderSettings *pRenderSettings = mpViewport->GetRenderSettings();
 	pRenderSettings->mbRenderWorldReflection = gpBase->mpConfigHandler->mbWorldReflection;
 	pRenderSettings->mbRenderShadows = gpBase->mpConfigHandler->mbShadowsActive;
+	// The viewport resolves provider availability itself; unavailable providers fall back to native extent and are reported via cViewport::GetTemporalUpscalerStatus().
+	mpViewport->SetTemporalUpscalerSettings(gpBase->mpConfigHandler->mSuperSampling);
 }
 
 //-----------------------------------------------------------------------
@@ -270,7 +274,7 @@ void cLuxMapHandler::RefreshToneMapGamma()
 	// Rebuild with the constants used at creation (exposure/shadowLift = 1) plus
 	// the current config gamma, then re-apply.
 	cPostEffectParams_ToneMap tonemapParams;
-	tonemapParams.mfExposure = 1.0f;
+	tonemapParams.mfExposure = kSceneExposure;
 	tonemapParams.mfShadowLift = 1.0f;
 	tonemapParams.mfGamma = gpBase->mpConfigHandler->GetGamma();
 	mpPostEffect_ToneMap->SetParams(&tonemapParams);
@@ -781,6 +785,3 @@ void cLuxMapHandler::CheckMapChange(float afTimeStep)
 }
 
 //-----------------------------------------------------------------------
-
-
-

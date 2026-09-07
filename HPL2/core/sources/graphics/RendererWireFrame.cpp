@@ -187,27 +187,24 @@ namespace hpl {
 			}
 		}
 
-		// Target-agnostic: the viewport resolves its extent from its Target
-		// (swapchain extent for TargetSwapchain, the view's for TargetView)
-		// and PrepareToRender configures this backend's state for it. This
-		// renderer draws 1:1 — no guard band.
-		const cVector2l vTargetSize = viewport->GetTargetSize();
-		if(vTargetSize.x <= 0 || vTargetSize.y <= 0) {
+		const cVector2l displayExtent = viewport->GetDisplayExtent();
+		if(displayExtent.x <= 0 || displayExtent.y <= 0) {
 			return;
 		}
-		const uint32_t renderWidth = (uint32_t)vTargetSize.x;
-		const uint32_t renderHeight = (uint32_t)vTargetSize.y;
 
 		////////////////////////////////////////////
 		// Viewport-owned targets: PrepareToRender configures this backend's
-		// state (1:1 color render target + depth) for the target size. cScene
-		// feeds the finished render target into the viewport pogo afterwards.
+		// state (1:1 color render target + depth) for the negotiated render
+		// extent. cScene feeds the finished render target into the viewport pogo
+		// afterwards.
 		cViewport::SimpleViewportState *pState =
 			viewport->PrepareToRender<cViewport::SimpleViewportState>(cntx);
-		if(pState == nullptr || pState->width == 0) {
+		if(pState == nullptr || pState->width == 0 || pState->height == 0) {
 			return;
 		}
 		cViewport::SimpleViewportState &state = *pState;
+		const uint32_t renderWidth = state.width;
+		const uint32_t renderHeight = state.height;
 
 		////////////////////////////////////////////
 		// Pre-render transitions: render target UNDEFINED -> COLOR (contents

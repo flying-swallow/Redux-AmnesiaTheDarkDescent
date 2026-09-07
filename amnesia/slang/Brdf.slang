@@ -125,13 +125,13 @@ float glossToGGXAlpha(float gloss)
 // Perceptual diffuse-lobe roughness for a material: decoded from the spec-map
 // gloss channel when present (alpha = rough² per the Falcor convention),
 // kDefaultDiffuseRoughness (fully rough) otherwise.
-public float decodeMaterialRoughness(DiffuseMaterial m, float2 uv)
+public float decodeMaterialRoughness(DiffuseMaterial m, float2 uv, float texLodBase)
 {
     bool hasSpec = ((m.materialConfig & kMaterialFlagEnableSpecular) != 0u)
                  && (m.tex[3] != kInvalidTextureIndex);
     if (!hasSpec)
         return kDefaultDiffuseRoughness;
-    float gloss = sampleBindless2DLevel(m.tex[3], uv, 0.0f).y;
+    float gloss = sampleBindless2DCone(m.tex[3], uv, texLodBase).y;
     return clamp(sqrt(glossToGGXAlpha(gloss)), kMinRough, 1.0f);
 }
 
@@ -272,7 +272,8 @@ public bool sampleBrdf(SurfaceBRDF s, float3 V, inout RNG rng, out float3 L, out
 
 // Reconstruct PBR surface parameters from a DiffuseMaterial + interpolated
 // UV/normal. `N` is the world-space shading normal.
-public SurfaceBRDF prepareSurface(DiffuseMaterial m, float3 N, float2 uv)
+public SurfaceBRDF prepareSurface(DiffuseMaterial m, float3 N, float2 uv,
+                                  float texLodBase)
 {
     SurfaceBRDF s;
     s.N = N;
@@ -281,7 +282,7 @@ public SurfaceBRDF prepareSurface(DiffuseMaterial m, float3 N, float2 uv)
     if (diffuseTex == kInvalidTextureIndex)
         s.albedo = float3(0.5f);
     else
-        s.albedo = sampleBindless2DLevel(diffuseTex, uv, 0.0f).rgb;
+        s.albedo = sampleBindless2DCone(diffuseTex, uv, texLodBase).rgb;
 
     bool hasSpec = ((m.materialConfig & kMaterialFlagEnableSpecular) != 0u)
                  && (m.tex[3] != kInvalidTextureIndex);
@@ -292,7 +293,7 @@ public SurfaceBRDF prepareSurface(DiffuseMaterial m, float3 N, float2 uv)
 
     if (hasSpec)
     {
-        float2 spec = sampleBindless2DLevel(m.tex[3], uv, 0.0f).xy;
+        float2 spec = sampleBindless2DCone(m.tex[3], uv, texLodBase).xy;
         float specIntensity = spec.x;
         float gloss         = spec.y;
         s.rough = clamp(glossToGGXAlpha(gloss), kMinRough, 1.0f);

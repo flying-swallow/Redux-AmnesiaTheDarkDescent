@@ -343,6 +343,9 @@ public:
 	void SetViewportCameraPlanes(const cVector2f& avX);
 	const cVector2f& GetViewportCameraPlanes();
 
+	void SetViewportDisplayGamma(float afX);
+	float GetViewportDisplayGamma();
+
 	void SetViewportBGColor(const cColor& aX);
 	const cColor& GetColor();
 

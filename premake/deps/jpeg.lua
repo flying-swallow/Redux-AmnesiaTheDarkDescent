@@ -1,4 +1,4 @@
--- libjpeg (9d, jmemnobs) -- explicit list mirrors sources/jpeg/CMakeLists.txt.
+-- libjpeg (9d, jmemnobs) -- explicit source list, not a glob.
 project "jpeg"
     kind "StaticLib"
     language "C"

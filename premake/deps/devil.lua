@@ -1,6 +1,7 @@
--- DevIL (image library, IL) -- mirrors sources/DevIL/CMakeLists.txt.
+-- DevIL (image library, IL) -- explicit source list, not a glob.
 -- The configured config.h (with IL_NO_TIF / IL_NO_JP2) lives in
--- DevIL/DevIL/src-IL/include and MUST resolve before the template copy in include/.
+-- HPL2/extern/DevIL/DevIL/src-IL/include and MUST resolve before the template
+-- copy in HPL2/extern/DevIL/include/.
 project "IL"
     kind "StaticLib"
     language "C++"

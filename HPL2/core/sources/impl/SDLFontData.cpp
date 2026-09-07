@@ -156,6 +156,7 @@ bool cSDLFontData::CreateFromBitmapFile(const tWString &asFileName) {
     singleImage.image.emplace();
     cTexture::BitmapLoadOptions opts = {0};
     opts.use_mipmaps = true;
+    opts.generate_mipmaps = false; // Drawn at 1:1; mips risk bleeding between packed atlas entries.
     if (!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE,
                                        RI_STAGE_FRAGMENT, *pBitmap, opts)) {
       Error("Texture manager Couldn't load SDLFontData '%s'\n", sName.c_str());

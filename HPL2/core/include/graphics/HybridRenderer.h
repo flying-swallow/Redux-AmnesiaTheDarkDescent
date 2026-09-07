@@ -8,6 +8,7 @@
 #include "graphics/Renderer.h"
 #include "graphics/RISegmentAlloc.h"
 #include "graphics/RITypes.h"
+#include "graphics/WaterReflectionPass.h"
 #include <array>
 
 #include "Constants.h"
@@ -136,6 +137,7 @@ private:
 	// PipelineSlot cache. Port of decal.frag.fsl / decal.vert.fsl.
 	RIProgram m_decal;
 	RIProgram m_water;
+	WaterReflectionPass m_waterReflection;
 
 	struct OverlayPushConstants { uint32_t overlayMode; };
 	uint32_t m_overlayMode = kDefaultOverlayMode;

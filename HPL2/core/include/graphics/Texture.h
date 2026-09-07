@@ -39,6 +39,10 @@ public:
     bool use_cubemap = false;
     bool use_array = false;
     bool use_mipmaps = false;
+    // When use_mipmaps is set but the bitmap only carries level 0, build the
+    // missing levels on the GPU at upload time. Callers wanting old
+    // single-mip behavior can opt out.
+    bool generate_mipmaps = true;
     bool sRGB = false;
   };
   bool LoadBitmap(enum RIResourceState_e postState, uint32_t postStages,

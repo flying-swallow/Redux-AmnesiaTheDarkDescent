@@ -11,26 +11,30 @@
 // Usage example:
 //   void shadeAny<L : ILight>(L light, float3 worldPos) {
 //       LightSample ls;
-//       if (light.sample(worldPos, ls)) { ... }
+//       if (light.sample(worldPos, surfaceFootprintW, ls)) { ... }
 //   }
 
 #include "HostDefinitions.h"
 import SceneTypes;            // light struct fields + kInvalidTextureIndex sentinel
 import bindless;             // gTextures2D, gTexturesCube, gMaterialSampler
 import Random;               // concentricDiskSample (soft-shadow source sampling)
+import RayCone;              // projected-light texture footprint helpers
 
 // -----------------------------------------------------------------------------
 // ILight — common shape for the point/spot/box bindless light SSBO entries.
 // `getPosition()` returns the source for point/spot, the AABB
 // center for box. `sample()` is the NEE entry point used by the
-// direct-lighting and path-trace shading paths.
+// direct-lighting and path-trace shading paths. `surfaceFootprintW` is the
+// world-space footprint DIAMETER at the shading point. Lights with projected
+// textures need it because their UVs are not the surface triangle's UV
+// parametrisation. PointLight uses it for the angular footprint of its cube gobo.
 // -----------------------------------------------------------------------------
 public interface ILight
 {
     public float3 getColor();
     public float3 getPosition();
     public float getRadius();         // light-grid bin reach (world units); 0 => skip
-    public bool sample(float3 shadingPosW, out LightSample ls);
+    public bool sample(float3 shadingPosW, float surfaceFootprintW, out LightSample ls);
 
     // Whether this light casts shadows (GetCastShadows). When false the NEE
     // shadow ray is skipped — the light fully lights its targets, no occlusion.
@@ -133,7 +137,7 @@ public extension PointLight : ILight
     // Radiance = color · intensity · softened inverse-square. The attenuation is a
     // plain inverse-square (no reach window) so radiance goes HDR (>1) near the
     // source and blooms; the reach cutoff lives only in the grid binning, not here.
-    public bool sample(float3 shadingPosW, out LightSample ls)
+    public bool sample(float3 shadingPosW, float surfaceFootprintW, out LightSample ls)
     {
         ls.Li = float3(0.0); ls.pdf = 1.0; ls.dir = float3(0,0,1); ls.distance = 0.0;
         float3 toLight = position - shadingPosW;
@@ -148,8 +152,10 @@ public extension PointLight : ILight
         {
             float3x3 wToL = float3x3(worldToLightX, worldToLightY, worldToLightZ);
             float3 lightLocalDir = mul(wToL, -L);
-            gobo = gTexturesCube[NonUniformResourceIndex(goboTextureIndex)]
-                .SampleLevel(gMaterialSampler, lightLocalDir, 0.0).rgb;
+            // The surface triangle's cone LOD base describes its own UVs, not
+            // this cube direction; apply the angular cube-map footprint.
+            float lodBase = cubeGoboTexLodBase(surfaceFootprintW, dist, lightLocalDir);
+            gobo = sampleBindlessCubeCone(goboTextureIndex, lightLocalDir, lodBase).rgb;
         }
 
         ls.Li       = color * intensity * gobo * atten;
@@ -174,7 +180,7 @@ public extension SpotLight : ILight
     // PointLight — plain inverse-square, HDR near source, no reach window; the
     // cutoff is grid-only), times an angular cone term (analytic smoothstep from
     // the FOV edge to the center, or a projected gobo via viewProjection when bound).
-    public bool sample(float3 shadingPosW, out LightSample ls)
+    public bool sample(float3 shadingPosW, float surfaceFootprintW, out LightSample ls)
     {
         ls.Li = float3(0.0); ls.pdf = 1.0; ls.dir = float3(0,0,1); ls.distance = 0.0;
         float3 toLight = position - shadingPosW;
@@ -192,7 +198,10 @@ public extension SpotLight : ILight
             if (lc.w <= 0.0) return false;
             float2 uv = lc.xy / lc.w;
             if (any(uv < float2(0.0)) || any(uv > float2(1.0))) return false;
-            gobo = sampleBindless2DLevel(goboTextureIndex, uv, 0.0).rgb;
+            // The surface triangle's cone LOD base describes its own UVs, not
+            // these projected light coordinates; apply the projective footprint.
+            float lodBase = projectedTexLodBase(viewProjection, lc, surfaceFootprintW);
+            gobo = sampleBindless2DCone(goboTextureIndex, uv, lodBase).rgb;
         }
         else
         {
@@ -250,7 +259,7 @@ public extension RectLight : ILight
     // seen from the shading point. barnClipRect turns that into a clipped source rectangle, which
     // both moves the closest point and scales the contribution by the visible area fraction, so
     // the beam narrows AND dims at its edge. θ → 90° or L = 0 ⇒ flaps open ⇒ no-op.
-    public bool sample(float3 shadingPosW, out LightSample ls)
+    public bool sample(float3 shadingPosW, float surfaceFootprintW, out LightSample ls)
     {
         ls.Li = float3(0.0); ls.pdf = 1.0; ls.dir = float3(0,0,1); ls.distance = 0.0;
 
@@ -299,7 +308,12 @@ public extension RectLight : ILight
         if (sourceTextureIndex != kInvalidTextureIndex)
         {
             float2 uv = float2(cx / width + 0.5, 0.5 - cy / height);
-            srcTex = sampleBindless2DLevel(sourceTextureIndex, uv, 0.0).rgb;
+            // The surface triangle's cone LOD base describes its own UVs, not
+            // this rect-local emitter UV; average the closest-point source
+            // texture over the competing surface/emitter footprint.
+            float lodBase = areaLightSourceTexLodBase(surfaceFootprintW, dist,
+                                                      width, height);
+            srcTex = sampleBindless2DCone(sourceTextureIndex, uv, lodBase).rgb;
         }
 
         // Visible fraction of the emitter after clipping. The closest-point model has

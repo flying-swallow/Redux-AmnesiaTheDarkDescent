@@ -18,6 +18,7 @@
 
 import SceneTypes;
 import Scene;
+import RayCone;
 import bindless;                       // gPackedHitInfo, lights, grid
 import HitInfo;
 import PerFrame.resource;
@@ -39,12 +40,18 @@ void csMain(uint3 tid : SV_DispatchThreadID)
 {
     uint outW, outH;
     gReservoirOut.GetDimensions(outW, outH);
+    // Camera-jitter audit (a): this dispatch covers the full render extent,
+    // matching gPackedHitInfo, the current key/output, and gVelocity. The
+    // thread index is therefore the primary raster sample; no camera ray is
+    // reconstructed and no half-resolution remap is needed.
     uint2 pixelPos = tid.xy;
     if (pixelPos.x >= outW || pixelPos.y >= outH)
         return;
 
-    // `gPackedHitInfo` already carries the raster hit (only the barycentrics
-    // are POM-perturbed), so a miss here is a real miss.
+    // The surface below is reconstructed from the full-resolution V-buffer hit
+    // (only its barycentrics are POM-perturbed), not from a pixel-to-ray
+    // conversion, so it already follows the primary raster sample and needs no
+    // additional jitter term.
     HitInfo hitInfo = HitInfo(gPackedHitInfo[pixelPos]);
     if (!hitInfo.isValid())
     {
@@ -55,11 +62,24 @@ void csMain(uint3 tid : SV_DispatchThreadID)
 
     TriangleHit th  = hitInfo.getTriangleHit();
     uint materialID = gSceneObjects[th.instanceID].materialID;
-    VertexData v    = getVertexData(th);
+    float triLod;
+    VertexData v    = getVertexDataAndLodConstant(th, triLod);
+    // Use the geometric interpolated normal: cone-to-surface projection must
+    // not be changed by a normal map applied later during shading.
+    float3 toHit  = v.posW - gPerFrame.posW;
+    float  hitT   = length(toHit);
+    RayCone cone  = rayConePropagate(rayConePrimary(), hitT);
+    float texLodBase = rayConeTexLodBase(cone, triLod, v.normalW,
+                                         toHit / max(hitT, 1e-6f));
+    float surfaceFootprintW = rayConeSurfaceFootprint(cone, v.normalW,
+                                                      toHit / max(hitT, 1e-6f));
     UniformObject obj = gSceneObjects[th.instanceID];
     DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount,
+                                              texLodBase, surfaceFootprintW,
                                               /*decodeRoughness*/ false, /*applyNormalMap*/ true);
 
+    // Category (b): the reprojection key uses V-buffer world geometry and the
+    // unjittered view matrix; projection jitter must not be added to viewZ.
     float  curZ = -mul(gPerFrame.viewMat, float4(sd.posW, 1.0f)).z;
     // Reprojection/disocclusion key uses the GEOMETRIC normal (not the bumped
     // sd.normalW) so high-frequency normal-map detail doesn't cause false
@@ -69,8 +89,20 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // Reproject through the motion vector; reject (disocclusion) on depth/normal
     // mismatch. The key is point-sampled — it must not bilinear-blend across edges.
     float2 dims   = float2(outW, outH);
+    // This pass runs on the full render extent, so the shared jitterUV is
+    // already in its units — but the two frames were rasterized with DIFFERENT
+    // sample offsets, so mapping a current texel onto a history texel needs
+    // both. VBufferRaster writes velocity from the UNJITTERED clip positions,
+    // so it carries no jitter of its own. At zero jitter both terms vanish and
+    // this is exactly the original curUV - velocity mapping. (A pass on a
+    // coarser grid would additionally need jitterUV * fullExtent / ownExtent.)
     float2 curUV  = (float2(pixelPos) + 0.5f) / dims;
-    float2 histUV = curUV - gVelocity.Load(int3(pixelPos, 0)).xy;
+    float2 velocity = gVelocity.Load(int3(pixelPos, 0)).xy;
+    // The point at this pixel has unjittered UV curUV + current jitterUV; its
+    // previous unjittered UV is that minus velocity, and the previous jittered
+    // raster history texel is previous unjittered UV - previous jitterUV.
+    float2 histUV = curUV - velocity + float2(gPerFrame.jitterX, gPerFrame.jitterY)
+                  - float2(gPerFrame.prevJitterX, gPerFrame.prevJitterY);
 
     bool valid = !(any(histUV < 0.0f) || any(histUV > 1.0f));
     int2 ht = int2(0, 0);
