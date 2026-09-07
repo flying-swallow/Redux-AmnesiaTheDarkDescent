@@ -1,84 +1,177 @@
-# Amnesia 64
-64-bit Windows port of Amnesia: The Dark Descent
+# Amnesia: The Dark Descent — Redux
 
-## Key changes:
-- Can be compiled in both 32-bit and 64-bit modes using VS2019 with latest build tools.
-- Single solution file for all projects (main game, HPL2, dependencies and editors). No need to compile the engine separately.
-- Produces self-contained .exe files without dependency on 3rd party dlls (this prevents cluttering user's game folder with 64-bit dlls).
-- Some libraries were changed, most notably:
-	- SDL2 was upgraded from 2.0.4 to 2.0.12
-	- alut was replaced with freealut
-	- Newton Dynamics was upgraded from 2.08 to 2.32 (I simply couldn't find the source code for 2.08)
-	- Fbx support is temporarily removed (I'm planning to re-implement it using OpenFBX)
+[![Build](https://github.com/flying-swallow/Redux-AmnesiaTheDarkDescent/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/flying-swallow/Redux-AmnesiaTheDarkDescent/actions/workflows/build.yml)
+[![Itch.io](https://img.shields.io/badge/Itch-%23FF0B34.svg?style=for-the-badge&logo=Itch.io&logoColor=white)](https://mpollind.itch.io/amnesia-the-dark-descent-redux)
 
-The project builds with **premake5**, using one project model for Linux and Windows; see [BUILD.md](BUILD.md) for the full instructions.
+A rework of Frictional Games' HPL2 engine. The fixed-function OpenGL renderer has been replaced with a
+Vulkan render-interface layer, the shaders are written in [Slang](https://shader-slang.org/), and the
+lighting path is being moved onto a hybrid rasterization + ray-tracing renderer with surfel-based global
+illumination.
 
-## Prerequisites
-- A legitimate copy of **Amnesia: The Dark Descent** (e.g. via Steam). The build only produces the executable; assets, scripts, configs, and shaders come from your installed copy.
-- **Git**. The project uses dependency submodules under `HPL2/extern/`; clone recursively or run `git submodule update --init --recursive`. On Windows, enable long paths first: `git config --system core.longpaths true`.
-- **premake5** on `PATH` (`premake5.exe` on Windows), used to generate the build files.
-- A C++20-capable toolchain — see each build path below for specifics.
+Work in progress. It is playable end to end, but expect rendering artifacts and broken functionality.
+
+## You need the retail game
+
+This repository contains **engine, game, and tool code only**. It ships no game data. To play, you must own a
+copy of *Amnesia: The Dark Descent* (Steam, GOG, or the Frictional store) — the maps, entities, sounds,
+scripts, and configs all come from your install.
+
+The itch.io and GitHub Release downloads carry the same restriction: rebuilt executables and compiled shaders
+only, nothing from the retail game. Frictional's engine source is GPL; its game assets are not.
+
+## Getting a build
+
+- **itch.io** — [mpollind.itch.io/amnesia-the-dark-descent-redux](https://mpollind.itch.io/amnesia-the-dark-descent-redux),
+  channels `windows` and `linux`.
+- **GitHub Releases** — the same archives, attached to each tagged prerelease.
+- **From source** — see [Building](#building).
+
+Copy the contents of the download into your Amnesia install directory and run `Amnesia` / `Amnesia.exe` from
+there, so the executable finds the game's data files.
+
+## Renderer
+
+- Vulkan-only render interface (`HPL2/core/include/graphics/RI*.h`) — no OpenGL, no fixed-function path.
+- Slang shaders under `amnesia/slang/`, compiled to SPIR-V at build time by a pinned `slangc` that the build
+  downloads for you.
+- Hybrid renderer (`HPL2/core/include/graphics/HybridRenderer.h`): visibility buffer, deferred and forward
+  passes, plus the surfel-GI chain (prepare / update / ray-trace / integrate / generate) driving indirect
+  lighting.
+- Bindless resource pools and a global managed descriptor set, replacing HPL2's per-draw binding.
+
+## Building
+
+The build system is **premake5**. There is no CMake build in this tree any more.
+
+### Prerequisites
+
+- **premake5 5.0.0-beta8** on your `PATH` ([releases](https://github.com/premake/premake-core/releases)).
+- **CMake** — not for this project, but SDL2 and openal-soft are built by driving their own CMake
+  (`premake/external.lua`).
+- Linux: GCC or Clang with C++20, plus the X11/Wayland/GL/audio development packages. The exact apt list is
+  kept in [`.github/workflows/linux-build.yml`](.github/workflows/linux-build.yml) — copy it from there, or
+  use the container path below.
+- Windows: Visual Studio 2022 or newer with the Desktop C++ workload. Enable long paths before cloning; this
+  tree has paths that exceed `MAX_PATH`:
+  ```
+  git config --system core.longpaths true
+  ```
+- `slangc` is downloaded automatically at configure time (pinned by `SLANG_VERSION` in
+  [`premake/slang.lua`](premake/slang.lua)). Point `--slangc=/path/to/slangc` at your own to skip it.
 
 ```
-git clone --recurse-submodules https://github.com/<your-fork>/Amnesia64.git
-cd Amnesia64
+git clone --recurse-submodules git@github.com:flying-swallow/Redux-AmnesiaTheDarkDescent.git
+cd Redux-AmnesiaTheDarkDescent
 ```
 
-## Building on Windows
+Dependencies are git submodules under `HPL2/extern/` — clone recursively, or run
+`git submodule update --init --recursive` afterwards.
 
-Requires `premake5.exe` on `PATH` and Visual Studio with the *Desktop development with C++* workload. Run:
-
-```
-.\build-windows.ps1 [release|debug]
-```
-
-The wrapper generates `build-premake\Amnesia.sln` via `premake5 vs2026`, then builds it with MSBuild targeting `x64`. After generation, you can also open the generated solution directly in Visual Studio.
-
-Its options include `-Clean` to remove `build-premake\` before generation, `-NoDeploy` to skip asset deployment, `-GameDir <path>` to provide the installed game folder, and `--` to pass extra arguments through to Premake (for example, `--with-tools=no`). `ATDD_DIR` is still honored as the game-folder environment variable and as the generated projects' debugger working directory; `-GameDir` also sets it for the wrapper build.
-
-The [Windows workflow](.github/workflows/windows-build.yml) uses `premake5 vs2022`. `premake5.lua` does not pin `_ACTION`, so `vs2022` and `vs2026` generate the same project model.
-
-> Note: per the most recent commits, post effects and the menu background are temporarily disabled on this branch while the renderer backend is being reworked.
-
-## Building on Linux
-
-Generate Makefiles and build with:
+### Linux
 
 ```
-premake5 gmake2 [options]
+premake5 gmake2
 make -C build-premake config=release -j"$(nproc)"
 ```
 
-The built output is in `build-premake/amnesia/<Debug|Release>/`. The native wrapper performs generation, the build, Python tests, and optional deployment on the host: `./build-linux.sh [release|debug]`.
-
-The containerized wrapper performs generation, the build, Python tests, and deployment in one step:
+Or build inside the Ubuntu 24.04 container defined by the repo-root [`Dockerfile`](Dockerfile), which ships
+premake5 and every dev package the build needs, so nothing has to be installed on the host:
 
 ```
-./build-linux-docker.sh [release|debug]
+docker build -t amnesia-build .
+docker run --rm -v "$PWD:$PWD" -w "$PWD" amnesia-build \
+    bash -c 'premake5 gmake2 && make -C build-premake config=release -j"$(nproc)"'
 ```
 
-`cmake` is still required as an installed tool because `premake/external.lua` drives the bundled SDL2 and openal-soft builds with their own CMake; `--cmake=PATH` overrides which executable is used.
+Mount the tree at its real host path (as above) so `compile_commands.json` and the paths baked into the object
+files line up between containerized and native builds.
 
-**Useful premake options** (see [BUILD.md](BUILD.md) for the full table):
-- `--game-dir=PATH` — no default; required by the `deploy` action.
-- `--with-tools=yes|no` — default `yes`.
-- `--with-tests=yes|no` — default `yes`.
-- `--with-python-tests=yes|no` — default `yes`.
-- `--with-fsr=yes|no` — default `yes`.
-- `--with-xess=yes|no` — default `yes`; Windows only and ignored on Linux.
-- `--graphics-x11=on|off` — default `on`.
-- `--graphics-wayland=on|off` — default `on`.
-- `--slangc=PATH` — no explicit default; an extracted compiler is reused or the pinned release is downloaded when omitted.
-- `--cmake=PATH` — default `cmake` on `PATH`.
+Two wrappers drive the same premake5 flow end to end — generate, build, run the Python tests, and
+optionally deploy your install's assets: [`build-linux-docker.sh`](build-linux-docker.sh) does it in the
+container (canonical), [`build-linux.sh`](build-linux.sh) natively on the host. Both take `[release|debug]`
+and forward anything after `--` to `premake5 gmake2`.
+
+### Windows
+
+```
+premake5 vs2026
+msbuild build-premake\Amnesia.sln /p:Configuration=Release /p:Platform=x64 /m
+```
+
+Or use the wrapper, which locates MSBuild via `vswhere` so any PowerShell works:
+
+```
+.\build-windows.ps1
+```
+
+CI generates with `vs2022` instead; `premake5.lua` pins no `_ACTION`, so both produce the same projects.
+
+### Output
+
+Everything lands in `build-premake/amnesia/<Debug|Release>/`: `Amnesia`, the four editors (`LevelEditor`,
+`ModelEditor`, `MaterialEditor`, `ParticleEditor`), `MshConverter`, the `compiled_shaders/` directory, and on
+Linux the colocated SDL2/OpenAL shared libraries under `libs/` (found via an `$ORIGIN/libs` rpath).
+
+### Options
+
+Pass these to `premake5`:
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `--game-dir=PATH` | — | Your Amnesia install; used by the `deploy` action. |
+| `--with-tools=yes\|no` | `yes` | Build the editors and converters. |
+| `--with-tests=yes\|no` | `yes` | Build and run the headless unit tests. |
+| `--with-python-tests=yes\|no` | `yes` | Build and run the Python unit tests. |
+| `--with-fsr=yes\|no` | `yes` | Build and link the FidelityFX Super Resolution SDK. |
+| `--with-xess=yes\|no` | `yes` | Intel XeSS Vulkan super-resolution backend (Windows only; ignored on Linux). |
+| `--graphics-x11=on\|off` | `on` | (Linux) X11 Vulkan surface backend. |
+| `--graphics-wayland=on\|off` | `on` | (Linux) Wayland Vulkan surface backend. |
+| `--slangc=PATH` | downloads | Use an existing `slangc` instead of the pinned download. |
+| `--cmake=PATH` | `cmake` | The CMake used to build SDL2 and openal-soft. |
+
+`premake5 export-compile-commands` writes a `compile_commands.json` for clangd.
 
 ## Running
 
-First stage the game assets with:
+The engine resolves resources relative to the working directory, so the executable must run from a directory
+holding the game's `config/`, `entities/`, `maps/`, `core/`, and so on. Two ways to get there:
 
-```
-premake5 deploy --game-dir="/path/to/Amnesia The Dark Descent"
-```
+- Stage your install's assets next to the build output:
+  ```
+  premake5 deploy --game-dir="$HOME/.steam/steam/steamapps/common/Amnesia The Dark Descent"
+  ```
+  This copies everything except the original binaries, DLLs, and archives into
+  `build-premake/amnesia/<Config>/`.
+- Or copy the build output into your install directory and launch it from there.
 
-This copies assets from the installed game into `build-premake/amnesia/Debug/` and `build-premake/amnesia/Release/`, excluding names beginning with `Amnesia` and files matching `*.rar`, `*.pdf`, `*.dll`, or `*.exe`. The result is a self-contained directory; launch the built executable from the corresponding output directory. `build-linux-docker.sh` runs this action for you unless `--no-deploy` is supplied.
+On Windows the generated projects set the debugger working directory to `$(ATDD_DIR)`, so set that environment
+variable to your install and F5 works directly.
 
-If the game complains about missing files on startup, check that you built or deployed into the expected `build-premake/amnesia/<Debug|Release>/` directory, then re-run `premake5 deploy` with the correct install path.
+[BUILD.md](BUILD.md) has more detail on the wrappers, the option table, and the shader tooling.
+
+## Releasing
+
+Releases are cut manually. Run the **release** workflow from the Actions tab with a tag; it builds both
+platforms, pushes the payload to itch.io with [butler](https://itch.io/docs/butler/), and attaches the same
+archives to a GitHub prerelease.
+
+- Requires an `ITCH_API_KEY` repository secret (itch.io → Settings → API keys).
+- Pushes to the `windows` and `linux` channels of `mpollind/amnesia-the-dark-descent-redux`. The
+  `itch_channel_suffix` input appends to those names, so `-beta` gives a throwaway test channel.
+- The staging step hard-fails if any retail asset directory is found in the payload.
+
+## Continuous integration
+
+[`build.yml`](.github/workflows/build.yml) runs on pushes to `main` and on pull requests, calling the reusable
+[`linux-build.yml`](.github/workflows/linux-build.yml) and
+[`windows-build.yml`](.github/workflows/windows-build.yml) workflows. Those two are the authoritative,
+always-current build recipe — when the instructions above drift, they are the source of truth.
+
+## License
+
+The tree is a mix; `LICENSE` holds the GPL v3 text, but per-component:
+
+- Any code published by **Frictional Games** is under the GNU General Public License.
+- Some code from **Open 3D Engine**, under Apache-2.0 OR MIT.
+- Any new code under my name uses the Apache-2.0 license.
+- Sebastian Aaltonen 2023, MIT (see `LICENSE`).

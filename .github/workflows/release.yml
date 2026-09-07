@@ -4,8 +4,15 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tagged Version'
+        description: 'Tagged version, e.g. v1'
         required: true
+      itch_channel_suffix:
+        description: 'Appended to the itch.io channel names, e.g. "-beta" for a test push'
+        required: false
+        default: ''
+
+env:
+  ITCH_TARGET: mpollind/amnesia-the-dark-descent-redux
 
 jobs:
   linux:
@@ -29,25 +36,79 @@ jobs:
         with:
           path: artifacts
 
-      - name: Stage archives under the release tag
+      # Unpack into per-platform trees. butler pushes a directory, not an
+      # archive, so that it can compute an incremental patch against the
+      # previous build on the channel.
+      - name: Stage payloads
         env:
           TAG: ${{ github.event.inputs.tag }}
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          mkdir -p release
-          archives=(artifacts/*/*.tar.gz artifacts/*/*.zip)
-          if [ ${#archives[@]} -eq 0 ]; then
-            echo "no build archives found under artifacts/" >&2
-            exit 1
-          fi
-          for f in "${archives[@]}"; do
-            base="$(basename "$f")"
-            name="${base%%.*}"
-            ext="${base#*.}"
-            cp "$f" "release/${name}-${TAG}.${ext}"
+          mkdir -p stage/linux stage/windows release
+          tar -xzf artifacts/linux-x86_64-release/linux-x86_64-release.tar.gz -C stage/linux
+          unzip -q artifacts/win-x86_64-release/win-x86_64-release.zip -d stage/windows
+
+          # Tell the itch app which executables to offer; without this it guesses.
+          write_manifest() {
+            local dir="$1" ext="$2"
+            cat > "${dir}/.itch.toml" <<TOML
+          [[actions]]
+          name = "play"
+          path = "Amnesia${ext}"
+
+          [[actions]]
+          name = "Level Editor"
+          path = "LevelEditor${ext}"
+
+          [[actions]]
+          name = "Model Editor"
+          path = "ModelEditor${ext}"
+
+          [[actions]]
+          name = "Material Editor"
+          path = "MaterialEditor${ext}"
+
+          [[actions]]
+          name = "Particle Editor"
+          path = "ParticleEditor${ext}"
+          TOML
+          }
+          write_manifest stage/linux ""
+          write_manifest stage/windows ".exe"
+
+          # Guard: the retail game's data is not GPL and must never be published.
+          # CI never runs the premake `deploy` action, so these should not exist;
+          # fail loudly if that ever changes.
+          for d in config entities maps sounds static_objects music lang graphics gui; do
+            if [ -e "stage/linux/$d" ] || [ -e "stage/windows/$d" ]; then
+              echo "refusing to publish: retail game asset directory '$d' is present in the payload" >&2
+              exit 1
+            fi
           done
+
+          tar -C stage/linux -zcf "release/Amnesia-linux-x86_64-${TAG}.tar.gz" .
+          (cd stage/windows && zip -qr "${GITHUB_WORKSPACE}/release/Amnesia-win-x86_64-${TAG}.zip" .)
           ls -l release
+
+      - name: Install butler
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/butler.zip \
+            "https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default"
+          unzip -q -o /tmp/butler.zip -d "${HOME}/.butler"
+          chmod +x "${HOME}/.butler/butler"
+          echo "${HOME}/.butler" >> "$GITHUB_PATH"
+
+      - name: Push to itch.io
+        env:
+          BUTLER_API_KEY: ${{ secrets.ITCH_API_KEY }}
+          TAG: ${{ github.event.inputs.tag }}
+          SUFFIX: ${{ github.event.inputs.itch_channel_suffix }}
+        run: |
+          set -euo pipefail
+          butler push stage/linux   "${ITCH_TARGET}:linux${SUFFIX}"   --userversion "$TAG"
+          butler push stage/windows "${ITCH_TARGET}:windows${SUFFIX}" --userversion "$TAG"
+          butler status "${ITCH_TARGET}"
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
