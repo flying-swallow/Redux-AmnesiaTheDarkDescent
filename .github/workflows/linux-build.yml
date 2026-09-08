@@ -12,6 +12,16 @@ on:
         type: string
         default: ''
         required: false
+      name_suffix:
+        description: 'Optional suffix appended to the job and artifact names'
+        type: string
+        default: ''
+        required: false
+      build_version:
+        description: 'Version embedded in the game and displayed in the main menu'
+        type: string
+        default: 'V0000'
+        required: false
       with_fsr:
         description: 'Whether FSR is enabled; controls setup of FSR-only tools'
         type: boolean
@@ -20,12 +30,13 @@ on:
 
 jobs:
   linux:
-    name: "linux-x86_64-${{ inputs.config }}"
+    name: "linux-x86_64-${{ inputs.config }}${{ inputs.name_suffix }}"
     runs-on: ubuntu-24.04
     env:
-      CONFIG_NAME: "linux-x86_64-${{ inputs.config }}"
+      CONFIG_NAME: "linux-x86_64-${{ inputs.config }}${{ inputs.name_suffix }}"
       # premake's cfg.buildcfg is capitalized; gmake2's `config=` is lowercase.
       BUILD_FOLDER: "${{ inputs.config == 'release' && 'Release' || 'Debug' }}"
+      BUILD_VERSION: ${{ inputs.build_version }}
       # Keep in sync with the ARG in the repo-root Dockerfile.
       PREMAKE_VERSION: "5.0.0-beta8"
     steps:
@@ -75,7 +86,7 @@ jobs:
         run: python3 scripts/run_python_tests.py -v
 
       - name: Generate makefiles
-        run: premake5 gmake2 ${{ inputs.premake_args }}
+        run: premake5 gmake2 "--build-version=$BUILD_VERSION" ${{ inputs.premake_args }}
 
       - name: Build
         run: make -C build-premake config=${{ inputs.config }} -j"$(nproc)"

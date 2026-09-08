@@ -1,6 +1,13 @@
 -- premake/options.lua -- command-line options for the Premake build.
 
 newoption {
+    trigger = "build-version",
+    value = "VERSION",
+    description = "Release version displayed in the main menu (default V0000).",
+    default = "V0000",
+}
+
+newoption {
     trigger = "slangc",
     value = "PATH",
     description = "Path to a slangc executable. If omitted, the script reuses one already "

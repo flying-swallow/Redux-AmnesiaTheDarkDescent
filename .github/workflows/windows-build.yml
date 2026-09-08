@@ -17,6 +17,11 @@ on:
         type: string
         default: ''
         required: false
+      build_version:
+        description: 'Version embedded in the game and displayed in the main menu'
+        type: string
+        default: 'V0000'
+        required: false
       with_fsr:
         description: 'Whether FSR is enabled; controls setup of FSR-only tools'
         type: boolean
@@ -30,6 +35,7 @@ jobs:
     env:
       CONFIG_NAME: "win-x86_64-${{ inputs.config }}${{ inputs.name_suffix }}"
       BUILD_FOLDER: "${{ inputs.config == 'release' && 'Release' || 'Debug' }}"
+      BUILD_VERSION: ${{ inputs.build_version }}
       # Keep in sync with the ARG in the repo-root Dockerfile.
       PREMAKE_VERSION: "5.0.0-beta8"
       # Pinned Khronos release used by the FSR SDK shader-compiler wrapper.
@@ -126,13 +132,13 @@ jobs:
       # premake5.lua pins no _ACTION, so vs2022 generates the same projects.
       - name: Generate solution
         if: ${{ inputs.with_fsr }}
-        run: premake5 vs2022 --python="${{ steps.setup-python.outputs.python-path }}" ${{ inputs.premake_args }}
+        run: premake5 vs2022 "--build-version=$env:BUILD_VERSION" --python="${{ steps.setup-python.outputs.python-path }}" ${{ inputs.premake_args }}
 
       # --with-fsr=no skips the SDK and cmake/fsr entirely, so it needs no
       # FSR-specific tool setup or Python override.
       - name: Generate solution (FSR disabled)
         if: ${{ !inputs.with_fsr }}
-        run: premake5 vs2022 ${{ inputs.premake_args }}
+        run: premake5 vs2022 "--build-version=$env:BUILD_VERSION" ${{ inputs.premake_args }}
 
       # PythonTests uses setup-python for FSR builds and the runner's PATH
       # Python otherwise.

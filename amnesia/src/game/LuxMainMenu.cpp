@@ -1115,6 +1115,16 @@ void cLuxMainMenu::CreateTopMenuGui()
 	}
 
 	float fRowAdd = mvTopMenuFontSize.y*mfTopMenuFontSizeMul*1.3f;
+	if(gpBase->mpMapHandler->MapIsLoaded()==false)
+	{
+		cWidgetLabel *pVersion = mpGuiSet->CreateWidgetLabel(
+			cVector3f(0, 0, 0), 0, L"VERSION: " AMNESIA_TDD_VERSION);
+		pVersion->SetTextAlign(eFontAlign_Left);
+		cWidgetLabel *pCommit = mpGuiSet->CreateWidgetLabel(
+			cVector3f(0, pVersion->GetDefaultFontSize().y, 0), 0,
+			L"COMMIT: " AMNESIA_TDD_TAG);
+		pCommit->SetTextAlign(eFontAlign_Left);
+	}
 
 	///////////////
 	//Continue

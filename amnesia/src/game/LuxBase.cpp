@@ -422,6 +422,7 @@ bool cLuxBase::Init(const tString &asCommandline)
 	if(InitMainConfig()==false) return false;
 
 	Log("Version %d.%d \n",kCurrentVersion_Main, kCurrentVersion_Minor);
+	Log("Redux version %s, commit %s\n", AMNESIA_TDD_VERSION, AMNESIA_TDD_TAG);
 	Log("\n");
 	
 	/////////////////////////////

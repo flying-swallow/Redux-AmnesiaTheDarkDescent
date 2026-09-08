@@ -202,6 +202,7 @@ The options below are defined in [`premake/options.lua`](premake/options.lua). P
 | Option | Default | Purpose |
 | ------ | ------- | ------- |
 | `--slangc=PATH` | Auto-download the pinned compiler | Use a local `slangc`; otherwise Premake downloads it to `build-premake/_deps/slang-prebuilt/` during configuration. |
+| `--build-version=VERSION` | `V0000` | Embed the displayed release version. CI release builds use the release tag. The short commit hash is read from the checkout when Premake generates the build. |
 | `--with-fsr=yes\|no` | `yes` | Build and link the FidelityFX Super Resolution SDK. |
 | `--fsr-sdk-dir=PATH` | Unset; auto-acquire when FSR is enabled | Use a local FidelityFX SDK root containing `sdk/`. |
 | `--with-xess=yes\|no` | `yes` | Enable XeSS on Windows; ignored on Linux. |
@@ -218,6 +219,18 @@ The options below are defined in [`premake/options.lua`](premake/options.lua). P
 | `--cmake=PATH` | `cmake` on `PATH` | Select the CMake executable Premake uses for the bundled SDL2 and openal-soft builds and the FSR wrapper. |
 
 ## 8. Running
+
+The release workflow packages the binaries and compiled shaders together with
+all files from `amnesia/resources`, preserving their paths relative to the game
+directory. Extract the release into an existing game installation, merge folders
+and replace matching files, then launch the release's `Amnesia` executable. The
+release includes repository asset overrides, not the complete retail game data.
+Ordinary CI build artifacts contain the build output; the resource overlay is
+added when the final GitHub/itch.io release payloads are assembled.
+
+The main menu shows the build's version and short commit hash; both are also
+written to the startup log. For a local versioned build, pass
+`--build-version=v1.2.3` to Premake or through a build wrapper after `--`.
 
 Run the built game from the self-contained runtime directory, such as `build-premake/amnesia/Release/` or `build-premake/amnesia/Debug/`. The `deploy` action copies the game assets from the install directory you passed with `--game-dir=PATH` into those output directories; it does not put the newly built executable into the game installation.
 

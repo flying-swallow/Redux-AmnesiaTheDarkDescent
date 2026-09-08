@@ -4,6 +4,8 @@ local AMN = ROOT .. "/amnesia"
 -- Short git hash used for AMNESIA_TDD_TAG.
 local git_tag = os.outputof('git -C "' .. ROOT .. '" log -1 --format=%h') or "unknown"
 git_tag = git_tag:gsub("%s+", "")
+if git_tag == "" then git_tag = "unknown" end
+local build_version = _OPTIONS["build-version"] or "V0000"
 
 project "Amnesia"
     language "C++"
@@ -30,7 +32,7 @@ project "Amnesia"
     defines {
         "USERDIR_RESOURCES",
         "USE_GAMEPAD",
-        'AMNESIA_TDD_VERSION="V0000"',
+        'AMNESIA_TDD_VERSION="' .. build_version .. '"',
         'AMNESIA_TDD_TAG="' .. git_tag .. '"',
     }
 
