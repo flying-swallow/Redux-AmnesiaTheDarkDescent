@@ -1,6 +1,6 @@
 <MapDelta Version="1" Target="maps/main/ch01/13_machine_room.map">
     <Modify Category="Entities" ID="823" Name="PointLight_15">
-        <SetAttr Intensity="3.5" Radius="3.67078" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="3.67078" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="1355" Name="PointLight_24">
         <SetAttr Intensity="7" SourceRadius="0" />

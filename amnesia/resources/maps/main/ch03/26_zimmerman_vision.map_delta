@@ -1,18 +1,18 @@
 <MapDelta Version="1" Target="maps/main/ch03/26_zimmerman_vision.map">
     <Remove Category="Entities" ID="477" Name="BoxLight_1" />
     <Modify Category="Entities" ID="31" Name="PointLight_3">
-        <SetAttr Intensity="50" Radius="9.99891" SourceRadius="0" />
+        <SetAttr Intensity="50" Radius="9.99891" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="50" Name="PointLight_6">
-        <SetAttr Intensity="500" Radius="12.2046" SourceRadius="0" />
+        <SetAttr Intensity="500" Radius="12.2046" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="200" Name="SpotLight_1">
-        <SetAttr Intensity="50" Radius="44.4671" SourceRadius="0" />
+        <SetAttr Intensity="50" Radius="44.4671" SourceRadius="0.12" />
     </Modify>
     <Modify Category="Entities" ID="221" Name="PointLight_7">
-        <SetAttr Intensity="500" Radius="12.2046" SourceRadius="0" />
+        <SetAttr Intensity="500" Radius="12.2046" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="434" Name="PointLight_5">
-        <SetAttr Intensity="20" Radius="7.20675" SourceRadius="0" />
+        <SetAttr Intensity="20" Radius="7.20675" SourceRadius="0.35" />
     </Modify>
 </MapDelta>

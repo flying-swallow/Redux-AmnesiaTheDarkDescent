@@ -95,17 +95,13 @@ private:
   // writes gOutput.
   RIProgram m_composite;
 
-  // Direct-lighting passes (amnesia/slang/DirectLighting/): ReSTIR DI, which
-  // is variance reduction rather than denoising — REBLUR does all the
-  // filtering downstream.
+  // ReSTIR DI passes, followed by a per-viewport RELAX diffuse denoiser.
   // DirectLightingPass.cs — temporal reservoir reuse against the previous
   // frame's key; writes this frame's key and the merged reservoir.
   RIProgram m_directLighting;
   // ReSTIR DI spatial reuse + one shadow ray to resolve (DirectSpatialReusePass.cs).
   RIProgram m_directSpatialReuse;
-  // NRD frontend repack. Sums the resolved direct irradiance into the diffuse
-  // channel and packs both lobes into NRD's layout, immediately before the
-  // per-viewport NrdIntegration denoises them.
+  // Packs indirect diffuse and specular into NRD's layout for REBLUR.
   RIProgram m_nrdPack;
 
 

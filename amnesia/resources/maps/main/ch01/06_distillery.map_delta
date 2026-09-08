@@ -6,7 +6,7 @@
         <SetAttr Intensity="2.5" Radius="12.6104" SourceRadius="0" />
     </Modify>
     <Modify Category="Entities" ID="3384" Name="PointLight_3">
-        <SetAttr Intensity="2" Radius="7.27306" SourceRadius="0" />
+        <SetAttr Intensity="2" Radius="7.27306" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="3385" Name="PointLight_4">
         <SetAttr CastShadows="true" Intensity="3" Radius="5.50233" SourceRadius="0.5" />
@@ -105,7 +105,7 @@
         <SetAttr Intensity="6" SourceRadius="0" />
     </Modify>
     <Modify Category="Entities" ID="4194" Name="SpotLight_2">
-        <SetAttr Intensity="50" Radius="10.2978" SourceRadius="0" />
+        <SetAttr Intensity="50" Radius="10.2978" SourceRadius="0.12" />
     </Modify>
     <Modify Category="Entities" ID="4214" Name="PointLight_37">
         <SetAttr Intensity="6" SourceRadius="0" />

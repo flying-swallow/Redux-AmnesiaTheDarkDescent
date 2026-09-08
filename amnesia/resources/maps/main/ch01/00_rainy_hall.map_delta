@@ -1,60 +1,9 @@
 <MapDelta Version="1" Target="maps/main/ch01/00_rainy_hall.map">
-    <Modify Category="StaticObjects" ID="149" Name="ceiling_corner_concave_round_short_2">
-        <SetAttr Rotation="-2.53518e-06 -1.5708 -2.53518e-06" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="150" Name="ceiling_concave_short_3">
-        <SetAttr Rotation="-2.53518e-06 -1.5708 -2.53518e-06" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="274" Name="wall_door_frame_large_arched_1">
-        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="1728" Name="ceilingwelder_wood_middle_18">
-        <SetAttr Rotation="3.14159 1.5708 3.14159" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="1733" Name="ceilingwelder_wood_edge_18">
-        <SetAttr Rotation="-2.53518e-06 -1.5708 -2.53518e-06" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="1734" Name="ceilingwelder_wood_edge_19">
-        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
-    </Modify>
     <Modify Category="StaticObjects" ID="1905" Name="ceilingwelder_wood_middle_36">
         <SetAttr Rotation="0.408493 1.57045 0.408493" />
     </Modify>
-    <Modify Category="StaticObjects" ID="1974" Name="ceilingwelder_wood_edge_24">
-        <SetAttr Rotation="0.302133 -1.5708 -0.302133" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="1976" Name="ceilingwelder_wood_edge_25">
-        <SetAttr Rotation="-0.0476727 1.5708 -0.0476726" />
-    </Modify>
     <Modify Category="StaticObjects" ID="1977" Name="ceilingwelder_wood_middle_51">
         <SetAttr Rotation="-3.09422 -1.57045 3.09422" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="2049" Name="ceilingwelder_wood_middle_58">
-        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="2050" Name="ceilingwelder_wood_edge_26">
-        <SetAttr Rotation="3.14159 -1.5708 3.14159" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="2051" Name="ceilingwelder_wood_edge_27">
-        <SetAttr Rotation="3.14159 1.5708 3.14159" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="2084" Name="ceilingwelder_wood_edge_34">
-        <SetAttr Rotation="-0.341153 -1.5708 0.341153" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="2085" Name="ceilingwelder_wood_middle_71">
-        <SetAttr Rotation="-0.304373 -1.5708 0.304373" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="2086" Name="ceilingwelder_wood_edge_35">
-        <SetAttr Rotation="-3.02692 1.5708 -3.02691" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="2091" Name="ceilingwelder_wood_edge_36">
-        <SetAttr Rotation="2.80044 -1.5708 -2.80044" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="2092" Name="ceilingwelder_wood_middle_75">
-        <SetAttr Rotation="2.83722 -1.5708 -2.83722" />
-    </Modify>
-    <Modify Category="StaticObjects" ID="2093" Name="ceilingwelder_wood_edge_37">
-        <SetAttr Rotation="0.114673 1.5708 0.114683" />
     </Modify>
     <Modify Category="Decals" ID="2215" Name="chalk_hieroglyphs_1">
         <SetAttr Material="textures/ptest/decals/chalk_hieroglyphs.mat" />
@@ -84,7 +33,7 @@
     <Remove Category="Entities" ID="2190" Name="PointLight_2" />
     <Remove Category="Entities" ID="2207" Name="PointLight_30" />
     <Modify Category="Entities" ID="203" Name="spotthunder_1">
-        <SetAttr Intensity="4" Radius="15.9558" SourceRadius="0" />
+        <SetAttr Intensity="4" Radius="15.9558" SourceRadius="0.1" />
     </Modify>
     <Modify Category="Entities" ID="204" Name="pointthunder_1">
         <SetAttr Intensity="2" Radius="7.27306" SourceRadius="0" WorldPos="-4.5 2.5 9.5" />
@@ -96,16 +45,13 @@
         <SetAttr Intensity="8" Radius="12.6697" SourceRadius="0" />
     </Modify>
     <Modify Category="Entities" ID="215" Name="spotthunder_2">
-        <SetAttr Intensity="150" Radius="17.841" SourceRadius="0" />
+        <SetAttr Intensity="15" Radius="14.841" SourceRadius="0" />
     </Modify>
     <Modify Category="Entities" ID="227" Name="pointthunder_4">
         <SetAttr Intensity="2" Radius="7.27306" SourceRadius="0" />
     </Modify>
-    <Modify Category="Entities" ID="353" Name="castle_gate_arched01_1">
-        <SetAttr Rotation="-3.14159 -1.5708 -3.14159" />
-    </Modify>
     <Modify Category="Entities" ID="354" Name="spotthunder_5">
-        <SetAttr Intensity="150" Radius="21.8534" SourceRadius="0" />
+        <SetAttr Intensity="15" Radius="21.8534" SourceRadius="0.1" />
     </Modify>
     <Modify Category="Entities" ID="357" Name="pointthunder_5">
         <SetAttr Intensity="4" Radius="10.2978" SourceRadius="0" />
@@ -114,13 +60,13 @@
         <SetAttr Intensity="9" Radius="13.4394" SourceRadius="0" />
     </Modify>
     <Modify Category="Entities" ID="891" Name="SpotLight_3">
-        <SetAttr Intensity="50" Radius="15.4164" SourceRadius="0" />
+        <SetAttr Intensity="15" Radius="15.4164" SourceRadius="0.12" />
     </Modify>
     <Modify Category="Entities" ID="892" Name="PointLight_22">
-        <SetAttr Intensity="7" Radius="9.26288" SourceRadius="0" />
+        <SetAttr Intensity="7" Radius="9.26288" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="893" Name="PointLight_23">
-        <SetAttr Intensity="3" Radius="11.9373" SourceRadius="0" />
+        <SetAttr Intensity="3" Radius="11.9373" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="1123" Name="PointLight_25">
         <SetAttr Intensity="5" Radius="11.516" SourceRadius="0" />
@@ -132,22 +78,13 @@
         <SetAttr Intensity="2" Radius="7.27306" SourceRadius="0" />
     </Modify>
     <Modify Category="Entities" ID="1176" Name="spotthunder_3">
-        <SetAttr Intensity="150" Radius="17.841" SourceRadius="0" />
+        <SetAttr Intensity="15" Radius="17.841" SourceRadius="0.1" />
     </Modify>
     <Modify Category="Entities" ID="1279" Name="spotthunder_4">
-        <SetAttr Intensity="150" Radius="17.8409" SourceRadius="0" />
+        <SetAttr Intensity="15" Radius="17.8409" SourceRadius="0.1" />
     </Modify>
     <Modify Category="Entities" ID="1634" Name="PointLight_28">
         <SetAttr Intensity="5" SourceRadius="0" />
-    </Modify>
-    <Modify Category="Entities" ID="1805" Name="Billboard_70">
-        <SetAttr Rotation="-2.53518e-06 1.5708 -2.53518e-06" />
-    </Modify>
-    <Modify Category="Entities" ID="1807" Name="Billboard_71">
-        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
-    </Modify>
-    <Modify Category="Entities" ID="1815" Name="Billboard_78">
-        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
     </Modify>
     <Modify Category="Entities" ID="2010" Name="pointthunder_6">
         <SetAttr Intensity="1.5" Radius="9.76289" SourceRadius="0" />

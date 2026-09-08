@@ -305,16 +305,12 @@ public:
     RISharedPointer<RITexture> decalAddTexture[RI_MAX_SWAPCHAIN_IMAGES];
     RISharedPointer<RITextureView> decalAddView[RI_MAX_SWAPCHAIN_IMAGES];
 
-    // ReSTIR DI's resolved, albedo-demodulated direct irradiance (RGBA16F,
-    // GENERAL). Written fresh every frame and consumed by NrdPack in the same
-    // frame — REBLUR owns the temporal filtering, so this is NOT a history and
-    // does not ping-pong. NOT swapchain-indexed. directLightingInit triggers
-    // the one-time UNDEFINED→GENERAL + clear, re-armed by Update on resize.
+    // ReSTIR DI's raw demodulated irradiance, overwritten each frame in GENERAL
+    // and transitioned to SHADER_RESOURCE for the direct RELAX instance.
+    // directLightingInit initializes/clears on first use, re-armed on resize.
     RISharedPointer<RITexture> directLightingTexture;
     RISharedPointer<RITextureView> directLightingView;
-    // Surface-key ping-pong (viewZ, normal.xyz). Still [2]: DirectLightingPass
-    // reprojects the ReSTIR reservoir against the PREVIOUS frame's key, so the
-    // history slot is required even though the colour no longer ping-pongs.
+    // Surface-key history (viewZ, geometric normal) for reservoir reuse.
     RISharedPointer<RITexture> directKeyTexture[2];
     RISharedPointer<RITextureView> directKeyView[2];
     uint32_t directLightingIndex = 0;
@@ -366,6 +362,8 @@ public:
     // in-flight command buffers still referencing them, and std::function
     // requires a copyable capture.
     std::shared_ptr<NrdIntegration> nrd;
+    // Independent direct diffuse filtering; never shares GI history/hit distance.
+    std::shared_ptr<NrdIntegration> directNrd;
 
     // Reflection history belongs to one (viewport, water object) pair. The
     // state is deliberately a unique_ptr because WaterReflectionViewportState

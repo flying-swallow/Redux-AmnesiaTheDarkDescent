@@ -7,12 +7,14 @@
 // Camera-centered: cell (0,0,0) brackets the camera; valid cells span
 // [-gridDim/2 + 1, gridDim/2 - 1] per axis.
 
-int3 gridCellPos(float3 posW, float3 cameraPosW, float gridUnit)
+#include "LightGridCulling.h"
+
+public int3 gridCellPos(float3 posW, float3 cameraPosW, float gridUnit)
 {
     return (int3)round((posW - cameraPosW) / gridUnit);
 }
 
-uint gridFlattenCellIndex(int3 cellPos, uint gridDim)
+public uint gridFlattenCellIndex(int3 cellPos, uint gridDim)
 {
     uint3 u = cellPos + uint3(gridDim / 2);
     return (u.z * gridDim * gridDim) + (u.y * gridDim) + u.x;
@@ -20,7 +22,7 @@ uint gridFlattenCellIndex(int3 cellPos, uint gridDim)
 
 // Inverse of gridFlattenCellIndex — map a flat cell index back to its signed
 // cell position (camera-relative). Used by the per-cell light-grid gather.
-int3 gridUnflattenCellIndex(uint flat, uint gridDim)
+public int3 gridUnflattenCellIndex(uint flat, uint gridDim)
 {
     uint3 u = uint3(flat % gridDim,
                     (flat / gridDim) % gridDim,
@@ -28,14 +30,14 @@ int3 gridUnflattenCellIndex(uint flat, uint gridDim)
     return int3(u) - int(gridDim / 2);
 }
 
-bool gridCellValid(int3 cellPos, uint gridDim)
+public bool gridCellValid(int3 cellPos, uint gridDim)
 {
     return abs(cellPos.x) < int(gridDim / 2)
         && abs(cellPos.y) < int(gridDim / 2)
         && abs(cellPos.z) < int(gridDim / 2);
 }
 
-bool sphereIntersectsGridCell(float3 center, float radius, int3 cellPos,
+public bool sphereIntersectsGridCell(float3 center, float radius, int3 cellPos,
                               float3 cameraPosW, uint gridDim, float gridUnit)
 {
     if (!gridCellValid(cellPos, gridDim))
@@ -58,9 +60,10 @@ bool sphereIntersectsGridCell(float3 center, float radius, int3 cellPos,
 // The radial range is bounded separately by sphereIntersectsGridCell, so this
 // adds only the angle/back-plane cull. apex = spot position, axis = unit forward,
 // cosHalfAngle = cosOuterAngle = cos(FOV/2). Uses the cell BOUNDING SPHERE (which
-// encloses the cell AABB) so it is conservative — never rejects a cell the cone
-// reaches.
-bool coneIntersectsGridCell(float3 apex, float3 axis, float cosHalfAngle,
+// encloses the cell AABB) so it is conservative for analytic circular spots.
+// Gobo spots use projectionIntersectsGridCell instead: their rectangular
+// footprint can extend outside this cone, even at aspect ratio 1.
+public bool coneIntersectsGridCell(float3 apex, float3 axis, float cosHalfAngle,
                             int3 cellPos, float3 cameraPosW, uint gridDim, float gridUnit)
 {
     if (!gridCellValid(cellPos, gridDim))
@@ -78,4 +81,17 @@ bool coneIntersectsGridCell(float3 apex, float3 axis, float cosHalfAngle,
     bool   angleCull  = distToSurf > cellR;         // wholly outside the angular wedge
     bool   backCull   = vDotA < -cellR;             // wholly behind the apex
     return !(angleCull || backCull);
+}
+
+public bool projectionIntersectsGridCell(float4x4 worldToTexture,
+                                  int3 cellPos, float3 cameraPosW,
+                                  uint gridDim, float gridUnit)
+{
+    if (!gridCellValid(cellPos, gridDim))
+        return false;
+
+    float3 center = cellPos * gridUnit + cameraPosW;
+    // Matrix indexing selects mathematical rows regardless of storage layout.
+    return lightGridProjectionIntersectsBox(worldToTexture[0], worldToTexture[1],
+                                            worldToTexture[3], center, gridUnit * 0.5f);
 }

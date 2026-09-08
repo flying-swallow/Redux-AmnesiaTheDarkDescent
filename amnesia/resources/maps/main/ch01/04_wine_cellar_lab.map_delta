@@ -2,7 +2,7 @@
     <Remove Category="Entities" ID="2634" Name="LightBurn" />
     <Remove Category="Entities" ID="3620" Name="LightBurn_3" />
     <Modify Category="Entities" ID="2287" Name="SpotLight_3">
-        <SetAttr Intensity="105" Radius="27.5922" SourceRadius="0" />
+        <SetAttr Intensity="105" Radius="27.5922" SourceRadius="0.12" />
     </Modify>
     <Modify Category="Entities" ID="2289" Name="PointLight_21">
         <SetAttr CastShadows="true" Intensity="2" Radius="13.377" SourceRadius="0.5" />
@@ -44,10 +44,10 @@
         <SetAttr Intensity="0" SourceRadius="0" />
     </Modify>
     <Modify Category="Entities" ID="3190" Name="SpotLight_2">
-        <SetAttr Intensity="50" Radius="13.1331" SourceRadius="0" />
+        <SetAttr Intensity="50" Radius="13.1331" SourceRadius="0.2" />
     </Modify>
     <Modify Category="Entities" ID="3193" Name="SpotLight_4">
-        <SetAttr Intensity="4" Radius="13.076" SourceRadius="0" WorldPos="-15.5008 -9 35" />
+        <SetAttr Intensity="4" Radius="13.076" SourceRadius="0.2" WorldPos="-15.5008 -9 35" />
     </Modify>
     <Modify Category="Entities" ID="3619" Name="LightBurn_2">
         <SetAttr Intensity="6" SourceRadius="0" />

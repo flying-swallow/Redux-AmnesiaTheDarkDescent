@@ -1,45 +1,39 @@
-<EntDelta Version="1" Target="entities/lamp/candlestick02/candlestick02.ent">
+<EntDelta Version="1" Target="entities/lamp/candlestick01/candlestick01.ent">
     <SetVar Name="ShowHints" Value="true" />
     <SetVar Name="ShowMesh" Value="true" />
-    <Modify Category="Mesh" ID="0" Name="candlestick02_mesh">
+    <Modify Category="Mesh" ID="0" Name="CandleStick01">
         <SetAttr Material="" />
         <RemoveAttr Name="GroupID" />
         <RemoveAttr Name="Type" />
     </Modify>
     <Modify Category="Shapes" ID="1" Name="BodyShape_1">
-        <SetAttr RelativeTranslation="0.0175645 -0.097382 0" />
+        <SetAttr RelativeTranslation="-0.001886 -0.082444 -0.0015215" />
         <RemoveAttr Name="GroupID" />
         <RemoveAttr Name="ShapeTypeID" />
         <RemoveAttr Name="Type" />
     </Modify>
     <Modify Category="Shapes" ID="2" Name="BodyShape_1_clone_1">
-        <SetAttr RelativeTranslation="0.0175645 0.097382 0" />
+        <SetAttr RelativeTranslation="0.001886 0.082444 0.0015215" />
         <RemoveAttr Name="GroupID" />
         <RemoveAttr Name="ShapeTypeID" />
         <RemoveAttr Name="Type" />
     </Modify>
-    <Modify Category="Shapes" ID="4" Name="BodyShape_3">
-        <SetAttr RelativeTranslation="-0.0175645 0.030616 0" />
-        <RemoveAttr Name="GroupID" />
-        <RemoveAttr Name="ShapeTypeID" />
-        <RemoveAttr Name="Type" />
-    </Modify>
-    <Modify Category="Bodies" ID="5" Name="Body_1">
-        <SetAttr BuoyancyDensityMul="1" WorldPos="-0.0175648 0.114457 0" />
+    <Modify Category="Bodies" ID="3" Name="Body_1">
+        <SetAttr BuoyancyDensityMul="1" WorldPos="0.000644684 0.203097 0.000278473" />
         <RemoveAttr Name="GroupID" />
         <RemoveAttr Name="Type" />
     </Modify>
-    <Modify Category="Entities" ID="6" Name="ParticleSystem_1">
+    <Modify Category="Entities" ID="4" Name="ParticleSystem_1">
         <RemoveAttr Name="GroupID" />
         <RemoveAttr Name="Type" />
     </Modify>
-    <Modify Category="Entities" ID="8" Name="PointLight_1">
-        <SetAttr FlickerOffRadius="1" Intensity="1.8" Radius="15.7764" SourceRadius="0.08" WorldPos="-0.00984192 0.431021 -0.025322" />
+    <Modify Category="Entities" ID="6" Name="PointLight_1">
+        <SetAttr Intensity="1.8" Radius="15.7764" SourceRadius="0.02" WorldPos="-0.00407028 0.442227 -0.000551224" />
         <RemoveAttr Name="GroupID" />
         <RemoveAttr Name="SubType" />
         <RemoveAttr Name="Type" />
     </Modify>
-    <Modify Category="Entities" ID="9" Name="Billboard_1">
+    <Modify Category="Entities" ID="7" Name="Billboard_1">
         <RemoveAttr Name="Axis" />
         <RemoveAttr Name="GroupID" />
         <RemoveAttr Name="Scale" />

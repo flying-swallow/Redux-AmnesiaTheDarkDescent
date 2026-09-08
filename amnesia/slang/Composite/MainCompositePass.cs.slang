@@ -1,22 +1,11 @@
 // Final composite pass.
 //
-// Performs NO light transport at all: every lighting term is produced
-// upstream. Reads `gPackedHitInfo` (uint4 TriangleHit) + the two NRD outputs
-// — `gIndirectLighting` (REBLUR's denoised, albedo-DEMODULATED DIFFUSE
-// channel, which carries the ReSTIR DI direct term summed with the path
-// tracer's indirect bounce; NrdPack does that sum) and `gIndirectSpecular`
-// (the denoised GGX lobe, NOT demodulated, already outgoing radiance) — and
-// returns the final shaded color.
-//
-// Both channels arrive in NRD's YCoCg packing and MUST be run through
-// REBLUR_BackEnd_UnpackRadianceAndNormHitDist before use; the .w they carry is
-// the normalized hit distance, which this pass does not need.
-//
-// There is no separate direct input any more: direct and indirect diffuse are
-// denoised together by one REBLUR instance, so they are indivisible by the time
-// they reach here (see the NrdPack sum). That is deliberate — splitting the
-// denoiser input by direct/indirect rather than by lobe is invalid for REBLUR,
-// whose specular path needs roughness-driven reprojection.
+// Evaluates hard gobo spotlight diffuse lighting after denoising. Reads the
+// V-buffer, independently filtered ReSTIR direct irradiance, and REBLUR's two
+// indirect outputs. Only the REBLUR outputs are YCoCg-packed and require
+// REBLUR_BackEnd_UnpackRadianceAndNormHitDist; direct lighting is linear RGB.
+// The diffuse terms are albedo-demodulated, while indirect GGX is already
+// outgoing radiance. Hard gobo lights keep their deterministic evaluation here.
 // The pass either:
 //   * misses → no environment-map eval today, so emits black
 //   * hits   → recovers world-space vertex data + diffuse albedo,
@@ -55,16 +44,20 @@ import BlendModes;                   // blendDisplaySpaceExact (raw eMaterialBle
 struct MainCompositePushConstants
 {
     uint overlayMode;
+    uint hasTlas;
 };
 
 [vk::push_constant]
 ConstantBuffer<MainCompositePushConstants> gPushConstants;
 
-// REBLUR's OUT_DIFF_RADIANCE_HITDIST: the denoised, albedo-demodulated diffuse
-// channel (direct + indirect summed by NrdPack), YCoCg-packed with the
-// normalized hit distance in .w.
+// REBLUR's denoised indirect diffuse: albedo-demodulated, YCoCg-packed
+// with normalized hit distance in .w.
 [vk::binding(0, 2)]
 Texture2D<float4> gIndirectLighting;
+
+// RELAX-filtered ReSTIR DI, linear demodulated irradiance.
+[vk::binding(3, 2)]
+Texture2D<float4> gDirectLighting;
 
 // Output: the post-effect pogo HDR target, bound as a storage image. The
 // renderer puts it in GENERAL for the dispatch and back to COLOR afterwards.
@@ -76,8 +69,7 @@ RWTexture2D<float4> gOutput;
 // in bindless.slang because MainCompositePass is the only consumer — putting them
 // in the shared module collided with every other pass's set-2 scratch. Bindings
 // start at kBindingWorldDecals (4) to clear the composite's slots 0..3 above
-// (slots 1 and 3 are gaps — 3 held the old separate direct-lighting input;
-// decals stay at 4 to keep the layout stable).
+// (slot 1 is a gap; slot 3 contains independently filtered direct lighting).
 [vk::binding(kBindingWorldDecals, kWorldDecalSet)]
 StructuredBuffer<GpuDecal> gDecals;
 // Flat per-object decal-index pool. UniformObject.decalList packs (offset<<8)|count;
@@ -280,12 +272,14 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     float surfaceFootprintW = rayConeSurfaceFootprint(cone, v.normalW,
                                                       toHit / max(hitT, 1e-6f));
     DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount,
-                                              texLodBase, surfaceFootprintW);
+                                              texLodBase, surfaceFootprintW,
+                                              /*decodeRoughness=*/false,
+                                              /*applyNormalMap=*/true);
 
     // Composite clustered OOB decals straight onto the base albedo, before
     // lighting, so they get lit like the surface (replaces the old albedo_resolve
     // buffer + decal raster pass).
-    sd.albedo = compositeDecals(sd.albedo, v.posW, sd.normalW,
+    sd.albedo = compositeDecals(sd.albedo, v.posW, normalize(v.normalW),
                                 surfaceFootprintW, obj.decalList);
 
     // Rasterized Type="Decal" mesh decals (Mul/MulX2/Add): apply the multiply
@@ -301,10 +295,9 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     albedoG = saturate(albedoG * gDecalMul[pixelPos].rgb + gDecalAdd[pixelPos].rgb);
     sd.albedo = sRGBToLinear(albedoG);
 
-    // NOTE: direct and indirect diffuse share one denoised channel now, so
-    // kDefaultRenderDirectLighting can no longer isolate the direct term here.
-    // It still gates the direct contribution in Water.frag.slang, which shades
-    // outside the denoiser.
+    bool wantDirect = kDefaultRenderDirectLighting != 0u;
+    float3 direct = wantDirect
+        ? RELAX_BackEnd_UnpackRadiance(gDirectLighting[pixelPos]).rgb : float3(0.f);
     bool wantIndirect = kDefaultRenderIndirectLighting != 0u;
 
     // Both REBLUR outputs are YCoCg-packed; unpack before any arithmetic. The
@@ -316,24 +309,20 @@ void csMain(uint3 tid : SV_DispatchThreadID)
         ? REBLUR_BackEnd_UnpackRadianceAndNormHitDist(gIndirectSpecular[pixelPos]).xyz
         : float3(0.f);
 
-    // `diffuse` is demodulated irradiance: the ReSTIR DI direct term plus the
-    // path tracer's indirect diffuse, summed by NrdPack before packing and
-    // denoised together as REBLUR's diffuse channel. It takes exactly ONE
-    // albedo to become outgoing radiance, applied here AFTER compositeDecals.
-    //
-    // The direct term is no longer added separately. It used to be, because the
-    // two chains had different filters (DirectAtrous vs IndirectTemporal +
-    // atrous) and summing upstream would have temporally blended an
-    // already-filtered signal a second time. With a single REBLUR instance
-    // owning all temporal filtering there is only one filter, so the sum
-    // happens upstream and no double-filtering is possible.
+    // Direct and indirect diffuse are added after their independent filters.
+    // Apply albedo exactly once, after compositeDecals, to both terms.
     //
     // `indirectSpecular` is NOT demodulated: the path tracer already evaluated
     // its GGX lobe (F0, roughness, NdotV all vary per texel, so there is no one
     // albedo to pull out), making it outgoing radiance already. It is added
     // OUTSIDE the albedo factor. Consequence: projected decals modulate the
     // diffuse channel, but NOT the specular term.
-    float3 finalGather = sd.albedo * diffuse + indirectSpecular;
+    // Hard gobo lights are excluded from primary ReSTIR DI. Evaluate each
+    // deterministically here so NRD cannot blur their projected pattern.
+    float3 goboDiffuse = float3(0.f);
+    if (wantDirect && gPushConstants.hasTlas != 0u)
+        goboDiffuse = evaluateDirectGoboLighting(sd);
+    float3 finalGather = sd.albedo * (direct + diffuse + goboDiffuse) + indirectSpecular;
 
     // Emissive (illumination-map) surfaces glow regardless of the indirect
     // toggle — added on top so glowing textures aren't dark. Primary-hit

@@ -1,4 +1,7 @@
 <MapDelta Version="1" Target="maps/main/ch01/02_entrance_hall.map">
+    <Modify Category="StaticObjects" ID="1967" Name="wall_window_extension_blue_1">
+        <SetAttr Rotation="-2.53518e-06 1.5708 -2.53518e-06" />
+    </Modify>
     <Remove Category="Entities" ID="134" Name="PointLight_3" />
     <Remove Category="Entities" ID="137" Name="PointLight_4" />
     <Remove Category="Entities" ID="439" Name="BoxLight_2" />
@@ -7,7 +10,7 @@
     <Remove Category="Entities" ID="781" Name="PointLight_16" />
     <Remove Category="Entities" ID="1596" Name="PointLight_19" />
     <Modify Category="Entities" ID="127" Name="SpotLight_2">
-        <SetAttr Intensity="50" Radius="31.0785" SourceRadius="0" />
+        <SetAttr Intensity="50" Radius="31.0785" SourceRadius="0.12" />
     </Modify>
     <Modify Category="Entities" ID="129" Name="PointLight_1">
         <SetAttr CastShadows="true" Intensity="6" Radius="12.6171" SourceRadius="0.5" />
@@ -25,10 +28,10 @@
         <SetAttr CastShadows="true" Intensity="3.5" Radius="14.9242" SourceRadius="0.5" />
     </Modify>
     <Modify Category="Entities" ID="447" Name="PointLight_10">
-        <SetAttr Intensity="4" Radius="15.9558" SourceRadius="0" WorldPos="45.8009 6.75 16.5" />
+        <SetAttr Intensity="4" Radius="15.9558" SourceRadius="0.35" WorldPos="45.8009 6.75 16.5" />
     </Modify>
     <Modify Category="Entities" ID="448" Name="PointLight_11">
-        <SetAttr Intensity="4" Radius="15.9558" SourceRadius="0" WorldPos="45.8359 6.75 0.5" />
+        <SetAttr Intensity="4" Radius="15.9558" SourceRadius="0.35" WorldPos="45.8359 6.75 0.5" />
     </Modify>
     <Modify Category="Entities" ID="675" Name="PointLight_12">
         <SetAttr CastShadows="true" Intensity="5" Radius="11.516" SourceRadius="0.5" />
@@ -37,7 +40,16 @@
         <SetAttr CastShadows="true" Intensity="20" Radius="14.2567" SourceRadius="0.5" />
     </Modify>
     <Modify Category="Entities" ID="777" Name="SpotLight_6">
-        <SetAttr Intensity="150" Radius="37.4347" SourceRadius="0" />
+        <SetAttr Intensity="150" Radius="37.4347" SourceRadius="1" />
+    </Modify>
+    <Modify Category="Entities" ID="1184" Name="Billboard_76">
+        <SetAttr Rotation="-2.53518e-06 1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="Entities" ID="1223" Name="Billboard_84">
+        <SetAttr WorldPos="-0.480482 5.51913 4.3616" />
+    </Modify>
+    <Modify Category="Entities" ID="1227" Name="Billboard_88">
+        <SetAttr Rotation="-2.53518e-06 1.5708 -2.53518e-06" />
     </Modify>
     <Modify Category="Entities" ID="1597" Name="PointLight_21">
         <SetAttr CastShadows="true" Intensity="7" Radius="13.6296" SourceRadius="0.5" />
@@ -98,6 +110,6 @@
     </Modify>
     <Add Category="Entities">
         <AreaLight Name="PointLight_4" WorldPos="15.6348 4.22815 3.85045" Rotation="1.5708 -1.49335 -1.5708" Scale="1 1 1" Tag="" Active="true" CastShadows="false" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="500" Radius="19.915" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.32 0.35 0.4 0" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="4.7" SourceHeight="2.3" BarnDoorAngle="0.733038" BarnDoorLength="0.4" SourceTexture="" />
-        <AreaLight Name="PointLight_3" WorldPos="-0.389588 5.63523 4.19924" Rotation="0.173535 -1.16043 -1.72805" Scale="1 1 1" Tag="" Active="true" CastShadows="false" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="200" Radius="13.415" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.32 0.35 0.4 0" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="2" SourceHeight="0.5" BarnDoorAngle="0.0349066" BarnDoorLength="0.4" SourceTexture="" />
+        <AreaLight Name="PointLight_3" WorldPos="-0.389588 5.63523 4.19924" Rotation="0.173535 -1.16043 -1.72805" Scale="1 1 1" Tag="" Active="true" CastShadows="false" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="150" Radius="13.415" SourceRadius="0" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.32 0.35 0.4 0" FlickerActive="false" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0 0 0 1" FlickerOffRadius="0" FlickerFade="false" FlickerOnFadeMinLength="0" FlickerOnFadeMaxLength="0" FlickerOffFadeMinLength="0" FlickerOffFadeMaxLength="0" SourceWidth="2" SourceHeight="0.5" BarnDoorAngle="0.0349066" BarnDoorLength="0.4" SourceTexture="" />
     </Add>
 </MapDelta>

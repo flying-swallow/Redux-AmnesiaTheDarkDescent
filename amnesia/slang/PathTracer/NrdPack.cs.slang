@@ -1,16 +1,9 @@
 // NRD front-end packing for the path-traced lighting inputs.
 //
-// REBLUR splits by LOBE at the primary vertex, not by direct/indirect: its
-// specular path needs roughness-driven reprojection and virtual history, so a
-// channel mixing lobes is invalid input. This pass therefore sums the ReSTIR DI
-// direct term (diffuse-only, already albedo-demodulated by
-// DirectSpatialReusePass) into the diffuse channel alongside the path tracer's
-// indirect diffuse, and packs the GGX lobe as the specular channel.
-//
-// The sum lives here rather than in PathTracePass so the tracer stays free of a
-// dependency on the direct chain's output layout; NrdPack already runs after
-// both. It writes its own set of textures because NRD's layout (YCoCg radiance
-// + normalized hit distance) differs from the tracer's.
+// Keep indirect diffuse and specular in separate NRD lobes. Direct lighting
+// has its own RELAX denoiser and is added after REBLUR in the composite,
+// so the indirect bounce's hit distance cannot widen direct shadow edges.
+// NRD uses private targets for YCoCg radiance + normalized hit distance.
 
 #include "../HostDefinitions.h"
 #include "../Constants.h"
@@ -27,10 +20,6 @@ import PerFrame.resource;
 [vk::binding(2, 2)] Texture2D<float4>   gIndirectDiffuse;
 [vk::binding(3, 2)] Texture2D<float4>   gIndirectSpecular;
 [vk::binding(8, 2)] Texture2D<float2>   gVelocity;
-// ReSTIR DI's resolved, albedo-demodulated direct irradiance (rgb; .a unused).
-// Same units and same demodulation as gIndirectDiffuse, so the two just add.
-[vk::binding(10, 2)] Texture2D<float4>  gDirectLighting;
-
 // These are new NRD frontend targets; none aliases an existing SVGF texture.
 [vk::binding(4, 2)] RWTexture2D<float4> gNrdNormalRoughness;
 [vk::binding(5, 2)] RWTexture2D<float>  gNrdViewZ;
@@ -102,18 +91,8 @@ void csMain(uint3 tid : SV_DispatchThreadID)
                 sqrt(saturate(extra.x)));
     }
 
-    // Diffuse channel = ReSTIR DI direct + path-traced indirect diffuse. Both are
-    // demodulated irradiance in the same units, so this is a plain add. Alpha is
-    // unused in both sources; read rgb only and write NRD's YCoCg +
-    // normalized-hit-distance representation.
-    //
-    // The hit distance stays the indirect bounce's first-ray length. The direct
-    // term's own "distance" is the shadow ray, which does not fit REBLUR's model;
-    // ReSTIR DI already delivers a low-noise direct term, so REBLUR's blur radius
-    // matters less for it. Revisit with a luminance-weighted blend only if
-    // direct-lit regions read as over-blurred.
-    float3 diffuseRadiance = gIndirectDiffuse.Load(int3(p, 0)).rgb
-                           + gDirectLighting.Load(int3(p, 0)).rgb;
+    // Only indirect diffuse uses the indirect bounce's first-ray distance.
+    float3 diffuseRadiance = gIndirectDiffuse.Load(int3(p, 0)).rgb;
     gNrdDiffuseRadianceHitDist[p] =
         REBLUR_FrontEnd_PackRadianceAndNormHitDist(
             diffuseRadiance, diffuseNormHitDist, true);

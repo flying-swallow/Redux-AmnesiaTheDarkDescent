@@ -336,7 +336,7 @@ void cViewport::HybridViewportState::Update(cGraphics::FrameContext *cntx,
         "HybridViewportState.decalAdd");
   }
 
-  // Still ping-ponged across frames: the ReSTIR DI surface key and reservoir.
+  // Ping-ponged ReSTIR DI surface key and reservoir.
   // DirectLightingPass reprojects last frame's reservoir and rejects on last
   // frame's key, so both need a history slot. STORAGE (compute write) +
   // SAMPLED (history reproject) + TRANSFER_DST (first-use clear); kept in
@@ -357,8 +357,8 @@ void cViewport::HybridViewportState::Update(cGraphics::FrameContext *cntx,
         "HybridViewportState.reservoir");
   }
 
-  // Everything below is written and consumed within a single frame — NRD owns
-  // all denoiser history internally — so one slot each, no ping-pong.
+  // Everything below is written and consumed within a single frame; indirect
+  // denoiser history is owned by NRD, so one slot each, no ping-pong.
   //
   // ReSTIR DI's resolved direct irradiance, and the path tracer's two lighting
   // channels plus the two halves of its surface key.
@@ -441,6 +441,10 @@ void cViewport::HybridViewportState::Update(cGraphics::FrameContext *cntx,
   if (!nrd)
     nrd = std::make_shared<NrdIntegration>(pGraphics);
   nrd->OnResize(renderW, renderH);
+  if (!directNrd)
+    directNrd = std::make_shared<NrdIntegration>(
+        pGraphics, NrdDenoiserMode::DirectDiffuse);
+  directNrd->OnResize(renderW, renderH);
   // Resource recreation invalidates every temporal history.
   indirectHistoryReset = true;
   nrdInputInShaderResource = false;
@@ -483,7 +487,7 @@ cViewport::HybridViewportState::~HybridViewportState() {
     pGraphics->graphicsDefer.push(decalMulView[i]);
     pGraphics->graphicsDefer.push(decalAddView[i]);
   }
-  // Ping-ponged pair: the ReSTIR key and reservoir.
+  // Ping-ponged ReSTIR surface key and reservoir.
   for (uint32_t i = 0; i < 2; i++) {
     pGraphics->graphicsDefer.push(directKeyTexture[i]);
     pGraphics->graphicsDefer.push(reservoirTexture[i]);
@@ -499,6 +503,9 @@ cViewport::HybridViewportState::~HybridViewportState() {
   if (nrd)
     pGraphics->graphicsDefer.push(
         std::function<void()>([keep = std::move(nrd)]() mutable { keep.reset(); }));
+  if (directNrd)
+    pGraphics->graphicsDefer.push(std::function<void()>(
+        [keep = std::move(directNrd)]() mutable { keep.reset(); }));
 
   // Single-slot, intra-frame resources.
   pGraphics->graphicsDefer.push(directLightingTexture);
@@ -1174,14 +1181,10 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   }
 
   // --------------------------------------------------------------------
-  // ReSTIR DI chain — DirectLighting -> DirectSpatialReuse, run HERE, before
-  // the path tracer. This is variance REDUCTION, not denoising: it stabilizes
-  // light selection and resolves one shadow ray per pixel. The resolved,
-  // albedo-demodulated irradiance is handed to NrdPack, which sums it into
-  // REBLUR's diffuse channel so one denoiser filters direct and indirect
-  // together. Its output is NOT fed back into the path tracer.
+  // ReSTIR DI: temporal/spatial reservoir reuse and shadow resolve, followed
+  // by independent RELAX denoising below. Direct lighting bypasses REBLUR's
+  // GI filter and is added to its indirect output in the composite.
   // --------------------------------------------------------------------
-  // The resolved direct irradiance NrdPack sums into the diffuse channel.
   RITextureView *directResultView = nullptr;
   {
     const uint32_t dlCur = state.directLightingIndex;
@@ -1216,6 +1219,10 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
            RI_STAGE_NONE, RI_STAGE_COMPUTE});
       state.directLightingInit = true;
     } else {
+      // Last frame's RELAX input becomes this frame's resolve output.
+      mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
+          {state.directLightingTexture.Get(), RI_RESOURCE_STATE_SHADER_RESOURCE,
+           RI_RESOURCE_STATE_STORAGE_WRITE, RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
       // Make last frame's writes to the ping-pong textures visible (history
       // sampled-read + current write-after-read/write). Both stay GENERAL.
       mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
@@ -1224,9 +1231,8 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
            RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
 
       if (historyResetForFrame) {
-        // ReSTIR has no shader-side reset bit. Clear only the previous-history
-        // slot so its temporal merge starts fresh; this frame's output slots
-        // are still written by the two existing passes below.
+        // Invalidate the reservoir history; RELAX's history is reset below.
+        // The passes below overwrite every current texel.
         RITextureBarrier resetToClear[2] = {
             {state.directKeyTexture[dlPrev].Get(), RI_RESOURCE_STATE_GENERAL,
              RI_RESOURCE_STATE_CLEAR_STORAGE, RI_STAGE_COMPUTE,
@@ -1317,7 +1323,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
     // DirectSpatialReusePass — ReSTIR DI spatial reuse + resolve. Merges a few
     // same-surface neighbours' reservoirs, then traces ONE soft shadow ray for
     // the chosen light to demodulated irradiance. Writes reservoir[dlCur] (next
-    // frame's temporal history) and directLighting (NrdPack's direct input).
+    // frame's temporal history) and raw directLighting for RELAX.
     // ----------------------------------------------------------------
     {
       RIGpuScope _gsDirectSpatialReuse(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
@@ -1371,21 +1377,21 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                                   (renderHeight + 15u) / 16u, 1u);
     }
 
-    // Resolved direct + final reservoir writes -> NrdPack / next-frame reads
+    // Resolved direct + final reservoir writes -> filter / next-frame reads
     // (stays GENERAL).
     mpGraphics->primary.cmds[0].vk_d3d12_memoryBarrier(
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_SHADER_RESOURCE,
          RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
 
-    // The resolved direct irradiance goes straight to NrdPack, which sums it
-    // into REBLUR's diffuse channel. There is no spatial filter here any more:
-    // REBLUR owns all denoising for that channel.
-    directResultView = state.directLightingView.Get();
+    // RELAX reads linear irradiance directly. Its diffuse prepass is disabled,
+    // so it does not consume the unused alpha as a hit distance.
+    mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
+        {state.directLightingTexture.Get(), RI_RESOURCE_STATE_STORAGE_WRITE,
+         RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_COMPUTE, RI_STAGE_COMPUTE});
+
   }
 
-  // What the composite samples: REBLUR's two denoised outputs. One per lobe —
-  // diffuse (albedo-demodulated, carrying direct + indirect) and specular
-  // (undemodulated). Declared at Draw scope; the composite below binds them.
+  // REBLUR only filters indirect diffuse (demodulated) and specular radiance.
   RITextureView *indirectResultView = nullptr;
   RITextureView *indirectSpecularResultView = nullptr;
 
@@ -1430,6 +1436,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
       // lives inside NRD, which discards it via CLEAR_AND_RESTART on the next
       // Denoise call.
       state.nrd->ResetHistory();
+      state.directNrd->ResetHistory();
       state.indirectHistoryReset = false;
     }
     // Make last frame's writes visible to this frame's RT write / pack read.
@@ -1510,10 +1517,8 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   // noisy to composite raw. This runs even with no TLAS (the path tracer is
   // skipped, but the pack targets and NRD's history must still advance).
   //
-  // The diffuse channel carries the ReSTIR DI direct term as well as the
-  // indirect bounce: REBLUR splits by LOBE at the primary vertex, not by
-  // direct/indirect, because its specular path needs roughness-driven
-  // reprojection and virtual history.
+  // The REBLUR channels carry only path-traced indirect lighting. RELAX
+  // independently filters direct irradiance using the same surface guides.
   // ----------------------------------------------------------------------
   {
     VkComputePipelineCreateInfo ci = {
@@ -1587,13 +1592,6 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                             &mpGraphics->device,
                             state.velocityView[mpGraphics->swapchainIndex].Get(),
                             RI_RESOURCE_STATE_SHADER_RESOURCE));
-        // ReSTIR DI's resolved direct irradiance. NrdPack sums it into the
-        // diffuse channel so one REBLUR instance denoises direct + indirect
-        // together; REBLUR splits by lobe, not by direct/indirect.
-        nb.emplace_back("gDirectLighting",
-                        RIDescriptor::sampledImage(
-                            &mpGraphics->device, directResultView,
-                            RI_RESOURCE_STATE_GENERAL));
         nb.emplace_back("gNrdNormalRoughness",
                         RIDescriptor::storageImage(
                             &mpGraphics->device,
@@ -1686,14 +1684,29 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
       }
       indirectResultView = nrdOutputs.diffuseRadianceHitDistance;
       indirectSpecularResultView = nrdOutputs.specularRadianceHitDistance;
+
+      NrdDenoiseInputs directInputs = {};
+      directInputs.normalRoughness = state.nrdNormalRoughnessView.Get();
+      directInputs.viewZ = state.nrdViewZView.Get();
+      // RELAX does not modify motion vectors. Use the raster velocity, not
+      // REBLUR's private copy that its stabilization pass may have changed.
+      directInputs.motionVectors =
+          state.velocityView[mpGraphics->swapchainIndex].Get();
+      directInputs.diffuseRadianceHitDistance = state.directLightingView.Get();
+      {
+        RIGpuScope scope(&mpGraphics->profiler, &mpGraphics->primary.cmds[0],
+                         "NRD.DirectDenoise");
+        directResultView = state.directNrd->Denoise(
+            &mpGraphics->primary.cmds[0], nrdFrame, directInputs)
+                               .diffuseRadianceHitDistance;
+      }
     }
   }
 
   // --------------------------------------------------------------------
-  // Composite — compute pass. Reads REBLUR's two denoised outputs
-  // (gIndirectLighting = the diffuse channel, carrying direct + indirect;
-  // gIndirectSpecular = the GGX lobe) + gPackedHitInfo / TLAS / gPerFrame, and
-  // writes the composited color into the viewport render target. The forward passes draw on top of it; the
+  // Composite — compute pass. Reads independently filtered direct lighting,
+  // REBLUR's indirect diffuse/specular outputs, and the V-buffer / TLAS / frame.
+  // Writes the viewport render target. The forward passes draw on top; the
   // tail crop-blits it into the viewport backbuffer, which Scene.cpp's
   // post-effect chain + swapchain tail blit consume.
   // --------------------------------------------------------------------
@@ -1707,7 +1720,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   // visibility buffer and the VBufferPomBary output were already barriered to
   // the COMPUTE stage upstream.)
   {
-    // SHADER_RESOURCE for the two denoised lighting image
+    // SHADER_RESOURCE for the three filtered lighting image
     // samples; STORAGE_READ for the SSBOs the composite walks (light grid,
     // object / material pools) written earlier this frame.
     RIMemoryBarrier mem = {RI_RESOURCE_STATE_STORAGE_WRITE,
@@ -1960,12 +1973,12 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                      RIDescriptor::accelerationStructure(&mpGraphics->device,
                                                          apWorld->GetTlas()),
                      0, true);
-    // gIndirectLighting — REBLUR's OUT_DIFF_RADIANCE_HITDIST: the denoised,
-    // albedo-demodulated diffuse channel, carrying the ReSTIR DI direct term
-    // summed with the path tracer's indirect bounce (NrdPack does that sum).
-    // gIndirectSpecular is OUT_SPEC_RADIANCE_HITDIST, undemodulated and added
-    // on top as-is. Both are YCoCg-packed; the shader unpacks them. NRD leaves
-    // its outputs in GENERAL. There is no separate direct input any more.
+    // Direct lighting is linear RGB. REBLUR's two indirect outputs are
+    // YCoCg-packed and decoded in the shader. All three remain GENERAL.
+    bnd.emplace_back("gDirectLighting",
+                     RIDescriptor::sampledImage(&mpGraphics->device,
+                                                directResultView,
+                                                RI_RESOURCE_STATE_GENERAL));
     bnd.emplace_back("gIndirectLighting",
                      RIDescriptor::sampledImage(&mpGraphics->device,
                                                 indirectResultView,
@@ -2025,8 +2038,13 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
                                     mpGraphics->frameIndex, bnd.data(), bnd.size(),
                                     VK_PIPELINE_BIND_POINT_COMPUTE);
 
-    static_assert(sizeof(OverlayPushConstants) == 4);
-    const OverlayPushConstants push{m_overlayMode};
+    struct MainCompositePushConstants {
+      uint32_t overlayMode;
+      uint32_t hasTlas;
+    };
+    static_assert(sizeof(MainCompositePushConstants) == 8);
+    const MainCompositePushConstants push{m_overlayMode,
+                                         apWorld->GetTlas() ? 1u : 0u};
     vkCmdPushConstants(mpGraphics->primary.cmds[0].vk.cmd,
                        m_composite.getPipelineLayout(),
                        VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(push), &push);

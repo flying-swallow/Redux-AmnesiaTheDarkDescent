@@ -1,11 +1,8 @@
 // Reference per-pixel path tracer — two-channel output (diffuse + specular).
 //
 // This pass outputs INDIRECT diffuse only (albedo-demodulated). The ReSTIR DI
-// chain (DirectLightingPass -> DirectSpatialReusePass) still runs BEFORE this
-// pass; NrdPack sums its resolved direct term into the diffuse channel just
-// before packing, so one REBLUR instance denoises direct and indirect together.
-// The sum is kept out of this shader so the tracer does not depend on the
-// direct chain's output layout.
+// chain runs before this pass and is filtered independently. The composite
+// adds direct lighting to REBLUR's indirect output after denoising.
 // Primary-hit emission is still the composite's job (see rayGen).
 //
 // History: derived from the since-deleted SurfelRayTrace.rt.slang when the

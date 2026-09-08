@@ -337,17 +337,15 @@ SHARED_CONST uint  kObjectFlagShadowCaster      = 0x00000001u;
 // used to drive these via a per-pass CB; they were always set to 1 there, so
 // they live here as static defaults. Flip in source + recompile.
 //
-// kDefaultRenderDirectLighting now only affects Water.frag.slang, which shades
-// outside the denoiser. MainCompositePass cannot honour it: direct and indirect
-// diffuse share one REBLUR channel and are indivisible by the time they reach
-// the composite.
+// Direct and indirect remain separate until the composite, so these toggles
+// can isolate either contribution there.
 SHARED_CONST uint  kDefaultRenderDirectLighting    = 1u;
 SHARED_CONST uint  kDefaultRenderIndirectLighting  = 1u;
 // Geometry rejection for ReSTIR DI reuse: reproject/compare the surface key
 // (view depth + normal) and reject a neighbour or the previous frame's
 // reservoir when the surface differs. Used by DirectLightingPass (temporal
 // reservoir reprojection) and DirectSpatialReusePass (spatial neighbour
-// rejection). NOT a denoiser knob — REBLUR runs its own disocclusion test.
+// rejection). NRD uses its own disocclusion tests.
 SHARED_CONST float kReprojZRelTol                  = 0.05f;   // ≤5% view-depth difference accepted
 SHARED_CONST float kReprojNormalCos                = 0.9f;    // ≈25° normal tolerance
 

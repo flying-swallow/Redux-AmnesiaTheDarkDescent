@@ -15,6 +15,7 @@ bool RunCubeMipGenTests();
 bool RunBlockCompressionDecodeTests();
 bool RunBcBlockLayoutTests();
 bool RunUploadRowPitchTests();
+bool RunLightGridCullingTests();
 
 namespace {
 
@@ -584,6 +585,7 @@ int main() {
       !RunBlockCompressionDecodeTests() ||
       !RunBcBlockLayoutTests() ||
       !RunUploadRowPitchTests() ||
+      !RunLightGridCullingTests() ||
       !RunTemporalReactiveMaskTests() ||
       !RunWaterReflectionJitterTests()) {
     return 1;

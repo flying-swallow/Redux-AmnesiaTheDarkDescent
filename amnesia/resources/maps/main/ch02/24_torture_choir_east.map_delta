@@ -677,16 +677,16 @@
     <Remove Category="Entities" ID="4359" Name="PointLight_54" />
     <Remove Category="Entities" ID="4778" Name="PointLight_81" />
     <Modify Category="Entities" ID="1674" Name="PointLight_14">
-        <SetAttr Intensity="3.5" Radius="7.95036" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="7.95036" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="2720" Name="PointLight_18">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="2721" Name="PointLight_19">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="2722" Name="PointLight_20">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="2746" Name="prisoner_cage_29">
         <SetAttr Rotation="2.53518e-06 -1.5708 2.53518e-06" />
@@ -698,34 +698,34 @@
         <SetAttr Rotation="2.53518e-06 -1.5708 2.53518e-06" />
     </Modify>
     <Modify Category="Entities" ID="3442" Name="PointLight_1">
-        <SetAttr Intensity="4" Radius="17.5783" SourceRadius="0" />
+        <SetAttr Intensity="4" Radius="17.5783" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="3443" Name="PointLight_2">
-        <SetAttr Intensity="4" Radius="17.5783" SourceRadius="0" />
+        <SetAttr Intensity="4" Radius="17.5783" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="3446" Name="PointLight_3">
-        <SetAttr Intensity="4.5" Radius="24.3247" SourceRadius="0" />
+        <SetAttr Intensity="4.5" Radius="24.3247" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="3550" Name="PointLight_4">
-        <SetAttr Intensity="4" Radius="17.5783" SourceRadius="0" />
+        <SetAttr Intensity="4" Radius="17.5783" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="3699" Name="PointLight_15">
-        <SetAttr Intensity="4" Radius="8.97844" SourceRadius="0" />
+        <SetAttr Intensity="4" Radius="8.97844" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="3700" Name="PointLight_16">
-        <SetAttr Intensity="5.5" Radius="9.97347" SourceRadius="0" />
+        <SetAttr Intensity="5.5" Radius="9.97347" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="3701" Name="PointLight_44">
-        <SetAttr Intensity="5.5" Radius="10.5326" SourceRadius="0" />
+        <SetAttr Intensity="5.5" Radius="10.5326" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="3702" Name="PointLight_45">
-        <SetAttr Intensity="4" Radius="8.5014" SourceRadius="0" />
+        <SetAttr Intensity="4" Radius="8.5014" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="3704" Name="PointLight_46">
-        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0" />
+        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="3705" Name="PointLight_47">
-        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0" />
+        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4039" Name="sewer_grate_rusty_3">
         <SetAttr Rotation="-1.47632 -1.5708 -0.0944826" />
@@ -758,127 +758,127 @@
         <SetAttr Rotation="-1.5708 1.5708 2.53518e-06" />
     </Modify>
     <Modify Category="Entities" ID="4085" Name="SpotLight_2">
-        <SetAttr Intensity="6.5" Radius="36.052" SourceRadius="0" />
+        <SetAttr Intensity="6.5" Radius="36.052" SourceRadius="0.12" />
     </Modify>
     <Modify Category="Entities" ID="4086" Name="PointLight_48">
-        <SetAttr Intensity="4" Radius="17.074" SourceRadius="0" />
+        <SetAttr Intensity="4" Radius="17.074" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4087" Name="PointLight_49">
-        <SetAttr Intensity="5" Radius="31.6188" SourceRadius="0" />
+        <SetAttr Intensity="5" Radius="31.6188" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4122" Name="SpotLight_3">
-        <SetAttr Intensity="9" Radius="42.4235" SourceRadius="0" />
+        <SetAttr Intensity="9" Radius="42.4235" SourceRadius="0.2" />
     </Modify>
     <Modify Category="Entities" ID="4124" Name="SpotLight_4">
-        <SetAttr Intensity="9" Radius="42.4235" SourceRadius="0" />
+        <SetAttr Intensity="9" Radius="42.4235" SourceRadius="0.2" />
     </Modify>
     <Modify Category="Entities" ID="4126" Name="SpotLight_5">
-        <SetAttr Intensity="9" Radius="42.4235" SourceRadius="0" />
+        <SetAttr Intensity="9" Radius="42.4235" SourceRadius="0.2" />
     </Modify>
     <Modify Category="Entities" ID="4128" Name="SpotLight_6">
-        <SetAttr Intensity="6.5" Radius="36.052" SourceRadius="0" />
+        <SetAttr Intensity="6.5" Radius="36.052" SourceRadius="0.2" />
     </Modify>
     <Modify Category="Entities" ID="4130" Name="SpotLight_7">
-        <SetAttr Intensity="6.5" Radius="36.052" SourceRadius="0" />
+        <SetAttr Intensity="6.5" Radius="36.052" SourceRadius="0.2" />
     </Modify>
     <Modify Category="Entities" ID="4134" Name="PointLight_50">
-        <SetAttr Intensity="3" Radius="11.2724" SourceRadius="0" />
+        <SetAttr Intensity="3" Radius="11.2724" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4292" Name="PointLight_51">
-        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0" />
+        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4293" Name="PointLight_52">
-        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0" />
+        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4294" Name="SpotLight_8">
-        <SetAttr Intensity="50" Radius="34.6374" SourceRadius="0" />
+        <SetAttr Intensity="50" Radius="34.6374" SourceRadius="0.12" />
     </Modify>
     <Modify Category="Entities" ID="4301" Name="SpotLight_10">
-        <SetAttr Intensity="50" Radius="39.9969" SourceRadius="0" />
+        <SetAttr Intensity="50" Radius="39.9969" SourceRadius="0.12" />
     </Modify>
     <Modify Category="Entities" ID="4302" Name="PointLight_53">
-        <SetAttr Intensity="3.5" Radius="26.4528" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="26.4528" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4625" Name="PointLight_55">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4627" Name="PointLight_56">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4628" Name="PointLight_57">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4631" Name="PointLight_58">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4634" Name="PointLight_59">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4637" Name="PointLight_60">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4640" Name="PointLight_61">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4643" Name="PointLight_62">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4646" Name="PointLight_63">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4649" Name="PointLight_64">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4652" Name="PointLight_65">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4655" Name="PointLight_66">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4658" Name="PointLight_67">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4661" Name="PointLight_68">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4664" Name="PointLight_69">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4667" Name="PointLight_70">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4670" Name="PointLight_71">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4673" Name="PointLight_72">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4676" Name="PointLight_73">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4679" Name="PointLight_74">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4682" Name="PointLight_75">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4685" Name="PointLight_76">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4688" Name="PointLight_77">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4691" Name="PointLight_78">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4694" Name="PointLight_79">
-        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4777" Name="PointLight_80">
-        <SetAttr Intensity="5.5" Radius="23.0428" SourceRadius="0" />
+        <SetAttr Intensity="5.5" Radius="23.0428" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="4813" Name="SpotLight_17">
-        <SetAttr Intensity="3.5" Radius="7.14264" SourceRadius="0" />
+        <SetAttr Intensity="3.5" Radius="7.14264" SourceRadius="0.12" />
     </Modify>
     <Modify Category="Entities" ID="5157" Name="PointLight_5">
         <SetAttr Intensity="0.5" SourceRadius="0" />
@@ -887,7 +887,7 @@
         <SetAttr Intensity="2.5" SourceRadius="0" />
     </Modify>
     <Modify Category="Entities" ID="5173" Name="PointLight_17">
-        <SetAttr Intensity="2.5" Radius="10.8501" SourceRadius="0" />
+        <SetAttr Intensity="2.5" Radius="10.8501" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="5174" Name="PointLight_7">
         <SetAttr Intensity="1.5" Radius="12.9786" SourceRadius="0" />
@@ -941,7 +941,7 @@
         <SetAttr Intensity="8" SourceRadius="0" />
     </Modify>
     <Modify Category="Entities" ID="5539" Name="PointLight_10">
-        <SetAttr Intensity="4.5" Radius="13.8704" SourceRadius="0" />
+        <SetAttr Intensity="4.5" Radius="13.8704" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="5540" Name="PointLight_34">
         <SetAttr Intensity="8" SourceRadius="0" />
@@ -953,6 +953,6 @@
         <SetAttr Intensity="8" SourceRadius="0" />
     </Modify>
     <Modify Category="Entities" ID="5578" Name="PointLight_11">
-        <SetAttr Intensity="2" Radius="18.434" SourceRadius="0" />
+        <SetAttr Intensity="2" Radius="18.434" SourceRadius="0.35" />
     </Modify>
 </MapDelta>

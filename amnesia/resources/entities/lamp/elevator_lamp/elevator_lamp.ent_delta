@@ -43,7 +43,7 @@
         <RemoveAttr Name="Type" />
     </Modify>
     <Modify Category="Entities" ID="9" Name="PointLight_1">
-        <SetAttr Intensity="10" Radius="29.9287" SourceRadius="0" />
+        <SetAttr Intensity="10" Radius="29.9287" SourceRadius="0.08" />
         <RemoveAttr Name="GroupID" />
         <RemoveAttr Name="SubType" />
         <RemoveAttr Name="Type" />

@@ -4,14 +4,8 @@
 // DirectLightingPass, and merge a few same-surface neighbours' reservoirs
 // (geometry-rejected on the depth/normal key, so light can't leak across
 // surfaces). Then RESOLVE: one soft (blue-noise disk) shadow ray for the chosen
-// light, weighted by the reservoir's UCW → demodulated irradiance that NrdPack
-// sums into REBLUR's diffuse channel, which denoises it together with the path
-// tracer's indirect bounce.
-//
-// This pass does NO temporal filtering of the resolved irradiance. It used to
-// run an EMA accumulation here, but REBLUR now owns all temporal filtering for
-// the diffuse channel; keeping a second accumulator upstream would double-filter
-// and add lag on moving lights and shadows.
+// light, weighted by the reservoir's UCW -> demodulated irradiance for
+// RELAX, which filters direct lighting independently of GI.
 //
 // The merged reservoir is also written out as the next frame's temporal history.
 // One shadow ray per pixel per frame; the reuse drives the effective candidate
@@ -19,6 +13,7 @@
 
 #include "../HostDefinitions.h"
 #include "../Constants.h"
+#include "../../../HPL2/extern/NRD/Shaders/NRD.hlsli"
 
 import SceneTypes;
 import Scene;
@@ -96,7 +91,7 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // Start the combination from the center (temporal) reservoir.
     Reservoir R; R.init();
     Reservoir c = unpackReservoir(gReservoirIn.Load(int3(p, 0)));
-    R.merge(c, directTargetPdf(sd, c.y), rng);
+    mergeDirectReservoir(R, c, directTargetPdf(sd, c.y), rng);
 
     // Merge a few same-surface neighbours.
     for (int i = 0; i < kSpatialSamples; ++i)
@@ -116,7 +111,7 @@ void csMain(uint3 tid : SV_DispatchThreadID)
         if (dot(curN, normalize(nN)) < kReprojNormalCos) continue;  // geometry reject
 
         Reservoir nb = unpackReservoir(gReservoirIn.Load(int3(q, 0)));
-        R.merge(nb, directTargetPdf(sd, nb.y), rng);
+        mergeDirectReservoir(R, nb, directTargetPdf(sd, nb.y), rng);
     }
 
     R.finalizeCombine();
@@ -125,7 +120,8 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // Resolve the chosen light with one soft (blue-noise disk) shadow ray.
     float3 curResolved = resolveDirectReservoir(sd, R, rng);
 
-    // No temporal accumulation here: REBLUR filters this channel downstream.
-    // .a is written as 1 only to keep the RGBA16F layout; nothing reads it.
-    gDirectLighting[p] = float4(curResolved, 1.0f);
+    // RELAX accumulates and spatially filters this signal downstream. Its diffuse
+    // prepass is disabled, so diffuse hit distance (.a) is unused.
+    // Sanitize before storing FP16, as for the other NRD radiance inputs.
+    gDirectLighting[p] = RELAX_FrontEnd_PackRadianceAndHitDist(curResolved, 1.0f, true);
 }

@@ -11,7 +11,7 @@ namespace hpl {
 
 class cGraphics;
 
-enum class NrdDenoiserMode { DiffuseSpecular, Specular };
+enum class NrdDenoiserMode { DiffuseSpecular, Specular, DirectDiffuse };
 
 // The matrices are copied from the renderer's gPerFrame values.  They are
 // column-major, column-vector matrices: this is both the engine convention
@@ -75,8 +75,11 @@ public:
   // compute-to-compute memory dependency.  A consumer that samples an output
   // from a FRAGMENT shader must add the compute-to-fragment dependency itself.
   // The caller must provide a private, writable motion-vector texture because
-  // REBLUR's stabilization pass writes IN_MV.  In Specular mode, the diffuse
-  // input may be null and the diffuse output is null.
+  // REBLUR's stabilization pass writes IN_MV. In DirectDiffuse (RELAX) mode,
+  // motion vectors are read-only SHADER_RESOURCE and can use the raster input;
+  // specular input/output are null. In Specular mode, diffuse input/output
+  // are null. DirectDiffuse accepts linear RGB; hit distance is unused because
+  // the diffuse prepass is disabled (every pixel has a resolved sample).
   NrdDenoiseOutputs Denoise(RICmd *cmd, const NrdFrameData &frame,
                             const NrdDenoiseInputs &inputs);
 

@@ -207,7 +207,9 @@ struct NrdIntegration::Impl {
       : graphics(graphics),
         denoiser(mode == NrdDenoiserMode::Specular
                      ? nrd::Denoiser::REBLUR_SPECULAR
-                     : nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR),
+                     : mode == NrdDenoiserMode::DirectDiffuse
+                           ? nrd::Denoiser::RELAX_DIFFUSE
+                           : nrd::Denoiser::REBLUR_DIFFUSE_SPECULAR),
         denoiserIdentifier(static_cast<nrd::Identifier>(denoiser)) {
     NrdRequire(graphics != nullptr, "graphics is null");
 
@@ -217,7 +219,14 @@ struct NrdIntegration::Impl {
     reblurSettings.hitDistanceParameters.B = kNrdHitDistanceParameters.y;
     reblurSettings.hitDistanceParameters.C = kNrdHitDistanceParameters.z;
 
-    if (denoiser == nrd::Denoiser::REBLUR_SPECULAR) {
+    if (denoiser == nrd::Denoiser::RELAX_DIFFUSE) {
+      // ReSTIR resolves direct irradiance at every surface pixel. Let RELAX's
+      // variance-guided A-trous passes remove noise while stopping at lighting
+      // edges; a broad prepass would soften shadows before edge detection.
+      // Diffuse hit distance is used only by that prepass, so no synthetic
+      // shadow/indirect hit-distance blend is needed for this input.
+      relaxSettings.diffusePrepassBlurRadius = 0.0f;
+    } else if (denoiser == nrd::Denoiser::REBLUR_SPECULAR) {
       // The specular-only consumer traces a specular sample at every valid
       // texel of a half-width and half-height reflection buffer, so there is
       // no missing lobe distance to reconstruct and no checkerboard encoding
@@ -370,8 +379,9 @@ struct NrdIntegration::Impl {
           graphics, width, height, NrdOutputFormat,
           "failed to create NRD diffuse output");
     }
-    specularOutput = CreateNrdTexture(graphics, width, height, NrdOutputFormat,
-                                      "failed to create NRD specular output");
+    if (denoiser != nrd::Denoiser::RELAX_DIFFUSE)
+      specularOutput = CreateNrdTexture(graphics, width, height, NrdOutputFormat,
+                                        "failed to create NRD specular output");
   }
 
   void ResetHistory() { historyReset = true; }
@@ -479,7 +489,8 @@ struct NrdIntegration::Impl {
     NrdRequire(view != nullptr, "NRD input view is null");
     if (descriptorType == nrd::DescriptorType::STORAGE_TEXTURE)
       return RIDescriptor::storageImage(&graphics->device, view);
-    if (type == nrd::ResourceType::IN_MV) {
+    if (type == nrd::ResourceType::IN_MV &&
+        denoiser != nrd::Denoiser::RELAX_DIFFUSE) {
       // REBLUR samples IN_MV in temporal passes and writes it during
       // stabilization. Bind its sampled view in GENERAL to match the
       // caller's read+write texture state.
@@ -673,7 +684,9 @@ struct NrdIntegration::Impl {
                    nrd::Result::SUCCESS,
                "SetCommonSettings failed");
     NrdRequire(nrd::SetDenoiserSettings(*instance, denoiserIdentifier,
-                                        &reblurSettings) == nrd::Result::SUCCESS,
+                                        denoiser == nrd::Denoiser::RELAX_DIFFUSE
+                                            ? static_cast<const void *>(&relaxSettings)
+                                            : static_cast<const void *>(&reblurSettings)) == nrd::Result::SUCCESS,
                "SetDenoiserSettings failed");
 
     if (!texturesInGeneral)
@@ -718,6 +731,8 @@ struct NrdIntegration::Impl {
 
     if (denoiser == nrd::Denoiser::REBLUR_SPECULAR)
       return {nullptr, specularOutput.sampledView.Get()};
+    if (denoiser == nrd::Denoiser::RELAX_DIFFUSE)
+      return {diffuseOutput.sampledView.Get(), nullptr};
     return {diffuseOutput.sampledView.Get(), specularOutput.sampledView.Get()};
   }
 
@@ -728,6 +743,7 @@ struct NrdIntegration::Impl {
   nrd::LibraryDesc library = {};
   nrd::InstanceDesc instanceDesc = {};
   nrd::ReblurSettings reblurSettings = {};
+  nrd::RelaxSettings relaxSettings = {};
   std::vector<std::unique_ptr<RIProgram>> programs;
   std::vector<NrdTexture> permanentPool;
   std::vector<NrdTexture> transientPool;

@@ -53,6 +53,42 @@ float3 evalAnalyticLight(DiffuseShading sd)
 static const float3 kReservoirLum = float3(0.2126f, 0.7152f, 0.0722f);
 
 // --- ReSTIR DI helpers ----------------------------------------------------
+// Deterministic primary diffuse term composited after NRD. Keep this partition
+// out of secondary-bounce lighting, which still needs every analytic light.
+bool isDirectGoboLight(uint lightIndex)
+{
+    if (lightIdType(lightIndex) != kLightTypeSpot)
+        return false;
+    SpotLight light = gSpotLights[lightIdSlot(lightIndex)];
+    return light.goboTextureIndex != kInvalidTextureIndex && light.sourceRadius <= 0.f;
+}
+
+float3 evaluateDirectGoboLighting(DiffuseShading sd)
+{
+    float3 result = float3(0.f);
+    float3 V = normalize(gPerFrame.posW - sd.posW);
+    float3 origin = sd.posW + sd.normalW * kShadeRayEps;
+    CellLights cl = getCellLights(sd.posW);
+    for (uint k = 0u; k < cl.count; ++k)
+    {
+        uint li = cellLightAt(cl, k);
+        if (isDirectGoboLight(li))
+            result += shadeAnalyticLight(sd.posW, sd.normalW, V,
+                sd.surfaceFootprintW, sd.rough, li, origin);
+    }
+    return result;
+}
+
+// Discard excluded history before merge: a zero target alone would still add
+// its confidence M, suppressing the remaining lights during normalization.
+void mergeDirectReservoir(inout Reservoir result, Reservoir candidate, float target,
+                          inout RNG rng)
+{
+    if (candidate.isEmpty() || isDirectGoboLight(candidate.y))
+        return;
+    result.merge(candidate, target, rng);
+}
+
 // The direct pass is split into a reservoir build + temporal reuse (the
 // reworked DirectLightingPass) and a spatial reuse + resolve
 // (DirectSpatialReusePass). These three helpers are the shared shading core.
@@ -62,6 +98,8 @@ static const float3 kReservoirLum = float3(0.2126f, 0.7152f, 0.0722f);
 // receiving pixel whenever a neighbour's or previous frame's sample is reused.
 float directTargetPdf(DiffuseShading sd, uint lightIndex)
 {
+    if (isDirectGoboLight(lightIndex))
+        return 0.f;
     float3 V = normalize(gPerFrame.posW - sd.posW);
     return dot(unshadowedAnalyticLight(sd.posW, sd.normalW, V,
                                               sd.surfaceFootprintW, sd.rough,
@@ -81,6 +119,8 @@ Reservoir buildDirectReservoir(DiffuseShading sd, inout RNG rng)
     for (uint k = 0u; k < cl.count; ++k)
     {
         uint li = cellLightAt(cl, k);
+        if (isDirectGoboLight(li))
+            continue;
         float pHat = dot(unshadowedAnalyticLight(sd.posW, sd.normalW, V,
                                                         sd.surfaceFootprintW,
                                                         sd.rough, li),
@@ -95,7 +135,7 @@ Reservoir buildDirectReservoir(DiffuseShading sd, inout RNG rng)
 // shadow ray for the selected light, weighted by the UCW.
 float3 resolveDirectReservoir(DiffuseShading sd, Reservoir r, inout RNG rng)
 {
-    if (r.isEmpty())
+    if (r.isEmpty() || isDirectGoboLight(r.y))
         return float3(0.f);
     float3 V = normalize(gPerFrame.posW - sd.posW);
     float3 origin = sd.posW + sd.normalW * kShadeRayEps;

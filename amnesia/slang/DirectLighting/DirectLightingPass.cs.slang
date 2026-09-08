@@ -124,7 +124,7 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     Reservoir cur = buildDirectReservoir(sd, rng);
 
     Reservoir R; R.init();
-    R.merge(cur, cur.pHatY, rng);
+    mergeDirectReservoir(R, cur, cur.pHatY, rng);
 
     if (valid)
     {
@@ -134,7 +134,7 @@ void csMain(uint3 tid : SV_DispatchThreadID)
         Reservoir prev = unpackReservoir(gReservoirHistory.Load(int3(ht, 0)));
         prev.M = min(prev.M, kReservoirMClamp * max(cur.M, 1.0f));
         float pHatPrev = directTargetPdf(sd, prev.y);
-        R.merge(prev, pHatPrev, rng);
+        mergeDirectReservoir(R, prev, pHatPrev, rng);
     }
 
     R.finalizeCombine();

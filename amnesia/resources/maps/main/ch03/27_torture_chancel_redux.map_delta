@@ -235,7 +235,7 @@
     <Remove Category="Entities" ID="2161" Name="SpotLight_3" />
     <Remove Category="Entities" ID="3155" Name="OrbLight" />
     <Modify Category="Entities" ID="973" Name="PointLight_16">
-        <SetAttr Intensity="7" Radius="26.6797" SourceRadius="0" />
+        <SetAttr Intensity="7" Radius="26.6797" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="2094" Name="barrier_pointlight_2">
         <SetAttr Intensity="4" Radius="28.0226" SourceRadius="0" />
@@ -328,6 +328,6 @@
         <SetAttr Intensity="3.5" Radius="26.2122" SourceRadius="0" />
     </Modify>
     <Modify Category="Entities" ID="3154" Name="PointLight_2">
-        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0" />
+        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0.35" />
     </Modify>
 </MapDelta>

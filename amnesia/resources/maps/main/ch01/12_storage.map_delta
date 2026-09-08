@@ -1,42 +1,12 @@
 <MapDelta Version="1" Target="maps/main/ch01/12_storage.map">
     <Modify Category="Entities" ID="1283" Name="SpotLight_1">
-        <SetAttr Intensity="8" Radius="22.0337" SourceRadius="0" />
+        <SetAttr Intensity="8" Radius="22.0337" SourceRadius="0.12" />
     </Modify>
     <Modify Category="Entities" ID="1304" Name="SpotLight_2">
-        <SetAttr Intensity="14" Radius="45.8333" SourceRadius="0" />
+        <SetAttr Intensity="14" Radius="45.8333" SourceRadius="0.12" />
     </Modify>
     <Modify Category="Entities" ID="1305" Name="SpotLight_3">
-        <SetAttr Intensity="15" Radius="41.6641" SourceRadius="0" />
-    </Modify>
-    <Modify Category="Entities" ID="1553" Name="wine_row_1">
-        <SetAttr Rotation="3.14159 1.5708 3.14159" />
-    </Modify>
-    <Modify Category="Entities" ID="1554" Name="wine_row_2">
-        <SetAttr Rotation="3.14159 1.5708 3.14159" />
-    </Modify>
-    <Modify Category="Entities" ID="1555" Name="wine_row_3">
-        <SetAttr Rotation="3.14159 1.5708 3.14159" />
-    </Modify>
-    <Modify Category="Entities" ID="1556" Name="wine_row_4">
-        <SetAttr Rotation="3.14159 1.5708 3.14159" />
-    </Modify>
-    <Modify Category="Entities" ID="1557" Name="wine_row_5">
-        <SetAttr Rotation="3.14159 1.5708 3.14159" />
-    </Modify>
-    <Modify Category="Entities" ID="1559" Name="wine_row_6">
-        <SetAttr Rotation="3.14159 -1.5708 3.14159" />
-    </Modify>
-    <Modify Category="Entities" ID="1560" Name="wine_row_7">
-        <SetAttr Rotation="3.14159 -1.5708 3.14159" />
-    </Modify>
-    <Modify Category="Entities" ID="1561" Name="wine_row_8">
-        <SetAttr Rotation="3.14159 -1.5708 3.14159" />
-    </Modify>
-    <Modify Category="Entities" ID="1562" Name="wine_row_9">
-        <SetAttr Rotation="3.14159 -1.5708 3.14159" />
-    </Modify>
-    <Modify Category="Entities" ID="1563" Name="wine_row_10">
-        <SetAttr Rotation="3.14159 -1.5708 3.14159" />
+        <SetAttr Intensity="15" Radius="41.6641" SourceRadius="0.12" />
     </Modify>
     <Modify Category="Entities" ID="1912" Name="PointLight_1">
         <SetAttr Intensity="5" SourceRadius="0" />
@@ -48,10 +18,10 @@
         <SetAttr Intensity="6" SourceRadius="0" />
     </Modify>
     <Modify Category="Entities" ID="2152" Name="PointLight_6">
-        <SetAttr Intensity="1.75" Radius="16.1978" SourceRadius="0" />
+        <SetAttr Intensity="1.75" Radius="16.1978" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="2153" Name="PointLight_7">
-        <SetAttr Intensity="1.75" Radius="16.1978" SourceRadius="0" />
+        <SetAttr Intensity="1.75" Radius="16.1978" SourceRadius="0.35" />
     </Modify>
     <Modify Category="Entities" ID="2154" Name="PointLight_8">
         <SetAttr Intensity="8" SourceRadius="0" />
