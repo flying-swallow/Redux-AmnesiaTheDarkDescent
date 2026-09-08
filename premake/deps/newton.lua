@@ -1,4 +1,4 @@
--- Newton (physics) -- explicit source list mirrors extern/CMakeLists.txt.
+-- Newton (physics) -- explicit source list covers core, physics, and the C API.
 project "Newton"
     kind "StaticLib"
     language "C++"

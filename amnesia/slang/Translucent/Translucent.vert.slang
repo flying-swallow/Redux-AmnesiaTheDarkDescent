@@ -6,11 +6,15 @@
 // adapted to use **traditional Vulkan vertex bindings** instead of the
 // bindless BDA-pull pattern the opaque + particle paths use.
 //
-// Rationale: only refractive translucents need to live in the surfel TLAS
-// (so SurfelVBuffer.rt can ray-bend through them), and the TLAS path is
-// the only consumer of the per-translucent vertex BDAs in
-// gOpaque*Handles[]. The raster path here is low-traffic — it draws every
-// translucent mesh once per frame and doesn't need the bindless slot
+// Rationale: only refractive translucents live in the TLAS (World.cpp
+// admits them as kRayMaskTranslucent and skips every other translucent), and
+// that TLAS slot is the only consumer of the per-translucent vertex BDAs in
+// gOpaque*Handles[]. Note the original reason for that membership — letting an
+// RT V-buffer ray-bend the primary ray through glass — is gone with that pass;
+// no ray path traces kRayMaskTranslucent today, since the shadow, reflection
+// and path-trace rays (Material.slang, PathTracePass.rt) all trace against
+// kRayMaskOpaque / kRayMaskShadow. The raster path here is low-traffic — it
+// draws every translucent mesh once per frame and doesn't need the bindless slot
 // machinery just to fetch its own vertex data. Fixed-function vertex
 // fetch via vkCmdBindVertexBuffers + vkCmdBindIndexBuffer is simpler and
 // matches the binding layout declared in `TranslucentMeshPipelineDesc`
@@ -60,11 +64,14 @@ TranslucentVSOut vsMain(TranslucentVSIn vin,
     // SV_InstanceID alone is the per-draw counter; slangc subtracts
     // BaseInstance from Vulkan's InstanceIndex to give DX semantics.
     // Bindless slot id arrives via firstInstance — reconstruct
-    // gl_InstanceIndex by summing. Same fix as SurfelGBuffer.3d.slang.
+    // gl_InstanceIndex by summing. Same fix as VBufferRaster.3d.slang.
     uint instanceId = drawInst + baseInst;
 
     UniformObject obj     = gSceneObjects[instanceId];
     float4x4 modelView    = mul(gPerFrame.viewMat, obj.modelMat);
+    // Category (a): translucent geometry is part of the primary full-render
+    // raster, so projMat remains the host's jittered projection and receives no
+    // duplicate shader-side offset.
     float4x4 modelViewPrj = mul(gPerFrame.projMat, modelView);
 
     // Normal matrix = (modelView^-1)^T = (invModel * invView)^T

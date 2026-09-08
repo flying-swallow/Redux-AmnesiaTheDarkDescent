@@ -1,11 +1,10 @@
--- premake/slang.lua -- Slang shader compiler acquisition + per-file SPIR-V build
--- rule. Mirrors cmake/slang.cmake (prebuilt slangc download) and
--- cmake/shaders.cmake (per-shader add_custom_command). Loaded after helpers.lua
--- (it uses runtime_dir) and before amnesia.lua (which calls slang_prebuild).
+-- premake/slang.lua -- Slang compiler acquisition + per-file SPIR-V build rules.
+-- Downloads a pinned prebuilt slangc when needed and creates incremental rules for
+-- entry-point shaders. Loaded after helpers.lua (it uses runtime_dir) and before
+-- amnesia.lua (which calls slang_prebuild).
 -- All helpers are global so the dofile'd sub-scripts can use them directly.
 
--- Pinned Slang release for the premake auto-download. Keep in sync with
--- SLANG_VERSION in cmake/slang.cmake.
+-- Pinned Slang release for the premake auto-download.
 SLANG_VERSION  = "2026.11"
 SLANG_PREBUILT = ROOT .. "/build-premake/_deps/slang-prebuilt"
 
@@ -16,7 +15,7 @@ end
 local function winpath(p) return (p:gsub("/", "\\")) end
 
 -- Host CPU -> Slang asset arch token. The workspace pins x86_64, but detect so an
--- aarch64 host still resolves the right asset (mirrors cmake/slang.cmake).
+-- aarch64 host still resolves the right asset.
 local function slang_host_arch()
     if os.target() == "windows" then
         local pa = (os.getenv("PROCESSOR_ARCHITECTURE") or ""):lower()
@@ -27,7 +26,7 @@ local function slang_host_arch()
 end
 
 -- Download + extract the pinned prebuilt slangc at configure time (when premake5
--- runs), mirroring cmake/slang.cmake. Pure Lua via premake's http.download +
+-- runs). Pure Lua via premake's http.download +
 -- zip.extract -- no python, no external tar: we fetch the .zip asset, which Slang
 -- publishes for every platform. Idempotent (skips if slangc is already present).
 local function download_slangc()
@@ -73,20 +72,16 @@ end
 
 -- Resolve a slangc executable for shader compilation.
 --  1. --slangc=<path>
---  2. a copy already extracted under build/_deps (CMake) or build-premake/_deps
---  3. the pinned prebuilt release, downloaded now (configure time) if absent
+--  2. the pinned prebuilt release, reused from build-premake/_deps/slang-prebuilt
+--     if already extracted, otherwise downloaded now (configure time)
 function resolve_slangc()
     if _OPTIONS["slangc"] then return _OPTIONS["slangc"] end
-    local matches = os.matchfiles(ROOT .. "/build/_deps/slang-prebuilt/**/bin/" .. slangc_exe())
-    if #matches > 0 then return matches[1] end
     return download_slangc()
 end
 
 -- Slang entry-point stage suffixes -- a .slang file is a shader to compile only if
--- its name ends in one of these (mirrors STAGE_SUFFIXES/is_entry_shader in the old
--- scripts/compile_slang_shaders.py and the explicit SHADERS list in
--- amnesia/CMakeLists.txt). The remaining .slang files are include-only headers,
--- pulled in via the -I path rather than compiled.
+-- its name ends in one of these. The remaining .slang files are include-only
+-- headers, pulled in via the -I path rather than compiled.
 local SLANG_STAGE_SUFFIXES = {
     ".vert.slang", ".frag.slang", ".comp.slang", ".cs.slang", ".geom.slang",
     ".tesc.slang", ".tese.slang", ".rgen.slang", ".rchit.slang", ".rmiss.slang",
@@ -101,9 +96,8 @@ local function is_entry_shader(file)
 end
 
 -- Compile every entry-point .slang shader under amnesia/slang into
--- <runtime>/compiled_shaders. Native port of cmake/shaders.cmake's
--- _target_shaders_compile_slang: one per-file custom build rule per shader (the
--- premake analogue of add_custom_command), so only changed shaders recompile.
+-- <runtime>/compiled_shaders. Each entry-point shader gets an incremental
+-- per-file build rule, so only changed shaders recompile.
 -- Must be called inside the consuming project so files{}/filter{} apply to it.
 function slang_prebuild()
     -- slangc is resolved (and auto-downloaded if needed) here at configure time.
@@ -128,8 +122,8 @@ function slang_prebuild()
     -- the runtime kept loading vertex shaders compiled against the OLD
     -- gPerFrame/gSceneObjects layout (zeroed transforms -> invisible decals/
     -- translucent/water). List every shared (non-entry) module and header as an
-    -- explicit buildinput so editing one retriggers all shaders. (CMake has the same
-    -- latent gap; it just gets clean build dirs more often.)
+    -- explicit buildinput so editing one retriggers all shaders, including when
+    -- prior compiled outputs remain in the build directory.
     local shared_deps = { slangc }
     for _, f in ipairs(os.matchfiles(src .. "/**.slang")) do
         if not is_entry_shader(f) then table.insert(shared_deps, f) end
@@ -138,9 +132,10 @@ function slang_prebuild()
         table.insert(shared_deps, f)
     end
 
-    -- Same flag set as cmake/shaders.cmake (incl. -emit-spirv-directly). %{file.*}
+    -- Target SPIR-V with the SM 6.6 profile and emit it directly; preserve entry-point
+    -- names, use column-major matrices, and enable Vulkan scalar layout. %{file.*}
     -- tokens are expanded per shader at build time; %{file.basename} strips only the
-    -- trailing .slang (foo.vert.slang -> foo.vert), matching CMake's STEM LAST_ONLY.
+    -- trailing .slang (foo.vert.slang -> foo.vert) for the output basename.
     --
     -- Only the slang root (-I"<src>") is passed -- NOT a per-file -I"%{file.directory}".
     -- Under MSBuild that token expands to %(RootDir)%(Directory), which ends in a

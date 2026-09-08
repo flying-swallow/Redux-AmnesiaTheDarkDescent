@@ -1,0 +1,116 @@
+<EntDelta Version="1" Target="entities/lamp/candlestick_floor/candlestick_floor.ent">
+    <SetVar Name="ShowHints" Value="true" />
+    <SetVar Name="ShowMesh" Value="true" />
+    <Modify Category="Mesh" ID="0" Name="polySurface23">
+        <SetAttr Material="" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="3" Name="Shape_2">
+        <SetAttr RelativeTranslation="2.38419e-07 -0.895316 -0.00203104" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="4" Name="Shape_3">
+        <SetAttr RelativeTranslation="2.38419e-07 0.163717 -0.00203104" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="5" Name="Shape_4">
+        <SetAttr RelativeTranslation="-0.225713 0.500327 -0.00203104" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="6" Name="Shape_5">
+        <SetAttr RelativeTranslation="2.38419e-07 0.895316 -0.225392" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="7" Name="Shape_6">
+        <SetAttr RelativeTranslation="0.225713 0.724737 0.00202994" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="8" Name="Shape_7">
+        <SetAttr RelativeTranslation="0.00342024 0.633157 0.225392" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Bodies" ID="9" Name="Body">
+        <SetAttr BuoyancyDensityMul="1" WorldPos="0 0.953663 0.00203323" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="10" Name="PointLight_1">
+        <SetAttr CastShadows="true" FlickerOffRadius="0.75" Intensity="0.8" Radius="10" SourceRadius="0.035" WorldPos="0.225945 1.92033 -0.000770569" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="SubType" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="11" Name="ParticleSystem_1">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="12" Name="ParticleSystem_2">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="13" Name="ParticleSystem_3">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="14" Name="ParticleSystem_4">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="15" Name="ParticleSystem_5">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="16" Name="Billboard_1">
+        <SetAttr ConnectLight="PointLight_5" />
+        <RemoveAttr Name="Axis" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Scale" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="17" Name="Billboard_2">
+        <SetAttr ConnectLight="PointLight_3" />
+        <RemoveAttr Name="Axis" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Scale" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="18" Name="Billboard_3">
+        <SetAttr ConnectLight="PointLight_4" />
+        <RemoveAttr Name="Axis" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Scale" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="19" Name="Billboard_4">
+        <RemoveAttr Name="Axis" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Scale" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="20" Name="Billboard_5">
+        <SetAttr ConnectLight="PointLight_2" />
+        <RemoveAttr Name="Axis" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Scale" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Add Category="Entities">
+        <PointLight Name="PointLight_2" WorldPos="0.00118256 2.08718 -0.224297" Rotation="1.49242e-07 -2.98023e-08 -6.18157e-08" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="0.8" Radius="10" SourceRadius="0.035" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.85 0.75 0.4 0.7" FlickerActive="true" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0.75 0.7 0.45 0.6" FlickerOffRadius="0.75" FlickerFade="true" FlickerOnFadeMinLength="0.1" FlickerOnFadeMaxLength="2" FlickerOffFadeMinLength="0.1" FlickerOffFadeMaxLength="2" />
+        <PointLight Name="PointLight_3" WorldPos="-0.225639 1.70725 -0.000770569" Rotation="1.49242e-07 -2.98023e-08 -6.18157e-08" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="0.8" Radius="10" SourceRadius="0.035" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.85 0.75 0.4 0.7" FlickerActive="true" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0.75 0.7 0.45 0.6" FlickerOffRadius="0.75" FlickerFade="true" FlickerOnFadeMinLength="0.1" FlickerOnFadeMaxLength="2" FlickerOffFadeMinLength="0.1" FlickerOffFadeMaxLength="2" />
+        <PointLight Name="PointLight_4" WorldPos="0.0022049 1.82953 0.226284" Rotation="1.49242e-07 -2.98023e-08 -6.18157e-08" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="0.8" Radius="10" SourceRadius="0.035" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.85 0.75 0.4 0.7" FlickerActive="true" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0.75 0.7 0.45 0.6" FlickerOffRadius="0.75" FlickerFade="true" FlickerOnFadeMinLength="0.1" FlickerOnFadeMaxLength="2" FlickerOffFadeMinLength="0.1" FlickerOffFadeMaxLength="2" />
+        <PointLight Name="PointLight_5" WorldPos="0.000152588 2.1857 -0.000772476" Rotation="1.49242e-07 -2.98023e-08 -6.18157e-08" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="0.8" Radius="10" SourceRadius="0.035" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.85 0.75 0.4 0.7" FlickerActive="true" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0.75 0.7 0.45 0.6" FlickerOffRadius="0.75" FlickerFade="true" FlickerOnFadeMinLength="0.1" FlickerOnFadeMaxLength="2" FlickerOffFadeMinLength="0.1" FlickerOffFadeMaxLength="2" />
+    </Add>
+</EntDelta>

@@ -48,6 +48,7 @@ namespace hpl {
 		
 	private:
 		tinyxml2::XMLDocument *mpXmlDoc;
+		cResources *mpResources;
 	};
 
 

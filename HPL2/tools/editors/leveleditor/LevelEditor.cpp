@@ -1332,6 +1332,12 @@ void cLevelEditor::OnLoadConfig() {
   iEngineEntityMesh::SetDisabledCoverage(
       mpLocalConfig->GetFloat("Options", "DisabledCoverage", 0.5f));
 
+  // Viewport display gamma (the game's Graphics/Gamma equivalent). Read before
+  // InitLayout creates the viewports, so every viewport ctor picks it up.
+  // Clamped so a hand-edited cfg can't produce a black or blown-out pane.
+  iEditorViewport::SetDisplayGamma(cMath::Clamp(
+      mpLocalConfig->GetFloat("Options", "DisplayGamma", 1.0f), 0.1f, 5.0f));
+
   /////////////////////////////////
   // MCP server config (edited via the Options "MCP" tab)
   mbMCPEnabled = mpLocalConfig->GetBool("MCP", "Enabled", true);
@@ -1433,6 +1439,8 @@ void cLevelEditor::OnSaveConfig() {
                         (int)mpActionHandler->GetMaxUndoSize());
   mpLocalConfig->SetFloat("Options", "DisabledCoverage",
                           iEngineEntityMesh::GetDisabledCoverage());
+  mpLocalConfig->SetFloat("Options", "DisplayGamma",
+                          iEditorViewport::GetDisplayGamma());
 
   ////////////////////////////////
   // MCP server config

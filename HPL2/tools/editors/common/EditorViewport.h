@@ -273,12 +273,23 @@ public:
 	float GetRayEndDistance() { return mfRayEndDistance; }
 
 	void UpdateCameraPlanes();
+	// Re-applies the tonemap params (exposure/shadowLift constants + the shared
+	// display gamma) to this viewport's effect. Per-viewport half of the
+	// iEditorBase::SetViewportDisplayGamma fan-out.
+	void RefreshToneMapParams();
 
 	void SetClearColor(const cColor& aX);
 	const cColor& GetClearColor();
 
 	static void SetCamPlanes(const cVector2f& avX) { mvCamPlanes = avX; }
 	static const cVector2f& GetCamPlanes() { return mvCamPlanes; }
+
+	// User display gamma fed to the tonemap, matching the game's
+	// Graphics/Gamma setting (see cLuxMapHandler::RefreshToneMapGamma).
+	// Shared by every viewport; 1.0 = no-op. Persisted per editor (LevelEditor
+	// stores it as Options/DisplayGamma in LevelEditor.cfg).
+	static void SetDisplayGamma(float afX) { mfDisplayGamma = afX; }
+	static float GetDisplayGamma() { return mfDisplayGamma; }
 protected:
 	///////////////////////////////////
 	// GUI Callbacks
@@ -333,8 +344,9 @@ protected:
 	cGuiSet* mpGuiSet;
 	cViewport* mpEngineViewport;
 	// Per-viewport post chain: the hybrid renderer outputs linear HDR; the
-	// tonemap effect carries the mandatory display encode (active only in
-	// eRenderer_Main mode — wireframe/simple draw display-range colors).
+	// tonemap effect carries the mandatory display encode — exposure multiply
+	// -> sRGB OETF -> user display gamma (active only in eRenderer_Main mode —
+	// wireframe/simple draw display-range colors).
 	cPostEffectComposite* mpPostEffectComposite;
 	iPostEffect* mpPostEffectToneMap;
 	cEditorViewportCamera mCamera;
@@ -386,6 +398,7 @@ protected:
 
 	static bool mbCamPlanesUpdated;
 	static cVector2f mvCamPlanes;
+	static float mfDisplayGamma;
 };
 
 #endif

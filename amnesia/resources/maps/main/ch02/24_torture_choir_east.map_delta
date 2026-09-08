@@ -1,0 +1,958 @@
+<MapDelta Version="1" Target="maps/main/ch02/24_torture_choir_east.map">
+    <Modify Category="StaticObjects" ID="691" Name="walldoor_frame_5">
+        <SetAttr Rotation="3.05803 1.5708 3.05803" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="692" Name="walldoor_way_7">
+        <SetAttr Rotation="0.129453 -1.5708 -0.129453" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="693" Name="walldoor_way_8">
+        <SetAttr Rotation="3.05803 1.5708 3.05803" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1424" Name="wallwelder_stone_11">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1425" Name="wallwelder_stone_12">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1596" Name="wallwelder_wood_14">
+        <SetAttr Rotation="1.57079 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1597" Name="wallwelder_wood_15">
+        <SetAttr Rotation="-0.785403 -1.5702 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1598" Name="wallwelder_wood_16">
+        <SetAttr Rotation="-3.14159 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1599" Name="wallwelder_wood_17">
+        <SetAttr Rotation="-2.35619 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1621" Name="wallwelder_wood_34">
+        <SetAttr Rotation="-1.57079 -1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1622" Name="wallwelder_wood_35">
+        <SetAttr Rotation="-0.785403 -1.5702 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1623" Name="wallwelder_wood_36">
+        <SetAttr Rotation="2.53518e-06 -1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1624" Name="wallwelder_wood_37">
+        <SetAttr Rotation="-2.35619 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1636" Name="wallwelder_stone_21">
+        <SetAttr Rotation="-3.14159 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1637" Name="wallwelder_stone_22">
+        <SetAttr Rotation="-3.14159 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1638" Name="wallwelder_stone_23">
+        <SetAttr Rotation="-3.14159 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1639" Name="wallwelder_stone_24">
+        <SetAttr Rotation="-3.14159 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1645" Name="pillarstone_round_large_20">
+        <SetAttr Rotation="-2.45578 -1.5708 -3.04201" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1646" Name="pillarstone_round_large_21">
+        <SetAttr Rotation="-2.45578 -1.5708 -3.04201" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2193" Name="creepers_21">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2197" Name="creepers_corner_16">
+        <SetAttr Rotation="3.08464 -1.5708 -1.51384" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2198" Name="creepers_22">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2199" Name="creepers_side_10">
+        <SetAttr Rotation="0.0552227 -1.5708 1.51557" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2200" Name="creepers_23">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2201" Name="creepers_24">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2202" Name="creepers_25">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2204" Name="creepers_corner_17">
+        <SetAttr Rotation="3.08464 -1.5708 -1.51384" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2205" Name="creepers_corner_18">
+        <SetAttr Rotation="3.08464 -1.5708 -1.51384" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2206" Name="creepers_26">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2207" Name="creepers_side_11">
+        <SetAttr Rotation="0.0552227 -1.5708 1.51557" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2209" Name="creepers_27">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2232" Name="creepers_35">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2236" Name="creepers_corner_26">
+        <SetAttr Rotation="3.08464 -1.5708 -1.51384" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2237" Name="creepers_36">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2238" Name="creepers_side_16">
+        <SetAttr Rotation="0.0552227 -1.5708 1.51557" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2239" Name="creepers_37">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2240" Name="creepers_38">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2241" Name="creepers_39">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2243" Name="creepers_corner_27">
+        <SetAttr Rotation="3.08464 -1.5708 -1.51384" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2244" Name="creepers_corner_28">
+        <SetAttr Rotation="3.08464 -1.5708 -1.51384" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2245" Name="creepers_40">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2246" Name="creepers_side_17">
+        <SetAttr Rotation="0.0552227 -1.5708 1.51557" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2248" Name="creepers_41">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2250" Name="creepers_42">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2254" Name="creepers_43">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2255" Name="creepers_44">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2256" Name="creepers_45">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2257" Name="creepers_46">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2258" Name="creepers_47">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2259" Name="creepers_48">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2260" Name="creepers_49">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2261" Name="creepers_50">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2263" Name="creepers_52">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2264" Name="creepers_53">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2265" Name="creepers_54">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2266" Name="creepers_55">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2268" Name="creepers_56">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2269" Name="creepers_57">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2271" Name="creepers_58">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2272" Name="creepers_59">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2273" Name="creepers_60">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2275" Name="creepers_61">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2276" Name="creepers_62">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2277" Name="creepers_63">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2278" Name="creepers_64">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2280" Name="creepers_65">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2281" Name="creepers_66">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2282" Name="creepers_67">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2283" Name="creepers_68">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2285" Name="creepers_69">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2286" Name="creepers_70">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2288" Name="creepers_71">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2289" Name="creepers_72">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2290" Name="creepers_73">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2292" Name="creepers_74">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2293" Name="creepers_75">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2294" Name="creepers_76">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2295" Name="creepers_77">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2297" Name="creepers_78">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2298" Name="creepers_79">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2299" Name="creepers_80">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2300" Name="creepers_81">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2319" Name="creepers_95">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2320" Name="creepers_96">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2322" Name="creepers_97">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2323" Name="creepers_98">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2324" Name="creepers_99">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2326" Name="creepers_100">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2327" Name="creepers_101">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2328" Name="creepers_102">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2329" Name="creepers_103">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2331" Name="creepers_104">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2332" Name="creepers_105">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2333" Name="creepers_106">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2334" Name="creepers_107">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2336" Name="creepers_108">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2337" Name="creepers_109">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2339" Name="creepers_110">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2340" Name="creepers_111">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2341" Name="creepers_112">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2343" Name="creepers_113">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2344" Name="creepers_114">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2345" Name="creepers_115">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2346" Name="creepers_116">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2348" Name="creepers_117">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2349" Name="creepers_118">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2350" Name="creepers_119">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2351" Name="creepers_120">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2353" Name="creepers_121">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2354" Name="creepers_122">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2356" Name="creepers_123">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2357" Name="creepers_124">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2358" Name="creepers_125">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2360" Name="creepers_126">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2361" Name="creepers_127">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2362" Name="creepers_128">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2363" Name="creepers_129">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2365" Name="creepers_130">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2366" Name="creepers_131">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2367" Name="creepers_132">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2368" Name="creepers_133">
+        <SetAttr Rotation="-1.57079 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2370" Name="creepers_134">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2371" Name="creepers_135">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2373" Name="creepers_136">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2374" Name="creepers_137">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2375" Name="creepers_138">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2377" Name="creepers_139">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2378" Name="creepers_140">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2379" Name="creepers_141">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2380" Name="creepers_142">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2382" Name="creepers_143">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2383" Name="creepers_144">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2384" Name="creepers_145">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2385" Name="creepers_146">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2387" Name="creepers_147">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2388" Name="creepers_148">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2390" Name="creepers_149">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2391" Name="creepers_150">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2392" Name="creepers_151">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2394" Name="creepers_152">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2395" Name="creepers_153">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2396" Name="creepers_154">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2397" Name="creepers_155">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2399" Name="creepers_156">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2400" Name="creepers_157">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2401" Name="creepers_158">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2402" Name="creepers_159">
+        <SetAttr Rotation="1.57079 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2576" Name="wallwelder_stone_41">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2577" Name="wallwelder_stone_42">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2578" Name="wallwelder_stone_43">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2579" Name="wallwelder_stone_44">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2581" Name="wallwelder_stone_45">
+        <SetAttr Rotation="-3.14159 -1.5708 3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2582" Name="wallwelder_stone_46">
+        <SetAttr Rotation="-3.14159 -1.5708 3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2583" Name="wallwelder_stone_47">
+        <SetAttr Rotation="-3.14159 -1.5708 3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2584" Name="wallwelder_stone_48">
+        <SetAttr Rotation="-3.14159 -1.5708 3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2586" Name="wallwelder_stone_49">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2587" Name="wallwelder_stone_50">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2588" Name="wallwelder_stone_51">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2589" Name="wallwelder_stone_52">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2591" Name="wallwelder_stone_53">
+        <SetAttr Rotation="2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2592" Name="wallwelder_stone_54">
+        <SetAttr Rotation="2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2593" Name="wallwelder_stone_55">
+        <SetAttr Rotation="2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2594" Name="wallwelder_stone_56">
+        <SetAttr Rotation="2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2596" Name="wallwelder_stone_57">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2597" Name="wallwelder_stone_58">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2598" Name="wallwelder_stone_59">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2599" Name="wallwelder_stone_60">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2601" Name="wallwelder_stone_61">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2602" Name="wallwelder_stone_62">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2603" Name="wallwelder_stone_63">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2604" Name="wallwelder_stone_64">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2606" Name="wallwelder_stone_65">
+        <SetAttr Rotation="-3.14159 -1.5708 3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2607" Name="wallwelder_stone_66">
+        <SetAttr Rotation="-3.14159 -1.5708 3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2608" Name="wallwelder_stone_67">
+        <SetAttr Rotation="-3.14159 -1.5708 3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2609" Name="wallwelder_stone_68">
+        <SetAttr Rotation="-3.14159 -1.5708 3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2611" Name="wallwelder_stone_69">
+        <SetAttr Rotation="2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2612" Name="wallwelder_stone_70">
+        <SetAttr Rotation="2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2613" Name="wallwelder_stone_71">
+        <SetAttr Rotation="2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2614" Name="wallwelder_stone_72">
+        <SetAttr Rotation="2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2616" Name="wallwelder_stone_73">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2617" Name="wallwelder_stone_74">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2618" Name="wallwelder_stone_75">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2619" Name="wallwelder_stone_76">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2641" Name="wallwelder_stone_77">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2642" Name="wallwelder_stone_78">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2643" Name="wallwelder_stone_79">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2644" Name="wallwelder_stone_80">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2646" Name="wallwelder_stone_81">
+        <SetAttr Rotation="2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2647" Name="wallwelder_stone_82">
+        <SetAttr Rotation="2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2648" Name="wallwelder_stone_83">
+        <SetAttr Rotation="2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2649" Name="wallwelder_stone_84">
+        <SetAttr Rotation="2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2651" Name="wallwelder_stone_85">
+        <SetAttr Rotation="-3.14159 -1.5708 3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2652" Name="wallwelder_stone_86">
+        <SetAttr Rotation="-3.14159 -1.5708 3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2653" Name="wallwelder_stone_87">
+        <SetAttr Rotation="-3.14159 -1.5708 3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2654" Name="wallwelder_stone_88">
+        <SetAttr Rotation="-3.14159 -1.5708 3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2656" Name="wallwelder_stone_89">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2657" Name="wallwelder_stone_90">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2658" Name="wallwelder_stone_91">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2659" Name="wallwelder_stone_92">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="3707" Name="wall_welder_wood_2">
+        <SetAttr Scale="2 2 1.25" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="3986" Name="wall_corner_concave_extension_diagonal_13">
+        <SetAttr Rotation="-0.0559227 -1.5708 -3.08567" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="3988" Name="wall_corner_concave_extension_diagonal_15">
+        <SetAttr Rotation="-2.88334 1.5708 0.258253" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4097" Name="wall_default_4x8_7">
+        <SetAttr Scale="1 1 1.15" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4098" Name="wall_default_4x8_8">
+        <SetAttr Scale="1 1 1.15" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4228" Name="wall_welder_wood_72">
+        <SetAttr Rotation="-2.61799 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4229" Name="wall_welder_wood_73">
+        <SetAttr Rotation="-2.61799 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4231" Name="wall_welder_wood_74">
+        <SetAttr Rotation="-2.61799 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4232" Name="wall_welder_wood_75">
+        <SetAttr Rotation="-2.61799 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4234" Name="wall_welder_wood_76">
+        <SetAttr Rotation="-2.61799 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4235" Name="wall_welder_wood_77">
+        <SetAttr Rotation="-2.61799 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4240" Name="wall_welder_wood_80">
+        <SetAttr Rotation="-2.61817 1.5708 3.14141" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4241" Name="wall_welder_wood_81">
+        <SetAttr Rotation="-2.61817 1.5708 3.14141" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4243" Name="wall_welder_wood_82">
+        <SetAttr Rotation="-2.61817 1.5708 3.14141" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4244" Name="wall_welder_wood_83">
+        <SetAttr Rotation="-2.61817 1.5708 3.14141" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4246" Name="wall_welder_wood_84">
+        <SetAttr Rotation="0.523422 1.57045 -0.000182502" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4247" Name="wall_welder_wood_85">
+        <SetAttr Rotation="0.523422 1.57045 -0.000182502" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4338" Name="wall_welder_wood_99">
+        <SetAttr Rotation="-2.59998 1.5702 2.89781" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4354" Name="wall_welder_wood_109">
+        <SetAttr Rotation="-2.53518e-06 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4355" Name="wall_welder_wood_110">
+        <SetAttr Rotation="-2.53518e-06 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4751" Name="wall_welder_wood_39">
+        <SetAttr Scale="2 2 1.25" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4753" Name="wall_welder_wood_40">
+        <SetAttr Scale="2 2 1.25" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4754" Name="wall_welder_wood_41">
+        <SetAttr Scale="2 2 1.25" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4760" Name="wall_welder_wood_50">
+        <SetAttr Scale="2 2 1.25" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="4761" Name="wall_welder_wood_51">
+        <SetAttr Scale="2 2 1.25" />
+    </Modify>
+    <Remove Category="Entities" ID="1673" Name="PointLight_13" />
+    <Remove Category="Entities" ID="3436" Name="BoxLight_1" />
+    <Remove Category="Entities" ID="4297" Name="SpotLight_9" />
+    <Remove Category="Entities" ID="4359" Name="PointLight_54" />
+    <Remove Category="Entities" ID="4778" Name="PointLight_81" />
+    <Modify Category="Entities" ID="1674" Name="PointLight_14">
+        <SetAttr Intensity="3.5" Radius="7.95036" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="2720" Name="PointLight_18">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="2721" Name="PointLight_19">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="2722" Name="PointLight_20">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="2746" Name="prisoner_cage_29">
+        <SetAttr Rotation="2.53518e-06 -1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="Entities" ID="2747" Name="prisoner_cage_30">
+        <SetAttr Rotation="2.53518e-06 -1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="Entities" ID="2748" Name="prisoner_cage_31">
+        <SetAttr Rotation="2.53518e-06 -1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="Entities" ID="3442" Name="PointLight_1">
+        <SetAttr Intensity="4" Radius="17.5783" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="3443" Name="PointLight_2">
+        <SetAttr Intensity="4" Radius="17.5783" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="3446" Name="PointLight_3">
+        <SetAttr Intensity="4.5" Radius="24.3247" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="3550" Name="PointLight_4">
+        <SetAttr Intensity="4" Radius="17.5783" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="3699" Name="PointLight_15">
+        <SetAttr Intensity="4" Radius="8.97844" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="3700" Name="PointLight_16">
+        <SetAttr Intensity="5.5" Radius="9.97347" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="3701" Name="PointLight_44">
+        <SetAttr Intensity="5.5" Radius="10.5326" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="3702" Name="PointLight_45">
+        <SetAttr Intensity="4" Radius="8.5014" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="3704" Name="PointLight_46">
+        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="3705" Name="PointLight_47">
+        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4039" Name="sewer_grate_rusty_3">
+        <SetAttr Rotation="-1.47632 -1.5708 -0.0944826" />
+    </Modify>
+    <Modify Category="Entities" ID="4040" Name="sewer_grate_rusty_4">
+        <SetAttr Rotation="1.5708 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="Entities" ID="4044" Name="sewer_grate_rusty_5">
+        <SetAttr Rotation="1.66528 -1.5708 3.04711" />
+    </Modify>
+    <Modify Category="Entities" ID="4046" Name="sewer_grate_rusty_7">
+        <SetAttr Rotation="-1.5708 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="Entities" ID="4050" Name="sewer_grate_rusty_9">
+        <SetAttr Rotation="-1.47632 -1.5708 -0.0944826" />
+    </Modify>
+    <Modify Category="Entities" ID="4052" Name="sewer_grate_rusty_11">
+        <SetAttr Rotation="1.5708 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="Entities" ID="4056" Name="sewer_grate_rusty_13">
+        <SetAttr Rotation="1.66528 -1.5708 3.04711" />
+    </Modify>
+    <Modify Category="Entities" ID="4058" Name="sewer_grate_rusty_15">
+        <SetAttr Rotation="-1.5708 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="Entities" ID="4062" Name="sewer_grate_rusty_17">
+        <SetAttr Rotation="1.66528 -1.5708 3.04711" />
+    </Modify>
+    <Modify Category="Entities" ID="4064" Name="sewer_grate_rusty_19">
+        <SetAttr Rotation="-1.5708 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="Entities" ID="4085" Name="SpotLight_2">
+        <SetAttr Intensity="6.5" Radius="36.052" SourceRadius="0.12" />
+    </Modify>
+    <Modify Category="Entities" ID="4086" Name="PointLight_48">
+        <SetAttr Intensity="4" Radius="17.074" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4087" Name="PointLight_49">
+        <SetAttr Intensity="5" Radius="31.6188" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4122" Name="SpotLight_3">
+        <SetAttr Intensity="9" Radius="42.4235" SourceRadius="0.2" />
+    </Modify>
+    <Modify Category="Entities" ID="4124" Name="SpotLight_4">
+        <SetAttr Intensity="9" Radius="42.4235" SourceRadius="0.2" />
+    </Modify>
+    <Modify Category="Entities" ID="4126" Name="SpotLight_5">
+        <SetAttr Intensity="9" Radius="42.4235" SourceRadius="0.2" />
+    </Modify>
+    <Modify Category="Entities" ID="4128" Name="SpotLight_6">
+        <SetAttr Intensity="6.5" Radius="36.052" SourceRadius="0.2" />
+    </Modify>
+    <Modify Category="Entities" ID="4130" Name="SpotLight_7">
+        <SetAttr Intensity="6.5" Radius="36.052" SourceRadius="0.2" />
+    </Modify>
+    <Modify Category="Entities" ID="4134" Name="PointLight_50">
+        <SetAttr Intensity="3" Radius="11.2724" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4292" Name="PointLight_51">
+        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4293" Name="PointLight_52">
+        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4294" Name="SpotLight_8">
+        <SetAttr Intensity="50" Radius="34.6374" SourceRadius="0.12" />
+    </Modify>
+    <Modify Category="Entities" ID="4301" Name="SpotLight_10">
+        <SetAttr Intensity="50" Radius="39.9969" SourceRadius="0.12" />
+    </Modify>
+    <Modify Category="Entities" ID="4302" Name="PointLight_53">
+        <SetAttr Intensity="3.5" Radius="26.4528" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4625" Name="PointLight_55">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4627" Name="PointLight_56">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4628" Name="PointLight_57">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4631" Name="PointLight_58">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4634" Name="PointLight_59">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4637" Name="PointLight_60">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4640" Name="PointLight_61">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4643" Name="PointLight_62">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4646" Name="PointLight_63">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4649" Name="PointLight_64">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4652" Name="PointLight_65">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4655" Name="PointLight_66">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4658" Name="PointLight_67">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4661" Name="PointLight_68">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4664" Name="PointLight_69">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4667" Name="PointLight_70">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4670" Name="PointLight_71">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4673" Name="PointLight_72">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4676" Name="PointLight_73">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4679" Name="PointLight_74">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4682" Name="PointLight_75">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4685" Name="PointLight_76">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4688" Name="PointLight_77">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4691" Name="PointLight_78">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4694" Name="PointLight_79">
+        <SetAttr Intensity="3.5" Radius="20.5531" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4777" Name="PointLight_80">
+        <SetAttr Intensity="5.5" Radius="23.0428" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="4813" Name="SpotLight_17">
+        <SetAttr Intensity="3.5" Radius="7.14264" SourceRadius="0.12" />
+    </Modify>
+    <Modify Category="Entities" ID="5157" Name="PointLight_5">
+        <SetAttr Intensity="0.5" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5159" Name="PointLight_6">
+        <SetAttr Intensity="2.5" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5173" Name="PointLight_17">
+        <SetAttr Intensity="2.5" Radius="10.8501" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="5174" Name="PointLight_7">
+        <SetAttr Intensity="1.5" Radius="12.9786" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5175" Name="PointLight_8">
+        <SetAttr Intensity="1" Radius="5.36369" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5177" Name="PointLight_9">
+        <SetAttr Intensity="1.35" Radius="12.3651" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5525" Name="PointLight_82">
+        <SetAttr Intensity="6" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5526" Name="PointLight_21">
+        <SetAttr Intensity="5.5" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5527" Name="PointLight_22">
+        <SetAttr Intensity="5.5" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5528" Name="PointLight_23">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5529" Name="PointLight_24">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5530" Name="PointLight_25">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5531" Name="PointLight_26">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5532" Name="PointLight_27">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5533" Name="PointLight_28">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5534" Name="PointLight_29">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5535" Name="PointLight_30">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5536" Name="PointLight_31">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5537" Name="PointLight_32">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5538" Name="PointLight_33">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5539" Name="PointLight_10">
+        <SetAttr Intensity="4.5" Radius="13.8704" SourceRadius="0.35" />
+    </Modify>
+    <Modify Category="Entities" ID="5540" Name="PointLight_34">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5541" Name="PointLight_35">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5542" Name="PointLight_36">
+        <SetAttr Intensity="8" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="5578" Name="PointLight_11">
+        <SetAttr Intensity="2" Radius="18.434" SourceRadius="0.35" />
+    </Modify>
+</MapDelta>

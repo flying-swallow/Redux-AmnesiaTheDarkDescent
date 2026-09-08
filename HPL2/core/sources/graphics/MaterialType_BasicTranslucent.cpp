@@ -60,6 +60,12 @@ namespace hpl {
 		AddVarFloat("RimLightMul", 0.0f, "The amount of rim light based on the reflection. This gives an edge to the object. Values: 0 - inf (although 1.0f should be used for max)");
 		AddVarFloat("RimLightPow", 8.0f, "The sharpness of the rim lighting.");
 		AddVarBool("AffectedByLightLevel", false, "The the material alpha is affected by the light level.");
+		AddVarBool("DiffuseIsMask", false, "Interpret diffuse red as a linear emission mask; vertex RGB supplies color.");
+		AddVarBool("SmoothHalo", false, "Replace additive diffuse with a continuous white halo falloff, colored by vertex RGB.");
+		AddVarBool("LitDiffuse", false, "Light alpha-blended translucent meshes with direct diffuse lighting and ray-traced shadows.");
+		AddVarFloat("LitDiffuseScale", 1.0f, "Nonnegative linear diffuse-light multiplier for LitDiffuse meshes; does not change alpha or add ambient light.");
+		AddVarFloat("ParticleOpacityScale", 1.0f, "Particle opacity multiplier (0-1), independent of display gamma.");
+		AddVarFloat("ParticleBrightnessScale", 1.0f, "Nonnegative linear particle brightness multiplier, independent of display gamma.");
 	}
 
 	cMaterialType_Translucent::~cMaterialType_Translucent() {}
@@ -78,6 +84,12 @@ namespace hpl {
 		pData->m_rimLightMul = apVars->GetVarFloat("RimLightMul", 0.0f);
 		pData->m_rimLightPow = apVars->GetVarFloat("RimLightPow", 8.0f);
 		pData->m_isAffectedByLightLevel = apVars->GetVarBool("AffectedByLightLevel", false);
+		pData->m_diffuseIsMask = apVars->GetVarBool("DiffuseIsMask", false);
+		pData->m_smoothHalo = apVars->GetVarBool("SmoothHalo", false);
+		pData->m_litDiffuse = apVars->GetVarBool("LitDiffuse", false);
+		pData->m_litDiffuseScale = apVars->GetVarFloat("LitDiffuseScale", 1.0f);
+		pData->m_particleOpacityScale = apVars->GetVarFloat("ParticleOpacityScale", 1.0f);
+		pData->m_particleBrightnessScale = apVars->GetVarFloat("ParticleBrightnessScale", 1.0f);
 
 		// HasRefraction() is derived from the authored m_refraction above (read
 		// CPU-side by HybridRenderer to route the refraction path / shader flags).
@@ -98,5 +110,11 @@ namespace hpl {
 		apVars->AddVarFloat("RimLightMul",pData->m_rimLightMul);
 		apVars->AddVarFloat("RimLightPow",pData->m_rimLightPow);
 		apVars->AddVarBool("AffectedByLightLevel", pData->m_isAffectedByLightLevel);
+		apVars->AddVarBool("DiffuseIsMask", pData->m_diffuseIsMask);
+		apVars->AddVarBool("SmoothHalo", pData->m_smoothHalo);
+		apVars->AddVarBool("LitDiffuse", pData->m_litDiffuse);
+		apVars->AddVarFloat("LitDiffuseScale", pData->m_litDiffuseScale);
+		apVars->AddVarFloat("ParticleOpacityScale", pData->m_particleOpacityScale);
+		apVars->AddVarFloat("ParticleBrightnessScale", pData->m_particleBrightnessScale);
 	}
 }

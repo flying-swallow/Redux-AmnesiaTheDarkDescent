@@ -1,166 +1,243 @@
 # Building Amnesia64
 
-Amnesia64 has two maintained build paths: CMake (primarily for Linux/native builds) and a Premake-generated Visual Studio solution for Windows. The wrapper scripts below cover the common paths so you don't have to remember per-platform build commands.
-
-A Visual Studio solution ([`Amnesia.sln`](Amnesia.sln)) is also shipped as an alternative Windows path — see [README.md](README.md) for details. macOS builds are not yet supported.
+Amnesia64 is built with premake5. The root [`premake5.lua`](premake5.lua) defines the Linux gmake2 and Windows Visual Studio projects; the wrapper scripts cover containerized Linux and Windows command-line builds. CI and the Linux build image pin premake5 to `5.0.0-beta8`. macOS builds are not yet supported.
 
 ## Quick start
 
-One script per platform — pick the one matching your host:
+Pick the path matching your host:
 
-| Host                  | Command                       |
-| --------------------- | ----------------------------- |
-| Linux                 | `./build-linux.sh`            |
-| Linux (containerized) | `./build-linux-docker.sh`     |
-| Windows (PowerShell)  | `.\build-windows.ps1`         |
+| Host                         | Command                                                        |
+| ---------------------------- | -------------------------------------------------------------- |
+| Linux (containerized; canonical) | `./build-linux-docker.sh`                                  |
+| Linux (native)               | `./build-linux.sh` (native wrapper); or `premake5 gmake2`, then `make -C build-premake config=release -j"$(nproc)"` |
+| Windows (PowerShell)         | `.\build-windows.ps1`                                         |
 
-Each defaults to a release build, initializes submodules on first run, and builds the chosen configuration. Linux native builds use CMake and output under `build/`; the Windows wrapper generates `build-premake\Amnesia.sln` with Premake and outputs under `build-premake\amnesia\<Config>\`.
+The wrappers default to a release build. Runtime output is placed under `build-premake/amnesia/<Debug|Release>/` (or the equivalent backslash-separated path on Windows).
 
 ## 1. Clone the repository
 
-The build pulls in third-party dependencies as git submodules. The wrapper scripts will run `git submodule update --init --recursive` automatically on first run, but you can also clone recursively up front:
+The build pulls in third-party dependencies as git submodules. Clone recursively, or initialize the submodules before configuring:
 
 ```bash
 git clone --recurse-submodules https://github.com/<your-fork>/Amnesia64.git
 cd Amnesia64
 ```
 
-## 2. Game assets (required for `deploy`)
-
-The `deploy` target copies your installed Amnesia: The Dark Descent assets next to the freshly built executable so it can find its configs, maps, scripts, and core data. You need a legitimate copy of **Amnesia: The Dark Descent** (e.g. via Steam).
-
-Point the build at it with `-DAMNESIA_GAME_DIRECTORY=...` (the wrapper scripts also accept `--game-dir` / `-GameDir`):
+For an existing checkout:
 
 ```bash
-./build-linux.sh   release --game-dir "$HOME/.steam/steam/steamapps/common/Amnesia The Dark Descent"
-.\build-windows.ps1 release -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Amnesia The Dark Descent"
+git submodule update --init --recursive
 ```
 
-On Linux, `AMNESIA_GAME_DIRECTORY` defaults to `~/.local/share/Steam/steamapps/common/Amnesia The Dark Descent`. On Windows the wrapper accepts `-GameDir`, `ATDD_DIR`, or `AMNESIA_GAME_DIRECTORY`; when a path is available it passes `ATDD_DIR` through to MSBuild for the generated VS projects.
+## 2. Game assets (required for `deploy`)
 
-## 3. `build-linux.sh`
+The Premake `deploy` action copies the installed Amnesia: The Dark Descent assets into the runtime output directories, next to the freshly built executable, so each output is a self-contained run directory. You need a legitimate copy of **Amnesia: The Dark Descent** (e.g. via Steam).
 
+Run deploy with an explicit game directory:
+
+```bash
+premake5 deploy --game-dir="/path/to/Amnesia The Dark Descent"
 ```
-./build-linux.sh [release|debug] [options] [-- <extra cmake args>]
 
-  --clean              Remove build/ before configuring
-  --no-deploy          Skip the 'deploy' target (assets staging)
-  --game-dir <path>    Path to your Amnesia: The Dark Descent install
-  -h, --help           Show help
+The action copies from the install into `build-premake/amnesia/Debug/` and `build-premake/amnesia/Release/` when those directories exist. It skips names beginning with `Amnesia` and files ending in `.rar`, `.pdf`, `.dll`, or `.exe`. It does not copy built binaries into the game installation.
+
+The native Premake action has no built-in game-directory default and does not read `AMNESIA_GAME_DIRECTORY` by itself; `--game-dir=PATH` is required for a direct deploy. The Linux container wrapper accepts `--game-dir <path>` and falls back to `AMNESIA_GAME_DIRECTORY`. The Windows wrapper accepts `-GameDir`/`--game-dir` and falls back to `ATDD_DIR`, then `AMNESIA_GAME_DIRECTORY`. If no game directory is supplied, the wrappers skip deploy.
+
+## 3. Linux build (containerized or native)
+
+The canonical Linux command is [`build-linux-docker.sh`](build-linux-docker.sh). It builds the [`Dockerfile`](Dockerfile) image, then runs the complete build inside the container:
+
+```bash
+./build-linux-docker.sh [release|debug] [options] [-- <extra premake args>]
 ```
+
+Inside the container, the wrapper optionally removes `build-premake/` for `--clean`, runs `premake5 gmake2`, optionally exports the compile database, builds with `make`, runs the Python tests, and runs `premake5 deploy --game-dir=...` unless deploy is disabled or no game directory is available. Its options are:
+
+- `release|debug` — build configuration (default: `release`)
+- `--clean` — remove `build-premake/` before generating projects
+- `--no-deploy` — skip asset staging
+- `--compile-commands` — run `premake5 export-compile-commands` and symlink the selected database to `compile_commands.json` in the repository root
+- `--game-dir <path>` — path to the installed game (fallback: `AMNESIA_GAME_DIRECTORY`)
+- `-- <args>` — forward extra arguments to `premake5 gmake2`
 
 Examples:
 
 ```bash
-./build-linux.sh                                # native release
-./build-linux.sh debug                          # native debug
-./build-linux.sh release --clean                # wipe build dir and rebuild
-./build-linux.sh release --game-dir "$HOME/atdd"
-./build-linux.sh release -- -DUSE_SYSTEM_SDL2=ON -DUSE_GRAPHICS_WAYLAND=OFF
+./build-linux-docker.sh
+./build-linux-docker.sh debug --clean --no-deploy
+./build-linux-docker.sh release --compile-commands --game-dir "$HOME/atdd"
+./build-linux-docker.sh release -- --with-tools=no
 ```
 
-The script invokes plain CMake with `-DCMAKE_BUILD_TYPE=<Release|Debug>` and forwards any args after `--` straight to the configure step.
-
-### Containerized build (`build-linux-docker.sh`)
-
-`build-linux-docker.sh` runs `build-linux.sh` inside an Ubuntu 24.04 container so the build doesn't need host-installed dev libraries. The image is defined by [`Dockerfile`](Dockerfile) at the repo root and includes everything the in-tree builds of SDL2, openal-soft, and the HPL2 engine pull in via `#include`.
-
-Works with either Docker or rootless Podman (auto-detected via `command -v podman`; force one with `AMNESIA_DOCKER_RUNTIME=podman|docker`). All args are forwarded to `build-linux.sh` unchanged:
+For a native Linux build, use [`build-linux.sh`](build-linux.sh) as the native wrapper:
 
 ```bash
-./build-linux-docker.sh                                # release
-./build-linux-docker.sh debug --clean
-./build-linux-docker.sh release --game-dir "$HOME/.steam/steam/steamapps/common/Amnesia The Dark Descent" --no-deploy
+./build-linux.sh [release|debug] [options] [-- <extra premake args>]
 ```
 
-The project tree is bind-mounted at its **real host path** inside the container, so `build/`, `compile_commands.json`, and the source paths recorded in `CMakeCache.txt` line up between containerized and native runs — you can switch between `./build-linux.sh` and the wrapper without `--clean` (though the first switch is worth wiping `build/` to avoid `.o` files compiled against a different libstdc++).
+It requires premake5 `5.0.0-beta8` on `PATH`, a working C/C++ toolchain on the host, GNU Make, and Python 3. It runs `premake5 gmake2`, builds the selected configuration, runs the Python tests, and runs `premake5 deploy --game-dir=...` unless deployment is disabled or no game directory is available. Unlike the container wrapper, it has no `--compile-commands` option and does not use any `AMNESIA_DOCKER_*` environment variables. Its options are:
 
-The `--game-dir` path (or the `AMNESIA_GAME_DIRECTORY` env var) is automatically bind-mounted at the same host path inside the container so the `deploy` target can stage binaries straight into the game folder. Use `--no-deploy` if you don't have the game installed.
+- `release|debug` — build configuration (default: `release`)
+- `--clean` — remove `build-premake/` before generating projects
+- `--no-deploy` — skip `premake5 deploy`
+- `--game-dir <path>` — path to the installed game (fallback: `AMNESIA_GAME_DIRECTORY`); deploy is skipped when neither is set
+- `-h, --help` — show help
+- `-- <args>` — forward extra arguments to `premake5 gmake2`
 
-#### Exposing host tools to the container
+Examples:
 
-Anything outside the project tree — e.g. a locally-built `slangc` — has to be bind-mounted explicitly via `AMNESIA_DOCKER_MOUNTS` (colon-separated host paths; each is mounted at the same path inside, so cmake args referencing host paths "just work"):
+```bash
+./build-linux.sh
+./build-linux.sh debug --clean --no-deploy
+./build-linux.sh release --game-dir "$HOME/atdd" -- --with-tools=no
+```
+
+The underlying commands can also be run directly:
+
+```bash
+premake5 gmake2 [options]
+make -C build-premake config=release -j"$(nproc)"
+# Or: make -C build-premake config=debug -j"$(nproc)"
+```
+
+Premake writes runtime output to `build-premake/amnesia/Release/` and `build-premake/amnesia/Debug/`. After the build, stage the game assets with `premake5 deploy --game-dir="/path/to/Amnesia The Dark Descent"`.
+
+### Container environment and mounts
+
+The container wrapper auto-selects rootless Podman when `podman` is on `PATH`, otherwise Docker. Override the selection with `AMNESIA_DOCKER_RUNTIME=podman` or `AMNESIA_DOCKER_RUNTIME=docker`. The other supported environment variables are:
+
+- `AMNESIA_DOCKER_IMAGE` — image tag to build and run (default: `amnesia64-build:ubuntu-24.04`)
+- `AMNESIA_DOCKER_MOUNTS` — colon-separated paths outside the repository to bind-mount at the same paths inside the container
+- `AMNESIA_GAME_DIRECTORY` — fallback game-install path for deploy
+
+The project tree is bind-mounted at its real host path, so absolute paths in generated `build-premake/` makefiles line up between containerized and native Premake runs. With `--compile-commands`, the generated database is under `build-premake/compile_commands/` and the wrapper creates the repository-root `compile_commands.json` symlink. You can switch between the native and containerized Premake paths without a full clean; cleaning the first switch is useful when object files were built with a different host toolchain.
+
+Anything outside the project tree, such as a locally built `slangc`, must be mounted explicitly. The example forwards a Premake option after `--`:
 
 ```bash
 AMNESIA_DOCKER_MOUNTS=/home/me/projects/slang \
     ./build-linux-docker.sh release \
-    -- -DSLANGC_EXECUTABLE=/home/me/projects/slang/build/Release/bin/slangc
+    -- --slangc=/home/me/projects/slang/build/Release/bin/slangc
 ```
 
-#### Rootless Podman: cleaning a `build/` owned by a subuid
+Multiple mount paths can be colon-separated. Each is mounted at the same path inside the container, so arguments referring to those paths work unchanged.
 
-Rootless podman maps your host uid → container root. The wrapper relies on this and does **not** pass `--user` in podman mode. If you have a `build/` directory left over from a wrapper version that did pass `--user` (or from any other process running as a different uid), it'll contain files owned by a subuid your host shell can't touch. Wipe it via `podman unshare`:
+### Rootless Podman: cleaning a `build-premake/` owned by a subuid
+
+Rootless Podman maps container root back to the host user. If a `build-premake/` directory contains files owned by a subuid, remove it through `podman unshare`:
 
 ```bash
-podman unshare rm -rf build/
+podman unshare rm -rf build-premake/
 ```
 
 ## 4. `build-windows.ps1`
 
-Requires `premake5.exe` on `PATH` and a VS 2026 install (MSBuild is auto-located via `vswhere`, so any PowerShell works — not just a Developer PowerShell):
+Requires `premake5.exe` on `PATH` and a Visual Studio 2026 installation. MSBuild is auto-located with `vswhere`, so any PowerShell works — not just a Developer PowerShell:
 
 ```powershell
 .\build-windows.ps1                                  # release
 .\build-windows.ps1 debug                            # debug
-.\build-windows.ps1 release -Clean                   # wipe build dir
+.\build-windows.ps1 release -Clean                   # wipe build-premake\
 .\build-windows.ps1 release -NoDeploy                # skip asset staging
-.\build-windows.ps1 release -GameDir "C:\...\Amnesia The Dark Descent"
+.\build-windows.ps1 release -GameDir "C:\Program Files (x86)\Steam\steamapps\common\Amnesia The Dark Descent"
 .\build-windows.ps1 release -- --with-tools=no
 ```
 
-The script is a thin command-line wrapper around the Premake VS workflow: it generates a Visual Studio 2026 solution under `build-premake\` via `premake5 vs2026`, builds it with `msbuild` targeting `x64`, and optionally runs the Premake `deploy` action. Extra args after `--` are forwarded to `premake5 vs2026` (premake options, e.g. `--with-tools=no`, `--slangc=...`), not to MSBuild. Generated project files and output stay under `build-premake\`; runtime output goes to `build-premake\amnesia\<Config>\`.
+The script generates a Visual Studio solution under `build-premake\` with `premake5 vs2026`, then runs `msbuild` for `x64` and optionally runs the Premake `deploy` action. Extra arguments after `--` are forwarded to `premake5 vs2026` as Premake options, not to MSBuild. Generated project files and runtime output stay under `build-premake\`; runtime output is `build-premake\amnesia\<Config>\`.
+
+The Windows CI workflow ([`.github/workflows/windows-build.yml`](.github/workflows/windows-build.yml)) uses `premake5 vs2022` because its hosted runner provides Visual Studio 2022. Both `vs2022` and `vs2026` are valid here: [`premake5.lua`](premake5.lua) does not pin `_ACTION`, so they generate the same projects. CI builds with `msbuild` targeting `x64` as well.
 
 ## 5. Native build details (when you want to drop the wrappers)
 
 ### Linux
 
-Dependencies: GCC 10+ or Clang 11+, CMake >= 3.18, GNU Make or Ninja, an assembler (NASM/GAS), plus X11/Wayland headers if those backends are enabled. Bundled dependency sources under `HPL2/extern/` cover the rest, so a system-wide install of SDL2/OpenAL/etc. is optional.
+The Linux toolchain is premake5 `5.0.0-beta8`, a C/C++ compiler, GNU Make, Python 3, and the recursively initialized submodules. The [`Dockerfile`](Dockerfile) is the source of truth for the Ubuntu 24.04 development environment and installs these packages:
+
+| Area | Packages installed by `Dockerfile` |
+| ---- | ----------------------------------- |
+| Build and scripting tools | `build-essential`, `clang`, `ninja-build`, `cmake`, `python3`, `git`, `ca-certificates`, `curl` |
+| Shader tools | `glslang-tools`, `spirv-tools` |
+| X11 | `libx11-dev`, `libxext-dev`, `libxi-dev`, `libxcursor-dev`, `libxrandr-dev`, `libxss-dev` |
+| Graphics and Wayland | `libgl-dev`, `libglu1-mesa-dev`, `libegl1-mesa-dev`, `libwayland-dev`, `libxkbcommon-dev`, `libdecor-0-dev` |
+| Audio | `libasound2-dev`, `libpulse-dev`, `libdbus-1-dev`, `libsamplerate0-dev` |
+| Image support | `liblcms2-dev` |
+
+`cmake` is still required as an installed tool: [`premake/external.lua`](premake/external.lua) drives the bundled SDL2 and openal-soft builds through their own CMake projects. The `--cmake=PATH` option points Premake at that executable. The FidelityFX SDK is built through the [`cmake/fsr/CMakeLists.txt`](cmake/fsr/CMakeLists.txt) wrapper. CMake is not the repository's top-level build driver.
 
 ### Shader compilers
 
-GLSL shaders (`.vert`, `.frag`, `.comp`, `.rgen`, etc.) compile to SPIR-V via the bundled `glslang` submodule. Slang shaders (`.slang`) compile via a prebuilt `slangc` automatically downloaded from the [Slang releases page](https://github.com/shader-slang/slang/releases) at configure time. Override with `-DSLANGC_EXECUTABLE=/path/to/slangc` (e.g. from the Vulkan SDK) to skip the download and use a local install. The pinned Slang version is set in [`cmake/slang.cmake`](cmake/slang.cmake) (`SLANG_VERSION`).
+Engine shaders are Slang (`.slang`, with a stage suffix such as `.vert.slang`, `.frag.slang`, `.comp.slang`, `.rgen.slang`). [`premake/slang.lua`](premake/slang.lua) compiles each to SPIR-V with a prebuilt `slangc`, which Premake downloads at configuration time into `build-premake/_deps/slang-prebuilt/`. The pinned version is `SLANG_VERSION = "2026.11"` in that file. Override the download with `--slangc=/path/to/slangc`.
 
-The **premake** build mirrors this in pure Lua (premake's built-in `http.download` + `zip.extract`, no extra tooling): running `premake5` auto-downloads the pinned `slangc` into `build-premake/_deps/slang-prebuilt/` at configure time. Override with `--slangc=/path/to/slangc` to skip the download. The pinned version lives in [`premake/helpers.lua`](premake/helpers.lua) (`SLANG_VERSION`), kept in sync with `cmake/slang.cmake`.
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
-      -DAMNESIA_GAME_DIRECTORY="$HOME/.steam/steam/steamapps/common/Amnesia The Dark Descent"
-cmake --build build -j"$(nproc)"
-cmake --build build --target deploy -j"$(nproc)"
-```
+There is no glslang step for engine shaders. `glslang-tools` and `spirv-tools` are in the `Dockerfile` for the FidelityFX SDK's own shader compilation; `--glslang=PATH` and `--spirv-val=PATH` are forwarded to that SDK's CMake wrapper only.
 
 ### Windows
 
-From a *Developer Command Prompt for VS 2026*:
+The direct native Windows flow is the same generator and MSBuild sequence used by the wrapper:
 
-```bat
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64 ^
-      -DAMNESIA_GAME_DIRECTORY="C:\Program Files (x86)\Steam\steamapps\common\Amnesia The Dark Descent"
-cmake --build build --config Release
-cmake --build build --target deploy --config Release
+```powershell
+premake5 vs2026
+msbuild build-premake\Amnesia.sln /p:Configuration=Release /p:Platform=x64 /m
 ```
 
-The Visual Studio solution `Amnesia.sln` is an alternative path on Windows — see the [README](README.md#building-with-visual-studio-amnesiasln) for the VS-specific setup (notably the `ATDD_DIR` env var).
+On a Visual Studio 2022 installation, use `premake5 vs2022` instead; the generated projects are the same for this repository.
 
-## 6. Useful CMake options
+## 6. Python tests
 
-Defined in [`CMakeLists.txt`](CMakeLists.txt). Pass via `-D<NAME>=<VALUE>` (after `--` if using the wrapper scripts).
+The Python tests under `tests/` run in the Linux build's `Python tests` step before the expensive build, in `build-linux-docker.sh` after `make`, in `build-linux.sh` after `make`, and as a post-build check of the Premake test projects when tests are enabled (`--with-tests`/`--with-python-tests`). They use the standard-library `unittest` module and must not require a game installation, GPU, or display; tests build fake trees under `tempfile.TemporaryDirectory` instead.
 
-| Option                | Default | Purpose                                              |
-| --------------------- | ------- | ---------------------------------------------------- |
-| `AMNESIA_GAME_DIRECTORY` | (see above) | Path to the installed Amnesia: TDD game folder   |
-| `USE_GRAPHICS_X11`    | ON      | (Linux) X11 backend                                  |
-| `USE_GRAPHICS_WAYLAND`| ON      | (Linux) Wayland backend                              |
-| `USE_SYSTEM_ZLIB`     | OFF     | Use system zlib instead of bundled                   |
-| `USE_SYSTEM_OPENAL`   | OFF     | Use system OpenAL Soft instead of bundled            |
-| `USE_SYSTEM_TINYXML`  | OFF     | Use system TinyXML2 instead of bundled               |
-| `USE_SYSTEM_SDL2`     | OFF     | Use system SDL2 instead of bundled                   |
-| `USE_SYSTEM_OGG`      | OFF     | Use system Ogg instead of bundled                    |
-| `USE_SYSTEM_VORBIS`   | OFF     | Use system Vorbis instead of bundled                 |
-| `USE_SYSTEM_DEVIL`    | OFF     | Use system DevIL instead of bundled                  |
+Run them from the repository root:
 
-## 7. Running
+```bash
+python3 scripts/run_python_tests.py -v
+```
 
-The `deploy` target drops the freshly built binaries into your Amnesia: The Dark Descent install folder (the one you pointed `-DAMNESIA_GAME_DIRECTORY` at), so you can launch them straight from there.
+Test modules must use the `*_test.py` naming pattern. Every directory from `tests/` to a test module must contain an `__init__.py` file so unittest discovery can recurse into it.
 
-If the game complains about missing files on startup, re-run the deploy step (`cmake --build build --target deploy`) after pointing `-DAMNESIA_GAME_DIRECTORY=...` at a valid game install.
+An empty suite is not an error: the runner maps exit 5 to 0, while test failures and import errors still fail the build.
+
+## 7. Premake options
+
+The options below are defined in [`premake/options.lua`](premake/options.lua). Pass them directly to `premake5 gmake2` or `premake5 vs2026` (and likewise `vs2022` in CI). When using a wrapper, put Premake options after `--`, for example `./build-linux-docker.sh release -- --with-fsr=no` or `.\build-windows.ps1 release -- --with-tools=no`.
+
+| Option | Default | Purpose |
+| ------ | ------- | ------- |
+| `--slangc=PATH` | Auto-download the pinned compiler | Use a local `slangc`; otherwise Premake downloads it to `build-premake/_deps/slang-prebuilt/` during configuration. |
+| `--build-version=VERSION` | `V0000` | Embed the displayed release version. CI release builds use the release tag. The short commit hash is read from the checkout when Premake generates the build. |
+| `--with-fsr=yes\|no` | `yes` | Build and link the FidelityFX Super Resolution SDK. |
+| `--fsr-sdk-dir=PATH` | Unset; auto-acquire when FSR is enabled | Use a local FidelityFX SDK root containing `sdk/`. |
+| `--with-xess=yes\|no` | `yes` | Enable XeSS on Windows; ignored on Linux. |
+| `--xess-sdk-dir=PATH` | Unset; auto-acquire on Windows when XeSS is enabled | Use a local XeSS SDK root containing `inc/xess/xess_vk.h`. |
+| `--python=PATH` | Unset; find `python3`/`python` | Select the Python executable forwarded to the FidelityFX SDK wrapper and used by Premake Python test projects. |
+| `--glslang=PATH` | Unset; find `glslangValidator`/`glslang` | Select the GLSL compiler for FidelityFX shader generation. |
+| `--spirv-val=PATH` | Unset; use `spirv-val` if found | Select the optional SPIR-V validator for FidelityFX shader generation. |
+| `--game-dir=PATH` | Unset; no built-in path | Path to the installed game used by the `deploy` action. |
+| `--with-tools=yes\|no` | `yes` | Build the HPL2 editors and tools. |
+| `--with-tests=yes\|no` | `yes` | Build and run the headless unit tests. |
+| `--with-python-tests=yes\|no` | `yes` | Build and run the Python unit tests in the Premake test projects. |
+| `--graphics-x11=on\|off` | `on` on Linux | Enable the X11 Vulkan surface backend. |
+| `--graphics-wayland=on\|off` | `on` on Linux | Enable the Wayland Vulkan surface backend. |
+| `--cmake=PATH` | `cmake` on `PATH` | Select the CMake executable Premake uses for the bundled SDL2 and openal-soft builds and the FSR wrapper. |
+
+## 8. Running
+
+The release workflow packages the binaries and compiled shaders together with
+all files from `amnesia/resources`, preserving their paths relative to the game
+directory. Extract the release into an existing game installation, merge folders
+and replace matching files, then launch the release's `Amnesia` executable. The
+release includes repository asset overrides, not the complete retail game data.
+Ordinary CI build artifacts contain the build output; the resource overlay is
+added when the final GitHub/itch.io release payloads are assembled.
+
+The main menu shows the build's version and short commit hash; both are also
+written to the startup log. For a local versioned build, pass
+`--build-version=v1.2.3` to Premake or through a build wrapper after `--`.
+
+Run the built game from the self-contained runtime directory, such as `build-premake/amnesia/Release/` or `build-premake/amnesia/Debug/`. The `deploy` action copies the game assets from the install directory you passed with `--game-dir=PATH` into those output directories; it does not put the newly built executable into the game installation.
+
+If the game complains about missing files, verify the install path and rerun the asset staging action:
+
+```bash
+premake5 deploy --game-dir="/path/to/Amnesia The Dark Descent"
+```
+
+With the Linux wrapper, pass `--game-dir <path>` or set `AMNESIA_GAME_DIRECTORY`; with the Windows wrapper, pass `-GameDir <path>` or set `ATDD_DIR`/`AMNESIA_GAME_DIRECTORY`.

@@ -1,0 +1,12 @@
+<MapDelta Version="1" Target="maps/main/ch01/10_daniels_room.map">
+    <Remove Category="Entities" ID="275" Name="BoxLight_1" />
+    <Remove Category="Entities" ID="562" Name="PointLight_1" />
+    <Remove Category="Entities" ID="563" Name="PointLight_2" />
+    <Remove Category="Entities" ID="564" Name="PointLight_3" />
+    <Modify Category="Entities" ID="250" Name="SpotLight_2">
+        <SetAttr Intensity="15" Radius="29.0707" SourceRadius="0.12" />
+    </Modify>
+    <Modify Category="Entities" ID="561" Name="SpotLight_3">
+        <SetAttr Intensity="15" Radius="26.5362" SourceRadius="0.12" />
+    </Modify>
+</MapDelta>

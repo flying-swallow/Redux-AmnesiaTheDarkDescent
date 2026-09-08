@@ -531,7 +531,7 @@ static PointLight BuildPointLight(iLight *pLight) {
   pl.radius = pLight->GetRadius();
   pl.sourceRadius = pLight->GetSourceRadius();
   pl.goboTextureIndex = PinnedBindlessSlot(pLight->GetGoboImage());
-  pl.shadowEnabled = (Interface<cGraphics>::Get()->forceShadows || pLight->GetCastShadows()) ? 1u : 0u;
+  pl.shadowEnabled = (Interface<cGraphics>::Get()->allLightsCastShadows || pLight->GetCastShadows()) ? 1u : 0u;
   const cMatrixf &world = pLight->GetWorldMatrix();
   pl.worldToLightX[0] = world.m[0][0];
   pl.worldToLightX[1] = world.m[0][1];
@@ -577,7 +577,7 @@ static SpotLight BuildSpotLight(iLight *pLight) {
   sl.radius = pSpot->GetRadius();
   sl.sourceRadius = pSpot->GetSourceRadius();
   sl.goboTextureIndex = PinnedBindlessSlot(pSpot->GetGoboImage());
-  sl.shadowEnabled = (Interface<cGraphics>::Get()->forceShadows || pSpot->GetCastShadows()) ? 1u : 0u;
+  sl.shadowEnabled = (Interface<cGraphics>::Get()->allLightsCastShadows || pSpot->GetCastShadows()) ? 1u : 0u;
   const ml::float4x4 vpF4 =
       cMath::ToFloatTranspose4x4(pSpot->GetViewProjMatrix());
   std::memcpy(sl.viewProjection, vpF4.a, sizeof(sl.viewProjection));
@@ -604,7 +604,7 @@ static RectLight BuildRectLight(iLight *pLight) {
   al.barnDoorAngle = pArea->GetBarnDoorAngle();
   al.barnDoorLength = pArea->GetBarnDoorLength();
   al.sourceTextureIndex = PinnedBindlessSlot(pArea->GetGoboImage());
-  al.shadowEnabled = (Interface<cGraphics>::Get()->forceShadows || pArea->GetCastShadows()) ? 1u : 0u;
+  al.shadowEnabled = (Interface<cGraphics>::Get()->allLightsCastShadows || pArea->GetCastShadows()) ? 1u : 0u;
   // UE Rect Light basis: width = local +Y (world col 1), height = local +Z
   // (col 2), emission normal = local +X (col 0).
   const cMatrixf &world = pArea->GetWorldMatrix();
@@ -938,8 +938,9 @@ void cWorld::BuildTlas(cGraphics::FrameContext *cntx, cFrustum *apFrustum) {
   auto handler = [&](iRenderable *pObject) {
     if (!pObject || pObject->GetRenderType() != eRenderableType_SubMesh)
       return;
+    const bool shadowOnly = pObject->GetRenderFlagBit(eRenderableFlag_ShadowOnly);
     if (!rendering::IsObjectIsVisible(
-            pObject, eRenderableFlag_VisibleInNonReflection, {}))
+            pObject, shadowOnly ? 0 : eRenderableFlag_VisibleInNonReflection, {}))
       return;
     cMaterial *pMat = pObject->GetMaterial();
     if (!pMat)
@@ -987,13 +988,13 @@ void cWorld::BuildTlas(cGraphics::FrameContext *cntx, cFrustum *apFrustum) {
       for (int c = 0; c < 4; ++c)
         inst.transform.matrix[r][c] = modelF4.a[c * 4 + r];
     inst.instanceCustomIndex = slot;
-    inst.mask = translucent ? kRayMaskTranslucent : kRayMaskOpaque;
-    // Shadow-caster bit: opaque instances whose ShadowCaster flag is on also get
-    // kRayMaskShadow, which the NEE shadow ray culls on. Non-casters keep only
-    // kRayMaskOpaque, so they stay visible / lit / reflected but stop blocking
-    // light. Translucents never cast shadows (unchanged).
+    inst.mask = shadowOnly ? 0 : (translucent ? kRayMaskTranslucent : kRayMaskOpaque);
+    // Apply the global shadow policy here so shadow queries always use the
+    // shadow bit. Proxies stay out of primary/GI/reflection rays, and the
+    // visible mesh they replace cannot seal the proxy's open windows.
     if (!translucent &&
-        (mpGraphics->forceShadows ||
+        !pObject->GetRenderFlagBit(eRenderableFlag_ShadowReplaced) &&
+        (mpGraphics->allLightsCastShadows ||
          pObject->GetRenderFlagBit(eRenderableFlag_ShadowCaster)))
       inst.mask |= kRayMaskShadow;
     inst.instanceShaderBindingTableRecordOffset = 0;

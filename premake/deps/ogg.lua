@@ -1,4 +1,4 @@
--- ogg (Xiph container) -- mirrors the 2-file build in extern/CMakeLists.txt.
+-- ogg (Xiph container) -- explicit two-file source list (bitwise.c and framing.c).
 project "ogg"
     kind "StaticLib"
     language "C"

@@ -187,23 +187,24 @@ public:
   RIAccelStructure *accelStructure() { return m_blas.isEmpty() ? nullptr : m_blas.Get(); }
   RIBuffer *GetIndexRIBuffer() const;
 
-  // GI surfel-cleanup hook. The surfel renderer binds an EventHandler (stored in
-  // its bindless-slot cache) to this event; on destruction the VB Signals it so
-  // the renderer can retire this VB's bindless slot(s) and clear surfels anchored
-  // to them before the now-freed vertex buffer-device-address is dereferenced ->
-  // GPUVM fault.
+  // Bindless-slot cleanup hook. GlobalManagedSets::submitObject binds an
+  // EventHandler (stored in its object-slot cache) to this event; on destruction
+  // the VB Signals it so the set bumps this VB's object-slot reuse generation,
+  // invalidating anything holding a cached reference to the slot before the
+  // now-freed vertex buffer-device-address is dereferenced -> GPUVM fault.
   Event<> &OnDestroyed() { return m_onDestroyed; }
 
-  // GI surfel-invalidation hook. Signaled whenever this VB's GPU geometry is
+  // Geometry-invalidation hook. Signaled whenever this VB's GPU geometry is
   // rebuilt in a way that can move triangles around — Compile() (incl. the
   // CreateCopy finalize) and the SubmitToGPU realloc path (first submit,
-  // shadow-data growth, CreateCopy sentinel). The surfel renderer binds a
-  // per-slot handler (stored in its bindless-slot cache) that bumps the slot's
-  // reuse generation, so surfels carrying a cached primitiveIndex from the old
-  // layout self-invalidate in collectCellInfo before the now-stale vertex/index
-  // BDA is dereferenced -> OOB read -> GPUVM fault. Plain UpdateData() re-uploads
-  // (same buffer, same triangle count) do NOT signal, so animated meshes are not
-  // over-invalidated.
+  // shadow-data growth, CreateCopy sentinel). A consumer that caches a
+  // primitiveIndex / BDA per object slot can bind a handler here to bump that
+  // slot's reuse generation, so the cached reference self-invalidates before the
+  // now-stale vertex/index BDA is dereferenced -> OOB read -> GPUVM fault. Plain
+  // UpdateData() re-uploads (same buffer, same triangle count) do NOT signal, so
+  // animated meshes are not over-invalidated. Currently no subscriber:
+  // GlobalManagedSets detects the same condition itself by comparing the VB's
+  // index count per submit.
   Event<> &OnGeometryChanged() { return m_onGeometryChanged; }
 
 protected:
@@ -243,8 +244,8 @@ protected:
   RISharedPointer<RIBuffer> m_blasStorage;
   RISharedPointer<RIAccelStructure> m_blas;
 
-  // Signaled in the destructor; the surfel renderer connects a per-slot destroy
-  // handler (owned by its bindless-slot cache) to it.
+  // Signaled in the destructor; GlobalManagedSets connects a per-slot destroy
+  // handler (owned by its object-slot cache) to it.
   Event<> m_onDestroyed;
 
   // Signaled on geometry rebuild (Compile / SubmitToGPU realloc). See

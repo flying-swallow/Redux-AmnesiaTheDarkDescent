@@ -27,6 +27,8 @@
 #include "graphics/Texture.h"
 #include "graphics/Image.h"
 #include "graphics/Graphics.h"
+
+#include "Constants.h"   // kSceneExposure
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
 
@@ -37,6 +39,8 @@
 int iEditorViewport::mlViewportCount = 0;
 bool iEditorViewport::mbCamPlanesUpdated = true;
 cVector2f iEditorViewport::mvCamPlanes = cVector2f(0.05f, 1000.0f);
+// 1.0 = no-op, matching the game's shipped Graphics/Gamma default.
+float iEditorViewport::mfDisplayGamma = 1.0f;
 
 //-------------------------------------------------------------
 
@@ -758,15 +762,18 @@ iEditorViewport::iEditorViewport(iEditorBase* apEditor, cWorld* apWorld)
 	SetViewportActive(false);
 
 	// Post chain: the hybrid renderer outputs linear HDR into the pogo; the
-	// tonemap effect carries the mandatory exposure+ACES+sRGB display encode
-	// (same setup/params as the game, see LuxMapHandler). SetRenderMode gates
-	// it to eRenderer_Main — wireframe/simple draw display-range colors.
+	// tonemap effect carries the mandatory display encode — exposure multiply,
+	// sRGB OETF, then the user display gamma (see
+	// posteffect_tonemap.frag.slang), matching what the game feeds its own
+	// tonemap from Graphics/Gamma. SetRenderMode gates it to eRenderer_Main —
+	// wireframe/simple draw display-range colors.
 	mpPostEffectComposite = mpGfx->CreatePostEffectComposite();
 	mpEngineViewport->SetPostEffectComposite(mpPostEffectComposite);
 
 	cPostEffectParams_ToneMap tonemapParams;
-	tonemapParams.mfExposure = 1.0f;
+	tonemapParams.mfExposure = kSceneExposure;
 	tonemapParams.mfShadowLift = 1.0f;
+	tonemapParams.mfGamma = mfDisplayGamma;
 	mpPostEffectToneMap = mpGfx->CreatePostEffect(&tonemapParams);
 	mpPostEffectComposite->AddPostEffect(mpPostEffectToneMap, 0);
 
@@ -1142,6 +1149,22 @@ const cVector3f& iEditorViewport::GetGridCenter()
 void iEditorViewport::UpdateCameraPlanes()
 {
 	mCamera.SetCameraPlanes(mvCamPlanes);
+}
+
+//-------------------------------------------------------------
+
+void iEditorViewport::RefreshToneMapParams()
+{
+	if(mpPostEffectToneMap==NULL) return;
+
+	// Rebuild with the constants used at creation plus the current display
+	// gamma, then re-apply (SetParams is the only apply path). Same shape as
+	// cLuxMapHandler::RefreshToneMapGamma.
+	cPostEffectParams_ToneMap tonemapParams;
+	tonemapParams.mfExposure = kSceneExposure;
+	tonemapParams.mfShadowLift = 1.0f;
+	tonemapParams.mfGamma = mfDisplayGamma;
+	mpPostEffectToneMap->SetParams(&tonemapParams);
 }
 
 //-------------------------------------------------------------

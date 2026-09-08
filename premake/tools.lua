@@ -1,6 +1,5 @@
--- HPL2 editors + MshConverter -- mirrors HPL2/tools/CMakeLists.txt and
--- HPL2/tools/editors/CMakeLists.txt. The legacy viewers (MapViewer/ModelViewer/
--- ParticleViewer) are disabled in CMake and omitted here too.
+-- HPL2 editors + MshConverter. The legacy viewers (MapViewer/ModelViewer/
+-- ParticleViewer) are intentionally omitted here.
 local TOOLS   = ROOT .. "/HPL2/tools"
 local EDITORS = TOOLS .. "/editors"
 
@@ -25,8 +24,8 @@ local function resolve(basenames)
     return out
 end
 
--- Shared scaffolding for every editor target (mirrors AddToolTarget + the
--- engine include set the editor sources need).
+-- Shared scaffolding for every editor target, including the engine include set
+-- the editor sources need.
 local function editor_includes()
     includedirs {
         EDITORS .. "/common",

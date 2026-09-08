@@ -178,6 +178,11 @@ cTextureManager::Create1DImage(const tString &asName, bool abUseMipMaps,
         Image::SingleImage singleImage = {};
         hpl::cTexture::BitmapLoadOptions opts = {0};
         opts.use_mipmaps = abUseMipMaps;
+        // 1D images are lookup data (light falloff/attenuation ramps, colour
+        // grading LUTs), not surface appearance: a filtered coarse level is a
+        // wrong answer, not a blurrier one. Authored mips in the source bitmap
+        // are still honoured; only runtime generation is disabled.
+        opts.generate_mipmaps = false;
         opts.sRGB = abSRGB;
         singleImage.image.emplace();
         if (!singleImage.image->LoadBitmap(RI_RESOURCE_STATE_SHADER_RESOURCE,

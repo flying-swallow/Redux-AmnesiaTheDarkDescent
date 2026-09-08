@@ -1,7 +1,6 @@
--- premake5.lua -- alternative build system for HPL2 / Amnesia (Surfel-GI fork)
+-- premake5.lua -- build system for HPL2 / Amnesia (Surfel-GI fork)
 --
--- This is *additive*: the CMake build (CMakeLists.txt) is untouched. This file
--- lets you generate a Visual Studio solution or gmake2 Makefiles via:
+-- This file lets you generate a Visual Studio solution or gmake2 Makefiles via:
 --
 --     premake5 vs2026       (Windows)
 --     premake5 gmake2       (Linux)
@@ -27,15 +26,15 @@ workspace "Amnesia"
     configurations { "Debug", "Release" }
     architecture "x86_64"
     cppdialect "C++20"
-    cdialect "gnu11"   -- match CMake's default (GNU extensions: alloca, etc.)
+    cdialect "gnu11"   -- HPL2 uses GNU extensions such as alloca
     startproject "Amnesia"
 
-    -- Match CMP0091 / CMAKE_MSVC_RUNTIME_LIBRARY = MultiThreaded$<Debug>DLL
+    -- Use the MSVC DLL runtime in Debug and Release configurations.
     staticruntime "off"
 
-    -- CMake-generated VS projects default to MultiByte; the HPL2 sources assume
-    -- UNICODE/_UNICODE are not defined globally (PlatformWin32.cpp opts in
-    -- file-locally). premake defaults to Unicode, so set MBCS to match CMake.
+    -- HPL2 sources assume UNICODE/_UNICODE are not defined globally
+    -- (PlatformWin32.cpp opts in file-locally). Premake defaults to Unicode, so
+    -- use MultiByte for the generated Visual Studio projects.
     characterset "MBCS"
 
     filter "configurations:Debug"
@@ -89,4 +88,7 @@ dofile "premake/hpl2.lua"
 dofile "premake/amnesia.lua"
 if _OPTIONS["with-tools"] ~= "no" then
     dofile "premake/tools.lua"
+end
+if _OPTIONS["with-tests"] ~= "no" then
+    dofile "premake/tests.lua"
 end

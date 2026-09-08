@@ -25,9 +25,8 @@ function deps_public_includes()
     }
 end
 
--- Mirror CMake's set_output_dir(): runtime artifacts + shared libs go to
--- build-premake/amnesia/<config>/ alongside the game; the optional subdir
--- (e.g. "libs") nests under it.
+-- Runtime artifacts + shared libs go to build-premake/amnesia/<config>/
+-- alongside the game; the optional subdir (e.g. "libs") nests under it.
 function runtime_dir(subdir)
     local d = BUILD_OUT .. "/amnesia/%{cfg.buildcfg}"
     if subdir and subdir ~= "" then d = d .. "/" .. subdir end
@@ -53,7 +52,7 @@ function set_output(kind)
 end
 
 -- glob(patterns) -> expands a list of ROOT-relative or absolute matchfiles
--- patterns into a flat list (mirrors CMake file(GLOB ...)).
+-- patterns into a flat list; patterns with no matches contribute no files.
 function glob(patterns)
     local out = {}
     for _, p in ipairs(patterns) do
@@ -74,7 +73,7 @@ end
 -- intrinsic level stays SSE3 and the math is bit-identical to the reference build.
 -- Do NOT use -msse4.2: it bumps ML_INTRINSIC_LEVEL to SSE4 and diverged the renderer's
 -- vector/matrix math (culling, decal projection) -> missing meshes/decals.
--- (MSVC defines ML_INTRINSIC_LEVEL=1 via premake5.lua, mirroring CMakeLists.txt.)
+-- MSVC defines ML_INTRINSIC_LEVEL=1 via premake5.lua.
 function mathlib_use()
     includedirs { DEPS_EXTERN .. "/MathLib" }
     filter "toolset:gcc or clang"
@@ -83,8 +82,8 @@ function mathlib_use()
 end
 
 -- Vulkan headers + VMA are header-only. Also emit the platform surface defines:
--- CMake sets these PUBLIC on the volk target (extern/volk/CMakeLists.txt), so
--- every volk consumer inherits them. premake has no such propagation, and the
+-- volk is compiled here as a plain premake project, so nothing propagates them
+-- to its consumers automatically, and the
 -- engine's surface-creation code (RISwapchain.cpp) is #ifdef-gated on
 -- VK_USE_PLATFORM_*_KHR -- without the define here the surface is never created
 -- and the first vkGetPhysicalDeviceSurfaceSupportKHR call dereferences garbage.
@@ -97,7 +96,7 @@ function vulkan_includes()
     vulkan_platform_defines()
 end
 
--- Per-platform Vulkan surface defines, mirroring extern/CMakeLists.txt VOLK_STATIC_DEFINES.
+-- Per-platform Vulkan surface defines (volk's VOLK_STATIC_DEFINES equivalent).
 function vulkan_platform_defines()
     filter "system:windows"
         defines { "VK_USE_PLATFORM_WIN32_KHR" }
@@ -111,10 +110,8 @@ function vulkan_platform_defines()
     filter {}
 end
 
--- BuildID source/header. These files are checked into the tree (the CMake
--- GenerateBuildID custom command is dormant -- a version_source/version_sources
--- typo means it never runs -- so the committed copies are what actually build).
--- We just add the committed per-platform source + header to the file list.
+-- BuildID source/header. These files are checked into the tree and are used
+-- as-is; add the committed per-platform source + header to the file list.
 function buildid(idname, dir)
     local suffix = os.target() == "windows" and "Win32" or "Linux"
     files {
@@ -137,6 +134,9 @@ function link_engine()
     }
     link_sdl2()
     link_openal()
+    link_nrd()
+    link_fsr()
+    link_xess()
     filter "system:linux"
         links { "pthread", "dl" }
     filter "system:windows"

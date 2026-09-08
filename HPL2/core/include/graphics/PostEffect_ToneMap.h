@@ -35,14 +35,16 @@ public:
 
     kPostEffectParamsClassInit(cPostEffectParams_ToneMap)
 
-    // Linear exposure multiply applied before the ACES curve (lifts the scene out
-    // of the toe). Tune to match the base game's brightness.
+    // Linear exposure multiply applied before the display encode. This is the
+    // scene brightness control (kSceneExposure in Constants.h); a linear scale
+    // preserves the particle/translucent blend ratios that a gamma curve breaks.
     float mfExposure;
     // Post black-point lift applied after the curve (0 = none); raises pitch-
     // blacks back into the visible range so deep shadows aren't crushed.
     float mfShadowLift;
     // User display-gamma (1.0 = no-op) applied as the final encode step;
-    // authored game-side in cLuxConfigHandler.
+    // authored game-side in cLuxConfigHandler. Scene brightness comes from
+    // mfExposure (kSceneExposure), NOT from this — see the shader header.
     float mfGamma;
 };
 

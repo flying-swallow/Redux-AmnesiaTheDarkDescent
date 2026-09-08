@@ -62,6 +62,7 @@ private:
 	float mfSwayPlayerSpeedMul;
 	float mfSwayCameraRollMul;
 	tString msSkipSwaySubMesh;
+	tString msShadowHullMesh;
 	
 	float mfSwayAngle;
 	float mfSwayVel;
@@ -70,6 +71,8 @@ private:
 	std::vector<cColor> mvDefaultLightColors;
 	std::vector<bool> mvDefaultLightFlicker;
 	std::vector<cMatrixf> mvDefaultSubMeshMatrix;
+	std::vector<cMatrixf> mvDefaultLightMatrix;
+	std::vector<cMatrixf> mvDefaultBillboardMatrix;
 };
 
 //----------------------------------------------

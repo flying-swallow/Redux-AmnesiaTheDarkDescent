@@ -86,8 +86,10 @@ docker run --rm -v "$PWD:$PWD" -w "$PWD" amnesia-build \
 Mount the tree at its real host path (as above) so `compile_commands.json` and the paths baked into the object
 files line up between containerized and native builds.
 
-> `build-linux.sh` and `build-linux-docker.sh` are stale — they drive a CMake build that no longer exists in
-> this tree (there is no root `CMakeLists.txt`) and will fail. Use the commands above.
+Two wrappers drive the same premake5 flow end to end — generate, build, run the Python tests, and
+optionally deploy your install's assets: [`build-linux-docker.sh`](build-linux-docker.sh) does it in the
+container (canonical), [`build-linux.sh`](build-linux.sh) natively on the host. Both take `[release|debug]`
+and forward anything after `--` to `premake5 gmake2`.
 
 ### Windows
 
@@ -118,6 +120,10 @@ Pass these to `premake5`:
 | --- | --- | --- |
 | `--game-dir=PATH` | — | Your Amnesia install; used by the `deploy` action. |
 | `--with-tools=yes\|no` | `yes` | Build the editors and converters. |
+| `--with-tests=yes\|no` | `yes` | Build and run the headless unit tests. |
+| `--with-python-tests=yes\|no` | `yes` | Build and run the Python unit tests. |
+| `--with-fsr=yes\|no` | `yes` | Build and link the FidelityFX Super Resolution SDK. |
+| `--with-xess=yes\|no` | `yes` | Intel XeSS Vulkan super-resolution backend (Windows only; ignored on Linux). |
 | `--graphics-x11=on\|off` | `on` | (Linux) X11 Vulkan surface backend. |
 | `--graphics-wayland=on\|off` | `on` | (Linux) Wayland Vulkan surface backend. |
 | `--slangc=PATH` | downloads | Use an existing `slangc` instead of the pinned download. |
@@ -141,8 +147,7 @@ holding the game's `config/`, `entities/`, `maps/`, `core/`, and so on. Two ways
 On Windows the generated projects set the debugger working directory to `$(ATDD_DIR)`, so set that environment
 variable to your install and F5 works directly.
 
-[BUILD.md](BUILD.md) has more detail on the Windows wrapper and the shader tooling. Its CMake and
-`build-linux.sh` sections are stale for the same reason as above.
+[BUILD.md](BUILD.md) has more detail on the wrappers, the option table, and the shader tooling.
 
 ## Releasing
 

@@ -38,6 +38,7 @@ iLuxHandObject::iLuxHandObject(const tString& asName, cLuxPlayerHands *apHands)
 
 	m_mtxOffset = cMatrixf::Identity;
 	mpMeshEntity = NULL;
+	mpShadowMeshEntity = NULL;
 	mpMesh = NULL;
 }
 
@@ -187,6 +188,11 @@ void iLuxHandObject::CreateEntity(cLuxMap *apMap)
 void iLuxHandObject::DestroyEntity(cLuxMap *apMap)
 {
 	cWorld *pWorld = apMap->GetWorld();
+	if(mpShadowMeshEntity)
+	{
+		pWorld->DestroyMeshEntity(mpShadowMeshEntity);
+		mpShadowMeshEntity = NULL;
+	}
 	if(mpMeshEntity)
 	{
 		pWorld->DestroyMeshEntity(mpMeshEntity);
@@ -234,6 +240,7 @@ void iLuxHandObject::Reset()
 void iLuxHandObject::ResetEntityContainers()
 {
 	mpMeshEntity = NULL;
+	mpShadowMeshEntity = NULL;
 	mvBillboards.clear();
 	mvParticleSystems.clear();
 	mvLights.clear();
@@ -241,6 +248,11 @@ void iLuxHandObject::ResetEntityContainers()
 
 void iLuxHandObject::SetSetEntitiesVisible(bool abVisible)
 {
+	if(mpShadowMeshEntity)
+	{
+		mpShadowMeshEntity->SetVisible(abVisible);
+		mpShadowMeshEntity->SetActive(abVisible);
+	}
 	if(mpMeshEntity)
 	{
 		mpMeshEntity->SetVisible(abVisible);

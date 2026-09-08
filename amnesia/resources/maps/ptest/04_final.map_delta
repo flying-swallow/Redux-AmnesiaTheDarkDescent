@@ -1,0 +1,17 @@
+<MapDelta Version="1" Target="maps/ptest/04_final.map">
+    <Modify Category="Entities" ID="1121" Name="candle_floor_1">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="1122" Name="candle_floor_2">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="1123" Name="candle_floor_3">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="1124" Name="candle_floor_4">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="1129" Name="candle_floor_5">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+</MapDelta>

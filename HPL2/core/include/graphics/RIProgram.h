@@ -7,6 +7,7 @@
 #include <span>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "resources/FileSearcher.h"
@@ -94,15 +95,34 @@ public:
   };
 
   struct DescriptorBinding {
-    DescriptorBinding() : handle(), registerOffset(0) {}
+    DescriptorBinding()
+        : handle(), registerOffset(0), descriptor(), optional(false),
+          useSlot(false), slotSet(0), slotBinding(0) {}
     explicit DescriptorBinding(const char *name, const RIDescriptor &desc,
-                               uint32_t registerOffset = 0)
+                               uint32_t registerOffset = 0,
+                               bool optional = false)
         : handle(DescriptorBindingID::Create(name)),
-          registerOffset(registerOffset), descriptor(desc) {}
+          registerOffset(registerOffset), descriptor(desc),
+          optional(optional), useSlot(false), slotSet(0), slotBinding(0) {}
+
+    // NRD describes resources by numeric (set, binding) slots rather than by
+    // the reflected resource names used by the normal engine bind path.
+    DescriptorBinding(uint32_t set, uint32_t binding,
+                      const RIDescriptor &desc, bool optional = false)
+        : handle(), registerOffset(0), descriptor(desc), optional(optional),
+          useSlot(true), slotSet(set), slotBinding(binding) {}
 
     struct DescriptorBindingID handle;
     uint32_t registerOffset;
     struct RIDescriptor descriptor;
+    // Optional: this binding may legitimately carry an empty descriptor
+    // (e.g. a TLAS that does not exist until the first build). Marks it
+    // exempt from the debug unwritten-binding check; it is still skipped at
+    // write time exactly as before.
+    bool optional = false;
+    bool useSlot = false;
+    uint32_t slotSet = 0;
+    uint32_t slotBinding = 0;
   };
 
   struct DescriptorSetSlot {
@@ -147,6 +167,11 @@ public:
     uint16_t dimCount : 8;
     uint16_t set : 3;
     uint16_t baseRegisterIndex;
+#if !defined(NDEBUG)
+    // Reflected resource name, kept only so the debug unwritten-binding
+    // diagnostic in bindDescriptors can name the offending binding.
+    std::string debugName;
+#endif
   };
 
   enum ProgramStages {
@@ -175,6 +200,8 @@ public:
   };
   const struct BindingReflection *
   findReflection(const struct DescriptorBindingID &handle);
+  const struct BindingReflection *findReflectionBySlot(uint32_t set,
+                                                       uint32_t binding);
   // `externalLayouts` (optional) lets the caller hand in a pre-built
   // VkDescriptorSetLayout for any set index. For each set with a non-null
   // entry the program uses that layout in its pipeline layout, marks the
@@ -215,6 +242,16 @@ public:
   // struct at indirectAddress (a device address into a SHADER_DEVICE_ADDRESS buffer).
   void traceRaysIndirect(struct RICmd *cmd, hash_t pipelineHash,
                          VkDeviceAddress indirectAddress);
+  // Write + bind one descriptor set per non-external set index from the
+  // supplied bindings. A binding whose name this program does not reflect is
+  // ignored (one shared binding vector may serve several programs), and a
+  // binding carrying an empty descriptor is skipped.
+  // In debug builds (!NDEBUG) every binding the shader reflects that ends up
+  // unwritten is reported once via Error() — that case is a descriptor the
+  // shader reads undefined (VUID-vkCmdDrawIndexed-None-08114), invisible
+  // without a validation layer. A binding that may legitimately be empty must
+  // be supplied with `optional = true` to opt out; array bindings are exempt
+  // (their layout carries VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT).
   void bindDescriptors(
       struct RIDevice *device, struct RICmd *cmd, uint32_t frameIndex,
       DescriptorBinding *binding, size_t bindingCount,
@@ -262,6 +299,12 @@ private:
   std::unordered_map<hash_t, PipelineSlot> pipeline;
   std::unordered_map<hash_t, RTPipelineSlot> rtPipeline;
   std::vector<BindingReflection> bindingReflection;
+#if !defined(NDEBUG)
+  std::string m_debugName;
+  // Set index + reflected binding hash of every unwritten binding already
+  // reported, so the per-frame check logs each one once per program.
+  std::unordered_set<uint64_t> m_reportedUnwrittenBindings;
+#endif
 };
 } // namespace hpl
 #endif

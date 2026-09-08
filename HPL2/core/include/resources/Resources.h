@@ -180,7 +180,10 @@ namespace hpl {
 		iLowLevelResources* GetLowLevel();
 		cFileSearcher* GetFileSearcher();
 
-		bool AddResourceDir(const tWString &asDir, bool abAddSubDirectories, const tString &asMask = "*.*");
+		/**
+		 * \param alPriority Higher-priority directories shadow lower-priority directories for files with the same name.
+		 */
+		bool AddResourceDir(const tWString &asDir, bool abAddSubDirectories, const tString &asMask = "*.*", int alPriority = klFileSearchDefaultPriority);
 		void ClearResourceDirs();
 
 		bool AddLanguageFile(const tString &asFilePath, bool abAddResourceDirs, const tWString &asAltPath = _W(""));
@@ -194,6 +197,14 @@ namespace hpl {
 		iAreaLoader* GetAreaLoader(const tString& asName);
 
 		bool LoadResourceDirsFile(const tString &asFile, const tWString &asAltPath = _W(""));
+
+		// Collects every delta file that patches asBaseFile, sorted by the order
+		// they must be applied in: Priority ascending, then path. asDeltaExt is the
+		// extension to look for ("map_delta", "ent_delta"); the base file's own
+		// extension is swapped for it and the result resolved by bare filename, so
+		// any resource dir (a mod folder, a custom story) can contribute one.
+		// Returns false, leaving avPaths untouched, when deltas are disabled.
+		bool FindDeltaFiles(const tWString& asBaseFile, const tString& asDeltaExt, tWStringVec& avPaths);
 
 		// Returns the root element of the loaded document. cResources owns the
 		// underlying tinyxml2::XMLDocument (tracked in mlstXmlDocuments); pass the
@@ -227,6 +238,12 @@ namespace hpl {
 
 		static void SetCreateAndLoadCompressedMaps(bool abX){ mbCreateAndLoadCompressedMaps = abX;}
 		static bool GetCreateAndLoadCompressedMaps(){ return mbCreateAndLoadCompressedMaps ;}
+
+		// Map/ent delta overlays (.map_delta / .ent_delta). Off by default so the
+		// editors and the offline tools keep seeing unpatched files; the game turns
+		// it on at startup.
+		static void SetDeltasEnabled(bool abX){ mbDeltasEnabled = abX;}
+		static bool GetDeltasEnabled(){ return mbDeltasEnabled ;}
 		
 	private:
 		iLowLevelResources *mpLowLevelResources;
@@ -266,6 +283,7 @@ namespace hpl {
 
 		static bool mbForceCacheLoadingAndSkipSaving;
 		static bool mbCreateAndLoadCompressedMaps;
+		static bool mbDeltasEnabled;
 	};
 
 };

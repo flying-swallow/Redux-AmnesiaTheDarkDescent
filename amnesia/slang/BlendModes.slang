@@ -1,131 +1,86 @@
 #pragma once
-// Shared legacy blend-mode math. Previously copy-pasted (constants + the
-// 5-way switches) into Decal.frag, Particle.frag and Translucent.frag, plus
-// the composite's applyDecalBlend.
-//
-// The legacy renderer blended raw gamma texels in a display-space UNORM
-// target; this renderer blends linear HDR. The scheme (see
-// kPerceptualBlendExp in Constants.h for the full derivation):
-//   * sample → displaySpaceSample re-encodes the hardware-sRGB-decoded texel
-//     back to the authored display space,
-//   * applyBlendModulation folds alpha (sceneAlpha × fog visibility) and the
-//     light level into the source per blend mode, still in display space,
-//   * encodeBlendOutputLinear decodes to linear ONCE at output — exact for
-//     the dst products (MUL/MULX2, power law); the blend-with-dst sums
-//     (ALPHA/PREMUL) distribute the decode over powered premultiplied
-//     weights src·pow(a,k) / dst·pow(1−a,k) instead (pipeline ALPHA factors
-//     are ONE / 1−srcA).
-// Translucent keeps the two stages separate because its display-space
-// reflection/rim add sits between them; Particle/Decal call them
-// back-to-back (Decal with the identity modulation alpha=1, lightLevel=1).
-//
-// blendDisplaySpaceExact is the OTHER, intentionally different scheme: the
-// composite projects clustered decals with dst in hand, so it software-blends
-// exactly in display space — no powered-weight approximation — and uses the
-// RAW eMaterialBlendMode numbering (kMaterialBlendMode*, None = 0), not the
-// push-constant kBlendMode* (0-4) the raster passes use.
+// Forward materials blend linear RGB into RGBA16F. Opacity is linear data;
+// exposure, tone mapping and user gamma are applied after compositing.
+import SceneTypes;
+import Utils.Color.ColorHelpers;
 
-import SceneTypes;                 // kBlendMode* / kMaterialBlendMode* / kPerceptualBlendExp
-import Utils.Color.ColorHelpers;   // linearToSRGB / sRGBToLinear
-
-// Re-encode a hardware-sRGB-decoded texel into the authored display space
-// (the space the legacy renderer blended in).
-public float4 displaySpaceSample(float4 s)
+// Continuous replacement for the BC1 white halo: fit in authored color space
+// (peak, radius, exponent), then decode before HDR blending. Smoothly reach
+// zero at the billboard boundary; neither texture quantization nor a hard
+// alpha cutoff should introduce contours as the halo is enlarged near camera.
+public float4 smoothHaloLinearSample(float2 uv, float4 tint)
 {
-    return float4(linearToSRGB(s.rgb), s.a);
+    float radius = length(uv * 2.0f - 1.0f);
+    float falloff = 0.46002168f * exp(-pow(radius / 0.58290833f, 2.67673404f));
+    falloff *= 1.0f - smoothstep(0.8f, 1.0f, radius);
+    return float4(sRGBToLinear(float3(falloff)) * sRGBToLinear(tint.rgb), tint.a);
 }
 
-// Stage 1 — display-space source modulation (the legacy per-mode "pre-bias").
-// alpha is sceneAlpha × fog visibility; lightLevel the AffectedByLightLevel
-// dim factor. Identity at alpha == 1, lightLevel == 1. Never touches .a for
-// ADD/MUL/MULX2, so the result's .a IS the legacy display-alpha discard
-// operand the passes test.
-public float4 applyBlendModulation(uint blendMode, float4 displayColor,
-                                   float alpha, float lightLevel)
+// Diffuse color samples are already hardware sRGB-decoded. The explicit
+// mask option interprets the authored red channel as scalar emission weight.
+// Recover that weight from the existing sRGB view, keeping shared texture
+// cache entries and ordinary color materials unchanged.
+public float4 translucentLinearSample(float4 sample, float4 tint,
+                                     uint blendMode, bool diffuseIsMask)
 {
+    float3 rgb = sample.rgb;
+    if (diffuseIsMask)
+        rgb = float3(linearToSRGB(sample.r));
+    else if (blendMode == kBlendModeMul || blendMode == kBlendModeMulX2)
+        // Multipliers are data too; preserve authored 1 / 0.5 neutrals.
+        rgb = linearToSRGB(sample.rgb);
+    else if (blendMode == kBlendModePremulAlpha)
+    {
+        // Legacy premultiplied textures multiplied in encoded space.
+        // Unassociate there, decode the color, then associate in linear.
+        rgb = sample.a > 0.0f
+            ? sRGBToLinear(linearToSRGB(sample.rgb) / sample.a) * sample.a
+            : float3(0.0f);
+    }
+    rgb *= sRGBToLinear(tint.rgb);
+    // Straight alpha is premultiplied at output; premul texture RGB already
+    // contains texture alpha and only needs the additional vertex opacity.
+    if (blendMode == kBlendModePremulAlpha)
+        rgb *= tint.a * (diffuseIsMask ? sample.a : 1.0f);
+    return float4(rgb, sample.a * tint.a);
+}
+
+public float4 applyBlendModulation(uint blendMode, float4 color,
+                                   float opacity, float lightLevel)
+{
+    opacity = saturate(opacity);
+    color.a = saturate(color.a);
     switch (blendMode)
     {
         case kBlendModeAdd:
-        {
-            displayColor.xyz *= alpha * lightLevel;
+            color.rgb *= color.a * opacity * lightLevel;
             break;
-        }
         case kBlendModeMul:
-        {
-            // Fade toward the multiplicative identity (1) as alpha drops.
-            displayColor.xyz += (float3(1.0f) - displayColor.xyz) * (1.0f - alpha);
+            color.rgb = lerp(float3(1.0f), color.rgb, opacity * color.a);
             break;
-        }
         case kBlendModeMulX2:
-        {
-            // Fade toward the 2·src·dst neutral (0.5) as alpha·L drops.
-            float blendMulAlpha = lightLevel * alpha;
-            displayColor.xyz = displayColor.xyz * blendMulAlpha
-                             + float3(0.5f) * (1.0f - blendMulAlpha);
+            color.rgb = lerp(float3(0.5f), color.rgb,
+                             saturate(opacity * color.a * lightLevel));
             break;
-        }
         case kBlendModeAlpha:
-        {
-            displayColor.xyz *= lightLevel;
-            displayColor.a   *= alpha;
+            color.rgb *= lightLevel;
+            color.a *= opacity;
             break;
-        }
         case kBlendModePremulAlpha:
-        {
-            displayColor     *= alpha;
-            displayColor.xyz *= lightLevel;
+            color.rgb *= opacity * lightLevel;
+            color.a *= opacity;
             break;
-        }
     }
-    return displayColor;
+    return color;
 }
 
-// Stage 2 — decode the display-space source to linear for the hardware
-// blender. Products with dst (ADD's dst-free term, MUL, MULX2) decode
-// exactly; ALPHA/PREMUL reshape into powered premultiplied weights.
-// MULX2: legacy is 2·dst·m and the HW factors give 2·src·dst →
-// src = toLin(2·m)/2, so the authored 0.5-gray neutral stays neutral.
-public float4 encodeBlendOutputLinear(uint blendMode, float4 displayColor)
+// ONE / ONE_MINUS_SRC_ALPHA: premultiply straight-alpha sources exactly once.
+// Additive sources retain ONE / ONE and never attenuate the destination.
+public float4 encodeBlendOutputLinear(uint blendMode, float4 color)
 {
-    const float k = kPerceptualBlendExp;
-    switch (blendMode)
-    {
-        case kBlendModeAdd:
-        case kBlendModeMul:
-        {
-            displayColor.xyz = sRGBToLinear(displayColor.xyz);
-            break;
-        }
-        case kBlendModeMulX2:
-        {
-            displayColor.xyz = sRGBToLinear(2.0f * displayColor.xyz) * 0.5f;
-            break;
-        }
-        case kBlendModeAlpha:
-        {
-            // Energy-conserving variant: the powered premultiplied weights
-            // src·pow(a,k) / dst·pow(1−a,k) sum to LESS than 1 at partial
-            // alpha (worst near a=0.5), so the legacy form darkened/lost
-            // energy and made low-alpha surfaces (dust, haze) nearly vanish.
-            // Normalize the two weights to sum to 1 — keeps the perceptual
-            // bias SHAPE but removes the darkening dip.
-            float a  = saturate(displayColor.a);
-            float ws = pow(a, k);
-            float wd = pow(1.0f - a, k);
-            float n  = max(ws + wd, 1e-4f);
-            displayColor.xyz = sRGBToLinear(displayColor.xyz) * (ws / n);
-            displayColor.a   = ws / n;          // HW dst factor (1 − src.a) = wd/n
-            break;
-        }
-        case kBlendModePremulAlpha:
-        {
-            float a = saturate(displayColor.a);
-            displayColor.xyz = sRGBToLinear(displayColor.xyz);
-            displayColor.a = 1.0f - pow(1.0f - a, k);
-            break;
-        }
-    }
-    return displayColor;
+    if (blendMode == kBlendModeAlpha)
+        color.rgb *= color.a;
+    return color;
 }
 
 // EXACT display-space software blend — composite-time clustered decals, where

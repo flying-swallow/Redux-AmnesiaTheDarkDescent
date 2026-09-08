@@ -108,6 +108,11 @@ public:
 	void OnDraw(float afFrameTime);
 
 	void RefreshToneMapGamma();
+	void RefreshSuperSamplingSettings();
+	// The viewport that currently renders this menu's background: the gameplay
+	// viewport for the in-game escape menu (see CreateBackground), otherwise the
+	// menu's own viewport. Read-only and non-owning; may be NULL.
+	cViewport* GetBackgroundViewport() const;
 
 	cGuiSet* GetSet() { return mpGuiSet; }
 

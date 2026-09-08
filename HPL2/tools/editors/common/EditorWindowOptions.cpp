@@ -24,6 +24,7 @@
 #include "EditorSelection.h"
 #include "EngineEntity.h"
 
+#include "graphics/Graphics.h"
 #include "system/Platform.h"        // cPlatform::CopyTextToClipboard
 #include "gui/WidgetTabFrame.h"
 #include "gui/WidgetLabel.h"
@@ -82,6 +83,17 @@ void cEditorWindowOptions::OnInitLayout()
 		mpInpDisabledCoverage->UpdateLayout();
 		mpInpDisabledCoverage->SetLowerBound(true, 0);
 		mpInpDisabledCoverage->SetUpperBound(true, 1);
+
+		// Display gamma: same value the game feeds its tonemap from
+		// Graphics/Gamma, so the pane matches what a player sees. Bounds match
+		// the in-game slider.
+		vPos.y += mpInpDisabledCoverage->GetSize().y + 15;
+		mpInpDisplayGamma = CreateInputNumber(vPos, _W("Display gamma"), "", pTab, 50, 0.05f);
+		mpInpDisplayGamma->SetLayoutStyle(eEditorInputLayoutStyle_RowLabelOnLeft);
+		mpInpDisplayGamma->UpdateLayout();
+		mpInpDisplayGamma->SetLowerBound(true, 0.3f);
+		mpInpDisplayGamma->SetUpperBound(true, 2.0f);
+		mpInpDisplayGamma->SetDecimals(2);
 	}
 
 	/////////////////////////////////////////////////////////
@@ -119,6 +131,22 @@ void cEditorWindowOptions::OnInitLayout()
 	mpInpTextureQuality->AddValue(_W("High"));
 	mpInpTextureQuality->AddValue(_W("Medium"));
 	mpInpTextureQuality->AddValue(_W("Low"));
+	vPos.y += mpInpTextureQuality->GetSize().y + 10;
+	// Development-only control for the render/display resolution split: it only
+	// changes the render extent so the spatial-fallback and display-depth-
+	// reconstruction paths can be exercised, and it wires no upscaler provider
+	// and enables no camera jitter. Global to cGraphics, so it applies to every
+	// live viewport, including the editor's offscreen thumbnail and
+	// camera-capture viewports.
+	mpInpDevRenderScale = CreateInputEnum(vPos, _W("Render Scale (dev)"), "", tWStringList(), pTab);
+	mpInpDevRenderScale->SetLayoutStyle(eEditorInputLayoutStyle_RowLabelOnLeft);
+	mpInpDevRenderScale->UpdateLayout();
+	mpInpDevRenderScale->AddValue(_W("Native (100%)"));
+	mpInpDevRenderScale->AddValue(_W("90%"));
+	mpInpDevRenderScale->AddValue(_W("75%"));
+	mpInpDevRenderScale->AddValue(_W("66%"));
+	mpInpDevRenderScale->AddValue(_W("50%"));
+	mpInpDevRenderScale->AddValue(_W("33%"));
 
 	/////////////////////////////////////////////////////////
 	// Input options
@@ -207,6 +235,9 @@ void cEditorWindowOptions::OnInitLayout()
 void cEditorWindowOptions::PostInitLayout()
 {
 	OnUpdate(0);
+	// Deliberately not read from or written to editor settings; this override is
+	// development-only and must not persist across editor sessions.
+	mpInpDevRenderScale->SetValue(0, false);
 }
 
 //-----------------------------------------------------------------
@@ -221,6 +252,7 @@ void cEditorWindowOptions::OnUpdate(float afTimeStep)
 	mpInpBackgroundColor->SetValue(pWorld->GetBGDefaultColor(), false);
 	mpInpDisabledCoverage->SetValue(iEngineEntityMesh::GetDisabledCoverage(), false);
 	mpInpUndoStackSize->SetValue((float)mpEditor->GetActionHandler()->GetMaxUndoSize(), false);
+	mpInpDisplayGamma->SetValue(mpEditor->GetViewportDisplayGamma(), false);
 
 	{
 		mpInpLightsActive->SetValue(pWorld->GetTypeActive(eEditorEntityType_Light), false);
@@ -274,6 +306,9 @@ bool cEditorWindowOptions::WindowSpecificInputCallback(iEditorInput* apInput)
 		pWorld->UpdateVisibility();		
 	}
 
+	else if(apInput==mpInpDisplayGamma)
+		mpEditor->SetViewportDisplayGamma(mpInpDisplayGamma->GetValue());
+
 	else if(apInput==mpInpUndoStackSize)
 		mpEditor->GetActionHandler()->SetMaxUndoSize((int)mpInpUndoStackSize->GetValue());
 
@@ -297,6 +332,24 @@ bool cEditorWindowOptions::WindowSpecificInputCallback(iEditorInput* apInput)
 
 	else if(apInput==mpInpTextureQuality)
 		mpEditor->SetSettingValue("TexQuality", cString::ToString(mpInpTextureQuality->GetValue()));
+
+	// Development-only control for the render/display resolution split: it only
+	// changes the render extent so the spatial-fallback and display-depth-
+	// reconstruction paths can be exercised, and it wires no upscaler provider
+	// and enables no camera jitter. Global to cGraphics, so it applies to every
+	// live viewport, including the editor's offscreen thumbnail and
+	// camera-capture viewports.
+	else if(apInput==mpInpDevRenderScale)
+	{
+		static const float avRenderScales[] = {1.0f, 0.90f, 0.75f, 0.66f, 0.50f, 0.33f};
+		int lRenderScale = mpInpDevRenderScale->GetValue();
+		if(lRenderScale >= 0 && lRenderScale < (int)(sizeof(avRenderScales) / sizeof(avRenderScales[0])))
+		{
+			cGraphics* pGraphics = Interface<cGraphics>::Get();
+			if(pGraphics)
+				pGraphics->devRenderScale = avRenderScales[lRenderScale];
+		}
+	}
 
 	else if(apInput==mpInpTumbleFactor)
 		mpEditor->SetSettingValue("TumbleFactor", cString::ToString(mpInpTumbleFactor->GetValue()));

@@ -19,6 +19,8 @@
 
 #include "LuxMainMenu.h"
 
+#include "Constants.h"   // kSceneExposure
+
 #include "LuxMap.h"
 #include "LuxMapHandler.h"
 #include "LuxInputHandler.h"
@@ -146,9 +148,10 @@ cLuxMainMenu::cLuxMainMenu() : iLuxUpdateable("LuxDebugHandler")
 	// in-game viewport gets via cLuxMapHandler). Priority 0 = runs last.
 	cPostEffectComposite *pPostEffectComp = mpGraphics->CreatePostEffectComposite();
 	mpViewport->SetPostEffectComposite(pPostEffectComp);
+	RefreshSuperSamplingSettings();
 
 	cPostEffectParams_ToneMap tonemapParams;
-	tonemapParams.mfExposure   = 1.0f;
+	tonemapParams.mfExposure   = kSceneExposure;
 	tonemapParams.mfShadowLift = 1.0f;
 	tonemapParams.mfGamma      = gpBase->mpConfigHandler->GetGamma();
 	mpPostEffect_ToneMap = mpGraphics->CreatePostEffect(&tonemapParams);
@@ -241,10 +244,23 @@ void cLuxMainMenu::RefreshToneMapGamma()
 	if(mpPostEffect_ToneMap == NULL) return;
 
 	cPostEffectParams_ToneMap tonemapParams;
-	tonemapParams.mfExposure   = 1.0f;
+	tonemapParams.mfExposure   = kSceneExposure;
 	tonemapParams.mfShadowLift = 1.0f;
 	tonemapParams.mfGamma      = gpBase->mpConfigHandler->GetGamma();
 	mpPostEffect_ToneMap->SetParams(&tonemapParams);
+}
+
+void cLuxMainMenu::RefreshSuperSamplingSettings()
+{
+	if(mpViewport == NULL) return;
+	mpViewport->SetTemporalUpscalerSettings(gpBase->mpConfigHandler->mSuperSampling);
+}
+
+cViewport* cLuxMainMenu::GetBackgroundViewport() const
+{
+	if(gpBase && gpBase->mpMapHandler && gpBase->mpMapHandler->MapIsLoaded())
+		return gpBase->mpMapHandler->GetViewport();
+	return mpViewport;
 }
 
 void cLuxMainMenu::OnQuit()
@@ -1099,6 +1115,16 @@ void cLuxMainMenu::CreateTopMenuGui()
 	}
 
 	float fRowAdd = mvTopMenuFontSize.y*mfTopMenuFontSizeMul*1.3f;
+	if(gpBase->mpMapHandler->MapIsLoaded()==false)
+	{
+		cWidgetLabel *pVersion = mpGuiSet->CreateWidgetLabel(
+			cVector3f(0, 0, 0), 0, L"VERSION: " AMNESIA_TDD_VERSION);
+		pVersion->SetTextAlign(eFontAlign_Left);
+		cWidgetLabel *pCommit = mpGuiSet->CreateWidgetLabel(
+			cVector3f(0, pVersion->GetDefaultFontSize().y, 0), 0,
+			L"COMMIT: " AMNESIA_TDD_TAG);
+		pCommit->SetTextAlign(eFontAlign_Left);
+	}
 
 	///////////////
 	//Continue
@@ -1855,4 +1881,3 @@ bool cLuxMainMenu::HardModeTextDraw(iWidget* apWidget, const cGuiMessageData& aD
 	return false;
 }
 kGuiCallbackDeclaredFuncEnd(cLuxMainMenu, HardModeTextDraw);
-

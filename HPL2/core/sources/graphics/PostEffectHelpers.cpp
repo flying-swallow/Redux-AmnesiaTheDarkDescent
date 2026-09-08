@@ -1,6 +1,7 @@
 #include "graphics/PostEffectHelpers.h"
 
 #include "graphics/Graphics.h"
+#include "graphics/RISharedPointer.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
 
@@ -58,10 +59,13 @@ void DestroyPostEffectColorTarget(PostEffectColorTarget &target) {
 #if (DEVICE_IMPL_VULKAN)
     if (!target.valid)
         return;
-    target.view.dispose(&pGraphics->device);
-    target.texture.dispose(&pGraphics->device);
-    target.texture    = RITexture{};
-    target.valid      = false;
+    pGraphics->graphicsDefer.push(
+        RISharedPointer<RITextureView>(&pGraphics->device, target.view));
+    pGraphics->graphicsDefer.push(
+        RISharedPointer<RITexture>(&pGraphics->device, target.texture));
+    target.view    = RITextureView{};
+    target.texture = RITexture{};
+    target.valid   = false;
     target.width = target.height = 0;
 #endif
 }

@@ -33,10 +33,11 @@ namespace hpl {
 	class cFileSearcherEntry
 	{
 	public:
-		cFileSearcherEntry(const tWString& asPath);
+		cFileSearcherEntry(const tWString& asPath, int alPriority = klFileSearchDefaultPriority);
 			
 		tWString msPath;
 		tWStringVec mvPathDirs;
+		int mlPriority;
 	};
 
 	//----------------------------------
@@ -56,8 +57,9 @@ namespace hpl {
 		 * Adds a directory that will be searched when looking for files.
 		 * \param asMask What files that should be searched for, for example: "*.jpeg".
 		 * \param asPath The path to the directory.
+		 * \param alPriority Priority assigned to files indexed from this directory.
 		 */
-		void AddDirectory(const tWString& asSearchPath, const tString& asMask, bool abAddSubDirectories);
+		void AddDirectory(const tWString& asSearchPath, const tString& asMask, bool abAddSubDirectories, int alPriority = klFileSearchDefaultPriority);
 
 		/**
 		 * Clears all directories
@@ -72,13 +74,21 @@ namespace hpl {
         const tWString& GetFilePath(const tString& asFileNameAndPath, int *apEqualCount=NULL);
 
 		/**
+		 * Gets every indexed path whose bare filename matches, in index order.
+		 * Unlike GetFilePath (which scores candidates and returns the single best
+		 * one) this returns all of them, so several resource dirs can each
+		 * contribute a file of the same name -- used for stacking map/ent deltas.
+		 * \return Number of paths appended to avPaths.
+		 */
+		size_t GetAllFilePaths(const tString& asFileName, tWStringVec& avPaths);
+
+		/**
 		 * The full index: lowercase filename -> entry (built at AddDirectory time).
 		 */
 		const tFilePathMap& GetAllFiles() const { return m_mapFiles; }
 
 	private:
 		tFilePathMap m_mapFiles;
-		tWStringSet m_setLoadedDirs;
 
 		tWString msNull;
 	};

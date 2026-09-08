@@ -1,9 +1,11 @@
--- Amnesia game executable -- mirrors amnesia/CMakeLists.txt.
+-- Amnesia game executable project and asset deployment action.
 local AMN = ROOT .. "/amnesia"
 
--- Short git hash for AMNESIA_TDD_TAG (mirrors root CMakeLists `git log -1 --format=%h`).
+-- Short git hash used for AMNESIA_TDD_TAG.
 local git_tag = os.outputof('git -C "' .. ROOT .. '" log -1 --format=%h') or "unknown"
 git_tag = git_tag:gsub("%s+", "")
+if git_tag == "" then git_tag = "unknown" end
+local build_version = _OPTIONS["build-version"] or "V0000"
 
 project "Amnesia"
     language "C++"
@@ -30,14 +32,14 @@ project "Amnesia"
     defines {
         "USERDIR_RESOURCES",
         "USE_GAMEPAD",
-        'AMNESIA_TDD_VERSION="V0000"',
+        'AMNESIA_TDD_VERSION="' .. build_version .. '"',
         'AMNESIA_TDD_TAG="' .. git_tag .. '"',
     }
 
     link_engine()      -- HPL2 + full dependency set (no transitive propagation in premake)
 
-    -- Per-shader Slang -> SPIR-V build rules next to the executable (native port of
-    -- cmake/shaders.cmake; incremental, no python).
+    -- Per-shader Slang -> SPIR-V build rules next to the executable (incremental,
+    -- no python).
     slang_prebuild()
 
     -- RPATH so the colocated SDL2/OpenAL shared libs in ./libs are found.
@@ -51,8 +53,9 @@ project "Amnesia"
     filter {}
 
 -- ---- deploy action --------------------------------------------------------
--- Mirrors the CMake `deploy` target: copy the installed game assets next to the
--- built executable. Run with:  premake5 deploy --game-dir="/path/to/Amnesia TDD"
+-- Copy non-excluded files from the supplied game directory into each existing
+-- build-premake/amnesia/{Debug,Release} directory. Run with:
+--   premake5 deploy --game-dir="/path/to/Amnesia TDD"
 --
 -- Implemented as a portable Lua walk (os.matchfiles + os.copyfile) so it works
 -- on both Linux and Windows; the previous `find ... cp --parents` pipeline was
@@ -66,8 +69,8 @@ newaction {
             print("error: --game-dir=<path to Amnesia: The Dark Descent> is required")
             return
         end
-        -- Same exclusion set as the CMake copy_game_assets.cmake / the old shell
-        -- pipeline: skip the prebuilt game binaries, DLLs/EXEs and bulky archives.
+        -- Exclude prebuilt game binaries and bulky archives: names beginning with
+        -- "Amnesia", plus files ending in .rar, .pdf, .dll, or .exe.
         local function excluded(name)
             return name:match("^Amnesia")
                 or name:match("%.rar$")

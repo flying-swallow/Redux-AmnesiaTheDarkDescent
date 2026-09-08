@@ -46,7 +46,7 @@ ParticleVSOut vsMain(uint vertexId : SV_VertexID,
     // SV_InstanceID alone is the per-draw counter; slangc subtracts
     // BaseInstance from Vulkan's InstanceIndex to give DX semantics.
     // Bindless slot id arrives via firstInstance — reconstruct
-    // gl_InstanceIndex by summing. Same fix as SurfelGBuffer.3d.slang.
+    // gl_InstanceIndex by summing. Same fix as VBufferRaster.3d.slang.
     uint instanceId = drawInst + baseInst;
 
     // Stream BDAs now live in the per-object UniformObject (folded in from the

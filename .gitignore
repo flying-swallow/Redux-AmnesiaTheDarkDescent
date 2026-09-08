@@ -359,3 +359,4 @@ MigrationBackup/
 build/
 build-premake/
 compile_commands.json
+.agentic-loop/

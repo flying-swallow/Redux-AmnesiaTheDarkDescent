@@ -52,6 +52,7 @@ protected:
 	
 	cEditorInputColorFrame* mpInpBackgroundColor;
 	cEditorInputNumber* mpInpDisabledCoverage;
+	cEditorInputNumber* mpInpDisplayGamma;
 
 	// Input
 	cEditorInputNumber* mpInpTumbleFactor;
@@ -71,6 +72,8 @@ protected:
 	cEditorInputBool* mpInpShowFog;
 
 	cEditorInputEnum* mpInpTextureQuality;
+	// Development-only render scale control.
+	cEditorInputEnum* mpInpDevRenderScale;
 
 	cEditorInputVec2* mpInpCamPlanes;
 
@@ -87,4 +90,3 @@ protected:
 //------------------------------------------------------------
 
 #endif // HPLEDITOR_EDITOR_WINDOW_OPTIONS_H
-

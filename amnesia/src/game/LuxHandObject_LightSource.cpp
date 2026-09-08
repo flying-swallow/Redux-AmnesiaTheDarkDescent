@@ -74,6 +74,7 @@ void cLuxHandObject_LightSource::LoadImplementedVars(tinyxml2::XMLElement *apVar
 	mfSwayCameraRollMul = hpl::GetAttributeFloat(apVarsElem, "SwayCameraRollMul", 0);
 
 	msSkipSwaySubMesh = hpl::GetAttributeString(apVarsElem, "SkipSwaySubMesh", "");
+	msShadowHullMesh = hpl::GetAttributeString(apVarsElem, "ShadowHullMesh", "");
 }
 
 //-----------------------------------------------------------------------
@@ -83,12 +84,34 @@ void cLuxHandObject_LightSource::ImplementedCreateEntity(cLuxMap *apMap)
 	mvDefaultLightColors.resize(mvLights.size());
 	mvDefaultLightFlicker.resize(mvLights.size());
 	mvLightFadeOutColor.resize(mvLights.size());
+	mvDefaultLightMatrix.resize(mvLights.size());
 
 	for(size_t i=0; i<mvLights.size(); ++i)
 	{
 		mvDefaultLightColors[i] = mvLights[i]->GetDiffuseColor();
 		mvDefaultLightFlicker[i] =mvLights[i]->GetFlickerActive();
 		mvLights[i]->SetFlickerActive(false);
+		mvDefaultLightMatrix[i] = mvLights[i]->GetLocalMatrix();
+	}
+	mvDefaultBillboardMatrix.resize(mvBillboards.size());
+	for(size_t i=0; i<mvBillboards.size(); ++i)
+		mvDefaultBillboardMatrix[i] = mvBillboards[i]->GetLocalMatrix();
+
+	if(!msShadowHullMesh.empty())
+	{
+		cMesh *pHull = gpBase->mpEngine->GetResources()->GetMeshManager()->CreateMesh(msShadowHullMesh);
+		if(pHull)
+		{
+			mpShadowMeshEntity = apMap->GetWorld()->CreateMeshEntity("PlayerLanternShadowHull", pHull);
+			mpShadowMeshEntity->SetRenderFlagBit(eRenderableFlag_ShadowOnly, true);
+			mpShadowMeshEntity->SetRenderFlagBit(eRenderableFlag_ShadowCaster, true);
+			mpShadowMeshEntity->SetRenderFlagBit(eRenderableFlag_VisibleInNonReflection, false);
+			mpShadowMeshEntity->SetRenderFlagBit(eRenderableFlag_VisibleInReflection, false);
+			mpMeshEntity->AddChild(mpShadowMeshEntity);
+			mpMeshEntity->SetRenderFlagBit(eRenderableFlag_ShadowReplaced, true);
+		}
+		else
+			Warning("Could not load hand light shadow hull '%s'\n", msShadowHullMesh.c_str());
 	}
 
 	mvDefaultSubMeshMatrix.resize(mpMeshEntity->GetSubMeshEntityNum());
@@ -300,6 +323,16 @@ void cLuxHandObject_LightSource::UpdateSwayPhysics(float afTimeStep)
 		pSubEnt->SetMatrix(cMath::MatrixMul(mtxSway, mvDefaultSubMeshMatrix[i]) );
 	}
 	mpMeshEntity->SetMatrix(m_mtxOffset);
+	// Hull and emitter must move together; the handle is the only fixed part.
+	if(mpShadowMeshEntity)
+		mpShadowMeshEntity->SetMatrix(mtxSway);
+	if(!msShadowHullMesh.empty())
+	{
+		for(size_t i=0; i<mvLights.size(); ++i)
+			mvLights[i]->SetMatrix(cMath::MatrixMul(mtxSway, mvDefaultLightMatrix[i]));
+		for(size_t i=0; i<mvBillboards.size(); ++i)
+			mvBillboards[i]->SetMatrix(cMath::MatrixMul(mtxSway, mvDefaultBillboardMatrix[i]));
+	}
 }
 
 //-----------------------------------------------------------------------

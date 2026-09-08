@@ -9,7 +9,7 @@
 
 namespace hpl {
 
-// Holder for the static portion of the "SurfelGBuffer.3d"
+// Holder for the static portion of the "VBufferRaster.3d"
 // VkGraphicsPipelineCreateInfo. Owns every sub-struct so the pointer
 // chain stays valid as long as the holder lives. Non-copyable /
 // non-movable - the pNext / pXxxState pointers would dangle.

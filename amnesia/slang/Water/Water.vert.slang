@@ -3,9 +3,9 @@
 //
 // Raster water surface — vertex stage. Mirrors Translucent.vert's fixed-function
 // 5-stream layout + SV_InstanceID → bindless OBJECT slot, but outputs WORLD-space
-// position / normal / tangent (the frag's wave normal + inline RT reflection are
-// world-space, like the surfel GI). Drawn over the refracted background already in
-// the pogo (the V-buffer's water refraction clobbered the primary hit).
+// position / normal / tangent (the frag's wave normal + sampled denoised
+// half-resolution reflection are world-space, like the reflection pass). Drawn over the
+// refracted background already in the pogo after the scene/refraction work.
 
 import bindless;
 import SceneTypes;
@@ -53,6 +53,9 @@ WaterVSOut vsMain(WaterVSIn vin,
     o.tangentW = normalize(mul((float3x3)obj.modelMat, vin.a_tangent.xyz));
     o.uv       = mul(obj.uvMat, float4(vin.a_texcoord, 0.0f, 1.0f)).xy;
     o.objectId = instanceId;
+    // Category (a): this is the full-render primary raster sample, so the
+    // host's jittered projMat deliberately stays on the hardware projection;
+    // no second jitter term belongs in the vertex shader.
     o.posH     = mul(modelViewPrj, float4(vin.a_position, 1.0f));
     return o;
 }

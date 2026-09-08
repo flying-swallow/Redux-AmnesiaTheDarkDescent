@@ -82,7 +82,7 @@ private:
 };
 
 // RAII pass bracket. One line at the top of a pass block:
-//   RIGpuScope _s(&cGraphics::profiler, &cGraphics::primary.cmds[0], "SurfelRT");
+//   RIGpuScope _s(&cGraphics::profiler, &cGraphics::primary.cmds[0], "Composite");
 struct RIGpuScope {
   RIGpuScope(RIGpuProfiler *profiler, struct RICmd *cmd, const char *name)
       : m_profiler(profiler), m_cmd(cmd) {

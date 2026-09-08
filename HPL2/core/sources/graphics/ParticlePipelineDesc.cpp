@@ -85,9 +85,7 @@ ParticlePipelineDesc::ParticlePipelineDesc(RI_Format_e swapchainFormat,
     blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     break;
   case BLEND_ALPHA:
-    // Premultiplied: the shader outputs rgb·pow(α,kPerceptualBlendExp) and
-    // a = 1−pow(1−α,k) so the powered weights approximate the legacy
-    // display-space lerp in the linear HDR target (see Particle.frag.slang).
+    // Shader premultiplies linear RGB once; opacity is independent of gamma.
     blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
     blendAttachment.dstColorBlendFactor =
         VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;

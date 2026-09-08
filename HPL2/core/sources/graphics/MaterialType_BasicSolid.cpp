@@ -57,7 +57,10 @@ namespace hpl {
 	{
 		//////////////
 		// Create textures
-		mpDissolveTexture = mpResources->GetTextureManager()->Create2DImage("core_dissolve.tga",true).Release();
+		// The dissolve map is a dither table sampled at LOD 0; match the false
+		// used in GlobalManagedSets.cpp, since the path-keyed cache makes a
+		// disagreement here a first-loader-wins coin flip.
+		mpDissolveTexture = mpResources->GetTextureManager()->Create2DImage("core_dissolve.tga",false).Release();
 	}
 
 	//////////////////////////////////////////////////////////////////////////

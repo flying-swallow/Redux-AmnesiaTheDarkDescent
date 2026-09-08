@@ -1,5 +1,6 @@
 // LightGridBuildPass — builds the coarse, camera-centered world-space light
-// grid used by the surfel ray-trace NEE and the MainCompositePass direct cull.
+// grid used by the path tracer's NEE, the direct-lighting passes and the
+// MainCompositePass direct cull.
 //
 //   binLights : ONE THREAD PER CELL. Each cell walks every light type over its
 //               stable SLOT CAPACITY (gPerFrame.{point,spot,area}LightCount are
@@ -18,13 +19,14 @@
 // atomic-order subset. The light reach is precomputed on the host
 // (pl/sl.radius), and the sphere/cell test compares squared distance, so the
 // inner loop has no sqrt. Point lights are omnidirectional so the reach sphere is
-// exact; spotlights additionally get a cone-vs-cell angular cull
-// (coneIntersectsGridCell) so a narrow cone bins only into the cells it can
-// actually reach instead of its whole bounding sphere. Binning stays conservative
-// (downstream SpotLight.sample does the exact cone test).
+// exact; spotlights additionally get an angular cull matching SpotLight.sample:
+// a rectangular projection for gobos, or a circular cone for analytic spots.
+// Binning stays conservative, including wide gobos and projection corners.
 //
-// Dispatched each frame after the surfel cell scatter and before the surfel
-// ray trace (Stage E) in cHybridRenderer::Draw.
+// Dispatched each frame in cHybridRenderer::Draw just before the G-buffer
+// raster pass, followed by a storage-write barrier into ray-tracing / compute /
+// fragment — i.e. it runs ahead of every consumer of the grid (direct lighting,
+// path trace, composite).
 
 #include "../Constants.h"
 
@@ -37,6 +39,10 @@ import Grid;                    // gridUnflattenCellIndex / sphereIntersectsGrid
 [numthreads(64, 1, 1)]
 void binLights(uint3 dispatchThreadId: SV_DispatchThreadID)
 {
+    // This coarse dispatch names world-space light-grid cells, not screen
+    // pixels. It never indexes gPackedHitInfo, reconstructs a camera ray, or
+    // produces a UV for NRD, so no primary-raster jitter or own-grid offset
+    // applies here.
     uint flat = dispatchThreadId.x;
     if (flat >= kLightGridCellCount)
         return;
@@ -62,7 +68,7 @@ void binLights(uint3 dispatchThreadId: SV_DispatchThreadID)
         ++count;
     }
 
-    // Spot lights — reach sphere + angular cone wedge cull.
+    // Spot lights — reach sphere + the shading path's angular footprint.
     for (uint s = 0u; s < nSpot; ++s)
     {
         SpotLight sl = gSpotLights[s];
@@ -70,8 +76,17 @@ void binLights(uint3 dispatchThreadId: SV_DispatchThreadID)
             continue;
         if (!sphereIntersectsGridCell(sl.position, sl.radius, cellPos, camPos, kLightGridDim, kLightGridUnit))
             continue;
-        if (!coneIntersectsGridCell(sl.position, sl.direction, sl.cosOuterAngle, cellPos, camPos, kLightGridDim, kLightGridUnit))
+        if (sl.goboTextureIndex != kInvalidTextureIndex)
+        {
+            if (!projectionIntersectsGridCell(sl.viewProjection, cellPos, camPos,
+                                              kLightGridDim, kLightGridUnit))
+                continue;
+        }
+        else if (!coneIntersectsGridCell(sl.position, sl.direction, sl.cosOuterAngle,
+                                         cellPos, camPos, kLightGridDim, kLightGridUnit))
+        {
             continue;
+        }
         if (count < kLightsPerCellMax)
             gLightGridList[flat * kLightsPerCellMax + count] = packLightId(kLightTypeSpot, s);
         ++count;

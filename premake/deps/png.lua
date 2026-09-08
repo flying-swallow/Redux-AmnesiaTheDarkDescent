@@ -1,5 +1,5 @@
--- libpng (1.6.37) -- explicit list mirrors sources/png/CMakeLists.txt.
--- pnglibconf.h is checked in alongside the sources.
+-- libpng (1.6.37) -- explicit source list, not a glob.
+-- pnglibconf.h is checked in alongside the HPL2/extern/png sources.
 project "png"
     kind "StaticLib"
     language "C"

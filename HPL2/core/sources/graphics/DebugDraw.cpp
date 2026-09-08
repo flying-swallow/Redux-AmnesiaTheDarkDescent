@@ -757,6 +757,13 @@ namespace hpl {
 				// before this submit retires.
 				pGraphics->graphicsDefer.push(PinResource(image.Get()));
 
+				// A never-uploaded texture has no view and yields an empty
+				// descriptor, so fall back to the 1x1 white default.
+				RIDescriptor diffuseDescriptor = pGraphics->whiteTexture2DDescriptor();
+				if(texture && !texture->view.isEmpty()) {
+					diffuseDescriptor = texture->descriptor();
+				}
+
 				auto samplerDesc = pGraphics->resolve_filter_descriptor(
 					eTextureWrap_ClampToEdge, eTextureWrap_ClampToEdge,
 					eTextureWrap_ClampToEdge, eTextureFilter_Bilinear);
@@ -767,7 +774,7 @@ namespace hpl {
 				bindings[0].handle = DescriptorBindingID::Create("pass");
 				bindings[1].descriptor = *samplerDesc;
 				bindings[1].handle = DescriptorBindingID::Create("diffuseSampler");
-				bindings[2].descriptor = texture->descriptor();
+				bindings[2].descriptor = diffuseDescriptor;
 				bindings[2].handle = DescriptorBindingID::Create("diffuseMap");
 				drawRun(m_uvProgram, runVertexStart, runIndexStart, runIndexCount, bindings, 3);
 			}

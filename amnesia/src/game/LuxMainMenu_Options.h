@@ -23,6 +23,7 @@
 //----------------------------------------------
 
 #include "LuxMainMenu.h"
+#include "graphics/TemporalUpscalerTypes.h"
 
 //----------------------------------------------
 
@@ -64,6 +65,9 @@ private:
 	void AddAdvancedGfxOptions(cWidgetDummy* apDummy);
 
 	void SetInputValues(cResourceVarsObject& pObj);
+	void RefreshTemporalUpscalerStatusLabel();
+	void RefreshRenderScaleControl();
+	void RebuildTemporalUpscalerQualityList();
 
 	void SetUpInput(cWidgetLabel* apLabel, iWidget* apInput, bool abNeedsRestart, const tWString& asMessage);
 	cLuxOption_ExtData* AddOptionData(bool abNeedsRestart, const tWString& asMessage);
@@ -162,9 +166,26 @@ private:
 	cWidgetCheckBox *mpChBShadows;
 	cWidgetComboBox *mpCBShadowQuality;
 	cWidgetComboBox *mpCBShadowRes;
+	cWidgetComboBox *mpCBTemporalUpscaler;
+	cWidgetComboBox *mpCBTemporalUpscalerQuality;
+	cWidgetComboBox *mpCBRenderScale;
+	cWidgetLabel    *mpLRenderScaleHelp;
+	cWidgetLabel    *mpLTemporalUpscalerStatus;
 
 	cWidgetCheckBox *mpChBWorldReflection;
 	cWidgetCheckBox *mpChBRefraction;
+
+	hpl::TemporalUpscalerProvider mSuperSamplingRequestedProvider;
+	hpl::TemporalUpscalerQuality mSuperSamplingRequestedQuality;
+	float mfRenderScaleRequested;
+	hpl::TemporalUpscalerProvider mSuperSamplingUnavailableProvider;
+	bool mbRebuildingTemporalUpscaler;
+	const char* mpSuperSamplingLoggedReason;
+	tWString msSuperSamplingStatusText;
+	bool mbTemporalUpscalerFsrAvailable;
+	bool mbTemporalUpscalerXeSSAvailable;
+	tString msTemporalUpscalerFsrUnavailableReason;
+	tString msTemporalUpscalerXeSSUnavailableReason;
 
 	cWidgetComboBox *mpCBAnisotropy;
 	cWidgetCheckBox *mpChBParallax;
@@ -177,10 +198,6 @@ private:
 	cWidgetCheckBox *mpChBSepia;
 	cWidgetCheckBox *mpChBRadialBlur;
 	cWidgetCheckBox *mpChBInsanity;
-
-	cWidgetCheckBox *mpChBSSAO;
-	cWidgetComboBox *mpCBSSAOSamples;
-	cWidgetComboBox *mpCBSSAOResolution;
 
 	cWidgetLabel	*mpLGamma;
 	cWidgetSlider	*mpSGamma;
@@ -263,6 +280,15 @@ private:
 	
 	bool Option_OnChangeValue(iWidget* apWidget, const cGuiMessageData& aData);
 	kGuiCallbackDeclarationEnd(Option_OnChangeValue);	
+
+	bool TemporalUpscaler_OnProviderChange(iWidget* apWidget, const cGuiMessageData& aData);
+	kGuiCallbackDeclarationEnd(TemporalUpscaler_OnProviderChange);
+
+	bool TemporalUpscaler_OnQualityChange(iWidget* apWidget, const cGuiMessageData& aData);
+	kGuiCallbackDeclarationEnd(TemporalUpscaler_OnQualityChange);
+
+	bool RenderScale_OnChange(iWidget* apWidget, const cGuiMessageData& aData);
+	kGuiCallbackDeclarationEnd(RenderScale_OnChange);
 
 	bool GammaSlider_OnMove(iWidget* apWidget, const cGuiMessageData& aData);
 	kGuiCallbackDeclarationEnd(GammaSlider_OnMove);

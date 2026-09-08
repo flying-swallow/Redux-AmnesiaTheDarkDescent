@@ -1,9 +1,9 @@
--- vorbis / vorbisfile / vorbisenc -- built from the extern/vorbis submodule.
--- libvorbis = all extern/vorbis/lib/*.c except the standalone programs, the
+-- vorbis / vorbisfile / vorbisenc -- built from the HPL2/extern/vorbis submodule.
+-- libvorbis = all HPL2/extern/vorbis/lib/*.c except the standalone programs, the
 -- vorbisenc/vorbisfile translation units (built into their own libs), and
 -- misc.c (the _VDBG_* memory-debug allocator -- pulls in <pthread.h>; upstream
--- CMake's VORBIS_SOURCES list in lib/CMakeLists.txt drops it for the same
--- reason).
+-- CMake's VORBIS_SOURCES list in HPL2/extern/vorbis/lib/CMakeLists.txt drops it
+-- for the same reason).
 local VORBIS_LIB = DEPS_EXTERN .. "/vorbis/lib"
 local vorbis_excluded = {
     [VORBIS_LIB .. "/vorbisenc.c"] = true,

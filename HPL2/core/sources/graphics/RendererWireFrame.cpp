@@ -63,27 +63,43 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 	cRendererWireFrame::cRendererWireFrame(cGraphics *apGraphics,cResources* apResources)
-		: iRenderer("WireFrame",apGraphics, apResources)
+		: iRenderer("WireFrame",apGraphics, apResources),
+		  m_wireframe(std::make_shared<RIProgram>())
+	{
+		LoadData();
+	}
+
+	//-----------------------------------------------------------------------
+
+	bool cRendererWireFrame::LoadData()
 	{
 		// Standalone program (no bindless set) — mirrors the Interface<cGraphics>::Get()->gui load in
 		// cGraphics::Init; per-draw state arrives via a frame-scratch UBO
 		// ("pass", see Draw below).
-		auto vert_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "wireframe.vert.spv");
-		auto frag_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(), "wireframe.frag.spv");
+		auto vert_stage = RIProgram::loadShaderStage(mpResources->GetFileSearcher(), "wireframe.vert.spv");
+		auto frag_stage = RIProgram::loadShaderStage(mpResources->GetFileSearcher(), "wireframe.frag.spv");
 		std::array<RIProgram::ModuleStage, 2> stages = {
 			RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, vert_stage, "vsMain"},
 			RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_FRAGMENT, frag_stage, "psMain"}
 		};
-		m_wireframe.initialize(&mpGraphics->device, stages, {}, "RendererWireFrame");
+		m_wireframe->initialize(&mpGraphics->device, stages, {}, "RendererWireFrame");
+		return true;
 	}
 
 	//-----------------------------------------------------------------------
 
 	void cRendererWireFrame::DestroyData()
 	{
-		// Runs from DestroyRenderObjects, before cGraphics::Dispose — the
-		// device is still alive (same pattern as ~cHybridRenderer).
-		m_wireframe.dispose(&mpGraphics->device);
+		// Keep the old program alive until every command buffer that may have
+		// bound one of its pipelines has retired. This also covers the public
+		// ReloadRendererData path, which can run while a frame is active.
+		auto oldProgram = std::move(m_wireframe);
+		m_wireframe = std::make_shared<RIProgram>();
+		mpGraphics->graphicsDefer.push(std::function<void()>(
+			[oldProgram = std::move(oldProgram), device = &mpGraphics->device]() mutable {
+				if (oldProgram)
+					oldProgram->dispose(device);
+			}));
 	}
 
 	//-----------------------------------------------------------------------
@@ -171,27 +187,24 @@ namespace hpl {
 			}
 		}
 
-		// Target-agnostic: the viewport resolves its extent from its Target
-		// (swapchain extent for TargetSwapchain, the view's for TargetView)
-		// and PrepareToRender configures this backend's state for it. This
-		// renderer draws 1:1 — no guard band.
-		const cVector2l vTargetSize = viewport->GetTargetSize();
-		if(vTargetSize.x <= 0 || vTargetSize.y <= 0) {
+		const cVector2l displayExtent = viewport->GetDisplayExtent();
+		if(displayExtent.x <= 0 || displayExtent.y <= 0) {
 			return;
 		}
-		const uint32_t renderWidth = (uint32_t)vTargetSize.x;
-		const uint32_t renderHeight = (uint32_t)vTargetSize.y;
 
 		////////////////////////////////////////////
 		// Viewport-owned targets: PrepareToRender configures this backend's
-		// state (1:1 color render target + depth) for the target size. cScene
-		// feeds the finished render target into the viewport pogo afterwards.
+		// state (1:1 color render target + depth) for the negotiated render
+		// extent. cScene feeds the finished render target into the viewport pogo
+		// afterwards.
 		cViewport::SimpleViewportState *pState =
 			viewport->PrepareToRender<cViewport::SimpleViewportState>(cntx);
-		if(pState == nullptr || pState->width == 0) {
+		if(pState == nullptr || pState->width == 0 || pState->height == 0) {
 			return;
 		}
 		cViewport::SimpleViewportState &state = *pState;
+		const uint32_t renderWidth = state.width;
+		const uint32_t renderHeight = state.height;
 
 		////////////////////////////////////////////
 		// Pre-render transitions: render target UNDEFINED -> COLOR (contents
@@ -329,7 +342,7 @@ namespace hpl {
 			pipelineCreateInfo.pColorBlendState = &colorBlendState;
 
 			const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, 0u);
-			m_wireframe.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash, "wireframe", &pipelineCreateInfo);
+			m_wireframe->bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0], kHash, "wireframe", &pipelineCreateInfo);
 		}
 
 		////////////////////////////////////////////
@@ -375,7 +388,7 @@ namespace hpl {
 					RIProgram::DescriptorBinding binding = {};
 					mpGraphics->UpdateFrameUBO(&binding.descriptor, (void*)&uniformBlock, sizeof(uniformBlock));
 					binding.handle = DescriptorBindingID::Create("pass");
-					m_wireframe.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex, &binding, 1);
+					m_wireframe->bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex, &binding, 1);
 
 					RIBuffer *vertBufs[1] = { mpGraphics->translucentVtxBuffer.Get() };
 					const VkDeviceSize vertOffsets[1] = { (VkDeviceSize)geom.posByteOffset };
@@ -412,7 +425,7 @@ namespace hpl {
 				RIProgram::DescriptorBinding binding = {};
 				mpGraphics->UpdateFrameUBO(&binding.descriptor, (void*)&uniformBlock, sizeof(uniformBlock));
 				binding.handle = DescriptorBindingID::Create("pass");
-				m_wireframe.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex, &binding, 1);
+				m_wireframe->bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex, &binding, 1);
 
 				RIBuffer *vertBufs[1] = { posElement->GetBuffer() };
 				const VkDeviceSize vertOffsets[1] = { 0 };

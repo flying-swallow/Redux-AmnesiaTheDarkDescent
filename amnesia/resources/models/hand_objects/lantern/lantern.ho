@@ -1,0 +1,36 @@
+<HandObject>
+	<Main
+		Model = "hand_lantern.ent"
+		Type= "LightSource"
+	
+	/>
+
+	<Settings
+		OffsetScale = "1 1 1"
+		OffsetRotation = "-15 -5 -46"
+		OffsetPosition = "-0.0105 -0.0035 0.002"
+			
+		HandsAnim_Idle = "Lantern_Idle"
+		HandsAnim_Draw = "Lantern_Draw"
+		HandsAnim_Holster = "Lantern_Holster"
+		
+		AttachBoneName = "attachpoint"
+				
+		FadeInTime = "1"
+		FadeOutTime = "1"
+		
+		HasSwayPhysics = "true"
+		MaxSwayVel = "15"
+		SwayAngleLimits = "-13 90"
+		SwayDownAngleLimits = "-7 80"
+		SwayPinDir = "0 0 1"
+		SwayGravity = "12"
+		SwayFriction = "1.0"
+		SwayPlayerSpeedMul = "0.015"
+		SwayCameraRollMul = "1"
+		
+		SkipSwaySubMesh = "handle_wood"
+		ShadowHullMesh = "models/hand_objects/lantern/hand_lantern_shadow.dae"
+	/>
+
+</HandObject>

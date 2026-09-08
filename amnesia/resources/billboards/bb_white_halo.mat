@@ -1,0 +1,11 @@
+<Material>
+  <Main Type="Translucent" BlendMode="Add" PhysicsMaterial="" UseAlpha="False" DepthTest="True" />
+  <TextureUnits>
+    <Diffuse File="bb_white_halo.dds" Compress="false" Type="2D" Mipmaps="true" Wrap="Repeat" />
+  </TextureUnits>
+  <SpecificVariables>
+    <!-- Authored color falloff: decoding is required before HDR addition. -->
+    <Var Name="DiffuseIsMask" Value="false" />
+    <Var Name="SmoothHalo" Value="true" />
+  </SpecificVariables>
+</Material>

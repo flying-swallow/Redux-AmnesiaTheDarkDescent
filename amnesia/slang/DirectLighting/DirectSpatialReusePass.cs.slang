@@ -4,8 +4,8 @@
 // DirectLightingPass, and merge a few same-surface neighbours' reservoirs
 // (geometry-rejected on the depth/normal key, so light can't leak across
 // surfaces). Then RESOLVE: one soft (blue-noise disk) shadow ray for the chosen
-// light, weighted by the reservoir's UCW → demodulated irradiance the SVGF-lite
-// à-trous pass filters and the composite multiplies albedo into.
+// light, weighted by the reservoir's UCW -> demodulated irradiance for
+// RELAX, which filters direct lighting independently of GI.
 //
 // The merged reservoir is also written out as the next frame's temporal history.
 // One shadow ray per pixel per frame; the reuse drives the effective candidate
@@ -13,25 +13,25 @@
 
 #include "../HostDefinitions.h"
 #include "../Constants.h"
+#include "../../../HPL2/extern/NRD/Shaders/NRD.hlsli"
 
 import SceneTypes;
 import Scene;
+import RayCone;
 import bindless;                       // gPackedHitInfo, gRtAccel, lights, grid
 import HitInfo;
 import PerFrame.resource;
-import SurfelGI.SurfelShade;           // prepareDiffuseShading / directTargetPdf / resolveDirectReservoir
+import Shading;                        // prepareDiffuseShading / directTargetPdf / resolveDirectReservoir
 import Random;
 import Reservoir;
 
-// Pass-private (set 2).
-[vk::binding(0, 2)] Texture2D<uint4>    gPackedHitInfoRaster;  // raster V-buffer fallback
+// Pass-private (set 2). Slot 0 is a gap; the remaining bindings keep their
+// numbers so the host-side layout stays stable. Slots 5-7 (velocity and the
+// two history textures) were dropped with the temporal accumulation.
 [vk::binding(1, 2)] Texture2D<float4>   gReservoirIn;          // temporally-merged reservoir
 [vk::binding(2, 2)] Texture2D<float4>   gDirectKey;            // current surface key (viewZ, normal.xyz)
 [vk::binding(3, 2)] RWTexture2D<float4> gReservoirOut;         // output: final reservoir (next frame's history)
-[vk::binding(4, 2)] RWTexture2D<float4> gDirectLighting;       // output: accumulated demodulated irradiance (rgb, count)
-[vk::binding(5, 2)] Texture2D<float2>   gVelocity;             // screen-space motion (RG16F)
-[vk::binding(6, 2)] Texture2D<float4>   gDirectHistory;        // previous accumulated direct (rgb, count)
-[vk::binding(7, 2)] Texture2D<float4>   gDirectKeyHistory;     // previous surface key (viewZ, normal.xyz)
+[vk::binding(4, 2)] RWTexture2D<float4> gDirectLighting;       // output: resolved demodulated irradiance (rgb; .a unused)
 
 [shader("compute")]
 [numthreads(16, 16, 1)]
@@ -39,13 +39,18 @@ void csMain(uint3 tid : SV_DispatchThreadID)
 {
     uint outW, outH;
     gDirectLighting.GetDimensions(outW, outH);
+    // Camera-jitter audit (a): this dispatch covers the full render extent,
+    // matching the V-buffer, direct key, reservoirs, and lighting output. `p`
+    // is the primary raster sample in that common grid; no camera ray is
+    // reconstructed and no jittered UV conversion is required.
     int2 p = int2(tid.xy);
     if (p.x >= int(outW) || p.y >= int(outH))
         return;
 
+    // The surface is recovered from the full-resolution V-buffer hit (only its
+    // barycentrics are POM-perturbed), not from a pixel-to-ray reconstruction;
+    // it already follows the raster sample and needs no extra jitter term.
     HitInfo hitInfo = HitInfo(gPackedHitInfo[uint2(p)]);
-    if (!hitInfo.isValid())
-        hitInfo = HitInfo(gPackedHitInfoRaster.Load(int3(p, 0)));
     if (!hitInfo.isValid())
     {
         gReservoirOut[p]  = float4(0.f, 0.f, 0.f, 0.f);
@@ -55,12 +60,26 @@ void csMain(uint3 tid : SV_DispatchThreadID)
 
     TriangleHit th  = hitInfo.getTriangleHit();
     uint materialID = gSceneObjects[th.instanceID].materialID;
-    VertexData v    = getVertexData(th);
+    float triLod;
+    VertexData v    = getVertexDataAndLodConstant(th, triLod);
+    // Use the geometric interpolated normal: cone-to-surface projection must
+    // not be changed by a normal map applied later during shading.
+    float3 toHit  = v.posW - gPerFrame.posW;
+    float  hitT   = length(toHit);
+    RayCone cone  = rayConePropagate(rayConePrimary(), hitT);
+    float texLodBase = rayConeTexLodBase(cone, triLod, v.normalW,
+                                         toHit / max(hitT, 1e-6f));
+    float surfaceFootprintW = rayConeSurfaceFootprint(cone, v.normalW,
+                                                      toHit / max(hitT, 1e-6f));
     UniformObject obj = gSceneObjects[th.instanceID];
     DiffuseShading sd = prepareDiffuseShading(v, materialID, obj.illuminationAmount,
+                                              texLodBase, surfaceFootprintW,
                                               /*decodeRoughness*/ false, /*applyNormalMap*/ true);
 
     float4 ckey = gDirectKey.Load(int3(p, 0));
+    // Category (b): this guide is the current V-buffer key, including viewZ
+    // from the unjittered view transform; spatial reuse must not add projection
+    // jitter to it.
     float  curZ = ckey.x;
     float3 curN = normalize(ckey.yzw);
 
@@ -72,12 +91,15 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // Start the combination from the center (temporal) reservoir.
     Reservoir R; R.init();
     Reservoir c = unpackReservoir(gReservoirIn.Load(int3(p, 0)));
-    R.merge(c, directTargetPdf(sd, c.y), rng);
+    mergeDirectReservoir(R, c, directTargetPdf(sd, c.y), rng);
 
     // Merge a few same-surface neighbours.
     for (int i = 0; i < kSpatialSamples; ++i)
     {
         float2 o = (rng.next_float2() * 2.0f - 1.0f) * kSpatialRadius;
+        // Category (a): neighbours remain integer samples of the same
+        // full-resolution raster-derived grid. No coarser-grid offset or UV
+        // jitter belongs in this same-grid spatial reuse operation.
         int2   q = p + int2(int(round(o.x)), int(round(o.y)));
         if (q.x < 0 || q.y < 0 || q.x >= int(outW) || q.y >= int(outH)) continue;
         if (q.x == p.x && q.y == p.y) continue;
@@ -89,7 +111,7 @@ void csMain(uint3 tid : SV_DispatchThreadID)
         if (dot(curN, normalize(nN)) < kReprojNormalCos) continue;  // geometry reject
 
         Reservoir nb = unpackReservoir(gReservoirIn.Load(int3(q, 0)));
-        R.merge(nb, directTargetPdf(sd, nb.y), rng);
+        mergeDirectReservoir(R, nb, directTargetPdf(sd, nb.y), rng);
     }
 
     R.finalizeCombine();
@@ -98,39 +120,8 @@ void csMain(uint3 tid : SV_DispatchThreadID)
     // Resolve the chosen light with one soft (blue-noise disk) shadow ray.
     float3 curResolved = resolveDirectReservoir(sd, R, rng);
 
-    // Temporal accumulation of the RESOLVED irradiance (SVGF temporal stage).
-    // The reservoir stabilizes light SELECTION, but the single per-frame shadow
-    // ray's visibility / penumbra still needs temporal averaging — without it the
-    // soft-shadow edge shimmers. Reproject the previous accumulation through the
-    // motion vector and reject on the depth/normal disocclusion test, then EMA-
-    // blend by history length. The à-trous pass cleans the spatial residual.
-    float2 dims   = float2(outW, outH);
-    float2 curUV  = (float2(p) + 0.5f) / dims;
-    float2 histUV = curUV - gVelocity.Load(int3(p, 0)).xy;
-
-    bool tvalid = !(any(histUV < 0.0f) || any(histUV > 1.0f));
-    if (tvalid)
-    {
-        int2 ht = clamp(int2(histUV * dims), int2(0), int2(dims) - 1);
-        float4 hk = gDirectKeyHistory.Load(int3(ht, 0));
-        tvalid = abs(curZ - hk.x) <= kReprojZRelTol * max(curZ, 1.0e-3f)
-              && dot(curN, normalize(hk.yzw)) >= kReprojNormalCos;
-    }
-
-    float3 result;
-    float  count;
-    if (tvalid)
-    {
-        float4 h = gDirectHistory.SampleLevel(gMaterialSampler, histUV, 0.0f);
-        count = min(h.a + 1.0f, kDirectMaxAccum);
-        float alpha = max(1.0f / count, kDirectTemporalAlpha);
-        result = lerp(h.rgb, curResolved, alpha);
-    }
-    else
-    {
-        result = curResolved;
-        count  = 1.0f;
-    }
-
-    gDirectLighting[p] = float4(result, count);
+    // RELAX accumulates and spatially filters this signal downstream. Its diffuse
+    // prepass is disabled, so diffuse hit distance (.a) is unused.
+    // Sanitize before storing FP16, as for the other NRD radiance inputs.
+    gDirectLighting[p] = RELAX_FrontEnd_PackRadianceAndHitDist(curResolved, 1.0f, true);
 }

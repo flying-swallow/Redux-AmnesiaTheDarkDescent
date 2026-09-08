@@ -14,13 +14,13 @@
 // output going into the blender is in the right space.
 //
 // Aligned with the reference translucency.frag.fsl — the one deliberate
-// deviation is refraction. The legacy bend-behind distortion (screen-color
-// copy + per-fragment UV offset) is moved upstream: the RT V-buffer
-// (SurfelVBuffer.rt.slang::closeHit) bends the primary ray through refractive
-// materials and MainCompositePass.cs.slang shades the resulting hit, so by
-// the time this shader runs the GI composite already shows the refracted
-// background at every refractive pixel. The translucent surface just
-// alpha-blends on top — no screen-color sample, no refraction block here.
+// deviation is refraction, which is NOT implemented in this port. The legacy
+// bend-behind distortion (screen-color copy + per-fragment UV offset) was
+// dropped, and the RT V-buffer that was meant to supply the refracted
+// background by bending the primary ray was retired without ever being wired
+// up. So the background behind a refractive pixel is unrefracted and this
+// pass simply alpha-blends over it — no screen-color sample, no refraction
+// block here.
 // Reflection stays the material's static cube map, exactly as the reference.
 
 
@@ -31,17 +31,17 @@ import PerFrame.resource;
 import Fog;
 import Scene;
 import Material;             // load*Material / materialAlphaTest / traceShadowRay / traceReflectionHit
-// Shared legacy blend math (kBlendMode* + the display-space modulation /
-// decode stages). This pass keeps the two stages SEPARATE — unlike
-// Particle.frag — because the display-space cube-map reflection + rim add
-// must sit between the source modulation and the single decode to linear.
+// Linear HDR source preparation and gamma-independent opacity.
 import BlendModes;
+import Utils.Color.ColorHelpers;
+import DiffuseShading;
 
 // Options bitfield mirroring TranslucencyFlags in RendererDeferred.cpp.
 // blendMode stays as a separate uint so the existing switch is cheap; this
 // field carries the *behaviour* flags the reference packs into the same
 // root constant.
 #define TRANS_OPT_USE_ILLUMINATION (1u << 0)
+#define TRANS_OPT_HAS_TLAS (1u << 1)
 
 struct TranslucentPushConstants
 {
@@ -78,11 +78,50 @@ float computeFresnel(float afEDotN, float afFresnelBias, float afFresnelPow)
     return saturate(afFresnelBias + (1.0f - afFresnelBias) * pow(fFacing, afFresnelPow));
 }
 
+// Malformed or missing tangent data must not reach lighting or shadow rays.
+float3 translucentSafeNormal(float3 value, float3 fallback)
+{
+    float len2 = dot(value, value);
+    return len2 > 1.0e-12f && len2 < 1.0e30f ? value * rsqrt(len2) : fallback;
+}
+
+float3 translucentDiffuseLighting(TranslucentVSOut psIn, TranslucentMaterial mat,
+                                  float3 posW, float footprintW)
+{
+    if ((pc.options & TRANS_OPT_HAS_TLAS) == 0u)
+        return float3(0.0f);
+
+    float3 N = translucentSafeNormal(psIn.normal, float3(0, 0, 1));
+    if ((mat.materialConfig & kMaterialFlagEnableNormal) != 0u &&
+        mat.tex[1] != kInvalidTextureIndex)
+    {
+        float3 T = translucentSafeNormal(psIn.tangent - N * dot(N, psIn.tangent), float3(0));
+        float3 B = translucentSafeNormal(psIn.bitangent - N * dot(N, psIn.bitangent), float3(0));
+        if (dot(T, T) > 0.0f && dot(B, B) > 0.0f)
+        {
+            float3 mapN = sampleBindless2D(mat.tex[1], psIn.uv).xyz * 2.0f - 1.0f;
+            N = translucentSafeNormal(mapN.x * T + mapN.y * B + mapN.z * N, N);
+        }
+    }
+    N = translucentSafeNormal(mul(float3x3(gPerFrame.invViewMat), N), float3(0, 1, 0));
+    float3 V = translucentSafeNormal(gPerFrame.posW - posW, N);
+    // Match kShadeRayEps in the shared direct-lighting walker.
+    float3 origin = posW + N * 1.0e-3f;
+    CellLights cell = getCellLights(posW);
+    float3 irradiance = float3(0.0f);
+    for (uint k = 0u; k < cell.count; ++k)
+        irradiance += shadeAnalyticLight(posW, N, V, footprintW,
+            kDefaultDiffuseRoughness, cellLightAt(cell, k), origin);
+    return irradiance;
+}
+
 [shader("fragment")]
 float4 psMain(TranslucentVSOut psIn) : SV_TARGET
 {
     UniformObject       obj = gSceneObjects[psIn.objectId];
     TranslucentMaterial mat = loadTranslucentMaterial(obj.materialID);
+    bool litDiffuse = (mat.materialConfig & kMaterialFlagLitDiffuse) != 0u &&
+        (pc.blendMode == kBlendModeAlpha || pc.blendMode == kBlendModePremulAlpha);
 
     // Reference mask: when the second cube-map-only draw runs, the diffuse /
     // illumination / etc. sample paths are switched off so only the
@@ -95,27 +134,36 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
                         | kMaterialFlagEnableCubeMapAlpha);
     }
 
-    // Legacy display-space source: the base game blended raw gamma texels ×
-    // authored vertex colors in a UNORM display target. Re-encode the
-    // hardware-sRGB-decoded sample so the product (and all the blend-mode /
-    // reflection math below) runs in the space it was authored for; the
-    // result is decoded to linear ONCE at the end (see the conversion switch).
     float4 diffuseColor = float4(0.0f, 0.0f, 0.0f, 1.0f);
     if ((textureConfig & kMaterialFlagEnableDiffuse) != 0u)
     {
         uint diffuseTex = mat.tex[0];
-        if (diffuseTex != kInvalidTextureIndex)
-        {
-            float4 s = sampleBindless2D(diffuseTex, psIn.uv);
-            diffuseColor = displaySpaceSample(s);
-        }
-        diffuseColor *= psIn.color;
+        if (pc.blendMode == kBlendModeAdd &&
+            (mat.materialConfig & kMaterialFlagSmoothHalo) != 0u)
+            diffuseColor = smoothHaloLinearSample(psIn.uv, psIn.color);
+        else if (diffuseTex != kInvalidTextureIndex)
+            // Legacy grayscale halos are authored RGB color, not linear masks.
+            // Keep their hardware sRGB decode: re-encoding here lifts the dim
+            // falloff and magnifies BC1 steps before additive HDR composition.
+            diffuseColor = translucentLinearSample(
+                sampleBindless2D(diffuseTex, psIn.uv), psIn.color,
+                pc.blendMode,
+                (mat.materialConfig & kMaterialFlagDiffuseIsMask) != 0u);
     }
 
     // Per-pixel fog (world + per-area). The shared Fog helper returns a
     // visibility scalar — translucents multiply it into the per-pixel alpha
     // so glass/decals fade behind fog without painting the fog colour.
+    // Category (a): this world position comes from the view-space position
+    // interpolated at the jittered primary raster sample, not from a pixel
+    // index; preserving that interpolant keeps the fragment aligned with the
+    // sample that produced its material UVs.
     float3 surfacePosW = mul(gPerFrame.invViewMat, float4(psIn.viewPos, 1.0f)).xyz;
+    // Derivatives precede divergent per-light/shadow control flow.
+    float footprintW = max(length(ddx(surfacePosW)), length(ddy(surfacePosW)));
+    if (litDiffuse)
+        diffuseColor.rgb *= translucentDiffuseLighting(psIn, mat, surfacePosW, footprintW)
+                          * max(mat.litDiffuseScale, 0.0f);
     FogResult fog = computeFog(surfacePosW, gPerFrame.posW);
     float finalAlpha = pc.sceneAlpha * fog.visibility;
 
@@ -125,16 +173,12 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
     // textureConfig) so the cube-map second draw dims its reflection too,
     // matching the legacy shader's afLightLevel use on the reflection terms.
     float lightLevel = 1.0f;
-    if ((mat.materialConfig & kMaterialFlagAffectedByLightLevel) != 0u)
+    if (!litDiffuse && (mat.materialConfig & kMaterialFlagAffectedByLightLevel) != 0u)
     {
         lightLevel = lightLevelAt(surfacePosW);
     }
 
-    // Stage 1 of the shared blend scheme: display-space source modulation
-    // (the legacy per-mode pre-bias). The reflection/rim add below stays in
-    // display space, so the decode (stage 2) runs after it.
-    float4 finalColor = applyBlendModulation(pc.blendMode, diffuseColor,
-                                             finalAlpha, lightLevel);
+    float4 finalColor = diffuseColor;
 
     // Fresnel reflection. Gated on the material carrying a reflection cube map
     // (the "reflective" signal — same gate the legacy used), but the
@@ -170,6 +214,9 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
             screenNormal = normalize(psIn.normal);
         }
 
+        // Category (a): the view vector is derived from the interpolated
+        // primary-raster view position, not a reconstructed pixel-index ray;
+        // no explicit jitter term or unjittered projection belongs here.
         float3 eyeVec   = normalize(psIn.viewPos);
         float  edotN    = max(dot(-eyeVec, screenNormal), 0.0f);
         float  fresnel  = computeFresnel(edotN, mat.frenselBias, mat.frenselPow);
@@ -182,12 +229,12 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
         float3 envDirView  = reflect(eyeVec, screenNormal);
         float3 envDirWorld = mul(gPerFrame.invViewRotationMat,
                                  float4(envDirView, 1.0f)).xyz;
-        // No re-encode needed: cube maps keep a UNORM view (only Diffuse /
-        // Illumination get sRGB views — MaterialManager.cpp), so the sample
-        // is already the raw gamma value the legacy display-space add wants.
+        // Cube maps use UNORM views, so decode their color once before
+        // adding it to the linear diffuse source.
         float4 reflectionColor =
             gTexturesCube[NonUniformResourceIndex(mat.cubeMapTextureIndex)]
                 .Sample(gMaterialSampler, envDirWorld);
+        reflectionColor.rgb = sRGBToLinear(reflectionColor.rgb);
 
         // Optional 2D alpha mask that fades the reflection contribution by UV.
         if ((textureConfig & kMaterialFlagEnableCubeMapAlpha) != 0u)
@@ -201,8 +248,13 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
             }
         }
 
+        // Premultiplied materials require every source contribution to be
+        // associated with coverage before ONE / ONE_MINUS_SRC_ALPHA blending.
+        if (pc.blendMode == kBlendModePremulAlpha)
+            reflectionColor.rgb *= finalColor.a;
+
         finalColor.xyz += reflectionColor.xyz
-                        * fresnel * finalAlpha * lightLevel;
+                        * fresnel;
 
         // Rim reflection term — view-space normal vs -Z. Base clamped positive
         // for the same ULP reason as computeFresnel (abs(dot) can exceed 1).
@@ -211,22 +263,16 @@ float4 psMain(TranslucentVSOut psIn) : SV_TARGET
             float fRim = dot(screenNormal, float3(0.0f, 0.0f, -1.0f));
             fRim = pow(max(1.0f - abs(fRim), 1.0e-6f), mat.rimLightPow) * mat.rimLightMul;
             finalColor.xyz += reflectionColor.xyz
-                            * fRim * finalAlpha * lightLevel;
+                            * fRim;
         }
     }
 
-    // Reference uses `finalColor.a == 0.0` (no epsilon). The strict check
-    // matches; keeps premul-alpha fully-faded fragments out of the depth
-    // test interactions when MSAA resolves later. Tested on the display-space
-    // alpha, before the blend-weight reshape below.
-    float displayAlpha = finalColor.a;
-    if (displayAlpha <= 0.0f)
-    {
+    // Lit surfaces retain authored coverage; preserve existing unlit tuning.
+    // Opacity modulation keeps additive fades and multiplicative neutrals.
+    float translucentStrength = litDiffuse ? 1.0f : 0.5f;
+    finalColor = applyBlendModulation(pc.blendMode, finalColor,
+                                     finalAlpha * translucentStrength, lightLevel);
+    if (finalColor.a <= 0.0f)
         discard;
-    }
-
-    // Everything above (pre-bias, reflection, rim) is legacy display-space
-    // math. Stage 2 of the shared blend scheme decodes to linear ONCE and
-    // reshapes the dst-blend weights (see BlendModes.slang).
     return encodeBlendOutputLinear(pc.blendMode, finalColor);
 }

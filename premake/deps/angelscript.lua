@@ -1,4 +1,4 @@
--- AngelScript (scripting) -- explicit list mirrors extern/CMakeLists.txt.
+-- AngelScript (scripting) -- explicit source list, not a glob.
 -- The x64 MSVC assembly callfunc is added (and assembled via MASM) only on VS.
 project "AngelScript"
     kind "StaticLib"

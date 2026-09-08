@@ -19,6 +19,8 @@
 
 #include "LuxMapHandler.h"
 
+#include "Constants.h"   // kSceneExposure
+
 #include <tinyxml2.h>
 #include "resources/XmlHelper.h"
 
@@ -134,9 +136,10 @@ cLuxMapHandler::cLuxMapHandler() : iLuxUpdateable("LuxMapHandler")
 	//Maps linear HDR -> normalized [0,1] sRGB-encoded display, matching the GUI
 	//which writes display-encoded values to the same UNORM swapchain. It carries
 	//the mandatory output encode, so it must always run — no config toggle.
-	//Only the image trail runs after it (negative priority), in display space.
+	//The legacy color lookup, image trail and menu backdrop run after it
+	//(negative priorities), in display space.
 	cPostEffectParams_ToneMap tonemapParams;
-	tonemapParams.mfExposure = 1.0f;
+	tonemapParams.mfExposure = kSceneExposure;
 	tonemapParams.mfShadowLift = 1.0f;
 	tonemapParams.mfGamma = gpBase->mpConfigHandler->GetGamma();
 	mpPostEffect_ToneMap = pGraphics->CreatePostEffect(&tonemapParams);
@@ -159,20 +162,24 @@ cLuxMapHandler::cLuxMapHandler() : iLuxUpdateable("LuxMapHandler")
 	pPostEffectComp->AddPostEffect(mpPostEffect_RadialBlur, 9);
 	mpPostEffect_RadialBlur->SetActive(false);
 
-	//Sepia
+	//Sepia — the legacy 256x1 LUT maps display colors, not scene radiance.
+	//Applying it before exposure/tonemap collapses dark HDR values onto the
+	//first few brown LUT entries and then exposes that raised black level.
 	cPostEffectParams_ColorConvTex sepiaParams;
 	sepiaParams.msTextureFile = "colorconv_sepia.tga";
 	sepiaParams.mfFadeAlpha = 0.0f;
 	mpPostEffect_Sepia = pGraphics->CreatePostEffect(&sepiaParams);
-	pPostEffectComp->AddPostEffect(mpPostEffect_Sepia, 4);
+	pPostEffectComp->AddPostEffect(mpPostEffect_Sepia, -1);
 	mpPostEffect_Sepia->SetActive(false);
 
 	//Menu backdrop — live blur/desaturate behind the inventory/journal/escape
 	//menu. Negative priority so it runs AFTER tonemap, in display-encoded [0,1]
 	//space (matching what the old snapshot captured: the final composited image).
+	//Run after the image trail too, so opening a menu cannot feed its blur
+	//back into the gameplay history.
 	//Game-owned (not a registered cGraphics type), so we hplDelete it ourselves.
 	mpPostEffect_MenuBackdrop = hplNew(cLuxPostEffect_MenuBackdrop, (pGraphics, gpBase->mpEngine->GetResources()));
-	pPostEffectComp->AddPostEffect(mpPostEffect_MenuBackdrop, -5);
+	pPostEffectComp->AddPostEffect(mpPostEffect_MenuBackdrop, -20);
 	mpPostEffect_MenuBackdrop->SetActive(false);
 
 	//////////////////////////
@@ -259,6 +266,8 @@ void cLuxMapHandler::UpdateViewportRenderProperties()
 	cRenderSettings *pRenderSettings = mpViewport->GetRenderSettings();
 	pRenderSettings->mbRenderWorldReflection = gpBase->mpConfigHandler->mbWorldReflection;
 	pRenderSettings->mbRenderShadows = gpBase->mpConfigHandler->mbShadowsActive;
+	// The viewport resolves provider availability itself; unavailable providers fall back to native extent and are reported via cViewport::GetTemporalUpscalerStatus().
+	mpViewport->SetTemporalUpscalerSettings(gpBase->mpConfigHandler->mSuperSampling);
 }
 
 //-----------------------------------------------------------------------
@@ -270,7 +279,7 @@ void cLuxMapHandler::RefreshToneMapGamma()
 	// Rebuild with the constants used at creation (exposure/shadowLift = 1) plus
 	// the current config gamma, then re-apply.
 	cPostEffectParams_ToneMap tonemapParams;
-	tonemapParams.mfExposure = 1.0f;
+	tonemapParams.mfExposure = kSceneExposure;
 	tonemapParams.mfShadowLift = 1.0f;
 	tonemapParams.mfGamma = gpBase->mpConfigHandler->GetGamma();
 	mpPostEffect_ToneMap->SetParams(&tonemapParams);
@@ -781,6 +790,3 @@ void cLuxMapHandler::CheckMapChange(float afTimeStep)
 }
 
 //-----------------------------------------------------------------------
-
-
-

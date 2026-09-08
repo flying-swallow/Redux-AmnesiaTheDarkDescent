@@ -1,6 +1,5 @@
--- freealut (ALUT) -- mirrors extern/CMakeLists.txt. Core AL headers come from the
--- openal-soft submodule; alut.h (freealut's own public header) sits under
--- sources/freealut/AL.
+-- freealut (ALUT) -- core AL headers come from HPL2/extern/openal-soft; alut.h
+-- (freealut's own public header) sits under HPL2/extern/freealut/AL.
 project "freealut"
     kind "StaticLib"
     language "C"

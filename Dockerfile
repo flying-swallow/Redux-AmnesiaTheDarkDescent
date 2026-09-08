@@ -4,24 +4,27 @@
 # and the HPL2 engine pull in via #include. The Linux CI workflow
 # (.github/workflows/build.yml) installs a smaller set because GitHub's
 # ubuntu-latest image already ships some headers; this Dockerfile lists the
-# full set explicitly so a clean container can build.
+# full set explicitly so a clean container can build. glslang-tools and
+# spirv-tools provide the FSR 3.1 SDK shader-compiler and SPIR-V validation tools.
 #
 # Not a runtime image — intended only as a build sandbox. Invoke via
 # ./build-linux-docker.sh, which bind-mounts the source tree and runs the
 # premake build inside the container so build outputs land back on the host.
 #
-# Ships premake5 (drives the gmake2 build) and python3 (used by the
-# scripts/hpl2_amnesia_patch.py source patch) in addition to the system dev
-# libraries the in-tree SDL2/openal-soft/HPL2 builds need. cmake is still
-# required: SDL2 and openal-soft are built via their own CMake as premake
-# "Makefile" projects (premake/external.lua).
+# Ships premake5 (drives the gmake2 build) and python3 for the FSR 3.1 SDK
+# shader-compiler wrapper / SPIR-V validation scripts, the
+# scripts/hpl2_amnesia_patch.py source patch, and the stdlib-only Python test
+# suite the build runs. These are in addition to the system dev libraries the
+# in-tree SDL2/openal-soft/HPL2 builds need. cmake is still required: SDL2 and
+# openal-soft are built via their own CMake as premake "Makefile" projects
+# (premake/external.lua).
 
 FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential clang ninja-build cmake python3 \
+        build-essential clang ninja-build cmake python3 glslang-tools spirv-tools \
         git ca-certificates curl \
         libx11-dev libxext-dev libxi-dev libxcursor-dev libxrandr-dev libxss-dev \
         libgl-dev libglu1-mesa-dev libegl1-mesa-dev \

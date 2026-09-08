@@ -1,4 +1,4 @@
--- HPL2 engine -- static library, mirrors HPL2/CMakeLists.txt.
+-- HPL2 engine -- static library.
 local CORE = ROOT .. "/HPL2/core"
 
 project "HPL2"
@@ -8,14 +8,14 @@ project "HPL2"
     -- USE_OALWRAPPER only selects the legacy OALWrapper/-prefixed header path in
     -- LowLevelSoundOpenAL.cpp and OpenALSound{Data,Channel}.h (it gates no backend
     -- code -- those sources are compiled unconditionally via the glob below). The
-    -- old CMake layout put headers under include/OALWrapper/; the vendored premake
+    -- legacy OALWrapper layout put headers under include/OALWrapper/; the vendored
     -- layout puts them under HPL2/extern/OpenAL/OpenAL/, so the #else "OpenAL/"
     -- prefix is the correct one. Leave the macro undefined to take that branch.
     defines { "USE_SDL2" }
 
-    -- All source patterns are run through glob()/os.matchfiles so, exactly like
-    -- CMake's file(GLOB ...), patterns matching nothing are silently dropped
-    -- (several literal names in the impl list don't exist on disk).
+    -- All source patterns are run through glob()/os.matchfiles; patterns matching
+    -- nothing are silently dropped (several literal names in the impl list don't
+    -- exist on disk).
     local IMPL = CORE .. "/sources/impl/"
     local common_dirs = {
         "ai", "engine", "generate", "graphics", "gui", "haptic", "input",
@@ -26,7 +26,7 @@ project "HPL2"
         table.insert(patterns, CORE .. "/sources/" .. d .. "/*.cpp")
         table.insert(patterns, CORE .. "/sources/" .. d .. "/*.c")
     end
-    -- Implementation-specific sources (mirrors impl_sources block).
+    -- Implementation-specific sources.
     local impl_patterns = {
         "SqScript.cpp", "scriptarray.cpp", "scripthelper.cpp",
         "scriptstring.cpp", "scriptstring_utils.cpp",
@@ -75,6 +75,9 @@ project "HPL2"
     vulkan_includes()
     link_sdl2()      -- SDL2 headers + link + dependson
     link_openal()    -- openal-soft headers + link + dependson
+    link_nrd()       -- NRD denoiser headers + link + dependson
+    link_fsr()       -- FidelityFX Super Resolution headers + link + dependson
+    xess_use()       -- Intel XeSS headers + availability define (Windows only)
     mathlib_use()
 
     -- Keep HPL2 aware of its dependency set; final executables still call

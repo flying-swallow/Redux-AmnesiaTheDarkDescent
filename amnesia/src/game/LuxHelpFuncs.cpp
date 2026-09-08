@@ -231,13 +231,17 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   color.clearValue.color[2] = aCol.b;
   color.clearValue.color[3] = aCol.a;
 
-  // Depth comes from the primary viewport's renderer internals; GUI-only
-  // frames (menus, loading screens — no world drawn yet) have none and the
-  // set renders the no-depth GuiSet pipeline variant instead (it derives it
-  // from the viewport passed into cGuiSet::Render below).
+  // Depth is optional: GUI-only frames have no world depth, and while a map
+  // loads the primary viewport can still belong to the PREVIOUS world with
+  // depth allocated at a reduced (scaled/upscaler) extent. That depth cannot
+  // back this full-output render area, so ask for an exact extent; GuiSet
+  // derives the matching depth/no-depth pipeline variant from the same
+  // predicate below.
+  const uint32_t swapchainWidth = Interface<cGraphics>::Get()->swapchain->width;
+  const uint32_t swapchainHeight = Interface<cGraphics>::Get()->swapchain->height;
   cViewport *pViewport = gpBase->mpEngine->GetScene()->GetPrimaryViewport();
   struct RITextureView *pDepthView =
-      pViewport ? pViewport->GetDepthView() : NULL;
+      pViewport ? pViewport->GetDepthViewForExtent(swapchainWidth, swapchainHeight) : NULL;
 
   RIRenderingAttachment depth = {};
   if (pDepthView) {
@@ -252,8 +256,8 @@ void cLuxHelpFuncs::DrawSetToScreen(bool abClearScreen, const cColor &aCol,
   //}
 
   RIBeginRenderingDesc beginDesc = {};
-  beginDesc.renderArea.width = (int16_t)Interface<cGraphics>::Get()->swapchain->width;
-  beginDesc.renderArea.height = (int16_t)Interface<cGraphics>::Get()->swapchain->height;
+  beginDesc.renderArea.width = (int16_t)swapchainWidth;
+  beginDesc.renderArea.height = (int16_t)swapchainHeight;
   beginDesc.colorCount = 1;
   beginDesc.colors = &color;
   beginDesc.depthStencil = pDepthView ? &depth : NULL;
@@ -482,6 +486,5 @@ tWString cLuxHelpFuncs::ParseStringCommand(const tWString& asCommand)
 }
 
 //-----------------------------------------------------------------------
-
 
 

@@ -31,6 +31,7 @@ import bindless;
 __exported import ILight;
 import PerFrame.resource;
 import BindlessTriangle;
+import RayCone;
 import Brdf;                    // evalDiffuseDemodulated (standard diffuse lobe)
 import Random;
 import Grid;                    // gridCellPos / gridFlattenCellIndex / gridCellValid (lightLevelAt)
@@ -63,7 +64,7 @@ public uint lightIdType(uint id)              { return id >> kLightSlotBits; }
 public uint lightIdSlot(uint id)              { return id & kLightSlotMask; }
 
 // Packed-id → ILight resolver. The interface return goes through Slang's
-// existential boxing; callers (incl. surfel NEE) sample lights via
+// existential boxing; callers sample lights via
 // getLight(id).sample(...). No slot bounds check — an out-of-range slot is a
 // caller bug, not a guarded case. A destroyed-but-not-reused slot is a zeroed
 // hole (intensity/color/radius 0) and decodes to a no-op light.
@@ -79,24 +80,35 @@ public ILight getLight(uint ID)
 }
 
 // Non-normalized primary ray direction for a pinhole camera, matching
-// Falcor's Scene::Camera::computeNonNormalizedRayDirPinhole. The pixel
-// origin is top-left; `+ndc.x*cameraU + ndc.y*cameraV + cameraW` walks
-// out from the optical axis along the pre-scaled basis vectors filled
-// host-side in cHybridRenderer::Draw().
+// Falcor's Scene::Camera::computeNonNormalizedRayDirPinhole. Coordinates
+// are top-left (y down): pixelUV is the pixel center in FULL-render-extent
+// normalized units, and jitterUV is the normalized sample offset. Apply
+// jitter exactly once so V-buffer POM rays pass through the rasterized sample.
+// `+ndc.x*cameraU + ndc.y*cameraV + cameraW` walks out from the optical axis
+// along the pre-scaled basis vectors filled host-side in cHybridRenderer::Draw().
 float3 computeNonNormalizedRayDirPinhole(uint2 pixel, uint2 frameDim, bool applyJitter)
 {
     float2 p = (float2(pixel) + float2(0.5f, 0.5f)) / float2(frameDim);
-    if (applyJitter) p += float2(-gPerFrame.jitterX, gPerFrame.jitterY);
+    if (applyJitter) p += float2(gPerFrame.jitterX, gPerFrame.jitterY);
     float2 ndc = float2(2.0f, -2.0f) * p + float2(-1.0f, 1.0f);
     return ndc.x * gPerFrame.cameraU + ndc.y * gPerFrame.cameraV + gPerFrame.cameraW;
 }
 
-// World-space pinhole ray, Falcor parity. tMin/tMax scale by 1/cos(theta)
-// so the engine's view-space near/far planes map exactly onto ray length
-// — same trick Falcor uses to keep ray bounds tight at the frustum edge.
+// World-space pinhole ray, Falcor parity. The jitterUV added when
+// applyJitter=true is in FULL-render-extent normalized units (top-left origin,
+// y down), so this is correct only when frameDim is the full render extent;
+// then the ray samples exactly where the V-buffer raster sampled. A pass on a
+// coarser grid must pass applyJitter=false or add that grid's own offset at the
+// call site; this function does not rescale jitterUV, and the shared field's
+// units must not change. Passes elsewhere label which of the three they are:
+// (a) matches the primary raster sample — full extent, applyJitter=true;
+// (b) deliberately unjittered — applyJitter=false, no jitter term;
+// (c) its own grid's offset, converted at the call site. tMin/tMax scale by 1/cos(theta) so the engine's
+// view-space near/far planes map exactly onto ray length — same trick Falcor
+// uses to keep ray bounds tight at the frustum edge.
 // (Trivial camera values — eye position gPerFrame.posW, view-proj
 // mul(gPerFrame.projMat, gPerFrame.viewMat) — are read inline at call sites.)
-public Ray cameraComputeRayPinhole(uint2 pixel, uint2 frameDim, bool applyJitter = true)
+public Ray cameraComputeRayPinhole(uint2 pixel, uint2 frameDim, bool applyJitter)
 {
     Ray r;
     r.origin = gPerFrame.posW;
@@ -110,7 +122,7 @@ public Ray cameraComputeRayPinhole(uint2 pixel, uint2 frameDim, bool applyJitter
 
 // One world-space light-grid cell's light list, resolved once by
 // getCellLights() so the four light-grid walkers (composite eval, reservoir
-// build, surfel NEE, lightLevelAt) share the cell-lookup boilerplate instead of
+// build, path-tracer NEE, lightLevelAt) share the cell-lookup boilerplate instead of
 // each re-deriving cell → validate → flatten → count.
 public struct CellLights
 {
@@ -183,6 +195,12 @@ public uint cellLightAt(CellLights c, uint k)
 //     beyond the camera-centered grid shouldn't fade to black.
 public float lightLevelAt(float3 posW)
 {
+    // No lights is darkness, not the out-of-grid full-bright fallback.
+    // getCellLights also marks an empty light set invalid, so distinguish it
+    // before applying the distant-geometry policy below.
+    if (getLightCount() == 0u)
+        return 0.0f;
+
     // Out-of-grid points return 1.0 (don't darken) — note this differs from
     // the shaded walkers, which treat an invalid cell as no contribution.
     CellLights cl = getCellLights(posW);
@@ -240,8 +258,8 @@ public VertexData getVertexData(TriangleHit hit)
 // Same as getVertexData, but also returns the raw per-vertex triangle data
 // (positions / normals / tangents / UVs). Parallax mapping needs the
 // per-vertex UVs to invert a UV offset back into a barycentric delta — see
-// SurfelVBuffer.rt.slang. Fetches the bindless triangle once so callers that
-// want both don't pay the BDA handle loads twice.
+// VBuffer/VBufferPomBary.cs.slang. Fetches the bindless triangle once so
+// callers that want both don't pay the BDA handle loads twice.
 public VertexData getVertexDataAndTri(TriangleHit hit, out BindlessTriangleVtx vtx)
 {
     fetchBindlessTriangle(hit.instanceID, hit.primitiveIndex, vtx);
@@ -272,5 +290,35 @@ public VertexData getVertexDataAndTri(TriangleHit hit, out BindlessTriangleVtx v
     v.normalW  = normalize(mul(nrmMat, normalL));
     v.tangentW = normalize(mul(nrmMat, tanL));
     v.texC     = uv;
+    return v;
+}
+
+// The triangle's texture-footprint constant for an already-fetched triangle.
+// Split out so a caller that already holds the BindlessTriangleVtx (the POM
+// pass) doesn't pay a second bindless fetch. The local-space positions are
+// transformed to world space before the ratio is taken, so instance scale is
+// included — a scaled-up instance covers more world area per UV area and must
+// select a coarser mip.
+public float triangleTexLodConstantForInstance(BindlessTriangleVtx vtx,
+                                                uint instanceID)
+{
+    float4x4 modelMat = gSceneObjects[instanceID].modelMat;
+    float3 p0W = mul(modelMat, float4(vtx.posL[0], 1.0f)).xyz;
+    float3 p1W = mul(modelMat, float4(vtx.posL[1], 1.0f)).xyz;
+    float3 p2W = mul(modelMat, float4(vtx.posL[2], 1.0f)).xyz;
+    return triangleTexLodConstant(vtx.uv[0], vtx.uv[1], vtx.uv[2],
+                                  p0W, p1W, p2W);
+}
+
+// getVertexData plus the triangle's texture-footprint constant, for the
+// ray-traced shading paths that select a mip from a ray cone instead of
+// sampling the top mip unconditionally. One bindless triangle fetch serves
+// both. See RayCone.slang for what the constant feeds.
+public VertexData getVertexDataAndLodConstant(TriangleHit hit, out float triLodConstant)
+{
+    BindlessTriangleVtx vtx;
+    VertexData v = getVertexDataAndTri(hit, vtx);
+
+    triLodConstant = triangleTexLodConstantForInstance(vtx, hit.instanceID);
     return v;
 }

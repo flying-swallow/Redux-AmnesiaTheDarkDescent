@@ -20,6 +20,8 @@ using namespace hpl;
 #include "math/Frustum.h"
 
 #include "graphics/Graphics.h"
+
+#include "Constants.h"   // kSceneExposure
 #include "graphics/PostEffect_ToneMap.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
@@ -172,13 +174,14 @@ cLevelEditorCameraCapture::cLevelEditorCameraCapture(iEditorBase* apEditor)
 
 	//////////////////////////////////////////
 	// Post chain: the hybrid renderer outputs linear HDR; the tonemap effect is
-	// the mandatory exposure + ACES + sRGB display encode (same as the editor
-	// pane's Main viewport). Without it the readback pixels are wrong.
+	// the mandatory display encode — exposure multiply, sRGB OETF, then the
+	// display gamma (same as the editor pane's Main viewport). Without it the
+	// readback pixels are wrong.
 	mpPostEffectComposite = pGfx->CreatePostEffectComposite();
 	mpViewport->SetPostEffectComposite(mpPostEffectComposite);
 
 	cPostEffectParams_ToneMap tonemapParams;
-	tonemapParams.mfExposure   = 1.0f;
+	tonemapParams.mfExposure   = kSceneExposure;
 	tonemapParams.mfShadowLift = 1.0f;
 	mpPostEffectToneMap = pGfx->CreatePostEffect(&tonemapParams);
 	mpPostEffectComposite->AddPostEffect(mpPostEffectToneMap, 0);

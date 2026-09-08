@@ -36,6 +36,7 @@
 #include "resources/ConfigFile.h"
 #include "resources/LanguageFile.h"
 #include "resources/XmlHelper.h"
+#include "resources/XmlDelta.h"
 #include "resources/BitmapLoaderHandler.h"
 #include "resources/WorldLoaderHandler.h"
 #include "resources/BinaryBuffer.h"
@@ -49,6 +50,9 @@
 
 #include <tinyxml2.h>
 
+#include <algorithm>
+#include <vector>
+
 namespace hpl {
 
 	//////////////////////////////////////////////////////////////////////////
@@ -59,6 +63,7 @@ namespace hpl {
 
 	bool cResources::mbForceCacheLoadingAndSkipSaving = false;
 	bool cResources::mbCreateAndLoadCompressedMaps= false; 
+	bool cResources::mbDeltasEnabled = false;
 
 	//-----------------------------------------------------------------------
 
@@ -329,14 +334,17 @@ namespace hpl {
 	//-----------------------------------------------------------------------
 
 	/**
-	 * \todo File searcher should check so if the dir is allready added and if so return false and not add
-	 * \param &asDir 
-	 * \param &asMask 
-	 * \return 
+	 * Re-adding a directory is idempotent: cFileSearcher::AddDirectory keeps one
+	 * index entry per (filename, path) and raises it to the highest priority seen.
+	 * \param &asDir Directory to add.
+	 * \param abAddSubDirectories Whether to add subdirectories.
+	 * \param &asMask File mask.
+	 * \param alPriority Directory priority.
+	 * \return true always; no caller checks the result.
 	 */
-	bool cResources::AddResourceDir(const tWString &asDir, bool abAddSubDirectories, const tString &asMask)
+	bool cResources::AddResourceDir(const tWString &asDir, bool abAddSubDirectories, const tString &asMask, int alPriority)
 	{
-		mpFileSearcher->AddDirectory(asDir, asMask, abAddSubDirectories);
+		mpFileSearcher->AddDirectory(asDir, asMask, abAddSubDirectories, alPriority);
 		if(iResourceBase::GetLogCreateAndDelete())
 			Log(" Added resource directory '%s'\n",cString::To8Char(asDir).c_str());
 		return true;
@@ -460,17 +468,77 @@ namespace hpl {
 			}
 
 			bool bAddSubDirs = GetAttributeBool(pChildElem, "AddSubDirs",false);
+			//Higher priority shadows lower for files of the same name, whatever
+			//order this file lists the dirs in -- same sense as the Priority on
+			//an xml delta. Default 0 is what every dir got before, so a config
+			//that sets none resolves exactly as it did.
+			int lPriority = GetAttributeInt(pChildElem, "Priority", klFileSearchDefaultPriority);
 
 			if(sPath[0]=='/' || sPath[0]=='\\') sPath = cString::Sub(sPath, 1);
 
 			tWString tsPath = cString::To16Char(sPath);
 			if (asAltPath.length() > 0) {
-				AddResourceDir(asAltPath + tsPath,bAddSubDirs);
+				AddResourceDir(asAltPath + tsPath,bAddSubDirs,"*.*",lPriority);
 			}
-			AddResourceDir(tsPath,bAddSubDirs);
+			AddResourceDir(tsPath,bAddSubDirs,"*.*",lPriority);
 		}
 
 		return true;
+	}
+
+	//-----------------------------------------------------------------------
+
+	namespace {
+
+		// One candidate delta, kept with the sort keys so the whole set can be
+		// ordered before any of it is applied.
+		class cDeltaCandidate
+		{
+		public:
+			int mlPriority;
+			tWString msPath;
+
+			bool operator<(const cDeltaCandidate& aOther) const
+			{
+				if(mlPriority != aOther.mlPriority) return mlPriority < aOther.mlPriority;
+				return msPath < aOther.msPath;
+			}
+		};
+	}
+
+	bool cResources::FindDeltaFiles(const tWString& asBaseFile, const tString& asDeltaExt, tWStringVec& avPaths)
+	{
+		if(mbDeltasEnabled==false) return false;
+
+		tWString sDeltaName = cString::GetFileNameW(cString::SetFileExtW(asBaseFile, cString::To16Char(asDeltaExt)));
+
+		tWStringVec vCandidatePaths;
+		if(mpFileSearcher->GetAllFilePaths(cString::To8Char(sDeltaName), vCandidatePaths)==0) return false;
+
+		////////////////////////////////////
+		// Peek at each candidate's root for its Priority
+		std::vector<cDeltaCandidate> vCandidates;
+		for(size_t i=0; i<vCandidatePaths.size(); ++i)
+		{
+			tinyxml2::XMLDocument xmlDoc;
+			if(LoadXmlFile(xmlDoc, vCandidatePaths[i])==false)
+			{
+				Error("Could not parse delta file '%s'!\n", cString::To8Char(vCandidatePaths[i]).c_str());
+				continue;
+			}
+
+			cDeltaCandidate candidate;
+			candidate.mlPriority = GetXmlDeltaPriority(xmlDoc.RootElement());
+			candidate.msPath = vCandidatePaths[i];
+			vCandidates.push_back(candidate);
+		}
+
+		std::sort(vCandidates.begin(), vCandidates.end());
+
+		for(size_t i=0; i<vCandidates.size(); ++i)
+			avPaths.push_back(vCandidates[i].msPath);
+
+		return avPaths.empty()==false;
 	}
 
 	//-----------------------------------------------------------------------

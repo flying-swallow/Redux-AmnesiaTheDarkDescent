@@ -25,8 +25,11 @@
 #include "LuxInputHandler.h"
 #include "LuxHintHandler.h"
 #include "LuxHelpFuncs.h"
+#include "graphics/Graphics.h"
 
 // TODO: there is some cleanup to do here
+
+static const float gvRenderScalePresets[] = {1.0f, 0.90f, 0.75f, 0.66f, 0.50f, 0.33f};
 
 //////////////////////////////////////////////////////////////////////////
 // CONSTRUCTORS
@@ -39,6 +42,7 @@ cLuxConfigHandler::cLuxConfigHandler()
 	mbGameNeedsRestart = false;
 	mbRestartDialogShown = false;
 	mfGamma = 1.0f;
+	mfRenderScale = 1.0f;
 }
 
 //-----------------------------------------------------------------------
@@ -103,6 +107,10 @@ void cLuxConfigHandler::LoadMainConfig()
 	mbWorldReflection = gpBase->mpMainConfig->GetBool("Graphics", "WorldReflection", true);
 	mbRefraction =		gpBase->mpMainConfig->GetBool("Graphics", "Refraction", true);
 	mbEdgeSmooth =		gpBase->mpMainConfig->GetBool("Graphics", "EdgeSmooth", false);
+
+	mSuperSampling.provider = SuperSamplingProviderFromString(gpBase->mpMainConfig->GetString("Graphics", "SuperSamplingProvider", "off"));
+	mSuperSampling.quality = SuperSamplingQualityFromString(gpBase->mpMainConfig->GetString("Graphics", "SuperSamplingQuality", "quality"));
+	mfRenderScale = NormalizeRenderScale(gpBase->mpMainConfig->GetFloat("Graphics", "RenderScale", 1.0f));
 
 	// SSAO
 	mbSSAOActive =		gpBase->mpMainConfig->GetBool("Graphics","SSAOActive", true);
@@ -177,6 +185,9 @@ void cLuxConfigHandler::SaveMainConfig()
 	
 	gpBase->mpMainConfig->SetBool("Graphics", "WorldReflection", mbWorldReflection);
 	gpBase->mpMainConfig->SetBool("Graphics", "Refraction", mbRefraction);
+	gpBase->mpMainConfig->SetString("Graphics", "SuperSamplingProvider", SuperSamplingProviderToString(mSuperSampling.provider));
+	gpBase->mpMainConfig->SetString("Graphics", "SuperSamplingQuality", SuperSamplingQualityToString(mSuperSampling.quality));
+	gpBase->mpMainConfig->SetFloat("Graphics", "RenderScale", mfRenderScale);
 	
 	gpBase->mpMainConfig->SetBool("Graphics", "ShadowsActive", mbShadowsActive);
 	gpBase->mpMainConfig->SetInt("Graphics","ShadowQuality", mlShadowQuality);
@@ -203,6 +214,107 @@ void cLuxConfigHandler::SaveMainConfig()
 	// Engine properties
 	gpBase->mpMainConfig->SetBool("Engine","LimitFPS", gpBase->mpEngine->GetLimitFPS());
 	gpBase->mpMainConfig->SetBool("Engine","SleepWhenOutOfFocus",gpBase->mpEngine->GetWaitIfAppOutOfFocus());
+}
+
+//-----------------------------------------------------------------------
+
+tString cLuxConfigHandler::SuperSamplingProviderToString(hpl::TemporalUpscalerProvider aProvider)
+{
+	switch(aProvider)
+	{
+	case hpl::TemporalUpscalerProvider::Fsr: return "fsr";
+	case hpl::TemporalUpscalerProvider::XeSS: return "xess";
+	case hpl::TemporalUpscalerProvider::Off:
+	default: return "off";
+	}
+}
+
+hpl::TemporalUpscalerProvider cLuxConfigHandler::SuperSamplingProviderFromString(const tString& asValue)
+{
+	tString sValue = cString::ToLowerCase(asValue);
+	if(sValue=="fsr") return hpl::TemporalUpscalerProvider::Fsr;
+	if(sValue=="xess") return hpl::TemporalUpscalerProvider::XeSS;
+	return hpl::TemporalUpscalerProvider::Off;
+}
+
+tString cLuxConfigHandler::SuperSamplingQualityToString(hpl::TemporalUpscalerQuality aQuality)
+{
+	switch(aQuality)
+	{
+	case hpl::TemporalUpscalerQuality::NativeAA: return "native_aa";
+	case hpl::TemporalUpscalerQuality::Balanced: return "balanced";
+	case hpl::TemporalUpscalerQuality::Performance: return "performance";
+	case hpl::TemporalUpscalerQuality::UltraPerformance: return "ultra_performance";
+	case hpl::TemporalUpscalerQuality::Quality:
+	default: return "quality";
+	}
+}
+
+hpl::TemporalUpscalerQuality cLuxConfigHandler::SuperSamplingQualityFromString(const tString& asValue)
+{
+	tString sValue = cString::ToLowerCase(asValue);
+	if(sValue=="native_aa") return hpl::TemporalUpscalerQuality::NativeAA;
+	if(sValue=="quality") return hpl::TemporalUpscalerQuality::Quality;
+	if(sValue=="balanced") return hpl::TemporalUpscalerQuality::Balanced;
+	if(sValue=="performance") return hpl::TemporalUpscalerQuality::Performance;
+	if(sValue=="ultra_performance") return hpl::TemporalUpscalerQuality::UltraPerformance;
+	return hpl::TemporalUpscalerQuality::Quality;
+}
+
+//-----------------------------------------------------------------------
+
+int cLuxConfigHandler::GetRenderScalePresetNum()
+{
+	return (int)(sizeof(gvRenderScalePresets) / sizeof(gvRenderScalePresets[0]));
+}
+
+float cLuxConfigHandler::GetRenderScalePreset(int alIdx)
+{
+	if(alIdx < 0 || alIdx >= GetRenderScalePresetNum()) return 1.0f;
+	return gvRenderScalePresets[alIdx];
+}
+
+int cLuxConfigHandler::GetRenderScalePresetIndex(float afScale)
+{
+	float fNormalizedScale = NormalizeRenderScale(afScale);
+	for(int i=0; i<GetRenderScalePresetNum(); ++i)
+	{
+		if(gvRenderScalePresets[i] == fNormalizedScale) return i;
+	}
+
+	return 0;
+}
+
+float cLuxConfigHandler::NormalizeRenderScale(float afScale)
+{
+	if(afScale != afScale || afScale > 1.0f || afScale < 0.33f) return 1.0f;
+
+	float fBestScale = gvRenderScalePresets[0];
+	float fBestDifference = cMath::Abs(afScale - fBestScale);
+	for(int i=1; i<GetRenderScalePresetNum(); ++i)
+	{
+		float fDifference = cMath::Abs(afScale - gvRenderScalePresets[i]);
+		if(fDifference < fBestDifference ||
+			(fDifference == fBestDifference && gvRenderScalePresets[i] > fBestScale))
+		{
+			fBestScale = gvRenderScalePresets[i];
+			fBestDifference = fDifference;
+		}
+	}
+
+	return fBestScale;
+}
+
+float cLuxConfigHandler::GetRenderScale() const
+{
+	return mfRenderScale;
+}
+
+void cLuxConfigHandler::SetRenderScale(float afScale)
+{
+	mfRenderScale = NormalizeRenderScale(afScale);
+	cGraphics* pGraphics = hpl::Interface<cGraphics>::Get();
+	if(pGraphics) pGraphics->devRenderScale = mfRenderScale;
 }
 
 //-----------------------------------------------------------------------

@@ -191,10 +191,9 @@ namespace hpl {
 		////////////////////////////////////
 		// Rendering
 		// apViewport tells the set whether the rendering instance it draws
-		// inside has a depth attachment (viewport->GetDepthView() — whoever
-		// opened the instance attached the same view). The cached pipelines
-		// key on it so their depthAttachmentFormat matches the actual
-		// attachments; nullptr (or a viewport with no depth — GUI-only menu
+		// inside has a depth attachment. The instance and cached pipelines must
+		// use the same GetDepthViewForExtent(swapchain width, swapchain height)
+		// predicate; nullptr (or no matching depth — including GUI-only menu
 		// frames) renders the no-depth variant, and 3D-GUI depth testing only
 		// applies when a depth view exists.
 		void Render(cFrustum *apFrustum, cViewport *apViewport = nullptr);

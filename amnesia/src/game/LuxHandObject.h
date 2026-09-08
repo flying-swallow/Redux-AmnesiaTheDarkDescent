@@ -124,6 +124,7 @@ protected:
 	// Variables
 	cMesh *mpMesh;
 	cMeshEntity* mpMeshEntity;
+	cMeshEntity* mpShadowMeshEntity;
 	std::vector<cBillboard*> mvBillboards;
 	std::vector<cParticleSystem*> mvParticleSystems;
 	std::vector<iLight*> mvLights;

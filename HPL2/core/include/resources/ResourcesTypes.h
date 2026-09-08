@@ -30,7 +30,10 @@ namespace tinyxml2 {
 }
 
 namespace hpl {
-	
+
+	/** Priority every resource dir gets unless resources.cfg asks for another. */
+	const int klFileSearchDefaultPriority = 0;
+
 	//change to own file type?
 	typedef FILE tFile;
 	

@@ -1,0 +1,304 @@
+<MapDelta Version="1" Target="maps/main/ch02/24_torture_choir_west.map">
+    <Modify Category="StaticObjects" ID="2" Name="walldefault_2">
+        <SetAttr Rotation="2.53518e-06 -1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="5" Name="walldefault_5">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="8" Name="walldoor_way_3">
+        <SetAttr Rotation="2.53518e-06 -1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="9" Name="walldoor_way_4">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="10" Name="walldoor_frame_3">
+        <SetAttr Rotation="3.14159 -1.5708 3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="12" Name="walldoor_frame_4">
+        <SetAttr Rotation="2.53518e-06 -1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="13" Name="walldoor_way_5">
+        <SetAttr Rotation="-3.14159 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="14" Name="walldoor_way_6">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="18" Name="walldefault_4x8_2">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="19" Name="walldefault_4x8_3">
+        <SetAttr Rotation="2.53518e-06 -1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="20" Name="walldefault_4x8_4">
+        <SetAttr Rotation="2.53518e-06 -1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="21" Name="walldefault_4x8_5">
+        <SetAttr Rotation="2.53518e-06 1.5708 2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="120" Name="ceilingcorner_concave_short_13">
+        <SetAttr Rotation="3.06641 -1.5708 -3.06641" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="353" Name="wallwelder_wood_49">
+        <SetAttr Scale="1.1 0.972273 0.883882" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="354" Name="wallwelder_wood_50">
+        <SetAttr Scale="1.1 0.972273 0.883882" />
+    </Modify>
+    <Remove Category="Entities" ID="183" Name="PointLight_3" />
+    <Remove Category="Entities" ID="184" Name="PointLight_4" />
+    <Remove Category="Entities" ID="271" Name="PointLight_8" />
+    <Remove Category="Entities" ID="272" Name="PointLight_9" />
+    <Remove Category="Entities" ID="274" Name="PointLight_11" />
+    <Remove Category="Entities" ID="429" Name="PointLight_10" />
+    <Remove Category="Entities" ID="483" Name="SpotLight_1" />
+    <Remove Category="Entities" ID="484" Name="SpotLight_2" />
+    <Remove Category="Entities" ID="486" Name="SpotLight_3" />
+    <Remove Category="Entities" ID="523" Name="PointLight_5" />
+    <Remove Category="Entities" ID="524" Name="PointLight_6" />
+    <Remove Category="Entities" ID="639" Name="PointLight_Blood" />
+    <Remove Category="Entities" ID="641" Name="PointLight_knife" />
+    <Remove Category="Entities" ID="643" Name="PointLight_7" />
+    <Remove Category="Entities" ID="644" Name="PointLight_12" />
+    <Remove Category="Entities" ID="651" Name="PointLight_13" />
+    <Remove Category="Entities" ID="652" Name="PointLight_14" />
+    <Remove Category="Entities" ID="653" Name="PointLight_15" />
+    <Remove Category="Entities" ID="654" Name="PointLight_16" />
+    <Remove Category="Entities" ID="687" Name="PointLight_chest" />
+    <Modify Category="Entities" ID="204" Name="candle_floor_no_light_2">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="207" Name="candle_floor_no_light_3">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="208" Name="candle_floor_no_light_4">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="209" Name="candle_floor_no_light_5">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="210" Name="candle_floor_no_light_6">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="211" Name="candle_floor_no_light_7">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="212" Name="candle_floor_no_light_8">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="215" Name="candle_floor_no_light_9">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="216" Name="candle_floor_no_light_10">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="217" Name="candle_floor_no_light_11">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="218" Name="candle_floor_no_light_12">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="221" Name="candle_floor_no_light_13">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="222" Name="candle_floor_no_light_14">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="223" Name="candle_floor_no_light_15">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="224" Name="candle_floor_no_light_16">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="225" Name="candle_floor_no_light_17">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="226" Name="candle_floor_no_light_18">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="227" Name="candle_floor_no_light_19">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="228" Name="candle_floor_no_light_20">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="229" Name="candle_floor_no_light_21">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="230" Name="candle_floor_no_light_22">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="231" Name="candle_floor_no_light_23">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="232" Name="candle_floor_no_light_24">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="233" Name="candle_floor_no_light_25">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="234" Name="candle_floor_no_light_26">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="235" Name="candle_floor_no_light_27">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="236" Name="candle_floor_no_light_28">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="237" Name="candle_floor_no_light_29">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="239" Name="candle_floor_no_light_31">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="240" Name="candle_floor_no_light_32">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="241" Name="candle_floor_no_light_33">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="242" Name="candle_floor_no_light_34">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="243" Name="candle_floor_no_light_35">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="244" Name="candle_floor_no_light_36">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="245" Name="candle_floor_no_light_37">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="246" Name="candle_floor_no_light_38">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="247" Name="candle_floor_no_light_39">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="248" Name="candle_floor_no_light_40">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="249" Name="candle_floor_no_light_41">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="250" Name="candle_floor_no_light_42">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="251" Name="candle_floor_no_light_43">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="252" Name="candle_floor_no_light_44">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="253" Name="candle_floor_no_light_45">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="254" Name="candle_floor_no_light_46">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="255" Name="candle_floor_no_light_47">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="257" Name="candle_floor_no_light_48">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="258" Name="candle_floor_no_light_49">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="259" Name="candle_floor_no_light_50">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="260" Name="candle_floor_no_light_51">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="261" Name="candle_floor_no_light_52">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="262" Name="candle_floor_no_light_53">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="263" Name="candle_floor_no_light_54">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="264" Name="candle_floor_no_light_55">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="265" Name="candle_floor_no_light_56">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="267" Name="candle_floor_no_light_57">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="268" Name="candle_floor_no_light_58">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="269" Name="candle_floor_no_light_59">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="270" Name="candle_floor_no_light_60">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="303" Name="candle_floor_no_light_30">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="304" Name="candle_floor_no_light_61">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="305" Name="candle_floor_no_light_62">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="306" Name="candle_floor_no_light_63">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="307" Name="candle_floor_no_light_64">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="310" Name="candle_floor_no_light_65">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="311" Name="candle_floor_no_light_66">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="312" Name="candle_floor_no_light_67">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="313" Name="candle_floor_no_light_68">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="314" Name="candle_floor_no_light_69">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="315" Name="candle_floor_no_light_70">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="316" Name="candle_floor_no_light_71">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="317" Name="candle_floor_no_light_72">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="318" Name="candle_floor_no_light_73">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="327" Name="candle_floor_no_light_74">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="328" Name="candle_floor_no_light_75">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="330" Name="candle_floor_no_light_76">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="331" Name="candle_floor_no_light_77">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="332" Name="candle_floor_no_light_78">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="333" Name="candle_floor_no_light_79">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="336" Name="candle_floor_no_light_80">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+</MapDelta>

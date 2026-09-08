@@ -180,6 +180,11 @@ exec "$RUNTIME" run --rm "${TTY_ARGS[@]}" "${USER_ARGS[@]}" \
         fi
         echo "==> Building ($PM_CONFIG)"
         make -C build-premake config="$PM_CONFIG" -j"$JOBS"
+        # Premake postbuild only runs when the target relinks, so a Python-only
+        # edit would otherwise leave these tests untested. They need no game
+        # install, GPU, or display.
+        echo "==> Running python tests"
+        python3 scripts/run_python_tests.py
         if [[ "$PM_DEPLOY" == 1 ]]; then
             echo "==> Deploying game assets from $PM_GAME_DIR"
             premake5 deploy --game-dir="$PM_GAME_DIR"

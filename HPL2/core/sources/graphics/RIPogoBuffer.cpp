@@ -1,4 +1,5 @@
 #include "graphics/RIPogoBuffer.h"
+#include "graphics/Graphics.h"
 #include "graphics/RIRenderer.h"
 #include "graphics/RIVK.h"
 
@@ -8,6 +9,15 @@
 
 void RI_PogoBufferInit( struct RIDevice *device, struct RI_PogoBuffer *pogo, uint32_t width, uint32_t height, enum RI_Format_e format )
 {
+	hpl::cGraphics* pGraphics = hpl::Interface<hpl::cGraphics>::Get();
+	for( size_t p = 0; p < 2; p++ ) {
+		if( !pogo->pogoView[p].isEmpty() )
+			pGraphics->graphicsDefer.push( pogo->pogoView[p] );
+		if( !pogo->textures[p].isEmpty() )
+			pGraphics->graphicsDefer.push( pogo->textures[p] );
+		pogo->pogoView[p] = {};
+		pogo->textures[p] = {};
+	}
 	pogo->attachmentIndex = 0;
 
 	RITextureDesc desc = {};
@@ -15,7 +25,7 @@ void RI_PogoBufferInit( struct RIDevice *device, struct RI_PogoBuffer *pogo, uin
 	desc.format = format;
 	desc.width = width;
 	desc.height = height;
-	// STORAGE lets the SurfelGI composite (a compute pass) write the pogo attach
+	// STORAGE lets MainCompositePass (a compute pass) write the pogo attach
 	// via an RWTexture2D; still color-attachment + sampled for the raster passes
 	// and post-effect chain. TRANSFER_SRC/DST back the guard-band crop blit
 	// (overscan render-pogo center → authored pogo) at the end of Draw.
@@ -40,8 +50,12 @@ void RI_PogoBufferInit( struct RIDevice *device, struct RI_PogoBuffer *pogo, uin
 
 void RI_PogoBufferDestroy( struct RIDevice *device, struct RI_PogoBuffer *pogo )
 {
-	// Dropping the last shared reference disposes each handle.
+	hpl::cGraphics* pGraphics = hpl::Interface<hpl::cGraphics>::Get();
 	for( size_t p = 0; p < 2; p++ ) {
+		if( !pogo->pogoView[p].isEmpty() )
+			pGraphics->graphicsDefer.push( pogo->pogoView[p] );
+		if( !pogo->textures[p].isEmpty() )
+			pGraphics->graphicsDefer.push( pogo->textures[p] );
 		pogo->pogoView[p] = {};
 		pogo->textures[p] = {};
 	}

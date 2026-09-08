@@ -422,6 +422,7 @@ bool cLuxBase::Init(const tString &asCommandline)
 	if(InitMainConfig()==false) return false;
 
 	Log("Version %d.%d \n",kCurrentVersion_Main, kCurrentVersion_Minor);
+	Log("Redux version %s, commit %s\n", AMNESIA_TDD_VERSION, AMNESIA_TDD_TAG);
 	Log("\n");
 	
 	/////////////////////////////
@@ -1128,6 +1129,9 @@ bool cLuxBase::InitEngine()
 	cResources::SetForceCacheLoadingAndSkipSaving(mpConfigHandler->mbForceCacheLoadingAndSkipSaving);
 	cResources::SetCreateAndLoadCompressedMaps(false);
 	//cResources::SetCreateAndLoadCompressedMaps(mbPTestActivated || mpConfigHandler->mbCreateAndLoadCompressedMaps);
+	// .map_delta / .ent_delta overlays: on for the game, off for the editors and
+	// the offline tools (they must see unpatched files to author deltas against).
+	cResources::SetDeltasEnabled(true);
     
 	/////////////////////////
 	// Create the engine
@@ -1135,6 +1139,7 @@ bool cLuxBase::InitEngine()
 	
 	/////////////////////////
 	// Set up more properties
+	mpConfigHandler->SetRenderScale(mpConfigHandler->GetRenderScale());
 
 	// Gamma now lives in cLuxConfigHandler (loaded in LoadMainConfig) and is
 	// consumed by the tonemap post-effect; nothing to push here at startup

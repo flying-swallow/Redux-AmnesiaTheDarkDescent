@@ -1,5 +1,5 @@
-/// Screen-space fog helper shared by the opaque (SurfelGI composite) and
-/// translucent fragment shaders. Replaces the legacy per-object fog-area
+/// Screen-space fog helper shared by the main composite pass and the
+/// translucent / particle / water fragment shaders. Replaces the legacy per-object fog-area
 /// visibility (RendererDeferred.cpp:365-478) with a per-pixel iteration
 /// that walks the gFogAreas SSBO and accumulates both a visibility scalar
 /// and an additive fog colour.
@@ -29,10 +29,18 @@ FogResult computeFog(float3 surfacePosW, float3 cameraPosW)
     r.visibility = 1.0f;
     r.color      = float3(0.0f);
 
+    // Category (b): `ray` is formed from the caller's world-space surface and
+    // camera positions. In the opaque composite the surface comes from the
+    // V-buffer, so this is not a pixel-derived camera ray; rayDir is jitter-
+    // independent by construction and must not receive a screen-space term.
     float3 ray = surfacePosW - cameraPosW;
     float cameraDist = length(ray);
     if (cameraDist <= 0.0f) return r;
     float3 rayDir = ray / cameraDist;
+    // Fog-area Start/End were authored against view-space Z in the original
+    // deferred fog pass. Slab intersection still uses world-distance t, but
+    // using that radial distance directly overstates density off-axis.
+    float areaDepthScale = abs(mul(gPerFrame.viewMat, float4(rayDir, 0.0f)).z);
 
     // World fog — linear distance from the camera through the worldFogStart /
     // worldFogLength band, raised to fogFalloffExp. Matches the legacy
@@ -54,7 +62,7 @@ FogResult computeFog(float3 surfacePosW, float3 cameraPosW)
     // kFogAreaCapacity host-side).
     uint count = gPerFrame.fogAreaCount;
     for (uint i = 0u; i < count; ++i) {
-        FogAreaParams fa = gFogAreas[i];
+        FogAreaParams fa = gFogAreas[gPerFrame.fogAreaIndices[i]];
 
         // Move the ray into the box's unit-cube local space. Point uses w=1
         // (translation applied), direction uses w=0 (rotation+scale only).
@@ -98,6 +106,7 @@ FogResult computeFog(float3 surfacePosW, float3 cameraPosW)
                           : (cameraDist - tEntry);
         }
 
+        fogDist *= areaDepthScale;
         if (fogDist <= 0.0f || fogDist < fa.start) continue;
 
         float alpha;
@@ -108,11 +117,20 @@ FogResult computeFog(float3 surfacePosW, float3 cameraPosW)
             if (fa.falloffExp != 1.0f) alpha = pow(alpha, fa.falloffExp);
         }
 
-        float contribution = alpha * fa.colorA;
+        float contribution = saturate(alpha * fa.colorA);
         r.visibility *= (1.0f - contribution);
-        r.color      += contribution * fa.color;
+        // Over-composite fog layers, just as the original alpha-blended
+        // passes did. Unattenuated addition made overlapping volumes brighter
+        // than either fog color and let bright fog leak through dark fog.
+        r.color = r.color * (1.0f - contribution) + contribution * fa.color;
     }
 
+    // Fog colors are authored appearance colors, not light radiance. The
+    // legacy fog pass blended them directly into the scene. Our composite is
+    // before the global exposure multiply, so cancel that multiply for the
+    // fog contribution only (the attenuated scene keeps its normal exposure).
+    // Otherwise Archives' 0.8 gray fog is lifted toward white at 2.5x exposure.
+    r.color /= kSceneExposure;
     return r;
 }
 

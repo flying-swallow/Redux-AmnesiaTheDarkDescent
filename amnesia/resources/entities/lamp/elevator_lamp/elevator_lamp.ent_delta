@@ -1,0 +1,61 @@
+<EntDelta Version="1" Target="entities/lamp/elevator_lamp/elevator_lamp.ent">
+    <SetVar Name="ShowHints" Value="true" />
+    <SetVar Name="ShowMesh" Value="true" />
+    <Modify Category="Mesh" ID="0" Name="pCube2">
+        <SetAttr Material="" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Mesh" ID="1" Name="polySurface152">
+        <SetAttr Material="" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Mesh" ID="2" Name="polySurface153">
+        <SetAttr Material="" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="3" Name="Shape_1">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="4" Name="Shape_2">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Bodies" ID="5" Name="Body_1">
+        <SetAttr BuoyancyDensityMul="1" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Bodies" ID="6" Name="Body_2">
+        <SetAttr BuoyancyDensityMul="1" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Joints" ID="8" Name="BallJoint_1">
+        <SetAttr Stiffness="0" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="SubType" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="9" Name="PointLight_1">
+        <SetAttr Intensity="10" Radius="29.9287" SourceRadius="0.08" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="SubType" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="10" Name="ParticleSystem_1">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="11" Name="Billboard_1">
+        <RemoveAttr Name="Axis" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Scale" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+</EntDelta>

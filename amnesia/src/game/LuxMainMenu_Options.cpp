@@ -29,6 +29,10 @@
 #include "LuxPlayerHelpers.h"
 #include "LuxPlayer.h"
 #include "LuxHelpFuncs.h"
+#include "graphics/TemporalUpscaler.h"
+#include "graphics/TemporalUpscalerTypes.h"
+
+#include <cstring>
 
 //////////////////////////////////////////////////////////////////////////
 // HELPERS
@@ -59,31 +63,66 @@ static float GetAnisotropyFromIndex(int alX)
 	return 1.0f;
 }
 
-//-----------------------------------------------------------------------
-
-static int GetIndexFromSSAOSamples(int alX)
+static tWString TranslateOrDefault(const tString& asCat, const tString& asName, const tWString& asFallback)
 {
-	if(alX <= 4) return 0;
-	if(alX <= 8) return 1;
-	if(alX <= 16) return 2;
-	if(alX <= 32) return 3;
-	//if(alX <= 64) return 4;
-	//if(alX <= 128) return 5;
-	return 0;
+	tWString sTranslation = kTranslate(asCat, asName);
+	return sTranslation.empty() ? asFallback : sTranslation;
 }
 
-static int GetSSAOSamplesFromIndex(int alX)
+static tWString TemporalUpscalerQualityToDisplay(TemporalUpscalerQuality aQuality)
 {
-	switch(alX)
+	switch(aQuality)
 	{
-	case 0: return 4;
-	case 1: return 8;
-	case 2: return 16;
-	case 3: return 32;
-	//case 4: return 64;
-	//case 5: return 128;
+	case TemporalUpscalerQuality::NativeAA: return TranslateOrDefault("OptionsMenu", "NativeAA", _W("Native AA"));
+	case TemporalUpscalerQuality::Quality: return TranslateOrDefault("OptionsMenu", "Quality", _W("Quality"));
+	case TemporalUpscalerQuality::Balanced: return TranslateOrDefault("OptionsMenu", "Balanced", _W("Balanced"));
+	case TemporalUpscalerQuality::Performance: return TranslateOrDefault("OptionsMenu", "Performance", _W("Performance"));
+	case TemporalUpscalerQuality::UltraPerformance: return TranslateOrDefault("OptionsMenu", "UltraPerformance", _W("Ultra Performance"));
 	}
-	return 3;
+	return TranslateOrDefault("OptionsMenu", "Quality", _W("Quality"));
+}
+
+static tWString TemporalUpscalerProviderToDisplay(TemporalUpscalerProvider aProvider)
+{
+	switch(aProvider)
+	{
+	case TemporalUpscalerProvider::Fsr: return _W("FidelityFX FSR 3.1");
+	case TemporalUpscalerProvider::XeSS: return _W("Intel XeSS");
+	case TemporalUpscalerProvider::Off: return TranslateOrDefault("OptionsMenu", "Off", _W("Off"));
+	}
+	return TranslateOrDefault("OptionsMenu", "Off", _W("Off"));
+}
+
+static TemporalUpscalerProvider GetSelectedTemporalUpscalerProvider(cWidgetComboBox* apCombo)
+{
+	if(apCombo == NULL)
+		return TemporalUpscalerProvider::Off;
+
+	int lSelectedItem = apCombo->GetSelectedItem();
+	if(lSelectedItem < 0 || lSelectedItem >= apCombo->GetItemNum())
+		return TemporalUpscalerProvider::Off;
+
+	cWidgetItem* pItem = apCombo->GetItem(lSelectedItem);
+	if(pItem && pItem->GetUserValue() >= (int)TemporalUpscalerProvider::Off &&
+		pItem->GetUserValue() <= (int)TemporalUpscalerProvider::XeSS)
+		return (TemporalUpscalerProvider)pItem->GetUserValue();
+	return TemporalUpscalerProvider::Off;
+}
+
+static TemporalUpscalerQuality GetSelectedTemporalUpscalerQuality(cWidgetComboBox* apCombo)
+{
+	if(apCombo == NULL)
+		return TemporalUpscalerQuality::Quality;
+
+	int lSelectedItem = apCombo->GetSelectedItem();
+	if(lSelectedItem < 0 || lSelectedItem >= apCombo->GetItemNum())
+		return TemporalUpscalerQuality::Quality;
+
+	cWidgetItem* pItem = apCombo->GetItem(lSelectedItem);
+	if(pItem && pItem->GetUserValue() >= (int)TemporalUpscalerQuality::NativeAA &&
+		pItem->GetUserValue() <= (int)TemporalUpscalerQuality::UltraPerformance)
+		return (TemporalUpscalerQuality)pItem->GetUserValue();
+	return TemporalUpscalerQuality::Quality;
 }
 
 //-----------------------------------------------------------------------
@@ -129,6 +168,21 @@ cLuxMainMenu_Options::cLuxMainMenu_Options(cGuiSet *apGuiSet, cGuiSkin *apGuiSki
 	mbShowCommentary = gpBase->mpMenuCfg->GetBool("Options","ShowCommentary", false);
 
 	mbSettingInitialValues = false;
+	mbRebuildingTemporalUpscaler = false;
+	mbTemporalUpscalerFsrAvailable = false;
+	mbTemporalUpscalerXeSSAvailable = false;
+	mSuperSamplingRequestedProvider = hpl::TemporalUpscalerProvider::Off;
+	mSuperSamplingRequestedQuality = hpl::TemporalUpscalerQuality::Quality;
+	mfRenderScaleRequested = 1.0f;
+	mSuperSamplingUnavailableProvider = hpl::TemporalUpscalerProvider::Off;
+
+	mpCBTemporalUpscaler = NULL;
+	mpCBTemporalUpscalerQuality = NULL;
+	mpCBRenderScale = NULL;
+	mpLRenderScaleHelp = NULL;
+	mpLTemporalUpscalerStatus = NULL;
+	mpSuperSamplingLoggedReason = NULL;
+	msSuperSamplingStatusText = _W("");
 
 	mbKeyConfigOpen = false;
 }
@@ -568,7 +622,7 @@ void cLuxMainMenu_Options::AddAdvancedGfxOptions(cWidgetDummy* apDummy)
 	cVector3f vPos(fBorderSize, 6 + fBorderSize, 0.1f);
 	float fItemSep = 180;
 
-	cWidgetFrame* pMainFrame = mpGuiSet->CreateWidgetFrame(cVector3f(0,0,1), cVector2f(550,275), false, apDummy, false, true);
+	cWidgetFrame* pMainFrame = mpGuiSet->CreateWidgetFrame(cVector3f(0,0,1), cVector2f(550,350), false, apDummy, false, true);
 	pMainFrame->SetDrawBackground(false);
 
 	cWidgetLabel* pLabel = NULL;
@@ -720,44 +774,72 @@ void cLuxMainMenu_Options::AddAdvancedGfxOptions(cWidgetDummy* apDummy)
 	}
 
 	vPos.y += pGroup->GetSize().y + 10;
+
 	////////////////////////////
-	// SSAO Group
-	pGroup = mpGuiSet->CreateWidgetGroup(vPos, vGroupSize, kTranslate("OptionsMenu", "SSAO"), pMainFrame);
+	// Supersampling
+	// Taller than the shared group size: three label+combo rows, a wrapping
+	// help line, and a wrapping status line. The other groups keep vGroupSize.
+	cVector2f vSuperSamplingGroupSize = cVector2f(vGroupSize.x, 220);
+	pGroup = mpGuiSet->CreateWidgetGroup(vPos, vSuperSamplingGroupSize,
+		TranslateOrDefault("OptionsMenu", "SuperSampling", _W("Supersampling")), pMainFrame);
 	{
 		float fBorderSize = 15;
+		float fSuperSamplingItemSep = 240;
 		cVector3f vPosInGroup = cVector3f(fBorderSize, fBorderSize, 0.1f);
 
-		///////////////////////////
-		// SSAO Active
-		mpChBSSAO = mpGuiSet->CreateWidgetCheckBox(vPosInGroup, 0, kTranslate("OptionsMenu","SSAO"), pGroup);
-		SetUpInput(NULL, mpChBSSAO, true, kTranslate("OptionsMenu","SSAOTip"));
+		/////////////////////////////
+		// Method
+		pLabel = mpGuiSet->CreateWidgetLabel(vPosInGroup, -1,
+			TranslateOrDefault("OptionsMenu", "SuperSamplingMethod", _W("Method")), pGroup);
+		mpCBTemporalUpscaler = mpGuiSet->CreateWidgetComboBox(cVector3f(0,pLabel->GetSize().y+5,0), cVector2f(220,25), _W(""), pLabel);
+		SetUpInput(pLabel, mpCBTemporalUpscaler, false,
+			TranslateOrDefault("OptionsMenu", "SuperSamplingMethodTip",
+				_W("A lower input resolution trades detail for performance; Native AA keeps native resolution.")));
+		mpCBTemporalUpscaler->AddCallback(eGuiMessage_SelectionChange, this, kGuiCallback(TemporalUpscaler_OnProviderChange));
 
-		//vPosInGroup.x += mpChBSSAO->GetSize().x + 20;
-		vPosInGroup.x += fItemSep;
+		vPosInGroup.x += fSuperSamplingItemSep;
 
-		///////////////////////////
-		// SSAO Samples
-		pLabel = mpGuiSet->CreateWidgetLabel(vPosInGroup, -1, kTranslate("OptionsMenu","SSAOSamples"), pGroup);
-		mpCBSSAOSamples = mpGuiSet->CreateWidgetComboBox(cVector3f(0,pLabel->GetSize().y+5,0), cVector2f(60,25), _W(""), pLabel);
-		SetUpInput(pLabel, mpCBSSAOSamples, true, kTranslate("OptionsMenu","SSAOSamplesTip"));
+		/////////////////////////////
+		// Quality
+		pLabel = mpGuiSet->CreateWidgetLabel(vPosInGroup, -1,
+			TranslateOrDefault("OptionsMenu", "Quality", _W("Quality")), pGroup);
+		mpCBTemporalUpscalerQuality = mpGuiSet->CreateWidgetComboBox(cVector3f(0,pLabel->GetSize().y+5,0), cVector2f(220,25), _W(""), pLabel);
+		SetUpInput(pLabel, mpCBTemporalUpscalerQuality, false,
+			TranslateOrDefault("OptionsMenu", "SuperSamplingQualityTip",
+				_W("A lower input resolution trades detail for performance; Native AA keeps native resolution.")));
+		mpCBTemporalUpscalerQuality->AddCallback(eGuiMessage_SelectionChange, this, kGuiCallback(TemporalUpscaler_OnQualityChange));
 
-		for(int i=0;i<4;++i)
-		{
-			int lSamples = GetSSAOSamplesFromIndex(i);
-			mpCBSSAOSamples->AddItem(cString::ToStringW(lSamples));
-		}
+		float fSuperSamplingRowHeight = pLabel->GetSize().y + 5 + mpCBTemporalUpscalerQuality->GetSize().y;
+		vPosInGroup.x = fBorderSize;
+		vPosInGroup.y = fBorderSize + fSuperSamplingRowHeight + 10;
 
-		//vPosInGroup.x += mpCBSSAOSamples->GetSize().x + 20;
-		vPosInGroup.x += fItemSep;
+		/////////////////////////////
+		// Render scale
+		pLabel = mpGuiSet->CreateWidgetLabel(vPosInGroup, -1,
+			TranslateOrDefault("OptionsMenu", "RenderScale", _W("Render scale")), pGroup);
+		mpCBRenderScale = mpGuiSet->CreateWidgetComboBox(cVector3f(0,pLabel->GetSize().y+5,0), cVector2f(220,25), _W(""), pLabel);
+		SetUpInput(pLabel, mpCBRenderScale, false,
+			TranslateOrDefault("OptionsMenu", "RenderScaleTip",
+				_W("Renders the scene at a percentage of the output resolution and scales the result to the window.")));
+		mpCBRenderScale->AddCallback(eGuiMessage_SelectionChange, this, kGuiCallback(RenderScale_OnChange));
 
-		///////////////////////////
-		// SSAO Resolution
-		pLabel = mpGuiSet->CreateWidgetLabel(vPosInGroup, -1, kTranslate("OptionsMenu","SSAOResolution"), pGroup);
-		mpCBSSAOResolution = mpGuiSet->CreateWidgetComboBox(cVector3f(0,pLabel->GetSize().y+5,0), cVector2f(80,25), _W(""), pLabel);
-		SetUpInput(pLabel, mpCBSSAOResolution, true, kTranslate("OptionsMenu","SSAOResolutionTip"));
+		float fRenderScaleRowHeight = pLabel->GetSize().y + 5 + mpCBRenderScale->GetSize().y;
+		float fRenderScaleHelpY = vPosInGroup.y + fRenderScaleRowHeight + 10;
+		mpLRenderScaleHelp = mpGuiSet->CreateWidgetLabel(cVector3f(fBorderSize, fRenderScaleHelpY, 0.1f),
+			cVector2f(vGroupSize.x-fBorderSize*2, 35),
+			TranslateOrDefault("OptionsMenu", "RenderScaleHelp",
+				_W("FSR and XeSS choose the render resolution from Quality. The saved render scale applies when supersampling is Off or unavailable.")), pGroup);
+		mpLRenderScaleHelp->SetWordWrap(true);
 
-		mpCBSSAOResolution->AddItem(kTranslate("OptionsMenu", "Medium"));
-		mpCBSSAOResolution->AddItem(kTranslate("OptionsMenu", "High"));
+		float fTemporalUpscalerStatusY = fRenderScaleHelpY + mpLRenderScaleHelp->GetSize().y + 5;
+		mpLTemporalUpscalerStatus = mpGuiSet->CreateWidgetLabel(cVector3f(fBorderSize, fTemporalUpscalerStatusY, 0.1f),
+			cVector2f(vGroupSize.x-fBorderSize*2, 35), _W(""), pGroup);
+		mpSuperSamplingLoggedReason = NULL;
+		msSuperSamplingStatusText = _W("");
+		mpLTemporalUpscalerStatus->SetWordWrap(true);
+
+		vSuperSamplingGroupSize.y = fTemporalUpscalerStatusY + mpLTemporalUpscalerStatus->GetSize().y + fBorderSize;
+		pGroup->SetSize(vSuperSamplingGroupSize);
 	}
 
 	vPos.y += pGroup->GetSize().y + 10;
@@ -775,6 +857,7 @@ void cLuxMainMenu_Options::AddAdvancedGfxOptions(cWidgetDummy* apDummy)
 
 	////////////////////////////
 	// Misc
+	vGroupSize.y = 70;
 	pGroup = mpGuiSet->CreateWidgetGroup(vPos, vGroupSize, kTranslate("KeyConfig","Misc"), pMainFrame);
 	{
 		float fBorderSize = 15;
@@ -798,6 +881,10 @@ void cLuxMainMenu_Options::AddAdvancedGfxOptions(cWidgetDummy* apDummy)
 		SetUpInput(NULL, mpChBWorldReflection, false, kTranslate("OptionsMenu","WorldReflectionTip"));
 	}
 
+	vPos.y += pGroup->GetSize().y + 10;
+	// Leave room to scroll the last options above the fixed Basic Options button.
+	// The frame derives its scroll range from its children's bounds.
+	mpGuiSet->CreateWidgetDummy(vPos + cVector3f(0, 50, 0), pMainFrame);
 
 	//////////////
 	// Setup gamepad navigation
@@ -808,8 +895,6 @@ void cLuxMainMenu_Options::AddAdvancedGfxOptions(cWidgetDummy* apDummy)
 	mpChBBloom; mpChBSepia; mpChBInsanity;
 	mpChBImageTrail; mpChBRadialBlur;
 
-	mpChBSSAO; mpCBSSAOSamples; mpCBSSAOResolution;
-	
 	mpChEdgeSmooth;  mpChBWorldReflection;
 	mpChBRefraction;
 
@@ -862,29 +947,13 @@ void cLuxMainMenu_Options::AddAdvancedGfxOptions(cWidgetDummy* apDummy)
 		mpChBImageTrail->SetFocusNavigation(eUIArrow_Right, mpChBRadialBlur);
 		mpChBRadialBlur->SetFocusNavigation(eUIArrow_Left, mpChBImageTrail);
 
-		mpChBImageTrail->SetFocusNavigation(eUIArrow_Down, mpChBSSAO);
-		mpChBRadialBlur->SetFocusNavigation(eUIArrow_Down, mpCBSSAOSamples);
+		mpChBImageTrail->SetFocusNavigation(eUIArrow_Down, mpCBTemporalUpscaler);
+		mpChBRadialBlur->SetFocusNavigation(eUIArrow_Down, mpCBTemporalUpscalerQuality);
 	}
 
 	{
-		mpChBSSAO->SetFocusNavigation(eUIArrow_Up, mpChBImageTrail);
-		mpCBSSAOSamples->SetFocusNavigation(eUIArrow_Up, mpChBRadialBlur);
-		mpCBSSAOResolution->SetFocusNavigation(eUIArrow_Up, mpChBRadialBlur);
-
-		mpChBSSAO->SetFocusNavigation(eUIArrow_Right, mpCBSSAOSamples);
-		mpCBSSAOSamples->SetFocusNavigation(eUIArrow_Right, mpCBSSAOResolution);
-
-		mpCBSSAOSamples->SetFocusNavigation(eUIArrow_Left, mpChBSSAO);
-		mpCBSSAOResolution->SetFocusNavigation(eUIArrow_Left, mpCBSSAOSamples);
-
-		mpChBSSAO->SetFocusNavigation(eUIArrow_Down, mpChEdgeSmooth);
-		mpCBSSAOSamples->SetFocusNavigation(eUIArrow_Down, mpChBWorldReflection);
-		mpCBSSAOResolution->SetFocusNavigation(eUIArrow_Down, mpChBWorldReflection);
-	}
-
-	{
-		mpChEdgeSmooth->SetFocusNavigation(eUIArrow_Up, mpChBSSAO);
-		mpChBWorldReflection->SetFocusNavigation(eUIArrow_Up, mpCBSSAOSamples);
+		mpChEdgeSmooth->SetFocusNavigation(eUIArrow_Up, mpCBRenderScale);
+		mpChBWorldReflection->SetFocusNavigation(eUIArrow_Up, mpCBRenderScale);
 
 		mpChEdgeSmooth->SetFocusNavigation(eUIArrow_Right, mpChBWorldReflection);
 		mpChBWorldReflection->SetFocusNavigation(eUIArrow_Left, mpChEdgeSmooth);
@@ -893,6 +962,15 @@ void cLuxMainMenu_Options::AddAdvancedGfxOptions(cWidgetDummy* apDummy)
 		mpChBWorldReflection->SetFocusNavigation(eUIArrow_Down, mpChBRefraction);
 
 		mpChBRefraction->SetFocusNavigation(eUIArrow_Up, mpChEdgeSmooth);
+
+		mpCBTemporalUpscaler->SetFocusNavigation(eUIArrow_Up, mpChBImageTrail);
+		mpCBTemporalUpscalerQuality->SetFocusNavigation(eUIArrow_Up, mpChBRadialBlur);
+		mpCBTemporalUpscaler->SetFocusNavigation(eUIArrow_Right, mpCBTemporalUpscalerQuality);
+		mpCBTemporalUpscalerQuality->SetFocusNavigation(eUIArrow_Left, mpCBTemporalUpscaler);
+		mpCBTemporalUpscaler->SetFocusNavigation(eUIArrow_Down, mpCBRenderScale);
+		mpCBTemporalUpscalerQuality->SetFocusNavigation(eUIArrow_Down, mpCBRenderScale);
+		mpCBRenderScale->SetFocusNavigation(eUIArrow_Up, mpCBTemporalUpscaler);
+		mpCBRenderScale->SetFocusNavigation(eUIArrow_Down, mpChEdgeSmooth);
 	}
 }
 
@@ -1234,6 +1312,97 @@ void cLuxMainMenu_Options::SetInputValues(cResourceVarsObject& aObj)
 		}
 
 		/////////////////////////
+		// Temporal upscaling
+		{
+			const char* pReason = NULL;
+			msTemporalUpscalerFsrUnavailableReason = "";
+			msTemporalUpscalerXeSSUnavailableReason = "";
+			mbTemporalUpscalerFsrAvailable = TemporalUpscalerAvailable(TemporalUpscalerProvider::Fsr, &pReason);
+			if(mbTemporalUpscalerFsrAvailable == false)
+			{
+				msTemporalUpscalerFsrUnavailableReason = pReason ? pReason : "unavailable";
+				Warning("Temporal upscaler %s unavailable: %s\n",
+					cString::To8Char(TemporalUpscalerProviderToDisplay(TemporalUpscalerProvider::Fsr)).c_str(),
+					msTemporalUpscalerFsrUnavailableReason.c_str());
+			}
+
+			pReason = NULL;
+			mbTemporalUpscalerXeSSAvailable = TemporalUpscalerAvailable(TemporalUpscalerProvider::XeSS, &pReason);
+			if(mbTemporalUpscalerXeSSAvailable == false)
+			{
+				msTemporalUpscalerXeSSUnavailableReason = pReason ? pReason : "unavailable";
+				Warning("Temporal upscaler %s unavailable: %s\n",
+					cString::To8Char(TemporalUpscalerProviderToDisplay(TemporalUpscalerProvider::XeSS)).c_str(),
+					msTemporalUpscalerXeSSUnavailableReason.c_str());
+			}
+
+			mSuperSamplingRequestedProvider = cLuxConfigHandler::SuperSamplingProviderFromString(aObj.GetVarString("SuperSamplingProvider", "off"));
+			mSuperSamplingRequestedQuality = cLuxConfigHandler::SuperSamplingQualityFromString(aObj.GetVarString("SuperSamplingQuality", "quality"));
+			mSuperSamplingUnavailableProvider = TemporalUpscalerProvider::Off;
+
+			bool bUnavailableSavedProvider =
+				(mSuperSamplingRequestedProvider == TemporalUpscalerProvider::Fsr && mbTemporalUpscalerFsrAvailable == false) ||
+				(mSuperSamplingRequestedProvider == TemporalUpscalerProvider::XeSS && mbTemporalUpscalerXeSSAvailable == false);
+			if(bUnavailableSavedProvider)
+				mSuperSamplingUnavailableProvider = mSuperSamplingRequestedProvider;
+
+			mbRebuildingTemporalUpscaler = true;
+			mpCBTemporalUpscaler->SetSelectedItem(-1, false, false);
+			mpCBTemporalUpscaler->ClearItems();
+			int lProvider = 0;
+			if(bUnavailableSavedProvider)
+			{
+				tWString sUnavailable = TemporalUpscalerProviderToDisplay(mSuperSamplingRequestedProvider) +
+					_W(" (unavailable; using Off)");
+				cWidgetItem* pItem = mpCBTemporalUpscaler->AddItem(
+					TranslateOrDefault("OptionsMenu", "SuperSamplingUnavailable", sUnavailable));
+				pItem->SetUserValue(-1);
+				lProvider = 0;
+			}
+
+			cWidgetItem* pItem = mpCBTemporalUpscaler->AddItem(TranslateOrDefault("OptionsMenu", "Off", _W("Off")));
+			pItem->SetUserValue((int)TemporalUpscalerProvider::Off);
+			if(bUnavailableSavedProvider == false && mSuperSamplingRequestedProvider == TemporalUpscalerProvider::Off)
+				lProvider = mpCBTemporalUpscaler->GetItemNum()-1;
+
+			if(mbTemporalUpscalerFsrAvailable)
+			{
+				pItem = mpCBTemporalUpscaler->AddItem(TemporalUpscalerProviderToDisplay(TemporalUpscalerProvider::Fsr));
+				pItem->SetUserValue((int)TemporalUpscalerProvider::Fsr);
+				if(bUnavailableSavedProvider == false && mSuperSamplingRequestedProvider == TemporalUpscalerProvider::Fsr)
+					lProvider = mpCBTemporalUpscaler->GetItemNum()-1;
+			}
+			if(mbTemporalUpscalerXeSSAvailable)
+			{
+				pItem = mpCBTemporalUpscaler->AddItem(TemporalUpscalerProviderToDisplay(TemporalUpscalerProvider::XeSS));
+				pItem->SetUserValue((int)TemporalUpscalerProvider::XeSS);
+				if(bUnavailableSavedProvider == false && mSuperSamplingRequestedProvider == TemporalUpscalerProvider::XeSS)
+					lProvider = mpCBTemporalUpscaler->GetItemNum()-1;
+			}
+			mpCBTemporalUpscaler->SetSelectedItem(lProvider, true, false);
+
+			mfRenderScaleRequested = cLuxConfigHandler::NormalizeRenderScale(aObj.GetVarFloat("RenderScale", 1.0f));
+			mpCBRenderScale->SetSelectedItem(-1, false, false);
+			mpCBRenderScale->ClearItems();
+			for(int i=0; i<cLuxConfigHandler::GetRenderScalePresetNum(); ++i)
+			{
+				float fRenderScale = cLuxConfigHandler::GetRenderScalePreset(i);
+				tWString sRenderScale = i == 0 ?
+					TranslateOrDefault("OptionsMenu", "RenderScaleNative", _W("Native (100%)")) :
+					cString::ToStringW(fRenderScale * 100.0f, 0, true) + _W("%");
+				pItem = mpCBRenderScale->AddItem(sRenderScale);
+				pItem->SetUserValue(i);
+			}
+			mpCBRenderScale->SetSelectedItem(
+				cLuxConfigHandler::GetRenderScalePresetIndex(mfRenderScaleRequested), true, false);
+			mbRebuildingTemporalUpscaler = false;
+
+			RebuildTemporalUpscalerQualityList();
+			RefreshTemporalUpscalerStatusLabel();
+			RefreshRenderScaleControl();
+		}
+
+		/////////////////////////
 		// Smoothing
 		{
 			//Enabled
@@ -1274,36 +1443,6 @@ void cLuxMainMenu_Options::SetInputValues(cResourceVarsObject& aObj)
 		{
 			mpChBWorldReflection->SetChecked(aObj.GetVarBool("WorldReflection"), false); 
 			mpChBRefraction->SetChecked(aObj.GetVarBool("Refraction"), false); 
-		}
-
-		/////////////////////////
-		// SSAO
-		{
-			
-			/////////////////////////////
-			// Active
-			mpChBSSAO->SetChecked(aObj.GetVarBool("SSAOActive"), false);
-
-			/////////////////////////////
-			// Samples
-			int lCurrentSamples = aObj.GetVarInt("SSAONumOfSamples");
-			mpCBSSAOSamples->SetSelectedItem(GetIndexFromSSAOSamples(lCurrentSamples), true, false);
-			/*
-			for(int i=0;i<(int)mpCBSSAOSamples->GetItemNum();++i)
-			{
-				cWidgetItem* pItem = mpCBSSAOSamples->GetItem(i);
-				int lSamples = cString::ToInt(cString::To8Char(pItem->GetText()).c_str(), 0);
-				if(lCurrentSamples == lSamples)
-				{
-					lCurrentSamplesIdx = i;
-					break;
-				}
-			}
-			*/
-
-			/////////////////////////////
-			// Resolution
-			mpCBSSAOResolution->SetSelectedItem(aObj.GetVarInt("SSAOResolution"));
 		}
 
 		/////////////////
@@ -1371,9 +1510,247 @@ void cLuxMainMenu_Options::SetInputValues(cResourceVarsObject& aObj)
 		mpCBSndDevice->SetSelectedItem(lSndDevIdx, true, false);
 
 	mpChBHRTF->SetChecked(aObj.GetVarBool("HRTFActive"), false);
-#endif
+	#endif
 
+	RefreshRenderScaleControl();
 	mbSettingInitialValues = false;
+}
+
+//-----------------------------------------------------------------------
+
+void cLuxMainMenu_Options::RebuildTemporalUpscalerQualityList()
+{
+	if(mpCBTemporalUpscaler == NULL || mpCBTemporalUpscalerQuality == NULL)
+		return;
+
+	mbRebuildingTemporalUpscaler = true;
+	mpCBTemporalUpscalerQuality->SetSelectedItem(-1, false, false);
+	mpCBTemporalUpscalerQuality->ClearItems();
+
+	bool bProviderAvailable =
+		(mSuperSamplingRequestedProvider == TemporalUpscalerProvider::Fsr && mbTemporalUpscalerFsrAvailable) ||
+		(mSuperSamplingRequestedProvider == TemporalUpscalerProvider::XeSS && mbTemporalUpscalerXeSSAvailable);
+	TemporalUpscalerProvider aEffectiveProvider = bProviderAvailable ? mSuperSamplingRequestedProvider : TemporalUpscalerProvider::Off;
+
+	if(aEffectiveProvider == TemporalUpscalerProvider::Off)
+	{
+		cWidgetItem* pItem = mpCBTemporalUpscalerQuality->AddItem(
+			TranslateOrDefault("OptionsMenu", "SuperSamplingQualityUnavailable", _W("Not available")));
+		pItem->SetSelectable(false);
+		pItem->SetUserValue((int)mSuperSamplingRequestedQuality);
+		mpCBTemporalUpscalerQuality->SetSelectedItem(0, true, false);
+		mpCBTemporalUpscalerQuality->SetEnabled(false);
+	}
+	else
+	{
+		TemporalUpscalerQuality vQualities[8];
+		uint32_t lQualityNum = TemporalUpscalerAvailableQualities(aEffectiveProvider, vQualities, 8);
+		if(lQualityNum == 0)
+		{
+			cWidgetItem* pItem = mpCBTemporalUpscalerQuality->AddItem(
+				TranslateOrDefault("OptionsMenu", "SuperSamplingQualityUnavailable", _W("Not available")));
+			pItem->SetSelectable(false);
+			pItem->SetUserValue((int)mSuperSamplingRequestedQuality);
+			mpCBTemporalUpscalerQuality->SetSelectedItem(0, true, false);
+			mpCBTemporalUpscalerQuality->SetEnabled(false);
+		}
+		else
+		{
+			int lSelectedQuality = -1;
+			int lDefaultQuality = -1;
+			for(uint32_t i=0; i<lQualityNum; ++i)
+			{
+				cWidgetItem* pItem = mpCBTemporalUpscalerQuality->AddItem(TemporalUpscalerQualityToDisplay(vQualities[i]));
+				pItem->SetUserValue((int)vQualities[i]);
+				if(vQualities[i] == mSuperSamplingRequestedQuality)
+					lSelectedQuality = (int)i;
+				if(vQualities[i] == TemporalUpscalerQuality::Quality)
+					lDefaultQuality = (int)i;
+			}
+			if(lSelectedQuality < 0 || lSelectedQuality >= (int)lQualityNum)
+				lSelectedQuality = lDefaultQuality >= 0 ? lDefaultQuality : 0;
+			mSuperSamplingRequestedQuality = vQualities[lSelectedQuality];
+			mpCBTemporalUpscalerQuality->SetSelectedItem(lSelectedQuality, true, false);
+			mpCBTemporalUpscalerQuality->SetEnabled(true);
+		}
+	}
+
+	bool bQualityEnabled = mpCBTemporalUpscalerQuality->IsEnabled();
+	bool bRenderScaleEnabled = mSuperSamplingRequestedProvider == TemporalUpscalerProvider::Off;
+	mpChBImageTrail->SetFocusNavigation(eUIArrow_Down, mpCBTemporalUpscaler);
+	mpChBRadialBlur->SetFocusNavigation(eUIArrow_Down, bQualityEnabled ? mpCBTemporalUpscalerQuality : mpCBTemporalUpscaler);
+	mpCBTemporalUpscaler->SetFocusNavigation(eUIArrow_Up, mpChBImageTrail);
+	mpCBTemporalUpscalerQuality->SetFocusNavigation(eUIArrow_Up, mpChBRadialBlur);
+	// Right only leads somewhere while Quality is selectable; a disabled
+	// Quality is skipped rather than focused.
+	mpCBTemporalUpscaler->SetFocusNavigation(eUIArrow_Right, bQualityEnabled ? (iWidget*)mpCBTemporalUpscalerQuality : NULL);
+	mpCBTemporalUpscalerQuality->SetFocusNavigation(eUIArrow_Left, mpCBTemporalUpscaler);
+	mpCBTemporalUpscaler->SetFocusNavigation(eUIArrow_Down, bRenderScaleEnabled ? (iWidget*)mpCBRenderScale : mpChEdgeSmooth);
+	mpCBTemporalUpscalerQuality->SetFocusNavigation(eUIArrow_Down, bRenderScaleEnabled ? (iWidget*)mpCBRenderScale : mpChEdgeSmooth);
+	mpCBRenderScale->SetFocusNavigation(eUIArrow_Up, mpCBTemporalUpscaler);
+	mpCBRenderScale->SetFocusNavigation(eUIArrow_Down, mpChEdgeSmooth);
+	mpChEdgeSmooth->SetFocusNavigation(eUIArrow_Up, bRenderScaleEnabled ? (iWidget*)mpCBRenderScale : mpCBTemporalUpscaler);
+	mpChBWorldReflection->SetFocusNavigation(eUIArrow_Up,
+		bRenderScaleEnabled ? (iWidget*)mpCBRenderScale : (bQualityEnabled ? (iWidget*)mpCBTemporalUpscalerQuality : mpCBTemporalUpscaler));
+
+	mbRebuildingTemporalUpscaler = false;
+}
+
+//-----------------------------------------------------------------------
+
+void cLuxMainMenu_Options::RefreshTemporalUpscalerStatusLabel()
+{
+	if(mpCBTemporalUpscaler == NULL || mpCBTemporalUpscalerQuality == NULL || mpLTemporalUpscalerStatus == NULL)
+		return;
+
+	TemporalUpscalerSettings aSelected;
+	aSelected.provider = mSuperSamplingRequestedProvider;
+	aSelected.quality = mSuperSamplingRequestedQuality;
+
+	bool bAppliedMode = gpBase != NULL && gpBase->mpConfigHandler != NULL &&
+		mSuperSamplingRequestedProvider == gpBase->mpConfigHandler->mSuperSampling.provider &&
+		mSuperSamplingRequestedQuality == gpBase->mpConfigHandler->mSuperSampling.quality;
+	TemporalUpscalerStatus aStatus = {};
+	TemporalUpscalerStatus aCapabilityStatus = {};
+	bool bStatusUsable = false;
+	bool bHaveCapabilityStatus = false;
+
+	if(bAppliedMode)
+	{
+		cViewport* pViewport = gpBase->mpMainMenu ? gpBase->mpMainMenu->GetBackgroundViewport() : NULL;
+		if(pViewport)
+		{
+			aStatus = pViewport->GetTemporalUpscalerStatus();
+			bStatusUsable = aStatus.requestedProvider == aSelected.provider &&
+				aStatus.requestedQuality == aSelected.quality;
+		}
+
+		bool bNeedsCapabilityStatus = bStatusUsable == false ||
+			(aStatus.available == false && aStatus.unavailableReason == NULL) ||
+			(aStatus.available && aStatus.effectiveProvider == TemporalUpscalerProvider::Off);
+		if(aSelected.provider != TemporalUpscalerProvider::Off && bNeedsCapabilityStatus)
+		{
+			aCapabilityStatus = TemporalUpscalerQuery(aSelected);
+			bHaveCapabilityStatus = true;
+		}
+	}
+	else
+	{
+		aStatus = TemporalUpscalerQuery(aSelected);
+		bStatusUsable = true;
+	}
+
+	const char* pUnavailableReason = NULL;
+	if(bAppliedMode)
+	{
+		if(bStatusUsable)
+			pUnavailableReason = aStatus.unavailableReason;
+		else if(bHaveCapabilityStatus && aCapabilityStatus.available == false)
+			pUnavailableReason = aCapabilityStatus.unavailableReason;
+	}
+	else if(aStatus.available == false)
+	{
+		pUnavailableReason = aStatus.unavailableReason;
+	}
+
+	if(pUnavailableReason != NULL)
+	{
+		bool bReasonChanged = pUnavailableReason != mpSuperSamplingLoggedReason;
+		if(bReasonChanged && pUnavailableReason != NULL && mpSuperSamplingLoggedReason != NULL)
+			bReasonChanged = std::strcmp(pUnavailableReason, mpSuperSamplingLoggedReason) != 0;
+		if(bReasonChanged)
+			Warning("Temporal upscaler status: %s\n", pUnavailableReason);
+		mpSuperSamplingLoggedReason = pUnavailableReason;
+	}
+	else
+	{
+		mpSuperSamplingLoggedReason = NULL;
+	}
+
+	tWString sStatus;
+	tWString sUnavailable = TemporalUpscalerProviderToDisplay(aSelected.provider) +
+		_W(" is unavailable on this system; using Off.");
+	if(bAppliedMode)
+	{
+		if(aSelected.provider == TemporalUpscalerProvider::Off)
+		{
+			sStatus = TranslateOrDefault("OptionsMenu", "SuperSamplingStatusOff", _W("Supersampling: Off."));
+		}
+		else if(bStatusUsable && aStatus.available && aStatus.effectiveProvider != TemporalUpscalerProvider::Off)
+		{
+			sStatus = TranslateOrDefault("OptionsMenu", "SuperSamplingStatus", _W("Supersampling: ")) +
+				TemporalUpscalerProviderToDisplay(aStatus.effectiveProvider) + _W(" (") +
+				TemporalUpscalerQualityToDisplay(aStatus.effectiveQuality) + _W(").");
+		}
+		else if(bStatusUsable && aStatus.available == false && aStatus.unavailableReason != NULL)
+		{
+			sStatus = sUnavailable;
+		}
+		else if(bHaveCapabilityStatus && aCapabilityStatus.available == false)
+		{
+			sStatus = sUnavailable;
+		}
+		else
+		{
+			sStatus = TranslateOrDefault("OptionsMenu", "SuperSamplingStatusPending",
+				TemporalUpscalerProviderToDisplay(aSelected.provider) +
+				_W(" selected; not active in this view."));
+		}
+	}
+	else
+	{
+		if(aSelected.provider == TemporalUpscalerProvider::Off)
+		{
+			sStatus = TranslateOrDefault("OptionsMenu", "SuperSamplingStatusOff", _W("Supersampling: Off.")) +
+				TranslateOrDefault("OptionsMenu", "SuperSamplingStatusAppliesOnOk", _W(" Applies when you press OK."));
+		}
+		else if(aStatus.available == false)
+		{
+			sStatus = sUnavailable;
+		}
+		else
+		{
+			sStatus = TranslateOrDefault("OptionsMenu", "SuperSamplingStatusPreview",
+				TranslateOrDefault("OptionsMenu", "SuperSamplingStatus", _W("Supersampling: ")) +
+				TemporalUpscalerProviderToDisplay(aSelected.provider) + _W(" (") +
+				TemporalUpscalerQualityToDisplay(aSelected.quality) +
+				_W(") applies when you press OK."));
+		}
+	}
+
+	if(sStatus != msSuperSamplingStatusText)
+	{
+		mpLTemporalUpscalerStatus->SetText(sStatus);
+		msSuperSamplingStatusText = sStatus;
+	}
+}
+
+//-----------------------------------------------------------------------
+
+void cLuxMainMenu_Options::RefreshRenderScaleControl()
+{
+	if(mpCBRenderScale == NULL)
+		return;
+
+	bool bRenderScaleEnabled = mSuperSamplingRequestedProvider == TemporalUpscalerProvider::Off;
+	mpCBRenderScale->SetEnabled(bRenderScaleEnabled);
+
+	if(mpCBTemporalUpscaler == NULL || mpCBTemporalUpscalerQuality == NULL ||
+		mpChEdgeSmooth == NULL || mpChBWorldReflection == NULL)
+		return;
+
+	bool bQualityEnabled = mpCBTemporalUpscalerQuality->IsEnabled();
+	mpCBTemporalUpscaler->SetFocusNavigation(eUIArrow_Down,
+		bRenderScaleEnabled ? (iWidget*)mpCBRenderScale : mpChEdgeSmooth);
+	mpCBTemporalUpscalerQuality->SetFocusNavigation(eUIArrow_Down,
+		bRenderScaleEnabled ? (iWidget*)mpCBRenderScale : mpChEdgeSmooth);
+	mpCBRenderScale->SetFocusNavigation(eUIArrow_Up, mpCBTemporalUpscaler);
+	mpCBRenderScale->SetFocusNavigation(eUIArrow_Down, mpChEdgeSmooth);
+	mpChEdgeSmooth->SetFocusNavigation(eUIArrow_Up,
+		bRenderScaleEnabled ? (iWidget*)mpCBRenderScale : mpCBTemporalUpscaler);
+	mpChBWorldReflection->SetFocusNavigation(eUIArrow_Up,
+		bRenderScaleEnabled ? (iWidget*)mpCBRenderScale :
+		(bQualityEnabled ? (iWidget*)mpCBTemporalUpscalerQuality : mpCBTemporalUpscaler));
 }
 
 //-----------------------------------------------------------------------
@@ -1513,9 +1890,17 @@ void cLuxMainMenu_Options::ApplyChanges()
 		// Water
 		pCfgHdr->mbWorldReflection = mpChBWorldReflection->IsChecked();
 		pCfgHdr->mbRefraction = mpChBRefraction->IsChecked();
+		pCfgHdr->mSuperSampling.provider = mSuperSamplingRequestedProvider;
+		pCfgHdr->mSuperSampling.quality = mSuperSamplingRequestedQuality;
+		pCfgHdr->SetRenderScale(mfRenderScaleRequested);
 
 		//Update the viewport stuff
 		gpBase->mpMapHandler->UpdateViewportRenderProperties();
+
+		// The main-menu background scene has its own viewport, so it needs the
+		// new upscaler setting too; both write through to their render settings.
+		if(gpBase->mpMainMenu)
+			gpBase->mpMainMenu->RefreshSuperSamplingSettings();
 
 		/////////////////////////
 		// Smoothing
@@ -1541,11 +1926,6 @@ void cLuxMainMenu_Options::ApplyChanges()
 			//Insanity
 			pPostEffects->GetInsanity()->SetDisabled(mpChBInsanity->IsChecked()==false);
 		}
-
-		// SSAO
-		pCfgHdr->mbSSAOActive = mpChBSSAO->IsChecked();
-		pCfgHdr->mlSSAOSamples = GetSSAOSamplesFromIndex(mpCBSSAOSamples->GetSelectedItem());
-		pCfgHdr->mlSSAOResolution = mpCBSSAOResolution->GetSelectedItem();
 	}
 	
 
@@ -1805,6 +2185,9 @@ void cLuxMainMenu_Options::DumpInitialValues(cResourceVarsObject &aObj)
 		aObj.AddVarInt("TextureQuality", gpBase->mpConfigHandler->mlTextureQuality);
 		aObj.AddVarInt("TextureFilter", gpBase->mpConfigHandler->mlTextureFilter);
 		aObj.AddVarFloat("TextureAnisotropy", gpBase->mpConfigHandler->mfTextureAnisotropy);
+		aObj.AddVarString("SuperSamplingProvider", cLuxConfigHandler::SuperSamplingProviderToString(gpBase->mpConfigHandler->mSuperSampling.provider));
+		aObj.AddVarString("SuperSamplingQuality", cLuxConfigHandler::SuperSamplingQualityToString(gpBase->mpConfigHandler->mSuperSampling.quality));
+		aObj.AddVarFloat("RenderScale", gpBase->mpConfigHandler->GetRenderScale());
 
 		/////////////////////////
 		// Smoothing
@@ -1823,12 +2206,6 @@ void cLuxMainMenu_Options::DumpInitialValues(cResourceVarsObject &aObj)
 		aObj.AddVarBool("WorldReflection", gpBase->mpConfigHandler->mbWorldReflection);
 		aObj.AddVarBool("Refraction", gpBase->mpConfigHandler->mbRefraction);
 		
-		/////////////////////////
-		// SSAO
-		aObj.AddVarBool("SSAOActive", gpBase->mpConfigHandler->mbSSAOActive);
-		aObj.AddVarInt("SSAONumOfSamples", gpBase->mpConfigHandler->mlSSAOSamples);
-		aObj.AddVarInt("SSAOResolution", gpBase->mpConfigHandler->mlSSAOResolution);
-
 		/////////////////
 		// PostEffects
 		cLuxMapHandler* pMapHdlr = gpBase->mpMapHandler;
@@ -1901,6 +2278,9 @@ void cLuxMainMenu_Options::DumpCurrentValues(cResourceVarsObject &aObj)
 		aObj.AddVarInt("TextureQuality", (mpCBTextureSizeLevel->GetItemNum()-1) - mpCBTextureSizeLevel->GetSelectedItem());
 		aObj.AddVarInt("TextureFilter", mpCBTextureFilter->GetSelectedItem());
 		aObj.AddVarFloat("TextureAnisotropy", GetAnisotropyFromIndex(mpCBAnisotropy->GetSelectedItem()));
+		aObj.AddVarString("SuperSamplingProvider", cLuxConfigHandler::SuperSamplingProviderToString(mSuperSamplingRequestedProvider));
+		aObj.AddVarString("SuperSamplingQuality", cLuxConfigHandler::SuperSamplingQualityToString(mSuperSamplingRequestedQuality));
+		aObj.AddVarFloat("RenderScale", mfRenderScaleRequested);
 
 		/////////////////////////
 		// Smoothing
@@ -1919,12 +2299,6 @@ void cLuxMainMenu_Options::DumpCurrentValues(cResourceVarsObject &aObj)
 		aObj.AddVarBool("WorldReflection", mpChBWorldReflection->IsChecked());
 		aObj.AddVarBool("Refraction", mpChBRefraction->IsChecked());
 		
-		/////////////////////////
-		// SSAO
-		aObj.AddVarBool("SSAOActive", mpChBSSAO->IsChecked());
-		aObj.AddVarInt("SSAONumOfSamples", GetSSAOSamplesFromIndex(mpCBSSAOSamples->GetSelectedItem()));
-		aObj.AddVarInt("SSAOResolution", mpCBSSAOResolution->GetSelectedItem());
-
 		/////////////////
 		// PostEffects
 		aObj.AddVarBool("BloomActive", mpChBBloom->IsChecked());
@@ -1975,6 +2349,9 @@ void cLuxMainMenu_Options::DumpCurrentValues(cResourceVarsObject &aObj)
 
 bool cLuxMainMenu_Options::Window_OnUpdate(iWidget* apWidget, const cGuiMessageData& aData)
 {
+	RefreshTemporalUpscalerStatusLabel();
+	RefreshRenderScaleControl();
+
 	///////////////////////////////////////////////////
 	// If there is a popup active, dont update tips
 	if(mpGuiSet->PopUpIsActive())
@@ -2087,6 +2464,92 @@ bool cLuxMainMenu_Options::Option_OnChangeValue(iWidget* apWidget, const cGuiMes
 	return true;
 }
 kGuiCallbackDeclaredFuncEnd(cLuxMainMenu_Options, Option_OnChangeValue);
+
+//-----------------------------------------------------------------------
+
+bool cLuxMainMenu_Options::TemporalUpscaler_OnProviderChange(iWidget* apWidget, const cGuiMessageData& aData)
+{
+	if(mbSettingInitialValues || mbRebuildingTemporalUpscaler)
+		return true;
+
+	if(mpCBTemporalUpscaler == NULL)
+		return true;
+	int lSelectedItem = mpCBTemporalUpscaler->GetSelectedItem();
+	if(lSelectedItem < 0 || lSelectedItem >= mpCBTemporalUpscaler->GetItemNum())
+		return true;
+	cWidgetItem* pItem = mpCBTemporalUpscaler->GetItem(lSelectedItem);
+	if(pItem == NULL)
+		return true;
+
+	int lProvider = pItem->GetUserValue();
+	if(lProvider == -1)
+	{
+		if(mSuperSamplingUnavailableProvider != TemporalUpscalerProvider::Off)
+			mSuperSamplingRequestedProvider = mSuperSamplingUnavailableProvider;
+	}
+	else if(lProvider >= (int)TemporalUpscalerProvider::Off && lProvider <= (int)TemporalUpscalerProvider::XeSS)
+	{
+		mSuperSamplingRequestedProvider = (TemporalUpscalerProvider)lProvider;
+	}
+	else
+	{
+		return true;
+	}
+
+	RebuildTemporalUpscalerQualityList();
+	RefreshTemporalUpscalerStatusLabel();
+	RefreshRenderScaleControl();
+	return true;
+}
+kGuiCallbackDeclaredFuncEnd(cLuxMainMenu_Options, TemporalUpscaler_OnProviderChange);
+
+//-----------------------------------------------------------------------
+
+bool cLuxMainMenu_Options::TemporalUpscaler_OnQualityChange(iWidget* apWidget, const cGuiMessageData& aData)
+{
+	if(mbSettingInitialValues || mbRebuildingTemporalUpscaler)
+		return true;
+
+	if(mpCBTemporalUpscalerQuality == NULL || mpCBTemporalUpscalerQuality->IsEnabled() == false)
+		return true;
+	int lSelectedItem = mpCBTemporalUpscalerQuality->GetSelectedItem();
+	if(lSelectedItem < 0 || lSelectedItem >= mpCBTemporalUpscalerQuality->GetItemNum())
+		return true;
+	cWidgetItem* pItem = mpCBTemporalUpscalerQuality->GetItem(lSelectedItem);
+	if(pItem == NULL)
+		return true;
+	int lQuality = pItem->GetUserValue();
+	if(lQuality < (int)TemporalUpscalerQuality::NativeAA || lQuality > (int)TemporalUpscalerQuality::UltraPerformance)
+		return true;
+	mSuperSamplingRequestedQuality = (TemporalUpscalerQuality)lQuality;
+	RefreshTemporalUpscalerStatusLabel();
+	RefreshRenderScaleControl();
+	return true;
+}
+kGuiCallbackDeclaredFuncEnd(cLuxMainMenu_Options, TemporalUpscaler_OnQualityChange);
+
+//-----------------------------------------------------------------------
+
+bool cLuxMainMenu_Options::RenderScale_OnChange(iWidget* apWidget, const cGuiMessageData& aData)
+{
+	if(mbSettingInitialValues || mbRebuildingTemporalUpscaler)
+		return true;
+
+	if(mpCBRenderScale == NULL || mpCBRenderScale->IsEnabled() == false)
+		return true;
+	int lSelectedItem = mpCBRenderScale->GetSelectedItem();
+	if(lSelectedItem < 0 || lSelectedItem >= mpCBRenderScale->GetItemNum())
+		return true;
+	cWidgetItem* pItem = mpCBRenderScale->GetItem(lSelectedItem);
+	if(pItem == NULL)
+		return true;
+	int lRenderScale = pItem->GetUserValue();
+	if(lRenderScale < 0 || lRenderScale >= cLuxConfigHandler::GetRenderScalePresetNum())
+		return true;
+	mfRenderScaleRequested = cLuxConfigHandler::GetRenderScalePreset(lRenderScale);
+	return true;
+}
+kGuiCallbackDeclaredFuncEnd(cLuxMainMenu_Options, RenderScale_OnChange);
 
 //-----------------------------------------------------------------------
 

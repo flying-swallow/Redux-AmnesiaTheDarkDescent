@@ -669,23 +669,25 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 
 	RICmd *pCmd = ctx.cmd;
 
-	// The renderer left the linear-HDR scene in the viewport BackBuffer. NOTE:
-	// valid only while the hybrid guard band is disabled (kGuardBandFraction ==
-	// 0), where the overscan extent equals the target size — so the plain
-	// frustum projection + a target-sized full-image viewport line up exactly.
-	// If the guard band is ever enabled, this pass must switch to the
-	// renderer's widened projection and the full overscan extent.
+	// The BackBuffer is the scene image at the negotiated RENDER extent;
+	// ctx.width/ctx.height are that render extent, and ctx.viewMat/ctx.projMat
+	// are the renderer's ACTUAL jittered raster matrices delivered on this
+	// context. They therefore keep these draws aligned with the rasterized
+	// scene at any render extent and any jitter. The guard band remains disabled,
+	// so the BackBuffer's valid rectangle is the whole image.
 	cViewport::BackBuffer bb = ctx.viewport->GetBackBuffer();
 	if (bb.renderTarget.isEmpty()) return;
 	VkImageView hdrView = bb.renderTargetView.vk.image;
 
 	/////////////////////////////
-	// Per-frame view/viewProj UBO (HDR-space, plain frustum)
+	// Per-frame view/viewProj UBO (HDR-space, actual jittered raster matrices)
 	OutlinePassUBO ubo = {};
 	{
-		const ml::float4x4 viewProj =
-			pFrustum->GetProjectionMat() * pFrustum->GetViewMat();
-		const ml::float4x4 view = pFrustum->GetViewMat();
+		ml::float4x4 view = {};
+		ml::float4x4 proj = {};
+		std::memcpy(view.a, ctx.viewMat, sizeof(view.a));
+		std::memcpy(proj.a, ctx.projMat, sizeof(proj.a));
+		const ml::float4x4 viewProj = proj * view;
 		std::memcpy(ubo.viewProj, viewProj.a, sizeof(ubo.viewProj));
 		std::memcpy(ubo.view, view.a, sizeof(ubo.view));
 	}
@@ -751,7 +753,7 @@ void cLuxEffectRenderer::OnPostTranslucenceDraw(const PostTranslucenceDrawCtx &c
 				Image *pDiffImage = pMat ? pMat->GetImage(eMaterialTexture_Diffuse) : NULL;
 				cTexture *diffTex =
 					pDiffImage ? pDiffImage->GetTexture() : nullptr;
-				if (!diffTex) continue;
+				if (!diffTex || diffTex->view.isEmpty()) continue;
 
 				if (!BindGeomStreamsUv(pCmd, pVB)) continue;
 				BindGeomPipeline(mGlowProgram, pCmd, eGeomPassMode_Glow,
@@ -934,7 +936,7 @@ void cLuxEffectRenderer::RenderOutline(const PostWorldDrawCtx &ctx,
 					pAlphaImage ? pAlphaImage->GetTexture() : nullptr;
 
 				bool bDrewAlpha = false;
-				if (alphaTex && BindGeomStreamsUv(apCmd, pVB)) {
+				if (alphaTex && !alphaTex->view.isEmpty() && BindGeomStreamsUv(apCmd, pVB)) {
 					BindGeomPipeline(mAlphaProgram, apCmd, mode, /*normalPresent=*/false,
 									 /*uvLayout=*/true, "LuxOutline.alpha");
 

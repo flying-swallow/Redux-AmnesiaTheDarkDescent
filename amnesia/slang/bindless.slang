@@ -18,9 +18,6 @@
 import SceneTypes;
 import PerFrame.resource;   // gPerFrame.afT for animated-texture frame selection
 
-import SurfelGI.SurfelTypes;
-
-
 
 // -----------------------------------------------------------------------------
 // Bindless texture pools (LRU-allocated by cHybridRenderer's bindless
@@ -77,7 +74,64 @@ public float4 sampleBindless2DLevel(uint idx, float2 uv, float lod)
     return gTextures2D[NonUniformResourceIndex(idx)].SampleLevel(gMaterialSampler, uv, lod);
 }
 
-// Auto-mip variant for fragment passes (gradient-based LOD).
+// Explicit-LOD twin of sampleBindless2D's SampleBias.  Ray-traced primary
+// shading has no fragment derivatives, so it supplies a texture-size-
+// independent ray-cone LOD base; resolve the concrete texture's dimensions
+// here before sampling.  This is where the reduced-render-extent material
+// bias reaches the ray-traced primary shading path, rather than only raster
+// fragment passes.
+//
+// Negative resolved LOD values are intentionally passed through: hardware
+// clamps them to the top mip, which is the correct behavior for a negative
+// materialMipBias at the top mip.
+public float4 sampleBindless2DCone(uint idx, float2 uv, float lodBase)
+{
+    if (idx == kInvalidTextureIndex) return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    if ((idx & kAnimatedTextureBit) != 0u)
+    {
+        uint a = idx & ~kAnimatedTextureBit;
+        float frame = (float)animFrame(gPerFrame.afT, gAnimTex[NonUniformResourceIndex(a)]);
+        uint w;
+        uint h;
+        uint elements;
+        gTextures2DArray[NonUniformResourceIndex(a)].GetDimensions(w, h, elements);
+        float lod = lodBase
+                  + 0.5f * log2(max(float(w) * float(h), 1.0f))
+                  + gPerFrame.materialMipBias;
+        return gTextures2DArray[NonUniformResourceIndex(a)].SampleLevel(gMaterialSampler, float3(uv, frame), lod);
+    }
+    uint w;
+    uint h;
+    gTextures2D[NonUniformResourceIndex(idx)].GetDimensions(w, h);
+    float lod = lodBase
+              + 0.5f * log2(max(float(w) * float(h), 1.0f))
+              + gPerFrame.materialMipBias;
+    return gTextures2D[NonUniformResourceIndex(idx)].SampleLevel(gMaterialSampler, uv, lod);
+}
+
+// Explicit-LOD cube-map sampler for ray-traced projected gobos. Cube textures
+// have no animated variant, so the texture index is always resolved directly
+// from gTexturesCube. Resolve the cube face dimensions here so the supplied
+// texture-size-independent LOD base can be completed before sampling.
+//
+// Negative resolved LOD values are intentionally passed through: hardware
+// clamps them to the top mip, which is the correct behavior for a negative
+// materialMipBias at the top mip.
+public float4 sampleBindlessCubeCone(uint idx, float3 dir, float lodBase)
+{
+    if (idx == kInvalidTextureIndex) return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    uint w;
+    uint h;
+    gTexturesCube[NonUniformResourceIndex(idx)].GetDimensions(w, h);
+    float lod = lodBase
+              + 0.5f * log2(max(float(w) * float(h), 1.0f))
+              + gPerFrame.materialMipBias;
+    return gTexturesCube[NonUniformResourceIndex(idx)].SampleLevel(gMaterialSampler, dir, lod);
+}
+
+// Auto-mip variant for fragment passes (gradient-based LOD), applying
+// gPerFrame.materialMipBias, the temporal-upscaling material bias; zero on
+// native-extent frames.
 public float4 sampleBindless2D(uint idx, float2 uv)
 {
     if (idx == kInvalidTextureIndex) return float4(0.0f, 0.0f, 0.0f, 1.0f);
@@ -85,9 +139,29 @@ public float4 sampleBindless2D(uint idx, float2 uv)
     {
         uint a = idx & ~kAnimatedTextureBit;
         float frame = (float)animFrame(gPerFrame.afT, gAnimTex[NonUniformResourceIndex(a)]);
-        return gTextures2DArray[NonUniformResourceIndex(a)].Sample(gMaterialSampler, float3(uv, frame));
+        return gTextures2DArray[NonUniformResourceIndex(a)].SampleBias(gMaterialSampler, float3(uv, frame), gPerFrame.materialMipBias);
     }
-    return gTextures2D[NonUniformResourceIndex(idx)].Sample(gMaterialSampler, uv);
+    return gTextures2D[NonUniformResourceIndex(idx)].SampleBias(gMaterialSampler, uv, gPerFrame.materialMipBias);
+}
+
+// Explicit-gradient variant for fragment paths that have already propagated
+// derivatives through a procedural UV transform. SampleGrad has no bias
+// parameter, so scale the gradients by 2^materialMipBias: texture LOD is the
+// log2 of gradient magnitude, making this scaling add materialMipBias exactly.
+public float4 sampleBindless2DGrad(uint idx, float2 uv, float2 dUVdx, float2 dUVdy)
+{
+    if (idx == kInvalidTextureIndex) return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    float g = exp2(gPerFrame.materialMipBias);
+    if ((idx & kAnimatedTextureBit) != 0u)
+    {
+        uint a = idx & ~kAnimatedTextureBit;
+        float frame = (float)animFrame(gPerFrame.afT, gAnimTex[NonUniformResourceIndex(a)]);
+        // Texture2DArray gradients are 2D: the array layer has no derivative.
+        return gTextures2DArray[NonUniformResourceIndex(a)].SampleGrad(
+            gMaterialSampler, float3(uv, frame), dUVdx * g, dUVdy * g);
+    }
+    return gTextures2D[NonUniformResourceIndex(idx)].SampleGrad(
+        gMaterialSampler, uv, dUVdx * g, dUVdy * g);
 }
 
 // -----------------------------------------------------------------------------
@@ -98,70 +172,15 @@ public float4 sampleBindless2D(uint idx, float2 uv)
 // and the gbuffer / particle vertex shaders read the addresses off gSceneObjects.
 // -----------------------------------------------------------------------------
 
-// -----------------------------------------------------------------------------
-// Surfel-GI buffers — mirror cHybridRenderer's m_surfel*Buffer / m_cell*Buffer.
-// Counter is a flat uint[kSurfelCounterSlotCount] indexed via the
-// SURFEL_COUNTER_* macros from forward_shared.h. Remaining buffers are sized
-// by kTotalSurfelLimit (rayResult by kRayBudget, cellInfo by kCellCount,
-// cellToSurfel by kCellToSurfelCapacity).
-// -----------------------------------------------------------------------------
-[vk::binding(kBindingSurfelCounter, 0)]
-public RWStructuredBuffer<uint> gSurfelCounter;
-
-[vk::binding(kBindingSurfelBuffer, 0)]
-public RWStructuredBuffer<Surfel> gSurfelBuffer;
-
-// Cached packed TriangleHit (uint4) per surfel — see HitInfo in SceneTypes.slang.
-[vk::binding(kBindingSurfelGeometry, 0)]
-public RWStructuredBuffer<uint4> gSurfelGeometryBuffer;
-
-[vk::binding(kBindingSurfelValidIndex, 0)]
-public RWStructuredBuffer<uint> gSurfelValidIndexBuffer;
-
-[vk::binding(kBindingSurfelDirtyIndex, 0)]
-public RWStructuredBuffer<uint> gSurfelDirtyIndexBuffer;
-
-[vk::binding(kBindingSurfelFreeIndex, 0)]
-public RWStructuredBuffer<uint> gSurfelFreeIndexBuffer;
-
-[vk::binding(kBindingSurfelRecycle, 0)]
-public RWStructuredBuffer<SurfelRecycleInfo> gSurfelRecycleInfoBuffer;
-
-[vk::binding(kBindingSurfelRayResult, 0)]
-public RWStructuredBuffer<SurfelRayResult> gSurfelRayResultBuffer;
-
-[vk::binding(kBindingCellInfo, 0)]
-public RWStructuredBuffer<CellInfo> gCellInfoBuffer;
-
-[vk::binding(kBindingCellToSurfel, 0)]
-public RWStructuredBuffer<uint> gCellToSurfelBuffer;
-
-[vk::binding(kBindingSurfelRefCounter, 0)]
-public RWStructuredBuffer<uint> gSurfelRefCounter;
-
-[vk::binding(kBindingSurfelReservation, 0)]
-public RWStructuredBuffer<uint> gSurfelReservationBuffer;
-
-// Compact per-surfel cull record (position/radius/pre-normalized normal).
-// Written by SurfelUpdatePass::collectCellInfo, read by the
-// SurfelGenerationPass per-pixel cull loop in place of the full gSurfelBuffer.
-[vk::binding(kBindingSurfelBounds, 0)]
-public RWStructuredBuffer<SurfelBounds> gSurfelBoundsBuffer;
-
-// Per-object-slot reuse generation, plus the value each surfel captured at
-// spawn. collectCellInfo compares them: a mismatch means the surfel's anchor
-// bindless slot was reassigned to different geometry, so its cached TriangleHit
-// (instanceID/primitiveIndex) is stale and must NOT be dereferenced through
-// getVertexData. The host bumps gBindlessSlotGeneration whenever m_diffuseBindless
-// (re)assigns a slot to a different object (see cHybridRenderer::Draw).
+// Per-object-slot reuse generation: the host bumps the slot's counter whenever
+// m_diffuseBindless (re)assigns that bindless slot to a different object (see
+// cHybridRenderer::Draw), so a consumer holding a cached slot index can detect
+// that the slot now refers to different geometry.
 [vk::binding(kBindingBindlessSlotGeneration, 0)]
 public RWStructuredBuffer<uint> gBindlessSlotGeneration;
 
-[vk::binding(kBindingSurfelSlotGeneration, 0)]
-public RWStructuredBuffer<uint> gSurfelSlotGeneration;
-
-// Coarse world-space light grid (LightGridBuildPass writes, SurfelRayTrace NEE
-// reads). gLightGridList stores PACKED light ids (packLightId(type, slot) — the
+// Coarse world-space light grid (LightGridBuildPass writes, the shading passes'
+// NEE reads). gLightGridList stores PACKED light ids (packLightId(type, slot) — the
 // same value getLight() decodes; stable across frames so a reservoir's persisted
 // id stays valid) for each cell, kLightsPerCellMax per cell; gLightGridCount is
 // the (capped) per-cell length.
@@ -213,10 +232,10 @@ public RWStructuredBuffer<RectLight> gAreaLights;
 public RWStructuredBuffer<FogAreaParams> gFogAreas;
 
 // -----------------------------------------------------------------------------
-// Surfel V-buffer + depth atlas. Written by SurfelVBuffer,
-// consumed by SurfelGI integrate / evaluation / generation passes.
+// V-buffer. Written by VBufferPomBary.cs (fed by the raster VBufferRaster.3d
+// hit), consumed by the shading passes.
 //
-// These four images and the TLAS live on **set 1** (not the persistent
+// This image and the TLAS live on **set 1** (not the persistent
 // bindless set 0). They're swapchain-indexed views / per-frame-rebuilt
 // acceleration structures, so they'd collide with the previous frame's
 // in-flight command buffer if rewritten in place on set 0. Set 1 is
@@ -225,15 +244,10 @@ public RWStructuredBuffer<FogAreaParams> gFogAreas;
 // a fresh, idle set. The host pushes them per-dispatch via the same
 // mechanism `gPerFrame` uses.
 //
-//   gPackedHitInfo   : full-resolution V-buffer; uint4 = HitInfo.packed
-//   gSurfelDepthMap  : 4K atlas of (mean, sqr-mean) depth per surfel tile,
-//                      RW storage view used for atomic / unfiltered writes.
-//   gSurfelDepth     : same image as gSurfelDepthMap, sampled view paired
-//                      with gSurfelDepthSampler for filtered reads inside
-//                      the integrate / evaluation passes.
-//
-// gSurfelDepthSampler stays on set 0 (immutable — same sampler every frame,
-// no collision concern).
+//   gPackedHitInfo   : full-resolution V-buffer; uint4 = HitInfo.packed.
+//                      Written by VBufferPomBary.cs, which copies the raster
+//                      hit from gPackedHitInfoRaster and perturbs the
+//                      barycentrics for parallax-occlusion mapping.
 // -----------------------------------------------------------------------------
 [vk::binding(kBindingPackedHitInfo, 1)]
 public RWTexture2D<uint4> gPackedHitInfo;
@@ -241,15 +255,6 @@ public RWTexture2D<uint4> gPackedHitInfo;
 // (Per-bounce refraction/reflection V-buffers removed: water refraction now
 // clobbers gPackedHitInfo like glass, and water reflection moved to the raster
 // water pass.)
-
-[vk::binding(kBindingSurfelDepthMap, 1)]
-public RWTexture2D<float2> gSurfelDepthMap;
-
-[vk::binding(kBindingSurfelDepthSampled, 1)]
-public Texture2D<float2> gSurfelDepth;
-
-[vk::binding(kBindingSurfelDepthSampler, 0)]
-public SamplerState gSurfelDepthSampler;
 
 // Scene depth (opaque geometry) — depth-aspect SRV of the main depth buffer.
 // Bound per-frame on set 1 by the particle pass for the soft-particle fade.
@@ -264,7 +269,7 @@ public Texture2D<float> gSceneDepth;
 [vk::binding(kBindingDissolveMap, 0)]
 public Texture2D<float4> gDissolveMap;
 
-// Surfel-GI scatter RT acceleration structure. Pushed on set 1
+// Scene top-level acceleration structure (TLAS). Pushed on set 1
 // per-dispatch (the TLAS is rebuilt every frame).
 [vk::binding(kBindingTlas, 1)]
 public RaytracingAccelerationStructure gRtAccel;

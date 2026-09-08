@@ -34,7 +34,9 @@ using namespace hpl;
 #include "LevelEditorCameraCapture.h"
 #include "LevelEditorWorld.h"       // cLevelEditorEntityExtData (group ids)
 
-#include "../common/EditorWindowViewport.h" // cEditorWindowViewport::GetCamera (defaults)
+#include "../common/EditorWindowViewport.h"    // cEditorWindowViewport::GetCamera (defaults)
+
+#include "Constants.h"                            // kSceneExposure
 
 #include "../common/EditorWorld.h"
 #include "../common/EditorFileWatcher.h"          // cEditorFileWatcher / cWatchedFile (reload_entity_file)
@@ -3362,8 +3364,8 @@ static const cMCPToolDef gvTools[] =
 	"height":{"type":"integer","description":"image height in pixels (default 576, clamped to 16..2048)"},
 	"near":{"type":"number","description":"near clip plane distance (default: focused viewport)"},
 	"far":{"type":"number","description":"far clip plane distance (default: focused viewport)"},
-	"exposure":{"type":"number","description":"linear exposure multiplier applied before tonemapping (default 1.0 = what the editor viewport shows; try 4-16 to inspect a pitch-black scene)"},
-	"gamma":{"type":"number","description":"display gamma applied after encoding (default 1.0; >1 lifts shadows, like the game's gamma setting)"},
+	"exposure":{"type":"number","description":"linear exposure multiplier applied before tonemapping (defaults to the scene exposure the editor viewport runs at; raise it to inspect a deliberately dark scene)"},
+	"gamma":{"type":"number","description":"display gamma applied after encoding (defaults to the editor's Display gamma setting; >1 lifts shadows, like the game's gamma setting)"},
 	"include_visible":{"type":"boolean","description":"also return the ids of entities within the captured view (default false)"}}})json",
   [](cMCPToolCtx& c) {
 	cLevelEditorCameraCapture* pCap = c.mpEditor->GetCameraCapture();
@@ -3420,8 +3422,16 @@ static const cMCPToolDef gvTools[] =
 	req.mlWidth  = JIntArg(c.margs, "width",  1024);
 	req.mlHeight = JIntArg(c.margs, "height", 576);
 	req.mbIncludeVisible = JBoolArg(c.margs, "include_visible", false);
-	req.mfExposure = cMath::Clamp((float)JNumArg(c.margs, "exposure", 1.0), 0.01f, 1000.0f);
-	req.mfGamma    = cMath::Clamp((float)JNumArg(c.margs, "gamma",    1.0), 0.1f,  5.0f);
+	// Exposure defaults to the global scene exposure the game and the editor
+	// pane both run at; an explicit arg still overrides it for this job only.
+	req.mfExposure = kSceneExposure;
+	if(JHas(c.margs,"exposure"))
+		req.mfExposure = cMath::Clamp((float)JNumArg(c.margs, "exposure", 1.0), 0.01f, 1000.0f);
+	// Gamma defaults to the editor's display-gamma setting so a plain capture
+	// matches the pane; an explicit arg still overrides it for this job only.
+	req.mfGamma = iEditorViewport::GetDisplayGamma();
+	if(JHas(c.margs,"gamma"))
+		req.mfGamma = cMath::Clamp((float)JNumArg(c.margs, "gamma", 1.0), 0.1f, 5.0f);
 
 	int lJobId = pCap->Enqueue(req);
 	if(lJobId < 0)

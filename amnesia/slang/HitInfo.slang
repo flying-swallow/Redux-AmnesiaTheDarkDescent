@@ -1,7 +1,8 @@
 #pragma once
 
 // HitInfo / TriangleHit (un)packing — matches the Falcor source-compat surface
-// used by the surfel passes: `HitInfo h = HitInfo(packedUVec4)`, `h.isValid()`,
+// used by the V-buffer / direct-lighting / path-trace passes:
+// `HitInfo h = HitInfo(packedUVec4)`, `h.isValid()`,
 // `h.getTriangleHit()`, and `TriangleHit::pack()` for writes. The underlying
 // structs (data layout) live in SceneTypes.slang; these extensions add the
 // pack/unpack behaviour.

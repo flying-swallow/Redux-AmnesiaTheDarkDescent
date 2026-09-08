@@ -69,7 +69,10 @@ struct cCaptureRequest
 	int       mlHeight = 576;
 	bool      mbIncludeVisible = false;
 	float     mfExposure = 1.0f; // linear multiplier applied before tonemapping
-	float     mfGamma    = 1.0f; // display gamma after encode (>1 lifts shadows)
+	// Display gamma after encode (>1 lifts shadows). Fallback only — the MCP
+	// path fills this from iEditorViewport::GetDisplayGamma() unless the caller
+	// passed an explicit 'gamma'.
+	float     mfGamma    = 1.0f;
 };
 
 class cLevelEditorCameraCapture
