@@ -211,6 +211,10 @@ void cVertexBuffer::Transform(const cMatrixf &mtxTransform) {
       auto &normal = normalElement->GetElement<PackedVec3>(i);
       cVector3f outputNormal = cMath::MatrixMul(
           mtxNormalRot, cVector3f(normal.x, normal.y, normal.z));
+      // Non-uniform scale changes the length of inverse-transpose normals.
+      // Map caches encode these as signed normalized bytes; values outside
+      // [-1, 1] would wrap and can reverse the surface's lighting direction.
+      outputNormal.Normalize();
       normal = {outputNormal.x, outputNormal.y, outputNormal.z};
     }
   }
@@ -229,10 +233,11 @@ void cVertexBuffer::Transform(const cMatrixf &mtxTransform) {
       float y;
       float z;
     };
-    for (size_t i = 0; i < normalElement->NumElements(); i++) {
+    for (size_t i = 0; i < tangentElement->NumElements(); i++) {
       auto &tangent = tangentElement->GetElement<PackedVec3>(i);
       cVector3f outputTangent =
           cMath::MatrixMul(mtxRot, cVector3f(tangent.x, tangent.y, tangent.z));
+      outputTangent.Normalize();
       tangent = {outputTangent.x, outputTangent.y, outputTangent.z};
     }
   }

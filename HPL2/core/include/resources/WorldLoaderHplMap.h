@@ -50,7 +50,9 @@ namespace hpl {
 #endif
 
 	// buzer: set it to some arbitrary large number so it won't interfere with other source mods
-	#define MAP_CACHE_FORMAT_VERSION			219676930
+	// Rebuild caches containing unnormalized, scaled normals/tangents whose
+	// signed-byte encoding could overflow (notably the Transept floor emblem).
+	#define MAP_CACHE_FORMAT_VERSION			219676931
 	
 	//----------------------------------------
 	
