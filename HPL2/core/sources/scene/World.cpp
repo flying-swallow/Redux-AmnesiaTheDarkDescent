@@ -938,8 +938,9 @@ void cWorld::BuildTlas(cGraphics::FrameContext *cntx, cFrustum *apFrustum) {
   auto handler = [&](iRenderable *pObject) {
     if (!pObject || pObject->GetRenderType() != eRenderableType_SubMesh)
       return;
+    const bool shadowOnly = pObject->GetRenderFlagBit(eRenderableFlag_ShadowOnly);
     if (!rendering::IsObjectIsVisible(
-            pObject, eRenderableFlag_VisibleInNonReflection, {}))
+            pObject, shadowOnly ? 0 : eRenderableFlag_VisibleInNonReflection, {}))
       return;
     cMaterial *pMat = pObject->GetMaterial();
     if (!pMat)
@@ -987,14 +988,12 @@ void cWorld::BuildTlas(cGraphics::FrameContext *cntx, cFrustum *apFrustum) {
       for (int c = 0; c < 4; ++c)
         inst.transform.matrix[r][c] = modelF4.a[c * 4 + r];
     inst.instanceCustomIndex = slot;
-    inst.mask = translucent ? kRayMaskTranslucent : kRayMaskOpaque;
-    // Shadow-caster bit: with allLightsCastShadows (the default) every opaque
-    // instance gets kRayMaskShadow, since the shadow ray traces against
-    // kRayMaskOpaque anyway. Only in the legacy opt-out mode does the authored
-    // ShadowCaster flag decide: non-casters then keep just kRayMaskOpaque, so
-    // they stay visible / lit / reflected but stop blocking light.
-    // Translucents never cast shadows (unchanged).
+    inst.mask = shadowOnly ? 0 : (translucent ? kRayMaskTranslucent : kRayMaskOpaque);
+    // Apply the global shadow policy here so shadow queries always use the
+    // shadow bit. Proxies stay out of primary/GI/reflection rays, and the
+    // visible mesh they replace cannot seal the proxy's open windows.
     if (!translucent &&
+        !pObject->GetRenderFlagBit(eRenderableFlag_ShadowReplaced) &&
         (mpGraphics->allLightsCastShadows ||
          pObject->GetRenderFlagBit(eRenderableFlag_ShadowCaster)))
       inst.mask |= kRayMaskShadow;

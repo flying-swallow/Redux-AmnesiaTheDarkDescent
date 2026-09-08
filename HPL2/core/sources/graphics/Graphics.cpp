@@ -484,7 +484,7 @@ void cGraphics::Init(const cEngineInitVars::cGraphicsVars &aVars,
     auto vert_stage = RIProgram::loadShaderStage(
         apResources->GetFileSearcher(), "posteffect_fullscreen.vert.spv");
     auto frag_stage = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
-                                                 "posteffect_blit.frag.spv");
+                                                 "posteffect_present.frag.spv");
     std::array<RIProgram::ModuleStage, 2> stages = {
         RIProgram::ModuleStage{RIProgram::PROGRAM_STAGE_VERTEX, vert_stage,
                                "vsMain"},

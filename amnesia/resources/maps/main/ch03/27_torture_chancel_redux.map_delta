@@ -1,0 +1,333 @@
+<MapDelta Version="1" Target="maps/main/ch03/27_torture_chancel_redux.map">
+    <Modify Category="StaticObjects" ID="139" Name="wall_default_extension_diagonal_20">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="140" Name="wall_default_extension_diagonal_21">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="141" Name="wall_default_extension_diagonal_22">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="142" Name="wall_default_extension_diagonal_23">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="144" Name="wall_default_extension_diagonal_24">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="145" Name="wall_default_extension_diagonal_25">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="146" Name="wall_default_extension_diagonal_26">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="147" Name="wall_default_extension_diagonal_27">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="149" Name="wall_default_extension_diagonal_28">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="150" Name="wall_default_extension_diagonal_29">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="151" Name="wall_default_extension_diagonal_30">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="152" Name="wall_default_extension_diagonal_31">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="154" Name="wall_default_extension_diagonal_32">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="155" Name="wall_default_extension_diagonal_33">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="156" Name="wall_default_extension_diagonal_34">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="157" Name="wall_default_extension_diagonal_35">
+        <SetAttr Rotation="0.858463 -1.5708 -0.858463" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="164" Name="wall_corner_convex_extension_diagonal_7">
+        <SetAttr Rotation="-3.14145 1.5708 -3.14145" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="165" Name="wall_corner_convex_extension_diagonal_8">
+        <SetAttr Rotation="-3.14145 1.5708 -3.14145" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="250" Name="wall_default_4x8_23">
+        <SetAttr Rotation="-2.78174 1.5708 -2.78174" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="251" Name="wall_default_4x8_24">
+        <SetAttr Rotation="-2.78174 1.5708 -2.78174" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="252" Name="wall_default_4x8_25">
+        <SetAttr Rotation="-2.78174 1.5708 -2.78174" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="253" Name="wall_default_4x8_26">
+        <SetAttr Rotation="-2.78174 1.5708 -2.78174" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="254" Name="wall_default_4x8_27">
+        <SetAttr Rotation="-2.78174 1.5708 -2.78174" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="255" Name="wall_default_4x8_28">
+        <SetAttr Rotation="-2.78174 1.5708 -2.78174" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="283" Name="wall_default_4x8_29">
+        <SetAttr Rotation="-3.10584 -1.5708 3.10584" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="284" Name="wall_default_4x8_30">
+        <SetAttr Rotation="-3.10584 -1.5708 3.10584" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="285" Name="wall_default_4x8_31">
+        <SetAttr Rotation="-3.10584 -1.5708 3.10584" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="286" Name="wall_default_4x8_32">
+        <SetAttr Rotation="-3.10584 -1.5708 3.10584" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="287" Name="wall_default_4x8_33">
+        <SetAttr Rotation="-3.10584 -1.5708 3.10584" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="288" Name="wall_default_4x8_34">
+        <SetAttr Rotation="-3.10584 -1.5708 3.10584" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="485" Name="stairs_default_1">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="486" Name="stairs_default_2">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="501" Name="stairs_default_5">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="502" Name="stairs_default_6">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="542" Name="wall_default_short_4">
+        <SetAttr Rotation="0.501673 -1.5708 -0.501673" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="554" Name="wall_default_4x8_41">
+        <SetAttr Rotation="-2.65877 1.5708 -2.65877" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="555" Name="wall_default_4x8_42">
+        <SetAttr Rotation="-2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="556" Name="wall_default_4x8_43">
+        <SetAttr Rotation="-2.53518e-06 -1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="557" Name="wall_default_4x8_44">
+        <SetAttr Rotation="-2.65877 1.5708 -2.65877" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="627" Name="wall_corner_concave_round_short_5">
+        <SetAttr Rotation="3.14155 1.5708 3.14155" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="754" Name="wall_default_50">
+        <SetAttr Rotation="-2.53518e-06 1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="755" Name="wall_default_51">
+        <SetAttr Rotation="-2.53518e-06 1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="756" Name="wall_default_52">
+        <SetAttr Rotation="-2.53518e-06 1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="757" Name="wall_default_53">
+        <SetAttr Rotation="-2.53518e-06 1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="758" Name="wall_default_54">
+        <SetAttr Rotation="-2.53518e-06 1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="759" Name="wall_default_55">
+        <SetAttr Rotation="-2.53518e-06 1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="779" Name="wall_default_71">
+        <SetAttr Rotation="-0.927293 -1.5708 0.927293" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="780" Name="wall_default_72">
+        <SetAttr Rotation="-0.927293 -1.5708 0.927293" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="781" Name="wall_default_73">
+        <SetAttr Rotation="-0.927293 -1.5708 0.927293" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="782" Name="wall_default_74">
+        <SetAttr Rotation="-0.927293 -1.5708 0.927293" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="783" Name="wall_default_75">
+        <SetAttr Rotation="-0.927293 -1.5708 0.927293" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="784" Name="wall_default_76">
+        <SetAttr Rotation="-0.927293 -1.5708 0.927293" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="785" Name="wall_default_77">
+        <SetAttr Rotation="-0.927293 -1.5708 0.927293" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1376" Name="wall_welder_stone_64">
+        <SetAttr Rotation="0.102073 -1.5708 -0.102073" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1377" Name="wall_welder_stone_65">
+        <SetAttr Rotation="0.102073 -1.5708 -0.102073" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1378" Name="wall_welder_stone_66">
+        <SetAttr Rotation="0.102073 -1.5708 -0.102073" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1384" Name="wall_welder_stone_70">
+        <SetAttr Rotation="-1.28625 1.5708 -1.28625" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1385" Name="wall_welder_stone_71">
+        <SetAttr Rotation="-1.28625 1.5708 -1.28625" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1386" Name="wall_welder_stone_72">
+        <SetAttr Rotation="-1.28625 1.5708 -1.28625" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1467" Name="pipesthick_straight_medium_2">
+        <SetAttr Rotation="0.855683 -1.5708 -0.855683" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2115" Name="specialhub_decoration_13">
+        <SetAttr Rotation="-0.0582828 1.5708 -0.0582828" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2116" Name="specialhub_decoration_14">
+        <SetAttr Rotation="-0.0582828 1.5708 -0.0582828" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2117" Name="specialhub_decoration_15">
+        <SetAttr Rotation="-0.0582828 1.5708 -0.0582828" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2118" Name="specialhub_decoration_20">
+        <SetAttr Rotation="-0.0582828 1.5708 -0.0582828" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2119" Name="specialhub_decoration_21">
+        <SetAttr Rotation="-0.0582828 1.5708 -0.0582828" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2120" Name="specialhub_decoration_22">
+        <SetAttr Rotation="-0.0582828 1.5708 -0.0582828" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2121" Name="specialhub_decoration_23">
+        <SetAttr Rotation="-0.0582828 1.5708 -0.0582828" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2122" Name="specialhub_decoration_24">
+        <SetAttr Rotation="-0.0582828 1.5708 -0.0582828" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2123" Name="specialhub_decoration_25">
+        <SetAttr Rotation="-0.0582828 1.5708 -0.0582828" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2204" Name="ceilingcorner_concave_short_8">
+        <SetAttr Rotation="-2.91024 -1.5708 2.91024" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2217" Name="ceilingcorner_concave_short_13">
+        <SetAttr Rotation="-3.02691 1.5708 -3.02691" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2482" Name="wallwelder_stone_9">
+        <SetAttr Rotation="-2.53518e-06 1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2483" Name="wallwelder_stone_10">
+        <SetAttr Rotation="-2.53518e-06 1.5708 -2.53518e-06" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2485" Name="wallwelder_stone_11">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="2486" Name="wallwelder_stone_12">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="Decals" ID="3436" Name="chalk_hieroglyphs_1">
+        <SetAttr Material="textures/ptest/decals/chalk_hieroglyphs.mat" />
+    </Modify>
+    <Remove Category="Entities" ID="949" Name="BoxLight_1" />
+    <Remove Category="Entities" ID="978" Name="PointLight_21" />
+    <Remove Category="Entities" ID="1449" Name="PointLight_1" />
+    <Remove Category="Entities" ID="1648" Name="SpotLight_2" />
+    <Remove Category="Entities" ID="2053" Name="PointLight_7" />
+    <Remove Category="Entities" ID="2161" Name="SpotLight_3" />
+    <Remove Category="Entities" ID="3155" Name="OrbLight" />
+    <Modify Category="Entities" ID="973" Name="PointLight_16">
+        <SetAttr Intensity="7" Radius="26.6797" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="2094" Name="barrier_pointlight_2">
+        <SetAttr Intensity="4" Radius="28.0226" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="2199" Name="barrier_pointlight_1">
+        <SetAttr Intensity="4" Radius="28.0226" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="2200" Name="barrier_pointlight_3">
+        <SetAttr Intensity="4" Radius="28.0226" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="2232" Name="barrier_spotlight_1">
+        <SetAttr Intensity="10" Radius="44.3119" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="2265" Name="candle_floor_no_light_40">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2266" Name="candle_floor_no_light_41">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2267" Name="candle_floor_no_light_42">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2268" Name="candle_floor_no_light_43">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2269" Name="candle_floor_no_light_48">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2270" Name="candle_floor_no_light_49">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2271" Name="candle_floor_no_light_50">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2272" Name="candle_floor_no_light_51">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2273" Name="candle_floor_no_light_52">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2274" Name="candle_floor_no_light_53">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2275" Name="candle_floor_no_light_54">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2276" Name="candle_floor_no_light_55">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2278" Name="candle_floor_no_light_56">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2279" Name="candle_floor_no_light_57">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2280" Name="candle_floor_no_light_58">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2281" Name="candle_floor_no_light_59">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2282" Name="candle_floor_no_light_60">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2283" Name="candle_floor_no_light_61">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2284" Name="candle_floor_no_light_62">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2286" Name="candle_floor_no_light_63">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2287" Name="candle_floor_no_light_64">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="2288" Name="candle_floor_no_light_65">
+        <SetAttr Filename="entities/lamp/candle_floor/candle_floor.ent" />
+    </Modify>
+    <Modify Category="Entities" ID="3136" Name="barrier_spotlight_weak_1">
+        <SetAttr Intensity="5.5" Radius="32.8609" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="3137" Name="barrier_pointlight_weak_1">
+        <SetAttr Intensity="3.5" Radius="26.2122" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="3141" Name="barrier_pointlight_weak_2">
+        <SetAttr Intensity="3.5" Radius="26.2122" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="3142" Name="barrier_pointlight_weak_3">
+        <SetAttr Intensity="3.5" Radius="26.2122" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="3154" Name="PointLight_2">
+        <SetAttr Intensity="3" Radius="24.4898" SourceRadius="0" />
+    </Modify>
+</MapDelta>

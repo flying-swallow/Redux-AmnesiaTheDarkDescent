@@ -1922,7 +1922,10 @@ void iLuxProp::LoadFromSaveData(iLuxEntity_SaveData* apSaveData)
 
 	///////////////////////
 	//Joints
-	for(size_t i=0; i<mvJoints.size(); ++i)
+	// Entity updates can add joints that are absent from older saves. Keep
+	// those joints at their authored defaults and ignore surplus saved joints.
+	// Preserve index matching: broken joints are saved without a name.
+	for(size_t i=0; i<mvJoints.size() && i<pData->mvJoints.Size(); ++i)
 	{
 		if(pData->mvJoints[i].mbBroken)
 		{

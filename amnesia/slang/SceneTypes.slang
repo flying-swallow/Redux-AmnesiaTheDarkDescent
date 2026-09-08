@@ -170,6 +170,9 @@ SLANG_PUBLIC struct TranslucentMaterial {
     SLANG_PUBLIC float frenselPow;
     SLANG_PUBLIC float rimLightMul;
     SLANG_PUBLIC float rimLightPow;
+    SLANG_PUBLIC float particleOpacityScale;
+    SLANG_PUBLIC float particleBrightnessScale;
+    SLANG_PUBLIC float litDiffuseScale;
 };
 
 // GPU twin of MaterialWater (Material.h). Bool flags (hasReflection,
@@ -349,5 +352,8 @@ SLANG_PUBLIC struct SceneConstants {
     SLANG_PUBLIC float prevJitterX;                   // previous frame's jitterUV.x, same units and sign convention
     SLANG_PUBLIC float prevJitterY;                   // previous frame's jitterUV.y, same units and sign convention
     SLANG_PUBLIC float materialMipBias;               // mip bias for gradient-based MATERIAL sampling when a temporal provider shades at a reduced render extent; 0 for Off/NativeAA/native-extent frames
+    // Per-camera visible fog areas in legacy back-to-front draw order. The
+    // parameter buffer is shared by all viewports and stays in world order.
+    SLANG_PUBLIC uint fogAreaIndices[kFogAreaCapacity];
 };
 HOST_NAMESPACE_END

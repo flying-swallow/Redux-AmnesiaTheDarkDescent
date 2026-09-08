@@ -151,11 +151,8 @@ public bool traceShadowRay(float3 origin, float3 dir, float tMax)
     RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
            | RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES
            | RAY_FLAG_CULL_FRONT_FACING_TRIANGLES> q;
-    // Default: trace against every opaque instance, so any opaque geometry
-    // blocks the shadow ray. The legacy opt-out mode instead culls on the
-    // authored shadow-caster bit.
-    uint shadowMask = gPerFrame.allLightsCastShadows != 0u ? kRayMaskOpaque : kRayMaskShadow;
-    q.TraceRayInline(gRtAccel, 0, shadowMask, ray);
+    // The TLAS applies the global shadow policy and includes shadow-only hulls.
+    q.TraceRayInline(gRtAccel, 0, kRayMaskShadow, ray);
 
     while (q.Proceed())
     {

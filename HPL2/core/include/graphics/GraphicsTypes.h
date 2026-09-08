@@ -631,6 +631,9 @@ namespace hpl {
 	#define eRenderableFlag_VisibleInReflection		(0x00000002)
 	#define eRenderableFlag_VisibleInNonReflection	(0x00000004)
 	#define eRenderableFlag_ContainerDebug			(0x00000008)
+	// Shadow-only geometry and visible geometry whose shadows it replaces.
+	#define eRenderableFlag_ShadowOnly				(0x00000010)
+	#define eRenderableFlag_ShadowReplaced			(0x00000020)
 	
 	//---------------------------------------
 

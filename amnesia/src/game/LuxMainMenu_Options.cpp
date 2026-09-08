@@ -882,6 +882,9 @@ void cLuxMainMenu_Options::AddAdvancedGfxOptions(cWidgetDummy* apDummy)
 	}
 
 	vPos.y += pGroup->GetSize().y + 10;
+	// Leave room to scroll the last options above the fixed Basic Options button.
+	// The frame derives its scroll range from its children's bounds.
+	mpGuiSet->CreateWidgetDummy(vPos + cVector3f(0, 50, 0), pMainFrame);
 
 	//////////////
 	// Setup gamepad navigation

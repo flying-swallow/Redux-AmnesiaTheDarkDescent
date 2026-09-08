@@ -195,6 +195,12 @@ public uint cellLightAt(CellLights c, uint k)
 //     beyond the camera-centered grid shouldn't fade to black.
 public float lightLevelAt(float3 posW)
 {
+    // No lights is darkness, not the out-of-grid full-bright fallback.
+    // getCellLights also marks an empty light set invalid, so distinguish it
+    // before applying the distant-geometry policy below.
+    if (getLightCount() == 0u)
+        return 0.0f;
+
     // Out-of-grid points return 1.0 (don't darken) — note this differs from
     // the shaded walkers, which treat an invalid cell as no contribution.
     CellLights cl = getCellLights(posW);

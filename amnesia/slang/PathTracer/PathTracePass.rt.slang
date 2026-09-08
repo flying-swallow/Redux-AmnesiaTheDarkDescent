@@ -178,8 +178,8 @@ void rayGen()
                                               texLodBase, surfaceFootprintW,
                                               /*decodeRoughness=*/true,
                                               /*applyNormalMap=*/true);
-    // Bumped normal for the BSDF; the reprojection key below deliberately keeps
-    // the GEOMETRIC normal (same convention as DirectLightingPass).
+    // Use the bumped normal for both the BSDF and the NRD guide below, so
+    // specular filtering follows the same surface orientation as the traced lobe.
     SurfaceBRDF s = prepareSurface(loadDiffuseMaterial(obj.materialID), sd.normalW, v.texC,
                                    texLodBase);
 
@@ -274,14 +274,14 @@ void rayGen()
     gIndirectDiffuse[pixel]  = float4(diffuseSum  / float(kPathTraceSamplesPerPixel), 1.0f);
     gIndirectSpecular[pixel] = float4(specularSum / float(kPathTraceSamplesPerPixel), 1.0f);
 
-    // Surface key in the SAME encoding DirectLightingPass writes to gDirectKeyOut
-    // (viewZ, geometric normal). NrdPack reads it to build IN_VIEWZ and
-    // IN_NORMAL_ROUGHNESS.
+    // NRD surface guide (viewZ, world-space shading normal). Unlike the direct
+    // reservoir's geometric key, this must include the normal map: NrdPack
+    // uses it for IN_NORMAL_ROUGHNESS and specular reprojection/filtering.
     // Category (b): the reprojection key's viewZ is derived from the
     // V-buffer world position with the unjittered view matrix; projection
     // jitter must not enter this guide value.
     float  curZ = -mul(gPerFrame.viewMat, float4(sd.posW, 1.0f)).z;
-    float3 curN = normalize(v.normalW);
+    float3 curN = normalize(sd.normalW);
     gIndirectKeyOut[pixel] = float4(curZ, curN);
 
     // Side-channel consumed by NrdPack.cs.slang: the primary hit's GGX

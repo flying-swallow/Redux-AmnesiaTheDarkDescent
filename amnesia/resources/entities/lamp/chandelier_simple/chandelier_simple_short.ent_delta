@@ -1,0 +1,146 @@
+<EntDelta Version="1" Target="entities/lamp/chandelier_simple/chandelier_simple_short.ent">
+    <SetVar Name="ShowHints" Value="true" />
+    <SetVar Name="ShowMesh" Value="true" />
+    <Modify Category="Mesh" ID="0" Name="polySurface3">
+        <SetAttr Material="" SubMeshID="2" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Mesh" ID="1" Name="polySurface40">
+        <SetAttr Material="" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Mesh" ID="2" Name="polySurface41">
+        <SetAttr Material="" SubMeshID="0" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="4" Name="BodyShape_2_clone_1_clone_1">
+        <SetAttr RelativeTranslation="0.509494 0.11673 0" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="5" Name="BodyShape_2_clone_1_clone_1_clone_1">
+        <SetAttr RelativeTranslation="-0.509494 0.11673 0" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="6" Name="BodyShape_2_clone_2">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="20" Name="BodyShape_2_clone_2_clone_1">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="21" Name="BodyShape_2_clone_1_clone_2">
+        <SetAttr RelativeTranslation="0 0.0697601 -0.012851" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="32" Name="BodyShape_2">
+        <SetAttr RelativeTranslation="0 0.11673 -0.509494" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="33" Name="BodyShape_2_clone_1">
+        <SetAttr RelativeTranslation="0 0.11673 0.509494" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="34" Name="BodyShape_1">
+        <SetAttr RelativeTranslation="0 -0.11673 0" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Bodies" ID="22" Name="Body_1">
+        <SetAttr BuoyancyDensityMul="1" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Bodies" ID="23" Name="Body_2">
+        <SetAttr BuoyancyDensityMul="1" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Bodies" ID="24" Name="Body_3">
+        <SetAttr BuoyancyDensityMul="1" WorldPos="0 -2.08811 0" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Joints" ID="28" Name="BallJoint_1">
+        <SetAttr Stiffness="0" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="SubType" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Joints" ID="29" Name="BallJoint_1_clone_1">
+        <SetAttr Stiffness="0" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="SubType" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="8" Name="PointLight_1">
+        <SetAttr FlickerOffRadius="0.75" Intensity="0.8" Radius="10" SourceRadius="0.035" WorldPos="-0.489654 -1.80801 0.0239639" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="SubType" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="11" Name="ParticleSystem_1">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="12" Name="ParticleSystem_1_clone_1">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="13" Name="ParticleSystem_1_clone_1_clone_1">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="14" Name="ParticleSystem_1_clone_1_clone_1_clone_1">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="35" Name="Billboard_1">
+        <RemoveAttr Name="Axis" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Scale" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="36" Name="Billboard_2">
+        <SetAttr ConnectLight="PointLight_4" />
+        <RemoveAttr Name="Axis" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Scale" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="37" Name="Billboard_3">
+        <SetAttr ConnectLight="PointLight_3" />
+        <RemoveAttr Name="Axis" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Scale" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Entities" ID="38" Name="Billboard_4">
+        <SetAttr ConnectLight="PointLight_2" />
+        <RemoveAttr Name="Axis" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Scale" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Add Category="Entities">
+        <PointLight Name="PointLight_2" WorldPos="-0.00210762 -1.78589 -0.505623" Rotation="0 0 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="0.8" Radius="10" SourceRadius="0.035" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.8 0.75 0.5 0.8" FlickerActive="true" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0.75 0.7 0.45 0.7" FlickerOffRadius="0.75" FlickerFade="true" FlickerOnFadeMinLength="0.1" FlickerOnFadeMaxLength="2" FlickerOffFadeMinLength="0.1" FlickerOffFadeMaxLength="2" />
+        <PointLight Name="PointLight_3" WorldPos="0.520724 -1.75578 -0.00296021" Rotation="0 0 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="0.8" Radius="10" SourceRadius="0.035" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.8 0.75 0.5 0.8" FlickerActive="true" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0.75 0.7 0.45 0.7" FlickerOffRadius="0.75" FlickerFade="true" FlickerOnFadeMinLength="0.1" FlickerOnFadeMaxLength="2" FlickerOffFadeMinLength="0.1" FlickerOffFadeMaxLength="2" />
+        <PointLight Name="PointLight_4" WorldPos="0.00402164 -1.79696 0.50528" Rotation="0 0 0" Scale="1 1 1" Tag="" Active="true" CastShadows="true" ShadowResolution="High" ShadowsAffectStatic="true" ShadowsAffectDynamic="true" Intensity="0.8" Radius="10" SourceRadius="0.035" FalloffMap="" Gobo="" GoboAnimMode="None" GoboAnimFrameTime="0" DiffuseColor="0.8 0.75 0.5 0.8" FlickerActive="true" FlickerOnMinLength="0" FlickerOnMaxLength="0" FlickerOnPS="" FlickerOnSound="" FlickerOffMinLength="0" FlickerOffMaxLength="0" FlickerOffPS="" FlickerOffSound="" FlickerOffColor="0.75 0.7 0.45 0.7" FlickerOffRadius="0.75" FlickerFade="true" FlickerOnFadeMinLength="0.1" FlickerOnFadeMaxLength="2" FlickerOffFadeMinLength="0.1" FlickerOffFadeMaxLength="2" />
+    </Add>
+</EntDelta>

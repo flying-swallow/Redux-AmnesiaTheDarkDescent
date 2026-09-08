@@ -1,0 +1,24 @@
+<MapDelta Version="1" Target="maps/main/ch01/10_daniels_room.map">
+    <Remove Category="Entities" ID="275" Name="BoxLight_1" />
+    <Remove Category="Entities" ID="562" Name="PointLight_1" />
+    <Remove Category="Entities" ID="563" Name="PointLight_2" />
+    <Remove Category="Entities" ID="564" Name="PointLight_3" />
+    <Modify Category="Entities" ID="250" Name="SpotLight_2">
+        <SetAttr Intensity="50" Radius="29.0707" SourceRadius="0" />
+    </Modify>
+    <Modify Category="Entities" ID="336" Name="paper02_11">
+        <SetAttr Rotation="2.51174e-06 -1.5708 2.53449e-06" />
+    </Modify>
+    <Modify Category="Entities" ID="401" Name="candlestick_wall_3">
+        <SetAttr Rotation="-0.119173 1.5708 -0.119173" />
+    </Modify>
+    <Modify Category="Entities" ID="402" Name="candlestick_wall_4">
+        <SetAttr Rotation="-0.119173 1.5708 -0.119173" />
+    </Modify>
+    <Modify Category="Entities" ID="477" Name="paper02_38">
+        <SetAttr Rotation="-3.14159 -1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="Entities" ID="561" Name="SpotLight_3">
+        <SetAttr Intensity="50" Radius="26.5362" SourceRadius="0" />
+    </Modify>
+</MapDelta>

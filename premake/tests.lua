@@ -80,6 +80,23 @@ project "FsrUpscalerParamsTests"
     includedirs { ROOT .. "/HPL2/core/include" }
     add_test_postbuild()
 
+-- The bindless slot pools are pure CPU data structures (IndexPool + ObjectPool),
+-- so they test without Vulkan or the engine. Own directory because the
+-- tests/graphics/*.cpp glob above already owns a main().
+project "BindlessPoolTests"
+    kind "ConsoleApp"
+    language "C++"
+    cppdialect "C++17"
+    objdir (BUILD_OUT .. "/obj/%{prj.name}/%{cfg.buildcfg}")
+    targetdir (BUILD_OUT .. "/tests/%{cfg.buildcfg}")
+    files {
+        ROOT .. "/tests/graphics/bindless/*.cpp",
+        ROOT .. "/HPL2/core/sources/graphics/BindlessPool.cpp",
+        ROOT .. "/HPL2/core/sources/graphics/IndexPool.cpp",
+    }
+    includedirs { ROOT .. "/HPL2/core/include" }
+    add_test_postbuild()
+
 -- Keep this one-main-per-project rule for the non-recursive tests/resources/*.cpp
 -- glob; this project owns the FileSearcher test executable.
 project "FileSearcherTests"

@@ -867,7 +867,12 @@ void RIProgram::initialize(RIDevice* device, std::span<ModuleStage> moduleInit,
           bindingFlags = &descriptorBindingFlags[spv_reflection->set][descriptorBindingFlags[spv_reflection->set].size() - 1];
         }
 
-        if (reflc->isArray) {
+        // Scene TLAS bindings can be absent before the first world build.
+        // A shader guard prevents dynamic access, but optional=true alone
+        // only suppresses our diagnostic. PARTIALLY_BOUND is what makes an
+        // unwritten, dynamically unused descriptor legal in Vulkan.
+        if (reflc->isArray || reflectionBinding->descriptor_type ==
+                                  SPV_REFLECT_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR) {
           (*bindingFlags) = VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT;
         }
 

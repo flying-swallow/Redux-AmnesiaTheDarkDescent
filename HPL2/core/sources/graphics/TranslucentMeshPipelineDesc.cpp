@@ -9,7 +9,7 @@ namespace hpl {
 
 TranslucentMeshPipelineDesc::TranslucentMeshPipelineDesc(
     RI_Format_e colorFormat, RI_Format_e depthFormat, BlendMode mode,
-    uint32_t vertexPresentMask) {
+    uint32_t vertexPresentMask, bool depthTest) {
   // Strides match cVertexBuffer: position/tangent/color stored as float4
   // (16 B), normal as float3 (12 B), texcoord as float3 with only .xy
   // consumed (stride 12 B, R32G32 format reads the first two floats). An
@@ -70,7 +70,7 @@ TranslucentMeshPipelineDesc::TranslucentMeshPipelineDesc(
 
   depthStencilState = {
       VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-  depthStencilState.depthTestEnable = VK_TRUE;
+  depthStencilState.depthTestEnable = depthTest ? VK_TRUE : VK_FALSE;
   depthStencilState.depthWriteEnable = VK_FALSE;
   depthStencilState.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
   depthStencilState.minDepthBounds = 0.0f;
@@ -103,9 +103,7 @@ TranslucentMeshPipelineDesc::TranslucentMeshPipelineDesc(
     blendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
     break;
   case BLEND_ALPHA:
-    // Premultiplied: the shader outputs rgb·pow(α,kPerceptualBlendExp) and
-    // a = 1−pow(1−α,k) so the powered weights approximate the legacy
-    // display-space lerp in the linear HDR target (see Translucent.frag.slang).
+    // Shader premultiplies linear RGB once; opacity is independent of gamma.
     blendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
     blendAttachment.dstColorBlendFactor =
         VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
@@ -150,6 +148,8 @@ TranslucentMeshPipelineDesc::TranslucentMeshPipelineDesc(
   // Distinct vertex-binding strides per presence combination must not alias in
   // the program's pipeline cache.
   hash = hash_u32(hash, vertexPresentMask);
+  // A no-depth-test halo must not reuse a depth-tested material's pipeline.
+  hash = hash_u32(hash, depthTest ? 1u : 0u);
 }
 
 } // namespace hpl

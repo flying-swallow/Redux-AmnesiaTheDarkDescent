@@ -475,6 +475,8 @@ cViewport::HybridViewportState::~HybridViewportState() {
     pGraphics->graphicsDefer.push(renderTargetView[i]);
     pGraphics->graphicsDefer.push(depthView[i]);
     pGraphics->graphicsDefer.push(depthSampleView[i]);
+    pGraphics->graphicsDefer.push(particleWaterDepthView[i]);
+    pGraphics->graphicsDefer.push(particleWaterDepth[i]);
     pGraphics->graphicsDefer.push(visibilityView[i]);
     pGraphics->graphicsDefer.push(packedHitInfoView[i]);
     pGraphics->graphicsDefer.push(velocityView[i]);
@@ -880,7 +882,25 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   perFrame.pointLightCount = apWorld->GetPointLightCount();
   perFrame.spotLightCount = apWorld->GetSpotLightCount();
   perFrame.areaLightCount = apWorld->GetAreaLightCount();
-  perFrame.fogAreaCount = apWorld->GetFogAreaCount();
+  // Fog composition is order-dependent. Reuse the visible, back-to-front
+  // list that RenderList builds for this camera, rather than treating the
+  // world's upload order as draw order (or rendering editor-hidden areas).
+  // Keep indices per viewport: sorting the shared world buffer would make
+  // one editor viewport change another viewport's fog.
+  perFrame.fogAreaCount = 0;
+  for (cFogArea *fog : m_rendererList.GetFogAreas()) {
+    if (perFrame.fogAreaCount == kFogAreaCapacity)
+      break;
+    auto worldFog = apWorld->GetFogAreaIterator();
+    uint32_t index = 0;
+    while (worldFog.HasNext()) {
+      if (worldFog.Next() == fog) {
+        perFrame.fogAreaIndices[perFrame.fogAreaCount++] = index;
+        break;
+      }
+      ++index;
+    }
+  }
   perFrame.decalCount = apWorld->GetDecalCount();
 
   for (iRenderable *pObject : solids) {
@@ -2085,6 +2105,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
   // supplies the shaders (Water.vert/frag).
   // Pogo-read-half barriers as the other translucent sub-passes.
   // --------------------------------------------------------------------
+  bool hasParticleWaterDepth = false;
   {
     RIGpuScope _gsWater(&mpGraphics->profiler, &mpGraphics->primary.cmds[0], "Water");
     std::vector<iRenderable *> waters;
@@ -2111,6 +2132,16 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
 
     if (!waters.empty()) {
       flipDepthToReadOnly();
+
+      const uint32_t imageIndex = mpGraphics->swapchainIndex;
+      if (state.particleWaterDepth[imageIndex].isEmpty()) {
+        CreateViewportColorTexture(
+            &mpGraphics->device, renderWidth, renderHeight, RI_FORMAT_R32_SFLOAT,
+            RI_USAGE_COLOR_ATTACHMENT | RI_USAGE_SHADER_RESOURCE,
+            &state.particleWaterDepth[imageIndex],
+            &state.particleWaterDepthView[imageIndex],
+            "HybridViewportState.particleWaterDepth");
+      }
 
       if (!state.waterReflection)
         state.waterReflection = std::make_unique<WaterReflectionViewportState>();
@@ -2368,9 +2399,52 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
           mpGraphics->primary.cmds[0].vk_d3d12_endRendering(
               &mpGraphics->device);
           waterSurfaceComposited = true;
+
+          // Keep nearest water depth separate from opaque visibility/depth.
+          // Full resolution and the same viewport/depth test align the water
+          // silhouette with the subsequent particle fragments. Clear on the
+          // first successful surface each frame; MIN handles overlapping water.
+          const uint32_t maskState = RI_RESOURCE_STATE_RENDER_TARGET |
+                                     RI_RESOURCE_STATE_RENDER_TARGET_READ;
+          mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
+              RITextureBarrier(state.particleWaterDepth[imageIndex].Get(),
+                  hasParticleWaterDepth ? maskState : RI_RESOURCE_STATE_UNDEFINED,
+                  maskState));
+          RIRenderingAttachment waterDepthColor = {};
+          waterDepthColor.view = *state.particleWaterDepthView[imageIndex];
+          waterDepthColor.loadOp = hasParticleWaterDepth
+              ? RI_ATTACHMENT_LOAD_OP_LOAD : RI_ATTACHMENT_LOAD_OP_CLEAR;
+          waterDepthColor.storeOp = RI_ATTACHMENT_STORE_OP_STORE;
+          waterDepthColor.clearValue.color[0] = perFrame.zFar;
+          RIBeginRenderingDesc waterDepthBegin = beginDesc;
+          waterDepthBegin.colors = &waterDepthColor;
+          mpGraphics->primary.cmds[0].vk_d3d12_beginRendering(
+              &mpGraphics->device, waterDepthBegin);
+          TranslucentMeshPipelineDesc waterDepthPipeline(
+              RI_FORMAT_R32_SFLOAT, cGraphics::DepthFormat,
+              TranslucentMeshPipelineDesc::BLEND_ADD, vtxMask);
+          waterDepthPipeline.blendAttachment.colorBlendOp = VK_BLEND_OP_MIN;
+          waterDepthPipeline.blendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT;
+          m_water.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+              hash_u32(waterDepthPipeline.hash, 0x57504450u /*'WPDP'*/),
+              "Water.ParticleDepth", &waterDepthPipeline.createInfo);
+          WaterPush depthPush = {2u, 0u, 0u, 0u};
+          mpGraphics->primary.cmds[0].vk_d3d12_setPushConstants(
+              &mpGraphics->device, m_water, 0, sizeof(depthPush), &depthPush);
+          mpGraphics->primary.cmds[0].drawIndexed(
+              &mpGraphics->device, static_cast<uint32_t>(indexCount), 1u,
+              0u, 0, slot);
+          mpGraphics->primary.cmds[0].vk_d3d12_endRendering(&mpGraphics->device);
+          hasParticleWaterDepth = true;
         }
       }
 
+      if (hasParticleWaterDepth) {
+        mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
+            RITextureBarrier(state.particleWaterDepth[imageIndex].Get(),
+                RI_RESOURCE_STATE_RENDER_TARGET | RI_RESOURCE_STATE_RENDER_TARGET_READ,
+                RI_RESOURCE_STATE_SHADER_RESOURCE, RI_STAGE_NONE, RI_STAGE_FRAGMENT));
+      }
       m_waterReflection.EndFrame(*state.waterReflection);
       mpGraphics->primary.cmds[0].vk_d3d12_textureBarrier(
           RI_PogoShaderBarrier(
@@ -2492,6 +2566,13 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
           RIDescriptor::sampledImage(
               &mpGraphics->device, state.depthSampleView[mpGraphics->swapchainIndex].Get(),
               RI_RESOURCE_STATE_DEPTH_READ));
+      particleBindings.emplace_back("gParticleWaterDepth",
+          RIDescriptor::sampledImage(&mpGraphics->device,
+              hasParticleWaterDepth
+                  ? state.particleWaterDepthView[mpGraphics->swapchainIndex].Get()
+                  : state.depthSampleView[mpGraphics->swapchainIndex].Get(),
+              hasParticleWaterDepth ? RI_RESOURCE_STATE_SHADER_RESOURCE
+                                    : RI_RESOURCE_STATE_DEPTH_READ));
       appendWorldLightFog(particleBindings, apWorld);
       m_particle.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0], mpGraphics->frameIndex,
                                  particleBindings.data(),
@@ -2519,6 +2600,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
       struct PushBlock {
         uint32_t blendMode;
         float sceneAlpha;
+        uint32_t hasWaterDepth;
       };
 
       for (iParticleEmitter *pEmitter : emitters) {
@@ -2588,7 +2670,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
         // scalar (1.0 by default) — kept in the push block for parity with the
         // mesh path and any future per-object alpha gates.
         const float sceneAlpha = 1.0f;
-        PushBlock push = {(uint32_t)mode, sceneAlpha};
+        PushBlock push = {(uint32_t)mode, sceneAlpha, hasParticleWaterDepth ? 1u : 0u};
         mpGraphics->primary.cmds[0].vk_d3d12_setPushConstants(&mpGraphics->device, m_particle, 0,
                                                      sizeof(push), &push);
 
@@ -2723,6 +2805,10 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
         meshBindings.push_back(b);
       }
       appendWorldLightFog(meshBindings, apWorld);
+      // Lit diffuse is guarded by a push flag until the first TLAS build.
+      meshBindings.emplace_back("gRtAccel",
+          RIDescriptor::accelerationStructure(&mpGraphics->device, apWorld->GetTlas()),
+          0, true);
       m_translucentMesh.bindDescriptors(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                         mpGraphics->frameIndex, meshBindings.data(),
                                         meshBindings.size());
@@ -2749,7 +2835,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
 
       // Mirrors TranslucentPushConstants in Translucent.frag.slang. Options
       // bitfield carries TRANS_OPT_USE_ILLUMINATION for the optional second
-      // cube-map-only draw — main draw passes options=0.
+      // cube-map-only draw and TLAS availability for direct lighting.
       struct PushBlock {
         uint32_t blendMode;
         float sceneAlpha;
@@ -2757,6 +2843,8 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
         uint32_t _pad;
       };
       constexpr uint32_t kTransOptUseIllumination = 1u << 0;
+      constexpr uint32_t kTransOptHasTlas = 1u << 1;
+      const uint32_t lightingOptions = apWorld->GetTlas() ? kTransOptHasTlas : 0u;
 
       for (iRenderable *pObj : meshes) {
         cVertexBuffer *pVB = pObj->GetVertexBuffer();
@@ -2812,7 +2900,8 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
         const TranslucentMeshPipelineDesc::BlendMode mode =
             remapBlend(pMat->GetBlendMode());
         TranslucentMeshPipelineDesc pipelineDesc(
-            meshTargetFormat, cGraphics::DepthFormat, mode, vtxMask);
+            meshTargetFormat, cGraphics::DepthFormat, mode, vtxMask,
+            pMat->GetDepthTest());
         m_translucentMesh.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                        pipelineDesc.hash, "TranslucentMesh",
                                        &pipelineDesc.createInfo);
@@ -2821,7 +2910,7 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
         // by walking gFogAreas. sceneAlpha stays 1.0 for the no-extra-alpha
         // common path.
         const float sceneAlpha = 1.0f;
-        PushBlock push = {(uint32_t)mode, sceneAlpha, 0u, 0u};
+        PushBlock push = {(uint32_t)mode, sceneAlpha, lightingOptions, 0u};
         mpGraphics->primary.cmds[0].vk_d3d12_setPushConstants(
             &mpGraphics->device, m_translucentMesh, 0, sizeof(push), &push);
 
@@ -2838,13 +2927,14 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
         if (pMat->GetImage(eMaterialTexture_CubeMap)) {
           TranslucentMeshPipelineDesc addDesc(
               meshTargetFormat, cGraphics::DepthFormat,
-              TranslucentMeshPipelineDesc::BLEND_ADD, vtxMask);
+              TranslucentMeshPipelineDesc::BLEND_ADD, vtxMask,
+              pMat->GetDepthTest());
           m_translucentMesh.bindPipeline(&mpGraphics->device, &mpGraphics->primary.cmds[0],
                                          addDesc.hash, "TranslucentMeshIllum",
                                          &addDesc.createInfo);
           PushBlock pushIllum = {
               (uint32_t)TranslucentMeshPipelineDesc::BLEND_ADD, sceneAlpha,
-              kTransOptUseIllumination, 0u};
+              kTransOptUseIllumination | lightingOptions, 0u};
           mpGraphics->primary.cmds[0].vk_d3d12_setPushConstants(
               &mpGraphics->device, m_translucentMesh, 0, sizeof(pushIllum), &pushIllum);
           // Vertex / index buffers stay bound from the main draw above —

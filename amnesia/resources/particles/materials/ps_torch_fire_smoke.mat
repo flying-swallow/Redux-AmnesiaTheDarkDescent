@@ -1,0 +1,10 @@
+<Material>
+  <Main Type="Translucent" BlendMode="Alpha" PhysicsMaterial="" UseAlpha="False" DepthTest="true" />
+  <TextureUnits>
+    <Diffuse File="ps_torch_fire_smoke.tga" Compress="false" Type="2D" Mipmaps="true" Wrap="Repeat" />
+  </TextureUnits>
+  <SpecificVariables>
+    <Var Name="ParticleOpacityScale" Value="0.5" />
+    <Var Name="ParticleBrightnessScale" Value="0.4" />
+  </SpecificVariables>
+</Material>

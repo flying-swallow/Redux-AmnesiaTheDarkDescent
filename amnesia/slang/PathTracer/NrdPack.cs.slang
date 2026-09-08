@@ -61,6 +61,8 @@ void csMain(uint3 tid : SV_DispatchThreadID)
 
     float4 key   = gIndirectKey.Load(int3(p, 0));
     float4 extra = gIndirectKeyExtra.Load(int3(p, 0));
+    // The tracer supplies its normal-mapped BSDF normal, not the geometric
+    // normal used by ReSTIR's reservoir key. Preserve that detail for both lobes.
     float3 normal = key.yzw;
     bool validSurface = dot(normal, normal) > 1.0e-8f;
 

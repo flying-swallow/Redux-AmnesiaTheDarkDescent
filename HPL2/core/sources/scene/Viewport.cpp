@@ -734,6 +734,22 @@ void ReleaseViewportAttachmentTexture(RISharedPointer<RITexture> *tex,
 		bindings[1].handle     = DescriptorBindingID::Create("sourceInput");
 		pGraphics->postEffectBlit.bindDescriptors(&pGraphics->device, &pGraphics->primary.cmds[0], pGraphics->frameIndex, bindings, 2);
 
+		// Dither only the final normalized display target, never the floating
+		// point pogo buffers or image-trail history. sRGB attachments perform
+		// their own nonlinear encoding and need a different noise scale.
+		float quantizationStep[4] = {};
+		const RIFormatProps* props = GetRIFormatProps(aFormat);
+		if (props->isNorm && !props->isFloat && !props->isSigned && !props->isSrgb)
+		{
+			const uint8_t bits[3] = {props->redBits, props->greenBits, props->blueBits};
+			for (int channel = 0; channel < 3; ++channel)
+				if (bits[channel] > 0 && bits[channel] < 32)
+					quantizationStep[channel] = 1.0f / float((1u << bits[channel]) - 1u);
+		}
+		vkCmdPushConstants(pGraphics->primary.cmds[0].vk.cmd,
+			pGraphics->postEffectBlit.getPipelineLayout(), VK_SHADER_STAGE_FRAGMENT_BIT,
+			0, sizeof(quantizationStep), quantizationStep);
+
 		vkCmdDraw(pGraphics->primary.cmds[0].vk.cmd, 3, 1, 0, 0);
 		pGraphics->primary.cmds[0].vk_d3d12_endRendering(&pGraphics->device);
 	}

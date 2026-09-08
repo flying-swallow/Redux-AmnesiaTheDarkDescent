@@ -1,0 +1,29 @@
+<EntDelta Version="1" Target="entities/organic/slime_static/slime_pile_large.ent">
+    <SetVar Name="GrabForceMul" Value="1" />
+    <SetVar Name="GrabPositionOffset" Value="0" />
+    <SetVar Name="GrabRotationOffset" Value="0" />
+    <SetVar Name="GrabSkipNonOuterBodies" Value="false" />
+    <SetVar Name="GrabTorqueMul" Value="1" />
+    <SetVar Name="GrabUseDepth" Value="false" />
+    <SetVar Name="GrabUseOffset" Value="false" />
+    <SetVar Name="GrabUseRotation" Value="true" />
+    <SetVar Name="IsFood" Value="false" />
+    <SetVar Name="ShowHints" Value="true" />
+    <SetVar Name="ShowMesh" Value="true" />
+    <RemoveVar Name="GrabUseRotationOffset" />
+    <Modify Category="Mesh" ID="13" Name="pCube1">
+        <SetAttr Material="" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Shapes" ID="3" Name="Shape_1">
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="ShapeTypeID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+    <Modify Category="Bodies" ID="16" Name="Body_1">
+        <SetAttr BuoyancyDensityMul="1" HasGravity="true" />
+        <RemoveAttr Name="GroupID" />
+        <RemoveAttr Name="Type" />
+    </Modify>
+</EntDelta>

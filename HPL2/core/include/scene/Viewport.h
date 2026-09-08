@@ -273,6 +273,9 @@ public:
     // depthView above can't be sampled (Vulkan forbids sampling a DEPTH|STENCIL
     // view). Bound by the particle pass for soft-particle scene-depth reads.
     RISharedPointer<RITextureView> depthSampleView[RI_MAX_SWAPCHAIN_IMAGES];
+    // Lazy full-resolution nearest water view-depth, used only by particles.
+    RISharedPointer<RITexture> particleWaterDepth[RI_MAX_SWAPCHAIN_IMAGES];
+    RISharedPointer<RITextureView> particleWaterDepthView[RI_MAX_SWAPCHAIN_IMAGES];
 
     RISharedPointer<RITexture> visibilityTexture[RI_MAX_SWAPCHAIN_IMAGES];
     RISharedPointer<RITextureView> visibilityView[RI_MAX_SWAPCHAIN_IMAGES];

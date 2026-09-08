@@ -1,0 +1,8 @@
+<EntDelta Version="1" Target="models/hand_objects/lantern/hand_lantern.ent">
+    <Modify Category="Entities" ID="3" Name="PointLight_1">
+        <SetAttr WorldPos="0.0027 -0.125 0.0054" CastShadows="true" SourceRadius="0.002" />
+    </Modify>
+    <Modify Category="Entities" ID="2" Name="Billboard_1">
+        <SetAttr WorldPos="0.0027 -0.125 0.0054" />
+    </Modify>
+</EntDelta>

@@ -17,16 +17,19 @@ import PerFrame.resource;
 import Scene;
 import Material;             // load*Material / materialAlphaTest / traceShadowRay / traceReflectionHit
 import Fog;          // computeFog — shared world + fog-area visibility
-import BlendModes;   // displaySpaceSample / applyBlendModulation / encodeBlendOutputLinear
+import BlendModes;   // linear source preparation and opacity modulation
+
+[vk::binding(0, 2)] Texture2D<float> gParticleWaterDepth;
 
 // Mirrors the `PushBlock` written from cHybridRenderer::Draw at the per-
-// particle-draw site (uint blendMode, float sceneAlpha). Fragment-only push
+// particle-draw site (uint blendMode, float sceneAlpha, uint hasWaterDepth). Fragment-only push
 // range — matches VK_SHADER_STAGE_FRAGMENT_BIT on the vkCmdPushConstants
 // call.
 struct ParticlePushConstants
 {
     uint  blendMode;
     float sceneAlpha;
+    uint hasWaterDepth;
 };
 
 [vk::push_constant]
@@ -49,20 +52,15 @@ float4 psMain(ParticleVSOut psIn) : SV_TARGET
     // tagged MATERIAL_TYPE_TRANSLUCENT. Read them the same way Translucent.frag does.
     TranslucentMaterial mat = loadTranslucentMaterial(obj.materialID);
 
-    // Legacy display-space source: the base game blended raw gamma texels ×
-    // authored vertex colors in a UNORM display target. Re-encode the
-    // hardware-sRGB-decoded sample so the product happens in the space it was
-    // authored for; the per-blend-mode source math below also runs in display
-    // space and is decoded to linear ONCE at output (exact for products and
-    // dst-free lerps — toLin distributes over products via the power law).
-    float4 diffuseColor = float4(0.0f, 0.0f, 0.0f, 1.0f);
+    float4 sample = float4(0.0f, 0.0f, 0.0f, 1.0f);
     uint diffuseTex = mat.tex[0];
-    if (diffuseTex != kInvalidTextureIndex)
-    {
-        float4 s = sampleBindless2D(diffuseTex, psIn.uv);
-        diffuseColor = displaySpaceSample(s);
-    }
-    diffuseColor *= psIn.color;
+    bool smoothHalo = pc.blendMode == kBlendModeAdd &&
+        (mat.materialConfig & kMaterialFlagSmoothHalo) != 0u;
+    if (!smoothHalo && diffuseTex != kInvalidTextureIndex)
+        sample = sampleBindless2D(diffuseTex, psIn.uv);
+    float4 diffuseColor = smoothHalo ? smoothHaloLinearSample(psIn.uv, psIn.color)
+        : translucentLinearSample(sample, psIn.color,
+        pc.blendMode, (mat.materialConfig & kMaterialFlagDiffuseIsMask) != 0u);
 
     // Per-pixel fog via the shared helper (world + fog areas), matching
     // Translucent.frag: the visibility scalar folds into the per-pixel alpha.
@@ -74,7 +72,9 @@ float4 psMain(ParticleVSOut psIn) : SV_TARGET
     // translucents — restoring legacy parity.)
     float3 surfacePosW = mul(gPerFrame.invViewMat, float4(psIn.viewPos, 1.0f)).xyz;
     FogResult fog = computeFog(surfacePosW, gPerFrame.posW);
-    float finalAlpha = pc.sceneAlpha * fog.visibility;
+    // Authoring controls operate in linear space, before display processing.
+    // Opacity still controls both source coverage and destination transmission.
+    float finalAlpha = pc.sceneAlpha * fog.visibility * saturate(mat.particleOpacityScale);
 
     // Soft particles: fade alpha as this camera-facing fragment approaches the
     // opaque geometry behind it, replacing the hard intersection edge with a
@@ -83,12 +83,19 @@ float4 psMain(ParticleVSOut psIn) : SV_TARGET
     // fade across kSoftParticleFadeDistance meters. finalAlpha is the single
     // operand applyBlendModulation folds in for every blend mode (ADD/MUL/MULX2
     // toward their neutral, ALPHA/PREMUL via .a), so this fades all modes.
-    float2 screenUV  = psIn.posH.xy * gPerFrame.viewTexel;
-    float  sceneZdev = gSceneDepth.SampleLevel(gMaterialSampler, screenUV, 0.0f).r;
+    // Depth is geometry, not filtered material color. Interpolating device
+    // depth across a silhouette creates a fictitious surface and an incorrect
+    // opacity band. The particle pass and opaque depth share the render extent.
+    float sceneZdev = gSceneDepth.Load(int3(int2(psIn.posH.xy), 0)).r;
     float  sceneLinear =
         gPerFrame.zNear * gPerFrame.zFar /
         (gPerFrame.zFar - sceneZdev * (gPerFrame.zFar - gPerFrame.zNear));
     float  particleLinear = -psIn.viewPos.z;   // view forward = -Z
+    // Water is composed before particles but deliberately leaves opaque depth
+    // untouched. Its separate layer prevents submerged smoke drawing over it.
+    if (pc.hasWaterDepth != 0u)
+        sceneLinear = min(sceneLinear,
+            gParticleWaterDepth.Load(int3(int2(psIn.posH.xy), 0)));
     float  soft = saturate((sceneLinear - particleLinear) / kSoftParticleFadeDistance);
     finalAlpha *= soft;
 
@@ -100,19 +107,16 @@ float4 psMain(ParticleVSOut psIn) : SV_TARGET
     {
         lightLevel = lightLevelAt(surfacePosW);
     }
+    lightLevel *= max(mat.particleBrightnessScale, 0.0f);
 
-    // Shared legacy blend math (see BlendModes.slang): display-space source
-    // modulation, then one decode to linear. The modulated .a is the legacy
-    // display-alpha discard operand.
+    // Opacity and lighting modulate linear RGB; gamma never changes alpha.
     float4 modulated    = applyBlendModulation(pc.blendMode, diffuseColor,
                                                finalAlpha, lightLevel);
-    float  displayAlpha = modulated.a;
     float4 finalColor   = encodeBlendOutputLinear(pc.blendMode, modulated);
 
-    if (displayAlpha < 0.01f)
-    {
-        discard;
-    }
-
+    // Preserve the full opacity tail. A 1% alpha test cuts a contour through
+    // each smoke sprite and through its soft intersection/lifetime fades.
+    // Zero-opacity alpha sources already blend as the identity; no discard
+    // is needed (and additive emission need not track texture alpha).
     return finalColor;
 }

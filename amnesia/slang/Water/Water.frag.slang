@@ -50,7 +50,7 @@ import Water.WaterReflectionSample;
 
 struct WaterPC
 {
-    uint pass;   // 0 = tint (MUL), 1 = reflection (ADD)
+    uint pass;   // 0 = tint (MUL), 1 = reflection (ADD), 2 = particle occlusion depth
     uint reflectionAvailable;
     uint _p1;
     uint _p2;
@@ -70,6 +70,11 @@ struct WaterVSOut
 [shader("fragment")]
 float4 psMain(WaterVSOut psIn) : SV_TARGET
 {
+    // Independent of reflection validity, Fresnel, fog and wave shading.
+    // MIN blending records the nearest rasterized water surface per pixel.
+    if (pc.pass == 2u)
+        return float4(-mul(gPerFrame.viewMat, float4(psIn.posW, 1.0f)).z, 0, 0, 0);
+
     float2 dBaseUvDx = ddx(psIn.uv);
     float2 dBaseUvDy = ddy(psIn.uv);
     float3 dpdx = ddx(psIn.posW);

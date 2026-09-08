@@ -77,6 +77,12 @@ namespace hpl {
 		bool m_refractionEdgeCheck = true;
 		bool m_refractionNormals = true;
 		bool m_isAffectedByLightLevel = false;
+		bool m_diffuseIsMask = false;
+		bool m_smoothHalo = false;
+		bool m_litDiffuse = false;
+		float m_litDiffuseScale = 1.0f;
+		float m_particleOpacityScale = 1.0f;
+		float m_particleBrightnessScale = 1.0f;
 
 		float m_refractionScale = 0.1f;
 		float m_frenselBias = 0.2f;

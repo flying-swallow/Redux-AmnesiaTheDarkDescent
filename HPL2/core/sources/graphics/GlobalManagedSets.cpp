@@ -350,7 +350,10 @@ GlobalManagedSets::submitMaterial(cGraphics::FrameContext *cntx,
               (data.m_refractionNormals ? kMaterialFlagUseRefractionNormals : 0) |
               (mat->HasRefraction() && data.m_refractionEdgeCheck ? kMaterialFlagUseRefractionEdgeCheck : 0) |
               (mat->HasRefraction() ? kMaterialFlagHasRefraction : 0) |
-              (data.m_isAffectedByLightLevel ? kMaterialFlagAffectedByLightLevel : 0);
+              (data.m_isAffectedByLightLevel ? kMaterialFlagAffectedByLightLevel : 0) |
+              (data.m_diffuseIsMask ? kMaterialFlagDiffuseIsMask : 0) |
+              (data.m_smoothHalo ? kMaterialFlagSmoothHalo : 0) |
+              (data.m_litDiffuse ? kMaterialFlagLitDiffuse : 0);
           TranslucentMaterial trans = {};
           trans.type                = MATERIAL_TYPE_TRANSLUCENT;
           copyShared(trans);
@@ -360,6 +363,9 @@ GlobalManagedSets::submitMaterial(cGraphics::FrameContext *cntx,
           trans.frenselPow          = data.m_frenselPow;
           trans.rimLightMul         = data.m_rimLightMul;
           trans.rimLightPow         = data.m_rimLightPow;
+          trans.particleOpacityScale = data.m_particleOpacityScale;
+          trans.particleBrightnessScale = data.m_particleBrightnessScale;
+          trans.litDiffuseScale = data.m_litDiffuseScale;
           std::memcpy(blob.data, &trans, sizeof(trans));
         } else if constexpr (std::is_same_v<T, MaterialWater>) {
           // Water is flagged as always refracting + reflecting. Reflection is

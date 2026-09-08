@@ -1,0 +1,5 @@
+<EntDelta Version="1" Target="entities/lamp/candlestick_wall/candlestick_wall.ent">
+    <Modify Category="Entities" ID="8" Name="PointLight_1">
+        <SetAttr CastShadows="true" FlickerOffRadius="0.75" Intensity="0.8" Radius="10" SourceRadius="0.035" WorldPos="0.000370026 0.420552 -0.239537" />
+    </Modify>
+</EntDelta>

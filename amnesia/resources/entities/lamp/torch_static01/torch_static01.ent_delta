@@ -1,0 +1,9 @@
+<EntDelta Version="1" Target="entities/lamp/torch_static01/torch_static01.ent">
+    <SetVar Name="ShowHints" Value="true" />
+    <Modify Category="Entities" ID="2" Name="halo">
+        <SetAttr Rotation="1.81899e-13 0.000341686 8.66236e-10" />
+    </Modify>
+    <Modify Category="Entities" ID="4" Name="PointLight_1">
+        <SetAttr CastShadows="true" FlickerOffRadius="0.5" FlickerOnMaxLength="0.7" Intensity="3.5" Radius="26.4528" SourceRadius="0.08" WorldPos="-0.0055275 0.935486 0.44989" />
+    </Modify>
+</EntDelta>

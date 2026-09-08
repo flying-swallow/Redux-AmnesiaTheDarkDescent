@@ -122,8 +122,15 @@ public:
     for (Slot *c = hashSlots[hashIndex]; c; c = c->hNext) {
       if (c->cookie == cookie) {
         // Cache hit — move to tail (most-recently-used); state stays intact.
-        if (queueEnd == c) {
-        } else if (queueBegin == c) {
+        // Refresh last-use so the eviction guard measures frames since this
+        // access, not since first allocation (see LRUCache::request).
+        c->frameIndex = frameIndex;
+        // Already the tail: return before the relink below. Relinking the tail
+        // to itself makes quNext == quPrev == c, and queueBegin can never walk
+        // off that self-loop, so eviction stops permanently.
+        if (queueEnd == c)
+          return Req{c->id, true, false, &c->state};
+        if (queueBegin == c) {
           queueBegin = c->quNext;
           if (c->quNext)
             c->quNext->quPrev = nullptr;
@@ -138,14 +145,31 @@ public:
         if (queueEnd)
           queueEnd->quNext = c;
         queueEnd = c;
-        // Refresh last-use so the eviction guard measures frames since this
-        // access, not since first allocation (see LRUCache::request).
-        c->frameIndex = frameIndex;
         return Req{c->id, true, false, &c->state};
       }
     }
 
-    // Evict the oldest entry if it is old enough; reuse the slot in place.
+    // Fresh slot first: evicting a live entry while the id space still has room
+    // throws away a cached upload for nothing.
+    const uint32_t id = pool.requestId();
+    if (id != UINT32_MAX) {
+      Slot *slot = poolSlotPool.allocate();
+      if (slot == nullptr) {
+        // Out of host memory for the bookkeeping node; give the id back rather
+        // than stranding it (see LRUCache::request).
+        pool.returnId(id);
+        return Req{UINT32_MAX, false, true, nullptr};
+      }
+      new (slot) Slot(); // construct T + zero the trivial fields (raw pool memory)
+      slot->cookie = cookie;
+      slot->frameIndex = frameIndex;
+      slot->id = id;
+      attachSlot(slot);
+      return Req{slot->id, false, false, &slot->state};
+    }
+
+    // Pool is full — evict the oldest entry if it is old enough that no frame
+    // in flight can still reference it; reuse the slot in place.
     if (queueBegin && frameIndex > queueBegin->frameIndex + frameInFlight) {
       Slot *slot = queueBegin;
       detachSlot(slot);
@@ -156,18 +180,7 @@ public:
       return Req{slot->id, false, false, &slot->state};
     }
 
-    // Fresh slot.
-    const uint32_t id = pool.requestId();
-    if (id == UINT32_MAX)
-      return Req{UINT32_MAX, false, true, nullptr};
-    Slot *slot = poolSlotPool.allocate();
-    assert(slot);
-    new (slot) Slot(); // construct T + zero the trivial fields (raw pool memory)
-    slot->cookie = cookie;
-    slot->frameIndex = frameIndex;
-    slot->id = id;
-    attachSlot(slot);
-    return Req{slot->id, false, false, &slot->state};
+    return Req{UINT32_MAX, false, true, nullptr};
   }
 
 private:
@@ -185,31 +198,28 @@ private:
 
   void detachSlot(Slot *slot) {
     assert(slot);
-    if (queueBegin == slot) {
+    // Independent head/tail tests, not an if/else chain: a single-element queue
+    // has the slot as BOTH queueBegin and queueEnd, and an else-if would leave
+    // one of them dangling at the detached slot (see LRUCache::detachSlot).
+    if (queueBegin == slot)
       queueBegin = slot->quNext;
-      if (slot->quNext)
-        slot->quNext->quPrev = nullptr;
-    } else if (queueEnd == slot) {
+    if (queueEnd == slot)
       queueEnd = slot->quPrev;
-      if (slot->quPrev)
-        slot->quPrev->quNext = nullptr;
-    } else {
-      if (slot->quPrev)
-        slot->quPrev->quNext = slot->quNext;
-      if (slot->quNext)
-        slot->quNext->quPrev = slot->quPrev;
-    }
+    if (slot->quPrev)
+      slot->quPrev->quNext = slot->quNext;
+    if (slot->quNext)
+      slot->quNext->quPrev = slot->quPrev;
+    slot->quNext = nullptr;
+    slot->quPrev = nullptr;
     const size_t hashIndex = slot->cookie % hashSlots.size();
-    if (hashSlots[hashIndex] == slot) {
+    if (hashSlots[hashIndex] == slot)
       hashSlots[hashIndex] = slot->hNext;
-      if (slot->hNext)
-        slot->hNext->hPrev = nullptr;
-    } else {
-      if (slot->hPrev)
-        slot->hPrev->hNext = slot->hNext;
-      if (slot->hNext)
-        slot->hNext->hPrev = slot->hPrev;
-    }
+    if (slot->hPrev)
+      slot->hPrev->hNext = slot->hNext;
+    if (slot->hNext)
+      slot->hNext->hPrev = slot->hPrev;
+    slot->hNext = nullptr;
+    slot->hPrev = nullptr;
   }
 
   void attachSlot(Slot *slot) {

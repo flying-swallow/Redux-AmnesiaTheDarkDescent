@@ -1,0 +1,6 @@
+<EntDelta Version="1" Target="entities/lamp/candle_floor/candle_floor.ent">
+    <SetVar Name="ShowHints" Value="true" />
+    <Modify Category="Entities" ID="9" Name="PointLight_1">
+        <SetAttr CastShadows="true" Intensity="5" Radius="10" SourceRadius="0.035" WorldPos="8.39233e-05 0.349421 0.0086937" />
+    </Modify>
+</EntDelta>

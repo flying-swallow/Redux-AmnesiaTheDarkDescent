@@ -1,0 +1,5 @@
+<EntDelta Version="1" Target="entities/lamp/bridge_torch/bridge_torch.ent">
+    <Modify Category="Entities" ID="10" Name="PointLight_1">
+        <SetAttr Intensity="25" Radius="19.601" SourceRadius="0.02" WorldPos="0.000800014 0.981364 0" />
+    </Modify>
+</EntDelta>

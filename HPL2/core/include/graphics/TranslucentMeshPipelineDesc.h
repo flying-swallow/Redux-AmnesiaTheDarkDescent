@@ -19,8 +19,9 @@ namespace hpl {
 //     passes run under the same Y-flipped viewport (negative height), so the
 //     same mesh winding must declare the same front face across the opaque +
 //     translucent passes.
-// Everything else (depth read-only ≤, hardware blend per BlendMode) is
-// identical to the particle desc; the same fragment-side pre-bias is applied
+// Depth is read-only ≤ unless the material disables testing (e.g. hand-held
+// lantern halos). Hardware blend per BlendMode is identical to the particle
+// desc; the same fragment-side pre-bias is applied
 // by Translucent.frag.slang. Unlike the particle/opaque pipelines this one
 // uses traditional fixed-function vertex bindings (see Translucent.vert.slang).
 struct TranslucentMeshPipelineDesc {
@@ -68,7 +69,8 @@ struct TranslucentMeshPipelineDesc {
   // for every vertex; the mask folds into `hash` so RIProgram caches a distinct
   // pipeline per presence combination. Position is always present.
   TranslucentMeshPipelineDesc(RI_Format_e colorFormat, RI_Format_e depthFormat,
-                              BlendMode mode, uint32_t vertexPresentMask);
+                              BlendMode mode, uint32_t vertexPresentMask,
+                              bool depthTest = true);
 
   TranslucentMeshPipelineDesc(const TranslucentMeshPipelineDesc &) = delete;
   TranslucentMeshPipelineDesc &operator=(const TranslucentMeshPipelineDesc &) = delete;

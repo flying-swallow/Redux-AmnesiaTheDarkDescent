@@ -162,12 +162,9 @@ SHARED_CONST uint kAnimModeOscillate         = 2u;
 // indirect output.
 SHARED_CONST uint kRayMaskOpaque             = 0x01u;
 SHARED_CONST uint kRayMaskTranslucent        = 0x02u;
-// Shadow-caster bit: set ONLY on opaque instances whose eRenderableFlag_ShadowCaster
-// is on, while primary / GI / reflection rays keep using kRayMaskOpaque
-// (non-casters stay visible, lit, reflected, and contribute GI).
-// With allLightsCastShadows on (the default) shadow rays trace against
-// kRayMaskOpaque instead, so this bit is only consulted in the legacy opt-out
-// mode, where shadow rays cull on it and non-casters stop blocking light.
+// Shadow queries always use this bit. The TLAS applies allLightsCastShadows
+// or the authored caster flag, excludes meshes with replacement hulls, and
+// includes shadow-only hulls without exposing them to primary/GI/reflection rays.
 SHARED_CONST uint kRayMaskShadow             = 0x04u;
 SHARED_CONST uint kRayMaskAll                = 0xffu;
 
@@ -207,17 +204,9 @@ SHARED_CONST uint kMaterialFlagHasRefraction            = 1u << 16;
 // translucent/particle color by the surrounding analytic-light level
 // (gScene.lightLevelAt) instead of rendering it full-bright.
 SHARED_CONST uint kMaterialFlagAffectedByLightLevel     = 1u << 17;
-
-// Perceptual blend-weight exponent for the particle/translucent passes.
-// The legacy renderer blended display-space (gamma) values; this renderer
-// blends linear HDR, and sRGB-encode-after-lerp reads brighter than the
-// base game's lerp-after-encode. Source-side math is computed in display
-// space and decoded once at output (exact for products/lerps); the
-// blend-with-dst sum gets the power distributed over its weights instead:
-// ALPHA goes premultiplied with src·αᵏ and dst·(1−α)ᵏ. 2.2 = pure
-// power-law distribution of the sRGB decode; lower biases brighter
-// (toward the plain-linear look). Tune against the base game.
-SHARED_CONST float kPerceptualBlendExp = 2.2f;
+SHARED_CONST uint kMaterialFlagDiffuseIsMask            = 1u << 18;
+SHARED_CONST uint kMaterialFlagSmoothHalo               = 1u << 19;
+SHARED_CONST uint kMaterialFlagLitDiffuse               = 1u << 20;
 
 // Soft particles: world-space view-depth band (meters) over which a particle
 // fades to zero alpha as it approaches the opaque geometry behind it. Larger =
@@ -305,11 +294,10 @@ SHARED_CONST float kWaterRefractionExposure = 2.0f; //0.5f;
 // composited scene lands far below display range. This is the single global
 // compensation for that; per-map fixes belong in the light authoring.
 //
-// A linear multiply, deliberately not a display-gamma curve: the particle and
-// translucent passes blend against an exact sRGBToLinear/linearToSRGB inverse
-// pair (BlendModes.slang), so a gamma curve breaks the identity and lifts
-// faint fog/halo content hardest. An exposure scale preserves every blend
-// ratio. Read host-side by the tonemap's callers (LuxMapHandler,
+// A linear multiply applied after HDR composition. Particle opacity and
+// brightness are authored independently of the final display-gamma curve;
+// exposure still scales their linear contribution along with the scene.
+// Read host-side by the tonemap's callers (LuxMapHandler,
 // LuxMainMenu, iEditorViewport, cLevelEditorCameraCapture).
 SHARED_CONST float kSceneExposure = 2.5f;
 
