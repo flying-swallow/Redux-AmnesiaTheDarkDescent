@@ -1,4 +1,52 @@
 <MapDelta Version="1" Target="maps/main/ch02/15_prison_south.map">
+    <Modify Category="StaticObjects" ID="1093" Name="ceiling_welder_3">
+        <SetAttr Rotation="-3.14159 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1094" Name="ceiling_welder_4">
+        <SetAttr Rotation="1.5708 1.5708 -3.14159" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1107" Name="ceiling_welder_13">
+        <SetAttr Rotation="-1.53365 1.5708 -1.53365" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1108" Name="ceiling_welder_14">
+        <SetAttr Rotation="-3.10444 1.5708 -1.53365" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1110" Name="ceiling_welder_15">
+        <SetAttr Rotation="-1.53365 1.5708 -1.53365" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1111" Name="ceiling_welder_16">
+        <SetAttr Rotation="-3.10444 1.5708 -1.53365" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1113" Name="ceiling_welder_17">
+        <SetAttr Rotation="-1.53365 1.5708 -1.53365" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1114" Name="ceiling_welder_18">
+        <SetAttr Rotation="-3.10444 1.5708 -1.53365" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1164" Name="ceiling_welder_19">
+        <SetAttr Rotation="-1.53365 1.5708 -1.53365" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1165" Name="ceiling_welder_20">
+        <SetAttr Rotation="-3.10444 1.5708 -1.53365" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1167" Name="ceiling_welder_21">
+        <SetAttr Rotation="0.119173 -1.5708 -0.119173" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1168" Name="ceiling_welder_22">
+        <SetAttr Rotation="-1.45162 -1.5708 -0.119173" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1170" Name="ceiling_welder_23">
+        <SetAttr Rotation="0.119173 -1.5708 -0.119173" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1171" Name="ceiling_welder_24">
+        <SetAttr Rotation="-1.45162 -1.5708 -0.119173" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1173" Name="ceiling_welder_25">
+        <SetAttr Rotation="0.119173 -1.5708 -0.119173" />
+    </Modify>
+    <Modify Category="StaticObjects" ID="1174" Name="ceiling_welder_26">
+        <SetAttr Rotation="-1.45162 -1.5708 -0.119173" />
+    </Modify>
     <Remove Category="Entities" ID="1286" Name="PointLight_1" />
     <Remove Category="Entities" ID="1287" Name="PointLight_2" />
     <Remove Category="Entities" ID="1288" Name="PointLight_3" />
@@ -26,6 +74,7 @@
     <Remove Category="Entities" ID="2011" Name="LightAreaFlick_3" />
     <Remove Category="Entities" ID="2013" Name="LightAreaFlick_4" />
     <Remove Category="Entities" ID="2061" Name="torch_static0b2_16" />
+    <Remove Category="Entities" ID="2065" Name="PointLight_20" />
     <Remove Category="Entities" ID="2066" Name="PointLight_21" />
     <Remove Category="Entities" ID="2067" Name="PointLight_22" />
     <Remove Category="Entities" ID="2068" Name="PointLight_23" />
@@ -58,9 +107,6 @@
     </Modify>
     <Modify Category="Entities" ID="2064" Name="PointLight_16">
         <SetAttr Intensity="5" SourceRadius="0" />
-    </Modify>
-    <Modify Category="Entities" ID="2065" Name="PointLight_20">
-        <SetAttr Intensity="6.5" SourceRadius="0" />
     </Modify>
     <Modify Category="Entities" ID="2070" Name="PointLight_25">
         <SetAttr Intensity="6.5" SourceRadius="0" />
@@ -148,26 +194,6 @@
             </UserVariables>
         </Entity>
         <Entity Name="torch_RT_NorthPassage_1" WorldPos="32.7215 1.75 -12.3368" Rotation="0 1.5708 0" Scale="1 1 1" Tag="" Active="true" Filename="entities/rt_prison/torch_wall_prison_fill.ent">
-            <UserVariables>
-                <Var Name="CastShadows" Value="true" />
-                <Var Name="StaticPhysics" Value="false" />
-                <Var Name="IsAffectedByDecal" Value="false" />
-                <Var Name="CallbackFunc" Value="" />
-                <Var Name="ConnectedProps" Value="" />
-                <Var Name="ConnectionStateChangeCallback" Value="" />
-                <Var Name="FullGameSave" Value="false" />
-                <Var Name="PlayerLookAtCallback" Value="" />
-                <Var Name="PlayerLookAtCallbackAutoRemove" Value="false" />
-                <Var Name="PlayerInteractCallback" Value="" />
-                <Var Name="PlayerInteractCallbackAutoRemove" Value="false" />
-                <Var Name="Lit" Value="true" />
-                <Var Name="ConnectedLight" Value="" />
-                <Var Name="ConnectionLightAmount" Value="1" />
-                <Var Name="ConnectionLightUseOnColor" Value="true" />
-                <Var Name="ConnectionLightUseSpec" Value="false" />
-            </UserVariables>
-        </Entity>
-        <Entity Name="torch_static0b4_1RT_Stair_1" WorldPos="43.25 3.5 20.5" Rotation="0 3.14159 0" Scale="1 1 1" Tag="" Active="true" Filename="entities/rt_prison/torch_wall_prison_fill.ent">
             <UserVariables>
                 <Var Name="CastShadows" Value="true" />
                 <Var Name="StaticPhysics" Value="false" />
