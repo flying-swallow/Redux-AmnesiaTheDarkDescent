@@ -23,6 +23,7 @@
 //----------------------------------------------
 
 #include "LuxBase.h"
+#include "LuxLightProbeBrightness.h"
 
 //----------------------------------------------
 
@@ -315,6 +316,10 @@ public:
 	void OnDraw(float afFrameTime);
 
 	float GetAtLowSanityCount(){ return mfAtLowSanityCount;}
+	//Strength of the insanity post effect's wave, after the sanity ramp and the
+	//Player_Sanity/Insanity*Mul light term - i.e. how insane the player looks
+	//right now, as opposed to how insane the sanity number says he is.
+	float GetInsaneWaveAlpha(){ return mfInsaneWaveAlpha;}
 
 private:
 	float GetCurrentSizeMul();
@@ -369,6 +374,16 @@ private:
 
 	float mfSanityWaveAlphaMul;
 	float mfSanityWaveSpeedMul;
+
+	//How much the insanity wave is scaled by how lit the player is. Defaults
+	//reproduce the base game exactly (1.0 either way, i.e. light has no say);
+	//lowering InsanityLightWaveMul makes the hallucination fade out under a lamp
+	//and return in the dark, on top of the sanity-driven ramp.
+	//  InsanityLightRef - light level at which InsanityLightWaveMul is reached;
+	//                     0 (or below) disables the whole term.
+	float mfInsanityDarkWaveMul;
+	float mfInsanityLightWaveMul;
+	float mfInsanityLightRef;
 
 	float mfSanityLowLimit;
 	float mfSanityLowLimitMaxTime;
@@ -631,15 +646,23 @@ public:
 
 	void OnMapEnter(cLuxMap *apMap);
 
-	float GetExtendedLightLevel(){ return mfExtendedLightLevel;}
-	float GetNormalLightLevel(){ return mfNormalLightLevel;}
+	// Compatibility getters share the same normalized physical brightness.
+	float GetExtendedLightLevel(){ return mProbeBrightness.GetLevel(); }
+	float GetNormalLightLevel(){ return mProbeBrightness.GetLevel(); }
+
+	// Last physical luminance, before gain or the lantern bonus.
+	float GetProbeIrradiance(){ return mProbeBrightness.GetLuminance(); }
+	// Whether the last sensor update could read a GPU result.
+	bool IsUsingProbe(){ return mbUsingProbe; }
 
 private:
-	float mfExtendedLightLevel;	//Uses longer range on point lights
-	float mfNormalLightLevel;	//Uses normal radius
-	float mfUpdateCount;
+	// Missing GPU results leave the last environmental reading untouched.
+	bool UpdateFromProbe(const cVector3f *apTestPos, int alTestPosCount, std::vector<iLight*>& avSkipLights);
 
-	float mfRadiusAdd;
+	cLuxLightProbeBrightness mProbeBrightness;
+	float mfUpdateCount = 0.0f;
+	float mfLightProbeGain;
+	bool mbUsingProbe = false;
 };
 
 //----------------------------------------------
@@ -675,6 +698,7 @@ private:
 	float mfAmbientLightMinLightLevel;
 	float mfAmbientLightRadius;
 	float mfAmbientLightIntensity;
+	float mfAmbientLightIntensityMul;
 	float mfAmbientLightFadeInTime;
 	float mfAmbientLightFadeOutTime;
 	cColor mAmbientLightColor;

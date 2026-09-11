@@ -53,6 +53,21 @@ public:
 	const tString& GetName(){ return msName;}
 	const tString& GetSet(){ return msSet;}
 	float GetMaxSanity(){ return mfMaxSanity;}
+
+	//Light-level window this event may fire in, in the same units as
+	//cLuxPlayerLightLevel::GetNormalLightLevel (so the same scale as
+	//Player_Darkness/MinLightLevel). Both default to -1, meaning "no
+	//constraint" - an event with neither attribute behaves exactly as before.
+	//Authored as MinLightLevel / MaxLightLevel on the event in the events cfg;
+	//e.g. MaxLightLevel="0.2" keeps a hallucination from intruding while the
+	//player is standing under a lit lamp.
+	bool LightLevelAllows(float afLightLevel) const
+	{
+		if(mfMinLightLevel >= 0 && afLightLevel < mfMinLightLevel) return false;
+		if(mfMaxLightLevel >= 0 && afLightLevel > mfMaxLightLevel) return false;
+		return true;
+	}
+
 	
 	void SetUsed(bool abX){ mbUsed = abX; }
 	bool IsUsed(){ return mbUsed; }
@@ -68,6 +83,8 @@ private:
 	bool mbUsed;
 	bool mbOver;
 	float mfMaxSanity;
+	float mfMinLightLevel;
+	float mfMaxLightLevel;
     	
 };
 

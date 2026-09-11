@@ -17,6 +17,7 @@
 import SceneTypes;
 import bindless;
 import PerFrame.resource;
+import Utils.Color.ColorHelpers;  // linearToSRGB / sRGBToLinear — display-space fog blend
 
 struct FogResult {
     float  visibility;  // 1 = no fog, 0 = fully fogged
@@ -37,18 +38,22 @@ FogResult computeFog(float3 surfacePosW, float3 cameraPosW)
     float cameraDist = length(ray);
     if (cameraDist <= 0.0f) return r;
     float3 rayDir = ray / cameraDist;
-    // Fog-area Start/End were authored against view-space Z in the original
-    // deferred fog pass. Slab intersection still uses world-distance t, but
-    // using that radial distance directly overstates density off-axis.
-    float areaDepthScale = abs(mul(gPerFrame.viewMat, float4(rayDir, 0.0f)).z);
+    // Fog Start/End were authored against view-space Z in the original deferred
+    // fog pass: deferred_fog_fullscreen.frag.fsl:15 reads -position.z straight out
+    // of a view-space G-buffer, and the fog-area box pass does the same. Radial
+    // distance overstates density off-axis — at the 70 deg vertical FOV default
+    // (Camera.cpp:42) it exceeds view Z by 1.60x at the horizontal frame edge and
+    // 1.74x at the corners, so fog arrived far too early away from screen centre.
+    // Projecting the unit ray onto the view axis recovers the reference's metric.
+    float viewDepthScale = abs(mul(gPerFrame.viewMat, float4(rayDir, 0.0f)).z);
+    float viewDist       = cameraDist * viewDepthScale;
 
-    // World fog — linear distance from the camera through the worldFogStart /
-    // worldFogLength band, raised to fogFalloffExp. Matches the legacy
-    // translucency.frag.fsl world-fog block but evaluated in world-space
-    // distance instead of view-space depth so opaque + translucent agree.
+    // World fog — view-space depth through the worldFogStart / worldFogLength
+    // band, raised to fogFalloffExp. Mirrors deferred_fog_fullscreen.frag.fsl:15-18
+    // and the translucency.frag.fsl world-fog block, both of which ramp on -viewZ.
     if (gPerFrame.worldFogLength > 0.0f) {
         float fogAmount = pow(
-            saturate((cameraDist - gPerFrame.worldFogStart) / gPerFrame.worldFogLength),
+            saturate((viewDist - gPerFrame.worldFogStart) / gPerFrame.worldFogLength),
             gPerFrame.fogFalloffExp);
         // gPerFrame.oneMinusFogAlpha = (1 - worldFogColor.a) — recover .a
         float worldFogAlpha = 1.0f - gPerFrame.oneMinusFogAlpha;
@@ -106,7 +111,7 @@ FogResult computeFog(float3 surfacePosW, float3 cameraPosW)
                           : (cameraDist - tEntry);
         }
 
-        fogDist *= areaDepthScale;
+        fogDist *= viewDepthScale;
         if (fogDist <= 0.0f || fogDist < fa.start) continue;
 
         float alpha;
@@ -125,18 +130,21 @@ FogResult computeFog(float3 surfacePosW, float3 cameraPosW)
         r.color = r.color * (1.0f - contribution) + contribution * fa.color;
     }
 
-    // Fog colors are authored appearance colors, not light radiance. The
-    // legacy fog pass blended them directly into the scene. Our composite is
-    // before the global exposure multiply, so cancel that multiply for the
-    // fog contribution only (the attenuated scene keeps its normal exposure).
-    // Otherwise Archives' 0.8 gray fog is lifted toward white at 2.5x exposure.
-    r.color /= kSceneExposure;
+    // Premultiplied authored linear fog color. Consumers that add it directly
+    // to scene radiance must divide by kSceneExposure.
     return r;
 }
 
-// Convenience wrapper for opaque consumers: returns the composited colour.
+// Blend fog in display space to preserve authored appearance, then return to
+// linear HDR before storing the scene or drawing any translucent geometry.
 float3 applyFog(float3 sceneColor, float3 surfacePosW, float3 cameraPosW)
 {
     FogResult fog = computeFog(surfacePosW, cameraPosW);
-    return fog.visibility * sceneColor + fog.color;
+    float coverage = 1.0f - fog.visibility;
+    if (coverage <= 0.0f)
+        return max(sceneColor, 0.0f);
+    float3 sceneDisplay = linearToSRGB(max(sceneColor, 0.0f) * kSceneExposure);
+    float3 fogColor = fog.color / coverage;
+    float3 result = lerp(sceneDisplay, linearToSRGB(fogColor), coverage);
+    return sRGBToLinear(result) / kSceneExposure;
 }

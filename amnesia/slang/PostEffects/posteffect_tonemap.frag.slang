@@ -111,6 +111,6 @@ float4 psMain(PSIn pin) : SV_Target
     // NaN and negatives.
     float3 display = saturate(softShoulder(max(linearToSRGB(hdr), 0.0f)));
     // User gamma adjust (final): gamma 1.0 = identity, <1 darker / >1 brighter.
-    display = pow(display, (1.0f / max(pc.gamma, 1e-4f)).xxx);
+    display = pow(display, (1.0f / max(pc.gamma + .2, 1e-4f)).xxx);
     return float4(display, 1.0f);
 }

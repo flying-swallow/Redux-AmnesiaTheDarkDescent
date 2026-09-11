@@ -479,6 +479,8 @@ void cLuxScriptHandler::InitScriptFunctions()
 	AddFunc("void SetPlayerSanity(float afSanity)",(void *)SetPlayerSanity);
 	AddFunc("void AddPlayerSanity(float afSanity)",(void *)AddPlayerSanity);
 	AddFunc("float GetPlayerSanity()",(void *)GetPlayerSanity);
+	AddFunc("float GetPlayerLightLevel()",(void *)GetPlayerLightLevel);
+	AddFunc("bool GetPlayerInDarkness()",(void *)GetPlayerInDarkness);
 	AddFunc("void SetPlayerHealth(float afHealth)",(void *)SetPlayerHealth);
 	AddFunc("void AddPlayerHealth(float afHealth)",(void *)AddPlayerHealth);
 	AddFunc("float GetPlayerHealth()",(void *)GetPlayerHealth);
@@ -1432,6 +1434,23 @@ void __stdcall cLuxScriptHandler::AddPlayerSanity(float afSanity)
 float __stdcall cLuxScriptHandler::GetPlayerSanity()
 {
 	return gpBase->mpPlayer->GetSanity();
+}
+
+//How lit the player is, on the same scale the darkness system thresholds
+//against (Player_Darkness/MinLightLevel, 0.15 by default). Ray-traced when the
+//GPU probe has an answer, retaining the last reading/default otherwise. Includes the flat
+//bonus for a lit lantern.
+float __stdcall cLuxScriptHandler::GetPlayerLightLevel()
+{
+	return gpBase->mpPlayer->GetHelperLightLevel()->GetNormalLightLevel();
+}
+
+//Whether the player is dark enough to be losing sanity - the same test the
+//darkness drain uses, so a script can react to it without re-deriving the
+//threshold.
+bool __stdcall cLuxScriptHandler::GetPlayerInDarkness()
+{
+	return gpBase->mpPlayer->GetHelperInDarkness()->InDarkness();
 }
 
 void __stdcall cLuxScriptHandler::SetPlayerHealth(float afHealth)

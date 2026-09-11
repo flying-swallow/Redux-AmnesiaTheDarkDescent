@@ -447,11 +447,26 @@ def compile_all(args: argparse.Namespace) -> int:
                 print(f"FSR3 Upscaler shaders are up to date ({len(metadata['outputs'])} headers).")
             return 0
 
-    include_args = (f"-I{gpu_include_dir}", f"-I{fsr3_include_dir}")
     output_dir.parent.mkdir(parents=True, exist_ok=True)
     staging_dir = Path(tempfile.mkdtemp(prefix=f".{output_dir.name}.", suffix=".tmp", dir=output_dir.parent))
     old_outputs: set[str] = set()
     try:
+        # SDK 1.1.4 allocates luma history as RGBA16F, but its GLSL callback
+        # still declares the old RGBA8 format. Override only the staged
+        # header; keep the downloaded SDK untouched and preserve HDR history.
+        callback_name = "ffx_fsr3upscaler_callbacks_glsl.h"
+        callback = (fsr3_include_dir / callback_name).read_text(encoding="utf-8")
+        old_layout = "FSR3UPSCALER_BIND_UAV_LUMA_HISTORY, rgba8)"
+        if callback.count(old_layout) != 1:
+            raise DriverError("FSR luma-history format patch no longer matches the pinned SDK")
+        patched_include = staging_dir / "include"
+        patched_callback = patched_include / "fsr3upscaler" / callback_name
+        patched_callback.parent.mkdir(parents=True)
+        patched_callback.write_text(
+            callback.replace(old_layout, "FSR3UPSCALER_BIND_UAV_LUMA_HISTORY, rgba16f)"),
+            encoding="utf-8",
+        )
+        include_args = (f"-I{patched_include}", f"-I{gpu_include_dir}", f"-I{fsr3_include_dir}")
         try:
             old_metadata = json.loads(stamp.read_text(encoding="utf-8"))
             if isinstance(old_metadata.get("outputs"), list):

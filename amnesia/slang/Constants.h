@@ -256,6 +256,14 @@ SHARED_CONST float kLightGridUnit      = kLightGridExtent / float(kLightGridDim)
 SHARED_CONST uint  kLightGridCellCount = kLightGridDim * kLightGridDim * kLightGridDim;  // 32768
 SHARED_CONST uint  kLightsPerCellMax   = 128u;                                           // per-cell light-list cap (list buffer = kLightGridCellCount·this·4B); lights past it are dropped by atomic order
 
+// Gameplay light probe (LightProbePass.cs) — an off-screen, world-space
+// illumination sensor read back on the CPU. One thread per probe in a single
+// workgroup, so this doubles as the dispatch's thread count. Gameplay asks for
+// a handful of points at a time (the player sensor uses five), so a small fixed
+// cap keeps the whole thing one wave and the readback one cache line per probe.
+SHARED_CONST uint kMaxLightProbes        = 16u;
+SHARED_CONST uint kMaxLightProbeExcludes = 4u;   // lights the sensor must not see (the player's own ambient/lantern)
+
 // Decals use a precomputed per-object decal list (UniformObject.decalList →
 // gObjectDecalIndices), not a spatial grid — see SceneTypes.UniformObject and
 // World::Compile. kMaxObjectDecalIndices caps the flat association pool.

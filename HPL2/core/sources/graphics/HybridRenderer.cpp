@@ -7,6 +7,7 @@
 #include "graphics/GBufferMRTPipelineDesc.h"
 #include "graphics/GraphicUtils.h"
 #include "graphics/Graphics.h"
+#include "graphics/LightProbeQuery.h"
 #include "graphics/Material.h"
 #include "graphics/MaterialType.h"
 #include "graphics/ParticlePipelineDesc.h"
@@ -168,6 +169,8 @@ cHybridRenderer::cHybridRenderer(cGraphics *apGraphics, cResources *apResources)
     loadSlangCompute(m_directSpatialReuse, "DirectSpatialReusePass.cs.spv",
                      "csMain");
     loadSlangCompute(m_nrdPack, "NrdPack.cs.spv", "csMain");
+    // Gameplay illumination sensor — see m_lightProbe in the header.
+    loadSlangCompute(m_lightProbe, "LightProbePass.cs.spv", "csMain");
     {
       // Particle pass (amnesia/slang/Particle).
       auto p_vert = RIProgram::loadShaderStage(apResources->GetFileSearcher(),
@@ -1044,6 +1047,83 @@ void cHybridRenderer::Draw(cGraphics::FrameContext *cntx, cViewport *viewport,
         {RI_RESOURCE_STATE_STORAGE_WRITE, RI_RESOURCE_STATE_STORAGE_READ,
          RI_STAGE_COMPUTE,
          RI_STAGE_RAY_TRACING | RI_STAGE_COMPUTE | RI_STAGE_FRAGMENT});
+  }
+
+  // ----------------------------------------------------------------------
+  // LightProbePass — the gameplay illumination sensor (cLightProbeQuery).
+  //
+  // Sits here because it needs exactly what the two lines above just
+  // guaranteed: a populated light grid, and a TLAS (built by
+  // cWorld::PrepareFrame before Draw). It writes nothing the frame displays —
+  // its output is copied to a host-readable buffer and picked up by gameplay a
+  // couple of frames later, which is why it can afford to run this early and be
+  // skipped whenever nobody asked a question.
+  // ----------------------------------------------------------------------
+  if (mpGraphics->lightProbe) {
+    cLightProbeQuery *pProbe = mpGraphics->lightProbe;
+
+    // Harvest anything the GPU finished since last frame. Unconditional: a
+    // sensor that stopped submitting still has an answer in flight to collect.
+    pProbe->Poll(&mpGraphics->device,
+                 mpGraphics->graphicsTimeline.completed(&mpGraphics->device));
+
+    // Without a TLAS, keep the player's retained/default reading rather than
+    // submitting an unoccluded measurement.
+    RIBuffer *pRequests = pProbe->GetRequestBuffer(mpGraphics->frameIndex);
+    RIBuffer *pResults = pProbe->GetResultBuffer(mpGraphics->frameIndex);
+    if (pProbe->WantsDispatch() && apWorld->GetTlas() != nullptr &&
+        pRequests && pResults && pProbe->BeginFrame(mpGraphics->frameIndex)) {
+      VkComputePipelineCreateInfo computeCreate = {
+          VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO};
+      const hash_t kHash = hash_u32(HASH_INITIAL_VALUE, /*variant=*/0u);
+      RIGpuScope _gsLightProbe(&mpGraphics->profiler,
+                               &mpGraphics->primary.cmds[0], "LightProbe");
+      m_lightProbe.bindComputePipeline(&mpGraphics->device,
+                                       &mpGraphics->primary.cmds[0], kHash,
+                                       "LightProbe.cs", &computeCreate);
+      m_lightProbe.bindBindlessDescriptorSet(
+          &mpGraphics->primary.cmds[0], &mpGraphics->globalset->m_bindlessSet, 0,
+          VK_PIPELINE_BIND_POINT_COMPUTE);
+
+      std::vector<RIProgram::DescriptorBinding> bnd;
+      bnd.reserve(8);
+      {
+        RIProgram::DescriptorBinding b;
+        b.handle = DescriptorBindingID::Create("gPerFrame");
+        mpGraphics->UpdateFrameUBO(&b.descriptor, &perFrame, sizeof(perFrame));
+        bnd.push_back(b);
+      }
+      bnd.emplace_back("gRtAccel",
+                       RIDescriptor::accelerationStructure(&mpGraphics->device,
+                                                           apWorld->GetTlas()));
+      bnd.emplace_back("gProbeRequests",
+                       RIDescriptor::storageBuffer(
+                           &mpGraphics->device, pRequests, 0,
+                           pProbe->GetRequestBufferRange()));
+      bnd.emplace_back("gProbeResults",
+                       RIDescriptor::storageBuffer(
+                           &mpGraphics->device, pResults, 0,
+                           pProbe->GetResultBufferRange()));
+      appendWorldLightFog(bnd, apWorld);
+      m_lightProbe.bindDescriptors(&mpGraphics->device,
+                                   &mpGraphics->primary.cmds[0],
+                                   mpGraphics->frameIndex, bnd.data(),
+                                   bnd.size(), VK_PIPELINE_BIND_POINT_COMPUTE);
+
+      const cLightProbeQuery::cPushConstants push = pProbe->GetPushConstants();
+      mpGraphics->primary.cmds[0].vk_d3d12_setPushConstants(
+          &mpGraphics->device, m_lightProbe, 0, sizeof(push), &push);
+
+      // One thread per probe, one group: the cap is kMaxLightProbes and the
+      // shader early-outs past the submitted count.
+      mpGraphics->primary.cmds[0].dispatch(&mpGraphics->device, 1u, 1u, 1u);
+
+      // The copy rides this frame's submit, so it has executed once the
+      // graphics timeline passes the value that submit will signal.
+      pProbe->RecordReadback(&mpGraphics->device, &mpGraphics->primary.cmds[0],
+                             mpGraphics->frameIndex,
+                             mpGraphics->graphicsTimeline.pending() + 1);
+    }
   }
 
   RIBeginRenderingDesc gbufferBeginDesc = {};
@@ -3056,7 +3136,7 @@ cHybridRenderer::~cHybridRenderer() {
   RIProgram *programs[] = {
       &m_gbuffer,        &m_vBufferPomBary,
       &m_lightGrid,      &m_composite,           &m_directLighting,
-      &m_directSpatialReuse, &m_nrdPack,
+      &m_directSpatialReuse, &m_nrdPack,         &m_lightProbe,
       &m_particle,
       &m_translucentMesh, &m_decal,               &m_water,
       &m_pathTrace,

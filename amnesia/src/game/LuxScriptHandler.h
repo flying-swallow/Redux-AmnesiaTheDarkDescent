@@ -199,6 +199,8 @@ private:
 	static void __stdcall SetPlayerSanity(float afSanity);
 	static void __stdcall AddPlayerSanity(float afSanity);
 	static float __stdcall GetPlayerSanity();
+	static float __stdcall GetPlayerLightLevel();
+	static bool __stdcall GetPlayerInDarkness();
 	static void __stdcall SetPlayerHealth(float afHealth);
 	static void __stdcall AddPlayerHealth(float afHealth);
 	static float __stdcall GetPlayerHealth();

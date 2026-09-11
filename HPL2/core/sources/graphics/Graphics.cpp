@@ -31,6 +31,7 @@
 
 #include "graphics/DecalCreator.h"
 #include "graphics/HybridRenderer.h"
+#include "graphics/LightProbeQuery.h"
 #include "graphics/MaterialType.h"
 #include "graphics/MeshCreator.h"
 #include "graphics/PostEffect.h"
@@ -133,6 +134,14 @@ void cGraphics::DestroyRenderObjects() {
     }
   }
   mvRenderers.clear();
+
+  // Before the managed set, and after the waitIdle above — the probe's readback
+  // copies are recorded into the frame command buffers being retired here.
+  if (lightProbe) {
+    lightProbe->Dispose(&device);
+    hplDelete(lightProbe);
+    lightProbe = nullptr;
+  }
 
   // Destroy the global managed set after the renderers (which only borrow
   // its layout). Idempotent.
@@ -497,6 +506,12 @@ void cGraphics::Init(const cEngineInitVars::cGraphicsVars &aVars,
   // or texture needs it. cTextureManager (already constructed with cResources)
   // writes texture descriptors into it; renderers borrow its layout.
   InitGlobalManagedSets(&device, apResources);
+
+  // Gameplay illumination sensor. Lives for the life of the device: its buffers
+  // are a few hundred bytes and the alternative (allocating per map) would make
+  // the first sensor reading of every map a fallback.
+  lightProbe = hplNew(cLightProbeQuery, ());
+  lightProbe->Init(&device);
 
   ////////////////////////////////////////////////
   // Create systems

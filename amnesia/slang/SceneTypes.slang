@@ -257,6 +257,26 @@ SLANG_PUBLIC struct GpuDecal {
 };
 
 // -----------------------------------------------------------------------------
+// Gameplay light probe (LightProbePass.cs). Gameplay asks "how lit is this
+// world point?" and reads the answer back on the CPU a few frames later; see
+// cLightProbeQuery. Both structs are 16 bytes under scalar layout, so the host
+// mirrors them with plain float arrays.
+// -----------------------------------------------------------------------------
+
+// One world-space probe request; padding keeps the CPU/GPU stride explicit.
+SLANG_PUBLIC struct LightProbeRequest {
+    SLANG_PUBLIC float3 posW;
+    SLANG_PUBLIC float  padding;
+};
+
+// Sum of shadow-tested direct LightSample.Li contributions. The probe has no
+// surface normal and applies no N-dot-L factor. Gameplay derives luminance.
+SLANG_PUBLIC struct LightProbeResult {
+    SLANG_PUBLIC float3 irradiance;
+    SLANG_PUBLIC float  padding;
+};
+
+// -----------------------------------------------------------------------------
 // Shared hit / sampling types (HitInfo / TriangleHit / VertexData / LightSample).
 // Used by the V-buffer, direct-lighting and path-trace passes for hit packing
 // and NEE sampling.

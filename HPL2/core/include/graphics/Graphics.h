@@ -75,6 +75,7 @@ struct cTexture;
 // Owned by cGraphics as `globalset` (pointer breaks the
 // GlobalManagedSets.h -> Graphics.h header cycle).
 class GlobalManagedSets;
+class cLightProbeQuery;
 
 typedef std::list<cPostEffectComposite *> tPostEffectCompositeList;
 typedef tPostEffectCompositeList::iterator tPostEffectCompositeListIt;
@@ -331,6 +332,14 @@ public:
   // Engine-lifetime set-0 tables (bindless / object / material / light);
   // built by InitGlobalManagedSets, freed by ShutdownGlobalManagedSets.
   GlobalManagedSets *globalset = nullptr;
+
+  // Engine-lifetime gameplay illumination sensor. Gameplay submits world points
+  // and reads back how lit they are a couple of frames later; the renderer
+  // evaluates them in LightProbePass.cs alongside the frame it is already
+  // shading. Null until Init (and on a build with no device), so every caller
+  // null-checks — see cLightProbeQuery for why "no answer yet" is a state
+  // consumers must handle anyway.
+  cLightProbeQuery *lightProbe = nullptr;
 
   void IncrementFrame();
   std::optional<RIDescriptor> resolve_filter_descriptor(eTextureWrap wrapS,

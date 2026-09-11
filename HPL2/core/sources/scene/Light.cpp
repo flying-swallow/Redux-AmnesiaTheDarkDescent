@@ -30,6 +30,12 @@
 
 #include "math/Math.h"
 
+#include "graphics/Color.h"   // sRGBToLinear
+
+//The light-model constants the reach derivation is defined against, shared with
+//the shaders rather than mirrored (amnesia/slang is on the include path).
+#include "Constants.h"        // kLightRadianceFloor, kPointLightSourceRadiusSq
+
 #include "resources/Resources.h"
 #include "resources/TextureManager.h"
 #include "resources/FileSearcher.h"
@@ -50,6 +56,27 @@
 
 
 namespace hpl {
+
+	//////////////////////////////////////////////////////////////////////////
+	// HELPERS
+	//////////////////////////////////////////////////////////////////////////
+
+	//-----------------------------------------------------------------------
+
+	float DeriveLightIntensityForReach(float afReach, const cColor &aLitDiffuseColor)
+	{
+		if(afReach <= 0) return 0;
+
+		const cColor linear = sRGBToLinear(aLitDiffuseColor);
+		const float fMaxChannel = cMath::Max(linear.r, cMath::Max(linear.g, linear.b));
+
+		//No colour to solve against - any intensity leaves the light black, so
+		//there is no meaningful answer. Hand back the reach, matching the same
+		//degenerate-case fallback EngineFileLoading's forward derivation uses.
+		if(fMaxChannel <= 0) return afReach;
+
+		return (afReach*afReach + kPointLightSourceRadiusSq) * kLightRadianceFloor / fMaxChannel;
+	}
 
 	//////////////////////////////////////////////////////////////////////////
 	// CONSTRUCTORS

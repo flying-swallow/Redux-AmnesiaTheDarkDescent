@@ -430,6 +430,13 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 							_W("ExtLightLevel: %f NormalLightlevel: %f\n"), pPlayer->GetHelperLightLevel()->GetExtendedLightLevel(), pPlayer->GetHelperLightLevel()->GetNormalLightLevel() );
 		fY+=15.0f;
 
+		//Physical luminance before gain, and GPU result availability.
+		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
+							_W("LightSensor: %ls Linear luminance: %f\n"),
+							pPlayer->GetHelperLightLevel()->IsUsingProbe() ? _W("GPU") : _W("Held/default"),
+							pPlayer->GetHelperLightLevel()->GetProbeIrradiance() );
+		fY+=15.0f;
+
 		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 							_W("Health: %f Terror: %f\n"), pPlayer->GetHealth(), pPlayer->GetTerror() );
 		fY+=15.0f;
@@ -437,6 +444,22 @@ void cLuxDebugHandler::OnDraw(float afFrameTime)
 		gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
 							_W("Oil: %f Sanity: %f Tinderboxes: %d"), pPlayer->GetLampOil() , pPlayer->GetSanity(), pPlayer->GetTinderboxes());
 		fY+=15.0f;
+
+		//Insanity as the player experiences it, next to the sanity number that
+		//drives it: which hallucination is running, and how loud the post
+		//effect's wave is after the sanity ramp AND the light term
+		//(Player_Sanity/Insanity*Mul) - so a wave that drops while the sanity
+		//number holds still means the player just stepped into light.
+		{
+			int lEvent = gpBase->mpInsanityHandler->GetCurrentEvent();
+			tString sEvent = lEvent >= 0 ? gpBase->mpInsanityHandler->GetEvent(lEvent)->GetName() : "none";
+
+			gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,10),14,cColor(1,1),
+								_W("Insanity event: '%ls' Wave: %f"),
+								cString::To16Char(sEvent).c_str(),
+								pPlayer->GetHelperSanity()->GetInsaneWaveAlpha());
+			fY+=15.0f;
+		}
 
 
 		//gpBase->mpGameDebugSet->DrawFont(gpBase->mpDefaultFont.Get(), cVector3f(5,fY,0),12,cColor(1,1),

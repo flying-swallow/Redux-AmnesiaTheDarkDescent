@@ -43,6 +43,8 @@
 #include "LuxLoadScreenHandler.h"
 #include "LuxMainMenu.h"
 
+#include "graphics/LightProbeQuery.h"
+
 #include <tinyxml2.h>
 #include "resources/XmlHelper.h"
 
@@ -1153,6 +1155,12 @@ cLuxPlayerSanity::cLuxPlayerSanity(cLuxPlayer *apPlayer) : iLuxPlayerHelper(apPl
 	mfSanityWaveAlphaMul = gpBase->mpGameCfg->GetFloat("Player_Sanity","SanityWaveAlphaMul",0);
 	mfSanityWaveSpeedMul = gpBase->mpGameCfg->GetFloat("Player_Sanity","SanityWaveSpeedMul",0);
 
+	//Defaults are the base game's behaviour: both muls 1, so the light term is
+	//a no-op until a mod actually authors it.
+	mfInsanityDarkWaveMul = gpBase->mpGameCfg->GetFloat("Player_Sanity","InsanityDarkWaveMul",1.0f);
+	mfInsanityLightWaveMul = gpBase->mpGameCfg->GetFloat("Player_Sanity","InsanityLightWaveMul",1.0f);
+	mfInsanityLightRef = gpBase->mpGameCfg->GetFloat("Player_Sanity","InsanityLightRef",0.0f);
+
 	mfSanityLowLimit = gpBase->mpGameCfg->GetFloat("Player_Sanity","SanityLowLimit",0);
 	mfSanityLowLimitMaxTime = gpBase->mpGameCfg->GetFloat("Player_Sanity","SanityLowLimitMaxTime",0);
 	mfSanityLowNewSanityAmount = gpBase->mpGameCfg->GetFloat("Player_Sanity","SanityLowNewSanityAmount",0);
@@ -1270,6 +1278,20 @@ void cLuxPlayerSanity::UpdateInsanityVisuals(float afTimeStep)
 	float fSanity = mpPlayer->GetSanity();
 	float fGoalAlpha = 1 - fSanity / mfSanityEffectsStart;
 	if(fGoalAlpha < 0) fGoalAlpha =0;
+
+	////////////////////////////////
+	//Scale by how lit the player is. Sanity still decides whether the effect
+	//exists at all - this only decides how loud it is where the player is
+	//standing, so stepping into lamplight can calm the hallucination without
+	//touching the sanity number. Disabled (and bit-for-bit vanilla) while
+	//InsanityLightRef is 0. The rate limit below already smooths the result, so
+	//walking in and out of light ramps rather than snaps.
+	if(mfInsanityLightRef > 0)
+	{
+		float fLight = mpPlayer->GetHelperLightLevel()->GetNormalLightLevel();
+		float fDarkT = 1.0f - cMath::Clamp(fLight / mfInsanityLightRef, 0.0f, 1.0f);
+		fGoalAlpha *= mfInsanityLightWaveMul + (mfInsanityDarkWaveMul - mfInsanityLightWaveMul) * fDarkT;
+	}
 
 	////////////////////////////////
 	//Update wave alpha
@@ -2711,7 +2733,9 @@ void cLuxPlayerHudEffect::LoadDamageData(cLuxPlayerDamageData *apData, const tSt
 
 cLuxPlayerLightLevel::cLuxPlayerLightLevel(cLuxPlayer *apPlayer) : iLuxPlayerHelper(apPlayer, "LuxPlayerLightLevel")
 {
-	mfRadiusAdd = gpBase->mpGameCfg->GetFloat("Player_Darkness","RadiusAdd",0);
+	mfLightProbeGain = gpBase->mpGameCfg->GetFloat("Player_Darkness","LightProbeGain",1.0f);
+	if(!std::isfinite(mfLightProbeGain) || mfLightProbeGain <= 0.0f)
+		mfLightProbeGain = 1.0f;
 }
 
 cLuxPlayerLightLevel::~cLuxPlayerLightLevel()
@@ -2727,9 +2751,9 @@ void cLuxPlayerLightLevel::OnStart()
 
 void cLuxPlayerLightLevel::Reset()
 {
-	mfExtendedLightLevel = 1.0f;
-	mfNormalLightLevel = 1.0f;
-	mfUpdateCount =0;
+	mProbeBrightness.Reset();
+	mbUsingProbe = false;
+	mfUpdateCount = 0.0f;
 }
 
 //-----------------------------------------------------------------------
@@ -2762,33 +2786,18 @@ void cLuxPlayerLightLevel::Update(float afTimeStep)
 		};
 
 		////////////////////////////////
-		//Get lights to skip
+		//Get lights to skip.
+		//The darkness ambient light follows the camera and brightens BECAUSE the
+		//player is in the dark, so sensing it would cancel the darkness that
+		//switched it on.
 		std::vector<iLight*> vSkipLights;
 		vSkipLights.push_back(mpPlayer->GetHelperInDarkness()->GetAmbientLight());
-		
-		////////////////////////////////
-		//Get light level at all positions and then calculate median.
-		//float fTotalLight =0;
-		
-		mfExtendedLightLevel = 0.0f;
-		mfNormalLightLevel = 0.0f;
-		if(mpPlayer->GetHelperLantern()->IsActive())
-		{
-			mfExtendedLightLevel += 1.0f;
-			mfNormalLightLevel += 1.0f;
-		}
-		
-		for(int i=0; i<lTestPos; ++i)
-		{
-       		//fTotalLight += gpBase->mpMapHelper->GetLightLevelAtPos(vTestPos[i], &vSkipLights);
-			float fExtLight = gpBase->mpMapHelper->GetLightLevelAtPos(vTestPos[i], &vSkipLights, mfRadiusAdd);
-			float fNormalLight = gpBase->mpMapHelper->GetLightLevelAtPos(vTestPos[i], &vSkipLights, 0);
-			
-			mfExtendedLightLevel = cMath::Max(fExtLight, mfExtendedLightLevel);
-			mfNormalLightLevel = cMath::Max(fNormalLight, mfNormalLightLevel);
-		}
 
-		//mfLightLevel = fTotalLight / (float)lTestPos;
+		////////////////////////////////
+		//Read physical lighting; no result retains the last environmental level.
+		mbUsingProbe = UpdateFromProbe(vTestPos, lTestPos, vSkipLights);
+		//The gameplay lantern bonus is separate from the retained environment.
+		mProbeBrightness.SetLantern(mpPlayer->GetHelperLantern()->IsActive());
 	}
 	else
 	{
@@ -2796,14 +2805,49 @@ void cLuxPlayerLightLevel::Update(float afTimeStep)
 	}
 }
 
+//-----------------------------------------------------------------------
+
+bool cLuxPlayerLightLevel::UpdateFromProbe(const cVector3f *apTestPos, int alTestPosCount, std::vector<iLight*>& avSkipLights)
+{
+	cGraphics *pGraphics = gpBase->mpEngine->GetGraphics();
+	cLightProbeQuery *pProbe = pGraphics ? pGraphics->lightProbe : NULL;
+	if(pProbe==NULL) return false;
+
+	if(alTestPosCount <= 0 || alTestPosCount > cLightProbeQuery::kMaxProbes) return false;
+
+	//Exclude player-carried lights; the lantern gets its gameplay bonus later.
+	std::vector<iLight*> vExclude = avSkipLights;
+	if(mpPlayer->GetHelperLantern()->GetLight())
+		vExclude.push_back(mpPlayer->GetHelperLantern()->GetLight());
+
+	pProbe->SetExcludedLights(vExclude.empty() ? NULL : &vExclude[0], (int)vExclude.size());
+	pProbe->SetProbes(apTestPos, alTestPosCount);
+
+	//Read the newest completed set. If any result is missing, keep the last
+	//complete reading rather than mixing a partial set into gameplay.
+	float samples[cLightProbeQuery::kMaxProbes][3] = {};
+	for(int i=0; i<alTestPosCount; ++i)
+	{
+		cVector3f vIrradiance;
+		if(!pProbe->GetResult(i, vIrradiance)) return false;
+		samples[i][0] = vIrradiance.x;
+		samples[i][1] = vIrradiance.y;
+		samples[i][2] = vIrradiance.z;
+	}
+	mProbeBrightness.Update(samples, alTestPosCount, mfLightProbeGain);
+	return true;
+}
 
 //-----------------------------------------------------------------------
 
-
-
 void cLuxPlayerLightLevel::OnMapEnter(cLuxMap *apMap)
 {
-	mfUpdateCount =0;
+	Reset();
+	//Discard all prior-map answers and use the fully-lit startup default until
+	//the renderer has completed probes for this world.
+	cGraphics *pGraphics = gpBase->mpEngine->GetGraphics();
+	if(pGraphics && pGraphics->lightProbe)
+		pGraphics->lightProbe->Reset();
 }
 
 //-----------------------------------------------------------------------
@@ -2823,6 +2867,10 @@ cLuxPlayerInDarkness::cLuxPlayerInDarkness(cLuxPlayer *apPlayer) : iLuxPlayerHel
 	mfAmbientLightMinLightLevel = gpBase->mpGameCfg->GetFloat("Player_Darkness","AmbientLightMinLightLevel",0);
 	mfAmbientLightRadius = gpBase->mpGameCfg->GetFloat("Player_Darkness","AmbientLightRadius",0);
 	mfAmbientLightIntensity = gpBase->mpGameCfg->GetFloat("Player_Darkness","AmbientLightIntensity",0);
+	//Straight multiplier on the solved intensity, for taste. 1 means "the glow
+	//ends exactly at AmbientLightRadius"; raise it to push the eye-adaptation
+	//light brighter without moving where it culls.
+	mfAmbientLightIntensityMul = gpBase->mpGameCfg->GetFloat("Player_Darkness","AmbientLightIntensityMul",1.0f);
 	mfAmbientLightFadeInTime = gpBase->mpGameCfg->GetFloat("Player_Darkness","AmbientLightFadeInTime",0);
 	mfAmbientLightFadeOutTime = gpBase->mpGameCfg->GetFloat("Player_Darkness","AmbientLightFadeOutTime",0);
 	mAmbientLightColor = gpBase->mpGameCfg->GetColor("Player_Darkness","AmbientLightColor",cColor(0));
@@ -3001,12 +3049,28 @@ void cLuxPlayerInDarkness::CreateWorldEntities(cLuxMap *apMap)
 	mpAmbientLight = pWorld->CreateLightPoint("PlayerDarknessAmbient","",false);
 	mpAmbientLight->SetDiffuseColor(cColor(0.0f, 0.0f));
 
-	mpAmbientLight->SetIntensity(mfAmbientLightRadius);
+	float fReach = mfAmbientLightRadius;
 
 	/////////////////////
 	// HARDMODE
 	if(gpBase->mbHardMode)
-		mpAmbientLight->SetIntensity(mfAmbientLightRadius*0.5f);
+		fReach = mfAmbientLightRadius*0.5f;
+
+	//iLight splits what the original engine called "radius" into two values, and
+	//a light created in code has to set BOTH. `radius` is the cull reach, and it
+	//is what LightGridBuildPass bins on - a light left at the default radius of
+	//0 is skipped by the grid, so it lights nothing at all. `intensity` is the
+	//PBR gain, a different quantity entirely.
+	//
+	//AmbientLightRadius is an authored DISTANCE, so it is the reach directly.
+	//The intensity is then solved from it: pick the gain whose inverse-square
+	//falloff reaches the cull floor exactly at that distance, so the glow ends
+	//where the authored radius says and the cull introduces no visible edge.
+	//The colour passed is the lit one - the light starts black and fades in, and
+	//a black colour has no brightness to solve against.
+	mpAmbientLight->SetRadius(fReach);
+	mpAmbientLight->SetIntensity(
+		DeriveLightIntensityForReach(fReach, mAmbientLightColor*mfAmbientLightIntensity) * mfAmbientLightIntensityMul);
 
 
 	mpAmbientLight->SetCastShadows(false);

@@ -104,6 +104,14 @@ private:
   // Packs indirect diffuse and specular into NRD's layout for REBLUR.
   RIProgram m_nrdPack;
 
+  // LightProbePass.cs — the gameplay illumination sensor. Unlike every other
+  // pass here it writes nothing the frame displays: it answers "how lit is this
+  // world point?" for a handful of points gameplay asked about, into a buffer
+  // copied back to the CPU. Runs right after the light-grid build, since it
+  // walks the same grid and traces the same TLAS. Skipped entirely on frames
+  // with no pending probes. See cLightProbeQuery.
+  RIProgram m_lightProbe;
+
 
 	// Particle (translucent) pass — port of legacy RendererDeferred's
 	// translucency_particle.{vert,frag}.fsl. Reuses the opaque object/material

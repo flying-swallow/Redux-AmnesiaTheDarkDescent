@@ -37,7 +37,10 @@ public float4 translucentLinearSample(float4 sample, float4 tint,
             ? sRGBToLinear(linearToSRGB(sample.rgb) / sample.a) * sample.a
             : float3(0.0f);
     }
-    rgb *= sRGBToLinear(tint.rgb);
+    // Multiplicative textures and their tints are dimensionless transmission
+    // factors. Decode color tints only for radiance/reflectance sources.
+    bool multiplier = blendMode == kBlendModeMul || blendMode == kBlendModeMulX2;
+    rgb *= multiplier ? max(tint.rgb, 0.0f) : sRGBToLinear(tint.rgb);
     // Straight alpha is premultiplied at output; premul texture RGB already
     // contains texture alpha and only needs the additional vertex opacity.
     if (blendMode == kBlendModePremulAlpha)
@@ -53,14 +56,17 @@ public float4 applyBlendModulation(uint blendMode, float4 color,
     switch (blendMode)
     {
         case kBlendModeAdd:
-            color.rgb *= color.a * opacity * lightLevel;
+            // Legacy Add stores emission in RGB; texture/vertex alpha is not
+            // an additional emission mask. Scene/lifetime and soft fades
+            // already enter through opacity (and authored vertex RGB).
+            color.rgb *= opacity * lightLevel;
             break;
         case kBlendModeMul:
-            color.rgb = lerp(float3(1.0f), color.rgb, opacity * color.a);
+            color.rgb = lerp(float3(1.0f), color.rgb, opacity);
             break;
         case kBlendModeMulX2:
             color.rgb = lerp(float3(0.5f), color.rgb,
-                             saturate(opacity * color.a * lightLevel));
+                             saturate(opacity * lightLevel));
             break;
         case kBlendModeAlpha:
             color.rgb *= lightLevel;

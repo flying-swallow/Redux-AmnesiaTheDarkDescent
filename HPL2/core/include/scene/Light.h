@@ -44,6 +44,28 @@ namespace hpl {
 	class cWorld;
 	
 	//------------------------------------------
+
+	// Intensity (PBR gain) that makes a point/spot light's radiance reach the
+	// engine's cull floor at exactly `afReach` metres, given its lit diffuse
+	// colour. The inverse of the reach derivation EngineFileLoading applies to
+	// map lights:
+	//     reach2     = maxChannel(linear colour) * intensity / kLightRadianceFloor - kPointLightSourceRadiusSq
+	//     intensity  = (reach2 + kPointLightSourceRadiusSq) * kLightRadianceFloor / maxChannel(linear colour)
+	//
+	// Use it for lights created in code from an authored RADIUS, where the
+	// legacy value means "how far the glow carries" and there is no authored
+	// intensity to go with it. Feeding the radius straight into SetIntensity
+	// instead treats a distance as a gain, which is arbitrary: the brightness
+	// then depends on a number that was never tuned as one, and the glow's real
+	// extent no longer matches the authored radius.
+	//
+	// `aLitDiffuseColor` must be the colour the light has when it is ON. A light
+	// that fades in from black has to pass its target colour, not its current
+	// one - a black colour carries no brightness to solve against and the
+	// function falls back to returning `afReach`.
+	float DeriveLightIntensityForReach(float afReach, const cColor &aLitDiffuseColor);
+
+	//------------------------------------------
 	
 	enum eLightType
 	{

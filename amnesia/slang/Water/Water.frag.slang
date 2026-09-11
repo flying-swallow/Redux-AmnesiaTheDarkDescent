@@ -143,9 +143,10 @@ float4 psMain(WaterVSOut psIn) : SV_TARGET
 
     // Fade the reflection by fog visibility, then add the fog colour exactly
     // once (the MUL pass already zeroed the surface at full fog) so the water
-    // composites to fogColor in the distance — matching opaque applyFog.
+    // composites to the authored fog color in the distance. Cancel exposure
+    // on the fog contribution because computeFog returns authored linear color.
     // Alpha 0: this blend is additive in alpha too (srcAlpha=ONE, dstAlpha=ONE),
     // so 0 is the identity that preserves the a = 1 the composite wrote.
     return float4(sampledReflection * kWaterReflectionExposure * fresnel * fog.visibility
-                  + fog.color, 0.0f);
+                  + fog.color / kSceneExposure, 0.0f);
 }

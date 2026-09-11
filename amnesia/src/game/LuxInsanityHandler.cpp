@@ -20,6 +20,7 @@
 #include "LuxInsanityHandler.h"
 
 #include "LuxPlayer.h"
+#include "LuxPlayerHelpers.h"
 #include "LuxDebugHandler.h"
 #include "LuxMapHandler.h"
 #include "LuxMap.h"
@@ -41,6 +42,8 @@ iLuxInstanityEvent::iLuxInstanityEvent()
 	mbUsed = false;
 	mbOver = true;
 	mfMaxSanity = 100;
+	mfMinLightLevel = -1;
+	mfMaxLightLevel = -1;
 }
 
 //-----------------------------------------------------------------------
@@ -57,6 +60,11 @@ void iLuxInstanityEvent::LoadData(tinyxml2::XMLElement * apVarElem)
 	msName = hpl::GetAttributeString(apVarElem,"Name","Unknown");
 	msSet = hpl::GetAttributeString(apVarElem,"Set","");
 	mfMaxSanity = hpl::GetAttributeFloat(apVarElem,"MaxSanity",100);
+
+	//-1 means "unconstrained", so an event that authors neither attribute keeps
+	//firing exactly where it did before.
+	mfMinLightLevel = hpl::GetAttributeFloat(apVarElem,"MinLightLevel",-1);
+	mfMaxLightLevel = hpl::GetAttributeFloat(apVarElem,"MaxLightLevel",-1);
 
 	OnLoadData(apVarElem);
 }
@@ -773,6 +781,10 @@ void cLuxInsanityHandler::StartEvent()
 
 	float fPlayerSanity = gpBase->mpPlayer->GetSanity();
 
+	//Use the same physical-probe brightness as darkness and visibility checks.
+	//Before GPU results arrive, the sensor retains its reading or reset default.
+	float fPlayerLightLevel = gpBase->mpPlayer->GetHelperLightLevel()->GetNormalLightLevel();
+
 	if(mlCurrentEvent >=0)
 		mvEvents[mlCurrentEvent]->OnExit();
 	mlCurrentEvent = -1;
@@ -785,7 +797,11 @@ void cLuxInsanityHandler::StartEvent()
 	{
 		iLuxInstanityEvent *pEvent = mvEvents[i];
 		bool bUsed = pEvent->IsUsed();
-		bool bDisabled = SetIsDisabled(pEvent->GetSet()) || fPlayerSanity>pEvent->GetMaxSanity();
+		//Must stay in lockstep with the selection loop below: the random index
+		//is drawn against this count, so any predicate that appears in one and
+		//not the other picks a different event than the one it counted.
+		bool bDisabled = SetIsDisabled(pEvent->GetSet()) || fPlayerSanity>pEvent->GetMaxSanity() ||
+						 pEvent->LightLevelAllows(fPlayerLightLevel)==false;
 
 		if(bUsed == false && bDisabled==false)	lUnusedEvents++;
 		if(bDisabled==false)	lTotalEnabledEvents++;
@@ -813,7 +829,8 @@ void cLuxInsanityHandler::StartEvent()
 	for(size_t i=0; i<mvEvents.size(); ++i)
 	{
 		iLuxInstanityEvent *pEvent = mvEvents[i];
-		if(SetIsDisabled(pEvent->GetSet()) || pEvent->IsUsed() || fPlayerSanity>pEvent->GetMaxSanity()) continue;
+		if(SetIsDisabled(pEvent->GetSet()) || pEvent->IsUsed() || fPlayerSanity>pEvent->GetMaxSanity() ||
+		   pEvent->LightLevelAllows(fPlayerLightLevel)==false) continue;
 
 		if(lCurrentEvent == lIdx)
 		{
@@ -981,4 +998,3 @@ bool cLuxInsanityHandler::SetIsDisabled(const tString& asSet)
 }
 
 //-----------------------------------------------------------------------
-
